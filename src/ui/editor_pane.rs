@@ -23,6 +23,7 @@ struct EditorState {
 pub struct EditorPane {
     notebook: Notebook,
     state: Rc<RefCell<EditorState>>,
+    on_change: Rc<RefCell<Option<Box<dyn Fn()>>>>,
 }
 
 impl EditorPane {
@@ -36,7 +37,11 @@ impl EditorPane {
             tabs: HashMap::new(),
         }));
 
-        Self { notebook, state }
+        Self {
+            notebook,
+            state,
+            on_change: Rc::new(RefCell::new(None)),
+        }
     }
 
     pub fn widget(&self) -> &Notebook {
@@ -110,13 +115,19 @@ impl EditorPane {
         let state_for_change = self.state.clone();
         let path_for_change = path.clone();
         let dot_for_change = dot_label.clone();
+        let on_change_cb = self.on_change.clone();
         buffer.connect_changed(move |_| {
-            let mut state = state_for_change.borrow_mut();
-            if let Some(tab) = state.tabs.get_mut(&path_for_change) {
-                if !tab.modified {
-                    tab.modified = true;
-                    dot_for_change.set_visible(true);
+            {
+                let mut state = state_for_change.borrow_mut();
+                if let Some(tab) = state.tabs.get_mut(&path_for_change) {
+                    if !tab.modified {
+                        tab.modified = true;
+                        dot_for_change.set_visible(true);
+                    }
                 }
+            }
+            if let Some(f) = on_change_cb.borrow().as_ref() {
+                f();
             }
         });
 
@@ -134,6 +145,10 @@ impl EditorPane {
         );
 
         self.notebook.set_current_page(Some(page_index));
+    }
+
+    pub fn set_on_change(&self, f: impl Fn() + 'static) {
+        *self.on_change.borrow_mut() = Some(Box::new(f));
     }
 
     pub fn close_file(&self, path: &PathBuf) {
