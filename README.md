@@ -1,2 +1,2 @@
-# zercalo
+# zerkalo
  Typst writing environment
