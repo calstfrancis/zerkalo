@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use gtk4::prelude::*;
 use gtk4::{ApplicationWindow, Label, Orientation, Paned};
 
+use crate::project_model::ProjectModel;
 use super::editor_pane::EditorPane;
 use super::file_tree::FileTree;
 
@@ -11,6 +12,8 @@ pub struct AppWindow {
     editor_pane: EditorPane,
     file_tree: FileTree,
     project_root: PathBuf,
+    #[allow(dead_code)]
+    project_model: ProjectModel,
 }
 
 impl AppWindow {
@@ -22,14 +25,56 @@ impl AppWindow {
 
         let editor_pane = EditorPane::new();
         let file_tree = FileTree::new(project_root.clone());
+        let project_model = ProjectModel::scan(project_root.clone());
 
-        let editor_for_open = editor_pane.clone();
+        if let Some(root_file) = &project_model.root_file {
+            tracing::info!("Detected root file: {}", root_file.display());
+        }
+
+        // ── File tree callbacks ─────────────────────────────────────────────
+
+        let editor_open = editor_pane.clone();
         file_tree.set_on_open(move |path| {
             match std::fs::read_to_string(&path) {
-                Ok(content) => editor_for_open.open_file(path, &content),
-                Err(e) => eprintln!("Cannot open {}: {}", path.display(), e),
+                Ok(content) => editor_open.open_file(path, &content),
+                Err(e) => eprintln!("Cannot open {}: {e}", path.display()),
             }
         });
+
+        let editor_new = editor_pane.clone();
+        let tree_new = file_tree.clone();
+        let root_new = project_root.clone();
+        file_tree.set_on_new_file(move |name| {
+            let mut filename = name.trim().to_string();
+            if !filename.ends_with(".typ") {
+                filename.push_str(".typ");
+            }
+            let path = root_new.join(&filename);
+            if !path.exists() {
+                if let Err(e) = std::fs::write(&path, "") {
+                    eprintln!("Cannot create {}: {e}", path.display());
+                    return;
+                }
+            }
+            tree_new.refresh();
+            match std::fs::read_to_string(&path) {
+                Ok(content) => editor_new.open_file(path, &content),
+                Err(e) => eprintln!("Cannot open {}: {e}", path.display()),
+            }
+        });
+
+        let editor_del = editor_pane.clone();
+        let tree_del = file_tree.clone();
+        file_tree.set_on_delete(move |path| {
+            if let Err(e) = std::fs::remove_file(&path) {
+                eprintln!("Cannot delete {}: {e}", path.display());
+                return;
+            }
+            editor_del.close_file(&path);
+            tree_del.refresh();
+        });
+
+        // ── Layout ─────────────────────────────────────────────────────────
 
         let preview_stub = Label::new(Some("Preview (coming soon)"));
         preview_stub.set_hexpand(true);
@@ -56,6 +101,7 @@ impl AppWindow {
             editor_pane,
             file_tree,
             project_root,
+            project_model,
         }
     }
 
@@ -90,7 +136,6 @@ impl AppWindow {
         let content = match std::fs::read_to_string(&path) {
             Ok(c) => c,
             Err(_) => {
-                // Should not happen since init_project creates main.typ, but be safe
                 let default = "// Welcome to \u{0417}\u{0435}\u{0440}\u{043a}\u{0430}\u{043b}\u{043e}\n\n= Introduction\n\nStart writing here...\n";
                 let _ = std::fs::write(&path, default);
                 self.file_tree.refresh();

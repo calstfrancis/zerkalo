@@ -3,56 +3,23 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
+use gtk4::gdk::Rectangle;
 use gtk4::prelude::*;
 use gtk4::{
-    Align, Box as GtkBox, Label, ListBox, ListBoxRow, Orientation, ScrolledWindow, SelectionMode,
-    Separator,
+    Align, AlertDialog, Box as GtkBox, Button, Entry, GestureClick, Label, ListBox, ListBoxRow,
+    Orientation, Popover, ScrolledWindow, SelectionMode, Separator,
 };
 
-fn collect_typ_files(root: &Path) -> Vec<PathBuf> {
-    let repo = git2::Repository::open(root).ok();
-    let mut files = Vec::new();
-    collect_recursive(root, root, &repo, &mut files);
-    files.sort();
-    files
-}
-
-fn collect_recursive(
-    root: &Path,
-    dir: &Path,
-    repo: &Option<git2::Repository>,
-    out: &mut Vec<PathBuf>,
-) {
-    let mut entries: Vec<_> = match std::fs::read_dir(dir) {
-        Ok(rd) => rd.flatten().collect(),
-        Err(_) => return,
-    };
-    entries.sort_by_key(|e| e.file_name());
-
-    for entry in entries {
-        let path = entry.path();
-        if entry.file_name().to_string_lossy().starts_with('.') {
-            continue;
-        }
-        if let Some(repo) = repo {
-            if repo.is_path_ignored(&path).unwrap_or(false) {
-                continue;
-            }
-        }
-        if path.is_dir() {
-            collect_recursive(root, &path, repo, out);
-        } else if path.extension().map(|e| e == "typ").unwrap_or(false) {
-            out.push(path);
-        }
-    }
-}
+type Callback<T> = Rc<RefCell<Option<Box<dyn Fn(T)>>>>;
 
 #[derive(Clone)]
 pub struct FileTree {
     root_widget: GtkBox,
     list_box: ListBox,
     project_root: Rc<PathBuf>,
-    on_open: Rc<RefCell<Option<Box<dyn Fn(PathBuf)>>>>,
+    on_open: Callback<PathBuf>,
+    on_new_file: Callback<String>,
+    on_delete: Callback<PathBuf>,
 }
 
 impl FileTree {
@@ -61,15 +28,54 @@ impl FileTree {
         root_widget.set_hexpand(false);
         root_widget.set_vexpand(true);
 
-        let header = Label::new(Some("Files"));
-        header.add_css_class("dim-label");
-        header.set_halign(Align::Start);
-        header.set_margin_start(10);
-        header.set_margin_top(10);
-        header.set_margin_bottom(6);
-        root_widget.append(&header);
+        // ── Header row ─────────────────────────────────────────────────────
+        let header_row = GtkBox::new(Orientation::Horizontal, 0);
+        header_row.set_margin_top(8);
+        header_row.set_margin_bottom(6);
+        header_row.set_margin_start(10);
+        header_row.set_margin_end(6);
+
+        let header_lbl = Label::new(Some("Files"));
+        header_lbl.add_css_class("dim-label");
+        header_lbl.set_hexpand(true);
+        header_lbl.set_halign(Align::Start);
+        header_row.append(&header_lbl);
+
+        // "+" new-file button
+        let new_btn = Button::new();
+        new_btn.set_label("+");
+        new_btn.add_css_class("flat");
+        new_btn.set_tooltip_text(Some("New file"));
+        header_row.append(&new_btn);
+
+        root_widget.append(&header_row);
         root_widget.append(&Separator::new(Orientation::Horizontal));
 
+        // ── New-file popover ────────────────────────────────────────────────
+        let nf_popover = Popover::new();
+        let nf_box = GtkBox::new(Orientation::Vertical, 6);
+        nf_box.set_margin_top(10);
+        nf_box.set_margin_bottom(10);
+        nf_box.set_margin_start(10);
+        nf_box.set_margin_end(10);
+        let nf_lbl = Label::new(Some("New file name"));
+        nf_lbl.set_halign(Align::Start);
+        let nf_entry = Entry::new();
+        nf_entry.set_placeholder_text(Some("filename.typ"));
+        nf_entry.set_width_chars(18);
+        nf_box.append(&nf_lbl);
+        nf_box.append(&nf_entry);
+        nf_popover.set_child(Some(&nf_box));
+        nf_popover.set_parent(&new_btn);
+
+        let pop_for_btn = nf_popover.clone();
+        let entry_for_btn = nf_entry.clone();
+        new_btn.connect_clicked(move |_| {
+            entry_for_btn.set_text("");
+            pop_for_btn.popup();
+        });
+
+        // ── File list ───────────────────────────────────────────────────────
         let list_box = ListBox::new();
         list_box.set_selection_mode(SelectionMode::Single);
         list_box.add_css_class("navigation-sidebar");
@@ -80,14 +86,30 @@ impl FileTree {
         scrolled.set_min_content_width(200);
         root_widget.append(&scrolled);
 
-        let on_open: Rc<RefCell<Option<Box<dyn Fn(PathBuf)>>>> = Rc::new(RefCell::new(None));
-        let project_root = Rc::new(project_root);
+        let on_open: Callback<PathBuf> = Rc::new(RefCell::new(None));
+        let on_new_file: Callback<String> = Rc::new(RefCell::new(None));
+        let on_delete: Callback<PathBuf> = Rc::new(RefCell::new(None));
+
+        // Wire new-file entry: Enter creates the file
+        let pop_for_entry = nf_popover.clone();
+        let cb_new = on_new_file.clone();
+        nf_entry.connect_activate(move |entry| {
+            let name = entry.text().trim().to_string();
+            if !name.is_empty() {
+                if let Some(f) = cb_new.borrow().as_ref() {
+                    f(name);
+                }
+                pop_for_entry.popdown();
+            }
+        });
 
         let ft = Self {
             root_widget,
             list_box,
-            project_root,
+            project_root: Rc::new(project_root),
             on_open,
+            on_new_file,
+            on_delete,
         };
         ft.refresh();
         ft
@@ -101,12 +123,20 @@ impl FileTree {
         *self.on_open.borrow_mut() = Some(Box::new(f));
     }
 
+    pub fn set_on_new_file(&self, f: impl Fn(String) + 'static) {
+        *self.on_new_file.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn set_on_delete(&self, f: impl Fn(PathBuf) + 'static) {
+        *self.on_delete.borrow_mut() = Some(Box::new(f));
+    }
+
     pub fn refresh(&self) {
         while let Some(row) = self.list_box.row_at_index(0) {
             self.list_box.remove(&row);
         }
 
-        let files = collect_typ_files(&self.project_root);
+        let files = crate::project::collect_typ_files(&self.project_root);
 
         if files.is_empty() {
             let row = ListBoxRow::new();
@@ -121,7 +151,7 @@ impl FileTree {
             return;
         }
 
-        // Group by relative directory (BTreeMap keeps empty "" before named dirs)
+        // Group files by relative directory
         let mut by_dir: BTreeMap<PathBuf, Vec<PathBuf>> = BTreeMap::new();
         for file in &files {
             let rel = file.strip_prefix(self.project_root.as_ref()).unwrap_or(file);
@@ -130,7 +160,7 @@ impl FileTree {
         }
 
         for (dir, dir_files) in &by_dir {
-            // Subdirectory header row
+            // Dim subdirectory header
             if dir != Path::new("") {
                 let row = ListBoxRow::new();
                 row.set_selectable(false);
@@ -162,16 +192,79 @@ impl FileTree {
                 lbl.set_margin_bottom(5);
                 row.set_child(Some(&lbl));
 
-                let path_capture = file_path.clone();
-                let cb = self.on_open.clone();
+                // Left-click: open the file
+                let open_cb = self.on_open.clone();
+                let path_open = file_path.clone();
                 row.connect_activate(move |_| {
-                    if let Some(f) = cb.borrow().as_ref() {
-                        f(path_capture.clone());
+                    if let Some(f) = open_cb.borrow().as_ref() {
+                        f(path_open.clone());
                     }
                 });
+
+                // Right-click: delete context popover
+                self.attach_delete_gesture(&row, file_path, &filename);
 
                 self.list_box.append(&row);
             }
         }
+    }
+
+    /// Attach a right-click gesture to `row` that shows a delete popover.
+    fn attach_delete_gesture(&self, row: &ListBoxRow, file_path: &PathBuf, filename: &str) {
+        let del_popover = Popover::new();
+        del_popover.set_has_arrow(false);
+
+        let del_btn = Button::with_label("Delete");
+        del_btn.add_css_class("destructive-action");
+        let btn_box = GtkBox::new(Orientation::Vertical, 0);
+        btn_box.set_margin_top(4);
+        btn_box.set_margin_bottom(4);
+        btn_box.set_margin_start(4);
+        btn_box.set_margin_end(4);
+        btn_box.append(&del_btn);
+        del_popover.set_child(Some(&btn_box));
+        del_popover.set_parent(row);
+
+        // Show popover on right-click
+        let pop_for_gesture = del_popover.clone();
+        let gesture = GestureClick::new();
+        gesture.set_button(3);
+        gesture.connect_pressed(move |_, _, x, y| {
+            pop_for_gesture.set_pointing_to(Some(&Rectangle::new(x as i32, y as i32, 1, 1)));
+            pop_for_gesture.popup();
+        });
+        row.add_controller(gesture);
+
+        // Delete button: confirm then fire callback
+        let pop_for_del = del_popover.clone();
+        let path_del = file_path.clone();
+        let name_del = filename.to_owned();
+        let del_cb = self.on_delete.clone();
+        del_btn.connect_clicked(move |_| {
+            pop_for_del.popdown();
+
+            let alert = AlertDialog::builder()
+                .modal(true)
+                .message("Delete this file?")
+                .detail(&format!("'{}' will be permanently deleted.", name_del))
+                .buttons(["Cancel", "Delete"])
+                .cancel_button(0)
+                .default_button(0)
+                .build();
+
+            let path_cb = path_del.clone();
+            let cb = del_cb.clone();
+            alert.choose(
+                None::<&gtk4::Window>,
+                None::<&gtk4::gio::Cancellable>,
+                move |result| {
+                    if result == Ok(1) {
+                        if let Some(f) = cb.borrow().as_ref() {
+                            f(path_cb.clone());
+                        }
+                    }
+                },
+            );
+        });
     }
 }
