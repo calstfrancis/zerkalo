@@ -10,20 +10,19 @@ pub struct AppWindow {
     window: ApplicationWindow,
     editor_pane: EditorPane,
     file_tree: FileTree,
+    project_root: PathBuf,
 }
 
 impl AppWindow {
-    pub fn new(app: &gtk4::Application) -> Self {
+    pub fn new(app: &gtk4::Application, project_root: PathBuf) -> Self {
         let window = ApplicationWindow::new(app);
         window.set_title(Some("Зеркало"));
         window.set_default_width(1600);
         window.set_default_height(1000);
 
-        let project_root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         let editor_pane = EditorPane::new();
-        let file_tree = FileTree::new(project_root);
+        let file_tree = FileTree::new(project_root.clone());
 
-        // Wire file tree rows to open files in the editor
         let editor_for_open = editor_pane.clone();
         file_tree.set_on_open(move |path| {
             match std::fs::read_to_string(&path) {
@@ -32,12 +31,10 @@ impl AppWindow {
             }
         });
 
-        // Preview stub (Phase 1.3)
         let preview_stub = Label::new(Some("Preview (coming soon)"));
         preview_stub.set_hexpand(true);
         preview_stub.set_vexpand(true);
 
-        // Inner paned: editor (start) | preview (end)
         let inner_paned = Paned::new(Orientation::Horizontal);
         inner_paned.set_position(800);
         inner_paned.set_hexpand(true);
@@ -45,7 +42,6 @@ impl AppWindow {
         inner_paned.set_start_child(Some(editor_pane.widget()));
         inner_paned.set_end_child(Some(&preview_stub));
 
-        // Outer paned: file tree (start) | editor+preview (end)
         let outer_paned = Paned::new(Orientation::Horizontal);
         outer_paned.set_position(220);
         outer_paned.set_hexpand(true);
@@ -59,6 +55,7 @@ impl AppWindow {
             window,
             editor_pane,
             file_tree,
+            project_root,
         }
     }
 
@@ -89,21 +86,17 @@ impl AppWindow {
     }
 
     pub fn open_initial_file(&self) {
-        let path = std::env::current_dir()
-            .unwrap_or_else(|_| PathBuf::from("."))
-            .join("main.typ");
-
+        let path = self.project_root.join("main.typ");
         let content = match std::fs::read_to_string(&path) {
             Ok(c) => c,
             Err(_) => {
-                let default =
-                    "// Welcome to \u{0417}\u{0435}\u{0440}\u{043a}\u{0430}\u{043b}\u{043e}\n\n= Introduction\n\nStart writing here...\n";
+                // Should not happen since init_project creates main.typ, but be safe
+                let default = "// Welcome to \u{0417}\u{0435}\u{0440}\u{043a}\u{0430}\u{043b}\u{043e}\n\n= Introduction\n\nStart writing here...\n";
                 let _ = std::fs::write(&path, default);
                 self.file_tree.refresh();
                 default.to_string()
             }
         };
-
         self.editor_pane.open_file(path, &content);
     }
 
