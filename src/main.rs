@@ -1,6 +1,7 @@
 mod config;
 mod error;
 mod project;
+mod project_model;
 mod ui;
 
 use std::env;
@@ -15,9 +16,10 @@ use ui::app_window::AppWindow;
 use ui::project_dialog::ProjectDialog;
 
 fn main() -> ExitCode {
+    tracing_subscriber::fmt::init();
+
     let app = Application::new(Some("io.github.calstfrancis.Zerkalo"), Default::default());
     app.connect_activate(|app| {
-        // Use saved project only if the directory still exists
         let existing = Config::load()
             .ok()
             .filter(|c| c.project_path.is_dir());
