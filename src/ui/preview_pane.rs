@@ -26,11 +26,17 @@ pub struct PreviewPane {
     spinner: Spinner,
     error_label: Label,
     output_dir: Rc<PathBuf>,
+    extra_args: Rc<Vec<String>>,
     root_file: Rc<RefCell<Option<PathBuf>>>,
+    on_compile_done: Rc<RefCell<Option<Box<dyn Fn(Option<String>)>>>>,
 }
 
 impl PreviewPane {
-    pub fn new(root_file: Option<PathBuf>) -> Self {
+    pub fn new(
+        root_file: Option<PathBuf>,
+        output_dir: Option<PathBuf>,
+        extra_args: Vec<String>,
+    ) -> Self {
         let root_widget = GtkBox::new(Orientation::Vertical, 0);
         root_widget.set_hexpand(true);
         root_widget.set_vexpand(true);
@@ -92,8 +98,12 @@ impl PreviewPane {
             picture,
             spinner,
             error_label,
-            output_dir: Rc::new(PathBuf::from("/tmp/zerkalo_preview")),
+            output_dir: Rc::new(
+                output_dir.unwrap_or_else(|| PathBuf::from("/tmp/zerkalo_preview")),
+            ),
+            extra_args: Rc::new(extra_args),
             root_file: Rc::new(RefCell::new(root_file)),
+            on_compile_done: Rc::new(RefCell::new(None)),
         }
     }
 
@@ -103,6 +113,11 @@ impl PreviewPane {
 
     pub fn set_root_file(&self, path: PathBuf) {
         *self.root_file.borrow_mut() = Some(path);
+    }
+
+    /// Called with `None` on success, `Some(stderr)` on compile error.
+    pub fn set_on_compile_done(&self, f: impl Fn(Option<String>) + 'static) {
+        *self.on_compile_done.borrow_mut() = Some(Box::new(f));
     }
 
     /// Spawn a background compile and render the result once it completes.
@@ -122,9 +137,10 @@ impl PreviewPane {
 
         let (tx, rx) = mpsc::sync_channel::<CompileResult>(1);
         let output_dir = (*self.output_dir).clone();
+        let extra_args = (*self.extra_args).clone();
 
         std::thread::spawn(move || {
-            let result = compile_and_render(&root_file, &output_dir);
+            let result = compile_and_render(&root_file, &output_dir, &extra_args);
             tx.send(result).ok();
         });
 
@@ -134,6 +150,7 @@ impl PreviewPane {
         let stack = self.stack.clone();
         let spinner = self.spinner.clone();
         let error_label = self.error_label.clone();
+        let on_compile_done = self.on_compile_done.clone();
 
         glib::timeout_add_local(Duration::from_millis(50), move || {
             match rx.try_recv() {
@@ -145,10 +162,16 @@ impl PreviewPane {
                             picture.set_file(None::<&gtk4::gio::File>);
                             picture.set_file(Some(&gtk4::gio::File::for_path(&png_path)));
                             stack.set_visible_child_name("ready");
+                            if let Some(f) = on_compile_done.borrow().as_ref() {
+                                f(None);
+                            }
                         }
                         CompileResult::Error(msg) => {
                             error_label.set_label(&msg);
                             stack.set_visible_child_name("error");
+                            if let Some(f) = on_compile_done.borrow().as_ref() {
+                                f(Some(msg));
+                            }
                         }
                     }
                     glib::ControlFlow::Break
@@ -165,7 +188,7 @@ impl PreviewPane {
 
 // ── Background worker ────────────────────────────────────────────────────────
 
-fn compile_and_render(root_file: &Path, output_dir: &Path) -> CompileResult {
+fn compile_and_render(root_file: &Path, output_dir: &Path, extra_args: &[String]) -> CompileResult {
     if let Err(e) = std::fs::create_dir_all(output_dir) {
         return CompileResult::Error(format!("Cannot create output dir: {e}"));
     }
@@ -173,10 +196,11 @@ fn compile_and_render(root_file: &Path, output_dir: &Path) -> CompileResult {
     let pdf_path = output_dir.join("preview.pdf");
     let png_prefix = output_dir.join("preview");
 
-    // Step 1: typst compile root.typ preview.pdf
+    // Step 1: typst compile [extra_args…] root.typ preview.pdf
     let typst = std::process::Command::new("typst")
+        .arg("compile")
+        .args(extra_args)
         .args([
-            "compile",
             root_file.to_str().unwrap_or(""),
             pdf_path.to_str().unwrap_or(""),
         ])
