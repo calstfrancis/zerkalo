@@ -1,5 +1,9 @@
 pub mod app_window;
+pub mod bib_popup;
 pub mod editor_pane;
+pub mod error_panel;
 pub mod file_tree;
 pub mod preview_pane;
 pub mod project_dialog;
+pub mod settings_dialog;
+pub mod sync_dialog;

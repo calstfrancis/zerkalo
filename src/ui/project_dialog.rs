@@ -3,114 +3,116 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use gtk4::prelude::*;
-use gtk4::{Align, Box as GtkBox, Button, Entry, Label, Orientation, Window};
+use gtk4::{Align, Box as GtkBox, Button, Label, Orientation};
+use libadwaita as adw;
 
 pub struct ProjectDialog {
-    window: Window,
-    #[allow(dead_code)]
-    path_entry: Entry,
+    window: adw::Window,
     on_chosen: Rc<RefCell<Option<Box<dyn Fn(PathBuf)>>>>,
 }
 
 impl ProjectDialog {
-    pub fn new(app: &gtk4::Application) -> Self {
-        let window = Window::new();
+    pub fn new(app: &adw::Application) -> Self {
+        let window = adw::Window::new();
         window.set_application(Some(app));
-        window.set_title(Some("Зеркало"));
+        window.set_title(Some("Open Project"));
         window.set_modal(true);
         window.set_resizable(false);
         window.set_default_width(480);
 
-        let vbox = GtkBox::new(Orientation::Vertical, 0);
-        vbox.set_margin_top(32);
-        vbox.set_margin_bottom(28);
-        vbox.set_margin_start(32);
-        vbox.set_margin_end(32);
+        // ── Header bar ──────────────────────────────────────────────────────
 
-        let title_lbl = Label::new(Some("Welcome to Зеркало"));
-        title_lbl.add_css_class("title-1");
-        title_lbl.set_halign(Align::Start);
-        vbox.append(&title_lbl);
+        let header = adw::HeaderBar::new();
+        header.set_show_end_title_buttons(false);
 
-        let sub_lbl = Label::new(Some("Choose a folder for your Typst writing project"));
-        sub_lbl.add_css_class("dim-label");
-        sub_lbl.set_halign(Align::Start);
-        sub_lbl.set_margin_top(6);
-        sub_lbl.set_margin_bottom(24);
-        vbox.append(&sub_lbl);
+        // ── Path group ──────────────────────────────────────────────────────
 
-        let folder_lbl = Label::new(Some("Project folder"));
-        folder_lbl.set_halign(Align::Start);
-        folder_lbl.set_margin_bottom(6);
-        vbox.append(&folder_lbl);
+        let group = adw::PreferencesGroup::new();
+        group.set_title("Project folder");
+        group.set_description(Some("Choose a folder for your Typst writing project"));
 
-        let path_row = GtkBox::new(Orientation::Horizontal, 8);
         let default_path = shellexpand::tilde("~/Documents/Zerkalo").into_owned();
-        let path_entry = Entry::new();
-        path_entry.set_text(&default_path);
-        path_entry.set_hexpand(true);
-        path_row.append(&path_entry);
+        let path_row = adw::EntryRow::new();
+        path_row.set_title("Path");
+        path_row.set_text(&default_path);
 
-        let browse_btn = Button::with_label("Browse…");
-        path_row.append(&browse_btn);
-        vbox.append(&path_row);
+        let browse_btn = Button::from_icon_name("document-open-symbolic");
+        browse_btn.set_valign(Align::Center);
+        browse_btn.add_css_class("flat");
+        path_row.add_suffix(&browse_btn);
+        group.add(&path_row);
+
+        // ── Error label & open button ────────────────────────────────────────
 
         let error_lbl = Label::new(None);
         error_lbl.add_css_class("error");
-        error_lbl.set_halign(Align::Start);
-        error_lbl.set_margin_top(8);
+        error_lbl.set_halign(Align::Center);
+        error_lbl.set_margin_top(4);
         error_lbl.set_visible(false);
         error_lbl.set_wrap(true);
-        vbox.append(&error_lbl);
 
-        let btn_row = GtkBox::new(Orientation::Horizontal, 8);
-        btn_row.set_halign(Align::End);
-        btn_row.set_margin_top(28);
-
-        let cancel_btn = Button::with_label("Cancel");
         let open_btn = Button::with_label("Open Project");
         open_btn.add_css_class("suggested-action");
-        btn_row.append(&cancel_btn);
-        btn_row.append(&open_btn);
-        vbox.append(&btn_row);
+        open_btn.add_css_class("pill");
+        open_btn.set_halign(Align::Center);
+        open_btn.set_margin_top(16);
 
-        window.set_child(Some(&vbox));
+        // ── Page layout ──────────────────────────────────────────────────────
+
+        let content = GtkBox::new(Orientation::Vertical, 0);
+        content.set_margin_top(16);
+        content.set_margin_bottom(32);
+        content.set_margin_start(16);
+        content.set_margin_end(16);
+        content.append(&group);
+        content.append(&error_lbl);
+        content.append(&open_btn);
+
+        // ── Status page ──────────────────────────────────────────────────────
+
+        let status = adw::StatusPage::new();
+        status.set_icon_name(Some("document-edit-symbolic"));
+        status.set_title("Welcome to Зеркало");
+        status.set_child(Some(&content));
+
+        // ── Toolbar view ─────────────────────────────────────────────────────
+
+        let toolbar_view = adw::ToolbarView::new();
+        toolbar_view.add_top_bar(&header);
+        toolbar_view.set_content(Some(&status));
+        window.set_content(Some(&toolbar_view));
 
         let on_chosen: Rc<RefCell<Option<Box<dyn Fn(PathBuf)>>>> = Rc::new(RefCell::new(None));
 
-        // Cancel
-        let win_cancel = window.clone();
-        cancel_btn.connect_clicked(move |_| win_cancel.close());
-
-        // Browse — open folder chooser
+        // Browse
         let win_browse = window.clone();
-        let entry_browse = path_entry.clone();
+        let row_browse = path_row.clone();
         browse_btn.connect_clicked(move |_| {
             let file_dialog = gtk4::FileDialog::new();
             file_dialog.set_title("Select Project Folder");
-            let initial = gtk4::gio::File::for_path(entry_browse.text().as_str());
+            let initial = gtk4::gio::File::for_path(row_browse.text().as_str());
             file_dialog.set_initial_folder(Some(&initial));
-            let entry_cb = entry_browse.clone();
+            let row_cb = row_browse.clone();
             file_dialog.select_folder(
                 Some(&win_browse),
                 None::<&gtk4::gio::Cancellable>,
                 move |result| {
                     if let Ok(file) = result {
                         if let Some(p) = file.path() {
-                            entry_cb.set_text(&p.to_string_lossy());
+                            row_cb.set_text(&p.to_string_lossy());
                         }
                     }
                 },
             );
         });
 
-        // Open Project — validate, init, fire callback
+        // Open project
         let win_open = window.clone();
-        let entry_open = path_entry.clone();
+        let row_open = path_row.clone();
         let err_open = error_lbl.clone();
         let cb_open = on_chosen.clone();
         let do_open = move || {
-            let raw = entry_open.text();
+            let raw = row_open.text();
             let raw = raw.trim();
             if raw.is_empty() {
                 err_open.set_label("Please enter a project folder path.");
@@ -132,18 +134,13 @@ impl ProjectDialog {
             }
         };
 
-        // Trigger open from button click
-        let do_open_btn = Rc::new(do_open);
-        let do_open_entry = do_open_btn.clone();
+        let do_open = Rc::new(do_open);
+        let do_open_btn = do_open.clone();
+        let do_open_entry = do_open.clone();
         open_btn.connect_clicked(move |_| do_open_btn());
-        // Also trigger on Enter in the path entry
-        path_entry.connect_activate(move |_| do_open_entry());
+        path_row.connect_entry_activated(move |_| do_open_entry());
 
-        Self {
-            window,
-            path_entry,
-            on_chosen,
-        }
+        Self { window, on_chosen }
     }
 
     pub fn set_on_project_chosen(&self, f: impl Fn(PathBuf) + 'static) {
