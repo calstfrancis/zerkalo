@@ -112,37 +112,45 @@ fn append_row(
     let date_str = format_mtime_local(mtime);
 
     let row = ListBoxRow::new();
-    row.set_activatable(true);
+    row.set_selectable(false);
+    row.set_activatable(false);
+
+    let btn = gtk4::Button::new();
+    btn.add_css_class("flat");
+    btn.set_hexpand(true);
 
     let row_box = GtkBox::new(Orientation::Vertical, 2);
-    row_box.set_margin_start(12);
-    row_box.set_margin_end(12);
-    row_box.set_margin_top(6);
-    row_box.set_margin_bottom(6);
+    row_box.set_margin_start(6);
+    row_box.set_margin_end(6);
+    row_box.set_margin_top(4);
+    row_box.set_margin_bottom(4);
 
     let name_lbl = Label::new(Some(&name));
     name_lbl.set_xalign(0.0);
     name_lbl.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+    name_lbl.set_halign(gtk4::Align::Start);
 
     let date_lbl = Label::new(Some(&date_str));
     date_lbl.set_xalign(0.0);
     date_lbl.add_css_class("caption");
     date_lbl.add_css_class("dim-label");
+    date_lbl.set_halign(gtk4::Align::Start);
 
     row_box.append(&name_lbl);
     row_box.append(&date_lbl);
-    row.set_child(Some(&row_box));
+    btn.set_child(Some(&row_box));
 
     let cb = on_open.clone();
     let p = path.clone();
     let win = window.clone();
-    row.connect_activate(move |_| {
+    btn.connect_clicked(move |_| {
         if let Some(f) = cb.borrow().as_ref() {
             f(p.clone());
         }
         win.close();
     });
 
+    row.set_child(Some(&btn));
     list_box.append(&row);
 }
 

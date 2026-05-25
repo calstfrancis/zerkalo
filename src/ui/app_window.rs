@@ -5,8 +5,8 @@ use std::time::{Duration, SystemTime};
 
 use gtk4::prelude::*;
 use gtk4::{
-    Align, Box as GtkBox, Button, Entry, Label, ListBox, ListBoxRow, MenuButton,
-    Notebook, Orientation, Paned, Popover, ScrolledWindow, Separator, ToggleButton,
+    Align, Box as GtkBox, Button, Entry, Label, MenuButton,
+    Notebook, Orientation, Paned, Popover, ScrolledWindow, Separator, Switch, ToggleButton,
 };
 use libadwaita as adw;
 use adw::prelude::*;
@@ -19,6 +19,8 @@ use crate::project_model::ProjectModel;
 use super::dep_graph::DepGraph;
 use super::docs_browser::DocsBrowser;
 use super::editor_pane::EditorPane;
+use super::file_tree::FileTree;
+use super::font_manager::FontManager;
 use super::error_panel::{parse_typst_errors, CompileError, ErrorPanel, Severity};
 use super::export_dialog::ExportDialog;
 use super::help_window::HelpWindow;
@@ -29,6 +31,8 @@ use super::preview_pane::PreviewPane;
 use super::ref_manager::RefManager;
 use super::settings_dialog::SettingsDialog;
 use super::sync_dialog::SyncDialog;
+use super::template_dialog::TemplateDialog;
+use super::todo_panel::TodoPanel;
 
 pub struct AppWindow {
     window: adw::ApplicationWindow,
@@ -87,9 +91,10 @@ impl AppWindow {
         header.pack_start(&focus_btn);
 
         // End: compile (primary), sync (secondary), hamburger menu
-        let compile_btn = Button::from_icon_name("media-playback-start-symbolic");
+        let compile_btn = Button::with_label("Preview");
         compile_btn.set_tooltip_text(Some("Compile & Preview (Ctrl+Shift+P)"));
         compile_btn.add_css_class("suggested-action");
+        compile_btn.add_css_class("pill");
         header.pack_end(&compile_btn);
 
         let sync_btn = Button::from_icon_name("emblem-synchronizing-symbolic");
@@ -98,8 +103,14 @@ impl AppWindow {
         header.pack_end(&sync_btn);
 
         // Hamburger menu (item 8)
+        let menu_new_template_item = Button::new();
+        menu_new_template_item.set_label("New from Template…");
+        menu_new_template_item.set_halign(Align::Start);
+        menu_new_template_item.add_css_class("flat");
+        menu_new_template_item.set_size_request(190, -1);
+
         let menu_new_item = Button::new();
-        menu_new_item.set_label("New Document…");
+        menu_new_item.set_label("New Blank Document…");
         menu_new_item.set_halign(Align::Start);
         menu_new_item.add_css_class("flat");
         menu_new_item.set_size_request(190, -1);
@@ -140,15 +151,23 @@ impl AppWindow {
         menu_export_item.add_css_class("flat");
         menu_export_item.set_size_request(190, -1);
 
+        let menu_fonts_item = Button::new();
+        menu_fonts_item.set_label("Font Management…");
+        menu_fonts_item.set_halign(Align::Start);
+        menu_fonts_item.add_css_class("flat");
+        menu_fonts_item.set_size_request(190, -1);
+
         let menu_popover_box = GtkBox::new(Orientation::Vertical, 0);
         menu_popover_box.set_margin_top(4);
         menu_popover_box.set_margin_bottom(4);
+        menu_popover_box.append(&menu_new_template_item);
         menu_popover_box.append(&menu_new_item);
         menu_popover_box.append(&menu_save_item);
         menu_popover_box.append(&menu_save_as_item);
         menu_popover_box.append(&Separator::new(Orientation::Horizontal));
         menu_popover_box.append(&menu_settings_item);
         menu_popover_box.append(&menu_export_item);
+        menu_popover_box.append(&menu_fonts_item);
         menu_popover_box.append(&Separator::new(Orientation::Horizontal));
         menu_popover_box.append(&menu_help_item);
         menu_popover_box.append(&menu_about_item);
@@ -170,8 +189,7 @@ impl AppWindow {
         open_search.set_margin_top(8);
         open_search.set_margin_bottom(4);
 
-        let open_list_box = ListBox::new();
-        open_list_box.set_selection_mode(gtk4::SelectionMode::None);
+        let open_list_box = GtkBox::new(Orientation::Vertical, 0);
 
         let open_scroll = ScrolledWindow::new();
         open_scroll.set_child(Some(&open_list_box));
@@ -207,6 +225,7 @@ impl AppWindow {
         let history_panel = HistoryPanel::new(project_root.clone());
         let dep_graph = DepGraph::new(project_root.clone());
         let package_browser = PackageBrowser::new();
+        let todo_panel = TodoPanel::new();
 
         // Wire outline symbol insert → editor
         {
@@ -240,13 +259,30 @@ impl AppWindow {
             let work_dir_open = project_root.clone();
             let editor_for_open = editor_pane.clone();
             let pop_for_open = recent_popover.clone();
+            let config_for_open = current_config.clone();
 
             let rebuild: Rc<dyn Fn(&str)> = Rc::new(move |query: &str| {
                 while let Some(child) = open_list_rc.first_child() {
                     open_list_rc.remove(&child);
                 }
-                let mut files = super::docs_browser::scan_typ_files(&work_dir_open, 2);
-                files.sort_by(|a, b| b.1.cmp(&a.1));
+                // Recent files first, then scanned files (deduplicated)
+                let mut files: Vec<(std::path::PathBuf, std::time::SystemTime)> = {
+                    let cfg = config_for_open.borrow();
+                    cfg.recent_files.iter()
+                        .filter(|p| p.exists())
+                        .map(|p| {
+                            let mtime = std::fs::metadata(p)
+                                .and_then(|m| m.modified())
+                                .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+                            (p.clone(), mtime)
+                        })
+                        .collect()
+                };
+                for (path, mtime) in super::docs_browser::scan_typ_files(&work_dir_open, 2) {
+                    if !files.iter().any(|(p, _)| p == &path) {
+                        files.push((path, mtime));
+                    }
+                }
                 let q = query.to_lowercase();
                 for (path, mtime) in files.into_iter().take(30) {
                     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
@@ -254,8 +290,9 @@ impl AppWindow {
                         continue;
                     }
                     let date_str = format_file_mtime(mtime);
-                    let row = ListBoxRow::new();
-                    row.set_activatable(true);
+                    let btn = Button::new();
+                    btn.add_css_class("flat");
+                    btn.set_hexpand(true);
                     let row_box = GtkBox::new(Orientation::Vertical, 2);
                     row_box.set_margin_start(10);
                     row_box.set_margin_end(10);
@@ -263,24 +300,26 @@ impl AppWindow {
                     row_box.set_margin_bottom(5);
                     let name_lbl = Label::new(Some(&name));
                     name_lbl.set_xalign(0.0);
+                    name_lbl.set_halign(Align::Start);
                     name_lbl.set_ellipsize(gtk4::pango::EllipsizeMode::End);
                     let date_lbl = Label::new(Some(&date_str));
                     date_lbl.set_xalign(0.0);
+                    date_lbl.set_halign(Align::Start);
                     date_lbl.add_css_class("caption");
                     date_lbl.add_css_class("dim-label");
                     row_box.append(&name_lbl);
                     row_box.append(&date_lbl);
-                    row.set_child(Some(&row_box));
+                    btn.set_child(Some(&row_box));
                     let ep = editor_for_open.clone();
                     let pop = pop_for_open.clone();
                     let p = path.clone();
-                    row.connect_activate(move |_| {
+                    btn.connect_clicked(move |_| {
                         if let Ok(content) = std::fs::read_to_string(&p) {
                             ep.open_file(p.clone(), &content);
                         }
                         pop.popdown();
                     });
-                    open_list_rc.append(&row);
+                    open_list_rc.append(&btn);
                 }
             });
 
@@ -424,6 +463,9 @@ impl AppWindow {
         let editor_for_btn = editor_pane.clone();
         compile_btn.connect_clicked(move |_| {
             editor_for_btn.save_all_modified();
+            if let Some(path) = editor_for_btn.get_active_path() {
+                preview_for_btn.set_root_file(path);
+            }
             preview_for_btn.trigger_compile();
         });
 
@@ -508,6 +550,33 @@ impl AppWindow {
                 preview_for_export.output_dir(),
             )
             .present();
+        });
+
+        // ── Menu: Font Management ───────────────────────────────────────────
+
+        let window_for_fonts = window.clone();
+        let menu_popover_for_fonts = menu_popover.clone();
+        menu_fonts_item.connect_clicked(move |_| {
+            menu_popover_for_fonts.popdown();
+            FontManager::new(&window_for_fonts).present();
+        });
+
+        // ── Menu: New from Template ─────────────────────────────────────────
+
+        let window_for_template = window.clone();
+        let editor_for_template = editor_pane.clone();
+        let menu_popover_for_template = menu_popover.clone();
+        let project_root_for_template = project_root.clone();
+        menu_new_template_item.connect_clicked(move |_| {
+            menu_popover_for_template.popdown();
+            let dlg = TemplateDialog::new(&window_for_template, &project_root_for_template);
+            let ep = editor_for_template.clone();
+            dlg.set_on_create(move |path| {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    ep.open_file(path, &content);
+                }
+            });
+            dlg.present();
         });
 
         // ── Menu: New Document ──────────────────────────────────────────────
@@ -649,6 +718,9 @@ impl AppWindow {
                 if *gen3.borrow() == my_gen {
                     if *auto.borrow() {
                         editor.save_all_modified();
+                        if let Some(path) = editor.get_active_path() {
+                            preview.set_root_file(path);
+                        }
                         preview.trigger_compile();
                     }
                     // Outline update
@@ -680,10 +752,14 @@ impl AppWindow {
         let history_for_switch = history_panel.clone();
         let dep_graph_for_switch = dep_graph.clone();
         let title_widget_for_switch = file_title_widget.clone();
+        let preview_for_switch = preview_pane.clone();
+        let todo_panel_for_switch = todo_panel.clone();
         editor_pane.set_on_page_switch(move |content, path| {
             outline_for_switch.update(&content, &path);
             history_for_switch.load_file_history(&path);
             dep_graph_for_switch.refresh(Some(&path));
+            preview_for_switch.set_root_file(path.clone());
+            todo_panel_for_switch.set_current_file(Some(&path));
             if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                 title_widget_for_switch.set_title(name);
             }
@@ -693,10 +769,12 @@ impl AppWindow {
 
         let lsp_for_open = lsp_client.clone();
         let current_config_for_open = current_config.clone();
+        let todo_panel_for_open = todo_panel.clone();
         editor_pane.set_on_file_opened(move |path, content| {
             if let Some(client) = lsp_for_open.borrow_mut().as_mut() {
                 client.did_open(&path, &content);
             }
+            todo_panel_for_open.set_current_file(Some(&path));
             let mut cfg = current_config_for_open.borrow_mut();
             cfg.push_recent(path.clone());
             let _ = cfg.save();
@@ -718,14 +796,23 @@ impl AppWindow {
         // ── Compile done callback ────────────────────────────────────────────
 
         let error_panel_for_compile = error_panel.clone();
+        let editor_for_diag = editor_pane.clone();
         let root_for_compile = project_root.clone();
         let popout_pane_for_compile = popout_pane.clone();
         let dep_graph_for_compile = dep_graph.clone();
         preview_pane.set_on_compile_done(move |result| {
             match result {
-                None => error_panel_for_compile.clear(),
+                None => {
+                    error_panel_for_compile.clear();
+                    editor_for_diag.clear_diagnostic_marks();
+                }
                 Some(stderr) => {
                     let errors = parse_typst_errors(&stderr, &root_for_compile);
+                    let diags: Vec<(std::path::PathBuf, u32, bool)> = errors
+                        .iter()
+                        .map(|e| (e.file.clone(), e.line, matches!(e.severity, Severity::Error)))
+                        .collect();
+                    editor_for_diag.mark_diagnostics(&diags);
                     error_panel_for_compile.show_errors(errors);
                 }
             }
@@ -789,33 +876,13 @@ impl AppWindow {
             glib::ControlFlow::Break
         });
 
-        // ── First-start guide (item 4) ───────────────────────────────────────
+        // ── Welcome window (shows on install or version upgrade) ─────────────
 
-        let win_for_guide = window.clone();
+        let win_for_welcome = window.clone();
         glib::timeout_add_local(Duration::from_millis(1200), move || {
-            let marker = glib::user_data_dir().join("zerkalo/.first_start_shown");
-            if !marker.exists() {
-                if let Some(parent) = marker.parent() {
-                    let _ = std::fs::create_dir_all(parent);
-                }
-                let _ = std::fs::write(&marker, "");
-                let dlg = adw::MessageDialog::new(
-                    Some(&win_for_guide),
-                    Some("Welcome to Zerkalo"),
-                    Some(
-                        "Zerkalo is a Typst editor with live preview and git sync.\n\n\
-                         QUICK START\n\
-                         • Edit main.typ — the preview updates automatically\n\
-                         • Type # for function completions (requires tinymist)\n\
-                         • Type @ for citation completions (set a .bib file in Settings)\n\
-                         • Ctrl+Shift+P compiles manually\n\
-                         • Ctrl+S saves; the sync button (⟳) commits and pushes\n\
-                         • Use the hamburger menu (≡) for Help & Settings\n\n\
-                         The sidebar shows files; the header dropdown switches open tabs.",
-                    ),
-                );
-                dlg.add_response("ok", "Get Started");
-                dlg.present();
+            if super::welcome_window::WelcomeWindow::should_show() {
+                super::welcome_window::WelcomeWindow::mark_shown();
+                super::welcome_window::WelcomeWindow::new(&win_for_welcome).present();
             }
             glib::ControlFlow::Break
         });
@@ -839,6 +906,7 @@ impl AppWindow {
         let lsp_poll = lsp_client.clone();
         let error_panel_for_lsp = error_panel.clone();
         let editor_for_comp_poll = editor_pane.clone();
+        let editor_for_lsp_diag = editor_pane.clone();
         let last_req_poll = last_completion_request.clone();
         glib::timeout_add_local(Duration::from_millis(400), move || {
             if let Some(client) = lsp_poll.borrow().as_ref() {
@@ -857,6 +925,11 @@ impl AppWindow {
                             },
                         })
                         .collect();
+                    let diag_marks: Vec<(std::path::PathBuf, u32, bool)> = errors
+                        .iter()
+                        .map(|e| (e.file.clone(), e.line, matches!(e.severity, Severity::Error)))
+                        .collect();
+                    editor_for_lsp_diag.mark_diagnostics(&diag_marks);
                     error_panel_for_lsp.show_errors(errors);
                 }
                 if let Some((id, items)) = client.poll_completion() {
@@ -1082,47 +1155,40 @@ impl AppWindow {
             *popout_pane_for_btn.borrow_mut() = Some(secondary);
         });
 
-        // ── Sidebar header with outline/symbol toggle and mode button ────────
-        let sidebar_header = GtkBox::new(Orientation::Horizontal, 0);
-        sidebar_header.set_margin_start(10);
-        sidebar_header.set_margin_end(8);
-        sidebar_header.set_margin_top(6);
-        sidebar_header.set_margin_bottom(6);
-
-        let sidebar_title = Label::new(Some("Outline"));
-        sidebar_title.set_xalign(0.0);
-        sidebar_title.set_hexpand(true);
-        sidebar_title.add_css_class("heading");
-        sidebar_header.append(&sidebar_title);
-
-        let sym_toggle = ToggleButton::new();
-        sym_toggle.set_icon_name("input-keyboard-symbolic");
-        sym_toggle.add_css_class("flat");
-        sym_toggle.set_tooltip_text(Some("Switch to symbol insert"));
-        sidebar_header.append(&sym_toggle);
-
-        let mode_btn = ToggleButton::new();
-        mode_btn.set_icon_name("view-more-symbolic");
-        mode_btn.add_css_class("flat");
-        mode_btn.set_tooltip_text(Some("Show advanced panels (Refs, History, Graph, Pkgs)"));
-        sidebar_header.append(&mode_btn);
-
-        // Wire sym_toggle ↔ outline panel
+        // ── File tree ────────────────────────────────────────────────────────
+        let file_tree = FileTree::new(project_root.clone());
         {
-            let outline_c = outline_panel.clone();
-            let title_c = sidebar_title.clone();
-            sym_toggle.connect_toggled(move |btn| {
-                if btn.is_active() {
-                    outline_c.set_mode("symbols");
-                    title_c.set_text("Symbols");
-                } else {
-                    outline_c.set_mode("outline");
-                    title_c.set_text("Outline");
+            let ep = editor_pane.clone();
+            file_tree.set_on_open(move |path| {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    ep.open_file(path, &content);
                 }
             });
         }
+        {
+            let root = project_root.clone();
+            let ft = file_tree.clone();
+            let ep = editor_pane.clone();
+            file_tree.set_on_new_file(move |name| {
+                let path = root.join(&name);
+                if !path.exists() {
+                    let _ = std::fs::write(&path, "");
+                }
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    ep.open_file(path, &content);
+                }
+                ft.refresh();
+            });
+        }
+        {
+            let ft = file_tree.clone();
+            file_tree.set_on_delete(move |path| {
+                let _ = std::fs::remove_file(&path);
+                ft.refresh();
+            });
+        }
 
-        // ── Advanced panels (Refs, History, Graph, Pkgs) — hidden by default
+        // ── Advanced panels (Refs, History, Graph, Pkgs, Files) — hidden by default
         let advanced_notebook = Notebook::new();
         advanced_notebook.set_vexpand(true);
         advanced_notebook.set_tab_pos(gtk4::PositionType::Top);
@@ -1132,6 +1198,7 @@ impl AppWindow {
             (history_panel.widget().upcast_ref(), "History"),
             (dep_graph.widget().upcast_ref(), "Graph"),
             (package_browser.widget().upcast_ref(), "Pkgs"),
+            (file_tree.widget().upcast_ref(), "Files"),
         ] {
             let tab_lbl = Label::new(Some(label));
             tab_lbl.add_css_class("caption");
@@ -1143,20 +1210,78 @@ impl AppWindow {
         advanced_section.append(&Separator::new(Orientation::Horizontal));
         advanced_section.append(&advanced_notebook);
 
+        // ── Bottom sidebar controls: Simple mode + GOST font switches ─────────
+        let simple_mode_row = GtkBox::new(Orientation::Horizontal, 8);
+        simple_mode_row.set_margin_start(12);
+        simple_mode_row.set_margin_end(12);
+        simple_mode_row.set_margin_top(6);
+        simple_mode_row.set_margin_bottom(4);
+        let simple_mode_lbl = Label::new(Some("Simple mode"));
+        simple_mode_lbl.set_hexpand(true);
+        simple_mode_lbl.set_xalign(0.0);
+        let simple_mode_sw = Switch::new();
+        simple_mode_sw.set_active(true);
+        simple_mode_sw.set_valign(Align::Center);
+        simple_mode_row.append(&simple_mode_lbl);
+        simple_mode_row.append(&simple_mode_sw);
+
+        let gost_font_row = GtkBox::new(Orientation::Horizontal, 8);
+        gost_font_row.set_margin_start(12);
+        gost_font_row.set_margin_end(12);
+        gost_font_row.set_margin_top(4);
+        gost_font_row.set_margin_bottom(8);
+        let gost_font_lbl = Label::new(Some("GOST type B"));
+        gost_font_lbl.set_hexpand(true);
+        gost_font_lbl.set_xalign(0.0);
+        let gost_font_sw = Switch::new();
+        gost_font_sw.set_active(false);
+        gost_font_sw.set_valign(Align::Center);
+        gost_font_row.append(&gost_font_lbl);
+        gost_font_row.append(&gost_font_sw);
+
+        // Wire simple mode switch: ON = simple view = advanced panels hidden
         {
             let adv_c = advanced_section.clone();
-            mode_btn.connect_toggled(move |btn| {
-                adv_c.set_visible(btn.is_active());
+            simple_mode_sw.connect_active_notify(move |sw| {
+                adv_c.set_visible(!sw.is_active());
+            });
+        }
+
+        // Wire GOST type B font switch — applies to editor AND whole UI
+        let current_config_for_gost = current_config.clone();
+        let ui_font_provider = gtk4::CssProvider::new();
+        if let Some(display) = gtk4::gdk::Display::default() {
+            gtk4::style_context_add_provider_for_display(
+                &display,
+                &ui_font_provider,
+                gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION + 1,
+            );
+        }
+        {
+            let editor_c = editor_pane.clone();
+            let ui_prov = ui_font_provider.clone();
+            gost_font_sw.connect_active_notify(move |sw| {
+                if sw.is_active() {
+                    editor_c.apply_font_family("GOST type B");
+                    ui_prov.load_from_data("* { font-family: 'GOST type B'; }");
+                } else {
+                    let family = current_config_for_gost.borrow().editor_font_family.clone();
+                    editor_c.apply_font_family(&family);
+                    ui_prov.load_from_data("* {}");
+                }
             });
         }
 
         let left_box = GtkBox::new(Orientation::Vertical, 0);
         left_box.set_hexpand(false);
         left_box.set_vexpand(true);
-        left_box.append(&sidebar_header);
-        left_box.append(&Separator::new(Orientation::Horizontal));
         left_box.append(outline_panel.widget());
+        left_box.append(&Separator::new(Orientation::Horizontal));
+        left_box.append(todo_panel.widget());
         left_box.append(&advanced_section);
+        left_box.append(&Separator::new(Orientation::Horizontal));
+        left_box.append(&simple_mode_row);
+        left_box.append(&gost_font_row);
         *left_paned_holder.borrow_mut() = Some(left_box.clone());
 
         let inner_paned = Paned::new(Orientation::Horizontal);

@@ -7,5 +7,6 @@ Icon=zerkalo
 Type=Application
 Categories=Office;TextEditor;
 Keywords=typst;editor;writing;
-StartupWMClass=io.github.calstfrancis.Zerkalo
+StartupWMClass=Zerkalo
+StartupNotify=true
 MimeType=text/x-typst;

@@ -5,7 +5,7 @@ use std::rc::Rc;
 use gtk4::prelude::*;
 use gtk4::{
     Box as GtkBox, FlowBox, ListBox, ListBoxRow, Notebook, Orientation, ScrolledWindow,
-    SelectionMode, Stack,
+    SelectionMode, Separator, Stack, ToggleButton,
 };
 
 type JumpCb = Rc<RefCell<Option<Box<dyn Fn(PathBuf, u32)>>>>;
@@ -18,11 +18,36 @@ pub struct OutlinePanel {
     on_jump: JumpCb,
     on_symbol_insert: InsertCb,
     stack: Stack,
+    outline_btn: ToggleButton,
+    symbols_btn: ToggleButton,
 }
 
 impl OutlinePanel {
     pub fn new() -> Self {
         let widget = GtkBox::new(Orientation::Vertical, 0);
+        widget.set_vexpand(true);
+
+        // ── Gost-style segmented control: Outline | Symbols ──────────────────
+        let seg_box = GtkBox::new(Orientation::Horizontal, 0);
+        seg_box.add_css_class("linked");
+        seg_box.set_margin_start(8);
+        seg_box.set_margin_end(8);
+        seg_box.set_margin_top(8);
+        seg_box.set_margin_bottom(8);
+
+        let outline_btn = ToggleButton::with_label("Outline");
+        outline_btn.set_hexpand(true);
+        outline_btn.set_active(true);
+
+        let symbols_btn = ToggleButton::with_label("Symbols");
+        symbols_btn.set_hexpand(true);
+        symbols_btn.set_group(Some(&outline_btn));
+
+        seg_box.append(&outline_btn);
+        seg_box.append(&symbols_btn);
+
+        widget.append(&seg_box);
+        widget.append(&Separator::new(Orientation::Horizontal));
 
         let stack = Stack::new();
         stack.set_vexpand(true);
@@ -89,15 +114,38 @@ impl OutlinePanel {
         stack.add_named(&sym_notebook, Some("symbols"));
         stack.set_visible_child_name("outline");
 
+        // Wire segmented control → stack
+        {
+            let stack_c = stack.clone();
+            outline_btn.connect_toggled(move |btn| {
+                if btn.is_active() {
+                    stack_c.set_visible_child_name("outline");
+                }
+            });
+        }
+        {
+            let stack_c = stack.clone();
+            symbols_btn.connect_toggled(move |btn| {
+                if btn.is_active() {
+                    stack_c.set_visible_child_name("symbols");
+                }
+            });
+        }
+
         widget.append(&stack);
 
         let on_jump: JumpCb = Rc::new(RefCell::new(None));
 
-        Self { widget, list_box, on_jump, on_symbol_insert, stack }
+        Self { widget, list_box, on_jump, on_symbol_insert, stack, outline_btn, symbols_btn }
     }
 
     pub fn set_mode(&self, mode: &str) {
         self.stack.set_visible_child_name(mode);
+        match mode {
+            "outline" => self.outline_btn.set_active(true),
+            "symbols" => self.symbols_btn.set_active(true),
+            _ => {}
+        }
     }
 
     pub fn update(&self, content: &str, path: &PathBuf) {

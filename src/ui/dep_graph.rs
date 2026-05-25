@@ -164,22 +164,25 @@ impl DepGraph {
 
         let g = Self { widget, drawing_area, project_root: Rc::new(project_root), nodes, edges, hovered, on_open };
 
-        // Click handler
+        // Click handler — extract path before dropping borrow to avoid RefCell conflict
+        // when the callback triggers dep_graph.refresh() which needs borrow_mut.
         {
             let nodes_c = g.nodes.clone();
             let on_open_c = g.on_open.clone();
             let da_c = g.drawing_area.clone();
             let click = GestureClick::new();
             click.connect_pressed(move |_, _, x, y| {
-                let nodes = nodes_c.borrow();
-                for node in nodes.iter() {
-                    if x >= node.x && x <= node.x + NODE_W
-                        && y >= node.y && y <= node.y + NODE_H
-                    {
-                        if let Some(f) = on_open_c.borrow().as_ref() {
-                            f(node.path.clone());
-                        }
-                        break;
+                let clicked_path = {
+                    let nodes = nodes_c.borrow();
+                    nodes.iter()
+                        .find(|n| {
+                            x >= n.x && x <= n.x + NODE_W && y >= n.y && y <= n.y + NODE_H
+                        })
+                        .map(|n| n.path.clone())
+                }; // borrow released here
+                if let Some(path) = clicked_path {
+                    if let Some(f) = on_open_c.borrow().as_ref() {
+                        f(path);
                     }
                 }
                 da_c.queue_draw();
