@@ -5,6 +5,7 @@ use std::rc::Rc;
 use gtk4::prelude::*;
 use gtk4::{Align, Box as GtkBox, Button, Label, Orientation};
 use libadwaita as adw;
+use adw::prelude::*;
 
 pub struct ProjectDialog {
     window: adw::Window,
@@ -72,7 +73,7 @@ impl ProjectDialog {
 
         let status = adw::StatusPage::new();
         status.set_icon_name(Some("document-edit-symbolic"));
-        status.set_title("Welcome to Зеркало");
+        status.set_title("Welcome to Zerkalo");
         status.set_child(Some(&content));
 
         // ── Toolbar view ─────────────────────────────────────────────────────

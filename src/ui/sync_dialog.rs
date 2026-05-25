@@ -4,6 +4,7 @@ use std::rc::Rc;
 use gtk4::prelude::*;
 use gtk4::{Align, Box as GtkBox, Button, Orientation};
 use libadwaita as adw;
+use adw::prelude::*;
 
 /// Modal dialog asking the user for a GitHub remote URL.
 /// Shows when Sync is clicked and no remote is configured.

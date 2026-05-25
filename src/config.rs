@@ -19,7 +19,12 @@ pub enum Theme {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Config {
-    pub project_path: PathBuf,
+    #[serde(default = "default_work_dir", alias = "project_path")]
+    pub work_dir: PathBuf,
+    #[serde(default)]
+    pub output_dir: Option<PathBuf>,
+    #[serde(default)]
+    pub recent_files: Vec<PathBuf>,
     #[serde(default)]
     pub bib_path: Option<PathBuf>,
     #[serde(default = "default_debounce_ms")]
@@ -30,28 +35,58 @@ pub struct Config {
     pub editor_font_size: u32,
     #[serde(default)]
     pub theme: Theme,
+    #[serde(default = "default_font_family")]
+    pub editor_font_family: String,
+    #[serde(default)]
+    pub editor_word_wrap: bool,
+    #[serde(default)]
+    pub editor_show_whitespace: bool,
+    #[serde(default = "default_tab_width")]
+    pub editor_tab_width: u32,
+    #[serde(default = "default_preview_zoom")]
+    pub preview_zoom: f64,
 }
 
-fn default_debounce_ms() -> u64 {
-    500
+fn default_work_dir() -> PathBuf {
+    PathBuf::from(shellexpand::tilde("~/Documents/Zerkalo").into_owned())
 }
-fn default_true() -> bool {
-    true
+
+pub fn default_work_dir_pub() -> PathBuf {
+    default_work_dir()
 }
-fn default_font_size() -> u32 {
-    13
-}
+fn default_debounce_ms() -> u64 { 500 }
+fn default_true() -> bool { true }
+fn default_font_size() -> u32 { 13 }
+fn default_font_family() -> String { "Monospace".to_string() }
+fn default_tab_width() -> u32 { 2 }
+fn default_preview_zoom() -> f64 { 1.0 }
 
 impl Default for Config {
     fn default() -> Self {
-        let path = shellexpand::tilde("~/Documents/Zerkalo").into_owned();
         Self {
-            project_path: PathBuf::from(path),
+            work_dir: default_work_dir(),
+            output_dir: None,
+            recent_files: Vec::new(),
             bib_path: None,
             debounce_ms: 500,
             auto_compile: true,
             editor_font_size: 13,
             theme: Theme::default(),
+            editor_font_family: default_font_family(),
+            editor_word_wrap: false,
+            editor_show_whitespace: false,
+            editor_tab_width: 2,
+            preview_zoom: 1.0,
+        }
+    }
+}
+
+impl Config {
+    pub fn push_recent(&mut self, path: PathBuf) {
+        self.recent_files.retain(|p| p != &path);
+        self.recent_files.insert(0, path);
+        if self.recent_files.len() > 14 {
+            self.recent_files.truncate(14);
         }
     }
 }

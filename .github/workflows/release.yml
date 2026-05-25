@@ -1,0 +1,86 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  appimage:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-4-dev \
+            libadwaita-1-dev \
+            libgtksourceview-5-dev \
+            pkg-config \
+            gcc \
+            file
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Download appimagetool
+        run: |
+          wget -q "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage"
+          chmod +x appimagetool-x86_64.AppImage
+
+      - name: Assemble AppDir
+        run: |
+          mkdir -p AppDir/usr/bin
+          mkdir -p AppDir/usr/share/applications
+          mkdir -p AppDir/usr/share/icons/hicolor/scalable/apps
+
+          cp target/release/zerkalo AppDir/usr/bin/
+          cp packaging/io.github.calstfrancis.Zerkalo.desktop \
+             AppDir/io.github.calstfrancis.Zerkalo.desktop
+          cp packaging/io.github.calstfrancis.Zerkalo.desktop \
+             AppDir/usr/share/applications/
+          cp packaging/zerkalo.svg \
+             AppDir/usr/share/icons/hicolor/scalable/apps/zerkalo.svg
+          cp packaging/zerkalo.svg AppDir/zerkalo.svg
+          ln -sf zerkalo.svg AppDir/.DirIcon
+
+          cat > AppDir/AppRun << 'APPRUN'
+          #!/bin/sh
+          SELF=$(readlink -f "$0")
+          HERE=${SELF%/*}
+          exec "${HERE}/usr/bin/zerkalo" "$@"
+          APPRUN
+          chmod +x AppDir/AppRun
+
+      - name: Build AppImage
+        env:
+          ARCH: x86_64
+          VERSION: ${{ github.ref_name }}
+        run: |
+          ./appimagetool-x86_64.AppImage \
+            --appimage-extract-and-run \
+            AppDir \
+            "Zerkalo-${VERSION}-x86_64.AppImage"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Zerkalo-*.AppImage
+          generate_release_notes: true

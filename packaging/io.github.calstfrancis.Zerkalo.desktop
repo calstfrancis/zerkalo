@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Zerkalo
+GenericName=Typst Editor
+Comment=A contemplative Typst editor
+Exec=zerkalo %U
+Icon=zerkalo
+Type=Application
+Categories=Office;TextEditor;
+Keywords=typst;editor;writing;
+StartupWMClass=io.github.calstfrancis.Zerkalo
+MimeType=text/x-typst;

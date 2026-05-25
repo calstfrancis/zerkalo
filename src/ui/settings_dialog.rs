@@ -5,6 +5,7 @@ use std::rc::Rc;
 use gtk4::prelude::*;
 use gtk4::{Align, Button};
 use libadwaita as adw;
+use adw::prelude::*;
 
 use crate::config::{Config, Theme};
 
@@ -36,6 +37,69 @@ impl SettingsDialog {
         let save_btn = Button::with_label("Save");
         save_btn.add_css_class("suggested-action");
         header.pack_end(&save_btn);
+
+        // ── Folders group ────────────────────────────────────────────────────
+
+        let folders_group = adw::PreferencesGroup::new();
+        folders_group.set_title("Folders");
+
+        let work_dir_row = adw::EntryRow::new();
+        work_dir_row.set_title("Work folder");
+        work_dir_row.set_text(current.work_dir.to_str().unwrap_or(""));
+
+        let work_dir_btn = Button::from_icon_name("document-open-symbolic");
+        work_dir_btn.set_valign(Align::Center);
+        work_dir_btn.add_css_class("flat");
+        let work_dir_row_c = work_dir_row.clone();
+        let win_c = window.clone();
+        work_dir_btn.connect_clicked(move |_| {
+            let row = work_dir_row_c.clone();
+            let fd = gtk4::FileDialog::new();
+            fd.select_folder(
+                Some(&win_c),
+                None::<&gtk4::gio::Cancellable>,
+                move |result| {
+                    if let Ok(file) = result {
+                        if let Some(path) = file.path() {
+                            row.set_text(path.to_str().unwrap_or(""));
+                        }
+                    }
+                },
+            );
+        });
+        work_dir_row.add_suffix(&work_dir_btn);
+        folders_group.add(&work_dir_row);
+
+        let output_dir_row = adw::EntryRow::new();
+        output_dir_row.set_title("Output folder");
+        output_dir_row.set_text(
+            current.output_dir.as_deref()
+                .and_then(|p| p.to_str())
+                .unwrap_or(""),
+        );
+
+        let output_dir_btn = Button::from_icon_name("document-open-symbolic");
+        output_dir_btn.set_valign(Align::Center);
+        output_dir_btn.add_css_class("flat");
+        let output_dir_row_c = output_dir_row.clone();
+        let win_c2 = window.clone();
+        output_dir_btn.connect_clicked(move |_| {
+            let row = output_dir_row_c.clone();
+            let fd = gtk4::FileDialog::new();
+            fd.select_folder(
+                Some(&win_c2),
+                None::<&gtk4::gio::Cancellable>,
+                move |result| {
+                    if let Ok(file) = result {
+                        if let Some(path) = file.path() {
+                            row.set_text(path.to_str().unwrap_or(""));
+                        }
+                    }
+                },
+            );
+        });
+        output_dir_row.add_suffix(&output_dir_btn);
+        folders_group.add(&output_dir_row);
 
         // ── Bibliography group ───────────────────────────────────────────────
 
@@ -71,19 +135,14 @@ impl SettingsDialog {
         bib_row.add_suffix(&browse_btn);
         bib_group.add(&bib_row);
 
-        // ── Editor group ─────────────────────────────────────────────────────
+        // ── Appearance group ─────────────────────────────────────────────────
 
         let editor_group = adw::PreferencesGroup::new();
-        editor_group.set_title("Editor");
-
-        let font_spin = adw::SpinRow::with_range(8.0, 72.0, 1.0);
-        font_spin.set_title("Font size");
-        font_spin.set_subtitle("Points");
-        font_spin.set_value(current.editor_font_size as f64);
+        editor_group.set_title("Appearance");
 
         let theme_model = gtk4::StringList::new(&["System", "Light", "Dark"]);
         let theme_row = adw::ComboRow::new();
-        theme_row.set_title("Theme");
+        theme_row.set_title("Color scheme");
         theme_row.set_model(Some(&theme_model));
         let theme_idx = match current.theme {
             Theme::System => 0u32,
@@ -92,8 +151,43 @@ impl SettingsDialog {
         };
         theme_row.set_selected(theme_idx);
 
-        editor_group.add(&font_spin);
         editor_group.add(&theme_row);
+
+        // ── Editor group ─────────────────────────────────────────────────────
+
+        let font_group = adw::PreferencesGroup::new();
+        font_group.set_title("Editor");
+
+        let font_desc = gtk4::pango::FontDescription::from_string(
+            &format!("{} {}", current.editor_font_family, current.editor_font_size),
+        );
+        let font_dialog = gtk4::FontDialog::new();
+        let font_btn = gtk4::FontDialogButton::new(Some(font_dialog));
+        font_btn.set_font_desc(&font_desc);
+        font_btn.set_valign(Align::Center);
+        let font_row = adw::ActionRow::new();
+        font_row.set_title("Editor font");
+        font_row.set_subtitle("Family and size");
+        font_row.add_suffix(&font_btn);
+        font_row.set_activatable_widget(Some(&font_btn));
+
+        let tab_spin = adw::SpinRow::with_range(1.0, 8.0, 1.0);
+        tab_spin.set_title("Tab width");
+        tab_spin.set_subtitle("Spaces");
+        tab_spin.set_value(current.editor_tab_width as f64);
+
+        let wrap_row = adw::SwitchRow::new();
+        wrap_row.set_title("Word wrap");
+        wrap_row.set_active(current.editor_word_wrap);
+
+        let ws_row = adw::SwitchRow::new();
+        ws_row.set_title("Show whitespace");
+        ws_row.set_active(current.editor_show_whitespace);
+
+        font_group.add(&font_row);
+        font_group.add(&tab_spin);
+        font_group.add(&wrap_row);
+        font_group.add(&ws_row);
 
         // ── Compilation group ────────────────────────────────────────────────
 
@@ -116,9 +210,11 @@ impl SettingsDialog {
         // ── Preferences page ─────────────────────────────────────────────────
 
         let page = adw::PreferencesPage::new();
-        page.add(&bib_group);
+        page.add(&folders_group);
         page.add(&editor_group);
+        page.add(&font_group);
         page.add(&compile_group);
+        page.add(&bib_group);
 
         // ── Toolbar view ─────────────────────────────────────────────────────
 
@@ -133,9 +229,24 @@ impl SettingsDialog {
         cancel_btn.connect_clicked(move |_| win_cancel.close());
 
         let on_save_cb = on_save.clone();
-        let project_path = current.project_path.clone();
+        let recent_files_cur = current.recent_files.clone();
+        let preview_zoom_cur = current.preview_zoom;
         let win_save = window.clone();
         save_btn.connect_clicked(move |_| {
+            let work_dir_text = work_dir_row.text().trim().to_string();
+            let work_dir = if work_dir_text.is_empty() {
+                crate::config::default_work_dir_pub()
+            } else {
+                PathBuf::from(work_dir_text)
+            };
+
+            let output_dir_text = output_dir_row.text().trim().to_string();
+            let output_dir: Option<PathBuf> = if output_dir_text.is_empty() {
+                None
+            } else {
+                Some(PathBuf::from(output_dir_text))
+            };
+
             let bib_path_text = bib_row.text().trim().to_string();
             let bib_path: Option<PathBuf> = if bib_path_text.is_empty() {
                 None
@@ -149,13 +260,32 @@ impl SettingsDialog {
                 _ => Theme::System,
             };
 
+            let (editor_font_family, editor_font_size) = font_btn
+                .font_desc()
+                .map(|fd| {
+                    let family = fd.family()
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| "Monospace".to_string());
+                    let pts = fd.size() / gtk4::pango::SCALE;
+                    let size = if pts <= 0 { 13u32 } else { pts as u32 };
+                    (family, size)
+                })
+                .unwrap_or_else(|| ("Monospace".to_string(), 13u32));
+
             let new_cfg = Config {
-                project_path: project_path.clone(),
+                work_dir,
+                output_dir,
+                recent_files: recent_files_cur.clone(),
                 bib_path,
                 debounce_ms: debounce_spin.value() as u64,
                 auto_compile: auto_row.is_active(),
-                editor_font_size: font_spin.value() as u32,
+                editor_font_size,
                 theme,
+                editor_font_family,
+                editor_word_wrap: wrap_row.is_active(),
+                editor_show_whitespace: ws_row.is_active(),
+                editor_tab_width: tab_spin.value() as u32,
+                preview_zoom: preview_zoom_cur,
             };
 
             if let Err(e) = new_cfg.save() {
