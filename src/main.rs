@@ -1,6 +1,7 @@
 mod bibliography;
 mod config;
 mod error;
+mod fonts;
 mod git_sync;
 mod lsp;
 mod project;
@@ -40,6 +41,8 @@ fn main() -> ExitCode {
         "Zerkalo starting — log: {}",
         log_dir.join("zerkalo.log").display()
     );
+
+    fonts::ensure_gost_font();
 
     let initial_file: Option<PathBuf> = env::args()
         .nth(1)

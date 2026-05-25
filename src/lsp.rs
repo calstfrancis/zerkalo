@@ -80,9 +80,10 @@ impl LspClient {
                         "publishDiagnostics": {},
                         "completion": {
                             "completionItem": {
-                                "snippetSupport": false,
+                                "snippetSupport": true,
                                 "documentationFormat": ["plaintext"]
-                            }
+                            },
+                            "completionItemKind": { "valueSet": [1,2,3,4,5,6,7,8,9,10,12,13,14,15] }
                         }
                     }
                 }
@@ -299,21 +300,69 @@ fn parse_completion_result(json: &Value) -> Option<Vec<CompletionItem>> {
                 let label = item.get("label")?.as_str()?.to_string();
                 let kind = item.get("kind").and_then(|v| v.as_u64()).unwrap_or(1) as u8;
                 let detail = item.get("detail").and_then(|v| v.as_str()).map(|s| s.to_string());
-                let insert_text = item
+                let raw_insert = item
                     .get("insertText")
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string())
                     .or_else(|| {
-                        // textEdit.newText
                         item.get("textEdit")
                             .and_then(|te| te.get("newText"))
                             .and_then(|v| v.as_str())
                             .map(|s| s.to_string())
                     });
+                // Strip LSP snippet markers ($0, ${1:placeholder} → placeholder)
+                let insert_text = raw_insert.map(|s| strip_snippet_syntax(&s));
                 Some(CompletionItem { label, kind, detail, insert_text })
             })
             .collect(),
     )
+}
+
+// ── Snippet syntax stripper ───────────────────────────────────────────────────
+
+/// Convert LSP snippet syntax to plain text:
+/// - `${N:placeholder}` → `placeholder`
+/// - `$N` / `$0` → removed
+/// - `\\$` → `$`
+fn strip_snippet_syntax(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let chars: Vec<char> = s.chars().collect();
+    let n = chars.len();
+    let mut i = 0;
+    while i < n {
+        if chars[i] == '\\' && i + 1 < n && chars[i + 1] == '$' {
+            out.push('$');
+            i += 2;
+        } else if chars[i] == '$' {
+            i += 1;
+            if i >= n { break; }
+            if chars[i] == '{' {
+                i += 1;
+                // skip N:
+                while i < n && chars[i] != ':' && chars[i] != '}' { i += 1; }
+                if i < n && chars[i] == ':' {
+                    i += 1;
+                    let mut depth = 1i32;
+                    while i < n && depth > 0 {
+                        if chars[i] == '{' { depth += 1; }
+                        else if chars[i] == '}' { depth -= 1; if depth == 0 { i += 1; break; } }
+                        if depth > 0 { out.push(chars[i]); }
+                        i += 1;
+                    }
+                } else if i < n && chars[i] == '}' {
+                    i += 1;
+                }
+            } else {
+                while i < n && (chars[i].is_ascii_digit() || chars[i].is_alphanumeric() && i > 0) {
+                    if chars[i].is_ascii_digit() { i += 1; } else { break; }
+                }
+            }
+        } else {
+            out.push(chars[i]);
+            i += 1;
+        }
+    }
+    out
 }
 
 // ── URI helpers ───────────────────────────────────────────────────────────────

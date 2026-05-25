@@ -7,7 +7,7 @@ use std::time::Duration;
 use gtk4::prelude::*;
 use gtk4::{
     Box as GtkBox, Button, CssProvider, EventControllerKey, Label, Notebook, Orientation,
-    PropagationPhase, ScrolledWindow, Separator, TextSearchFlags, TextWindowType,
+    PropagationPhase, ScrolledWindow, Separator, TextSearchFlags, TextTag, TextWindowType,
 };
 use libadwaita as adw;
 use sourceview5::prelude::*;
@@ -92,6 +92,23 @@ const TYPST_LANG: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
   </definitions>
 </language>
 "#;
+
+// ── Built-in academic snippets ────────────────────────────────────────────────
+// (match_key, display_label, insert_text_with_leading_#)
+const ACADEMIC_SNIPPETS: &[(&str, &str, &str)] = &[
+    ("figure", "Figure",
+     "#figure(\n  image(\"\", width: 80%),\n  caption: [Caption text],\n) <fig:label>"),
+    ("table", "Table",
+     "#figure(\n  table(\n    columns: (auto, auto),\n    table.header([*Column 1*], [*Column 2*]),\n    [Cell 1], [Cell 2],\n  ),\n  caption: [Table title],\n) <tab:label>"),
+    ("footnote", "Footnote", "#footnote[Note text]"),
+    ("bibliography", "Bibliography", "#bibliography(\"refs.bib\")"),
+    ("pagebreak", "Page break", "#pagebreak()"),
+    ("outline", "Table of Contents", "#outline(title: [Contents], depth: 3)"),
+    ("lorem", "Lorem ipsum", "#lorem(100)"),
+    ("set", "Set rule", "#set text(size: 11pt, font: \"Liberation Serif\")"),
+    ("show", "Show rule", "#show heading: it => strong(it)"),
+    ("block", "Block / quote", "#block(inset: (left: 2em))[\n  Quoted text\n]"),
+];
 
 // ── Internal types ────────────────────────────────────────────────────────────
 
@@ -441,6 +458,19 @@ impl EditorPane {
         let state = self.state.borrow();
         for tab in state.tabs.values() {
             if self.notebook.page_num(&tab.scroll_window) == Some(current) {
+                let prefix = lsp_hash_prefix(&tab.buffer);
+                let mut all_items: Vec<CompletionItem> = ACADEMIC_SNIPPETS
+                    .iter()
+                    .filter(|(key, _, _)| prefix.is_empty() || key.starts_with(prefix.as_str()))
+                    .map(|(key, label, body)| CompletionItem {
+                        label: format!("{label}  ·  snippet"),
+                        kind: 15,
+                        detail: Some(key.to_string()),
+                        insert_text: Some(body.to_string()),
+                    })
+                    .collect();
+                all_items.extend(items);
+
                 let cursor = tab.buffer.iter_at_offset(tab.buffer.cursor_position());
                 let loc = tab.view.iter_location(&cursor);
                 let (wx, wy) = tab.view.buffer_to_window_coords(
@@ -448,9 +478,44 @@ impl EditorPane {
                     loc.x(),
                     loc.y() + loc.height(),
                 );
-                tab.lsp_popup.show_items(items, wx, wy);
+                tab.lsp_popup.show_items(all_items, wx, wy);
                 break;
             }
+        }
+    }
+
+    // ── Inline diagnostic marks ───────────────────────────────────────────────
+
+    /// Apply underline squiggles for the given diagnostics. Each entry is
+    /// (file, 1-based line, is_error). Call after compile or LSP diagnostics.
+    pub fn mark_diagnostics(&self, diagnostics: &[(PathBuf, u32, bool)]) {
+        let state = self.state.borrow();
+        for (path, tab) in &state.tabs {
+            let (buf_start, buf_end) = tab.buffer.bounds();
+            tab.buffer.remove_tag_by_name("zerkalo-diag-error", &buf_start, &buf_end);
+            tab.buffer.remove_tag_by_name("zerkalo-diag-warning", &buf_start, &buf_end);
+            ensure_diag_tags(&tab.buffer);
+            for (err_file, err_line, is_error) in diagnostics {
+                if err_file != path {
+                    continue;
+                }
+                let line_idx = err_line.saturating_sub(1) as i32;
+                if let Some(line_start) = tab.buffer.iter_at_line(line_idx) {
+                    let mut line_end = line_start;
+                    line_end.forward_to_line_end();
+                    let tag = if *is_error { "zerkalo-diag-error" } else { "zerkalo-diag-warning" };
+                    tab.buffer.apply_tag_by_name(tag, &line_start, &line_end);
+                }
+            }
+        }
+    }
+
+    pub fn clear_diagnostic_marks(&self) {
+        let state = self.state.borrow();
+        for tab in state.tabs.values() {
+            let (start, end) = tab.buffer.bounds();
+            tab.buffer.remove_tag_by_name("zerkalo-diag-error", &start, &end);
+            tab.buffer.remove_tag_by_name("zerkalo-diag-warning", &start, &end);
         }
     }
 
@@ -943,6 +1008,12 @@ impl EditorPane {
         self.notebook.set_current_page(Some(page_index));
         set_wc_text(&self.word_count_label, content);
 
+        // Explicitly fire page_switch so title/outline update even when this is
+        // the first tab (connect_switch_page fires before the tab is in state.tabs).
+        if let Some(f) = self.on_page_switch.borrow().as_ref() {
+            f(content_for_callback.clone(), path_for_callback.clone());
+        }
+
         if let Some(f) = self.on_file_opened.borrow().as_ref() {
             f(path_for_callback, content_for_callback);
         }
@@ -1087,6 +1158,44 @@ impl EditorPane {
 
 // ── Free helpers ──────────────────────────────────────────────────────────────
 
+fn ensure_diag_tags(buffer: &Buffer) {
+    let table = buffer.tag_table();
+    if table.lookup("zerkalo-diag-error").is_none() {
+        let tag = TextTag::new(Some("zerkalo-diag-error"));
+        tag.set_underline(gtk4::pango::Underline::Error);
+        tag.set_underline_rgba(Some(&gtk4::gdk::RGBA::new(0.9, 0.2, 0.2, 1.0)));
+        table.add(&tag);
+    }
+    if table.lookup("zerkalo-diag-warning").is_none() {
+        let tag = TextTag::new(Some("zerkalo-diag-warning"));
+        tag.set_underline(gtk4::pango::Underline::SingleLine);
+        tag.set_underline_rgba(Some(&gtk4::gdk::RGBA::new(0.85, 0.72, 0.1, 1.0)));
+        table.add(&tag);
+    }
+}
+
+fn lsp_hash_prefix(buffer: &Buffer) -> String {
+    let cursor = buffer.iter_at_offset(buffer.cursor_position());
+    let mut temp = cursor.clone();
+    loop {
+        if !temp.backward_char() {
+            break;
+        }
+        let ch = temp.char();
+        if ch == '#' {
+            return buffer
+                .text(&temp, &cursor, false)
+                .to_string()
+                .trim_start_matches('#')
+                .to_lowercase();
+        }
+        if !(ch.is_alphanumeric() || ch == '_' || ch == '-') {
+            break;
+        }
+    }
+    String::new()
+}
+
 fn set_wc_text(label: &Label, text: &str) {
     let words = count_content_words(text);
     let reading = if words < 200 { "< 1 min".to_string() } else { format!("{} min", words / 200) };
@@ -1183,16 +1292,26 @@ fn strip_typst_markup(input: &str) -> String {
             continue;
         }
 
-        // Hash function calls #ident[...](...)  — skip entirely including args
+        // Hash function calls: skip #ident and (...){...} args, but KEEP text in [...] args
         if c == '#' {
             i += 1;
             while i < n && (chars[i].is_alphanumeric() || chars[i] == '_' || chars[i] == '-' || chars[i] == '.') {
                 i += 1;
             }
             while i < n && matches!(chars[i], '[' | '(' | '{') {
-                i = skip_balanced_typst(&chars, i, n);
+                if chars[i] == '[' {
+                    // Content block — recursively strip and keep the text
+                    let end = skip_balanced_typst(&chars, i, n);
+                    if end > i + 1 {
+                        let inner: String = chars[i + 1..end - 1].iter().collect();
+                        out.push_str(&strip_typst_markup(&inner));
+                    }
+                    out.push(' ');
+                    i = end;
+                } else {
+                    i = skip_balanced_typst(&chars, i, n);
+                }
             }
-            out.push(' ');
             continue;
         }
 

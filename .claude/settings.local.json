@@ -8,7 +8,27 @@
       "Bash(git push *)",
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(pkg-config --modversion libadwaita-1)",
-      "Bash(pkg-config --modversion gtk4)"
+      "Bash(pkg-config --modversion gtk4)",
+      "Bash(zerkalo)",
+      "Bash(grep -E \"^error|warning: `zerkalo`|Finished\")",
+      "Bash(chmod +x *)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:api.github.com)",
+      "Bash(curl -s https://api.github.com/repos/calstfrancis/rubric/git/trees/main?recursive=1)",
+      "Bash(curl -s \"https://api.github.com/repos/calstfrancis/rubric/git/trees/main?recursive=1\")",
+      "Bash(gh repo *)",
+      "Bash(gh api *)",
+      "Bash(curl -s \"https://raw.githubusercontent.com/calstfrancis/rubric/main/rubric.py\")",
+      "Bash(python3 -c \"import subprocess; r = subprocess.run\\(['cargo', 'doc', '--no-deps', '-q'], capture_output=True, text=True\\); print\\(r.stderr[:300]\\)\")",
+      "Bash(pkg-config --exists poppler-glib)",
+      "Bash(pkg-config --exists poppler)",
+      "Read(//usr/include/**)",
+      "Bash(typst --version)",
+      "Bash(typst help *)",
+      "Bash(python3 -c ' *)",
+      "Bash(fc-list)",
+      "Bash(curl -s https://raw.githubusercontent.com/calstfrancis/Gost/main/essay_builder/texgen.py)",
+      "Bash(curl *)"
     ]
   }
 }
