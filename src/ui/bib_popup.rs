@@ -4,8 +4,8 @@ use std::rc::Rc;
 use gtk4::gdk::Rectangle;
 use gtk4::prelude::*;
 use gtk4::{
-    Align, Box as GtkBox, Label, ListBox, ListBoxRow, Orientation, Popover, ScrolledWindow,
-    SelectionMode,
+    Align, Box as GtkBox, EventControllerKey, Label, ListBox, ListBoxRow, Orientation, Popover,
+    ScrolledWindow, SelectionMode,
 };
 
 use crate::bibliography::BibEntry;
@@ -28,6 +28,7 @@ impl BibPopup {
 
         let list_box = ListBox::new();
         list_box.set_selection_mode(SelectionMode::Browse);
+        list_box.set_focusable(true);
 
         let scroll = ScrolledWindow::new();
         scroll.set_child(Some(&list_box));
@@ -46,6 +47,55 @@ impl BibPopup {
             Rc::new(RefCell::new(None));
         let filtered_keys: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
 
+        // Key controller on the list_box so Tab/Return work when popup has focus
+        {
+            let on_complete_kc = on_complete.clone();
+            let filtered_kc = filtered_keys.clone();
+            let list_kc = list_box.clone();
+            let popover_kc = popover.clone();
+
+            let kc = EventControllerKey::new();
+            kc.connect_key_pressed(move |_, key, _, _mods| {
+                use gtk4::gdk::Key;
+                match key {
+                    Key::Tab | Key::Return | Key::KP_Enter => {
+                        let idx = list_kc.selected_row()
+                            .map(|r| r.index() as usize)
+                            .unwrap_or(0);
+                        let k = filtered_kc.borrow().get(idx).cloned()
+                            .or_else(|| filtered_kc.borrow().first().cloned());
+                        if let Some(k) = k {
+                            popover_kc.popdown();
+                            if let Some(f) = on_complete_kc.borrow().as_ref() {
+                                f(k);
+                            }
+                        }
+                        glib::Propagation::Stop
+                    }
+                    Key::Escape => {
+                        popover_kc.popdown();
+                        glib::Propagation::Stop
+                    }
+                    Key::Down => {
+                        let cur = list_kc.selected_row().map(|r| r.index()).unwrap_or(-1);
+                        if let Some(row) = list_kc.row_at_index(cur + 1) {
+                            list_kc.select_row(Some(&row));
+                        }
+                        glib::Propagation::Stop
+                    }
+                    Key::Up => {
+                        let cur = list_kc.selected_row().map(|r| r.index()).unwrap_or(1);
+                        if let Some(row) = list_kc.row_at_index((cur - 1).max(0)) {
+                            list_kc.select_row(Some(&row));
+                        }
+                        glib::Propagation::Stop
+                    }
+                    _ => glib::Propagation::Proceed,
+                }
+            });
+            list_box.add_controller(kc);
+        }
+
         Self {
             popover,
             list_box,
@@ -59,7 +109,6 @@ impl BibPopup {
         *self.on_complete.borrow_mut() = Some(Box::new(f));
     }
 
-    /// Filter entries by `query` and show at widget-relative position `(x, y)`.
     pub fn show_filtered(&self, query: &str, x: i32, y: i32) {
         self.clear_rows();
         self.filtered_keys.borrow_mut().clear();
@@ -75,13 +124,8 @@ impl BibPopup {
             })
             .collect();
 
-        // Keys starting with query sort first
         matched.sort_by_key(|e| {
-            if e.key.to_lowercase().starts_with(&q) {
-                0u8
-            } else {
-                1u8
-            }
+            if e.key.to_lowercase().starts_with(&q) { 0u8 } else { 1u8 }
         });
 
         let shown: Vec<&BibEntry> = matched.into_iter().take(15).collect();
@@ -98,17 +142,19 @@ impl BibPopup {
             self.append_row(entry);
         }
 
-        // Select the first row
         if let Some(row) = self.list_box.row_at_index(0) {
             self.list_box.select_row(Some(&row));
         }
 
-        self.popover
-            .set_pointing_to(Some(&Rectangle::new(x, y, 1, 1)));
+        self.popover.set_pointing_to(Some(&Rectangle::new(x, y, 1, 1)));
 
         if !self.popover.is_visible() {
             self.popover.popup();
         }
+
+        // Grab focus so keyboard Tab/Return go to the list
+        let lb = self.list_box.clone();
+        glib::idle_add_local_once(move || { lb.grab_focus(); });
     }
 
     pub fn hide(&self) {
@@ -125,13 +171,8 @@ impl BibPopup {
         self.filtered_keys.borrow().first().cloned()
     }
 
-    /// Move selection down (positive) or up (negative) by `delta` rows.
     pub fn move_selection(&self, delta: i32) {
-        let current_idx = self
-            .list_box
-            .selected_row()
-            .map(|r| r.index())
-            .unwrap_or(0);
+        let current_idx = self.list_box.selected_row().map(|r| r.index()).unwrap_or(0);
         let next_idx = (current_idx + delta).max(0);
         if let Some(row) = self.list_box.row_at_index(next_idx) {
             self.list_box.select_row(Some(&row));
@@ -185,7 +226,9 @@ impl BibPopup {
 
         let on_complete = self.on_complete.clone();
         let key = entry.key.clone();
+        let popover = self.popover.clone();
         row.connect_activate(move |_| {
+            popover.popdown();
             if let Some(f) = on_complete.borrow().as_ref() {
                 f(key.clone());
             }

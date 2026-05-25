@@ -36,14 +36,12 @@ impl FileTree {
         header_row.set_margin_end(6);
 
         let header_lbl = Label::new(Some("Files"));
-        header_lbl.add_css_class("dim-label");
+        header_lbl.add_css_class("heading");
         header_lbl.set_hexpand(true);
         header_lbl.set_halign(Align::Start);
         header_row.append(&header_lbl);
 
-        // "+" new-file button
-        let new_btn = Button::new();
-        new_btn.set_label("+");
+        let new_btn = Button::from_icon_name("list-add-symbolic");
         new_btn.add_css_class("flat");
         new_btn.set_tooltip_text(Some("New file"));
         header_row.append(&new_btn);
