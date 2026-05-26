@@ -12,6 +12,7 @@ fn import_regex() -> &'static Regex {
     })
 }
 
+#[allow(dead_code)]
 pub struct ProjectModel {
     pub root: PathBuf,
     /// Detected compilation root (the file that is not imported by any other).

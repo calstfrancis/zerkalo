@@ -1,3 +1,28 @@
+# Rust / Cargo
 /target/
+Cargo.lock
+
+# Editor swap/backup files
 *.swp
+*.swo
+*~
+\#*\#
+
+# OS metadata
 .DS_Store
+Thumbs.db
+
+# Generated icons (produced by install.sh from the SVG source in assets/)
+assets/icons/
+
+# Typst build artefacts
+*.pdf
+*.png
+
+# Zerkalo user data (never commit these)
+*.todo
+global-todo.md
+session.json
+zerkalo.log
+font-preferences.toml
+keybindings.toml

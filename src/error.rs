@@ -10,6 +10,7 @@ pub enum ZerkaloError {
     ConfigParse(#[from] toml::de::Error),
     #[error("Config serialize: {0}")]
     ConfigSerialize(#[from] toml::ser::Error),
+    #[allow(dead_code)]
     #[error("{0}")]
     Other(String),
 }

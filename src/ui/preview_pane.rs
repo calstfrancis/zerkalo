@@ -175,8 +175,22 @@ impl PreviewPane {
     }
 
     pub fn set_zoom(&self, z: f64) {
+        // Capture the content fraction at the vertical centre of the viewport
+        // before resizing, so we can restore it after.
+        let v_frac = {
+            let adj = self.img_scroll.vadjustment();
+            let range = adj.upper() - adj.lower();
+            let page = adj.page_size();
+            if range > page {
+                Some((adj.value() + page / 2.0) / range)
+            } else {
+                None
+            }
+        };
+
         *self.zoom.borrow_mut() = z.clamp(0.25, 4.0);
-        self.refit_drawing_area();
+        self.refit_drawing_area_centered(v_frac);
+
         let actual = *self.zoom.borrow();
         if let Some(f) = self.on_zoom_changed.borrow().as_ref() {
             f(actual);
@@ -281,6 +295,7 @@ impl PreviewPane {
         }
     }
 
+    #[allow(dead_code)]
     pub fn is_watching(&self) -> bool {
         self.watch_child.borrow().is_some()
     }
@@ -410,6 +425,10 @@ impl PreviewPane {
     }
 
     fn refit_drawing_area(&self) {
+        self.refit_drawing_area_centered(None);
+    }
+
+    fn refit_drawing_area_centered(&self, v_frac: Option<f64>) {
         let z = *self.zoom.borrow();
         let pbs = self.page_pixbufs.borrow();
         let mut total_h = 0i32;
@@ -425,7 +444,21 @@ impl PreviewPane {
         self.drawing_area.set_content_height(total_h.max(1));
         self.drawing_area.queue_draw();
         let scroll = self.img_scroll.clone();
-        glib::idle_add_local_once(move || { scroll.hadjustment().set_value(0.0); });
+        glib::idle_add_local_once(move || {
+            // Always reset horizontal scroll (document is center-aligned).
+            scroll.hadjustment().set_value(0.0);
+            // Restore vertical centre if requested (after a zoom change).
+            if let Some(frac) = v_frac {
+                let adj = scroll.vadjustment();
+                let range = adj.upper() - adj.lower();
+                let page = adj.page_size();
+                if range > page {
+                    let target = (range * frac - page / 2.0)
+                        .clamp(adj.lower(), adj.upper() - page);
+                    adj.set_value(target);
+                }
+            }
+        });
     }
 }
 

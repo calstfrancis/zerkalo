@@ -62,13 +62,13 @@ const ACADEMIC_FONTS: &[&str] = &[
 ];
 
 const LANGUAGES: &[(&str, &str, &str)] = &[
-    ("lang_ru", "Russian", "Cyrillic script; loads lang: \"ru\""),
-    ("lang_he", "Hebrew", "RTL — use inside #text(lang:\"he\")[...] blocks"),
-    ("lang_el", "Ancient Greek", "Polytonic Greek; ensure font coverage"),
-    ("lang_ja", "Japanese", "Requires Noto Serif CJK JP"),
-    ("lang_sa", "Sanskrit / Devanagari", "Requires Noto Serif Devanagari"),
-    ("lang_bo", "Tibetan", "Requires Noto Serif Tibetan"),
-    ("lang_zh", "Chinese", "Requires Noto Serif CJK SC"),
+    ("lang_ru", "Russian", "Cyrillic — sets lang:\"ru\", hyphenation, date locale"),
+    ("lang_he", "Hebrew", "RTL — sets dir:rtl and lang:\"he\" for the whole document"),
+    ("lang_el", "Ancient Greek", "Polytonic Greek — sets lang:\"el\"; needs a Unicode Greek font"),
+    ("lang_ja", "Japanese", "CJK — needs Noto Serif CJK JP (install noto-serif-cjk or equivalent)"),
+    ("lang_sa", "Sanskrit / Devanagari", "Devanagari — needs Noto Serif Devanagari"),
+    ("lang_bo", "Tibetan", "Tibetan — needs Noto Serif Tibetan"),
+    ("lang_zh", "Chinese", "CJK — needs Noto Serif CJK SC (install noto-serif-cjk or equivalent)"),
 ];
 
 const EXTRA_PACKAGES: &[(&str, &str, &str)] = &[
@@ -687,27 +687,45 @@ fn package_import(key: &str) -> Option<&'static str> {
 
 fn language_block(lang_key: &str) -> Option<&'static str> {
     match lang_key {
-        "lang_ru" => Some("#set text(lang: \"ru\")  // Russian"),
-        "lang_he" => Some(
-            "// Hebrew: wrap RTL passages in #text(lang: \"he\", dir: rtl)[...]\n\
-             // Set as document default only if the full document is Hebrew.",
+        "lang_ru" => Some(
+            "// Russian: Cyrillic hyphenation, date/number locale, Cyrillic-capable font\n\
+             #set text(lang: \"ru\", region: \"RU\")\n\
+             // If using a Latin-only font, switch to one with Cyrillic coverage:\n\
+             // #set text(font: (\"Linux Libertine O\", \"Times New Roman\"), lang: \"ru\")",
         ),
-        "lang_el" => Some("#set text(lang: \"el\")  // Greek"),
+        "lang_he" => Some(
+            "// Hebrew: right-to-left document\n\
+             #set text(lang: \"he\", dir: ltr)  // keep ltr for body default\n\
+             // Wrap Hebrew passages in: #text(lang: \"he\", dir: rtl)[...]\n\
+             // For a fully-Hebrew document use: #set text(lang: \"he\", dir: rtl)",
+        ),
+        "lang_el" => Some(
+            "// Ancient/Modern Greek: polytonic Unicode coverage\n\
+             #set text(lang: \"el\")\n\
+             // Recommended fonts: Linux Libertine O, GFS Artemisia, Gentium Plus\n\
+             // #set text(font: \"Linux Libertine O\", lang: \"el\")",
+        ),
         "lang_ja" => Some(
-            "// Japanese — install Noto Serif CJK JP first\n\
-             #set text(lang: \"ja\", font: \"Noto Serif CJK JP\")",
+            "// Japanese: install Noto Serif CJK JP (or Source Han Serif JP)\n\
+             // Linux/openSUSE: zypper install google-noto-serif-cjk-fonts\n\
+             // macOS: brew install --cask font-noto-serif-cjk\n\
+             #set text(lang: \"ja\", font: (\"Noto Serif CJK JP\", \"Source Han Serif JP\"))",
         ),
         "lang_sa" => Some(
-            "// Sanskrit / Devanagari — install Noto Serif Devanagari first\n\
-             #set text(lang: \"sa\", font: \"Noto Serif Devanagari\")",
+            "// Sanskrit / Devanagari: install Noto Serif Devanagari\n\
+             // Linux/openSUSE: zypper install google-noto-serif-devanagari-fonts\n\
+             #set text(lang: \"sa\", font: (\"Noto Serif Devanagari\", \"Sanskrit 2003\"))",
         ),
         "lang_bo" => Some(
-            "// Tibetan — install Noto Serif Tibetan first\n\
+            "// Tibetan: install Noto Serif Tibetan\n\
+             // Linux/openSUSE: zypper install google-noto-serif-tibetan-fonts\n\
              #set text(lang: \"bo\", font: \"Noto Serif Tibetan\")",
         ),
         "lang_zh" => Some(
-            "// Chinese — install Noto Serif CJK SC first\n\
-             #set text(lang: \"zh\", font: \"Noto Serif CJK SC\")",
+            "// Chinese (Simplified): install Noto Serif CJK SC (or Source Han Serif SC)\n\
+             // Linux/openSUSE: zypper install google-noto-serif-cjk-fonts\n\
+             // macOS: brew install --cask font-noto-serif-cjk\n\
+             #set text(lang: \"zh\", font: (\"Noto Serif CJK SC\", \"Source Han Serif SC\"))",
         ),
         _ => None,
     }

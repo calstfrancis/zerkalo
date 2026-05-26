@@ -14,8 +14,10 @@ use adw::prelude::*;
 use crate::bibliography;
 use crate::config::{Config, ProjectConfig, Theme};
 use crate::git_sync;
+use crate::keybindings::{matches_binding, Keybindings};
 use crate::lsp::{DiagSeverity, LspClient};
 use crate::project_model::ProjectModel;
+use crate::session::Session;
 use super::dep_graph::DepGraph;
 use super::docs_browser::DocsBrowser;
 use super::editor_pane::EditorPane;
@@ -56,6 +58,32 @@ impl AppWindow {
         window.set_default_width(1600);
         window.set_default_height(1000);
 
+        // ── Application-wide accent CSS ─────────────────────────────────────
+        {
+            let css = gtk4::CssProvider::new();
+            css.load_from_data(
+                ".navigation-sidebar > row:hover:not(:selected) { \
+                    background-color: alpha(@accent_color, 0.08); \
+                } \
+                .navigation-sidebar > row:selected { \
+                    background-color: @accent_bg_color; \
+                    color: @accent_fg_color; \
+                } \
+                .linked > toggle:checked, \
+                .linked > button:checked { \
+                    background-color: @accent_bg_color; \
+                    color: @accent_fg_color; \
+                }",
+            );
+            if let Some(display) = gtk4::gdk::Display::default() {
+                gtk4::style_context_add_provider_for_display(
+                    &display,
+                    &css,
+                    gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+                );
+            }
+        }
+
         // ── Per-project config ──────────────────────────────────────────────
 
         let proj_cfg = ProjectConfig::load(&project_root).unwrap_or_default();
@@ -90,12 +118,41 @@ impl AppWindow {
         focus_btn.add_css_class("flat");
         header.pack_start(&focus_btn);
 
-        // End: compile (primary), sync (secondary), hamburger menu
+        let todo_btn = ToggleButton::new();
+        todo_btn.set_icon_name("view-list-symbolic");
+        todo_btn.set_tooltip_text(Some("Toggle TODO panel"));
+        todo_btn.add_css_class("flat");
+        todo_btn.set_active(true);
+
+        // End: compile (primary), style switcher, sync (secondary), hamburger menu
         let compile_btn = Button::with_label("Preview");
         compile_btn.set_tooltip_text(Some("Compile & Preview (Ctrl+Shift+P)"));
         compile_btn.add_css_class("suggested-action");
         compile_btn.add_css_class("pill");
         header.pack_end(&compile_btn);
+
+        // Style switcher dropdown
+        let style_names = crate::styles::STYLES.iter().map(|(n, _, _, _)| *n).collect::<Vec<_>>();
+        let style_box = GtkBox::new(Orientation::Vertical, 0);
+        style_box.set_margin_top(4);
+        style_box.set_margin_bottom(4);
+        let style_popover = Popover::new();
+        style_popover.set_child(Some(&style_box));
+        let style_btn = MenuButton::new();
+        style_btn.set_label("Style");
+        style_btn.add_css_class("flat");
+        style_btn.set_tooltip_text(Some("Apply a formatting style to the document"));
+        style_btn.set_popover(Some(&style_popover));
+        header.pack_end(&style_btn);
+        for name in &style_names {
+            let row = Button::new();
+            row.set_label(name);
+            row.set_halign(Align::Start);
+            row.add_css_class("flat");
+            row.set_size_request(160, -1);
+            style_box.append(&row);
+        }
+        // Wire style buttons after editor_pane is available (done below)
 
         let sync_btn = Button::from_icon_name("emblem-synchronizing-symbolic");
         sync_btn.set_tooltip_text(Some("Commit & Push to Git"));
@@ -157,6 +214,12 @@ impl AppWindow {
         menu_fonts_item.add_css_class("flat");
         menu_fonts_item.set_size_request(190, -1);
 
+        let menu_import_latex_item = Button::new();
+        menu_import_latex_item.set_label("Import LaTeX File…");
+        menu_import_latex_item.set_halign(Align::Start);
+        menu_import_latex_item.add_css_class("flat");
+        menu_import_latex_item.set_size_request(190, -1);
+
         let menu_popover_box = GtkBox::new(Orientation::Vertical, 0);
         menu_popover_box.set_margin_top(4);
         menu_popover_box.set_margin_bottom(4);
@@ -168,6 +231,7 @@ impl AppWindow {
         menu_popover_box.append(&menu_settings_item);
         menu_popover_box.append(&menu_export_item);
         menu_popover_box.append(&menu_fonts_item);
+        menu_popover_box.append(&menu_import_latex_item);
         menu_popover_box.append(&Separator::new(Orientation::Horizontal));
         menu_popover_box.append(&menu_help_item);
         menu_popover_box.append(&menu_about_item);
@@ -179,6 +243,7 @@ impl AppWindow {
         menu_btn.add_css_class("flat");
         menu_btn.set_popover(Some(&menu_popover));
         header.pack_end(&menu_btn);
+        header.pack_end(&todo_btn);
 
         // ── Setzer-style open dropdown ───────────────────────────────────────
         let open_search = Entry::new();
@@ -227,10 +292,51 @@ impl AppWindow {
         let package_browser = PackageBrowser::new();
         let todo_panel = TodoPanel::new();
 
+        // Wire style buttons → editor
+        {
+            let mut child_opt = style_box.first_child();
+            for (_, code, bib_style, bib_title) in crate::styles::STYLES {
+                if let Some(child) = child_opt {
+                    let btn = child.downcast::<Button>().unwrap();
+                    let ep = editor_pane.clone();
+                    let pop = style_popover.clone();
+                    let code_s = code.to_string();
+                    let bib_s = bib_style.to_string();
+                    let title_s = bib_title.to_string();
+                    btn.connect_clicked(move |_| {
+                        pop.popdown();
+                        ep.apply_style(&code_s, &bib_s, &title_s);
+                    });
+                    child_opt = btn.next_sibling();
+                } else {
+                    break;
+                }
+            }
+        }
+
         // Wire outline symbol insert → editor
         {
             let ep = editor_pane.clone();
             outline_panel.set_on_symbol_insert(move |ch| ep.insert_at_cursor(&ch));
+        }
+
+        // Wire outline heading click → jump to line in editor
+        {
+            let ep = editor_pane.clone();
+            outline_panel.set_on_jump(move |path, line| {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    ep.open_file(path.clone(), &content);
+                }
+                ep.jump_to_line(&path, line);
+            });
+        }
+
+        // Wire cursor movement → outline auto-select
+        {
+            let op = outline_panel.clone();
+            editor_pane.set_on_cursor_heading(move |_path, line| {
+                op.select_for_line(line);
+            });
         }
 
         // Wire dep_graph → open file in editor
@@ -418,6 +524,7 @@ impl AppWindow {
         let sidebar_visible_c = sidebar_visible.clone();
         // left_paned_ref set after layout — closure reads it through the Rc
         let left_paned_holder: Rc<RefCell<Option<GtkBox>>> = Rc::new(RefCell::new(None));
+        let right_sidebar_holder: Rc<RefCell<Option<GtkBox>>> = Rc::new(RefCell::new(None));
         let lpane_for_btn = left_paned_holder.clone();
         sidebar_btn.connect_clicked(move |_| {
             let mut v = sidebar_visible_c.borrow_mut();
@@ -427,10 +534,20 @@ impl AppWindow {
             }
         });
 
+        // ── TODO sidebar toggle ─────────────────────────────────────────────
+        let rsh_for_todo = right_sidebar_holder.clone();
+        todo_btn.connect_toggled(move |btn| {
+            if let Some(rs) = rsh_for_todo.borrow().as_ref() {
+                rs.set_visible(btn.is_active());
+            }
+        });
+
         // ── Focus mode toggle ───────────────────────────────────────────────
         let focus_active_c = focus_active.clone();
         let lpane_for_focus = left_paned_holder.clone();
         let preview_vis_for_focus = preview_vis_holder.clone();
+        let rsh_for_focus = right_sidebar_holder.clone();
+        let todo_btn_for_focus = todo_btn.clone();
         focus_btn.connect_toggled(move |btn| {
             let focused = btn.is_active();
             *focus_active_c.borrow_mut() = focused;
@@ -439,6 +556,9 @@ impl AppWindow {
             }
             if let Some(pc) = preview_vis_for_focus.borrow().as_ref() {
                 pc.set_visible(!focused);
+            }
+            if let Some(rs) = rsh_for_focus.borrow().as_ref() {
+                rs.set_visible(!focused && todo_btn_for_focus.is_active());
             }
         });
 
@@ -559,6 +679,56 @@ impl AppWindow {
         menu_fonts_item.connect_clicked(move |_| {
             menu_popover_for_fonts.popdown();
             FontManager::new(&window_for_fonts).present();
+        });
+
+        // ── Menu: Import LaTeX ──────────────────────────────────────────────
+
+        let window_for_latex = window.clone();
+        let editor_for_latex = editor_pane.clone();
+        let menu_popover_for_latex = menu_popover.clone();
+        let work_dir_for_latex = project_root.clone();
+        menu_import_latex_item.connect_clicked(move |_| {
+            menu_popover_for_latex.popdown();
+            let dialog = gtk4::FileDialog::new();
+            dialog.set_title("Import LaTeX File");
+            let filter = gtk4::FileFilter::new();
+            filter.set_name(Some("LaTeX files (*.tex)"));
+            filter.add_pattern("*.tex");
+            let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
+            filters.append(&filter);
+            dialog.set_filters(Some(&filters));
+            dialog.set_initial_folder(Some(&gtk4::gio::File::for_path(&work_dir_for_latex)));
+            let win2 = window_for_latex.clone();
+            let ep2 = editor_for_latex.clone();
+            let win_ref = win2.clone();
+            dialog.open(Some(&win_ref), None::<&gtk4::gio::Cancellable>, move |result| {
+                if let Ok(file) = result {
+                    if let Some(input_path) = file.path() {
+                        let stem = input_path.file_stem().and_then(|s| s.to_str()).unwrap_or("output").to_string();
+                        let out_path = input_path.with_file_name(format!("{stem}.typ"));
+                        let output = std::process::Command::new("pandoc")
+                            .arg(&input_path)
+                            .arg("-f").arg("latex")
+                            .arg("-t").arg("typst")
+                            .arg("-o").arg(&out_path)
+                            .output();
+                        match output {
+                            Ok(o) if o.status.success() => {
+                                if let Ok(content) = std::fs::read_to_string(&out_path) {
+                                    ep2.open_file(out_path, &content);
+                                }
+                            }
+                            Ok(o) => {
+                                let msg = String::from_utf8_lossy(&o.stderr);
+                                show_alert(&win2, "Import Failed", &format!("pandoc error:\n{}", msg.lines().take(5).collect::<Vec<_>>().join("\n")));
+                            }
+                            Err(_) => {
+                                show_alert(&win2, "Import Failed", "pandoc not found. Install pandoc 3.1+ to use LaTeX import.");
+                            }
+                        }
+                    }
+                }
+            });
         });
 
         // ── Menu: New from Template ─────────────────────────────────────────
@@ -759,6 +929,7 @@ impl AppWindow {
             history_for_switch.load_file_history(&path);
             dep_graph_for_switch.refresh(Some(&path));
             preview_for_switch.set_root_file(path.clone());
+            preview_for_switch.trigger_compile();
             todo_panel_for_switch.set_current_file(Some(&path));
             if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                 title_widget_for_switch.set_title(name);
@@ -795,11 +966,15 @@ impl AppWindow {
 
         // ── Compile done callback ────────────────────────────────────────────
 
+        // LSP dedup: when LSP has live diagnostics, suppress compile-stderr errors
+        let lsp_has_diags: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
+
         let error_panel_for_compile = error_panel.clone();
         let editor_for_diag = editor_pane.clone();
         let root_for_compile = project_root.clone();
         let popout_pane_for_compile = popout_pane.clone();
         let dep_graph_for_compile = dep_graph.clone();
+        let lsp_diags_for_compile = lsp_has_diags.clone();
         preview_pane.set_on_compile_done(move |result| {
             match result {
                 None => {
@@ -807,6 +982,14 @@ impl AppWindow {
                     editor_for_diag.clear_diagnostic_marks();
                 }
                 Some(stderr) => {
+                    // If LSP is providing diagnostics, skip showing compile stderr
+                    if *lsp_diags_for_compile.borrow() {
+                        dep_graph_for_compile.refresh(None);
+                        if let Some(pane) = popout_pane_for_compile.borrow().as_ref() {
+                            pane.refresh_display();
+                        }
+                        return;
+                    }
                     let errors = parse_typst_errors(&stderr, &root_for_compile);
                     let diags: Vec<(std::path::PathBuf, u32, bool)> = errors
                         .iter()
@@ -829,14 +1012,6 @@ impl AppWindow {
                 editor_for_jump.open_file(path.clone(), &content);
             }
             editor_for_jump.jump_to_line(&path, line);
-        });
-
-        // ── Initial compile ─────────────────────────────────────────────────
-
-        let preview_init = preview_pane.clone();
-        glib::timeout_add_local(Duration::from_millis(600), move || {
-            preview_init.trigger_compile();
-            glib::ControlFlow::Break
         });
 
         // ── Startup: warn if required tools are missing ──────────────────────
@@ -908,10 +1083,12 @@ impl AppWindow {
         let editor_for_comp_poll = editor_pane.clone();
         let editor_for_lsp_diag = editor_pane.clone();
         let last_req_poll = last_completion_request.clone();
+        let lsp_diags_for_poll = lsp_has_diags.clone();
         glib::timeout_add_local(Duration::from_millis(400), move || {
             if let Some(client) = lsp_poll.borrow().as_ref() {
                 let diags = client.poll();
                 if !diags.is_empty() {
+                    *lsp_diags_for_poll.borrow_mut() = true;
                     let errors: Vec<CompileError> = diags
                         .into_iter()
                         .map(|d| CompileError {
@@ -931,6 +1108,9 @@ impl AppWindow {
                         .collect();
                     editor_for_lsp_diag.mark_diagnostics(&diag_marks);
                     error_panel_for_lsp.show_errors(errors);
+                } else {
+                    // LSP reported no diagnostics — allow compile-stderr to show again
+                    *lsp_diags_for_poll.borrow_mut() = false;
                 }
                 if let Some((id, items)) = client.poll_completion() {
                     if *last_req_poll.borrow() == Some(id) {
@@ -1258,15 +1438,23 @@ impl AppWindow {
             );
         }
         {
-            let editor_c = editor_pane.clone();
             let ui_prov = ui_font_provider.clone();
             gost_font_sw.connect_active_notify(move |sw| {
                 if sw.is_active() {
-                    editor_c.apply_font_family("GOST type B");
-                    ui_prov.load_from_data("* { font-family: 'GOST type B'; }");
+                    let cfg = current_config_for_gost.borrow();
+                    let editor_font = cfg.editor_font_family.clone();
+                    let size_clause = if cfg.editor_font_size > 0 {
+                        format!("font-size: {}pt; ", cfg.editor_font_size)
+                    } else {
+                        String::new()
+                    };
+                    // Apply GOST to all UI furniture; the textview (editor) rule overrides it
+                    // because 'textview' is more specific than '*' within the same provider.
+                    ui_prov.load_from_data(&format!(
+                        "* {{ font-family: 'GOST type B'; }} \
+                         textview {{ font-family: '{editor_font}'; {size_clause}}}",
+                    ));
                 } else {
-                    let family = current_config_for_gost.borrow().editor_font_family.clone();
-                    editor_c.apply_font_family(&family);
                     ui_prov.load_from_data("* {}");
                 }
             });
@@ -1276,13 +1464,19 @@ impl AppWindow {
         left_box.set_hexpand(false);
         left_box.set_vexpand(true);
         left_box.append(outline_panel.widget());
-        left_box.append(&Separator::new(Orientation::Horizontal));
-        left_box.append(todo_panel.widget());
         left_box.append(&advanced_section);
         left_box.append(&Separator::new(Orientation::Horizontal));
         left_box.append(&simple_mode_row);
         left_box.append(&gost_font_row);
         *left_paned_holder.borrow_mut() = Some(left_box.clone());
+
+        // ── Right sidebar (TODO panel) ────────────────────────────────────────
+        let right_sidebar = GtkBox::new(Orientation::Vertical, 0);
+        right_sidebar.set_width_request(240);
+        right_sidebar.set_vexpand(true);
+        todo_panel.widget().set_vexpand(true);
+        right_sidebar.append(todo_panel.widget());
+        *right_sidebar_holder.borrow_mut() = Some(right_sidebar.clone());
 
         let inner_paned = Paned::new(Orientation::Horizontal);
         inner_paned.set_position(600);
@@ -1297,6 +1491,15 @@ impl AppWindow {
         right_col.append(&inner_paned);
         right_col.append(error_panel.widget());
 
+        let content_paned = Paned::new(Orientation::Horizontal);
+        content_paned.set_hexpand(true);
+        content_paned.set_vexpand(true);
+        content_paned.set_resize_start_child(true);
+        content_paned.set_resize_end_child(false);
+        content_paned.set_shrink_end_child(false);
+        content_paned.set_start_child(Some(&right_col));
+        content_paned.set_end_child(Some(&right_sidebar));
+
         let outer_paned = Paned::new(Orientation::Horizontal);
         outer_paned.set_position(220);
         outer_paned.set_resize_start_child(false);
@@ -1304,7 +1507,7 @@ impl AppWindow {
         outer_paned.set_hexpand(true);
         outer_paned.set_vexpand(true);
         outer_paned.set_start_child(Some(&left_box));
-        outer_paned.set_end_child(Some(&right_col));
+        outer_paned.set_end_child(Some(&content_paned));
 
         let main_content = GtkBox::new(Orientation::Horizontal, 0);
         main_content.set_hexpand(true);
@@ -1331,17 +1534,21 @@ impl AppWindow {
     }
 
     pub fn setup_keybindings(&self) {
+        Keybindings::write_default_if_missing();
+        let kb = Keybindings::load();
+
         let editor = self.editor_pane.clone();
         let preview = self.preview_pane.clone();
         let window = self.window.clone();
         let controller = gtk4::EventControllerKey::new();
 
         controller.connect_key_pressed(move |_, key, _, modifier| {
-            use gtk4::gdk::{Key, ModifierType};
+            use gtk4::gdk::ModifierType;
             let ctrl = modifier.contains(ModifierType::CONTROL_MASK);
             let shift = modifier.contains(ModifierType::SHIFT_MASK);
+            let alt = modifier.contains(ModifierType::ALT_MASK);
 
-            if ctrl && !shift && key == Key::s {
+            if matches_binding(&kb.save, ctrl, shift, alt, key) {
                 if let Some(path) = editor.get_active_path() {
                     if let Some(content) = editor.get_active_content() {
                         if std::fs::write(&path, &content).is_ok() {
@@ -1352,26 +1559,34 @@ impl AppWindow {
                 }
                 return glib::Propagation::Stop;
             }
-            if ctrl && shift && (key == Key::P || key == Key::p) {
+            if matches_binding(&kb.compile, ctrl, shift, alt, key) {
                 editor.save_all_modified();
                 preview.trigger_compile();
                 return glib::Propagation::Stop;
             }
-            if ctrl && !shift && key == Key::f {
+            if matches_binding(&kb.find, ctrl, shift, alt, key) {
                 editor.toggle_find();
                 return glib::Propagation::Stop;
             }
-            if ctrl && !shift && key == Key::q {
+            if matches_binding(&kb.quit, ctrl, shift, alt, key) {
                 window.close();
                 return glib::Propagation::Stop;
             }
-            if ctrl && !shift && key == Key::Tab {
+            if matches_binding(&kb.next_tab, ctrl, shift, alt, key) {
                 editor.next_tab();
                 return glib::Propagation::Stop;
             }
-            if ctrl && (key == Key::ISO_Left_Tab || (shift && key == Key::Tab)) {
+            if matches_binding(&kb.prev_tab, ctrl, shift, alt, key) {
                 editor.prev_tab();
                 return glib::Propagation::Stop;
+            }
+            // Ctrl+Shift+Tab also maps to ISO_Left_Tab on X11
+            {
+                use gtk4::gdk::Key;
+                if ctrl && (key == Key::ISO_Left_Tab) {
+                    editor.prev_tab();
+                    return glib::Propagation::Stop;
+                }
             }
 
             glib::Propagation::Proceed
@@ -1381,19 +1596,67 @@ impl AppWindow {
     }
 
     pub fn open_initial_file(&self, initial: Option<PathBuf>) {
-        let path = initial.unwrap_or_else(|| self.project_root.join("main.typ"));
-        let content = match std::fs::read_to_string(&path) {
-            Ok(c) => c,
-            Err(_) => {
-                let default = "// Welcome to Zerkalo\n\n= Introduction\n\nStart writing here...\n";
-                let _ = std::fs::write(&path, default);
-                default.to_string()
+        if let Some(path) = initial {
+            // Explicit file argument: open it, ignore session
+            let content = match std::fs::read_to_string(&path) {
+                Ok(c) => c,
+                Err(_) => {
+                    let default = "// Welcome to Zerkalo\n\n= Introduction\n\nStart writing here...\n";
+                    let _ = std::fs::write(&path, default);
+                    default.to_string()
+                }
+            };
+            self.editor_pane.open_file(path, &content);
+            return;
+        }
+
+        let session = Session::load();
+
+        if !session.open_files.is_empty() {
+            for path in &session.open_files {
+                if let Ok(content) = std::fs::read_to_string(path) {
+                    self.editor_pane.open_file(path.clone(), &content);
+                }
             }
-        };
-        self.editor_pane.open_file(path, &content);
+            // Switch to the previously active file
+            if let Some(ref active) = session.active_file {
+                self.editor_pane.switch_to_file(active);
+            }
+            // Restore cursor positions after layout settles
+            let ep = self.editor_pane.clone();
+            let positions = session.cursor_positions.clone();
+            glib::idle_add_local_once(move || {
+                for (path, offset) in &positions {
+                    ep.restore_cursor(path, *offset);
+                }
+            });
+        } else {
+            // No session: open or create main.typ
+            let path = self.project_root.join("main.typ");
+            let content = match std::fs::read_to_string(&path) {
+                Ok(c) => c,
+                Err(_) => {
+                    let default = "// Welcome to Zerkalo\n\n= Introduction\n\nStart writing here...\n";
+                    let _ = std::fs::write(&path, default);
+                    default.to_string()
+                }
+            };
+            self.editor_pane.open_file(path, &content);
+        }
     }
 
     pub fn present(&self) {
+        // Save session on close
+        let ep = self.editor_pane.clone();
+        self.window.connect_close_request(move |_| {
+            let open_files = ep.get_open_paths_ordered();
+            let active_file = ep.get_active_path();
+            let cursor_positions = ep.get_cursor_positions();
+            let session = Session { open_files, active_file, cursor_positions };
+            session.save();
+            glib::Propagation::Proceed
+        });
+
         self.window.present();
     }
 }

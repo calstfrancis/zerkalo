@@ -4,18 +4,17 @@ use std::rc::Rc;
 use gtk4::prelude::*;
 use gtk4::{
     Box as GtkBox, Button, Entry, EventControllerKey, Label, Orientation, PropagationPhase,
-    Separator,
+    Separator, ToggleButton,
 };
 
 #[derive(Clone)]
 pub struct FindBar {
     widget: GtkBox,
     pub find_entry: Entry,
-    replace_entry: Entry,
     result_label: Label,
-    on_search: Rc<RefCell<Option<Box<dyn Fn(&str, bool)>>>>,
-    on_replace_one: Rc<RefCell<Option<Box<dyn Fn(&str, &str)>>>>,
-    on_replace_all: Rc<RefCell<Option<Box<dyn Fn(&str, &str)>>>>,
+    on_search: Rc<RefCell<Option<Box<dyn Fn(&str, bool, bool)>>>>,
+    on_replace_one: Rc<RefCell<Option<Box<dyn Fn(&str, &str, bool)>>>>,
+    on_replace_all: Rc<RefCell<Option<Box<dyn Fn(&str, &str, bool)>>>>,
 }
 
 impl FindBar {
@@ -42,6 +41,11 @@ impl FindBar {
         result_label.add_css_class("dim-label");
         result_label.set_width_chars(12);
 
+        let whole_word_btn = ToggleButton::new();
+        whole_word_btn.set_label("W");
+        whole_word_btn.add_css_class("flat");
+        whole_word_btn.set_tooltip_text(Some("Match whole words only"));
+
         let sep = Separator::new(Orientation::Vertical);
 
         let replace_entry = Entry::new();
@@ -59,55 +63,70 @@ impl FindBar {
         bar.append(&prev_btn);
         bar.append(&next_btn);
         bar.append(&result_label);
+        bar.append(&whole_word_btn);
         bar.append(&sep);
         bar.append(&replace_entry);
         bar.append(&replace_btn);
         bar.append(&replace_all_btn);
 
-        let on_search: Rc<RefCell<Option<Box<dyn Fn(&str, bool)>>>> =
+        let whole_word: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
+        let on_search: Rc<RefCell<Option<Box<dyn Fn(&str, bool, bool)>>>> =
             Rc::new(RefCell::new(None));
-        let on_replace_one: Rc<RefCell<Option<Box<dyn Fn(&str, &str)>>>> =
+        let on_replace_one: Rc<RefCell<Option<Box<dyn Fn(&str, &str, bool)>>>> =
             Rc::new(RefCell::new(None));
-        let on_replace_all: Rc<RefCell<Option<Box<dyn Fn(&str, &str)>>>> =
+        let on_replace_all: Rc<RefCell<Option<Box<dyn Fn(&str, &str, bool)>>>> =
             Rc::new(RefCell::new(None));
+
+        // Whole-word toggle
+        {
+            let ww = whole_word.clone();
+            whole_word_btn.connect_toggled(move |btn| {
+                *ww.borrow_mut() = btn.is_active();
+            });
+        }
 
         {
             let cb = on_search.clone();
             let e = find_entry.clone();
+            let ww = whole_word.clone();
             next_btn.connect_clicked(move |_| {
-                if let Some(f) = cb.borrow().as_ref() { f(&e.text(), true); }
+                if let Some(f) = cb.borrow().as_ref() { f(&e.text(), true, *ww.borrow()); }
             });
         }
         {
             let cb = on_search.clone();
             let e = find_entry.clone();
+            let ww = whole_word.clone();
             prev_btn.connect_clicked(move |_| {
-                if let Some(f) = cb.borrow().as_ref() { f(&e.text(), false); }
+                if let Some(f) = cb.borrow().as_ref() { f(&e.text(), false, *ww.borrow()); }
             });
         }
         {
             let cb = on_search.clone();
+            let ww = whole_word.clone();
             find_entry.connect_activate(move |e| {
-                if let Some(f) = cb.borrow().as_ref() { f(&e.text(), true); }
+                if let Some(f) = cb.borrow().as_ref() { f(&e.text(), true, *ww.borrow()); }
             });
         }
         {
             let cb = on_replace_one.clone();
             let fe = find_entry.clone();
             let re = replace_entry.clone();
+            let ww = whole_word.clone();
             replace_btn.connect_clicked(move |_| {
-                if let Some(f) = cb.borrow().as_ref() { f(&fe.text(), &re.text()); }
+                if let Some(f) = cb.borrow().as_ref() { f(&fe.text(), &re.text(), *ww.borrow()); }
             });
         }
         {
             let cb = on_replace_all.clone();
             let fe = find_entry.clone();
             let re = replace_entry.clone();
+            let ww = whole_word.clone();
             replace_all_btn.connect_clicked(move |_| {
-                if let Some(f) = cb.borrow().as_ref() { f(&fe.text(), &re.text()); }
+                if let Some(f) = cb.borrow().as_ref() { f(&fe.text(), &re.text(), *ww.borrow()); }
             });
         }
-        // Escape: clear entry (bar is persistent, not hidden)
+        // Escape: clear entry
         {
             let entry = find_entry.clone();
             let kc = EventControllerKey::new();
@@ -126,7 +145,6 @@ impl FindBar {
         Self {
             widget: bar,
             find_entry,
-            replace_entry,
             result_label,
             on_search,
             on_replace_one,
@@ -146,15 +164,15 @@ impl FindBar {
         self.result_label.set_text(text);
     }
 
-    pub fn set_on_search(&self, f: impl Fn(&str, bool) + 'static) {
+    pub fn set_on_search(&self, f: impl Fn(&str, bool, bool) + 'static) {
         *self.on_search.borrow_mut() = Some(Box::new(f));
     }
 
-    pub fn set_on_replace_one(&self, f: impl Fn(&str, &str) + 'static) {
+    pub fn set_on_replace_one(&self, f: impl Fn(&str, &str, bool) + 'static) {
         *self.on_replace_one.borrow_mut() = Some(Box::new(f));
     }
 
-    pub fn set_on_replace_all(&self, f: impl Fn(&str, &str) + 'static) {
+    pub fn set_on_replace_all(&self, f: impl Fn(&str, &str, bool) + 'static) {
         *self.on_replace_all.borrow_mut() = Some(Box::new(f));
     }
 }

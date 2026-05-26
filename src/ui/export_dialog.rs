@@ -38,7 +38,7 @@ impl ExportDialog {
 
         let fmt_row = adw::ComboRow::new();
         fmt_row.set_title("Format");
-        let fmt_model = gtk4::StringList::new(&["PDF", "HTML", "DOCX"]);
+        let fmt_model = gtk4::StringList::new(&["PDF", "HTML", "DOCX", "ODT", "LaTeX"]);
         fmt_row.set_model(Some(&fmt_model));
         prefs_group.add(&fmt_row);
         content.append(&prefs_group);
@@ -135,6 +135,34 @@ impl ExportDialog {
                                 Ok(o) if o.status.success() => Ok(()),
                                 Ok(o) => Err(String::from_utf8_lossy(&o.stderr).to_string()),
                                 Err(_) => Err("pandoc not found. Install it to export DOCX.".to_string()),
+                            }
+                        }
+                        3 => {
+                            // ODT via pandoc
+                            let out_path = out_dir_owned.join(format!("{stem}.odt"));
+                            let result = std::process::Command::new("pandoc")
+                                .arg("-f").arg("typst")
+                                .arg(&input_owned)
+                                .arg("-o").arg(&out_path)
+                                .output();
+                            match result {
+                                Ok(o) if o.status.success() => Ok(()),
+                                Ok(o) => Err(String::from_utf8_lossy(&o.stderr).to_string()),
+                                Err(_) => Err("pandoc not found. Install it to export ODT.".to_string()),
+                            }
+                        }
+                        4 => {
+                            // LaTeX via pandoc
+                            let out_path = out_dir_owned.join(format!("{stem}.tex"));
+                            let result = std::process::Command::new("pandoc")
+                                .arg("-f").arg("typst")
+                                .arg(&input_owned)
+                                .arg("-o").arg(&out_path)
+                                .output();
+                            match result {
+                                Ok(o) if o.status.success() => Ok(()),
+                                Ok(o) => Err(String::from_utf8_lossy(&o.stderr).to_string()),
+                                Err(_) => Err("pandoc not found. Install it to export LaTeX.".to_string()),
                             }
                         }
                         _ => {
