@@ -82,6 +82,7 @@ impl RefManager {
         self.rebuild_list("");
     }
 
+    #[allow(dead_code)]
     pub fn clear_entries(&self) {
         self.entries.borrow_mut().clear();
         self.rebuild_list("");

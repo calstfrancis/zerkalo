@@ -3,9 +3,12 @@ mod config;
 mod error;
 mod fonts;
 mod git_sync;
+mod keybindings;
 mod lsp;
 mod project;
 mod project_model;
+mod session;
+mod styles;
 mod ui;
 
 use std::env;
@@ -41,6 +44,31 @@ fn main() -> ExitCode {
         "Zerkalo starting — log: {}",
         log_dir.join("zerkalo.log").display()
     );
+
+    // ── CLI help ─────────────────────────────────────────────────────────────
+    if env::args().any(|a| a == "--help" || a == "-h") {
+        println!(
+            "Zerkalo — a Typst editor\n\
+             \n\
+             Usage: zerkalo [OPTIONS] [FILE]\n\
+             \n\
+             Arguments:\n\
+               FILE           .typ file to open on startup\n\
+             \n\
+             Options:\n\
+               -h, --help     Print this help message\n\
+               --version      Print version\n\
+             \n\
+             Configuration: ~/.config/zerkalo/config.toml\n\
+             Log file:       ~/.local/share/zerkalo/zerkalo.log\n\
+             Work folder:    set via config.toml work_dir key"
+        );
+        return ExitCode::SUCCESS;
+    }
+    if env::args().any(|a| a == "--version") {
+        println!("zerkalo {}", env!("CARGO_PKG_VERSION"));
+        return ExitCode::SUCCESS;
+    }
 
     fonts::ensure_gost_font();
 

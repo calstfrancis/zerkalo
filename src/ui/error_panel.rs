@@ -72,7 +72,8 @@ pub fn parse_typst_errors(stderr: &str, project_root: &Path) -> Vec<CompileError
                 });
             }
         } else if trimmed.starts_with("error:") {
-            let msg = trimmed.trim_start_matches("error:").trim().to_string();
+            let raw = trimmed.trim_start_matches("error:").trim().to_string();
+            let msg = enrich_error_message(&raw);
             current_msg = Some((msg, Severity::Error));
         } else if trimmed.starts_with("warning:") {
             let msg = trimmed.trim_start_matches("warning:").trim().to_string();
@@ -92,6 +93,19 @@ pub fn parse_typst_errors(stderr: &str, project_root: &Path) -> Vec<CompileError
     }
 
     errors
+}
+
+// ── Error enrichment ─────────────────────────────────────────────────────────
+
+fn enrich_error_message(msg: &str) -> String {
+    // "@key" citation → missing #bibliography() call or wrong bib path
+    if msg.contains("does not exist in the document") && msg.contains('<') && msg.contains('>') {
+        return format!(
+            "{msg}\n→ Hint: add #bibliography(\"refs.bib\") to your document, \
+             or check the bib file path is correct relative to the .typ file"
+        );
+    }
+    msg.to_string()
 }
 
 // ── Widget ───────────────────────────────────────────────────────────────────

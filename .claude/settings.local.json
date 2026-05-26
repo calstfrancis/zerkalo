@@ -28,7 +28,8 @@
       "Bash(python3 -c ' *)",
       "Bash(fc-list)",
       "Bash(curl -s https://raw.githubusercontent.com/calstfrancis/Gost/main/essay_builder/texgen.py)",
-      "Bash(curl *)"
+      "Bash(curl *)",
+      "Bash(pandoc --version)"
     ]
   }
 }

@@ -138,6 +138,7 @@ impl HistoryPanel {
         }
     }
 
+    #[allow(dead_code)]
     pub fn refresh(&self) {
         if let Some(path) = self.current_file.borrow().clone() {
             self.load_file_history(&path);

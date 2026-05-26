@@ -136,6 +136,7 @@ pub struct EditorPane {
     on_page_switch: Rc<RefCell<Option<Box<dyn Fn(String, PathBuf)>>>>,
     on_file_opened: Rc<RefCell<Option<Box<dyn Fn(PathBuf, String)>>>>,
     on_completion_needed: Rc<RefCell<Option<Box<dyn Fn(PathBuf, u32, u32)>>>>,
+    on_cursor_heading: Rc<RefCell<Option<Box<dyn Fn(PathBuf, u32)>>>>,
     bib_entries: Rc<RefCell<Vec<BibEntry>>>,
     font_provider: Rc<CssProvider>,
     font_size: Rc<RefCell<u32>>,
@@ -229,6 +230,8 @@ impl EditorPane {
             Rc::new(RefCell::new(None));
         let on_completion_needed: Rc<RefCell<Option<Box<dyn Fn(PathBuf, u32, u32)>>>> =
             Rc::new(RefCell::new(None));
+        let on_cursor_heading: Rc<RefCell<Option<Box<dyn Fn(PathBuf, u32)>>>> =
+            Rc::new(RefCell::new(None));
 
         let font_size: Rc<RefCell<u32>> = Rc::new(RefCell::new(13));
         let font_family: Rc<RefCell<String>> = Rc::new(RefCell::new("Monospace".to_string()));
@@ -264,6 +267,7 @@ impl EditorPane {
             on_page_switch,
             on_file_opened,
             on_completion_needed,
+            on_cursor_heading,
             bib_entries: Rc::new(RefCell::new(Vec::new())),
             font_provider: Rc::new(font_provider),
             font_size,
@@ -278,15 +282,15 @@ impl EditorPane {
 
         {
             let ep2 = ep.clone();
-            ep.find_bar.set_on_search(move |text, forward| ep2.do_find(text, forward));
+            ep.find_bar.set_on_search(move |text, forward, whole_word| ep2.do_find(text, forward, whole_word));
         }
         {
             let ep2 = ep.clone();
-            ep.find_bar.set_on_replace_one(move |find, replace| ep2.do_replace_one(find, replace));
+            ep.find_bar.set_on_replace_one(move |find, replace, whole_word| ep2.do_replace_one(find, replace, whole_word));
         }
         {
             let ep2 = ep.clone();
-            ep.find_bar.set_on_replace_all(move |find, replace| ep2.do_replace_all(find, replace));
+            ep.find_bar.set_on_replace_all(move |find, replace, whole_word| ep2.do_replace_all(find, replace, whole_word));
         }
 
         ep
@@ -366,40 +370,59 @@ impl EditorPane {
         self.find_bar.show();
     }
 
-    pub fn do_find(&self, text: &str, forward: bool) {
+    pub fn do_find(&self, text: &str, forward: bool, whole_word: bool) {
         if text.is_empty() {
             self.find_bar.set_result("");
             return;
         }
         let Some((view, buffer)) = self.active_view_buffer() else { return };
         let flags = TextSearchFlags::TEXT_ONLY | TextSearchFlags::CASE_INSENSITIVE;
+        let cursor_pos = buffer.cursor_position();
 
-        let result = if forward {
-            let cursor = buffer.iter_at_offset(buffer.cursor_position());
-            cursor
-                .forward_search(text, flags, None)
-                .or_else(|| buffer.start_iter().forward_search(text, flags, None))
-        } else {
-            let cursor = buffer.iter_at_offset(buffer.cursor_position());
-            cursor
-                .backward_search(text, flags, None)
-                .or_else(|| buffer.end_iter().backward_search(text, flags, None))
-        };
+        let mut search_start = buffer.iter_at_offset(cursor_pos);
+        let mut wrapped = false;
 
-        if let Some((start, end)) = result {
-            if forward {
-                buffer.select_range(&end, &start);
+        loop {
+            let result = if forward {
+                search_start.forward_search(text, flags, None)
             } else {
-                buffer.select_range(&start, &end);
+                search_start.backward_search(text, flags, None)
+            };
+
+            match result {
+                None => {
+                    if wrapped {
+                        self.find_bar.set_result("No results");
+                        return;
+                    }
+                    wrapped = true;
+                    search_start = if forward { buffer.start_iter() } else { buffer.end_iter() };
+                }
+                Some((start, end)) => {
+                    if whole_word && !is_whole_word(&start, &end) {
+                        search_start = if forward { end.clone() } else { start.clone() };
+                        // Prevent infinite wrap-around
+                        let cur = if forward { end.offset() } else { start.offset() };
+                        if wrapped && (if forward { cur >= cursor_pos } else { cur <= cursor_pos }) {
+                            self.find_bar.set_result("No results");
+                            return;
+                        }
+                        continue;
+                    }
+                    if forward {
+                        buffer.select_range(&end, &start);
+                    } else {
+                        buffer.select_range(&start, &end);
+                    }
+                    view.scroll_to_iter(&mut start.clone(), 0.1, false, 0.0, 0.5);
+                    self.find_bar.set_result("");
+                    return;
+                }
             }
-            view.scroll_to_iter(&mut start.clone(), 0.1, false, 0.0, 0.5);
-            self.find_bar.set_result("");
-        } else {
-            self.find_bar.set_result("No results");
         }
     }
 
-    pub fn do_replace_one(&self, find: &str, replace: &str) {
+    pub fn do_replace_one(&self, find: &str, replace: &str, whole_word: bool) {
         if find.is_empty() {
             return;
         }
@@ -407,20 +430,22 @@ impl EditorPane {
         if let Some((sel_start, sel_end)) = buffer.selection_bounds() {
             let selected = buffer.text(&sel_start, &sel_end, false).to_string();
             if selected.to_lowercase() == find.to_lowercase() {
-                let offset = sel_start.offset();
-                let mut s = sel_start;
-                let mut e = sel_end;
-                buffer.begin_user_action();
-                buffer.delete(&mut s, &mut e);
-                let mut ins = buffer.iter_at_offset(offset);
-                buffer.insert(&mut ins, replace);
-                buffer.end_user_action();
+                if !whole_word || is_whole_word(&sel_start, &sel_end) {
+                    let offset = sel_start.offset();
+                    let mut s = sel_start;
+                    let mut e = sel_end;
+                    buffer.begin_user_action();
+                    buffer.delete(&mut s, &mut e);
+                    let mut ins = buffer.iter_at_offset(offset);
+                    buffer.insert(&mut ins, replace);
+                    buffer.end_user_action();
+                }
             }
         }
-        self.do_find(find, true);
+        self.do_find(find, true, whole_word);
     }
 
-    pub fn do_replace_all(&self, find: &str, replace: &str) {
+    pub fn do_replace_all(&self, find: &str, replace: &str, whole_word: bool) {
         if find.is_empty() {
             return;
         }
@@ -432,6 +457,10 @@ impl EditorPane {
         loop {
             match iter.forward_search(find, flags, None) {
                 Some((mut start, mut end)) => {
+                    if whole_word && !is_whole_word(&start, &end) {
+                        iter = end;
+                        continue;
+                    }
                     let offset = start.offset();
                     buffer.delete(&mut start, &mut end);
                     let mut ins = buffer.iter_at_offset(offset);
@@ -535,6 +564,28 @@ impl EditorPane {
 
     pub fn set_on_completion_needed(&self, f: impl Fn(PathBuf, u32, u32) + 'static) {
         *self.on_completion_needed.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn set_on_cursor_heading(&self, f: impl Fn(PathBuf, u32) + 'static) {
+        *self.on_cursor_heading.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn apply_style(&self, style_code: &str, bib_style: &str, bib_title: &str) {
+        let Some(path) = self.get_active_path() else { return };
+        let Some(content) = self.get_active_content() else { return };
+        let new_content = crate::styles::apply_to(&content, style_code, bib_style, bib_title);
+        if new_content != content {
+            // Clone the buffer before dropping the borrow; set_text fires
+            // connect_changed which calls borrow_mut — holding the borrow here
+            // causes a RefCell double-borrow panic.
+            let buffer_opt = {
+                let state = self.state.borrow();
+                state.tabs.get(&path).map(|tab| tab.buffer.clone())
+            };
+            if let Some(buffer) = buffer_opt {
+                buffer.set_text(&new_content);
+            }
+        }
     }
 
     pub fn insert_at_cursor(&self, text: &str) {
@@ -654,15 +705,29 @@ impl EditorPane {
             }
         });
 
-        // ── Cursor position tracking ──────────────────────────────────────────
+        // ── Cursor position tracking + heading detection ──────────────────────
 
         let cursor_lbl = self.cursor_label.clone();
+        let on_heading_cb = self.on_cursor_heading.clone();
+        let path_for_heading = path.clone();
+        let last_heading_line: Rc<RefCell<u32>> = Rc::new(RefCell::new(u32::MAX));
         buffer.connect_mark_set(move |buf, _iter, mark| {
             if mark.name().as_deref() == Some("insert") {
                 let cursor = buf.iter_at_mark(mark);
                 let line = cursor.line() + 1;
                 let col = cursor.line_offset() + 1;
                 cursor_lbl.set_text(&format!("Ln {line}, Col {col}"));
+
+                // Scan backward from cursor line for a heading
+                if let Some(cb) = on_heading_cb.borrow().as_ref() {
+                    let heading_line = find_heading_line_for(buf, cursor.line());
+                    if heading_line != *last_heading_line.borrow() {
+                        *last_heading_line.borrow_mut() = heading_line;
+                        if heading_line != u32::MAX {
+                            cb(path_for_heading.clone(), heading_line);
+                        }
+                    }
+                }
             }
         });
 
@@ -1019,6 +1084,7 @@ impl EditorPane {
         }
     }
 
+    #[allow(dead_code)]
     pub fn close_file(&self, path: &PathBuf) {
         let mut state = self.state.borrow_mut();
         if let Some(tab) = state.tabs.remove(path) {
@@ -1042,6 +1108,7 @@ impl EditorPane {
         None
     }
 
+    #[allow(dead_code)]
     pub fn set_active_content(&self, text: &str) {
         let current = match self.notebook.current_page() {
             Some(p) => p,
@@ -1072,6 +1139,35 @@ impl EditorPane {
         if let Some(tab) = state.tabs.get_mut(path) {
             tab.modified = false;
             tab.dot_label.set_visible(false);
+        }
+    }
+
+    pub fn get_open_paths_ordered(&self) -> Vec<PathBuf> {
+        let state = self.state.borrow();
+        let mut pages: Vec<(u32, PathBuf)> = state
+            .tabs
+            .iter()
+            .filter_map(|(path, tab)| {
+                self.notebook.page_num(&tab.scroll_window).map(|n| (n, path.clone()))
+            })
+            .collect();
+        pages.sort_by_key(|(n, _)| *n);
+        pages.into_iter().map(|(_, p)| p).collect()
+    }
+
+    pub fn get_cursor_positions(&self) -> std::collections::HashMap<PathBuf, i32> {
+        let state = self.state.borrow();
+        state.tabs.iter().map(|(path, tab)| {
+            (path.clone(), tab.buffer.cursor_position())
+        }).collect()
+    }
+
+    pub fn restore_cursor(&self, path: &PathBuf, offset: i32) {
+        let state = self.state.borrow();
+        if let Some(tab) = state.tabs.get(path) {
+            let clamped = offset.min(tab.buffer.char_count());
+            let iter = tab.buffer.iter_at_offset(clamped);
+            tab.buffer.place_cursor(&iter);
         }
     }
 
@@ -1135,12 +1231,17 @@ impl EditorPane {
         let state = self.state.borrow();
         if let Some(tab) = state.tabs.get(path) {
             let line_idx = line.saturating_sub(1) as i32;
-            let mut iter = tab.buffer.iter_at_line(line_idx).unwrap_or_else(|| {
+            let line_start = tab.buffer.iter_at_line(line_idx).unwrap_or_else(|| {
                 let (_, end) = tab.buffer.bounds();
                 end
             });
-            tab.buffer.place_cursor(&iter);
-            tab.view.scroll_to_iter(&mut iter, 0.1, true, 0.0, 0.3);
+            let mut line_end = line_start;
+            line_end.forward_to_line_end();
+            // Select the heading text so it's visually highlighted
+            tab.buffer.select_range(&line_start, &line_end);
+            // Scroll so the heading is vertically centered
+            let mut scroll_iter = line_start;
+            tab.view.scroll_to_iter(&mut scroll_iter, 0.0, true, 0.0, 0.5);
         }
     }
 
@@ -1371,6 +1472,40 @@ fn strip_snippets(s: &str) -> String {
         }
     }
     out
+}
+
+fn is_word_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
+}
+
+fn is_whole_word(start: &gtk4::TextIter, end: &gtk4::TextIter) -> bool {
+    let before_ok = if start.offset() == 0 {
+        true
+    } else {
+        let mut before = start.clone();
+        before.backward_char();
+        !is_word_char(before.char())
+    };
+    let after_ok = end.is_end() || !is_word_char(end.char());
+    before_ok && after_ok
+}
+
+// Returns the 1-based line number of the nearest heading at or above `line_idx`,
+// or u32::MAX if none found.
+fn find_heading_line_for(buf: &sourceview5::Buffer, line_idx: i32) -> u32 {
+    let mut check = line_idx;
+    while check >= 0 {
+        if let Some(iter) = buf.iter_at_line(check) {
+            let mut end = iter.clone();
+            end.forward_to_line_end();
+            let text = buf.text(&iter, &end, false);
+            if text.starts_with('=') {
+                return (check + 1) as u32;
+            }
+        }
+        check -= 1;
+    }
+    u32::MAX
 }
 
 fn dismiss_popup(

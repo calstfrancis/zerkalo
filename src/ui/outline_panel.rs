@@ -17,9 +17,11 @@ pub struct OutlinePanel {
     list_box: ListBox,
     on_jump: JumpCb,
     on_symbol_insert: InsertCb,
-    stack: Stack,
-    outline_btn: ToggleButton,
-    symbols_btn: ToggleButton,
+    #[allow(dead_code)] stack: Stack,
+    #[allow(dead_code)] outline_btn: ToggleButton,
+    #[allow(dead_code)] symbols_btn: ToggleButton,
+    row_lines: Rc<RefCell<Vec<u32>>>,
+    current_path: Rc<RefCell<Option<PathBuf>>>,
 }
 
 impl OutlinePanel {
@@ -59,7 +61,7 @@ impl OutlinePanel {
         outline_scroll.set_hexpand(true);
 
         let list_box = ListBox::new();
-        list_box.set_selection_mode(SelectionMode::None);
+        list_box.set_selection_mode(SelectionMode::Single);
         list_box.add_css_class("navigation-sidebar");
         outline_scroll.set_child(Some(&list_box));
 
@@ -135,10 +137,31 @@ impl OutlinePanel {
         widget.append(&stack);
 
         let on_jump: JumpCb = Rc::new(RefCell::new(None));
+        let row_lines: Rc<RefCell<Vec<u32>>> = Rc::new(RefCell::new(Vec::new()));
+        let current_path: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
 
-        Self { widget, list_box, on_jump, on_symbol_insert, stack, outline_btn, symbols_btn }
+        // Single click fires row-activated; per-row connect_activate only fires on Enter.
+        {
+            let on_jump_c = on_jump.clone();
+            let row_lines_c = row_lines.clone();
+            let current_path_c = current_path.clone();
+            list_box.connect_row_activated(move |_, row| {
+                let idx = row.index() as usize;
+                let lines = row_lines_c.borrow();
+                if let Some(&ln) = lines.get(idx) {
+                    if let Some(ref p) = *current_path_c.borrow() {
+                        if let Some(f) = on_jump_c.borrow().as_ref() {
+                            f(p.clone(), ln);
+                        }
+                    }
+                }
+            });
+        }
+
+        Self { widget, list_box, on_jump, on_symbol_insert, stack, outline_btn, symbols_btn, row_lines, current_path }
     }
 
+    #[allow(dead_code)]
     pub fn set_mode(&self, mode: &str) {
         self.stack.set_visible_child_name(mode);
         match mode {
@@ -149,9 +172,12 @@ impl OutlinePanel {
     }
 
     pub fn update(&self, content: &str, path: &PathBuf) {
+        *self.current_path.borrow_mut() = Some(path.clone());
+
         while let Some(child) = self.list_box.first_child() {
             self.list_box.remove(&child);
         }
+        let mut lines_vec: Vec<u32> = Vec::new();
 
         for (i, line) in content.lines().enumerate() {
             if !line.starts_with('=') {
@@ -166,6 +192,9 @@ impl OutlinePanel {
             if text.is_empty() {
                 continue;
             }
+
+            let ln = (i + 1) as u32;
+            lines_vec.push(ln);
 
             let row = ListBoxRow::new();
             row.set_activatable(true);
@@ -182,16 +211,26 @@ impl OutlinePanel {
             }
             row.set_child(Some(&label));
 
-            let cb = self.on_jump.clone();
-            let p = path.clone();
-            let ln = (i + 1) as u32;
-            row.connect_activate(move |_| {
-                if let Some(f) = cb.borrow().as_ref() {
-                    f(p.clone(), ln);
-                }
-            });
-
             self.list_box.append(&row);
+        }
+
+        *self.row_lines.borrow_mut() = lines_vec;
+    }
+
+    /// Select the outline row whose heading line is nearest to (and not past) `line`.
+    pub fn select_for_line(&self, line: u32) {
+        let lines = self.row_lines.borrow();
+        // Find the last heading whose line ≤ cursor line
+        let idx = lines.iter().rposition(|&l| l <= line);
+        match idx {
+            Some(i) => {
+                self.list_box.select_row(
+                    self.list_box.row_at_index(i as i32).as_ref(),
+                );
+            }
+            None => {
+                self.list_box.unselect_all();
+            }
         }
     }
 
