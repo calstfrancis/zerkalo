@@ -207,6 +207,36 @@ impl SettingsDialog {
         compile_group.add(&debounce_spin);
         compile_group.add(&auto_row);
 
+        // ── Spell check group ────────────────────────────────────────────────
+
+        let spell_group = adw::PreferencesGroup::new();
+        spell_group.set_title("Spell Check");
+
+        let spell_enabled_row = adw::SwitchRow::new();
+        spell_enabled_row.set_title("Enable spell check");
+        spell_enabled_row.set_active(current.spell_enabled);
+
+        let spell_autocorrect_row = adw::SwitchRow::new();
+        spell_autocorrect_row.set_title("Autocorrect");
+        spell_autocorrect_row.set_subtitle("Replace on word boundary (edit distance ≤ 1)");
+        spell_autocorrect_row.set_active(current.spell_autocorrect);
+
+        let available_langs = crate::spellcheck::SpellChecker::available_languages();
+        let lang_strings: Vec<&str> = available_langs.iter().map(|s| s.as_str()).collect();
+        let lang_model = gtk4::StringList::new(&lang_strings);
+        let lang_row = adw::ComboRow::new();
+        lang_row.set_title("Dictionary language");
+        lang_row.set_model(Some(&lang_model));
+        let current_lang_idx = available_langs
+            .iter()
+            .position(|l| l == &current.spell_language)
+            .unwrap_or(0) as u32;
+        lang_row.set_selected(current_lang_idx);
+
+        spell_group.add(&spell_enabled_row);
+        spell_group.add(&spell_autocorrect_row);
+        spell_group.add(&lang_row);
+
         // ── Preferences page ─────────────────────────────────────────────────
 
         let page = adw::PreferencesPage::new();
@@ -214,6 +244,7 @@ impl SettingsDialog {
         page.add(&editor_group);
         page.add(&font_group);
         page.add(&compile_group);
+        page.add(&spell_group);
         page.add(&bib_group);
 
         // ── Toolbar view ─────────────────────────────────────────────────────
@@ -272,6 +303,11 @@ impl SettingsDialog {
                 })
                 .unwrap_or_else(|| ("Monospace".to_string(), 13u32));
 
+            let spell_language = available_langs
+                .get(lang_row.selected() as usize)
+                .cloned()
+                .unwrap_or_else(|| "en_US".to_string());
+
             let new_cfg = Config {
                 work_dir,
                 output_dir,
@@ -286,6 +322,9 @@ impl SettingsDialog {
                 editor_show_whitespace: ws_row.is_active(),
                 editor_tab_width: tab_spin.value() as u32,
                 preview_zoom: preview_zoom_cur,
+                spell_enabled: spell_enabled_row.is_active(),
+                spell_autocorrect: spell_autocorrect_row.is_active(),
+                spell_language,
             };
 
             if let Err(e) = new_cfg.save() {

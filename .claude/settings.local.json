@@ -29,7 +29,21 @@
       "Bash(fc-list)",
       "Bash(curl -s https://raw.githubusercontent.com/calstfrancis/Gost/main/essay_builder/texgen.py)",
       "Bash(curl *)",
-      "Bash(pandoc --version)"
+      "Bash(pandoc --version)",
+      "Bash(pkg-config --exists enchant-2)",
+      "Bash(pkg-config --exists enchant)",
+      "Bash(dpkg -l)",
+      "Bash(zypper se *)",
+      "Bash(zypper info *)",
+      "Bash(pkg-config --exists hunspell)",
+      "Bash(hunspell --version)",
+      "Bash(hunspell -a -d en_US)",
+      "Bash(xdg-mime query *)",
+      "Read(//home/calstfrancis/.local/share/mime/packages/**)",
+      "Read(//home/calstfrancis/.local/share/applications/**)",
+      "WebFetch(domain:www.svots.edu)",
+      "Bash(./install.sh *)",
+      "Bash(unzip -p \"A Manual for Writers of Research Papers, Theses, and Dissertations - Chicago Style for Students and Researchers \\(Kate L. Turabian, Wayne C. Booth etc.\\) \\(z-library.sk, 1lib.sk, z-lib.sk\\).epub\")"
     ]
   }
 }

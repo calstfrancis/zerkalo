@@ -10,3 +10,4 @@ Keywords=typst;editor;writing;
 StartupWMClass=Zerkalo
 StartupNotify=true
 MimeType=text/x-typst;
+DBusActivatable=true

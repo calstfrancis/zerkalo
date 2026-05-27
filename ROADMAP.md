@@ -39,6 +39,9 @@ Current release: **0.2.0** (2026-05-26)
 
 ## Near-term (0.3.0)
 
+### Spell check (shipped in unreleased)
+- **Spell check with Hunspell**: blue wavy underlines on misspelled prose words; right-click suggestions; Ignore All; language selection; optional autocorrect
+
 ### Template improvements
 - **Re-apply template**: parse the existing preamble and update only the `#set`/`#show` rules, leaving document body intact; requires typst-syntax crate for safe AST-level rewriting
 - **Template preview overlay**: render a preview with different settings without committing the change

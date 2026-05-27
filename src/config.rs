@@ -45,6 +45,12 @@ pub struct Config {
     pub editor_tab_width: u32,
     #[serde(default = "default_preview_zoom")]
     pub preview_zoom: f64,
+    #[serde(default = "default_true")]
+    pub spell_enabled: bool,
+    #[serde(default)]
+    pub spell_autocorrect: bool,
+    #[serde(default = "default_spell_language")]
+    pub spell_language: String,
 }
 
 fn default_work_dir() -> PathBuf {
@@ -60,6 +66,7 @@ fn default_font_size() -> u32 { 13 }
 fn default_font_family() -> String { "Monospace".to_string() }
 fn default_tab_width() -> u32 { 2 }
 fn default_preview_zoom() -> f64 { 1.0 }
+fn default_spell_language() -> String { "en_US".to_string() }
 
 impl Default for Config {
     fn default() -> Self {
@@ -77,6 +84,9 @@ impl Default for Config {
             editor_show_whitespace: false,
             editor_tab_width: 2,
             preview_zoom: 1.0,
+            spell_enabled: true,
+            spell_autocorrect: false,
+            spell_language: default_spell_language(),
         }
     }
 }

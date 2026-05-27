@@ -7,24 +7,37 @@ pub const STYLES: &[(&str, &str, &str, &str)] = &[
     ("Default", "", "", ""),
     (
         "SBL",
+        // SBL HS 2nd ed. §4.1
+        // H1: centred, bold, ALL CAPS
+        // H2: centred, bold
+        // H3: centred, italic
+        // H4: flush left, bold
+        // H5: flush left, bold italic
+        // block(width: 100%) + set par(first-line-indent: 0pt) prevents the
+        // paragraph indent from shifting centred headings off-axis.
         r#"#set text(size: 12pt, font: "Times New Roman", lang: "en")
 #set par(leading: 1em, first-line-indent: 0.5in, justify: false)
-#set page(margin: 1in)
-#show heading.where(level: 1): it => {
-  v(1em)
-  align(center, text(weight: "bold")[#upper(it.body)])
-  v(0.5em)
-}
-#show heading.where(level: 2): it => {
-  v(0.8em)
-  align(center, text(style: "italic")[#it.body])
-  v(0.4em)
-}
-#show heading.where(level: 3): it => {
-  v(0.6em)
-  text(weight: "bold", style: "italic")[#it.body]
-  v(0.2em)
-}"#,
+#set page(margin: 1in, numbering: "1", number-align: top + right)
+#show heading.where(level: 1): it => block(width: 100%, above: 1em, below: 0.5em)[
+  #set par(first-line-indent: 0pt)
+  #align(center)[#upper(it.body)]
+]
+#show heading.where(level: 2): it => block(width: 100%, above: 0.8em, below: 0.4em)[
+  #set par(first-line-indent: 0pt)
+  #align(center)[#text(weight: "bold")[#it.body]]
+]
+#show heading.where(level: 3): it => block(width: 100%, above: 0.6em, below: 0.3em)[
+  #set par(first-line-indent: 0pt)
+  #align(center)[#it.body]
+]
+#show heading.where(level: 4): it => block(width: 100%, above: 0.5em, below: 0.2em)[
+  #set par(first-line-indent: 0pt)
+  #text(weight: "bold", style: "italic")[#it.body]
+]
+#show heading.where(level: 5): it => block(width: 100%, above: 0.4em, below: 0.1em)[
+  #set par(first-line-indent: 0pt)
+  #it.body
+]"#,
         "chicago-notes",
         "",
     ),
@@ -32,22 +45,19 @@ pub const STYLES: &[(&str, &str, &str, &str)] = &[
         "Chicago (Notes-Bib)",
         r#"#set text(size: 12pt, font: "Times New Roman", lang: "en")
 #set par(leading: 1em, first-line-indent: 0.5in, justify: true)
-#set page(margin: 1in)
-#show heading.where(level: 1): it => {
-  v(1em)
-  align(center, text(weight: "bold")[#it.body])
-  v(0.5em)
-}
-#show heading.where(level: 2): it => {
-  v(0.8em)
-  align(center, text(style: "italic")[#it.body])
-  v(0.4em)
-}
-#show heading.where(level: 3): it => {
-  v(0.6em)
-  text(style: "italic")[#it.body]
-  v(0.2em)
-}"#,
+#set page(margin: 1in, numbering: "1", number-align: top + right)
+#show heading.where(level: 1): it => block(width: 100%, above: 1em, below: 0.5em)[
+  #set par(first-line-indent: 0pt)
+  #align(center)[#text(weight: "bold")[#it.body]]
+]
+#show heading.where(level: 2): it => block(width: 100%, above: 0.8em, below: 0.4em)[
+  #set par(first-line-indent: 0pt)
+  #align(center)[#text(style: "italic")[#it.body]]
+]
+#show heading.where(level: 3): it => block(width: 100%, above: 0.6em, below: 0.2em)[
+  #set par(first-line-indent: 0pt)
+  #text(style: "italic")[#it.body]
+]"#,
         "chicago-notes",
         "",
     ),
@@ -55,22 +65,19 @@ pub const STYLES: &[(&str, &str, &str, &str)] = &[
         "Chicago (Author-Date)",
         r#"#set text(size: 12pt, font: "Times New Roman", lang: "en")
 #set par(leading: 1em, first-line-indent: 0.5in, justify: true)
-#set page(margin: 1in)
-#show heading.where(level: 1): it => {
-  v(1em)
-  align(center, text(weight: "bold")[#it.body])
-  v(0.5em)
-}
-#show heading.where(level: 2): it => {
-  v(0.8em)
-  align(center, text(style: "italic")[#it.body])
-  v(0.4em)
-}
-#show heading.where(level: 3): it => {
-  v(0.6em)
-  text(style: "italic")[#it.body]
-  v(0.2em)
-}"#,
+#set page(margin: 1in, numbering: "1", number-align: top + right)
+#show heading.where(level: 1): it => block(width: 100%, above: 1em, below: 0.5em)[
+  #set par(first-line-indent: 0pt)
+  #align(center)[#text(weight: "bold")[#it.body]]
+]
+#show heading.where(level: 2): it => block(width: 100%, above: 0.8em, below: 0.4em)[
+  #set par(first-line-indent: 0pt)
+  #align(center)[#text(style: "italic")[#it.body]]
+]
+#show heading.where(level: 3): it => block(width: 100%, above: 0.6em, below: 0.2em)[
+  #set par(first-line-indent: 0pt)
+  #text(style: "italic")[#it.body]
+]"#,
         "chicago-author-date",
         "Reference List",
     ),
@@ -78,82 +85,73 @@ pub const STYLES: &[(&str, &str, &str, &str)] = &[
         "MLA",
         r#"#set text(size: 12pt, font: "Times New Roman", lang: "en")
 #set par(leading: 1em, first-line-indent: 0.5in, justify: false)
-#set page(margin: 1in, numbering: "1")
-#show heading: it => {
-  v(0.6em)
-  text(it.body)
-  v(0.3em)
-}"#,
+#set page(margin: 1in, numbering: "1", number-align: top + right)
+#show heading: it => block(width: 100%, above: 0.6em, below: 0.3em)[
+  #set par(first-line-indent: 0pt)
+  #text(it.body)
+]"#,
         "mla",
         "Works Cited",
     ),
     (
         "APA 7th",
+        // APA 7 §2.27: H1 centred bold; H2 flush-left bold; H3 flush-left bold italic;
+        // H4 indented bold (run-in); H5 indented bold italic (run-in)
         r#"#set text(size: 12pt, font: "Times New Roman", lang: "en")
 #set par(leading: 1em, first-line-indent: 0.5in, justify: false)
-#set page(margin: 1in)
-#set heading(numbering: none)
-#show heading.where(level: 1): it => {
-  v(1em)
-  align(center, text(weight: "bold")[#it.body])
-  v(0.5em)
-}
-#show heading.where(level: 2): it => {
-  v(0.8em)
-  text(weight: "bold")[#it.body]
-  v(0.4em)
-}
-#show heading.where(level: 3): it => {
-  v(0.6em)
-  text(weight: "bold", style: "italic")[#it.body]
-  v(0.2em)
-}"#,
+#set page(margin: 1in, numbering: "1", number-align: top + right)
+#show heading.where(level: 1): it => block(width: 100%, above: 1em, below: 0.5em)[
+  #set par(first-line-indent: 0pt)
+  #align(center)[#text(weight: "bold")[#it.body]]
+]
+#show heading.where(level: 2): it => block(width: 100%, above: 0.8em, below: 0.4em)[
+  #set par(first-line-indent: 0pt)
+  #text(weight: "bold")[#it.body]
+]
+#show heading.where(level: 3): it => block(width: 100%, above: 0.6em, below: 0.2em)[
+  #set par(first-line-indent: 0pt)
+  #text(weight: "bold", style: "italic")[#it.body]
+]"#,
         "apa",
-        "",
+        "References",
     ),
     (
         "ASA",
         r#"#set text(size: 12pt, font: "Times New Roman", lang: "en")
 #set par(leading: 1em, first-line-indent: 0.5in, justify: false)
-#set page(margin: 1in, numbering: "1")
-#show heading.where(level: 1): it => {
-  v(1em)
-  align(center, text(weight: "bold")[#upper(it.body)])
-  v(0.5em)
-}
-#show heading.where(level: 2): it => {
-  v(0.8em)
-  text(weight: "bold")[#it.body]
-  v(0.4em)
-}
-#show heading.where(level: 3): it => {
-  v(0.6em)
-  text(weight: "bold", style: "italic")[#it.body]
-  v(0.2em)
-}"#,
+#set page(margin: 1in, numbering: "1", number-align: top + right)
+#show heading.where(level: 1): it => block(width: 100%, above: 1em, below: 0.5em)[
+  #set par(first-line-indent: 0pt)
+  #upper(it.body)
+]
+#show heading.where(level: 2): it => block(width: 100%, above: 0.8em, below: 0.4em)[
+  #set par(first-line-indent: 0pt)
+  #text(style: "italic")[#it.body]
+]
+#show heading.where(level: 3): it => block(width: 100%, above: 0.4em, below: 0em)[
+  #set par(first-line-indent: 0pt)
+  #h(0.5in)#text(style: "italic")[#(it.body + [.])]
+]"#,
         "apa",
-        "",
+        "References",
     ),
     (
         "Turabian",
         r#"#set text(size: 12pt, font: "Times New Roman", lang: "en")
 #set par(leading: 1em, first-line-indent: 0.5in, justify: true)
-#set page(margin: 1in, numbering: "1")
-#show heading.where(level: 1): it => {
-  v(1em)
-  align(center, text(weight: "bold")[#it.body])
-  v(0.5em)
-}
-#show heading.where(level: 2): it => {
-  v(0.8em)
-  align(center, text(style: "italic")[#it.body])
-  v(0.4em)
-}
-#show heading.where(level: 3): it => {
-  v(0.6em)
-  text(style: "italic")[#it.body]
-  v(0.2em)
-}"#,
+#set page(margin: 1in, numbering: "1", number-align: top + right)
+#show heading.where(level: 1): it => block(width: 100%, above: 1em, below: 0.5em)[
+  #set par(first-line-indent: 0pt)
+  #align(center)[#text(weight: "bold")[#it.body]]
+]
+#show heading.where(level: 2): it => block(width: 100%, above: 0.8em, below: 0.4em)[
+  #set par(first-line-indent: 0pt)
+  #align(center)[#it.body]
+]
+#show heading.where(level: 3): it => block(width: 100%, above: 0.6em, below: 0.2em)[
+  #set par(first-line-indent: 0pt)
+  #text(style: "italic")[#it.body]
+]"#,
         "chicago-notes",
         "",
     ),
@@ -161,24 +159,21 @@ pub const STYLES: &[(&str, &str, &str, &str)] = &[
         "Harvard",
         r#"#set text(size: 12pt, font: "Times New Roman", lang: "en")
 #set par(leading: 1em, first-line-indent: 0.5in, justify: true)
-#set page(margin: 1in, numbering: "1")
-#show heading.where(level: 1): it => {
-  v(1em)
-  align(center, text(weight: "bold")[#it.body])
-  v(0.5em)
-}
-#show heading.where(level: 2): it => {
-  v(0.8em)
-  text(weight: "bold")[#it.body]
-  v(0.4em)
-}
-#show heading.where(level: 3): it => {
-  v(0.6em)
-  text(weight: "bold", style: "italic")[#it.body]
-  v(0.2em)
-}"#,
+#set page(margin: 1in, numbering: "1", number-align: top + right)
+#show heading.where(level: 1): it => block(width: 100%, above: 1em, below: 0.5em)[
+  #set par(first-line-indent: 0pt)
+  #align(center)[#text(weight: "bold")[#it.body]]
+]
+#show heading.where(level: 2): it => block(width: 100%, above: 0.8em, below: 0.4em)[
+  #set par(first-line-indent: 0pt)
+  #text(weight: "bold")[#it.body]
+]
+#show heading.where(level: 3): it => block(width: 100%, above: 0.6em, below: 0.2em)[
+  #set par(first-line-indent: 0pt)
+  #text(weight: "bold", style: "italic")[#it.body]
+]"#,
         "chicago-author-date",
-        "",
+        "References",
     ),
 ];
 

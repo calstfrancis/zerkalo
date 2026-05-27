@@ -166,11 +166,23 @@ impl AppWindow {
         menu_new_template_item.add_css_class("flat");
         menu_new_template_item.set_size_request(190, -1);
 
+        let menu_reapply_template_item = Button::new();
+        menu_reapply_template_item.set_label("Update Template Settings…");
+        menu_reapply_template_item.set_halign(Align::Start);
+        menu_reapply_template_item.add_css_class("flat");
+        menu_reapply_template_item.set_size_request(190, -1);
+
         let menu_new_item = Button::new();
         menu_new_item.set_label("New Blank Document…");
         menu_new_item.set_halign(Align::Start);
         menu_new_item.add_css_class("flat");
         menu_new_item.set_size_request(190, -1);
+
+        let menu_open_item = Button::new();
+        menu_open_item.set_label("Open File…");
+        menu_open_item.set_halign(Align::Start);
+        menu_open_item.add_css_class("flat");
+        menu_open_item.set_size_request(190, -1);
 
         let menu_save_item = Button::new();
         menu_save_item.set_label("Save");
@@ -224,7 +236,9 @@ impl AppWindow {
         menu_popover_box.set_margin_top(4);
         menu_popover_box.set_margin_bottom(4);
         menu_popover_box.append(&menu_new_template_item);
+        menu_popover_box.append(&menu_reapply_template_item);
         menu_popover_box.append(&menu_new_item);
+        menu_popover_box.append(&menu_open_item);
         menu_popover_box.append(&menu_save_item);
         menu_popover_box.append(&menu_save_as_item);
         menu_popover_box.append(&Separator::new(Orientation::Horizontal));
@@ -465,6 +479,9 @@ impl AppWindow {
         editor_pane.apply_word_wrap(config.editor_word_wrap);
         editor_pane.apply_show_whitespace(config.editor_show_whitespace);
         editor_pane.apply_tab_width(config.editor_tab_width);
+        editor_pane.set_spell_enabled(config.spell_enabled);
+        editor_pane.set_spell_autocorrect(config.spell_autocorrect);
+        editor_pane.set_spell_language(&config.spell_language);
         preview_pane.set_zoom(config.preview_zoom);
         apply_theme(&config.theme);
 
@@ -615,6 +632,9 @@ impl AppWindow {
                 editor.apply_word_wrap(new_cfg.editor_word_wrap);
                 editor.apply_show_whitespace(new_cfg.editor_show_whitespace);
                 editor.apply_tab_width(new_cfg.editor_tab_width);
+                editor.set_spell_enabled(new_cfg.spell_enabled);
+                editor.set_spell_autocorrect(new_cfg.spell_autocorrect);
+                editor.set_spell_language(&new_cfg.spell_language);
                 apply_theme(&new_cfg.theme);
                 editor.apply_style_scheme(adw::StyleManager::default().is_dark());
                 let old_bib = cfg_rc.borrow().bib_path.clone();
@@ -749,6 +769,37 @@ impl AppWindow {
             dlg.present();
         });
 
+        // ── Menu: Update Template Settings ─────────────────────────────────
+
+        let window_for_reapply = window.clone();
+        let editor_for_reapply = editor_pane.clone();
+        let menu_popover_for_reapply = menu_popover.clone();
+        let project_root_for_reapply = project_root.clone();
+        menu_reapply_template_item.connect_clicked(move |_| {
+            menu_popover_for_reapply.popdown();
+            let Some(current_path) = editor_for_reapply.get_active_path() else { return };
+            let current_content = editor_for_reapply.get_active_content().unwrap_or_default();
+            let dlg = TemplateDialog::new(&window_for_reapply, &project_root_for_reapply);
+            // Pre-select style from document metadata
+            dlg.preselect_style(
+                &super::template_dialog::parse_style_key(&current_content)
+                    .unwrap_or_default(),
+            );
+            let ep = editor_for_reapply.clone();
+            dlg.set_on_create(move |new_path| {
+                if let Ok(new_preamble_doc) = std::fs::read_to_string(&new_path) {
+                    let preamble = super::template_dialog::extract_preamble(&new_preamble_doc);
+                    let updated = super::template_dialog::reapply_preamble(&current_content, &preamble);
+                    if let Err(e) = std::fs::write(&current_path, &updated) {
+                        tracing::error!("Failed to write re-applied template: {e}");
+                    } else {
+                        ep.open_file(current_path.clone(), &updated);
+                    }
+                }
+            });
+            dlg.present();
+        });
+
         // ── Menu: New Document ──────────────────────────────────────────────
 
         let window_for_new = window.clone();
@@ -769,6 +820,34 @@ impl AppWindow {
                         if !path.exists() {
                             let _ = std::fs::write(&path, "// New document\n\n");
                         }
+                        if let Ok(content) = std::fs::read_to_string(&path) {
+                            ep_c.open_file(path, &content);
+                        }
+                    }
+                }
+            });
+        });
+
+        // ── Menu: Open File ─────────────────────────────────────────────────
+
+        let window_for_open = window.clone();
+        let editor_for_open_file = editor_pane.clone();
+        let menu_popover_for_open = menu_popover.clone();
+        menu_open_item.connect_clicked(move |_| {
+            menu_popover_for_open.popdown();
+            let dialog = gtk4::FileDialog::new();
+            dialog.set_title("Open File");
+            let filter = gtk4::FileFilter::new();
+            filter.set_name(Some("Typst files (*.typ)"));
+            filter.add_pattern("*.typ");
+            let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
+            filters.append(&filter);
+            dialog.set_filters(Some(&filters));
+            let win_c = window_for_open.clone();
+            let ep_c = editor_for_open_file.clone();
+            dialog.open(Some(&win_c), None::<&gtk4::gio::Cancellable>, move |result| {
+                if let Ok(file) = result {
+                    if let Some(path) = file.path() {
                         if let Ok(content) = std::fs::read_to_string(&path) {
                             ep_c.open_file(path, &content);
                         }
@@ -1643,6 +1722,17 @@ impl AppWindow {
             };
             self.editor_pane.open_file(path, &content);
         }
+    }
+
+    /// Open one or more external file paths (called by the GApplication::open handler
+    /// when Nautilus or another file manager activates an already-running instance).
+    pub fn open_external(&self, paths: &[PathBuf]) {
+        for path in paths {
+            if let Ok(content) = std::fs::read_to_string(path) {
+                self.editor_pane.open_file(path.clone(), &content);
+            }
+        }
+        self.window.present();
     }
 
     pub fn present(&self) {
