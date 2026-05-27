@@ -17,6 +17,7 @@ Live preview · Academic styles · LSP completions · Git sync · Adwaita design
 | **Citation autocomplete** | `@` triggers a BibTeX key popup with fuzzy filtering |
 | **Inline diagnostics** | Compile errors and LSP warnings shown as red/amber underlines in the editor |
 | **Find & Replace** | `Ctrl+F`; forward/backward; whole-word toggle (`W`); replace one or all |
+| **Spell check** | Blue wavy underlines on misspelled prose words; right-click for suggestions, Ignore All; language selector in Settings; optional autocorrect on word boundary |
 | **Word count** | Live count and reading-time estimate in the status bar |
 | **Cursor position** | Line and column in the editor status bar |
 | **Session restore** | Open files, active tab, and cursor positions are restored on next launch |
@@ -51,6 +52,8 @@ Live preview · Academic styles · LSP completions · Git sync · Adwaita design
 | `typst` | Compilation and HTML export | `zypper install typst` · `apt install typst` · `brew install typst` |
 | `pdftoppm` | PDF → PNG rendering for the preview pane | `zypper install poppler-tools` · `apt install poppler-utils` · `brew install poppler` |
 | `pandoc` | DOCX, ODT, LaTeX export; LaTeX import | `zypper install pandoc` · `apt install pandoc` · `brew install pandoc` |
+| `hunspell` | Spell checking | `zypper install hunspell` · `apt install hunspell` · `brew install hunspell` |
+| `hunspell-en` | English dictionaries (example) | `zypper install hunspell-en` · `apt install hunspell-en-us` |
 | `git` | Sync | system package |
 | `tinymist` | LSP completions (optional) | `cargo install tinymist` |
 

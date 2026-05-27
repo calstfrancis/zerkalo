@@ -8,13 +8,17 @@ mod lsp;
 mod project;
 mod project_model;
 mod session;
+mod spellcheck;
 mod styles;
 mod ui;
 
+use std::cell::RefCell;
 use std::env;
 use std::path::PathBuf;
+use std::rc::Rc;
 
 use glib::ExitCode;
+use gtk4::gio::ApplicationFlags;
 use gtk4::prelude::*;
 use libadwaita as adw;
 
@@ -85,11 +89,35 @@ fn main() -> ExitCode {
         .filter(|p| p.is_file() && p.extension().map(|e| e == "typ").unwrap_or(false));
 
     // ── Application ──────────────────────────────────────────────────────────
-    let app = adw::Application::new(Some("io.github.calstfrancis.Zerkalo"), Default::default());
+    let app = adw::Application::new(Some("io.github.calstfrancis.Zerkalo"), ApplicationFlags::HANDLES_OPEN);
+
+    // Shared handle so connect_open can reach the already-running window.
+    let shared_window: Rc<RefCell<Option<AppWindow>>> = Rc::new(RefCell::new(None));
+
+    let sw_activate = shared_window.clone();
     app.connect_activate(move |app| {
         let config = Config::load().unwrap_or_default();
         let _ = std::fs::create_dir_all(&config.work_dir);
-        open_main_window(app, config, initial_file.clone());
+        let window = AppWindow::new(app, config);
+        window.setup_keybindings();
+        window.open_initial_file(initial_file.clone());
+        window.present();
+        *sw_activate.borrow_mut() = Some(window);
+    });
+
+    // Fired by the desktop session (Nautilus, xdg-open, etc.) when the app is
+    // already running and a file is sent to it via D-Bus activation.
+    let sw_open = shared_window.clone();
+    app.connect_open(move |_app, files, _hint| {
+        let borrow = sw_open.borrow();
+        if let Some(w) = borrow.as_ref() {
+            let paths: Vec<PathBuf> = files
+                .iter()
+                .filter_map(|f| f.path())
+                .filter(|p| p.extension().map(|e| e == "typ").unwrap_or(false))
+                .collect();
+            w.open_external(&paths);
+        }
     });
 
     // _guard is kept alive here until app.run() returns, ensuring logs are flushed.
@@ -117,11 +145,4 @@ fn percent_decode_uri(s: &str) -> String {
         i += 1;
     }
     out
-}
-
-fn open_main_window(app: &adw::Application, config: Config, initial_file: Option<PathBuf>) {
-    let window = AppWindow::new(app, config);
-    window.setup_keybindings();
-    window.open_initial_file(initial_file);
-    window.present();
 }

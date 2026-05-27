@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### Added
+- **Spell check** — prose words in `.typ` documents are checked against the system Hunspell dictionary; misspelled words receive a blue wavy underline; right-click on any underlined word shows up to 6 suggestions (click to replace) and an "Ignore All" option that clears the underlines for that word for the session; Typst markup (`#`, `@`, `$`, `//`, `/* */`, raw blocks) is excluded from checking
+- **Spell language selection** — Settings → Spell Check → Dictionary language; lists all `.dic` files found under `/usr/share/hunspell` and `/usr/share/myspell`
+- **Autocorrect** — optional (off by default); Settings → Spell Check → Autocorrect; when enabled, replaces a word automatically when a word-boundary character (space, period, etc.) is typed and the top Hunspell suggestion has Levenshtein distance ≤ 1 from the original; proper nouns (words starting with a capital letter) are never autocorrected; the replacement is a separate undo action
+
+---
+
 ## [0.2.0] — 2026-05-26
 
 ### Added

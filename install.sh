@@ -44,13 +44,19 @@ fi
 
 echo "Installing .desktop file..."
 mkdir -p "${INSTALL_DESKTOP}"
-cp "packaging/${APP_ID}.desktop" "${INSTALL_DESKTOP}/${APP_ID}.desktop"
+# Write desktop file with absolute binary path so Nautilus / KDE can find the
+# binary even when ~/.local/bin is not in the GUI session's PATH.
+sed "s|Exec=zerkalo %U|Exec=${INSTALL_BIN}/${BINARY_NAME} %U|" \
+    "packaging/${APP_ID}.desktop" > "${INSTALL_DESKTOP}/${APP_ID}.desktop"
 
 echo "Updating desktop database..."
 update-desktop-database "${INSTALL_DESKTOP}" 2>/dev/null || true
 
 echo "Updating icon cache..."
 gtk-update-icon-cache -f -t "${ICONS_BASE}" 2>/dev/null || true
+
+# Register Zerkalo as the default application for Typst files.
+xdg-mime default "${APP_ID}.desktop" text/x-typst 2>/dev/null || true
 
 # Rebuild KDE/Plasma service cache so the panel shows the icon immediately
 kbuildsycoca6 --noincremental 2>/dev/null || kbuildsycoca5 --noincremental 2>/dev/null || true

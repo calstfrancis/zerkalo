@@ -19,6 +19,9 @@ assets/icons/
 *.pdf
 *.png
 
+# Reference style guide PDFs/EPUBs (local only)
+Reference Documents/
+
 # Zerkalo user data (never commit these)
 *.todo
 global-todo.md

@@ -1,13 +1,14 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Duration;
 
 use gtk4::prelude::*;
 use gtk4::{
-    Box as GtkBox, Button, CssProvider, EventControllerKey, Label, Notebook, Orientation,
-    PropagationPhase, ScrolledWindow, Separator, TextSearchFlags, TextTag, TextWindowType,
+    Box as GtkBox, Button, CssProvider, EventControllerKey, GestureClick, Label, Notebook,
+    Orientation, Popover, PropagationPhase, ScrolledWindow, Separator, TextSearchFlags, TextTag,
+    TextWindowType,
 };
 use libadwaita as adw;
 use sourceview5::prelude::*;
@@ -147,6 +148,8 @@ pub struct EditorPane {
     find_bar: FindBar,
     word_count_label: Label,
     cursor_label: Label,
+    breadcrumb_label: Label,
+    spell_checker: Rc<RefCell<crate::spellcheck::SpellChecker>>,
 }
 
 impl EditorPane {
@@ -214,9 +217,24 @@ impl EditorPane {
         word_count_label.set_margin_bottom(3);
         status_bar.append(&word_count_label);
 
+        let breadcrumb_label = Label::new(Some(""));
+        breadcrumb_label.add_css_class("dim-label");
+        breadcrumb_label.add_css_class("caption");
+        breadcrumb_label.set_margin_start(12);
+        breadcrumb_label.set_margin_top(3);
+        breadcrumb_label.set_margin_bottom(3);
+        breadcrumb_label.set_hexpand(true);
+        breadcrumb_label.set_xalign(0.0);
+        breadcrumb_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+
+        let breadcrumb_bar = GtkBox::new(Orientation::Horizontal, 0);
+        breadcrumb_bar.append(&breadcrumb_label);
+
         let outer = GtkBox::new(Orientation::Vertical, 0);
         outer.set_hexpand(true);
         outer.set_vexpand(true);
+        outer.append(&breadcrumb_bar);
+        outer.append(&Separator::new(Orientation::Horizontal));
         outer.append(&notebook);
         outer.append(&Separator::new(Orientation::Horizontal));
         outer.append(find_bar.widget());
@@ -278,6 +296,8 @@ impl EditorPane {
             find_bar,
             word_count_label,
             cursor_label,
+            breadcrumb_label,
+            spell_checker: Rc::new(RefCell::new(crate::spellcheck::SpellChecker::new("en_US"))),
         };
 
         {
@@ -597,6 +617,51 @@ impl EditorPane {
         }
     }
 
+    // ── Spell check API ───────────────────────────────────────────────────────
+
+    pub fn set_spell_enabled(&self, enabled: bool) {
+        self.spell_checker.borrow_mut().enabled = enabled;
+        if !enabled {
+            let state = self.state.borrow();
+            for tab in state.tabs.values() {
+                clear_spell_tags(&tab.buffer);
+            }
+        } else {
+            self.recheck_all_buffers();
+        }
+    }
+
+    pub fn set_spell_autocorrect(&self, enabled: bool) {
+        self.spell_checker.borrow_mut().autocorrect = enabled;
+    }
+
+    pub fn set_spell_language(&self, lang: &str) {
+        self.spell_checker.borrow_mut().language = lang.to_string();
+        self.recheck_all_buffers();
+    }
+
+    fn recheck_all_buffers(&self) {
+        let state = self.state.borrow();
+        for tab in state.tabs.values() {
+            let (s, e) = tab.buffer.bounds();
+            let text = tab.buffer.text(&s, &e, false).to_string();
+            let sc = self.spell_checker.borrow();
+            if sc.enabled {
+                let words = crate::spellcheck::extract_words(&text);
+                let unique: Vec<&str> = {
+                    let mut seen = HashSet::new();
+                    words.iter()
+                        .filter(|(_, _, w)| !sc.is_ignored(w) && seen.insert(w.to_lowercase()))
+                        .map(|(_, _, w)| w.as_str())
+                        .collect()
+                };
+                let misspelled = sc.check_unique(&unique);
+                drop(sc);
+                apply_spell_tags(&tab.buffer, &words, &misspelled);
+            }
+        }
+    }
+
     // ── File management ───────────────────────────────────────────────────────
 
     pub fn open_file(&self, path: PathBuf, content: &str) {
@@ -708,6 +773,7 @@ impl EditorPane {
         // ── Cursor position tracking + heading detection ──────────────────────
 
         let cursor_lbl = self.cursor_label.clone();
+        let breadcrumb_lbl = self.breadcrumb_label.clone();
         let on_heading_cb = self.on_cursor_heading.clone();
         let path_for_heading = path.clone();
         let last_heading_line: Rc<RefCell<u32>> = Rc::new(RefCell::new(u32::MAX));
@@ -717,6 +783,10 @@ impl EditorPane {
                 let line = cursor.line() + 1;
                 let col = cursor.line_offset() + 1;
                 cursor_lbl.set_text(&format!("Ln {line}, Col {col}"));
+
+                // Update breadcrumb heading path
+                let heading_path = build_heading_path(buf, cursor.line());
+                breadcrumb_lbl.set_text(&heading_path);
 
                 // Scan backward from cursor line for a heading
                 if let Some(cb) = on_heading_cb.borrow().as_ref() {
@@ -1050,6 +1120,252 @@ impl EditorPane {
         });
         view.add_controller(key_ctrl);
 
+        // ── Spell check: debounced buffer check ───────────────────────────────
+
+        {
+            let spell_c = self.spell_checker.clone();
+            let spell_gen: Rc<RefCell<u64>> = Rc::new(RefCell::new(0));
+            let spell_gen_c = spell_gen.clone();
+            let buf_spell = buffer.clone();
+
+            buffer.connect_changed(move |buf| {
+                let sc = spell_c.borrow();
+                if !sc.enabled {
+                    clear_spell_tags(&buf_spell);
+                    return;
+                }
+                drop(sc);
+
+                *spell_gen_c.borrow_mut() += 1;
+                let my_gen = *spell_gen_c.borrow();
+                let gen2 = spell_gen_c.clone();
+                let buf2 = buf.clone();
+                let sc2 = spell_c.clone();
+
+                glib::timeout_add_local(Duration::from_millis(700), move || {
+                    if *gen2.borrow() != my_gen {
+                        return glib::ControlFlow::Break;
+                    }
+                    let sc = sc2.borrow();
+                    if !sc.enabled {
+                        clear_spell_tags(&buf2);
+                        return glib::ControlFlow::Break;
+                    }
+                    let (s, e) = buf2.bounds();
+                    let text = buf2.text(&s, &e, false).to_string();
+                    let words = crate::spellcheck::extract_words(&text);
+                    let unique: Vec<&str> = {
+                        let mut seen = HashSet::new();
+                        words.iter()
+                            .filter(|(_, _, w)| !sc.is_ignored(w) && seen.insert(w.to_lowercase()))
+                            .map(|(_, _, w)| w.as_str())
+                            .collect()
+                    };
+                    let misspelled = sc.check_unique(&unique);
+                    drop(sc);
+                    apply_spell_tags(&buf2, &words, &misspelled);
+                    glib::ControlFlow::Break
+                });
+            });
+        }
+
+        // ── Spell check: autocorrect on word boundary ─────────────────────────
+
+        {
+            let spell_ac = self.spell_checker.clone();
+            let buf_ac = buffer.clone();
+
+            buffer.connect_changed(move |buf| {
+                let sc = spell_ac.borrow();
+                if !sc.enabled || !sc.autocorrect {
+                    return;
+                }
+
+                let cursor = buf.cursor_position();
+                if cursor < 2 {
+                    return;
+                }
+
+                let just_typed = buf.iter_at_offset(cursor - 1);
+                let ch = just_typed.char();
+                // Only autocorrect when a word-terminating character is typed
+                if !matches!(ch, ' ' | '\t' | '\n' | '.' | ',' | ';' | ':' | '!' | '?') {
+                    return;
+                }
+
+                // Scan backward to find the preceding word
+                let word_end = buf.iter_at_offset(cursor - 1);
+                let mut word_start = word_end.clone();
+                loop {
+                    let mut prev = word_start.clone();
+                    if !prev.backward_char() { break; }
+                    if !prev.char().is_alphabetic() { break; }
+                    word_start = prev;
+                }
+                if word_start == word_end { return; }
+
+                let word = buf.text(&word_start, &word_end, false).to_string();
+                if word.len() < 3 || sc.is_ignored(&word) { return; }
+
+                // Don't autocorrect proper nouns or words already starting with upper
+                if word.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
+                    return;
+                }
+
+                let suggestions = sc.suggestions_for(&word);
+                drop(sc);
+
+                if let Some(best) = suggestions.first() {
+                    // Only apply if edit distance is 1 (very confident replacement)
+                    if crate::spellcheck::levenshtein(&word.to_lowercase(), &best.to_lowercase()) <= 1 {
+                        let ws = word_start.clone();
+                        let we = word_end.clone();
+                        let best_c = best.clone();
+                        let buf_c = buf_ac.clone();
+                        glib::idle_add_local_once(move || {
+                            let mut s = ws;
+                            let mut e = we;
+                            buf_c.begin_user_action();
+                            buf_c.delete(&mut s, &mut e);
+                            buf_c.insert(&mut s, &best_c);
+                            buf_c.end_user_action();
+                        });
+                    }
+                }
+            });
+        }
+
+        // ── Right-click context menu (spell suggestions + ignore) ─────────────
+
+        {
+            let spell_rc = self.spell_checker.clone();
+            let buf_rc = buffer.clone();
+            let view_rc = view.clone();
+
+            let gesture = GestureClick::new();
+            gesture.set_button(3); // right button
+            gesture.connect_released(move |_, _, x, y| {
+                let sc = spell_rc.borrow();
+                if !sc.enabled { return; }
+
+                let (bx, by) = view_rc.window_to_buffer_coords(
+                    TextWindowType::Widget,
+                    x as i32,
+                    y as i32,
+                );
+                let Some(iter) = view_rc.iter_at_location(bx, by) else { return };
+
+                let table = buf_rc.tag_table();
+                let Some(tag) = table.lookup("zerkalo-spell") else { return };
+                if !iter.has_tag(&tag) { return; }
+
+                // Find word boundaries
+                let mut word_start = iter.clone();
+                loop {
+                    let mut prev = word_start.clone();
+                    if !prev.backward_char() { break; }
+                    if !prev.char().is_alphabetic() { break; }
+                    word_start = prev;
+                }
+                let mut word_end = iter.clone();
+                while word_end.char().is_alphabetic() {
+                    if !word_end.forward_char() { break; }
+                }
+                let word = buf_rc.text(&word_start, &word_end, false).to_string();
+                if word.is_empty() { return; }
+
+                let suggestions = sc.suggestions_for(&word);
+                drop(sc);
+
+                // Build and show popover
+                let popover = Popover::new();
+                popover.set_parent(&view_rc);
+                let rect = gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1);
+                popover.set_pointing_to(Some(&rect));
+                popover.set_has_arrow(true);
+
+                let vbox = GtkBox::new(Orientation::Vertical, 2);
+                vbox.set_margin_top(6);
+                vbox.set_margin_bottom(6);
+                vbox.set_margin_start(4);
+                vbox.set_margin_end(4);
+
+                if suggestions.is_empty() {
+                    let lbl = Label::new(Some("No suggestions"));
+                    lbl.add_css_class("dim-label");
+                    lbl.set_margin_top(4);
+                    lbl.set_margin_bottom(4);
+                    vbox.append(&lbl);
+                } else {
+                    for sugg in suggestions.iter().take(6) {
+                        let btn = Button::with_label(sugg);
+                        btn.add_css_class("flat");
+                        let buf2 = buf_rc.clone();
+                        let ws = word_start.clone();
+                        let we = word_end.clone();
+                        let s = sugg.clone();
+                        let pop2 = popover.clone();
+                        btn.connect_clicked(move |_| {
+                            let mut a = ws.clone();
+                            let mut b = we.clone();
+                            buf2.begin_user_action();
+                            buf2.delete(&mut a, &mut b);
+                            buf2.insert(&mut a, &s);
+                            buf2.end_user_action();
+                            pop2.popdown();
+                        });
+                        vbox.append(&btn);
+                    }
+                }
+
+                vbox.append(&Separator::new(Orientation::Horizontal));
+
+                let ignore_btn = Button::with_label("Ignore All");
+                ignore_btn.add_css_class("flat");
+                let spell_ign = spell_rc.clone();
+                let buf_ign = buf_rc.clone();
+                let word_ign = word.clone();
+                let pop_ign = popover.clone();
+                ignore_btn.connect_clicked(move |_| {
+                    spell_ign.borrow_mut().ignore(&word_ign);
+                    // Remove spell tags for this word from the buffer
+                    let tag_table = buf_ign.tag_table();
+                    if let Some(t) = tag_table.lookup("zerkalo-spell") {
+                        let (s, e) = buf_ign.bounds();
+                        let mut it = s.clone();
+                        while it < e {
+                            if it.has_tag(&t) {
+                                let mut ws2 = it.clone();
+                                let mut we2 = it.clone();
+                                while ws2.backward_char() && ws2.char().is_alphabetic() {}
+                                if !ws2.char().is_alphabetic() { ws2.forward_char(); }
+                                while we2.char().is_alphabetic() {
+                                    if !we2.forward_char() { break; }
+                                }
+                                let w = buf_ign.text(&ws2, &we2, false).to_string();
+                                if w.to_lowercase() == word_ign.to_lowercase() {
+                                    buf_ign.remove_tag(&t, &ws2, &we2);
+                                }
+                            }
+                            if !it.forward_char() { break; }
+                        }
+                    }
+                    pop_ign.popdown();
+                });
+                vbox.append(&ignore_btn);
+
+                popover.set_child(Some(&vbox));
+
+                let pop_close = popover.clone();
+                popover.connect_closed(move |_| {
+                    pop_close.unparent();
+                });
+
+                popover.popup();
+            });
+            view.add_controller(gesture);
+        }
+
         // ── Insert into notebook ──────────────────────────────────────────────
 
         let page_index = self.notebook.append_page(&scroll, Some(&tab_box));
@@ -1275,6 +1591,40 @@ fn ensure_diag_tags(buffer: &Buffer) {
     }
 }
 
+fn ensure_spell_tag(buffer: &Buffer) {
+    let table = buffer.tag_table();
+    if table.lookup("zerkalo-spell").is_none() {
+        let tag = TextTag::new(Some("zerkalo-spell"));
+        tag.set_underline(gtk4::pango::Underline::Error);
+        tag.set_underline_rgba(Some(&gtk4::gdk::RGBA::new(0.22, 0.55, 0.97, 1.0)));
+        table.add(&tag);
+    }
+}
+
+fn clear_spell_tags(buffer: &Buffer) {
+    ensure_spell_tag(buffer);
+    let (s, e) = buffer.bounds();
+    buffer.remove_tag_by_name("zerkalo-spell", &s, &e);
+}
+
+fn apply_spell_tags(
+    buffer: &Buffer,
+    words: &[(usize, usize, String)],
+    misspelled: &HashMap<String, Vec<String>>,
+) {
+    ensure_spell_tag(buffer);
+    let (s, e) = buffer.bounds();
+    buffer.remove_tag_by_name("zerkalo-spell", &s, &e);
+
+    for (start, end, word) in words {
+        if misspelled.contains_key(&word.to_lowercase()) {
+            let iter_start = buffer.iter_at_offset(*start as i32);
+            let iter_end = buffer.iter_at_offset(*end as i32);
+            buffer.apply_tag_by_name("zerkalo-spell", &iter_start, &iter_end);
+        }
+    }
+}
+
 fn lsp_hash_prefix(buffer: &Buffer) -> String {
     let cursor = buffer.iter_at_offset(buffer.cursor_position());
     let mut temp = cursor.clone();
@@ -1488,6 +1838,35 @@ fn is_whole_word(start: &gtk4::TextIter, end: &gtk4::TextIter) -> bool {
     };
     let after_ok = end.is_end() || !is_word_char(end.char());
     before_ok && after_ok
+}
+
+// Builds a breadcrumb path string for the cursor position, e.g. "Intro › Methods".
+// Scans backward collecting the first heading at each level encountered.
+fn build_heading_path(buf: &sourceview5::Buffer, line_idx: i32) -> String {
+    let mut path: Vec<(u32, String)> = Vec::new();
+    let mut min_level: u32 = u32::MAX;
+    let mut check = line_idx;
+    while check >= 0 {
+        if let Some(iter) = buf.iter_at_line(check) {
+            let mut end = iter.clone();
+            end.forward_to_line_end();
+            let text = buf.text(&iter, &end, false).to_string();
+            if text.starts_with('=') {
+                let level = text.chars().take_while(|&c| c == '=').count() as u32;
+                let content = text[level as usize..].trim().to_string();
+                if path.is_empty() || level < min_level {
+                    path.push((level, content));
+                    min_level = level;
+                    if level == 1 {
+                        break;
+                    }
+                }
+            }
+        }
+        check -= 1;
+    }
+    path.reverse();
+    path.into_iter().map(|(_, t)| t).collect::<Vec<_>>().join(" › ")
 }
 
 // Returns the 1-based line number of the nearest heading at or above `line_idx`,

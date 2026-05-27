@@ -110,6 +110,7 @@ struct TemplateSettings {
 pub struct TemplateDialog {
     window: adw::Window,
     on_create: OnCreateCb,
+    style_row: adw::ComboRow,
 }
 
 impl TemplateDialog {
@@ -462,15 +463,49 @@ impl TemplateDialog {
             );
         });
 
-        Self { window, on_create }
+        Self { window, on_create, style_row }
     }
 
     pub fn set_on_create(&self, f: impl Fn(PathBuf) + 'static) {
         *self.on_create.borrow_mut() = Some(Box::new(f));
     }
 
+    /// Pre-select a citation style by its internal key (e.g. "sbl", "apa").
+    pub fn preselect_style(&self, style_key: &str) {
+        for (i, (_, key)) in CITATION_STYLES.iter().enumerate() {
+            if *key == style_key {
+                self.style_row.set_selected(i as u32);
+                return;
+            }
+        }
+    }
+
     pub fn present(&self) {
         self.window.present();
+    }
+}
+
+/// Extract the preamble content (between TEMPLATE markers) from a generated document.
+/// Returns the content between the markers, without the markers themselves.
+pub fn extract_preamble(content: &str) -> String {
+    if let (Some(begin_pos), Some(end_pos)) =
+        (content.find(TEMPLATE_BEGIN), content.find(TEMPLATE_END))
+    {
+        let after_begin = begin_pos + TEMPLATE_BEGIN.len();
+        let after_begin = if content[after_begin..].starts_with('\n') {
+            after_begin + 1
+        } else {
+            after_begin
+        };
+        content[after_begin..end_pos].trim_end().to_string()
+    } else {
+        // No markers — return everything before the title block separator
+        let sep = "// ── Title block";
+        if let Some(pos) = content.find(sep) {
+            content[..pos].trim_end().to_string()
+        } else {
+            String::new()
+        }
     }
 }
 
@@ -532,6 +567,7 @@ fn generate_typst_template(s: &TemplateSettings) -> String {
 
     let mut out = String::new();
 
+    let _ = writeln!(out, "{TEMPLATE_BEGIN}");
     let _ = writeln!(out, "// Created with Zerkalo · {style_name} style");
     let _ = writeln!(out, "// @zerkalo-style: {style_key}");
     let _ = writeln!(out, "// @zerkalo-version: {}", env!("CARGO_PKG_VERSION"));
@@ -576,6 +612,9 @@ fn generate_typst_template(s: &TemplateSettings) -> String {
     if !s.languages.is_empty() {
         let _ = writeln!(out);
     }
+
+    let _ = writeln!(out, "{TEMPLATE_END}");
+    let _ = writeln!(out);
 
     // Title block
     let _ = writeln!(out, "// ── Title block ─────────────────────────────────────────────────────");
@@ -734,84 +773,164 @@ fn language_block(lang_key: &str) -> Option<&'static str> {
 fn heading_styles(style_key: &str) -> &'static str {
     match style_key {
         "sbl" => {
+            // SBL HS §2.4/§2.6: H1 centred ALL CAPS; H2 centred bold; H3 centred plain;
+            // H4 flush-left bold italic; H5 flush-left plain
             r#"
 // SBL heading styles
-#show heading.where(level: 1): it => {
-  v(1em)
-  align(center, text(weight: "bold")[#upper(it.body)])
-  v(0.5em)
-}
-#show heading.where(level: 2): it => {
-  v(0.8em)
-  align(center, text(style: "italic")[#it.body])
-  v(0.4em)
-}
-#show heading.where(level: 3): it => {
-  v(0.6em)
-  text(weight: "bold", style: "italic")[#it.body]
-  v(0.2em)
-}"#
+#show heading.where(level: 1): it => block(width: 100%, above: 1em, below: 0.5em)[
+  #set par(first-line-indent: 0pt)
+  #align(center)[#upper(it.body)]
+]
+#show heading.where(level: 2): it => block(width: 100%, above: 0.8em, below: 0.4em)[
+  #set par(first-line-indent: 0pt)
+  #align(center)[#text(weight: "bold")[#it.body]]
+]
+#show heading.where(level: 3): it => block(width: 100%, above: 0.6em, below: 0.3em)[
+  #set par(first-line-indent: 0pt)
+  #align(center)[#it.body]
+]
+#show heading.where(level: 4): it => block(width: 100%, above: 0.5em, below: 0.2em)[
+  #set par(first-line-indent: 0pt)
+  #text(weight: "bold", style: "italic")[#it.body]
+]
+#show heading.where(level: 5): it => block(width: 100%, above: 0.4em, below: 0.1em)[
+  #set par(first-line-indent: 0pt)
+  #it.body
+]"#
         }
-        "chicago-notes" | "turabian" => {
+        "chicago-notes" => {
             r#"
-// Chicago heading styles
-#show heading.where(level: 1): it => {
-  v(1em)
-  align(center, text(weight: "bold")[#it.body])
-  v(0.5em)
-}
-#show heading.where(level: 2): it => {
-  v(0.8em)
-  align(center, text(style: "italic")[#it.body])
-  v(0.4em)
-}
-#show heading.where(level: 3): it => {
-  v(0.6em)
-  text(style: "italic")[#it.body]
-  v(0.2em)
-}"#
+// Chicago (Notes-Bibliography) heading styles
+#show heading.where(level: 1): it => block(width: 100%, above: 1em, below: 0.5em)[
+  #set par(first-line-indent: 0pt)
+  #align(center)[#text(weight: "bold")[#it.body]]
+]
+#show heading.where(level: 2): it => block(width: 100%, above: 0.8em, below: 0.4em)[
+  #set par(first-line-indent: 0pt)
+  #align(center)[#text(style: "italic")[#it.body]]
+]
+#show heading.where(level: 3): it => block(width: 100%, above: 0.6em, below: 0.2em)[
+  #set par(first-line-indent: 0pt)
+  #text(style: "italic")[#it.body]
+]"#
+        }
+        "turabian" => {
+            // Turabian §A.2.2.4: H1 centred bold; H2 centred plain; H3 flush-left italic
+            r#"
+// Turabian heading styles
+#show heading.where(level: 1): it => block(width: 100%, above: 1em, below: 0.5em)[
+  #set par(first-line-indent: 0pt)
+  #align(center)[#text(weight: "bold")[#it.body]]
+]
+#show heading.where(level: 2): it => block(width: 100%, above: 0.8em, below: 0.4em)[
+  #set par(first-line-indent: 0pt)
+  #align(center)[#it.body]
+]
+#show heading.where(level: 3): it => block(width: 100%, above: 0.6em, below: 0.2em)[
+  #set par(first-line-indent: 0pt)
+  #text(style: "italic")[#it.body]
+]"#
         }
         "mla" => {
             r#"
 // MLA heading styles (no decorative formatting)
-#show heading: it => {
-  v(0.6em)
-  text(it.body)
-  v(0.3em)
-}"#
+#show heading: it => block(width: 100%, above: 0.6em, below: 0.3em)[
+  #set par(first-line-indent: 0pt)
+  #text(it.body)
+]"#
         }
-        "apa" | "asa" | "harvard" => {
+        "apa" | "harvard" => {
+            // APA 7 §2.27; Harvard follows same hierarchy
             r#"
 // APA heading styles
-#show heading.where(level: 1): it => {
-  v(1em)
-  align(center, text(weight: "bold")[#it.body])
-  v(0.5em)
-}
-#show heading.where(level: 2): it => {
-  v(0.8em)
-  text(weight: "bold")[#it.body]
-  v(0.4em)
-}
-#show heading.where(level: 3): it => {
-  v(0.6em)
-  text(weight: "bold", style: "italic")[#it.body]
-  v(0.2em)
-}"#
+#show heading.where(level: 1): it => block(width: 100%, above: 1em, below: 0.5em)[
+  #set par(first-line-indent: 0pt)
+  #align(center)[#text(weight: "bold")[#it.body]]
+]
+#show heading.where(level: 2): it => block(width: 100%, above: 0.8em, below: 0.4em)[
+  #set par(first-line-indent: 0pt)
+  #text(weight: "bold")[#it.body]
+]
+#show heading.where(level: 3): it => block(width: 100%, above: 0.6em, below: 0.2em)[
+  #set par(first-line-indent: 0pt)
+  #text(weight: "bold", style: "italic")[#it.body]
+]"#
+        }
+        "asa" => {
+            // ASA §4.2: H1 flush-left ALL CAPS no bold; H2 flush-left italic;
+            // H3 indented italic run-in with trailing period
+            r#"
+// ASA heading styles
+#show heading.where(level: 1): it => block(width: 100%, above: 1em, below: 0.5em)[
+  #set par(first-line-indent: 0pt)
+  #upper(it.body)
+]
+#show heading.where(level: 2): it => block(width: 100%, above: 0.8em, below: 0.4em)[
+  #set par(first-line-indent: 0pt)
+  #text(style: "italic")[#it.body]
+]
+#show heading.where(level: 3): it => block(width: 100%, above: 0.4em, below: 0em)[
+  #set par(first-line-indent: 0pt)
+  #h(0.5in)#text(style: "italic")[#(it.body + [.])]
+]"#
         }
         _ => {
             r#"
 // Default heading styles
-#show heading.where(level: 1): it => {
-  v(1em)
-  align(center, text(weight: "bold")[#it.body])
-  v(0.5em)
+#show heading.where(level: 1): it => block(width: 100%, above: 1em, below: 0.5em)[
+  #set par(first-line-indent: 0pt)
+  #align(center)[#text(weight: "bold")[#it.body]]
+]
+#show heading.where(level: 2): it => block(width: 100%, above: 0.8em, below: 0.4em)[
+  #set par(first-line-indent: 0pt)
+  #text(weight: "bold")[#it.body]
+]"#
+        }
+    }
 }
-#show heading.where(level: 2): it => {
-  v(0.8em)
-  text(weight: "bold")[#it.body]
-  v(0.4em)
-}"#
+
+const TEMPLATE_BEGIN: &str = "// ZERKALO-TEMPLATE-BEGIN";
+const TEMPLATE_END: &str = "// ZERKALO-TEMPLATE-END";
+
+/// Extract the `@zerkalo-style` key from a document's header comments.
+pub fn parse_style_key(content: &str) -> Option<String> {
+    for line in content.lines() {
+        if let Some(rest) = line.trim().strip_prefix("// @zerkalo-style:") {
+            let key = rest.trim().to_string();
+            if !key.is_empty() {
+                return Some(key);
+            }
+        }
+    }
+    None
+}
+
+/// Replace the preamble section (between TEMPLATE markers) with `new_preamble`.
+/// If no markers exist, prepends the new preamble (with markers) before the body.
+pub fn reapply_preamble(existing: &str, new_preamble: &str) -> String {
+    let wrapped = format!("{TEMPLATE_BEGIN}\n{new_preamble}\n{TEMPLATE_END}\n");
+
+    if let (Some(begin_pos), Some(end_marker_pos)) =
+        (existing.find(TEMPLATE_BEGIN), existing.find(TEMPLATE_END))
+    {
+        let end_pos = end_marker_pos + TEMPLATE_END.len();
+        let after = if existing[end_pos..].starts_with('\n') {
+            end_pos + 1
+        } else {
+            end_pos
+        };
+        let before = &existing[..begin_pos];
+        let rest = &existing[after..];
+        format!("{before}{wrapped}{rest}")
+    } else {
+        // No markers — prepend before the document body separator if present
+        let body_sep = "// ── Document body";
+        if let Some(pos) = existing.find(body_sep) {
+            let before = &existing[..pos];
+            let rest = &existing[pos..];
+            format!("{before}{wrapped}\n{rest}")
+        } else {
+            format!("{wrapped}\n{existing}")
         }
     }
 }
