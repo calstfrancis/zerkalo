@@ -2,7 +2,7 @@
 
 A contemplative [Typst](https://typst.app) editor built with Rust, GTK4, and libadwaita.  
 Live preview · Academic styles · LSP completions · Git sync · Adwaita design.  
-**v0.4.0** — Embedded Typst compiler · Cheatsheet/Help panel · Ctrl+Shift+G sync · DOCX/PDF import
+**v0.5.0** — Animated find bar · Dark-mode syntax themes · Multi-remote Git push · Animated find bar · Style + filename label · Sidebar section headers
 
 ---
 
@@ -17,7 +17,7 @@ Live preview · Academic styles · LSP completions · Git sync · Adwaita design
 | **Built-in snippets** | Academic snippets (figure, table, footnote, bibliography, …) prepended to the LSP popup |
 | **Citation autocomplete** | `@` triggers a BibTeX key popup with fuzzy filtering |
 | **Inline diagnostics** | Compile errors and LSP warnings shown as red/amber underlines in the editor |
-| **Find & Replace** | `Ctrl+F`; forward/backward; whole-word toggle (`W`); replace one or all |
+| **Find & Replace** | `Ctrl+F`; forward/backward; animated slide-in bar; replace one or all |
 | **Spell check** | Blue wavy underlines on misspelled prose words; right-click for suggestions, Ignore All; language selector in Settings; optional autocorrect on word boundary |
 | **Breadcrumb bar** | Heading path shown above the editor (e.g. "Introduction › Methods") updated as the cursor moves |
 | **Word count** | Live count and reading-time estimate in the status bar |
@@ -38,14 +38,14 @@ Live preview · Academic styles · LSP completions · Git sync · Adwaita design
 |---|---|
 | **Live preview** | Auto-compiles on every edit (300 ms debounce); all pages rendered; embedded Typst engine — no binary required |
 | **Cheatsheet & Help panel** | Toggle (`?` button) in preview toolbar shows a three-tab reference panel (Cheatsheet, Help, FAQ) in place of the preview |
-| **Style switcher** | Header-bar dropdown applies a citation style to the open document: SBL, Chicago (Notes-Bib), Chicago (Author-Date), MLA, APA 7th, ASA, Turabian, Harvard |
+| **Style switcher** | Header-bar dropdown applies a citation style to the open document; button label shows detected style and filename ("GOST 7.32 · main") |
 | **New from Template** | Dialog with five tabs — Document, Layout, Sections, Languages, Packages — generates a complete `.typ` preamble |
 | **Update Template Settings** | ☰ → Update Template Settings — re-applies preamble settings (citation style, margins, fonts, …) to an existing document without touching the body |
 | **LaTeX import** | ☰ → Import LaTeX File — converts `.tex` to Typst via pandoc |
 | **Export** | PDF (typst), HTML (typst), DOCX, ODT, LaTeX (all via pandoc where needed) |
 | **Font management** | ☰ → Font Management — searchable list of system fonts; enable/disable; persisted to `~/.config/zerkalo/font-preferences.toml` |
 | **GOST Type B font** | Bundled and installed automatically on first launch |
-| **Git sync** | Commit and push in one click or `Ctrl+Shift+G` |
+| **Git sync** | Commit and push in one click or `Ctrl+Shift+G`; pushes to all configured remotes |
 | **DOCX/PDF import** | ☰ → Import… converts Word documents (pandoc) and PDFs (pdftotext) to Typst |
 
 ---

@@ -32,11 +32,12 @@ pub struct CompletionItem {
 // ── Client ────────────────────────────────────────────────────────────────────
 
 pub struct LspClient {
-    _child: Child,
+    child: Child,
     stdin: ChildStdin,
     diag_rx: Receiver<Vec<LspDiagnostic>>,
     comp_rx: Receiver<(u64, Vec<CompletionItem>)>,
     next_id: u64,
+    pub root: PathBuf,
 }
 
 impl LspClient {
@@ -60,11 +61,12 @@ impl LspClient {
 
         let root_uri = path_to_uri(root);
         let mut client = Self {
-            _child: child,
+            child,
             stdin,
             diag_rx,
             comp_rx,
             next_id: 1,
+            root: root.to_path_buf(),
         };
 
         let id = client.next_id();
@@ -185,6 +187,11 @@ impl LspClient {
         let _ = self.stdin.write_all(header.as_bytes());
         let _ = self.stdin.write_all(body.as_bytes());
         let _ = self.stdin.flush();
+    }
+
+    /// Returns false if the tinymist process has exited.
+    pub fn is_alive(&mut self) -> bool {
+        self.child.try_wait().map(|s| s.is_none()).unwrap_or(false)
     }
 }
 

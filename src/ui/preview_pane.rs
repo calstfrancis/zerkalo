@@ -8,7 +8,7 @@ use gtk4::gdk::prelude::GdkCairoContextExt;
 use gtk4::gdk_pixbuf::Pixbuf;
 use gtk4::prelude::*;
 use gtk4::{
-    Align, Box as GtkBox, DrawingArea, Label, Orientation, ScrolledWindow, Spinner, Stack,
+    Align, Box as GtkBox, Button, DrawingArea, Label, Orientation, ScrolledWindow, Spinner, Stack,
 };
 
 // ── Result sent from compile thread ──────────────────────────────────────────
@@ -27,6 +27,7 @@ pub struct PreviewPane {
     img_scroll: ScrolledWindow,
     drawing_area: DrawingArea,
     spinner: Spinner,
+    cancel_btn: Button,
     error_label: Label,
     output_dir: Rc<PathBuf>,
     extra_args: Rc<Vec<String>>,
@@ -69,8 +70,12 @@ impl PreviewPane {
         spinner.set_size_request(48, 48);
         let spin_lbl = Label::new(Some("Compiling\u{2026}"));
         spin_lbl.add_css_class("dim-label");
+        let cancel_btn = Button::with_label("Cancel");
+        cancel_btn.add_css_class("flat");
+        cancel_btn.set_visible(false);
         spin_box.append(&spinner);
         spin_box.append(&spin_lbl);
+        spin_box.append(&cancel_btn);
         stack.add_named(&spin_box, Some("compiling"));
 
         // ── ready page: DrawingArea inside ScrolledWindow ─────────────────────
@@ -135,6 +140,7 @@ impl PreviewPane {
             img_scroll,
             drawing_area,
             spinner,
+            cancel_btn,
             error_label,
             output_dir: Rc::new(
                 output_dir.unwrap_or_else(|| PathBuf::from("/tmp/zerkalo_preview")),
@@ -150,6 +156,23 @@ impl PreviewPane {
             watch_active: Rc::new(RefCell::new(false)),
             compile_gen: Rc::new(RefCell::new(0)),
         };
+
+        // Wire cancel button once
+        let gen_c = pane.compile_gen.clone();
+        let spinner_c = pane.spinner.clone();
+        let cancel_c = pane.cancel_btn.clone();
+        let stack_c = pane.stack.clone();
+        let pixbufs_c = pane.page_pixbufs.clone();
+        pane.cancel_btn.connect_clicked(move |_| {
+            *gen_c.borrow_mut() += 1;
+            spinner_c.set_spinning(false);
+            cancel_c.set_visible(false);
+            if pixbufs_c.borrow().is_empty() {
+                stack_c.set_visible_child_name("empty");
+            } else {
+                stack_c.set_visible_child_name("ready");
+            }
+        });
 
         pane
     }
@@ -347,7 +370,17 @@ impl PreviewPane {
         let gen_rc = self.compile_gen.clone();
 
         self.spinner.set_spinning(true);
+        self.cancel_btn.set_visible(false);
         self.stack.set_visible_child_name("compiling");
+
+        // Show cancel button after 2 seconds
+        let cancel_c = self.cancel_btn.clone();
+        let gen_for_cancel = self.compile_gen.clone();
+        glib::timeout_add_local_once(Duration::from_secs(2), move || {
+            if *gen_for_cancel.borrow() == my_gen {
+                cancel_c.set_visible(true);
+            }
+        });
 
         let (tx, rx) = mpsc::sync_channel::<CompileResult>(1);
 
@@ -370,6 +403,7 @@ impl PreviewPane {
             match rx.try_recv() {
                 Ok(result) => {
                     pane.spinner.set_spinning(false);
+                    pane.cancel_btn.set_visible(false);
                     match result {
                         CompileResult::Success(pages) => {
                             pane.load_pixbufs_from_bytes(&pages);
@@ -391,10 +425,12 @@ impl PreviewPane {
                 Err(TryRecvError::Empty) => glib::ControlFlow::Continue,
                 Err(TryRecvError::Disconnected) => {
                     pane.spinner.set_spinning(false);
+                    pane.cancel_btn.set_visible(false);
                     glib::ControlFlow::Break
                 }
             }
         });
+
     }
 
     pub fn refresh_display(&self) {

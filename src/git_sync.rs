@@ -7,9 +7,13 @@ use chrono::Local;
 
 pub struct SyncResult {
     pub committed: bool,
+    /// True if at least one remote was pushed successfully.
     pub pushed: bool,
     pub commit_message: String,
+    /// Fatal error (add or commit failed before any push).
     pub error: Option<String>,
+    /// Non-fatal: per-remote push failures — "(remote_name) reason".
+    pub push_errors: Vec<String>,
 }
 
 // ── Query helpers ─────────────────────────────────────────────────────────────
@@ -21,6 +25,41 @@ pub fn has_remote(repo_path: &Path) -> bool {
         .output()
         .map(|out| !out.stdout.trim_ascii().is_empty())
         .unwrap_or(false)
+}
+
+/// Returns the names of all configured remotes.
+pub fn list_remotes(repo_path: &Path) -> Vec<String> {
+    Command::new("git")
+        .args(["-C", path_str(repo_path), "remote"])
+        .output()
+        .map(|out| {
+            String::from_utf8_lossy(&out.stdout)
+                .lines()
+                .map(|l| l.trim().to_string())
+                .filter(|l| !l.is_empty())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Returns the push URL for a named remote.
+pub fn get_remote_url(repo_path: &Path, name: &str) -> Option<String> {
+    let out = Command::new("git")
+        .args(["-C", path_str(repo_path), "remote", "get-url", name])
+        .output()
+        .ok()?;
+    if out.status.success() {
+        let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if s.is_empty() { None } else { Some(s) }
+    } else {
+        None
+    }
+}
+
+/// Add (or update) a remote named "backup". Removes any existing "backup" first.
+pub fn add_backup_remote(repo_path: &Path, url: &str) -> Result<(), String> {
+    let _ = run_git(repo_path, &["remote", "remove", "backup"]);
+    run_git(repo_path, &["remote", "add", "backup", url])
 }
 
 /// Returns the name of the current branch (falls back to "main").
@@ -50,7 +89,6 @@ pub fn changed_files(repo_path: &Path) -> Vec<String> {
         if line.len() < 4 {
             continue;
         }
-        // "XY path" or "XY old -> new" for renames
         let entry = &line[3..];
         let filename = entry.split(" -> ").last().unwrap_or(entry).trim();
         let basename = Path::new(filename)
@@ -72,7 +110,6 @@ pub fn craft_message(changed: &[String]) -> String {
         0 => format!("Auto-save: {ts}"),
         1 => format!("Edited {}: {ts}", changed[0]),
         _ => {
-            // Limit to first 5 names to keep the subject line short
             let shown: Vec<&str> = changed.iter().take(5).map(String::as_str).collect();
             let suffix = if changed.len() > 5 {
                 format!(" (+{})", changed.len() - 5)
@@ -91,7 +128,8 @@ pub fn add_remote(repo_path: &Path, url: &str) -> Result<(), String> {
     run_git(repo_path, &["remote", "add", "origin", url])
 }
 
-/// Stage everything, commit with an auto-crafted message, and push.
+/// Stage everything, commit with an auto-crafted message, then push to every
+/// configured remote. `pushed` is true if at least one remote succeeded.
 pub fn sync(repo_path: &Path) -> SyncResult {
     let changed = changed_files(repo_path);
     let msg = craft_message(&changed);
@@ -103,6 +141,7 @@ pub fn sync(repo_path: &Path) -> SyncResult {
             pushed: false,
             commit_message: msg,
             error: Some(format!("git add: {e}")),
+            push_errors: Vec::new(),
         };
     }
 
@@ -117,6 +156,7 @@ pub fn sync(repo_path: &Path) -> SyncResult {
                 pushed: false,
                 commit_message: msg,
                 error: Some(format!("git commit: {e}")),
+                push_errors: Vec::new(),
             };
         }
         Ok(out) if !out.status.success() => {
@@ -129,37 +169,39 @@ pub fn sync(repo_path: &Path) -> SyncResult {
                     pushed: false,
                     commit_message: msg,
                     error: Some(text),
+                    push_errors: Vec::new(),
                 };
             }
         }
         Ok(_) => true,
     };
 
-    // git push -u origin <branch>
+    // Push to every remote
+    let remotes = list_remotes(repo_path);
     let branch = current_branch(repo_path);
-    let push = Command::new("git")
-        .args(["-C", path_str(repo_path), "push", "-u", "origin", &branch])
-        .output();
+    let mut pushed = false;
+    let mut push_errors: Vec<String> = Vec::new();
 
-    match push {
-        Err(e) => SyncResult {
-            committed,
-            pushed: false,
-            commit_message: msg,
-            error: Some(format!("git push: {e}")),
-        },
-        Ok(out) if !out.status.success() => SyncResult {
-            committed,
-            pushed: false,
-            commit_message: msg,
-            error: Some(format!("git push: {}", lossy_combined(&out))),
-        },
-        Ok(_) => SyncResult {
-            committed,
-            pushed: true,
-            commit_message: msg,
-            error: None,
-        },
+    for remote in &remotes {
+        let out = Command::new("git")
+            .args(["-C", path_str(repo_path), "push", "-u", remote, &branch])
+            .output();
+
+        match out {
+            Err(e) => push_errors.push(format!("({remote}) {e}")),
+            Ok(o) if !o.status.success() => {
+                push_errors.push(format!("({remote}) {}", lossy_combined(&o)));
+            }
+            Ok(_) => pushed = true,
+        }
+    }
+
+    SyncResult {
+        committed,
+        pushed,
+        commit_message: msg,
+        error: None,
+        push_errors,
     }
 }
 
@@ -186,9 +228,5 @@ fn run_git(repo_path: &Path, args: &[&str]) -> Result<(), String> {
 fn lossy_combined(out: &std::process::Output) -> String {
     let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
     let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    if !stderr.is_empty() {
-        stderr
-    } else {
-        stdout
-    }
+    if !stderr.is_empty() { stderr } else { stdout }
 }

@@ -1470,6 +1470,11 @@ const TEMPLATE_BEGIN: &str = "// ZERKALO-TEMPLATE-BEGIN";
 const TEMPLATE_END: &str = "// ZERKALO-TEMPLATE-END";
 
 /// Extract the `@zerkalo-style` key from a document's header comments.
+/// Map a `@zerkalo-style` key back to the human-readable citation style name.
+pub fn style_name_for_key(key: &str) -> Option<&'static str> {
+    CITATION_STYLES.iter().find(|(_, k)| *k == key).map(|(name, _)| *name)
+}
+
 pub fn parse_style_key(content: &str) -> Option<String> {
     for line in content.lines() {
         if let Some(rest) = line.trim().strip_prefix("// @zerkalo-style:") {

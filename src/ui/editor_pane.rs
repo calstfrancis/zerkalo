@@ -133,6 +133,7 @@ pub struct EditorPane {
     outer: GtkBox,
     notebook: Notebook,
     map: Map,
+    map_sep: gtk4::Separator,
     state: Rc<RefCell<EditorState>>,
     on_change: Rc<RefCell<Option<Box<dyn Fn()>>>>,
     on_modified_changed: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
@@ -150,6 +151,7 @@ pub struct EditorPane {
     tab_width: Rc<RefCell<u32>>,
     find_bar: FindBar,
     word_count_label: Label,
+    lsp_status_label: Label,
     cursor_label: Label,
     breadcrumb_label: Label,
     spell_checker: Rc<RefCell<crate::spellcheck::SpellChecker>>,
@@ -202,13 +204,22 @@ impl EditorPane {
         let status_bar = GtkBox::new(Orientation::Horizontal, 0);
         status_bar.set_hexpand(true);
 
-        let cursor_label = Label::new(Some("Ln 1, Col 1"));
+        let cursor_label = Label::new(Some("L1:C1"));
         cursor_label.add_css_class("dim-label");
         cursor_label.add_css_class("caption");
         cursor_label.set_margin_start(12);
         cursor_label.set_margin_top(3);
         cursor_label.set_margin_bottom(3);
+        cursor_label.set_tooltip_text(Some("Line 1, Column 1"));
         status_bar.append(&cursor_label);
+
+        let lsp_status_label = Label::new(None);
+        lsp_status_label.add_css_class("dim-label");
+        lsp_status_label.add_css_class("caption");
+        lsp_status_label.set_margin_start(8);
+        lsp_status_label.set_margin_top(3);
+        lsp_status_label.set_margin_bottom(3);
+        status_bar.append(&lsp_status_label);
 
         let word_count_label = Label::new(Some(""));
         word_count_label.add_css_class("dim-label");
@@ -239,10 +250,15 @@ impl EditorPane {
         map.set_vexpand(true);
         map.set_visible(false);
 
+        let map_sep = gtk4::Separator::new(Orientation::Vertical);
+        map_sep.set_visible(false);
+
         let editor_row = GtkBox::new(Orientation::Horizontal, 0);
         editor_row.set_hexpand(true);
         editor_row.set_vexpand(true);
         editor_row.append(&notebook);
+        editor_row.append(&map_sep);
+        editor_row.append(&map);
 
         let outer = GtkBox::new(Orientation::Vertical, 0);
         outer.set_hexpand(true);
@@ -250,7 +266,6 @@ impl EditorPane {
         outer.append(&breadcrumb_bar);
         outer.append(&Separator::new(Orientation::Horizontal));
         outer.append(&editor_row);
-        outer.append(&Separator::new(Orientation::Horizontal));
         outer.append(find_bar.widget());
         outer.append(&Separator::new(Orientation::Horizontal));
         outer.append(&status_bar);
@@ -299,6 +314,7 @@ impl EditorPane {
             outer,
             notebook,
             map,
+            map_sep,
             state,
             on_change,
             on_modified_changed,
@@ -316,6 +332,7 @@ impl EditorPane {
             tab_width,
             find_bar,
             word_count_label,
+            lsp_status_label,
             cursor_label,
             breadcrumb_label,
             spell_checker: Rc::new(RefCell::new(crate::spellcheck::SpellChecker::new("en_US"))),
@@ -323,15 +340,15 @@ impl EditorPane {
 
         {
             let ep2 = ep.clone();
-            ep.find_bar.set_on_search(move |text, forward, whole_word| ep2.do_find(text, forward, whole_word));
+            ep.find_bar.set_on_search(move |text, forward| ep2.do_find(text, forward));
         }
         {
             let ep2 = ep.clone();
-            ep.find_bar.set_on_replace_one(move |find, replace, whole_word| ep2.do_replace_one(find, replace, whole_word));
+            ep.find_bar.set_on_replace_one(move |find, replace| ep2.do_replace_one(find, replace));
         }
         {
             let ep2 = ep.clone();
-            ep.find_bar.set_on_replace_all(move |find, replace, whole_word| ep2.do_replace_all(find, replace, whole_word));
+            ep.find_bar.set_on_replace_all(move |find, replace| ep2.do_replace_all(find, replace));
         }
 
         ep
@@ -396,9 +413,13 @@ impl EditorPane {
     }
 
     pub fn apply_style_scheme(&self, is_dark: bool) {
-        let scheme_id = if is_dark { "Adwaita-dark" } else { "Adwaita" };
+        let candidates: &[&str] = if is_dark {
+            &["Adwaita-dark", "oblivion", "solarized-dark", "classic-dark"]
+        } else {
+            &["Adwaita", "classic"]
+        };
         let mgr = StyleSchemeManager::default();
-        let scheme = mgr.scheme(scheme_id);
+        let scheme = candidates.iter().find_map(|id| mgr.scheme(id));
         let state = self.state.borrow();
         for tab in state.tabs.values() {
             tab.buffer.set_style_scheme(scheme.as_ref());
@@ -408,14 +429,15 @@ impl EditorPane {
     // ── Find & Replace ────────────────────────────────────────────────────────
 
     pub fn toggle_find(&self) {
-        self.find_bar.show();
+        self.find_bar.toggle();
     }
 
-    pub fn minimap(&self) -> Map {
-        self.map.clone()
+    pub fn set_minimap_visible(&self, visible: bool) {
+        self.map.set_visible(visible);
+        self.map_sep.set_visible(visible);
     }
 
-    pub fn do_find(&self, text: &str, forward: bool, whole_word: bool) {
+    pub fn do_find(&self, text: &str, forward: bool) {
         if text.is_empty() {
             self.find_bar.set_result("");
             return;
@@ -424,14 +446,11 @@ impl EditorPane {
         let flags = TextSearchFlags::TEXT_ONLY | TextSearchFlags::CASE_INSENSITIVE;
         let cursor_pos = buffer.cursor_position();
 
-        // Collect all matches for count display and navigation
         let mut matches: Vec<(i32, i32)> = Vec::new();
         let mut it = buffer.start_iter();
         while let Some((s, e)) = it.forward_search(text, flags, None) {
             let advance = e.clone();
-            if !whole_word || is_whole_word(&s, &e) {
-                matches.push((s.offset(), e.offset()));
-            }
+            matches.push((s.offset(), e.offset()));
             it = advance;
         }
 
@@ -458,7 +477,7 @@ impl EditorPane {
         self.find_bar.set_result(&format!("{} of {}", idx + 1, matches.len()));
     }
 
-    pub fn do_replace_one(&self, find: &str, replace: &str, whole_word: bool) {
+    pub fn do_replace_one(&self, find: &str, replace: &str) {
         if find.is_empty() {
             return;
         }
@@ -466,22 +485,20 @@ impl EditorPane {
         if let Some((sel_start, sel_end)) = buffer.selection_bounds() {
             let selected = buffer.text(&sel_start, &sel_end, false).to_string();
             if selected.to_lowercase() == find.to_lowercase() {
-                if !whole_word || is_whole_word(&sel_start, &sel_end) {
-                    let offset = sel_start.offset();
-                    let mut s = sel_start;
-                    let mut e = sel_end;
-                    buffer.begin_user_action();
-                    buffer.delete(&mut s, &mut e);
-                    let mut ins = buffer.iter_at_offset(offset);
-                    buffer.insert(&mut ins, replace);
-                    buffer.end_user_action();
-                }
+                let offset = sel_start.offset();
+                let mut s = sel_start;
+                let mut e = sel_end;
+                buffer.begin_user_action();
+                buffer.delete(&mut s, &mut e);
+                let mut ins = buffer.iter_at_offset(offset);
+                buffer.insert(&mut ins, replace);
+                buffer.end_user_action();
             }
         }
-        self.do_find(find, true, whole_word);
+        self.do_find(find, true);
     }
 
-    pub fn do_replace_all(&self, find: &str, replace: &str, whole_word: bool) {
+    pub fn do_replace_all(&self, find: &str, replace: &str) {
         if find.is_empty() {
             return;
         }
@@ -493,10 +510,6 @@ impl EditorPane {
         loop {
             match iter.forward_search(find, flags, None) {
                 Some((mut start, mut end)) => {
-                    if whole_word && !is_whole_word(&start, &end) {
-                        iter = end;
-                        continue;
-                    }
                     let offset = start.offset();
                     buffer.delete(&mut start, &mut end);
                     let mut ins = buffer.iter_at_offset(offset);
@@ -643,6 +656,10 @@ impl EditorPane {
     }
 
     // ── Spell check API ───────────────────────────────────────────────────────
+
+    pub fn set_lsp_status(&self, status: &str) {
+        self.lsp_status_label.set_text(status);
+    }
 
     pub fn set_spell_enabled(&self, enabled: bool) {
         self.spell_checker.borrow_mut().enabled = enabled;
@@ -838,7 +855,8 @@ impl EditorPane {
                 let cursor = buf.iter_at_mark(mark);
                 let line = cursor.line() + 1;
                 let col = cursor.line_offset() + 1;
-                cursor_lbl.set_text(&format!("Ln {line}, Col {col}"));
+                cursor_lbl.set_text(&format!("L{line}:C{col}"));
+                cursor_lbl.set_tooltip_text(Some(&format!("Line {line}, Column {col}")));
 
                 // Update breadcrumb heading path
                 let heading_path = build_heading_path(buf, cursor.line());
@@ -1499,6 +1517,17 @@ impl EditorPane {
         }
     }
 
+    pub fn state_has_file(&self, path: &std::path::Path) -> bool {
+        self.state.borrow().tabs.contains_key(path)
+    }
+
+    pub fn set_content(&self, path: &std::path::Path, text: &str) {
+        let state = self.state.borrow();
+        if let Some(tab) = state.tabs.get(path) {
+            tab.buffer.set_text(text);
+        }
+    }
+
     pub fn switch_to_file(&self, path: &PathBuf) {
         let state = self.state.borrow();
         if let Some(tab) = state.tabs.get(path) {
@@ -1560,6 +1589,18 @@ impl EditorPane {
         None
     }
 
+    /// Returns (path, content) for every tab that has unsaved modifications.
+    pub fn modified_buffers(&self) -> Vec<(PathBuf, String)> {
+        let state = self.state.borrow();
+        state.tabs.iter()
+            .filter(|(_, tab)| tab.modified)
+            .map(|(path, tab)| {
+                let (s, e) = tab.buffer.bounds();
+                (path.clone(), tab.buffer.text(&s, &e, false).to_string())
+            })
+            .collect()
+    }
+
     pub fn save_all_modified(&self) {
         let mut state = self.state.borrow_mut();
         for (path, tab) in state.tabs.iter_mut() {
@@ -1600,6 +1641,17 @@ impl EditorPane {
         let current = self.notebook.current_page().unwrap_or(0);
         let prev = if current == 0 { n - 1 } else { current - 1 };
         self.notebook.set_current_page(Some(prev));
+    }
+
+    /// Jump to the first occurrence of `text` in the active buffer.
+    pub fn jump_to_text(&self, text: &str) {
+        let Some((view, buffer)) = self.active_view_buffer() else { return };
+        let flags = TextSearchFlags::TEXT_ONLY | TextSearchFlags::CASE_INSENSITIVE;
+        let start_iter = buffer.start_iter();
+        if let Some((s, e)) = start_iter.forward_search(text, flags, None) {
+            buffer.select_range(&e, &s);
+            view.scroll_to_iter(&mut s.clone(), 0.1, false, 0.0, 0.5);
+        }
     }
 
     pub fn jump_to_line(&self, path: &PathBuf, line: u32) {
@@ -1944,22 +1996,6 @@ fn strip_snippets(s: &str) -> String {
         }
     }
     out
-}
-
-fn is_word_char(c: char) -> bool {
-    c.is_alphanumeric() || c == '_'
-}
-
-fn is_whole_word(start: &gtk4::TextIter, end: &gtk4::TextIter) -> bool {
-    let before_ok = if start.offset() == 0 {
-        true
-    } else {
-        let mut before = start.clone();
-        before.backward_char();
-        !is_word_char(before.char())
-    };
-    let after_ok = end.is_end() || !is_word_char(end.char());
-    before_ok && after_ok
 }
 
 // Builds a breadcrumb path string for the cursor position, e.g. "Intro › Methods".

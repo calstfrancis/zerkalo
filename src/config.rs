@@ -26,6 +26,8 @@ pub struct Config {
     #[serde(default)]
     pub recent_files: Vec<PathBuf>,
     #[serde(default)]
+    pub recent_projects: Vec<PathBuf>,
+    #[serde(default)]
     pub bib_path: Option<PathBuf>,
     #[serde(default = "default_debounce_ms")]
     pub debounce_ms: u64,
@@ -74,6 +76,7 @@ impl Default for Config {
             work_dir: default_work_dir(),
             output_dir: None,
             recent_files: Vec::new(),
+            recent_projects: Vec::new(),
             bib_path: None,
             debounce_ms: 800,
             auto_compile: true,
@@ -97,6 +100,14 @@ impl Config {
         self.recent_files.insert(0, path);
         if self.recent_files.len() > 14 {
             self.recent_files.truncate(14);
+        }
+    }
+
+    pub fn push_recent_project(&mut self, path: PathBuf) {
+        self.recent_projects.retain(|p| p != &path);
+        self.recent_projects.insert(0, path);
+        if self.recent_projects.len() > 8 {
+            self.recent_projects.truncate(8);
         }
     }
 }
@@ -136,6 +147,53 @@ pub struct ProjectConfig {
     /// Override the PDF/PNG output directory (default: /tmp/zerkalo_preview).
     #[serde(default)]
     pub output_dir: Option<PathBuf>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn config_default_round_trip() {
+        let cfg = Config::default();
+        let toml_str = toml::to_string(&cfg).expect("serialize");
+        let loaded: Config = toml::from_str(&toml_str).expect("deserialize");
+        assert_eq!(cfg.debounce_ms, loaded.debounce_ms);
+        assert_eq!(cfg.editor_font_size, loaded.editor_font_size);
+        assert_eq!(cfg.editor_tab_width, loaded.editor_tab_width);
+        assert_eq!(cfg.auto_compile, loaded.auto_compile);
+        assert_eq!(cfg.spell_language, loaded.spell_language);
+    }
+
+    #[test]
+    fn push_recent_deduplicates() {
+        let mut cfg = Config::default();
+        let p = PathBuf::from("/tmp/a.typ");
+        cfg.push_recent(p.clone());
+        cfg.push_recent(p.clone());
+        assert_eq!(cfg.recent_files.len(), 1);
+        assert_eq!(cfg.recent_files[0], p);
+    }
+
+    #[test]
+    fn push_recent_project_caps_at_eight() {
+        let mut cfg = Config::default();
+        for i in 0..10 {
+            cfg.push_recent_project(PathBuf::from(format!("/tmp/proj{i}")));
+        }
+        assert_eq!(cfg.recent_projects.len(), 8);
+        // Most recent is at index 0
+        assert_eq!(cfg.recent_projects[0], PathBuf::from("/tmp/proj9"));
+    }
+
+    #[test]
+    fn config_with_bib_path_round_trip() {
+        let mut cfg = Config::default();
+        cfg.bib_path = Some(PathBuf::from("/home/user/refs.bib"));
+        let toml_str = toml::to_string(&cfg).expect("serialize");
+        let loaded: Config = toml::from_str(&toml_str).expect("deserialize");
+        assert_eq!(loaded.bib_path, cfg.bib_path);
+    }
 }
 
 impl ProjectConfig {

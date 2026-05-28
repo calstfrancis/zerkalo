@@ -108,3 +108,37 @@ echo "  Icons   : ${ICONS_BASE}/scalable/apps/${BINARY_NAME}.svg"
 echo ""
 echo "If ${INSTALL_BIN} is not in your PATH, add this to ~/.bashrc or ~/.zshrc:"
 echo "  export PATH=\"\${HOME}/.local/bin:\${PATH}\""
+
+# ── Optional: install tinymist LSP for autocomplete ──────────────────────────
+if command -v tinymist &>/dev/null; then
+    echo ""
+    echo "tinymist LSP is already installed."
+else
+    echo ""
+    if [ -t 0 ]; then
+        read -r -p "Install tinymist LSP for autocomplete in Zerkalo? [y/N] " _install_tinymist
+    else
+        _install_tinymist="n"
+    fi
+    if [[ "${_install_tinymist}" =~ ^[Yy]$ ]]; then
+        echo "Installing tinymist via official installer..."
+        TINYMIST_INSTALLER_URL="https://github.com/Myriad-Dreamin/tinymist/releases/latest/download/tinymist-installer.sh"
+        if command -v curl &>/dev/null; then
+            curl --proto '=https' --tlsv1.2 -fsSL "${TINYMIST_INSTALLER_URL}" | sh
+        elif command -v wget &>/dev/null; then
+            wget -qO- "${TINYMIST_INSTALLER_URL}" | sh
+        else
+            echo "  Neither curl nor wget found. Install tinymist manually:"
+            echo "  https://github.com/Myriad-Dreamin/tinymist/releases/latest"
+        fi
+        if command -v tinymist &>/dev/null; then
+            echo "  tinymist installed."
+        else
+            echo "  tinymist binary not found in PATH after install."
+            echo "  You may need to add ~/.cargo/bin or the install dir to your PATH."
+        fi
+    else
+        echo "  Skipped. To install later, run:"
+        echo "  curl -fsSL https://github.com/Myriad-Dreamin/tinymist/releases/latest/download/tinymist-installer.sh | sh"
+    fi
+fi

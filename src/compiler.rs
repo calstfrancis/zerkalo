@@ -160,6 +160,53 @@ pub fn compile_to_pdf_bytes(root_file: &Path) -> Result<Vec<u8>, String> {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn write_temp_typ(content: &str) -> std::path::PathBuf {
+        let path = std::path::PathBuf::from("/tmp/zerkalo_test_compile.typ");
+        std::fs::write(&path, content).unwrap();
+        path
+    }
+
+    #[test]
+    fn compile_trivial_document_to_pdf() {
+        let path = write_temp_typ("Hello, world!");
+        let result = compile_to_pdf_bytes(&path);
+        assert!(result.is_ok(), "trivial doc should compile: {:?}", result.err());
+        let bytes = result.unwrap();
+        // PDF starts with "%PDF-"
+        assert!(bytes.starts_with(b"%PDF-"), "output should be valid PDF");
+    }
+
+    #[test]
+    fn compile_with_heading_and_content() {
+        let path = write_temp_typ("= Introduction\n\nThis is a test document.\n");
+        let result = compile_to_pdf_bytes(&path);
+        assert!(result.is_ok(), "document with heading should compile");
+    }
+
+    #[test]
+    fn compile_nonexistent_root_fails() {
+        // Compiling a file that does not exist should return an error
+        let path = std::path::PathBuf::from("/tmp/zerkalo-nonexistent-root-abc123.typ");
+        let _ = std::fs::remove_file(&path);
+        let result = compile_to_pdf_bytes(&path);
+        assert!(result.is_err(), "compiling a nonexistent root file should fail");
+    }
+
+    #[test]
+    fn compile_to_png_single_page() {
+        let path = write_temp_typ("= Heading\n\nSome content here.");
+        let result = compile_to_png_bytes(&path, 1.0);
+        assert!(result.is_ok(), "doc should compile to PNG");
+        let pages = result.unwrap();
+        assert!(!pages.is_empty(), "should produce at least one page");
+        assert!(pages[0].starts_with(b"\x89PNG"), "output should be valid PNG");
+    }
+}
+
 /// Compile `root_file` in-process and return PNG bytes for each page.
 /// `pixel_per_pt` controls render resolution (2.0 ≈ 144 dpi).
 pub fn compile_to_png_bytes(

@@ -4,21 +4,29 @@ use std::rc::Rc;
 use gtk4::prelude::*;
 use gtk4::{
     Box as GtkBox, Button, Entry, EventControllerKey, Label, Orientation, PropagationPhase,
-    Separator, ToggleButton,
+    Revealer, RevealerTransitionType, Separator,
 };
 
 #[derive(Clone)]
 pub struct FindBar {
-    widget: GtkBox,
+    revealer: Revealer,
     pub find_entry: Entry,
     result_label: Label,
-    on_search: Rc<RefCell<Option<Box<dyn Fn(&str, bool, bool)>>>>,
-    on_replace_one: Rc<RefCell<Option<Box<dyn Fn(&str, &str, bool)>>>>,
-    on_replace_all: Rc<RefCell<Option<Box<dyn Fn(&str, &str, bool)>>>>,
+    on_search: Rc<RefCell<Option<Box<dyn Fn(&str, bool)>>>>,
+    on_replace_one: Rc<RefCell<Option<Box<dyn Fn(&str, &str)>>>>,
+    on_replace_all: Rc<RefCell<Option<Box<dyn Fn(&str, &str)>>>>,
 }
 
 impl FindBar {
     pub fn new() -> Self {
+        let revealer = Revealer::new();
+        revealer.set_transition_type(RevealerTransitionType::SlideDown);
+        revealer.set_transition_duration(200);
+        revealer.set_reveal_child(false);
+
+        let bar_container = GtkBox::new(Orientation::Vertical, 0);
+        bar_container.append(&Separator::new(Orientation::Horizontal));
+
         let bar = GtkBox::new(Orientation::Horizontal, 4);
         bar.set_margin_start(8);
         bar.set_margin_end(8);
@@ -39,12 +47,6 @@ impl FindBar {
 
         let result_label = Label::new(Some(""));
         result_label.add_css_class("dim-label");
-        result_label.set_width_chars(12);
-
-        let whole_word_btn = ToggleButton::new();
-        whole_word_btn.set_label("W");
-        whole_word_btn.add_css_class("flat");
-        whole_word_btn.set_tooltip_text(Some("Match whole words only"));
 
         let sep = Separator::new(Orientation::Vertical);
 
@@ -63,77 +65,66 @@ impl FindBar {
         bar.append(&prev_btn);
         bar.append(&next_btn);
         bar.append(&result_label);
-        bar.append(&whole_word_btn);
         bar.append(&sep);
         bar.append(&replace_entry);
         bar.append(&replace_btn);
         bar.append(&replace_all_btn);
+        bar_container.append(&bar);
+        revealer.set_child(Some(&bar_container));
 
-        let whole_word: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
-        let on_search: Rc<RefCell<Option<Box<dyn Fn(&str, bool, bool)>>>> =
+        let on_search: Rc<RefCell<Option<Box<dyn Fn(&str, bool)>>>> =
             Rc::new(RefCell::new(None));
-        let on_replace_one: Rc<RefCell<Option<Box<dyn Fn(&str, &str, bool)>>>> =
+        let on_replace_one: Rc<RefCell<Option<Box<dyn Fn(&str, &str)>>>> =
             Rc::new(RefCell::new(None));
-        let on_replace_all: Rc<RefCell<Option<Box<dyn Fn(&str, &str, bool)>>>> =
+        let on_replace_all: Rc<RefCell<Option<Box<dyn Fn(&str, &str)>>>> =
             Rc::new(RefCell::new(None));
-
-        // Whole-word toggle
-        {
-            let ww = whole_word.clone();
-            whole_word_btn.connect_toggled(move |btn| {
-                *ww.borrow_mut() = btn.is_active();
-            });
-        }
 
         {
             let cb = on_search.clone();
             let e = find_entry.clone();
-            let ww = whole_word.clone();
             next_btn.connect_clicked(move |_| {
-                if let Some(f) = cb.borrow().as_ref() { f(&e.text(), true, *ww.borrow()); }
+                if let Some(f) = cb.borrow().as_ref() { f(&e.text(), true); }
             });
         }
         {
             let cb = on_search.clone();
             let e = find_entry.clone();
-            let ww = whole_word.clone();
             prev_btn.connect_clicked(move |_| {
-                if let Some(f) = cb.borrow().as_ref() { f(&e.text(), false, *ww.borrow()); }
+                if let Some(f) = cb.borrow().as_ref() { f(&e.text(), false); }
             });
         }
         {
             let cb = on_search.clone();
-            let ww = whole_word.clone();
             find_entry.connect_activate(move |e| {
-                if let Some(f) = cb.borrow().as_ref() { f(&e.text(), true, *ww.borrow()); }
+                if let Some(f) = cb.borrow().as_ref() { f(&e.text(), true); }
             });
         }
         {
             let cb = on_replace_one.clone();
             let fe = find_entry.clone();
             let re = replace_entry.clone();
-            let ww = whole_word.clone();
             replace_btn.connect_clicked(move |_| {
-                if let Some(f) = cb.borrow().as_ref() { f(&fe.text(), &re.text(), *ww.borrow()); }
+                if let Some(f) = cb.borrow().as_ref() { f(&fe.text(), &re.text()); }
             });
         }
         {
             let cb = on_replace_all.clone();
             let fe = find_entry.clone();
             let re = replace_entry.clone();
-            let ww = whole_word.clone();
             replace_all_btn.connect_clicked(move |_| {
-                if let Some(f) = cb.borrow().as_ref() { f(&fe.text(), &re.text(), *ww.borrow()); }
+                if let Some(f) = cb.borrow().as_ref() { f(&fe.text(), &re.text()); }
             });
         }
-        // Escape: clear entry
+        // Escape: clear entry and hide bar
         {
             let entry = find_entry.clone();
+            let rev_c = revealer.clone();
             let kc = EventControllerKey::new();
             kc.set_propagation_phase(PropagationPhase::Capture);
             kc.connect_key_pressed(move |_, key, _, _| {
                 if key == gtk4::gdk::Key::Escape {
                     entry.set_text("");
+                    rev_c.set_reveal_child(false);
                     glib::Propagation::Stop
                 } else {
                     glib::Propagation::Proceed
@@ -143,7 +134,7 @@ impl FindBar {
         }
 
         Self {
-            widget: bar,
+            revealer,
             find_entry,
             result_label,
             on_search,
@@ -152,27 +143,31 @@ impl FindBar {
         }
     }
 
-    pub fn widget(&self) -> &GtkBox {
-        &self.widget
+    pub fn widget(&self) -> &Revealer {
+        &self.revealer
     }
 
-    pub fn show(&self) {
-        self.find_entry.grab_focus();
+    pub fn toggle(&self) {
+        let reveal = !self.revealer.reveals_child();
+        self.revealer.set_reveal_child(reveal);
+        if reveal {
+            self.find_entry.grab_focus();
+        }
     }
 
     pub fn set_result(&self, text: &str) {
         self.result_label.set_text(text);
     }
 
-    pub fn set_on_search(&self, f: impl Fn(&str, bool, bool) + 'static) {
+    pub fn set_on_search(&self, f: impl Fn(&str, bool) + 'static) {
         *self.on_search.borrow_mut() = Some(Box::new(f));
     }
 
-    pub fn set_on_replace_one(&self, f: impl Fn(&str, &str, bool) + 'static) {
+    pub fn set_on_replace_one(&self, f: impl Fn(&str, &str) + 'static) {
         *self.on_replace_one.borrow_mut() = Some(Box::new(f));
     }
 
-    pub fn set_on_replace_all(&self, f: impl Fn(&str, &str, bool) + 'static) {
+    pub fn set_on_replace_all(&self, f: impl Fn(&str, &str) + 'static) {
         *self.on_replace_all.borrow_mut() = Some(Box::new(f));
     }
 }

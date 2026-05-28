@@ -16,6 +16,7 @@ struct PackageEntry {
 
 #[derive(Clone)]
 pub struct PackageBrowser {
+    #[allow(dead_code)]
     widget: GtkBox,
     list_box: ListBox,
     filter_entry: Entry,
@@ -73,10 +74,6 @@ impl PackageBrowser {
         }
 
         pb
-    }
-
-    pub fn widget(&self) -> &GtkBox {
-        &self.widget
     }
 
     pub fn set_on_insert(&self, f: impl Fn(String) + 'static) {

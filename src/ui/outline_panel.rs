@@ -177,39 +177,62 @@ impl OutlinePanel {
         while let Some(child) = self.list_box.first_child() {
             self.list_box.remove(&child);
         }
+
+        let all_lines: Vec<&str> = content.lines().collect();
+        let n = all_lines.len();
+
+        // Collect headings: (line_idx, level, text)
+        let headings: Vec<(usize, usize, String)> = all_lines.iter()
+            .enumerate()
+            .filter_map(|(i, line)| {
+                if !line.starts_with('=') { return None; }
+                let stripped = line.trim_start_matches('=');
+                let level = line.len() - stripped.len();
+                if level == 0 || !stripped.starts_with(' ') { return None; }
+                let text = stripped.trim_start().to_string();
+                if text.is_empty() { return None; }
+                Some((i, level, text))
+            })
+            .collect();
+
         let mut lines_vec: Vec<u32> = Vec::new();
 
-        for (i, line) in content.lines().enumerate() {
-            if !line.starts_with('=') {
-                continue;
-            }
-            let stripped = line.trim_start_matches('=');
-            let level = line.len() - stripped.len();
-            if level == 0 || !stripped.starts_with(' ') {
-                continue;
-            }
-            let text = stripped.trim_start().to_string();
-            if text.is_empty() {
-                continue;
-            }
+        for (h_idx, (line_idx, level, text)) in headings.iter().enumerate() {
+            let next_line_idx = headings.get(h_idx + 1).map(|(li, _, _)| *li).unwrap_or(n);
+            let word_count: usize = all_lines[line_idx + 1..next_line_idx]
+                .iter()
+                .flat_map(|l| l.split_whitespace())
+                .count();
 
-            let ln = (i + 1) as u32;
+            let ln = (line_idx + 1) as u32;
             lines_vec.push(ln);
 
             let row = ListBoxRow::new();
             row.set_activatable(true);
 
-            let label = gtk4::Label::new(Some(&text));
+            let row_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
+
+            let label = gtk4::Label::new(Some(text));
             label.set_xalign(0.0);
+            label.set_hexpand(true);
             label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-            label.set_margin_start(8 + (level as i32 - 1) * 14);
-            label.set_margin_end(8);
+            label.set_margin_start(8 + (*level as i32 - 1) * 14);
+            label.set_margin_end(4);
             label.set_margin_top(4);
             label.set_margin_bottom(4);
-            if level == 1 {
+            if *level == 1 {
                 label.add_css_class("heading");
             }
-            row.set_child(Some(&label));
+
+            let count_lbl = gtk4::Label::new(Some(&word_count.to_string()));
+            count_lbl.add_css_class("dim-label");
+            count_lbl.add_css_class("caption");
+            count_lbl.set_margin_end(8);
+            count_lbl.set_valign(gtk4::Align::Center);
+
+            row_box.append(&label);
+            row_box.append(&count_lbl);
+            row.set_child(Some(&row_box));
 
             self.list_box.append(&row);
         }

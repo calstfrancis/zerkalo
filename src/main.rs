@@ -1,3 +1,4 @@
+mod auto_save;
 mod bibliography;
 mod compiler;
 mod config;
