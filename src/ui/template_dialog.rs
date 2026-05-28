@@ -13,6 +13,7 @@ use libadwaita as adw;
 use adw::prelude::*;
 
 type OnCreateCb = Rc<RefCell<Option<Box<dyn Fn(PathBuf)>>>>;
+type OnApplyCb  = Rc<RefCell<Option<Box<dyn Fn(String)>>>>;
 
 // ── Static data tables ────────────────────────────────────────────────────────
 
@@ -225,6 +226,8 @@ struct TemplateSettings {
 pub struct TemplateDialog {
     window: adw::Window,
     on_create: OnCreateCb,
+    on_apply: OnApplyCb,
+    apply_btn: Button,
     style_row: adw::ComboRow,
 }
 
@@ -239,6 +242,7 @@ impl TemplateDialog {
             .build();
 
         let on_create: OnCreateCb = Rc::new(RefCell::new(None));
+        let on_apply: OnApplyCb = Rc::new(RefCell::new(None));
 
         let header = adw::HeaderBar::new();
         let cancel_btn = Button::with_label("Cancel");
@@ -248,6 +252,11 @@ impl TemplateDialog {
         create_btn.add_css_class("suggested-action");
         create_btn.add_css_class("pill");
         header.pack_end(&create_btn);
+        let apply_btn = Button::with_label("Apply to Current");
+        apply_btn.add_css_class("suggested-action");
+        apply_btn.add_css_class("pill");
+        apply_btn.set_visible(false);
+        header.pack_end(&apply_btn);
 
         let notebook = Notebook::new();
         notebook.set_tab_pos(PositionType::Top);
@@ -733,11 +742,96 @@ impl TemplateDialog {
             );
         });
 
-        Self { window, on_create, style_row }
+        // Apply: generate in-memory, fire on_apply(content) without file dialog
+        let on_apply_c = on_apply.clone();
+        let win_for_apply = window.clone();
+        // Re-capture widget state (same set as create_btn, re-bound here)
+        let a_title = title_row.clone();
+        let a_subtitle = subtitle_row.clone();
+        let a_author = author_row.clone();
+        let a_affil = affil_row.clone();
+        let a_course = course_row.clone();
+        let a_date = date_row.clone();
+        let a_style = style_row.clone();
+        let a_paper = paper_row.clone();
+        let a_margin = margin_row.clone();
+        let a_font = font_row.clone();
+        let a_custom_font = custom_font_row.clone();
+        let a_spacing = spacing_row.clone();
+        let a_pnum = pnum_row.clone();
+        let a_toc = toc_row.clone();
+        let a_toc_depth = toc_depth_row.clone();
+        let a_abstract = abstract_row.clone();
+        let a_abstract_text = abstract_text_row.clone();
+        let a_keywords = keywords_row.clone();
+        let a_keywords_text = keywords_text_row.clone();
+        let a_langs = lang_switches.clone();
+        let a_pkgs = pkg_switches.clone();
+        let a_body_kind = body_kind_state.clone();
+        apply_btn.connect_clicked(move |_| {
+            let font_idx = a_font.selected() as usize;
+            let available_fonts_inner = build_font_list();
+            let font = if font_idx >= available_fonts_inner.len().saturating_sub(1) {
+                let s = a_custom_font.text().to_string();
+                if s.is_empty() { "Times New Roman".to_string() } else { s }
+            } else {
+                available_fonts_inner.get(font_idx).cloned().unwrap_or_else(|| "Times New Roman".to_string())
+            };
+            let toc_depth = match a_toc_depth.selected() { 0 => 1u32, 2 => 3, _ => 2 };
+            let settings = TemplateSettings {
+                title: a_title.text().to_string(),
+                subtitle: a_subtitle.text().to_string(),
+                author: a_author.text().to_string(),
+                affiliation: a_affil.text().to_string(),
+                course: a_course.text().to_string(),
+                date: a_date.text().to_string(),
+                style_idx: a_style.selected() as usize,
+                paper_idx: a_paper.selected() as usize,
+                margin_idx: a_margin.selected() as usize,
+                font,
+                spacing: SPACING_OPTIONS
+                    .get(a_spacing.selected() as usize)
+                    .map(|(_, v)| v.to_string())
+                    .unwrap_or_else(|| "1.5em".to_string()),
+                page_num_pos: a_pnum.selected(),
+                include_toc: a_toc.is_active(),
+                toc_depth,
+                include_abstract: a_abstract.is_active(),
+                abstract_text: a_abstract_text.text().to_string(),
+                include_keywords: a_keywords.is_active(),
+                keywords: a_keywords_text.text().to_string(),
+                languages: a_langs.iter()
+                    .filter(|(_, sw)| sw.is_active())
+                    .map(|(k, _)| k.clone())
+                    .collect(),
+                packages: a_pkgs.iter()
+                    .filter(|(_, sw)| sw.is_active())
+                    .map(|(k, _)| k.clone())
+                    .collect(),
+                body_kind: *a_body_kind.borrow(),
+            };
+            let content = generate_typst_template(&settings);
+            if let Some(f) = on_apply_c.borrow().as_ref() {
+                f(content);
+            }
+            win_for_apply.close();
+        });
+
+        Self { window, on_create, on_apply, apply_btn, style_row }
     }
 
     pub fn set_on_create(&self, f: impl Fn(PathBuf) + 'static) {
         *self.on_create.borrow_mut() = Some(Box::new(f));
+    }
+
+    /// Register a callback that receives the generated template content directly,
+    /// without a file-save dialog. Also shows the "Apply to Current" button and
+    /// hides "Create Document".
+    pub fn set_on_apply(&self, f: impl Fn(String) + 'static) {
+        *self.on_apply.borrow_mut() = Some(Box::new(f));
+        self.apply_btn.set_visible(true);
+        // Retitle the window to clarify intent
+        self.window.set_title(Some("Update Template Settings"));
     }
 
     /// Pre-select a citation style by its internal key (e.g. "sbl", "apa").

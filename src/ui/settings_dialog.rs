@@ -156,10 +156,35 @@ impl SettingsDialog {
         ws_row.set_title("Show whitespace");
         ws_row.set_active(current.editor_show_whitespace);
 
+        let spacing_model = gtk4::StringList::new(&["Compact (0 px)", "Normal (2 px)", "Spacious (6 px)"]);
+        let spacing_row = adw::ComboRow::new();
+        spacing_row.set_title("Line spacing");
+        spacing_row.set_subtitle("Extra pixels above and below each line");
+        spacing_row.set_model(Some(&spacing_model));
+        let spacing_idx = match current.editor_line_spacing {
+            0 => 0u32,
+            6 => 2u32,
+            _ => 1u32,
+        };
+        spacing_row.set_selected(spacing_idx);
+
+        let typewriter_row = adw::SwitchRow::new();
+        typewriter_row.set_title("Typewriter scrolling");
+        typewriter_row.set_subtitle("Keep the cursor vertically centred as you type");
+        typewriter_row.set_active(current.typewriter_scrolling);
+
+        let high_contrast_row = adw::SwitchRow::new();
+        high_contrast_row.set_title("High contrast mode");
+        high_contrast_row.set_subtitle("Add extra CSS contrast to the editor and UI");
+        high_contrast_row.set_active(current.high_contrast);
+
         font_group.add(&font_row);
         font_group.add(&tab_spin);
         font_group.add(&wrap_row);
         font_group.add(&ws_row);
+        font_group.add(&spacing_row);
+        font_group.add(&typewriter_row);
+        font_group.add(&high_contrast_row);
 
         // Bibliography
         let bib_group = adw::PreferencesGroup::new();
@@ -302,6 +327,12 @@ impl SettingsDialog {
                 .cloned()
                 .unwrap_or_else(|| "en_US".to_string());
 
+            let editor_line_spacing = match spacing_row.selected() {
+                0 => 0u32,
+                2 => 6u32,
+                _ => 2u32,
+            };
+
             let new_cfg = Config {
                 work_dir,
                 output_dir,
@@ -320,6 +351,10 @@ impl SettingsDialog {
                 spell_enabled: spell_enabled_row.is_active(),
                 spell_autocorrect: spell_autocorrect_row.is_active(),
                 spell_language,
+                editor_line_spacing,
+                typewriter_scrolling: typewriter_row.is_active(),
+                high_contrast: high_contrast_row.is_active(),
+                word_count_goal: 0,
             };
 
             if let Err(e) = new_cfg.save() {

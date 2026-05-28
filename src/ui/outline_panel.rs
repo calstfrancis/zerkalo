@@ -59,6 +59,7 @@ impl OutlinePanel {
         let outline_scroll = ScrolledWindow::new();
         outline_scroll.set_vexpand(true);
         outline_scroll.set_hexpand(true);
+        outline_scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
 
         let list_box = ListBox::new();
         list_box.set_selection_mode(SelectionMode::Single);

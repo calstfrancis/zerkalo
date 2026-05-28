@@ -18,6 +18,7 @@ use crate::keybindings::{matches_binding, Keybindings};
 use crate::lsp::{DiagSeverity, LspClient};
 use crate::project_model::ProjectModel;
 use crate::session::Session;
+use super::command_palette::{CommandPalette, default_commands, heading_items};
 use super::dep_graph::DepGraph;
 use super::docs_browser::DocsBrowser;
 use super::editor_pane::EditorPane;
@@ -26,7 +27,6 @@ use super::font_manager::FontManager;
 use super::error_panel::{parse_typst_errors, CompileError, ErrorPanel, Severity};
 use super::export_dialog::ExportDialog;
 use super::help_window::HelpWindow;
-use super::history_panel::HistoryPanel;
 use super::outline_panel::OutlinePanel;
 use super::package_browser::PackageBrowser;
 use super::preview_pane::PreviewPane;
@@ -83,6 +83,23 @@ impl AppWindow {
                 } \
                 .paned > separator:hover { \
                     background-color: alpha(@accent_color, 0.3); \
+                } \
+                .zerkalo-sidebar { \
+                    transition: opacity 250ms; \
+                } \
+                window.zen-writing .zerkalo-sidebar { \
+                    opacity: 0.3; \
+                } \
+                window.zen-writing textview text { \
+                    padding-left: 40px; \
+                    padding-right: 40px; \
+                } \
+                window.high-contrast textview { \
+                    color: #ffffff; \
+                    background-color: #000000; \
+                } \
+                window.high-contrast textview text { \
+                    color: #ffffff; \
                 }",
             );
             if let Some(display) = gtk4::gdk::Display::default() {
@@ -122,10 +139,6 @@ impl AppWindow {
         focus_btn.set_tooltip_text(Some("Focus mode — hide sidebar and preview"));
         focus_btn.add_css_class("flat");
         header.pack_start(&focus_btn);
-
-        // minimap_btn is logical only — not in header, but referenced by simple mode
-        let minimap_btn = ToggleButton::new();
-        minimap_btn.set_active(false);
 
         // Style switcher dropdown — placed in header start, beside the title
         let style_names = crate::styles::STYLES.iter().map(|(n, _, _, _)| *n).collect::<Vec<_>>();
@@ -178,7 +191,6 @@ impl AppWindow {
         let menu_export_item        = make_menu_item("Export…",                     None);
         let menu_import_item        = make_menu_item("Import…",                     None);
         let menu_docs_item          = make_menu_item("Browse Documents…",           None);
-        let menu_minimap_item       = make_menu_item("Toggle Minimap",              None);
         let menu_fonts_item         = make_menu_item("Font Management…",            None);
         let menu_settings_item      = make_menu_item("Settings",                    None);
         let menu_setup_item         = make_menu_item("Setup & Onboarding…",         None);
@@ -215,7 +227,6 @@ impl AppWindow {
         menu_popover_box.append(&Separator::new(Orientation::Horizontal));
         // View
         menu_popover_box.append(&menu_docs_item);
-        menu_popover_box.append(&menu_minimap_item);
         menu_popover_box.append(&Separator::new(Orientation::Horizontal));
         // App settings
         menu_popover_box.append(&menu_fonts_item);
@@ -282,7 +293,6 @@ impl AppWindow {
         let project_model = ProjectModel::scan(project_root.clone());
         let outline_panel = OutlinePanel::new();
         let ref_manager = RefManager::new();
-        let history_panel = HistoryPanel::new(project_root.clone());
         let dep_graph = DepGraph::new(project_root.clone());
         let package_browser = PackageBrowser::new();
         let todo_panel = TodoPanel::new();
@@ -491,11 +501,16 @@ impl AppWindow {
         editor_pane.apply_word_wrap(config.editor_word_wrap);
         editor_pane.apply_show_whitespace(config.editor_show_whitespace);
         editor_pane.apply_tab_width(config.editor_tab_width);
+        editor_pane.apply_line_spacing(config.editor_line_spacing);
+        editor_pane.apply_typewriter_scroll(config.typewriter_scrolling);
         editor_pane.set_spell_enabled(config.spell_enabled);
         editor_pane.set_spell_autocorrect(config.spell_autocorrect);
         editor_pane.set_spell_language(&config.spell_language);
         preview_pane.set_zoom(config.preview_zoom);
         apply_theme(&config.theme);
+        if config.high_contrast {
+            window.add_css_class("high-contrast");
+        }
 
         let editor_for_dark = editor_pane.clone();
         adw::StyleManager::default().connect_dark_notify(move |mgr| {
@@ -570,8 +585,6 @@ impl AppWindow {
             }
         });
 
-        // ── Minimap toggle (wired after minimap widget created in layout) ───
-
         // ── TODO sidebar toggle ─────────────────────────────────────────────
         let rsh_for_todo = right_sidebar_holder.clone();
         todo_btn.connect_toggled(move |btn| {
@@ -580,17 +593,20 @@ impl AppWindow {
             }
         });
 
-        // ── Focus mode toggle ───────────────────────────────────────────────
+        // ── Focus mode toggle — dims sidebar, hides preview ────────────────
         let focus_active_c = focus_active.clone();
-        let lpane_for_focus = left_paned_holder.clone();
         let preview_vis_for_focus = preview_vis_holder.clone();
         let rsh_for_focus = right_sidebar_holder.clone();
         let todo_btn_for_focus = todo_btn.clone();
+        let window_for_focus = window.clone();
         focus_btn.connect_toggled(move |btn| {
             let focused = btn.is_active();
             *focus_active_c.borrow_mut() = focused;
-            if let Some(lp) = lpane_for_focus.borrow().as_ref() {
-                lp.set_visible(!focused);
+            // Toggle CSS class to dim the sidebar (opacity via CSS)
+            if focused {
+                window_for_focus.add_css_class("zen-writing");
+            } else {
+                window_for_focus.remove_css_class("zen-writing");
             }
             if let Some(pc) = preview_vis_for_focus.borrow().as_ref() {
                 pc.set_visible(!focused);
@@ -647,6 +663,7 @@ impl AppWindow {
             let debounce = debounce_for_settings.clone();
             let auto_flag = auto_compile_for_settings.clone();
             let cfg_rc = current_config_for_settings.clone();
+            let window_for_save = window_for_settings.clone();
             dialog.set_on_save(move |new_cfg| {
                 *debounce.borrow_mut() = new_cfg.debounce_ms;
                 *auto_flag.borrow_mut() = new_cfg.auto_compile;
@@ -655,11 +672,19 @@ impl AppWindow {
                 editor.apply_word_wrap(new_cfg.editor_word_wrap);
                 editor.apply_show_whitespace(new_cfg.editor_show_whitespace);
                 editor.apply_tab_width(new_cfg.editor_tab_width);
+                editor.apply_line_spacing(new_cfg.editor_line_spacing);
+                editor.apply_typewriter_scroll(new_cfg.typewriter_scrolling);
                 editor.set_spell_enabled(new_cfg.spell_enabled);
                 editor.set_spell_autocorrect(new_cfg.spell_autocorrect);
                 editor.set_spell_language(&new_cfg.spell_language);
                 apply_theme(&new_cfg.theme);
                 editor.apply_style_scheme(adw::StyleManager::default().is_dark());
+                // High contrast CSS class on the window
+                if new_cfg.high_contrast {
+                    window_for_save.add_css_class("high-contrast");
+                } else {
+                    window_for_save.remove_css_class("high-contrast");
+                }
                 let old_bib = cfg_rc.borrow().bib_path.clone();
                 if old_bib != new_cfg.bib_path {
                     match new_cfg.bib_path.as_ref() {
@@ -808,7 +833,7 @@ impl AppWindow {
             menu_popover_for_about.popdown();
             let dlg = adw::MessageDialog::new(
                 Some(&window_for_about),
-                Some("Zerkalo 0.4.0"),
+                Some("Zerkalo 0.6.0"),
                 Some(
                     "A contemplative Typst editor.\n\n\
                      Built with Rust · GTK4 · libadwaita · sourceview5\n\
@@ -1108,21 +1133,18 @@ impl AppWindow {
             let Some(current_path) = editor_for_reapply.get_active_path() else { return };
             let current_content = editor_for_reapply.get_active_content().unwrap_or_default();
             let dlg = TemplateDialog::new(&window_for_reapply, &project_root_for_reapply);
-            // Pre-select style from document metadata
             dlg.preselect_style(
                 &super::template_dialog::parse_style_key(&current_content)
                     .unwrap_or_default(),
             );
             let ep = editor_for_reapply.clone();
-            dlg.set_on_create(move |new_path| {
-                if let Ok(new_preamble_doc) = std::fs::read_to_string(&new_path) {
-                    let preamble = super::template_dialog::extract_preamble(&new_preamble_doc);
-                    let updated = super::template_dialog::reapply_preamble(&current_content, &preamble);
-                    if let Err(e) = std::fs::write(&current_path, &updated) {
-                        tracing::error!("Failed to write re-applied template: {e}");
-                    } else {
-                        ep.open_file(current_path.clone(), &updated);
-                    }
+            dlg.set_on_apply(move |new_content| {
+                let preamble = super::template_dialog::extract_preamble(&new_content);
+                let updated = super::template_dialog::reapply_preamble(&current_content, &preamble);
+                if let Err(e) = std::fs::write(&current_path, &updated) {
+                    tracing::error!("Failed to write re-applied template: {e}");
+                } else {
+                    ep.open_file(current_path.clone(), &updated);
                 }
             });
             dlg.present();
@@ -1228,9 +1250,11 @@ impl AppWindow {
         let project_root_for_sync = project_root.clone();
         let window_for_sync = window.clone();
         let sync_btn_ref = sync_btn.clone();
+        let editor_for_sync = editor_pane.clone();
         let toast_for_sync_btn = adw::ToastOverlay::new();
         let toast_overlay = toast_for_sync_btn.clone();
         sync_btn.connect_clicked(move |_| {
+            editor_for_sync.save_all_modified();
             let root = project_root_for_sync.clone();
             let win = window_for_sync.clone();
             let btn = sync_btn_ref.clone();
@@ -1330,7 +1354,6 @@ impl AppWindow {
 
         let outline_for_switch = outline_panel.clone();
         let refs_for_switch = ref_manager.clone();
-        let history_for_switch = history_panel.clone();
         let dep_graph_for_switch = dep_graph.clone();
         let title_widget_for_switch = file_title_widget.clone();
         let preview_for_switch = preview_pane.clone();
@@ -1339,7 +1362,6 @@ impl AppWindow {
         editor_pane.set_on_page_switch(move |content, path| {
             outline_for_switch.update(&content, &path);
             refs_for_switch.update_used_keys(&content);
-            history_for_switch.load_file_history(&path);
             dep_graph_for_switch.refresh(Some(&path));
             preview_for_switch.set_root_file(path.clone());
             preview_for_switch.trigger_compile();
@@ -2071,14 +2093,13 @@ impl AppWindow {
             });
         }
 
-        // ── Advanced panels (Refs, History, Graph, Pkgs, Files) — hidden by default
+        // ── Advanced panels (Refs, Files) — hidden in simple mode ────────────
         let advanced_notebook = Notebook::new();
         advanced_notebook.set_vexpand(true);
         advanced_notebook.set_tab_pos(gtk4::PositionType::Top);
         advanced_notebook.set_scrollable(true);
         for (widget, label) in [
             (ref_manager.widget().upcast_ref::<gtk4::Widget>(), "Refs"),
-            (history_panel.widget().upcast_ref(), "History"),
             (file_tree.widget().upcast_ref(), "Files"),
         ] {
             let tab_lbl = Label::new(Some(label));
@@ -2135,19 +2156,11 @@ impl AppWindow {
         gost_font_row.append(&gost_font_lbl);
         gost_font_row.append(&gost_font_sw);
 
-        // Wire simple mode switch: ON = simple view = advanced panels + minimap hidden
+        // Wire simple mode switch: ON = simple view = advanced panels hidden
         {
             let adv_c = advanced_section.clone();
-            let ep_simple = editor_pane.clone();
-            let mm_btn = minimap_btn.clone();
             simple_mode_sw.connect_active_notify(move |sw| {
-                let simple = sw.is_active();
-                adv_c.set_visible(!simple);
-                if simple {
-                    ep_simple.set_minimap_visible(false);
-                } else {
-                    ep_simple.set_minimap_visible(mm_btn.is_active());
-                }
+                adv_c.set_visible(!sw.is_active());
             });
         }
 
@@ -2159,8 +2172,7 @@ impl AppWindow {
                     Some(&win_sm),
                     Some("Simple Mode"),
                     Some(
-                        "Simple mode hides the Refs, History, and Files panels, \
-                         and disables the minimap. \
+                        "Simple mode hides the Refs and Files panels. \
                          It gives you a clean writing space with just the document outline.",
                     ),
                 );
@@ -2230,13 +2242,11 @@ impl AppWindow {
                         .unwrap_or_default(),
                 );
                 let ep2 = ep_ut.clone();
-                dlg.set_on_create(move |new_path| {
-                    if let Ok(new_preamble_doc) = std::fs::read_to_string(&new_path) {
-                        let preamble = super::template_dialog::extract_preamble(&new_preamble_doc);
-                        let updated = super::template_dialog::reapply_preamble(&current_content, &preamble);
-                        if std::fs::write(&current_path, &updated).is_ok() {
-                            ep2.open_file(current_path.clone(), &updated);
-                        }
+                dlg.set_on_apply(move |new_content| {
+                    let preamble = super::template_dialog::extract_preamble(&new_content);
+                    let updated = super::template_dialog::reapply_preamble(&current_content, &preamble);
+                    if std::fs::write(&current_path, &updated).is_ok() {
+                        ep2.open_file(current_path.clone(), &updated);
                     }
                 });
                 dlg.present();
@@ -2254,6 +2264,7 @@ impl AppWindow {
         let left_box = GtkBox::new(Orientation::Vertical, 0);
         left_box.set_hexpand(false);
         left_box.set_vexpand(true);
+        left_box.add_css_class("zerkalo-sidebar");
         left_box.append(&sidebar_toolbar);
         left_box.append(&Separator::new(Orientation::Horizontal));
         left_box.append(&structure_header);
@@ -2272,24 +2283,6 @@ impl AppWindow {
         right_sidebar.append(todo_panel.widget());
         *right_sidebar_holder.borrow_mut() = Some(right_sidebar.clone());
         right_sidebar.set_visible(todo_btn.is_active());
-
-        // ── Minimap toggle wiring (map lives inside editor_pane) ─────────────
-        {
-            let ep = editor_pane.clone();
-            minimap_btn.connect_toggled(move |btn| {
-                ep.set_minimap_visible(btn.is_active());
-            });
-        }
-
-        // Menu: Toggle Minimap
-        {
-            let mm = minimap_btn.clone();
-            let pop = menu_popover.clone();
-            menu_minimap_item.connect_clicked(move |_| {
-                pop.popdown();
-                mm.set_active(!mm.is_active());
-            });
-        }
 
         let inner_paned = Paned::new(Orientation::Horizontal);
         inner_paned.set_position(600);
@@ -2374,6 +2367,41 @@ impl AppWindow {
         let search = self.search_panel.clone();
         let controller = gtk4::EventControllerKey::new();
 
+        // ── Command palette (Ctrl+P) ────────────────────────────────────────
+        let palette = Rc::new(CommandPalette::new(&self.window));
+        {
+            let editor_for_pal = self.editor_pane.clone();
+            let window_for_pal = self.window.clone();
+            palette.set_on_activate(move |id| {
+                let w = window_for_pal.clone();
+                if id.starts_with("heading:") {
+                    let rest = &id["heading:".len()..];
+                    if let Some(colon) = rest.find(':') {
+                        let line_str = &rest[..colon];
+                        let path_str = &rest[colon + 1..];
+                        if let Ok(line) = line_str.parse::<u32>() {
+                            let path = std::path::PathBuf::from(path_str);
+                            editor_for_pal.jump_to_line(&path, line);
+                        }
+                    }
+                } else if id.starts_with("file:") {
+                    let path = std::path::PathBuf::from(&id["file:".len()..]);
+                    if let Ok(content) = std::fs::read_to_string(&path) {
+                        editor_for_pal.open_file(path, &content);
+                    }
+                } else {
+                    match id {
+                        "toggle_find" => editor_for_pal.toggle_find(),
+                        "save"        => { editor_for_pal.save_all_modified(); }
+                        "help"        => { HelpWindow::new(&w).present(); }
+                        _             => {}
+                    }
+                }
+            });
+        }
+        let palette_for_key = palette.clone();
+        let editor_for_palette_key = editor.clone();
+
         controller.connect_key_pressed(move |_, key, _, modifier| {
             use gtk4::gdk::ModifierType;
             let ctrl = modifier.contains(ModifierType::CONTROL_MASK);
@@ -2434,6 +2462,18 @@ impl AppWindow {
                 // Ctrl+? / Ctrl+Shift+/ — keyboard shortcut help overlay
                 if ctrl && (key == Key::question || (shift && key == Key::slash)) {
                     HelpWindow::new(&window).present();
+                    return glib::Propagation::Stop;
+                }
+                // Ctrl+P — command palette
+                if ctrl && !shift && key == Key::p {
+                    let mut items = default_commands();
+                    if let Some(content) = editor_for_palette_key.get_active_content() {
+                        if let Some(path) = editor_for_palette_key.get_active_path() {
+                            items.extend(heading_items(&content, &path));
+                        }
+                    }
+                    palette_for_key.set_items(items);
+                    palette_for_key.show();
                     return glib::Propagation::Stop;
                 }
             }
@@ -2506,15 +2546,79 @@ impl AppWindow {
     }
 
     pub fn present(&self) {
-        // Save session on close
         let ep = self.editor_pane.clone();
+        let win = self.window.clone();
+        let force_close: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
+
         self.window.connect_close_request(move |_| {
-            let open_files = ep.get_open_paths_ordered();
-            let active_file = ep.get_active_path();
-            let cursor_positions = ep.get_cursor_positions();
-            let session = Session { open_files, active_file, cursor_positions };
-            session.save();
-            glib::Propagation::Proceed
+            // Second call after user confirmed — save session and proceed
+            if *force_close.borrow() {
+                let open_files = ep.get_open_paths_ordered();
+                let active_file = ep.get_active_path();
+                let cursor_positions = ep.get_cursor_positions();
+                Session { open_files, active_file, cursor_positions }.save();
+                return glib::Propagation::Proceed;
+            }
+
+            let unsaved = ep.modified_buffers();
+            if unsaved.is_empty() {
+                let open_files = ep.get_open_paths_ordered();
+                let active_file = ep.get_active_path();
+                let cursor_positions = ep.get_cursor_positions();
+                Session { open_files, active_file, cursor_positions }.save();
+                return glib::Propagation::Proceed;
+            }
+
+            // Build file list for the dialog body
+            let names: Vec<String> = unsaved
+                .iter()
+                .map(|(p, _)| {
+                    p.file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("?")
+                        .to_string()
+                })
+                .collect();
+            let body = format!(
+                "The following file{} {} unsaved changes:\n\n{}",
+                if names.len() == 1 { "" } else { "s" },
+                if names.len() == 1 { "has" } else { "have" },
+                names.join("\n"),
+            );
+
+            let dlg = adw::MessageDialog::new(
+                Some(&win),
+                Some("Save before closing?"),
+                Some(&body),
+            );
+            dlg.add_response("cancel", "Cancel");
+            dlg.add_response("discard", "Discard");
+            dlg.add_response("save", "Save All");
+            dlg.set_response_appearance("discard", adw::ResponseAppearance::Destructive);
+            dlg.set_response_appearance("save", adw::ResponseAppearance::Suggested);
+            dlg.set_default_response(Some("save"));
+            dlg.set_close_response("cancel");
+
+            let ep2 = ep.clone();
+            let win2 = win.clone();
+            let fc = force_close.clone();
+            dlg.connect_response(None, move |_, resp| {
+                match resp {
+                    "save" => {
+                        ep2.save_all_modified();
+                        *fc.borrow_mut() = true;
+                        win2.close();
+                    }
+                    "discard" => {
+                        *fc.borrow_mut() = true;
+                        win2.close();
+                    }
+                    _ => {} // cancel — do nothing
+                }
+            });
+            dlg.present();
+
+            glib::Propagation::Stop
         });
 
         self.window.present();

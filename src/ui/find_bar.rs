@@ -22,7 +22,7 @@ impl FindBar {
         let revealer = Revealer::new();
         revealer.set_transition_type(RevealerTransitionType::SlideDown);
         revealer.set_transition_duration(200);
-        revealer.set_reveal_child(false);
+        revealer.set_reveal_child(true);
 
         let bar_container = GtkBox::new(Orientation::Vertical, 0);
         bar_container.append(&Separator::new(Orientation::Horizontal));

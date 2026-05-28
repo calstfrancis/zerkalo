@@ -53,6 +53,14 @@ pub struct Config {
     pub spell_autocorrect: bool,
     #[serde(default = "default_spell_language")]
     pub spell_language: String,
+    #[serde(default = "default_line_spacing")]
+    pub editor_line_spacing: u32,
+    #[serde(default)]
+    pub typewriter_scrolling: bool,
+    #[serde(default)]
+    pub high_contrast: bool,
+    #[serde(default)]
+    pub word_count_goal: u32,
 }
 
 fn default_work_dir() -> PathBuf {
@@ -69,6 +77,7 @@ fn default_font_family() -> String { "Monospace".to_string() }
 fn default_tab_width() -> u32 { 2 }
 fn default_preview_zoom() -> f64 { 1.0 }
 fn default_spell_language() -> String { "en_US".to_string() }
+fn default_line_spacing() -> u32 { 2 }
 
 impl Default for Config {
     fn default() -> Self {
@@ -90,6 +99,10 @@ impl Default for Config {
             spell_enabled: true,
             spell_autocorrect: false,
             spell_language: default_spell_language(),
+            editor_line_spacing: default_line_spacing(),
+            typewriter_scrolling: false,
+            high_contrast: false,
+            word_count_goal: 0,
         }
     }
 }
