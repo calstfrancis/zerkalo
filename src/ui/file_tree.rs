@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -20,6 +20,7 @@ pub struct FileTree {
     on_open: Callback<PathBuf>,
     on_new_file: Callback<String>,
     on_delete: Callback<PathBuf>,
+    file_errors: Rc<RefCell<HashSet<PathBuf>>>,
 }
 
 impl FileTree {
@@ -108,6 +109,7 @@ impl FileTree {
             on_open,
             on_new_file,
             on_delete,
+            file_errors: Rc::new(RefCell::new(HashSet::new())),
         };
         ft.refresh();
         ft
@@ -127,6 +129,17 @@ impl FileTree {
 
     pub fn set_on_delete(&self, f: impl Fn(PathBuf) + 'static) {
         *self.on_delete.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn set_file_error(&self, path: &Path, has_error: bool) {
+        let mut errors = self.file_errors.borrow_mut();
+        if has_error {
+            errors.insert(path.to_path_buf());
+        } else {
+            errors.remove(path);
+        }
+        drop(errors);
+        self.refresh();
     }
 
     pub fn refresh(&self) {
@@ -181,14 +194,26 @@ impl FileTree {
                     .and_then(|n| n.to_str())
                     .unwrap_or("?")
                     .to_string();
+                let has_error = self.file_errors.borrow().contains(file_path.as_path());
 
                 let row = ListBoxRow::new();
+                let row_box = GtkBox::new(Orientation::Horizontal, 4);
+                row_box.set_hexpand(true);
                 let lbl = Label::new(Some(&filename));
                 lbl.set_halign(Align::Start);
+                lbl.set_hexpand(true);
                 lbl.set_margin_start(indent);
                 lbl.set_margin_top(5);
                 lbl.set_margin_bottom(5);
-                row.set_child(Some(&lbl));
+                row_box.append(&lbl);
+                if has_error {
+                    let err_icon = gtk4::Image::from_icon_name("dialog-error-symbolic");
+                    err_icon.set_pixel_size(12);
+                    err_icon.add_css_class("error");
+                    err_icon.set_margin_end(6);
+                    row_box.append(&err_icon);
+                }
+                row.set_child(Some(&row_box));
 
                 // Left-click: open the file
                 let open_cb = self.on_open.clone();

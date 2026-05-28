@@ -1,6 +1,6 @@
 # Zerkalo — Roadmap
 
-Current release: **0.2.0** (2026-05-26)
+Current release: **0.4.0** (2026-05-28)
 
 ---
 
@@ -37,34 +37,57 @@ Current release: **0.2.0** (2026-05-26)
 
 ---
 
-## Near-term (0.3.0)
+## In progress (0.3.0)
 
-### Spell check (shipped in unreleased)
+### Shipped in this cycle
 - **Spell check with Hunspell**: blue wavy underlines on misspelled prose words; right-click suggestions; Ignore All; language selection; optional autocorrect
+- **Breadcrumb bar**: heading path shown above the editor, updated on cursor move
+- **Update Template Settings**: re-apply preamble to existing document (ZERKALO-TEMPLATE-BEGIN/END markers preserve body)
+- **Heading style corrections**: SBL 5-level hierarchy; Turabian H2 plain; ASA flush-left ALL CAPS H1; Chicago Notes-Bib separated from Turabian
+- **Fix**: GTK "Unknown tag" warnings on diagnostic squiggles
+- **Fix**: Preview pixbuf race condition (generation counter + in-memory PNG bytes)
+- **Fix**: Launcher not launching (removed DBusActivatable=true)
 
-### Template improvements
-- **Re-apply template**: parse the existing preamble and update only the `#set`/`#show` rules, leaving document body intact; requires typst-syntax crate for safe AST-level rewriting
-- **Template preview overlay**: render a preview with different settings without committing the change
-
-### Editor improvements
-- **Split view**: side-by-side editing of two files (useful for source + include)
-- **Breadcrumb bar**: show current heading path above the editor
-- **Minimap**: optional GtkSourceView map widget
-
-### Export
-- **EPUB export** via pandoc
-- **Custom export profiles**: save frequently-used pandoc flag combinations
+- **Embedded typst compiler**: compile in-process via `typst` + `typst-render` + `typst-kit`; ZerkaloWorld impl; eliminates `typst` binary and `pdftoppm`; packages resolved from `~/.cache/typst/packages/`
 
 ---
 
-## Medium-term (0.4.0)
+## Shipped (0.4.0)
 
-### Embedded compiler
-- **typst as a crate** (not shelling out): compile in-process for sub-100 ms feedback; eliminates the `typst` binary requirement
+### Reference panel
+- **Preview ↔ Cheatsheet/Help toggle**: button in preview toolbar switches the right column between live preview and a three-tab reference view (Cheatsheet, Help, FAQ); compile continues in background
 
-### Template gallery
-- Built-in templates selectable from New from Template: GOST 7.32, IEEE conference, letter, article
+### Git
+- **Ctrl+Shift+G keybinding**: triggers git sync from keyboard; configurable in `keybindings.toml`
+
+### Import
+- **DOCX import** (pandoc) and **PDF import** (pdftotext) added under ☰ → Import…
+- **Unified Import… dialog**: single picker that presents LaTeX, DOCX, and PDF options
+
+### Preview
+- **Page navigation**: prev/next buttons + "N / M" counter in preview toolbar
+- **Minimap toggle**: thin GtkSourceView minimap alongside the editor (toggle in header)
+- **Template gallery**: five built-in templates in New from Template (Generic, APA Article, GOST 7.32, IEEE, Letter)
+
+### Polish
+- Version bump to 0.4.0; About dialog updated
+- Removed stale typst-CLI startup check (compiler is now embedded)
+- `[profile.dev] debug = 1` in Cargo.toml — debug builds ~40 % smaller
+
+---
+
+## Near-term (0.5.0)
+
+### Export
+- **EPUB metadata**: title, author, cover image fields in Export dialog
+- **Custom export profiles**: save frequently-used pandoc flag combinations
+
+### Template improvements
 - Shared template-spec schema with Gost toolchain
+
+---
+
+## Medium-term (0.5.0)
 
 ### Collaboration
 - Basic conflict-free file watching: detect external edits and offer to reload

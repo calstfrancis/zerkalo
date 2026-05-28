@@ -6,7 +6,7 @@ use std::time::{Duration, SystemTime};
 use gtk4::prelude::*;
 use gtk4::{
     Align, Box as GtkBox, Button, Entry, Label, MenuButton,
-    Notebook, Orientation, Paned, Popover, ScrolledWindow, Separator, Switch, ToggleButton,
+    Notebook, Orientation, Paned, Popover, ScrolledWindow, Separator, Stack, Switch, ToggleButton,
 };
 use libadwaita as adw;
 use adw::prelude::*;
@@ -47,6 +47,7 @@ pub struct AppWindow {
     project_root: PathBuf,
     #[allow(dead_code)]
     project_model: ProjectModel,
+    sync_btn: Button,
 }
 
 impl AppWindow {
@@ -118,20 +119,14 @@ impl AppWindow {
         focus_btn.add_css_class("flat");
         header.pack_start(&focus_btn);
 
-        let todo_btn = ToggleButton::new();
-        todo_btn.set_icon_name("view-list-symbolic");
-        todo_btn.set_tooltip_text(Some("Toggle TODO panel"));
-        todo_btn.add_css_class("flat");
-        todo_btn.set_active(true);
+        let minimap_btn = ToggleButton::new();
+        minimap_btn.set_icon_name("view-paged-symbolic");
+        minimap_btn.set_tooltip_text(Some("Toggle minimap"));
+        minimap_btn.add_css_class("flat");
+        minimap_btn.set_active(false);
+        header.pack_start(&minimap_btn);
 
-        // End: compile (primary), style switcher, sync (secondary), hamburger menu
-        let compile_btn = Button::with_label("Preview");
-        compile_btn.set_tooltip_text(Some("Compile & Preview (Ctrl+Shift+P)"));
-        compile_btn.add_css_class("suggested-action");
-        compile_btn.add_css_class("pill");
-        header.pack_end(&compile_btn);
-
-        // Style switcher dropdown
+        // Style switcher dropdown — placed in header start, beside the title
         let style_names = crate::styles::STYLES.iter().map(|(n, _, _, _)| *n).collect::<Vec<_>>();
         let style_box = GtkBox::new(Orientation::Vertical, 0);
         style_box.set_margin_top(4);
@@ -143,7 +138,7 @@ impl AppWindow {
         style_btn.add_css_class("flat");
         style_btn.set_tooltip_text(Some("Apply a formatting style to the document"));
         style_btn.set_popover(Some(&style_popover));
-        header.pack_end(&style_btn);
+        header.pack_start(&style_btn);
         for name in &style_names {
             let row = Button::new();
             row.set_label(name);
@@ -154,98 +149,66 @@ impl AppWindow {
         }
         // Wire style buttons after editor_pane is available (done below)
 
-        let sync_btn = Button::from_icon_name("emblem-synchronizing-symbolic");
-        sync_btn.set_tooltip_text(Some("Commit & Push to Git"));
+        let todo_btn = ToggleButton::new();
+        todo_btn.set_icon_name("view-list-symbolic");
+        todo_btn.set_tooltip_text(Some("Toggle TODO panel"));
+        todo_btn.add_css_class("flat");
+        todo_btn.set_active(false);
+
+        // ── Primary header buttons (packed together at end of section) ────────
+        let compile_btn = Button::with_label("Preview");
+        compile_btn.set_tooltip_text(Some("Compile & Preview (Ctrl+Shift+P)"));
+        compile_btn.add_css_class("suggested-action");
+        compile_btn.add_css_class("pill");
+
+        let sync_btn = Button::from_icon_name("vcs-commit-symbolic");
+        sync_btn.set_tooltip_text(Some("Commit & Push to Git (Ctrl+Shift+G)"));
         sync_btn.add_css_class("flat");
-        header.pack_end(&sync_btn);
 
-        // Hamburger menu (item 8)
-        let menu_new_template_item = Button::new();
-        menu_new_template_item.set_label("New from Template…");
-        menu_new_template_item.set_halign(Align::Start);
-        menu_new_template_item.add_css_class("flat");
-        menu_new_template_item.set_size_request(190, -1);
+        // ── Hamburger menu items (using make_menu_item for left+shortcut layout) ──
+        let menu_new_template_item  = make_menu_item("New from Template…",         None);
+        let menu_reapply_template_item = make_menu_item("Update Template Settings…", None);
+        let menu_new_item           = make_menu_item("New Blank Document…",         None);
+        let menu_open_item          = make_menu_item("Open File…",                  None);
+        let menu_save_item          = make_menu_item("Save",                        Some("Ctrl+S"));
+        let menu_save_as_item       = make_menu_item("Save As…",                    None);
+        let menu_export_item        = make_menu_item("Export…",                     None);
+        let menu_import_item        = make_menu_item("Import…",                     None);
+        let menu_fonts_item         = make_menu_item("Font Management…",            None);
+        let menu_settings_item      = make_menu_item("Settings",                    None);
+        let menu_setup_item         = make_menu_item("Setup & Onboarding…",         None);
+        let menu_help_item          = make_menu_item("Keyboard Shortcuts & Help",   Some("Ctrl+?"));
+        let menu_about_item         = make_menu_item("About Zerkalo",               None);
 
-        let menu_reapply_template_item = Button::new();
-        menu_reapply_template_item.set_label("Update Template Settings…");
-        menu_reapply_template_item.set_halign(Align::Start);
-        menu_reapply_template_item.add_css_class("flat");
-        menu_reapply_template_item.set_size_request(190, -1);
+        // Hidden trigger buttons for the import picker (not in popover)
+        let menu_import_latex_item  = make_menu_item("Import LaTeX File…",          None);
+        let menu_import_docx_item   = make_menu_item("Import DOCX File…",           None);
+        let menu_import_pdf_item    = make_menu_item("Import PDF File…",            None);
 
-        let menu_new_item = Button::new();
-        menu_new_item.set_label("New Blank Document…");
-        menu_new_item.set_halign(Align::Start);
-        menu_new_item.add_css_class("flat");
-        menu_new_item.set_size_request(190, -1);
-
-        let menu_open_item = Button::new();
-        menu_open_item.set_label("Open File…");
-        menu_open_item.set_halign(Align::Start);
-        menu_open_item.add_css_class("flat");
-        menu_open_item.set_size_request(190, -1);
-
-        let menu_save_item = Button::new();
-        menu_save_item.set_label("Save");
-        menu_save_item.set_halign(Align::Start);
-        menu_save_item.add_css_class("flat");
-        menu_save_item.set_size_request(190, -1);
-
-        let menu_save_as_item = Button::new();
-        menu_save_as_item.set_label("Save As…");
-        menu_save_as_item.set_halign(Align::Start);
-        menu_save_as_item.add_css_class("flat");
-        menu_save_as_item.set_size_request(190, -1);
-
-        let menu_settings_item = Button::new();
-        menu_settings_item.set_label("Settings");
-        menu_settings_item.set_halign(Align::Start);
-        menu_settings_item.add_css_class("flat");
-        menu_settings_item.set_size_request(190, -1);
-
-        let menu_help_item = Button::new();
-        menu_help_item.set_label("Help & Shortcuts");
-        menu_help_item.set_halign(Align::Start);
-        menu_help_item.add_css_class("flat");
-        menu_help_item.set_size_request(190, -1);
-
-        let menu_about_item = Button::new();
-        menu_about_item.set_label("About Zerkalo");
-        menu_about_item.set_halign(Align::Start);
-        menu_about_item.add_css_class("flat");
-        menu_about_item.set_size_request(190, -1);
-
-        let menu_export_item = Button::new();
-        menu_export_item.set_label("Export…");
-        menu_export_item.set_halign(Align::Start);
-        menu_export_item.add_css_class("flat");
-        menu_export_item.set_size_request(190, -1);
-
-        let menu_fonts_item = Button::new();
-        menu_fonts_item.set_label("Font Management…");
-        menu_fonts_item.set_halign(Align::Start);
-        menu_fonts_item.add_css_class("flat");
-        menu_fonts_item.set_size_request(190, -1);
-
-        let menu_import_latex_item = Button::new();
-        menu_import_latex_item.set_label("Import LaTeX File…");
-        menu_import_latex_item.set_halign(Align::Start);
-        menu_import_latex_item.add_css_class("flat");
-        menu_import_latex_item.set_size_request(190, -1);
-
+        // ── Popover layout (Setzer-style: File → Tools → App) ─────────────────
         let menu_popover_box = GtkBox::new(Orientation::Vertical, 0);
         menu_popover_box.set_margin_top(4);
         menu_popover_box.set_margin_bottom(4);
+        menu_popover_box.set_width_request(260);
+
+        // File group
         menu_popover_box.append(&menu_new_template_item);
-        menu_popover_box.append(&menu_reapply_template_item);
         menu_popover_box.append(&menu_new_item);
         menu_popover_box.append(&menu_open_item);
+        menu_popover_box.append(&Separator::new(Orientation::Horizontal));
         menu_popover_box.append(&menu_save_item);
         menu_popover_box.append(&menu_save_as_item);
         menu_popover_box.append(&Separator::new(Orientation::Horizontal));
-        menu_popover_box.append(&menu_settings_item);
+        menu_popover_box.append(&menu_reapply_template_item);
+        menu_popover_box.append(&Separator::new(Orientation::Horizontal));
+        // Tools group
         menu_popover_box.append(&menu_export_item);
+        menu_popover_box.append(&menu_import_item);
         menu_popover_box.append(&menu_fonts_item);
-        menu_popover_box.append(&menu_import_latex_item);
+        menu_popover_box.append(&Separator::new(Orientation::Horizontal));
+        // App group
+        menu_popover_box.append(&menu_settings_item);
+        menu_popover_box.append(&menu_setup_item);
         menu_popover_box.append(&Separator::new(Orientation::Horizontal));
         menu_popover_box.append(&menu_help_item);
         menu_popover_box.append(&menu_about_item);
@@ -256,8 +219,13 @@ impl AppWindow {
         menu_btn.set_icon_name("open-menu-symbolic");
         menu_btn.add_css_class("flat");
         menu_btn.set_popover(Some(&menu_popover));
+
+        // Header end section layout (left → right): sync | todo | Preview | ≡
+        // In GTK4 pack_end the last-packed widget is leftmost in the end section.
         header.pack_end(&menu_btn);
+        header.pack_end(&compile_btn);
         header.pack_end(&todo_btn);
+        header.pack_end(&sync_btn);
 
         // ── Setzer-style open dropdown ───────────────────────────────────────
         let open_search = Entry::new();
@@ -287,7 +255,7 @@ impl AppWindow {
         let recent_popover = Popover::new();
         recent_popover.set_child(Some(&open_popover_box));
 
-        let file_title_widget = adw::WindowTitle::new("untitled.typ", "");
+        let file_title_widget = adw::WindowTitle::new("untitled", "");
 
         let file_selector = MenuButton::new();
         file_selector.add_css_class("flat");
@@ -306,10 +274,10 @@ impl AppWindow {
         let package_browser = PackageBrowser::new();
         let todo_panel = TodoPanel::new();
 
-        // Wire style buttons → editor
+        // Wire style buttons → editor; update style_btn label to current style name
         {
             let mut child_opt = style_box.first_child();
-            for (_, code, bib_style, bib_title) in crate::styles::STYLES {
+            for (name, code, bib_style, bib_title) in crate::styles::STYLES {
                 if let Some(child) = child_opt {
                     let btn = child.downcast::<Button>().unwrap();
                     let ep = editor_pane.clone();
@@ -317,9 +285,12 @@ impl AppWindow {
                     let code_s = code.to_string();
                     let bib_s = bib_style.to_string();
                     let title_s = bib_title.to_string();
+                    let sbtn = style_btn.clone();
+                    let name_s = name.to_string();
                     btn.connect_clicked(move |_| {
                         pop.popdown();
                         ep.apply_style(&code_s, &bib_s, &title_s);
+                        sbtn.set_label(&name_s);
                     });
                     child_opt = btn.next_sibling();
                 } else {
@@ -404,10 +375,38 @@ impl AppWindow {
                     }
                 }
                 let q = query.to_lowercase();
-                for (path, mtime) in files.into_iter().take(30) {
+                let filtered: Vec<_> = files.into_iter()
+                    .filter(|(path, _)| {
+                        if q.is_empty() { return true; }
+                        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                        name.to_lowercase().contains(&q)
+                    })
+                    .take(30)
+                    .collect();
+
+                // Group by date bucket: Today / This week / Older
+                let now = std::time::SystemTime::now();
+                let day_secs = 86_400u64;
+                let week_secs = 7 * day_secs;
+                let mut last_group = "";
+                let add_group_header = |list: &GtkBox, title: &str| {
+                    let lbl = Label::new(Some(title));
+                    lbl.set_halign(Align::Start);
+                    lbl.set_margin_start(10);
+                    lbl.set_margin_top(8);
+                    lbl.set_margin_bottom(2);
+                    lbl.add_css_class("dim-label");
+                    lbl.add_css_class("caption");
+                    list.append(&lbl);
+                };
+
+                for (path, mtime) in filtered {
                     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
-                    if !q.is_empty() && !name.to_lowercase().contains(&q) {
-                        continue;
+                    let age = now.duration_since(mtime).map(|d| d.as_secs()).unwrap_or(u64::MAX);
+                    let group = if age < day_secs { "Today" } else if age < week_secs { "This week" } else { "Older" };
+                    if group != last_group {
+                        add_group_header(&open_list_rc, group);
+                        last_group = group;
                     }
                     let date_str = format_file_mtime(mtime);
                     let btn = Button::new();
@@ -551,6 +550,8 @@ impl AppWindow {
             }
         });
 
+        // ── Minimap toggle (wired after minimap widget created in layout) ───
+
         // ── TODO sidebar toggle ─────────────────────────────────────────────
         let rsh_for_todo = right_sidebar_holder.clone();
         todo_btn.connect_toggled(move |btn| {
@@ -658,6 +659,16 @@ impl AppWindow {
             HelpWindow::new(&window_for_help).present();
         });
 
+        // ── Menu: Setup & Onboarding ────────────────────────────────────────
+
+        let window_for_setup = window.clone();
+        let root_for_setup = project_root.clone();
+        let menu_popover_for_setup = menu_popover.clone();
+        menu_setup_item.connect_clicked(move |_| {
+            menu_popover_for_setup.popdown();
+            super::setup_wizard::SetupWizard::new(&window_for_setup, &root_for_setup).present();
+        });
+
         // ── Menu: About ─────────────────────────────────────────────────────
 
         let window_for_about = window.clone();
@@ -666,10 +677,11 @@ impl AppWindow {
             menu_popover_for_about.popdown();
             let dlg = adw::MessageDialog::new(
                 Some(&window_for_about),
-                Some("Zerkalo 0.1.0"),
+                Some("Zerkalo 0.4.0"),
                 Some(
                     "A contemplative Typst editor.\n\n\
-                     Built with Rust · GTK4 · libadwaita · sourceview5\n\n\
+                     Built with Rust · GTK4 · libadwaita · sourceview5\n\
+                     Embedded Typst compiler — no binary required\n\n\
                      https://github.com/calstfrancis/zerkalo"
                 ),
             );
@@ -701,12 +713,87 @@ impl AppWindow {
             FontManager::new(&window_for_fonts).present();
         });
 
+        // ── Menu: Import (picker dialog) ───────────────────────────────────
+
+        let window_for_import = window.clone();
+        let menu_popover_for_import = menu_popover.clone();
+        let latex_item_for_dlg = menu_import_latex_item.clone();
+        let docx_item_for_dlg = menu_import_docx_item.clone();
+        let pdf_item_for_dlg = menu_import_pdf_item.clone();
+        menu_import_item.connect_clicked(move |_| {
+            menu_popover_for_import.popdown();
+
+            let dlg = adw::Window::new();
+            dlg.set_title(Some("Import File"));
+            dlg.set_default_width(280);
+            dlg.set_modal(true);
+            dlg.set_transient_for(Some(&window_for_import));
+            dlg.set_deletable(true);
+
+            let header_dlg = adw::HeaderBar::new();
+            let title_lbl = gtk4::Label::new(Some("Import File"));
+            title_lbl.add_css_class("heading");
+            header_dlg.set_title_widget(Some(&title_lbl));
+
+            let row_box = GtkBox::new(Orientation::Vertical, 0);
+            row_box.set_margin_top(8);
+            row_box.set_margin_bottom(8);
+
+            let make_row = |icon: &str, label: &str| -> adw::ActionRow {
+                let row = adw::ActionRow::new();
+                row.set_title(label);
+                row.set_activatable(true);
+                row.add_prefix(&gtk4::Image::from_icon_name(icon));
+                row.add_suffix(&gtk4::Image::from_icon_name("go-next-symbolic"));
+                row
+            };
+            let latex_row = make_row("text-x-generic-symbolic", "LaTeX (.tex)");
+            let docx_row = make_row("x-office-document-symbolic", "Word (.docx)");
+            let pdf_row = make_row("application-pdf-symbolic", "PDF (.pdf)");
+
+            let group = adw::PreferencesGroup::new();
+            group.add(&latex_row);
+            group.add(&docx_row);
+            group.add(&pdf_row);
+            group.set_margin_start(12);
+            group.set_margin_end(12);
+            row_box.append(&group);
+
+            let vbox = GtkBox::new(Orientation::Vertical, 0);
+            vbox.append(&header_dlg);
+            vbox.append(&row_box);
+            dlg.set_content(Some(&vbox));
+
+            // Wire each row to forward-click the hidden original import buttons
+            let latex_trigger = latex_item_for_dlg.clone();
+            let dlg_c = dlg.clone();
+            latex_row.connect_activated(move |_| {
+                dlg_c.close();
+                latex_trigger.emit_clicked();
+            });
+            let docx_trigger = docx_item_for_dlg.clone();
+            let dlg_c = dlg.clone();
+            docx_row.connect_activated(move |_| {
+                dlg_c.close();
+                docx_trigger.emit_clicked();
+            });
+            let pdf_trigger = pdf_item_for_dlg.clone();
+            let dlg_c = dlg.clone();
+            pdf_row.connect_activated(move |_| {
+                dlg_c.close();
+                pdf_trigger.emit_clicked();
+            });
+
+            dlg.present();
+        });
+
         // ── Menu: Import LaTeX ──────────────────────────────────────────────
 
         let window_for_latex = window.clone();
         let editor_for_latex = editor_pane.clone();
         let menu_popover_for_latex = menu_popover.clone();
         let work_dir_for_latex = project_root.clone();
+        let config_for_latex = current_config.clone();
         menu_import_latex_item.connect_clicked(move |_| {
             menu_popover_for_latex.popdown();
             let dialog = gtk4::FileDialog::new();
@@ -720,6 +807,7 @@ impl AppWindow {
             dialog.set_initial_folder(Some(&gtk4::gio::File::for_path(&work_dir_for_latex)));
             let win2 = window_for_latex.clone();
             let ep2 = editor_for_latex.clone();
+            let cfg2 = config_for_latex.clone();
             let win_ref = win2.clone();
             dialog.open(Some(&win_ref), None::<&gtk4::gio::Cancellable>, move |result| {
                 if let Ok(file) = result {
@@ -730,12 +818,16 @@ impl AppWindow {
                             .arg(&input_path)
                             .arg("-f").arg("latex")
                             .arg("-t").arg("typst")
+                            .arg("--standalone")
                             .arg("-o").arg(&out_path)
                             .output();
                         match output {
                             Ok(o) if o.status.success() => {
-                                if let Ok(content) = std::fs::read_to_string(&out_path) {
-                                    ep2.open_file(out_path, &content);
+                                if let Ok(raw) = std::fs::read_to_string(&out_path) {
+                                    let bib_path = cfg2.borrow().bib_path.clone();
+                                    let processed = post_process_latex_import(&raw, bib_path.as_deref());
+                                    let _ = std::fs::write(&out_path, &processed);
+                                    ep2.open_file(out_path, &processed);
                                 }
                             }
                             Ok(o) => {
@@ -744,6 +836,111 @@ impl AppWindow {
                             }
                             Err(_) => {
                                 show_alert(&win2, "Import Failed", "pandoc not found. Install pandoc 3.1+ to use LaTeX import.");
+                            }
+                        }
+                    }
+                }
+            });
+        });
+
+        // ── Menu: Import DOCX ──────────────────────────────────────────────
+
+        let window_for_docx = window.clone();
+        let editor_for_docx = editor_pane.clone();
+        let menu_popover_for_docx = menu_popover.clone();
+        let work_dir_for_docx = project_root.clone();
+        let config_for_docx = current_config.clone();
+        menu_import_docx_item.connect_clicked(move |_| {
+            menu_popover_for_docx.popdown();
+            let dialog = gtk4::FileDialog::new();
+            dialog.set_title("Import DOCX File");
+            let filter = gtk4::FileFilter::new();
+            filter.set_name(Some("Word documents (*.docx)"));
+            filter.add_pattern("*.docx");
+            let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
+            filters.append(&filter);
+            dialog.set_filters(Some(&filters));
+            dialog.set_initial_folder(Some(&gtk4::gio::File::for_path(&work_dir_for_docx)));
+            let win2 = window_for_docx.clone();
+            let ep2 = editor_for_docx.clone();
+            let cfg2 = config_for_docx.clone();
+            let win_ref = win2.clone();
+            dialog.open(Some(&win_ref), None::<&gtk4::gio::Cancellable>, move |result| {
+                if let Ok(file) = result {
+                    if let Some(input_path) = file.path() {
+                        let stem = input_path.file_stem().and_then(|s| s.to_str()).unwrap_or("output").to_string();
+                        let out_path = input_path.with_file_name(format!("{stem}.typ"));
+                        let output = std::process::Command::new("pandoc")
+                            .arg(&input_path)
+                            .arg("-f").arg("docx")
+                            .arg("-t").arg("typst")
+                            .arg("--standalone")
+                            .arg("-o").arg(&out_path)
+                            .output();
+                        match output {
+                            Ok(o) if o.status.success() => {
+                                if let Ok(raw) = std::fs::read_to_string(&out_path) {
+                                    let bib_path = cfg2.borrow().bib_path.clone();
+                                    let processed = post_process_latex_import(&raw, bib_path.as_deref());
+                                    let _ = std::fs::write(&out_path, &processed);
+                                    ep2.open_file(out_path, &processed);
+                                }
+                            }
+                            Ok(o) => {
+                                let msg = String::from_utf8_lossy(&o.stderr);
+                                show_alert(&win2, "Import Failed", &format!("pandoc error:\n{}", msg.lines().take(5).collect::<Vec<_>>().join("\n")));
+                            }
+                            Err(_) => {
+                                show_alert(&win2, "Import Failed", "pandoc not found. Install pandoc 3.1+ to use DOCX import.");
+                            }
+                        }
+                    }
+                }
+            });
+        });
+
+        // ── Menu: Import PDF ───────────────────────────────────────────────
+
+        let window_for_pdf = window.clone();
+        let editor_for_pdf = editor_pane.clone();
+        let menu_popover_for_pdf = menu_popover.clone();
+        let work_dir_for_pdf = project_root.clone();
+        menu_import_pdf_item.connect_clicked(move |_| {
+            menu_popover_for_pdf.popdown();
+            let dialog = gtk4::FileDialog::new();
+            dialog.set_title("Import PDF File");
+            let filter = gtk4::FileFilter::new();
+            filter.set_name(Some("PDF files (*.pdf)"));
+            filter.add_pattern("*.pdf");
+            let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
+            filters.append(&filter);
+            dialog.set_filters(Some(&filters));
+            dialog.set_initial_folder(Some(&gtk4::gio::File::for_path(&work_dir_for_pdf)));
+            let win2 = window_for_pdf.clone();
+            let ep2 = editor_for_pdf.clone();
+            let win_ref = win2.clone();
+            dialog.open(Some(&win_ref), None::<&gtk4::gio::Cancellable>, move |result| {
+                if let Ok(file) = result {
+                    if let Some(input_path) = file.path() {
+                        let stem = input_path.file_stem().and_then(|s| s.to_str()).unwrap_or("output").to_string();
+                        let out_path = input_path.with_file_name(format!("{stem}.typ"));
+                        let output = std::process::Command::new("pdftotext")
+                            .arg("-layout")
+                            .arg(&input_path)
+                            .arg("-")
+                            .output();
+                        match output {
+                            Ok(o) if o.status.success() => {
+                                let extracted = String::from_utf8_lossy(&o.stdout).to_string();
+                                let typst_doc = post_process_pdf_import(&extracted, stem.as_str());
+                                let _ = std::fs::write(&out_path, &typst_doc);
+                                ep2.open_file(out_path, &typst_doc);
+                            }
+                            Ok(_) => {
+                                show_alert(&win2, "Import Failed", "pdftotext could not extract text from this PDF.");
+                            }
+                            Err(_) => {
+                                show_alert(&win2, "Import Failed", "pdftotext not found. Install poppler-utils to use PDF import.");
                             }
                         }
                     }
@@ -1011,9 +1208,26 @@ impl AppWindow {
             preview_for_switch.trigger_compile();
             todo_panel_for_switch.set_current_file(Some(&path));
             if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                title_widget_for_switch.set_title(name);
+                let display = name.strip_suffix(".typ").unwrap_or(name);
+                title_widget_for_switch.set_title(display);
             }
         });
+
+        // ── Modified / autosave indicator ──────────────────────────────────────
+        {
+            let title_for_modified = file_title_widget.clone();
+            editor_pane.set_on_modified_changed(move |modified| {
+                if modified {
+                    title_for_modified.set_subtitle("Modified");
+                } else {
+                    title_for_modified.set_subtitle("Saved");
+                    let tw = title_for_modified.clone();
+                    glib::timeout_add_local_once(std::time::Duration::from_secs(2), move || {
+                        tw.set_subtitle("");
+                    });
+                }
+            });
+        }
 
         // ── LSP: did_open + recent tracking when a file is opened ───────────
 
@@ -1045,6 +1259,24 @@ impl AppWindow {
 
         // ── Compile done callback ────────────────────────────────────────────
 
+        // Inline compile-error banner widgets created here so the compile callback can capture them
+        let error_banner = Label::new(None);
+        error_banner.add_css_class("error");
+        error_banner.set_wrap(true);
+        error_banner.set_xalign(0.0);
+        error_banner.set_margin_start(8);
+        error_banner.set_margin_end(8);
+        error_banner.set_margin_top(4);
+        error_banner.set_margin_bottom(4);
+        error_banner.set_visible(false);
+        let error_banner_scroll = gtk4::ScrolledWindow::new();
+        error_banner_scroll.set_child(Some(&error_banner));
+        error_banner_scroll.set_max_content_height(72);
+        error_banner_scroll.set_propagate_natural_height(true);
+        error_banner_scroll.set_visible(false);
+        // file_tree holder: filled after FileTree is constructed below
+        let file_tree_holder: Rc<RefCell<Option<super::file_tree::FileTree>>> = Rc::new(RefCell::new(None));
+
         // LSP dedup: when LSP has live diagnostics, suppress compile-stderr errors
         let lsp_has_diags: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
 
@@ -1054,13 +1286,34 @@ impl AppWindow {
         let popout_pane_for_compile = popout_pane.clone();
         let dep_graph_for_compile = dep_graph.clone();
         let lsp_diags_for_compile = lsp_has_diags.clone();
+        let error_banner_for_compile = error_banner_scroll.clone();
+        let error_banner_lbl_for_compile = error_banner.clone();
+        let file_tree_holder_for_compile = file_tree_holder.clone();
+        let root_file_for_compile = project_model.root_file.clone();
         preview_pane.set_on_compile_done(move |result| {
-            match result {
+            match &result {
                 None => {
                     error_panel_for_compile.clear();
                     editor_for_diag.clear_diagnostic_marks();
+                    error_banner_for_compile.set_visible(false);
+                    error_banner_lbl_for_compile.set_visible(false);
+                    if let Some(ref p) = root_file_for_compile {
+                        if let Some(ft) = file_tree_holder_for_compile.borrow().as_ref() {
+                            ft.set_file_error(p.as_path(), false);
+                        }
+                    }
                 }
                 Some(stderr) => {
+                    // Show first error line in the inline banner above the preview toolbar
+                    let first_line = stderr.lines().next().unwrap_or("Compile error").to_string();
+                    error_banner_lbl_for_compile.set_text(&first_line);
+                    error_banner_lbl_for_compile.set_visible(true);
+                    error_banner_for_compile.set_visible(true);
+                    if let Some(ref p) = root_file_for_compile {
+                        if let Some(ft) = file_tree_holder_for_compile.borrow().as_ref() {
+                            ft.set_file_error(p.as_path(), true);
+                        }
+                    }
                     // If LSP is providing diagnostics, skip showing compile stderr
                     if *lsp_diags_for_compile.borrow() {
                         dep_graph_for_compile.refresh(None);
@@ -1069,7 +1322,7 @@ impl AppWindow {
                         }
                         return;
                     }
-                    let errors = parse_typst_errors(&stderr, &root_for_compile);
+                    let errors = parse_typst_errors(stderr, &root_for_compile);
                     let diags: Vec<(std::path::PathBuf, u32, bool)> = errors
                         .iter()
                         .map(|e| (e.file.clone(), e.line, matches!(e.severity, Severity::Error)))
@@ -1079,7 +1332,6 @@ impl AppWindow {
                 }
             }
             dep_graph_for_compile.refresh(None);
-            // Refresh pop-out window if it is open
             if let Some(pane) = popout_pane_for_compile.borrow().as_ref() {
                 pane.refresh_display();
             }
@@ -1097,14 +1349,8 @@ impl AppWindow {
 
         let win_for_check = window.clone();
         glib::timeout_add_local(Duration::from_millis(900), move || {
+            // typst is no longer checked — compilation is built in
             let mut missing: Vec<&'static str> = Vec::new();
-            if std::process::Command::new("typst")
-                .arg("--version")
-                .output()
-                .is_err()
-            {
-                missing.push("typst");
-            }
             if std::process::Command::new("git")
                 .arg("--version")
                 .output()
@@ -1113,18 +1359,14 @@ impl AppWindow {
                 missing.push("git");
             }
             if !missing.is_empty() {
-                let list = missing.join(" and ");
-                tracing::warn!("Required tools not found in PATH: {list}");
+                tracing::warn!("Required tools not found in PATH: {}", missing.join(", "));
                 show_alert(
                     &win_for_check,
                     "Missing Tools",
-                    &format!(
-                        "The following tools were not found in your PATH:\n\n  {list}\n\n\
-                         Install them via your package manager to enable compile and sync:\n\
-                         \n  zypper install typst git\
-                         \n  apt  install  typst git\
-                         \n  brew install  typst git"
-                    ),
+                    "git was not found in your PATH. Install it to enable git sync:\n\
+                     \n  zypper install git\
+                     \n  apt  install  git\
+                     \n  brew install  git"
                 );
             }
             glib::ControlFlow::Break
@@ -1137,6 +1379,17 @@ impl AppWindow {
             if super::welcome_window::WelcomeWindow::should_show() {
                 super::welcome_window::WelcomeWindow::mark_shown();
                 super::welcome_window::WelcomeWindow::new(&win_for_welcome).present();
+            }
+            glib::ControlFlow::Break
+        });
+
+        // ── Setup wizard (shows when git identity or remote is missing) ──────
+
+        let win_for_setup2 = window.clone();
+        let root_for_setup2 = project_root.clone();
+        glib::timeout_add_local(Duration::from_millis(1800), move || {
+            if super::setup_wizard::SetupWizard::should_show(&root_for_setup2) {
+                super::setup_wizard::SetupWizard::new(&win_for_setup2, &root_for_setup2).present();
             }
             glib::ControlFlow::Break
         });
@@ -1247,6 +1500,24 @@ impl AppWindow {
         popout_btn.add_css_class("flat");
         popout_btn.set_tooltip_text(Some("Pop out preview"));
 
+        let ref_toggle_btn = ToggleButton::new();
+        ref_toggle_btn.set_icon_name("help-contents-symbolic");
+        ref_toggle_btn.add_css_class("flat");
+        ref_toggle_btn.set_tooltip_text(Some("Toggle Cheatsheet & Help"));
+
+        // Page navigation
+        let page_prev_btn = Button::from_icon_name("go-previous-symbolic");
+        page_prev_btn.add_css_class("flat");
+        page_prev_btn.set_tooltip_text(Some("Previous page"));
+        let page_next_btn = Button::from_icon_name("go-next-symbolic");
+        page_next_btn.add_css_class("flat");
+        page_next_btn.set_tooltip_text(Some("Next page"));
+        let page_label = Label::new(Some(""));
+        page_label.add_css_class("caption");
+        page_label.add_css_class("dim-label");
+        page_label.set_width_chars(8);
+        page_label.set_xalign(0.5);
+
         let preview_toolbar = GtkBox::new(Orientation::Horizontal, 4);
         preview_toolbar.set_margin_start(8);
         preview_toolbar.set_margin_end(8);
@@ -1259,7 +1530,15 @@ impl AppWindow {
         let preview_spacer = GtkBox::new(Orientation::Horizontal, 0);
         preview_spacer.set_hexpand(true);
         preview_toolbar.append(&preview_spacer);
+        // Page nav group
+        let page_nav_box = GtkBox::new(Orientation::Horizontal, 0);
+        page_nav_box.add_css_class("linked");
+        page_nav_box.append(&page_prev_btn);
+        page_nav_box.append(&page_next_btn);
+        preview_toolbar.append(&page_nav_box);
+        preview_toolbar.append(&page_label);
         preview_toolbar.append(&watch_btn);
+        preview_toolbar.append(&ref_toggle_btn);
         preview_toolbar.append(&popout_btn);
 
         // Watch button wiring
@@ -1306,14 +1585,108 @@ impl AppWindow {
             preview_for_fp.fit_page();
         });
 
+        // Page navigation wiring
+        {
+            let lbl = page_label.clone();
+            preview_pane.set_on_page_changed(move |current, total| {
+                lbl.set_text(&format!("{} / {}", current + 1, total));
+            });
+        }
+        {
+            let p = preview_pane.clone();
+            page_prev_btn.connect_clicked(move |_| {
+                let cur = p.current_page_idx();
+                if cur > 0 { p.scroll_to_page(cur - 1); }
+            });
+        }
+        {
+            let p = preview_pane.clone();
+            page_next_btn.connect_clicked(move |_| {
+                let cur = p.current_page_idx();
+                let total = p.page_count();
+                if total > 0 && cur < total - 1 { p.scroll_to_page(cur + 1); }
+            });
+        }
+
         let preview_container = GtkBox::new(Orientation::Vertical, 0);
         preview_container.set_hexpand(true);
         preview_container.set_vexpand(true);
         preview_container.append(&Separator::new(Orientation::Horizontal));
-        preview_container.append(&preview_toolbar);
-        preview_container.append(&Separator::new(Orientation::Horizontal));
         preview_container.append(preview_pane.widget());
-        *preview_vis_holder.borrow_mut() = Some(preview_container.clone());
+        preview_container.append(&error_banner_scroll);
+        preview_container.append(&Separator::new(Orientation::Horizontal));
+        preview_container.append(&preview_toolbar);
+
+        // ── Reference panel (Cheatsheet + Help + FAQ) with back bar ─────────
+        let ref_notebook = Notebook::new();
+        ref_notebook.set_vexpand(true);
+        ref_notebook.set_hexpand(true);
+        {
+            let cs_lbl = Label::new(Some("Cheatsheet"));
+            let cs_scroll = super::help_window::cheatsheet_scroll();
+            ref_notebook.append_page(&cs_scroll, Some(&cs_lbl));
+            let help_lbl = Label::new(Some("Help"));
+            let help_scroll = super::help_window::overview_scroll();
+            ref_notebook.append_page(&help_scroll, Some(&help_lbl));
+            let faq_lbl = Label::new(Some("FAQ"));
+            let faq_scroll = super::help_window::faq_scroll();
+            ref_notebook.append_page(&faq_scroll, Some(&faq_lbl));
+        }
+
+        // Back-to-preview bar at the bottom of the reference panel
+        let back_btn = Button::new();
+        back_btn.set_label("← Back to Preview");
+        back_btn.add_css_class("flat");
+        back_btn.set_hexpand(true);
+        let back_bar = GtkBox::new(Orientation::Horizontal, 0);
+        back_bar.set_margin_start(8);
+        back_bar.set_margin_end(8);
+        back_bar.set_margin_top(4);
+        back_bar.set_margin_bottom(4);
+        back_bar.append(&back_btn);
+
+        let ref_panel = GtkBox::new(Orientation::Vertical, 0);
+        ref_panel.set_hexpand(true);
+        ref_panel.set_vexpand(true);
+        ref_panel.append(&ref_notebook);
+        ref_panel.append(&Separator::new(Orientation::Horizontal));
+        ref_panel.append(&back_bar);
+
+        // Stack: "preview" (live output) ↔ "reference" (cheatsheet/help)
+        let preview_stack = Stack::new();
+        preview_stack.set_hexpand(true);
+        preview_stack.set_vexpand(true);
+        preview_stack.set_transition_type(gtk4::StackTransitionType::Crossfade);
+        preview_stack.add_named(&preview_container, Some("preview"));
+        preview_stack.add_named(&ref_panel, Some("reference"));
+
+        // Wrapper box captured by visibility toggles (focus mode, sidebar toggle)
+        let preview_outer = GtkBox::new(Orientation::Vertical, 0);
+        preview_outer.set_hexpand(true);
+        preview_outer.set_vexpand(true);
+        preview_outer.append(&preview_stack);
+
+        // Wire reference toggle button
+        {
+            let stack = preview_stack.clone();
+            ref_toggle_btn.connect_toggled(move |btn| {
+                if btn.is_active() {
+                    stack.set_visible_child_name("reference");
+                } else {
+                    stack.set_visible_child_name("preview");
+                }
+            });
+        }
+
+        // Wire back button → deactivate toggle → returns to preview
+        {
+            let rtb = ref_toggle_btn.clone();
+            back_btn.connect_clicked(move |_| {
+                rtb.set_active(false);
+            });
+        }
+
+        *preview_vis_holder.borrow_mut() = Some(preview_outer.clone());
 
         // Pop-out button wiring
         let preview_for_popout = preview_pane.clone();
@@ -1447,6 +1820,33 @@ impl AppWindow {
             });
         }
 
+        // Wire file_tree into the compile-done holder
+        *file_tree_holder.borrow_mut() = Some(file_tree.clone());
+
+        // ── Image drag-and-drop handler ──────────────────────────────────────────
+        {
+            let root = project_root.clone();
+            let ep = editor_pane.clone();
+            let ft = file_tree.clone();
+            editor_pane.set_on_image_drop(move |src_path| {
+                let fname = src_path.file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("image.png")
+                    .to_string();
+                let dest = root.join(&fname);
+                if dest != src_path {
+                    if let Err(e) = std::fs::copy(&src_path, &dest) {
+                        tracing::warn!("Failed to copy image: {e}");
+                        return;
+                    }
+                }
+                ft.refresh();
+                ep.insert_at_cursor(&format!(
+                    "\n#figure(\n  image(\"{fname}\"),\n  caption: [],\n)\n"
+                ));
+            });
+        }
+
         // ── Advanced panels (Refs, History, Graph, Pkgs, Files) — hidden by default
         let advanced_notebook = Notebook::new();
         advanced_notebook.set_vexpand(true);
@@ -1556,13 +1956,34 @@ impl AppWindow {
         todo_panel.widget().set_vexpand(true);
         right_sidebar.append(todo_panel.widget());
         *right_sidebar_holder.borrow_mut() = Some(right_sidebar.clone());
+        right_sidebar.set_visible(todo_btn.is_active());
+
+        // ── Minimap panel (narrow strip between editor and preview) ──────────
+        let minimap = editor_pane.minimap();
+        let minimap_sep = Separator::new(Orientation::Vertical);
+        minimap_sep.set_visible(false);
+        let minimap_btn_c = minimap_btn.clone();
+        let mm_for_toggle = minimap.clone();
+        let mmsep_for_toggle = minimap_sep.clone();
+        minimap_btn_c.connect_toggled(move |btn| {
+            let show = btn.is_active();
+            mm_for_toggle.set_visible(show);
+            mmsep_for_toggle.set_visible(show);
+        });
+
+        let editor_col = GtkBox::new(Orientation::Horizontal, 0);
+        editor_col.set_hexpand(true);
+        editor_col.set_vexpand(true);
+        editor_col.append(editor_pane.widget());
+        editor_col.append(&minimap_sep);
+        editor_col.append(&minimap);
 
         let inner_paned = Paned::new(Orientation::Horizontal);
         inner_paned.set_position(600);
         inner_paned.set_hexpand(true);
         inner_paned.set_vexpand(true);
-        inner_paned.set_start_child(Some(editor_pane.widget()));
-        inner_paned.set_end_child(Some(&preview_container));
+        inner_paned.set_start_child(Some(&editor_col));
+        inner_paned.set_end_child(Some(&preview_outer));
 
         let right_col = GtkBox::new(Orientation::Vertical, 0);
         right_col.set_hexpand(true);
@@ -1609,6 +2030,7 @@ impl AppWindow {
             outline_panel,
             project_root,
             project_model,
+            sync_btn,
         }
     }
 
@@ -1619,6 +2041,7 @@ impl AppWindow {
         let editor = self.editor_pane.clone();
         let preview = self.preview_pane.clone();
         let window = self.window.clone();
+        let sync = self.sync_btn.clone();
         let controller = gtk4::EventControllerKey::new();
 
         controller.connect_key_pressed(move |_, key, _, modifier| {
@@ -1659,11 +2082,20 @@ impl AppWindow {
                 editor.prev_tab();
                 return glib::Propagation::Stop;
             }
+            if matches_binding(&kb.git_sync, ctrl, shift, alt, key) {
+                sync.emit_clicked();
+                return glib::Propagation::Stop;
+            }
             // Ctrl+Shift+Tab also maps to ISO_Left_Tab on X11
             {
                 use gtk4::gdk::Key;
                 if ctrl && (key == Key::ISO_Left_Tab) {
                     editor.prev_tab();
+                    return glib::Propagation::Stop;
+                }
+                // Ctrl+? / Ctrl+Shift+/ — keyboard shortcut help overlay
+                if ctrl && (key == Key::question || (shift && key == Key::slash)) {
+                    HelpWindow::new(&window).present();
                     return glib::Propagation::Stop;
                 }
             }
@@ -1828,4 +2260,137 @@ fn format_file_mtime(mtime: std::time::SystemTime) -> String {
     else if secs < 86400 { format!("{} h ago", secs / 3600) }
     else if secs < 86400 * 30 { format!("{} days ago", secs / 86400) }
     else { format!("{} months ago", secs / (86400 * 30)) }
+}
+
+/// Post-process a pandoc-converted Typst file:
+///   1. Insert `#pagebreak()` between the title block and the body
+///      (just before the first top-level `= Heading`).
+///   2. Insert `#pagebreak()` before the `#bibliography(...)` call.
+///   3. Fix the bibliography path to the configured `.bib` file if supplied;
+///      add a commented-out bibliography stub if none exists.
+fn post_process_latex_import(content: &str, bib_path: Option<&std::path::Path>) -> String {
+    let lines: Vec<&str> = content.lines().collect();
+    let mut out: Vec<String> = Vec::with_capacity(lines.len() + 8);
+
+    // Locate first top-level heading that isn't `== ...`
+    let first_heading = lines.iter().position(|l| {
+        let t = l.trim();
+        t.starts_with("= ") && !t.starts_with("==")
+    });
+
+    // Locate existing #bibliography call
+    let bib_idx = lines.iter().position(|l| l.trim_start().starts_with("#bibliography"));
+
+    // Determine bibliography style from existing call or default
+    let bib_style = bib_idx
+        .and_then(|i| {
+            let s = lines[i];
+            let start = s.find("style:")? + 6;
+            let after = s[start..].trim_start().trim_start_matches('"');
+            let end = after.find('"')?;
+            Some(after[..end].to_string())
+        })
+        .unwrap_or_else(|| "chicago-author-date".to_string());
+
+    // Build the bibliography line (real or commented)
+    let bib_call = match bib_path {
+        Some(bp) => format!("#bibliography(\"{}\", style: \"{}\")", bp.display(), bib_style),
+        None if bib_idx.is_some() => {
+            // Keep the path from the existing call but don't replace content
+            lines[bib_idx.unwrap()].to_string()
+        }
+        None => format!("// #bibliography(\"refs.bib\", style: \"{}\")", bib_style),
+    };
+
+    let mut pagebreak_before_body_done = false;
+
+    for (i, &line) in lines.iter().enumerate() {
+        // Before first heading: insert pagebreak (title page → body)
+        if Some(i) == first_heading && !pagebreak_before_body_done && i > 0 {
+            while out.last().map(|l: &String| l.trim().is_empty()).unwrap_or(false) {
+                out.pop();
+            }
+            out.push(String::new());
+            out.push("#pagebreak()".to_string());
+            out.push(String::new());
+            pagebreak_before_body_done = true;
+        }
+
+        // Before bibliography: insert pagebreak and replace line
+        if Some(i) == bib_idx {
+            while out.last().map(|l: &String| l.trim().is_empty()).unwrap_or(false) {
+                out.pop();
+            }
+            out.push(String::new());
+            out.push("#pagebreak()".to_string());
+            out.push(String::new());
+            out.push(bib_call.clone());
+            continue;
+        }
+
+        out.push(line.to_string());
+    }
+
+    // No bibliography in original → append stub
+    if bib_idx.is_none() {
+        out.push(String::new());
+        out.push("// ── Bibliography ────────────────────────────────────────────────────".to_string());
+        out.push(bib_call);
+    }
+
+    out.join("\n")
+}
+
+/// Wrap plain text extracted from a PDF into a minimal Typst document.
+fn post_process_pdf_import(text: &str, title: &str) -> String {
+    let escaped_title = title.replace('"', "\\\"");
+    let mut out = format!(
+        "#set text(size: 12pt, font: \"Times New Roman\", lang: \"en\")\n\
+         #set par(leading: 1em, first-line-indent: 0.5in, justify: true)\n\
+         #set page(margin: 1in, numbering: \"1\", number-align: top + right)\n\
+         \n\
+         // Imported from PDF — formatting is not preserved.\n\
+         \n\
+         = {escaped_title}\n\
+         \n"
+    );
+
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            out.push('\n');
+        } else {
+            out.push_str(trimmed);
+            out.push('\n');
+        }
+    }
+
+    out
+}
+
+/// Build a hamburger-menu row: label flush-left, optional shortcut dim-right.
+fn make_menu_item(label: &str, shortcut: Option<&str>) -> Button {
+    let btn = Button::new();
+    btn.add_css_class("flat");
+
+    let row = GtkBox::new(Orientation::Horizontal, 0);
+    row.set_margin_start(4);
+    row.set_margin_end(6);
+
+    let name_lbl = Label::new(Some(label));
+    name_lbl.set_halign(Align::Start);
+    name_lbl.set_hexpand(true);
+    row.append(&name_lbl);
+
+    if let Some(sc) = shortcut {
+        let sc_lbl = Label::new(Some(sc));
+        sc_lbl.set_halign(Align::End);
+        sc_lbl.add_css_class("dim-label");
+        sc_lbl.add_css_class("caption");
+        sc_lbl.set_margin_start(16);
+        row.append(&sc_lbl);
+    }
+
+    btn.set_child(Some(&row));
+    btn
 }

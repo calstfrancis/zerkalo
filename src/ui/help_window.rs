@@ -7,7 +7,7 @@ use libadwaita as adw;
 
 // ── Rich-text section DSL ─────────────────────────────────────────────────────
 
-enum Block<'a> {
+pub(crate) enum Block<'a> {
     H1(&'a str),
     H2(&'a str),
     Body(&'a str),
@@ -20,18 +20,69 @@ enum Block<'a> {
 fn overview_blocks() -> Vec<Block<'static>> {
     vec![
         Block::H1("Zerkalo — Typst Editor"),
-        Block::Body("Zerkalo is a contemplative Typst editor with live preview, multi-file support, LSP completions, and git sync."),
+        Block::Body("Zerkalo is a contemplative Typst editor with live preview, multi-file support, LSP completions, and git sync. No external Typst binary required — compilation is built in."),
         Block::Gap,
         Block::H2("Getting started"),
         Block::Body("Zerkalo opens your work folder (~/Documents/Zerkalo by default). The header dropdown shows your recent documents. Click the folder icon to browse all documents."),
         Block::Gap,
-        Block::Body("Create a new document from the hamburger menu or double-click a .typ file in your file manager. The left sidebar shows the document outline and a symbol insert panel."),
+        Block::Body("Create a new document from the hamburger menu (≡) or use New from Template… for a complete preamble. The left sidebar shows the document outline and a symbol insert panel."),
         Block::Gap,
         Block::H2("Layout"),
-        Block::Code("Left sidebar   Document outline and symbol insert (toggle with ⊞ button)\nEditor         Tabbed, syntax-highlighted Typst editor\nFind bar       Persistent search/replace at editor bottom\nPreview        Live rendered output — use +/− to zoom\nError panel    Compile errors and LSP diagnostics"),
+        Block::Code("Left sidebar   Document outline, symbols, files, refs, history\nEditor         Tabbed, syntax-highlighted Typst editor\nFind bar       Persistent search/replace at editor bottom\nPreview        Live rendered output — use +/− to zoom\nError panel    Compile errors and LSP diagnostics"),
         Block::Gap,
         Block::H2("Git sync"),
-        Block::Body("Click the sync button (⟳) to commit all changes and push. On first sync, Zerkalo will ask for a remote URL."),
+        Block::Body("Click the sync button (⟳) or press Ctrl+Shift+G to commit all changes and push. On first sync, Zerkalo will ask for a remote URL."),
+        Block::Gap,
+        Block::H2("Preview & Cheatsheet"),
+        Block::Body("The toggle button (?) in the preview toolbar switches the right panel between the live preview and a two-tab reference view (Cheatsheet + Help). Compilation continues in the background regardless."),
+    ]
+}
+
+fn cheatsheet_blocks() -> Vec<Block<'static>> {
+    vec![
+        Block::H1("Typst Cheatsheet — Academic Writing"),
+        Block::Gap,
+        Block::H2("Document Structure"),
+        Block::Code("= Heading 1\n== Heading 2\n=== Heading 3\n==== Heading 4\n\nText paragraph. Blank lines start new paragraphs."),
+        Block::Gap,
+        Block::H2("Text Formatting"),
+        Block::Code("*bold*            _italic_          `inline code`\n\"smart quotes\"    #underline[text]  #strike[text]\n#smallcaps[text]  #super[n]         #sub[n]\n#emph[emphasis]   #strong[strong]"),
+        Block::Gap,
+        Block::H2("Lists"),
+        Block::Code("- Bullet item        Unordered list\n+ Numbered item      Ordered list\n/ Term: Definition   Description list"),
+        Block::Gap,
+        Block::H2("Citations & Bibliography"),
+        Block::Code("@authorYear                   In-text citation\n@authorYear[p.~5]             With page locator\n@[see @a, p.~1; @b, ch.~2]   Multiple sources\n\n#bibliography(\"refs.bib\", style: \"chicago-author-date\")\nStyles: \"apa\", \"mla\", \"chicago-author-date\",\n        \"chicago-notes\", \"ieee\", \"harvard-cite-them-right\",\n        \"gost-r-705-2008\""),
+        Block::Gap,
+        Block::H2("Figures & Cross-references"),
+        Block::Code("#figure(\n  image(\"fig.png\", width: 80%),\n  caption: [Caption text.],\n) <fig-label>\n\nAs shown in @fig-label, the results indicate…"),
+        Block::Gap,
+        Block::H2("Tables"),
+        Block::Code("#figure(\n  table(\n    columns: (auto, 1fr, 1fr),\n    table.header([Col A], [Col B], [Col C]),\n    [Row 1A], [Row 1B], [Row 1C],\n    [Row 2A], [Row 2B], [Row 2C],\n  ),\n  caption: [Table caption.],\n) <tbl-label>"),
+        Block::Gap,
+        Block::H2("Math"),
+        Block::Code("Inline:  $E = m c^2$   $x_(i j)^2$   $arrow(v)$\nDisplay: $ integral_0^1 f(x) dif x $\nMatrix:  $ mat(a, b; c, d) $\nVector:  $bold(v) = vec(1, 2, 3)$"),
+        Block::Gap,
+        Block::H2("Footnotes"),
+        Block::Code("Word.#footnote[Footnote text here.]\n\n// Remove indent on footnote entries:\n#set footnote.entry(indent: 0em)"),
+        Block::Gap,
+        Block::H2("Special Elements"),
+        Block::Code("#outline()             Table of contents\n#outline(target: figure.where(kind: table))\n                       List of tables\n#pagebreak()           Page break\n#colbreak()            Column break\n#h(1em)                Horizontal space\n#v(1em)                Vertical space\n#box(width: 100%, line())  Horizontal rule"),
+        Block::Gap,
+        Block::H2("Links"),
+        Block::Code("#link(\"https://example.com\")[Link text]\n#link(\"https://example.com\")  (URL as anchor text)"),
+        Block::Gap,
+        Block::H2("Blocks & Layout"),
+        Block::Code("#block(fill: luma(240), inset: 8pt, radius: 4pt)[\n  Shaded box — useful for quotations or notes.\n]\n#columns(2)[Two-column content]\n#align(center)[Centred text]\n#align(right + bottom)[Corner text]"),
+        Block::Gap,
+        Block::H2("Includes & Imports"),
+        Block::Code("#include \"chapter1.typ\"\n#import \"macros.typ\": my-macro\n#import \"@preview/cetz:0.2.2\": canvas"),
+        Block::Gap,
+        Block::H2("Common Set Rules (Preamble)"),
+        Block::Code("#set text(font: \"Times New Roman\", size: 12pt, lang: \"en\")\n#set par(justify: true, first-line-indent: 0.5in,\n         leading: 1em)\n#set page(paper: \"us-letter\", margin: 1in,\n          numbering: \"1\", number-align: top + right)\n#set heading(numbering: \"1.1\")\n\n// Double-spacing:\n#set par(leading: 24pt)"),
+        Block::Gap,
+        Block::H2("Git Sync"),
+        Block::Code("Ctrl+Shift+G   Commit & push all changes"),
     ]
 }
 
@@ -42,14 +93,14 @@ fn shortcuts_blocks() -> Vec<Block<'static>> {
         Block::H2("Editing"),
         Block::Code("Ctrl+S              Save current file\nCtrl+F              Find & Replace\nCtrl+Tab            Next tab\nCtrl+Shift+Tab      Previous tab"),
         Block::Gap,
-        Block::H2("Compiling"),
+        Block::H2("Compiling & Preview"),
         Block::Code("Ctrl+Shift+P        Compile and refresh preview\nAuto-compile        Fires automatically after each change"),
         Block::Gap,
         Block::H2("Autocomplete"),
         Block::Code("@                   Citation popup (requires a .bib file)\n#                   LSP function/keyword popup (requires tinymist)\nTab / Return        Accept selected item\nEsc                 Dismiss popup\n↑ / ↓               Navigate completion list"),
         Block::Gap,
-        Block::H2("Window"),
-        Block::Code("Ctrl+R              Refresh file tree\nCtrl+Q              Quit\nSidebar button      Toggle left sidebar\nInsert button       Toggle insert snippets panel\nPop-out button      Open preview in a separate window"),
+        Block::H2("Git & Window"),
+        Block::Code("Ctrl+Shift+G        Commit & push (git sync)\nCtrl+R              Refresh file tree\nCtrl+Q              Quit\nCtrl+?              Open this help window\nSidebar button      Toggle left sidebar\nInsert button       Toggle insert snippets panel\nPop-out button      Open preview in a separate window"),
     ]
 }
 
@@ -58,12 +109,11 @@ fn faq_blocks() -> Vec<Block<'static>> {
         Block::H1("Frequently Asked Questions"),
         Block::Gap,
         Block::H2("Why is the preview blank?"),
-        Block::Body("Zerkalo needs typst and pdftoppm installed and in your PATH."),
-        Block::Code("zypper install typst poppler-tools    # openSUSE\napt  install  typst poppler-utils     # Debian/Ubuntu\nbrew install  typst poppler           # macOS"),
+        Block::Body("Zerkalo has a built-in Typst compiler — no external typst binary is needed. If the preview is blank, check the error panel at the bottom for compile errors. Make sure your document has at least one printable character."),
         Block::Gap,
         Block::H2("LSP autocomplete is not working"),
         Block::Body("Install tinymist, the Typst language server:"),
-        Block::Code("cargo add tinymist"),
+        Block::Code("cargo install tinymist"),
         Block::Gap,
         Block::H2("How do I change the work folder?"),
         Block::Body("Open Settings from the hamburger menu (≡) and change the Work folder path. The work folder is where Zerkalo looks for your .typ documents (default: ~/Documents/Zerkalo)."),
@@ -72,22 +122,25 @@ fn faq_blocks() -> Vec<Block<'static>> {
         Block::Body("Yes — set bib_path in Settings or in .zerkalo/config.toml inside the project to point at your .bib file."),
         Block::Gap,
         Block::H2("How does auto-compile work?"),
-        Block::Body("After each keystroke, Zerkalo starts a debounce timer. When it fires without further changes, it saves all modified files and runs typst compile. The delay is configurable in Settings (default 500 ms)."),
+        Block::Body("After each keystroke, Zerkalo starts a debounce timer. When it fires without further changes, it saves all modified files and compiles in-process using the embedded Typst engine. The delay is configurable in Settings (default 300 ms)."),
         Block::Gap,
         Block::H2("Where are log files?"),
         Block::Code("~/.local/share/zerkalo/zerkalo.log"),
+        Block::Gap,
+        Block::H2("How do I set up git sync?"),
+        Block::Body("Git sync works on the work folder as a git repository. Press Ctrl+Shift+G or click the sync button — on first use, Zerkalo will ask for a remote URL (e.g. a GitHub or Gitea repository). After that, each sync commits all changes and pushes."),
     ]
 }
 
 fn about_blocks() -> Vec<Block<'static>> {
     vec![
         Block::H1("About Zerkalo"),
-        Block::Body("Version 0.1.0"),
+        Block::Body("Version 0.4.0"),
         Block::Gap,
         Block::Body("A contemplative Typst editor built with Rust, GTK4, and libadwaita. The name means \"mirror\" in Russian."),
         Block::Gap,
         Block::H2("Components"),
-        Block::Code("Rust             Systems language — fast, safe, no GC\nGTK4             Cross-platform widget toolkit\nlibadwaita       GNOME Human Interface Guidelines\nsourceview5      Syntax-highlighted source editor\ntinymist         Typst Language Server (optional)\ngit2             Git integration via libgit2"),
+        Block::Code("Rust             Systems language — fast, safe, no GC\nGTK4             Cross-platform widget toolkit\nlibadwaita       GNOME Human Interface Guidelines\nsourceview5      Syntax-highlighted source editor\ntypst            Embedded Typst compiler (no binary needed)\ntinymist         Typst Language Server (optional)\ngit2             Git integration via libgit2"),
         Block::Gap,
         Block::H2("Source"),
         Block::Code("https://github.com/calstfrancis/zerkalo"),
@@ -96,8 +149,22 @@ fn about_blocks() -> Vec<Block<'static>> {
         Block::Body("MIT"),
         Block::Gap,
         Block::H2("Typst"),
-        Block::Body("Typst is a new markup-based typesetting system. Learn more at https://typst.app"),
+        Block::Body("Typst is a modern markup-based typesetting system. Learn more at https://typst.app"),
     ]
+}
+
+// ── Public scroll builders (used by the embedded reference panel) ─────────────
+
+pub fn cheatsheet_scroll() -> ScrolledWindow {
+    make_rich_tab(cheatsheet_blocks())
+}
+
+pub fn overview_scroll() -> ScrolledWindow {
+    make_rich_tab(overview_blocks())
+}
+
+pub fn faq_scroll() -> ScrolledWindow {
+    make_rich_tab(faq_blocks())
 }
 
 // ── Public widget ─────────────────────────────────────────────────────────────
@@ -110,8 +177,8 @@ impl HelpWindow {
     pub fn new(parent: &impl IsA<gtk4::Window>) -> Self {
         let window = adw::Window::new();
         window.set_title(Some("Help — Zerkalo"));
-        window.set_default_width(700);
-        window.set_default_height(580);
+        window.set_default_width(720);
+        window.set_default_height(600);
         window.set_transient_for(Some(parent));
         window.set_modal(false);
 
@@ -120,10 +187,11 @@ impl HelpWindow {
         notebook.set_scrollable(true);
 
         let tabs: &[(&str, fn() -> Vec<Block<'static>>)] = &[
-            ("Overview",  overview_blocks),
-            ("Shortcuts", shortcuts_blocks),
-            ("FAQ",       faq_blocks),
-            ("About",     about_blocks),
+            ("Overview",   overview_blocks),
+            ("Cheatsheet", cheatsheet_blocks),
+            ("Shortcuts",  shortcuts_blocks),
+            ("FAQ",        faq_blocks),
+            ("About",      about_blocks),
         ];
         for (title, blocks_fn) in tabs {
             let lbl = gtk4::Label::new(Some(title));
@@ -146,11 +214,10 @@ impl HelpWindow {
 
 // ── Rich tab renderer ─────────────────────────────────────────────────────────
 
-fn make_rich_tab(blocks: Vec<Block<'_>>) -> ScrolledWindow {
+pub(crate) fn make_rich_tab(blocks: Vec<Block<'_>>) -> ScrolledWindow {
     let buf = TextBuffer::new(None);
     let mut iter = buf.end_iter();
 
-    // Define tags
     let tag_h1 = buf.create_tag(
         Some("h1"),
         &[("weight", &700i32), ("scale", &1.3f64), ("pixels-below-lines", &6i32)],
@@ -173,7 +240,6 @@ fn make_rich_tab(blocks: Vec<Block<'_>>) -> ScrolledWindow {
         ],
     );
 
-    // Suppress unused warnings for tags that are only used via create_tag
     let _ = (&tag_h1, &tag_h2, &tag_body, &tag_code);
 
     for block in blocks {

@@ -1,6 +1,6 @@
 [package]
 name = "zerkalo"
-version = "0.2.0"
+version = "0.4.0"
 edition = "2021"
 
 [dependencies]
@@ -21,6 +21,19 @@ regex = "1.10"
 chrono = "0.4"
 shellexpand = "3.1"
 
+# Embedded Typst compiler
+typst = "0.14"
+typst-render = "0.14"
+typst-pdf = "0.14"
+typst-kit = "0.14"
+tiny-skia = { version = "0.11", features = ["png"] }
+
+[profile.dev]
+debug = 1
+opt-level = 1
+
 [profile.release]
 opt-level = 3
-lto = true
+lto = "thin"
+codegen-units = 4
+strip = true

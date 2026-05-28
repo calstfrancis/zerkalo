@@ -6,13 +6,13 @@ use std::time::Duration;
 
 use gtk4::prelude::*;
 use gtk4::{
-    Box as GtkBox, Button, CssProvider, EventControllerKey, GestureClick, Label, Notebook,
-    Orientation, Popover, PropagationPhase, ScrolledWindow, Separator, TextSearchFlags, TextTag,
-    TextWindowType,
+    Box as GtkBox, Button, CssProvider, DropTarget, EventControllerKey, GestureClick, Label,
+    Notebook, Orientation, Popover, PropagationPhase, ScrolledWindow, Separator, TextSearchFlags,
+    TextTag, TextWindowType,
 };
 use libadwaita as adw;
 use sourceview5::prelude::*;
-use sourceview5::{Buffer, LanguageManager, StyleSchemeManager, View};
+use sourceview5::{Buffer, LanguageManager, Map, StyleSchemeManager, View};
 
 use crate::bibliography::BibEntry;
 use crate::lsp::CompletionItem;
@@ -132,8 +132,11 @@ struct EditorState {
 pub struct EditorPane {
     outer: GtkBox,
     notebook: Notebook,
+    map: Map,
     state: Rc<RefCell<EditorState>>,
     on_change: Rc<RefCell<Option<Box<dyn Fn()>>>>,
+    on_modified_changed: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
+    on_image_drop: Rc<RefCell<Option<Box<dyn Fn(PathBuf)>>>>,
     on_page_switch: Rc<RefCell<Option<Box<dyn Fn(String, PathBuf)>>>>,
     on_file_opened: Rc<RefCell<Option<Box<dyn Fn(PathBuf, String)>>>>,
     on_completion_needed: Rc<RefCell<Option<Box<dyn Fn(PathBuf, u32, u32)>>>>,
@@ -230,18 +233,31 @@ impl EditorPane {
         let breadcrumb_bar = GtkBox::new(Orientation::Horizontal, 0);
         breadcrumb_bar.append(&breadcrumb_label);
 
+        let map = Map::new();
+        map.set_width_request(100);
+        map.set_hexpand(false);
+        map.set_vexpand(true);
+        map.set_visible(false);
+
+        let editor_row = GtkBox::new(Orientation::Horizontal, 0);
+        editor_row.set_hexpand(true);
+        editor_row.set_vexpand(true);
+        editor_row.append(&notebook);
+
         let outer = GtkBox::new(Orientation::Vertical, 0);
         outer.set_hexpand(true);
         outer.set_vexpand(true);
         outer.append(&breadcrumb_bar);
         outer.append(&Separator::new(Orientation::Horizontal));
-        outer.append(&notebook);
+        outer.append(&editor_row);
         outer.append(&Separator::new(Orientation::Horizontal));
         outer.append(find_bar.widget());
         outer.append(&Separator::new(Orientation::Horizontal));
         outer.append(&status_bar);
 
         let on_change: Rc<RefCell<Option<Box<dyn Fn()>>>> = Rc::new(RefCell::new(None));
+        let on_modified_changed: Rc<RefCell<Option<Box<dyn Fn(bool)>>>> = Rc::new(RefCell::new(None));
+        let on_image_drop: Rc<RefCell<Option<Box<dyn Fn(PathBuf)>>>> = Rc::new(RefCell::new(None));
         let on_page_switch: Rc<RefCell<Option<Box<dyn Fn(String, PathBuf)>>>> =
             Rc::new(RefCell::new(None));
         let on_file_opened: Rc<RefCell<Option<Box<dyn Fn(PathBuf, String)>>>> =
@@ -261,6 +277,7 @@ impl EditorPane {
             let state2 = state.clone();
             let wc = word_count_label.clone();
             let ps = on_page_switch.clone();
+            let map_c = map.clone();
             notebook.connect_switch_page(move |nb, _, page_num| {
                 let bstate = state2.borrow();
                 for (path, tab) in &bstate.tabs {
@@ -268,6 +285,7 @@ impl EditorPane {
                         let (s, e) = tab.buffer.bounds();
                         let content = tab.buffer.text(&s, &e, false).to_string();
                         set_wc_text(&wc, &content);
+                        map_c.set_view(&tab.view);
                         if let Some(f) = ps.borrow().as_ref() {
                             f(content, path.clone());
                         }
@@ -280,8 +298,11 @@ impl EditorPane {
         let ep = Self {
             outer,
             notebook,
+            map,
             state,
             on_change,
+            on_modified_changed,
+            on_image_drop,
             on_page_switch,
             on_file_opened,
             on_completion_needed,
@@ -390,6 +411,10 @@ impl EditorPane {
         self.find_bar.show();
     }
 
+    pub fn minimap(&self) -> Map {
+        self.map.clone()
+    }
+
     pub fn do_find(&self, text: &str, forward: bool, whole_word: bool) {
         if text.is_empty() {
             self.find_bar.set_result("");
@@ -399,47 +424,38 @@ impl EditorPane {
         let flags = TextSearchFlags::TEXT_ONLY | TextSearchFlags::CASE_INSENSITIVE;
         let cursor_pos = buffer.cursor_position();
 
-        let mut search_start = buffer.iter_at_offset(cursor_pos);
-        let mut wrapped = false;
-
-        loop {
-            let result = if forward {
-                search_start.forward_search(text, flags, None)
-            } else {
-                search_start.backward_search(text, flags, None)
-            };
-
-            match result {
-                None => {
-                    if wrapped {
-                        self.find_bar.set_result("No results");
-                        return;
-                    }
-                    wrapped = true;
-                    search_start = if forward { buffer.start_iter() } else { buffer.end_iter() };
-                }
-                Some((start, end)) => {
-                    if whole_word && !is_whole_word(&start, &end) {
-                        search_start = if forward { end.clone() } else { start.clone() };
-                        // Prevent infinite wrap-around
-                        let cur = if forward { end.offset() } else { start.offset() };
-                        if wrapped && (if forward { cur >= cursor_pos } else { cur <= cursor_pos }) {
-                            self.find_bar.set_result("No results");
-                            return;
-                        }
-                        continue;
-                    }
-                    if forward {
-                        buffer.select_range(&end, &start);
-                    } else {
-                        buffer.select_range(&start, &end);
-                    }
-                    view.scroll_to_iter(&mut start.clone(), 0.1, false, 0.0, 0.5);
-                    self.find_bar.set_result("");
-                    return;
-                }
+        // Collect all matches for count display and navigation
+        let mut matches: Vec<(i32, i32)> = Vec::new();
+        let mut it = buffer.start_iter();
+        while let Some((s, e)) = it.forward_search(text, flags, None) {
+            let advance = e.clone();
+            if !whole_word || is_whole_word(&s, &e) {
+                matches.push((s.offset(), e.offset()));
             }
+            it = advance;
         }
+
+        if matches.is_empty() {
+            self.find_bar.set_result("No results");
+            return;
+        }
+
+        // Pick the next (or previous) match relative to cursor, with wrap-around
+        let idx = if forward {
+            matches.iter().position(|(s, _)| *s > cursor_pos)
+                .unwrap_or(0)
+        } else {
+            matches.iter().rposition(|(_, e)| *e < cursor_pos)
+                .unwrap_or(matches.len() - 1)
+        };
+
+        let (start_off, end_off) = matches[idx];
+        let start = buffer.iter_at_offset(start_off);
+        let end = buffer.iter_at_offset(end_off);
+        // Place insertion cursor at start so next forward search skips past current match
+        buffer.select_range(&end, &start);
+        view.scroll_to_iter(&mut start.clone(), 0.1, false, 0.0, 0.5);
+        self.find_bar.set_result(&format!("{} of {}", idx + 1, matches.len()));
     }
 
     pub fn do_replace_one(&self, find: &str, replace: &str, whole_word: bool) {
@@ -541,9 +557,9 @@ impl EditorPane {
         let state = self.state.borrow();
         for (path, tab) in &state.tabs {
             let (buf_start, buf_end) = tab.buffer.bounds();
+            ensure_diag_tags(&tab.buffer);
             tab.buffer.remove_tag_by_name("zerkalo-diag-error", &buf_start, &buf_end);
             tab.buffer.remove_tag_by_name("zerkalo-diag-warning", &buf_start, &buf_end);
-            ensure_diag_tags(&tab.buffer);
             for (err_file, err_line, is_error) in diagnostics {
                 if err_file != path {
                     continue;
@@ -563,6 +579,7 @@ impl EditorPane {
         let state = self.state.borrow();
         for tab in state.tabs.values() {
             let (start, end) = tab.buffer.bounds();
+            ensure_diag_tags(&tab.buffer);
             tab.buffer.remove_tag_by_name("zerkalo-diag-error", &start, &end);
             tab.buffer.remove_tag_by_name("zerkalo-diag-warning", &start, &end);
         }
@@ -572,6 +589,14 @@ impl EditorPane {
 
     pub fn set_on_change(&self, f: impl Fn() + 'static) {
         *self.on_change.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn set_on_modified_changed(&self, f: impl Fn(bool) + 'static) {
+        *self.on_modified_changed.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn set_on_image_drop(&self, f: impl Fn(PathBuf) + 'static) {
+        *self.on_image_drop.borrow_mut() = Some(Box::new(f));
     }
 
     pub fn set_on_page_switch(&self, f: impl Fn(String, PathBuf) + 'static) {
@@ -700,6 +725,7 @@ impl EditorPane {
         }
 
         buffer.set_text(content);
+        apply_comment_highlights(&buffer);
 
         let view = View::with_buffer(&buffer);
         view.set_show_line_numbers(true);
@@ -714,6 +740,30 @@ impl EditorPane {
         let wrap_mode = if *self.word_wrap.borrow() { gtk4::WrapMode::Word } else { gtk4::WrapMode::None };
         view.set_wrap_mode(wrap_mode);
         apply_space_drawer(&view, *self.show_whitespace.borrow());
+
+        // ── Image drag-and-drop ───────────────────────────────────────────────
+        {
+            let drop = DropTarget::new(
+                gtk4::gdk::FileList::static_type(),
+                gtk4::gdk::DragAction::COPY,
+            );
+            let on_drop_cb = self.on_image_drop.clone();
+            drop.connect_drop(move |_, value, _, _| {
+                if let Ok(file_list) = value.get::<gtk4::gdk::FileList>() {
+                    for file in file_list.files() {
+                        if let Some(p) = file.path() {
+                            let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+                            if matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "svg" | "gif" | "webp") {
+                                if let Some(f) = on_drop_cb.borrow().as_ref() { f(p); }
+                                return true;
+                            }
+                        }
+                    }
+                }
+                false
+            });
+            view.add_controller(drop);
+        }
 
         let scroll = ScrolledWindow::new();
         scroll.set_child(Some(&view));
@@ -751,23 +801,29 @@ impl EditorPane {
         let path_for_change = path.clone();
         let dot_for_change = dot_label.clone();
         let on_change_cb = self.on_change.clone();
+        let on_modified_cb = self.on_modified_changed.clone();
         let wc_for_change = self.word_count_label.clone();
         buffer.connect_changed(move |buf| {
-            {
+            let newly_modified = {
                 let mut state = state_for_change.borrow_mut();
                 if let Some(tab) = state.tabs.get_mut(&path_for_change) {
                     if !tab.modified {
                         tab.modified = true;
                         dot_for_change.set_visible(true);
-                    }
-                }
+                        true
+                    } else { false }
+                } else { false }
+            };
+            if newly_modified {
+                if let Some(f) = on_modified_cb.borrow().as_ref() { f(true); }
             }
             let (s, e) = buf.bounds();
             let text = buf.text(&s, &e, false);
             set_wc_text(&wc_for_change, &text);
-            if let Some(f) = on_change_cb.borrow().as_ref() {
-                f();
-            }
+            if let Some(f) = on_change_cb.borrow().as_ref() { f(); }
+            // Defer comment highlight to next idle frame
+            let buf_c = buf.clone();
+            glib::idle_add_local_once(move || apply_comment_highlights(&buf_c));
         });
 
         // ── Cursor position tracking + heading detection ──────────────────────
@@ -1373,6 +1429,7 @@ impl EditorPane {
 
         let path_for_callback = path.clone();
         let content_for_callback = content.to_string();
+        let view_for_map = view.clone();
 
         self.state.borrow_mut().tabs.insert(
             path,
@@ -1386,6 +1443,7 @@ impl EditorPane {
             },
         );
 
+        self.map.set_view(&view_for_map);
         self.notebook.set_current_page(Some(page_index));
         set_wc_text(&self.word_count_label, content);
 
@@ -1456,6 +1514,8 @@ impl EditorPane {
             tab.modified = false;
             tab.dot_label.set_visible(false);
         }
+        drop(state);
+        if let Some(f) = self.on_modified_changed.borrow().as_ref() { f(false); }
     }
 
     pub fn get_open_paths_ordered(&self) -> Vec<PathBuf> {
@@ -1574,6 +1634,68 @@ impl EditorPane {
 }
 
 // ── Free helpers ──────────────────────────────────────────────────────────────
+
+/// Apply a background fill to all comment lines (// runs and /* */ blocks).
+/// Adjacent // lines are merged into one contiguous tag span for a "box" look.
+fn apply_comment_highlights(buffer: &Buffer) {
+    let tag_name = "zk-comment-bg";
+    let table = buffer.tag_table();
+    let tag = match table.lookup(tag_name) {
+        Some(t) => t,
+        None => {
+            let t = TextTag::new(Some(tag_name));
+            table.add(&t);
+            t
+        }
+    };
+    // Update colour every call so theme switches are reflected on next keystroke
+    let is_dark = adw::StyleManager::default().is_dark();
+    let color = if is_dark {
+        gtk4::gdk::RGBA::new(1.0, 1.0, 1.0, 0.07)
+    } else {
+        gtk4::gdk::RGBA::new(0.42, 0.47, 0.54, 0.11)
+    };
+    tag.set_paragraph_background_rgba(Some(&color));
+
+    // Remove old highlights
+    let (buf_start, buf_end) = buffer.bounds();
+    buffer.remove_tag(&tag, &buf_start, &buf_end);
+
+    let text = buffer.text(&buf_start, &buf_end, false).to_string();
+    let lines: Vec<&str> = text.lines().collect();
+    let n = lines.len();
+    let mut i = 0;
+    while i < n {
+        let trimmed = lines[i].trim();
+        if trimmed.starts_with("//") {
+            // Merge consecutive // lines into one span
+            let run_start = i;
+            while i < n && lines[i].trim().starts_with("//") { i += 1; }
+            if let (Some(ts), Some(mut te)) = (
+                buffer.iter_at_line(run_start as i32),
+                buffer.iter_at_line((i - 1) as i32),
+            ) {
+                te.forward_to_line_end();
+                buffer.apply_tag(&tag, &ts, &te);
+            }
+        } else if trimmed.contains("/*") {
+            // Block comment: scan for closing */
+            let block_start = i;
+            while i < n && !lines[i].contains("*/") { i += 1; }
+            if i < n { i += 1; } // include closing line
+            let last = (i - 1).min(n.saturating_sub(1));
+            if let (Some(ts), Some(mut te)) = (
+                buffer.iter_at_line(block_start as i32),
+                buffer.iter_at_line(last as i32),
+            ) {
+                te.forward_to_line_end();
+                buffer.apply_tag(&tag, &ts, &te);
+            }
+        } else {
+            i += 1;
+        }
+    }
+}
 
 fn ensure_diag_tags(buffer: &Buffer) {
     let table = buffer.tag_table();

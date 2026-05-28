@@ -6,14 +6,49 @@ APP_ID="io.github.calstfrancis.Zerkalo"
 INSTALL_BIN="${HOME}/.local/bin"
 ICONS_BASE="${HOME}/.local/share/icons/hicolor"
 INSTALL_DESKTOP="${HOME}/.local/share/applications"
+GITHUB_REPO="calstfrancis/zerkalo"
 
-echo "Building Zerkalo (release)..."
-cargo build --release
+# ── Try to download a pre-built AppImage from the latest GitHub release ──────
+USE_APPIMAGE=0
+if command -v curl &>/dev/null || command -v wget &>/dev/null; then
+    echo "Checking for pre-built release on GitHub..."
+    LATEST_URL="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
+    if command -v curl &>/dev/null; then
+        RELEASE_JSON=$(curl -fsSL "${LATEST_URL}" 2>/dev/null || true)
+    else
+        RELEASE_JSON=$(wget -qO- "${LATEST_URL}" 2>/dev/null || true)
+    fi
+    APPIMAGE_URL=$(echo "${RELEASE_JSON}" | grep -o '"browser_download_url": *"[^"]*\.AppImage"' \
+        | head -1 | grep -o 'https://[^"]*' || true)
+    if [ -n "${APPIMAGE_URL}" ]; then
+        echo "Downloading pre-built AppImage (no compile needed)..."
+        APPIMAGE_FILE="${INSTALL_BIN}/zerkalo.AppImage"
+        mkdir -p "${INSTALL_BIN}"
+        if command -v curl &>/dev/null; then
+            curl -fsSL -o "${APPIMAGE_FILE}" "${APPIMAGE_URL}"
+        else
+            wget -qO "${APPIMAGE_FILE}" "${APPIMAGE_URL}"
+        fi
+        chmod +x "${APPIMAGE_FILE}"
+        # Thin wrapper so the binary can be called as just "zerkalo"
+        cat > "${INSTALL_BIN}/${BINARY_NAME}" << WRAPPER
+#!/bin/sh
+exec "${APPIMAGE_FILE}" "\$@"
+WRAPPER
+        chmod +x "${INSTALL_BIN}/${BINARY_NAME}"
+        USE_APPIMAGE=1
+        echo "  Downloaded: ${APPIMAGE_FILE}"
+    fi
+fi
 
-echo "Installing binary..."
-mkdir -p "${INSTALL_BIN}"
-cp "target/release/${BINARY_NAME}" "${INSTALL_BIN}/${BINARY_NAME}"
-chmod +x "${INSTALL_BIN}/${BINARY_NAME}"
+if [ "${USE_APPIMAGE}" -eq 0 ]; then
+    echo "No pre-built release found — building from source (this takes a few minutes)..."
+    cargo build --release
+    mkdir -p "${INSTALL_BIN}"
+    cp "target/release/${BINARY_NAME}" "${INSTALL_BIN}/${BINARY_NAME}"
+    chmod +x "${INSTALL_BIN}/${BINARY_NAME}"
+    echo "  Binary built and installed."
+fi
 
 echo "Installing icons..."
 # Scalable (SVG) — always installed
@@ -48,6 +83,7 @@ mkdir -p "${INSTALL_DESKTOP}"
 # binary even when ~/.local/bin is not in the GUI session's PATH.
 sed "s|Exec=zerkalo %U|Exec=${INSTALL_BIN}/${BINARY_NAME} %U|" \
     "packaging/${APP_ID}.desktop" > "${INSTALL_DESKTOP}/${APP_ID}.desktop"
+
 
 echo "Updating desktop database..."
 update-desktop-database "${INSTALL_DESKTOP}" 2>/dev/null || true
