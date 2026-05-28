@@ -1,0 +1,193 @@
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
+
+use chrono::Datelike;
+use typst::diag::{FileError, FileResult};
+use typst::foundations::{Bytes, Datetime};
+use typst::layout::PagedDocument;
+use typst::syntax::{FileId, Source, VirtualPath};
+use typst::text::{Font, FontBook};
+use typst::utils::LazyHash;
+use typst::{Library, LibraryExt};
+use typst_kit::fonts::{FontSearcher, FontSlot, Fonts};
+
+// ── Static globals: initialized once, reused across every compile ─────────────
+
+static FONTS: OnceLock<(LazyHash<FontBook>, Vec<FontSlot>)> = OnceLock::new();
+static LIBRARY: OnceLock<LazyHash<Library>> = OnceLock::new();
+
+fn global_fonts() -> &'static (LazyHash<FontBook>, Vec<FontSlot>) {
+    FONTS.get_or_init(|| {
+        let Fonts { book, fonts } = FontSearcher::new().search();
+        (LazyHash::new(book), fonts)
+    })
+}
+
+fn global_library() -> &'static LazyHash<Library> {
+    LIBRARY.get_or_init(|| LazyHash::new(Library::default()))
+}
+
+// ── World implementation ──────────────────────────────────────────────────────
+
+struct ZerkaloWorld {
+    root: PathBuf,
+    main_id: FileId,
+    source_cache: Mutex<HashMap<FileId, FileResult<Source>>>,
+    file_cache: Mutex<HashMap<FileId, FileResult<Bytes>>>,
+}
+
+impl ZerkaloWorld {
+    fn new(root_file: &Path) -> Result<Self, String> {
+        let root = root_file
+            .parent()
+            .ok_or_else(|| format!("no parent directory: {}", root_file.display()))?
+            .to_path_buf();
+        let rel = root_file.strip_prefix(&root).unwrap_or(root_file);
+        let main_id = FileId::new(None, VirtualPath::new(rel));
+        Ok(Self {
+            root,
+            main_id,
+            source_cache: Mutex::new(HashMap::new()),
+            file_cache: Mutex::new(HashMap::new()),
+        })
+    }
+
+    fn resolve(&self, id: FileId) -> FileResult<PathBuf> {
+        let vpath = id.vpath();
+        let base = if let Some(spec) = id.package() {
+            // Use the locally cached copy from ~/.cache/typst/packages/.
+            let cache_root = std::env::var("XDG_CACHE_HOME")
+                .map(PathBuf::from)
+                .unwrap_or_else(|_| {
+                    PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".cache")
+                });
+            cache_root
+                .join("typst/packages")
+                .join(spec.namespace.as_str())
+                .join(spec.name.as_str())
+                .join(spec.version.to_string())
+        } else {
+            self.root.clone()
+        };
+
+        vpath
+            .resolve(&base)
+            .ok_or_else(|| FileError::NotFound(vpath.as_rootless_path().to_path_buf()))
+    }
+}
+
+impl typst::World for ZerkaloWorld {
+    fn library(&self) -> &LazyHash<Library> {
+        global_library()
+    }
+
+    fn book(&self) -> &LazyHash<FontBook> {
+        &global_fonts().0
+    }
+
+    fn main(&self) -> FileId {
+        self.main_id
+    }
+
+    fn source(&self, id: FileId) -> FileResult<Source> {
+        {
+            let cache = self.source_cache.lock().unwrap();
+            if let Some(result) = cache.get(&id) {
+                return result.clone();
+            }
+        }
+        let result = self.resolve(id).and_then(|path| {
+            std::fs::read_to_string(&path)
+                .map(|text| Source::new(id, text))
+                .map_err(|_| FileError::NotFound(path))
+        });
+        self.source_cache.lock().unwrap().insert(id, result.clone());
+        result
+    }
+
+    fn file(&self, id: FileId) -> FileResult<Bytes> {
+        {
+            let cache = self.file_cache.lock().unwrap();
+            if let Some(result) = cache.get(&id) {
+                return result.clone();
+            }
+        }
+        let result = self.resolve(id).and_then(|path| {
+            std::fs::read(&path)
+                .map(|b| Bytes::new(b))
+                .map_err(|_| FileError::NotFound(path))
+        });
+        self.file_cache.lock().unwrap().insert(id, result.clone());
+        result
+    }
+
+    fn font(&self, index: usize) -> Option<Font> {
+        global_fonts().1.get(index)?.get()
+    }
+
+    fn today(&self, offset: Option<i64>) -> Option<Datetime> {
+        let tz_secs = (offset.unwrap_or(0) * 3600) as i32;
+        let tz = chrono::FixedOffset::east_opt(tz_secs)?;
+        let now = chrono::Local::now().with_timezone(&tz);
+        Datetime::from_ymd(now.year(), now.month() as u8, now.day() as u8)
+    }
+}
+
+// ── Public API ────────────────────────────────────────────────────────────────
+
+/// Compile `root_file` in-process and return PDF bytes.
+pub fn compile_to_pdf_bytes(root_file: &Path) -> Result<Vec<u8>, String> {
+    let world = ZerkaloWorld::new(root_file)?;
+    let result = typst::compile::<PagedDocument>(&world);
+
+    match result.output {
+        Ok(doc) => {
+            typst_pdf::pdf(&doc, &typst_pdf::PdfOptions::default())
+                .map_err(|errors| {
+                    errors
+                        .iter()
+                        .map(|e| e.message.to_string())
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                })
+        }
+        Err(errors) => Err(errors
+            .iter()
+            .map(|e| e.message.to_string())
+            .collect::<Vec<_>>()
+            .join("\n")),
+    }
+}
+
+/// Compile `root_file` in-process and return PNG bytes for each page.
+/// `pixel_per_pt` controls render resolution (2.0 ≈ 144 dpi).
+pub fn compile_to_png_bytes(
+    root_file: &Path,
+    pixel_per_pt: f32,
+) -> Result<Vec<Vec<u8>>, String> {
+    let world = ZerkaloWorld::new(root_file)?;
+    let result = typst::compile::<PagedDocument>(&world);
+
+    match result.output {
+        Ok(doc) => {
+            let mut pages = Vec::with_capacity(doc.pages.len());
+            for page in &doc.pages {
+                let pixmap = typst_render::render(page, pixel_per_pt);
+                let png_bytes = pixmap
+                    .encode_png()
+                    .map_err(|e| format!("PNG encode error: {e}"))?;
+                pages.push(png_bytes);
+            }
+            Ok(pages)
+        }
+        Err(errors) => {
+            let msg = errors
+                .iter()
+                .map(|e| e.message.to_string())
+                .collect::<Vec<_>>()
+                .join("\n");
+            Err(msg)
+        }
+    }
+}

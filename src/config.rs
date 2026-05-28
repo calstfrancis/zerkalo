@@ -60,7 +60,7 @@ fn default_work_dir() -> PathBuf {
 pub fn default_work_dir_pub() -> PathBuf {
     default_work_dir()
 }
-fn default_debounce_ms() -> u64 { 300 }
+fn default_debounce_ms() -> u64 { 800 }
 fn default_true() -> bool { true }
 fn default_font_size() -> u32 { 13 }
 fn default_font_family() -> String { "Monospace".to_string() }
@@ -75,7 +75,7 @@ impl Default for Config {
             output_dir: None,
             recent_files: Vec::new(),
             bib_path: None,
-            debounce_ms: 300,
+            debounce_ms: 800,
             auto_compile: true,
             editor_font_size: 13,
             theme: Theme::default(),

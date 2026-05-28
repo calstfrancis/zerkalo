@@ -38,7 +38,7 @@ impl ExportDialog {
 
         let fmt_row = adw::ComboRow::new();
         fmt_row.set_title("Format");
-        let fmt_model = gtk4::StringList::new(&["PDF", "HTML", "DOCX", "ODT", "LaTeX"]);
+        let fmt_model = gtk4::StringList::new(&["PDF", "HTML", "DOCX", "ODT", "LaTeX", "EPUB"]);
         fmt_row.set_model(Some(&fmt_model));
         prefs_group.add(&fmt_row);
         content.append(&prefs_group);
@@ -165,18 +165,27 @@ impl ExportDialog {
                                 Err(_) => Err("pandoc not found. Install it to export LaTeX.".to_string()),
                             }
                         }
-                        _ => {
-                            // PDF via typst compile
-                            let out_path = out_dir_owned.join(format!("{stem}.pdf"));
-                            let result = std::process::Command::new("typst")
-                                .arg("compile")
+                        5 => {
+                            // EPUB via pandoc
+                            let out_path = out_dir_owned.join(format!("{stem}.epub"));
+                            let result = std::process::Command::new("pandoc")
+                                .arg("-f").arg("typst")
                                 .arg(&input_owned)
-                                .arg(&out_path)
+                                .arg("-o").arg(&out_path)
                                 .output();
                             match result {
                                 Ok(o) if o.status.success() => Ok(()),
                                 Ok(o) => Err(String::from_utf8_lossy(&o.stderr).to_string()),
-                                Err(e) => Err(format!("typst not found: {e}")),
+                                Err(_) => Err("pandoc not found. Install it to export EPUB.".to_string()),
+                            }
+                        }
+                        _ => {
+                            // PDF via embedded compiler
+                            let out_path = out_dir_owned.join(format!("{stem}.pdf"));
+                            match crate::compiler::compile_to_pdf_bytes(&input_owned) {
+                                Ok(pdf_bytes) => std::fs::write(&out_path, &pdf_bytes)
+                                    .map_err(|e| format!("Failed to write PDF: {e}")),
+                                Err(e) => Err(e),
                             }
                         }
                     };

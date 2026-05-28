@@ -156,6 +156,56 @@ pub const STYLES: &[(&str, &str, &str, &str)] = &[
         "",
     ),
     (
+        "IEEE",
+        // IEEE conference paper: 10 pt, two-column, numbered headings I./A./1.
+        r#"#set text(size: 10pt, font: "Times New Roman", lang: "en")
+#set par(leading: 0.65em, first-line-indent: 0.15in, justify: true)
+#set page(margin: 0.75in, columns: 2, numbering: "1", number-align: bottom + center)
+#set heading(numbering: "I.A.1.")
+#show heading.where(level: 1): it => block(width: 100%, above: 1em, below: 0.5em)[
+  #set par(first-line-indent: 0pt)
+  #align(center)[#text(weight: "bold")[#upper(it.body)]]
+]
+#show heading.where(level: 2): it => block(width: 100%, above: 0.8em, below: 0.4em)[
+  #set par(first-line-indent: 0pt)
+  #text(weight: "bold", style: "italic")[#it.body]
+]
+#show heading.where(level: 3): it => block(width: 100%, above: 0.4em, below: 0em)[
+  #set par(first-line-indent: 0pt)
+  #text(style: "italic")[#it.body]
+]"#,
+        "ieee",
+        "References",
+    ),
+    (
+        "GOST 7.32",
+        // GOST 7.32-2017: A4, 30 mm left / 15 mm right / 20 mm top-bottom,
+        // 14 pt Times New Roman, 1.5 leading, numbered headings.
+        r#"#set text(size: 14pt, font: "Times New Roman", lang: "en")
+#set par(leading: 0.85em, first-line-indent: 12.5mm, justify: true)
+#set page(
+  paper: "a4",
+  margin: (left: 30mm, right: 15mm, top: 20mm, bottom: 20mm),
+  numbering: "1",
+  number-align: bottom + center,
+)
+#set heading(numbering: "1.")
+#show heading.where(level: 1): it => block(width: 100%, above: 1em, below: 0.5em)[
+  #set par(first-line-indent: 0pt)
+  #align(center)[#text(weight: "bold")[#upper(it.body)]]
+]
+#show heading.where(level: 2): it => block(width: 100%, above: 0.8em, below: 0.4em)[
+  #set par(first-line-indent: 0pt)
+  #text(weight: "bold")[#it.body]
+]
+#show heading.where(level: 3): it => block(width: 100%, above: 0.6em, below: 0.2em)[
+  #set par(first-line-indent: 0pt)
+  #text(weight: "bold", style: "italic")[#it.body]
+]"#,
+        "apa",  // No built-in GOST CSL; substitute APA until a GOST CSL file is provided
+        "",
+    ),
+    (
         "Harvard",
         r#"#set text(size: 12pt, font: "Times New Roman", lang: "en")
 #set par(leading: 1em, first-line-indent: 0.5in, justify: true)

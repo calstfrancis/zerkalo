@@ -4,7 +4,11 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use gtk4::prelude::*;
-use gtk4::{Box as GtkBox, Button, Label, Notebook, Orientation, PositionType, ScrolledWindow};
+use gtk4::{
+    Align, Box as GtkBox, Button, Label, Notebook, Orientation, Overlay, Picture, PolicyType,
+    PositionType, ScrolledWindow, Separator, Spinner,
+};
+use gtk4::glib;
 use libadwaita as adw;
 use adw::prelude::*;
 
@@ -15,11 +19,14 @@ type OnCreateCb = Rc<RefCell<Option<Box<dyn Fn(PathBuf)>>>>;
 const CITATION_STYLES: &[(&str, &str)] = &[
     ("SBL", "sbl"),
     ("Chicago (Notes-Bib)", "chicago-notes"),
+    ("Chicago (Author-Date)", "chicago-author-date"),
     ("MLA", "mla"),
     ("APA 7th", "apa"),
     ("ASA", "asa"),
     ("Turabian", "turabian"),
     ("Harvard", "harvard"),
+    ("IEEE", "ieee"),
+    ("GOST 7.32", "gost-7-32"),
 ];
 
 const PAPER_SIZES: &[(&str, &str)] = &[
@@ -80,6 +87,113 @@ const EXTRA_PACKAGES: &[(&str, &str, &str)] = &[
     ("pkg_drafting", "Drafting", "Margin notes and annotation tools"),
 ];
 
+// ── Template presets ──────────────────────────────────────────────────────────
+
+struct TemplatePreset {
+    name: &'static str,
+    description: &'static str,
+    style_idx: u32,
+    paper_idx: u32,
+    margin_idx: u32,
+    spacing_idx: u32,
+    page_num_pos: u32,
+    include_toc: bool,
+    include_abstract: bool,
+    include_keywords: bool,
+    body_kind: BodyKind,
+}
+
+// Indices reference CITATION_STYLES, PAPER_SIZES, MARGIN_PRESETS, SPACING_OPTIONS, PAGE_NUM_OPTIONS.
+const TEMPLATE_PRESETS: &[TemplatePreset] = &[
+    TemplatePreset {
+        name: "Generic Academic",
+        description: "Chicago Notes-Bib · US Letter · normal margins · 1.5-line spacing",
+        style_idx: 1,   // Chicago (Notes-Bib)
+        paper_idx: 0,   // US Letter
+        margin_idx: 0,  // Normal
+        spacing_idx: 1, // 1.5em
+        page_num_pos: 3, // top right
+        include_toc: false,
+        include_abstract: false,
+        include_keywords: false,
+        body_kind: BodyKind::Academic,
+    },
+    TemplatePreset {
+        name: "Research Article (APA)",
+        description: "APA 7th · US Letter · double-spaced · abstract & keywords",
+        style_idx: 4,   // APA 7th
+        paper_idx: 0,
+        margin_idx: 0,
+        spacing_idx: 2, // Double (2.0em)
+        page_num_pos: 3, // top right
+        include_toc: false,
+        include_abstract: true,
+        include_keywords: true,
+        body_kind: BodyKind::Academic,
+    },
+    TemplatePreset {
+        name: "GOST 7.32 Technical Report",
+        description: "A4 · GOST margins · 1.5-line · ToC included",
+        style_idx: 9,   // GOST 7.32
+        paper_idx: 1,   // A4
+        margin_idx: 0,
+        spacing_idx: 1, // 1.5em
+        page_num_pos: 0, // bottom center
+        include_toc: true,
+        include_abstract: false,
+        include_keywords: false,
+        body_kind: BodyKind::Academic,
+    },
+    TemplatePreset {
+        name: "IEEE Conference Paper",
+        description: "IEEE · US Letter · narrow margins · single-spaced · abstract",
+        style_idx: 8,   // IEEE
+        paper_idx: 0,
+        margin_idx: 1,  // Narrow
+        spacing_idx: 0, // Single
+        page_num_pos: 0, // bottom center
+        include_toc: false,
+        include_abstract: true,
+        include_keywords: true,
+        body_kind: BodyKind::Academic,
+    },
+    TemplatePreset {
+        name: "Academic Letter",
+        description: "Formal letter layout · US Letter · single-spaced · no page numbers",
+        style_idx: 0,   // SBL (minimal heading impact)
+        paper_idx: 0,
+        margin_idx: 0,
+        spacing_idx: 0, // Single
+        page_num_pos: 4, // None
+        include_toc: false,
+        include_abstract: false,
+        include_keywords: false,
+        body_kind: BodyKind::Academic,
+    },
+    TemplatePreset {
+        name: "Book / Long-form",
+        description: "Chapter structure · TOC · wide margins · Chicago footnotes",
+        style_idx: 1,   // Chicago (Notes-Bib) — footnotes suit prose
+        paper_idx: 0,   // US Letter
+        margin_idx: 2,  // Wide (1" / 2")
+        spacing_idx: 1, // 1.5em
+        page_num_pos: 0, // bottom center
+        include_toc: true,
+        include_abstract: false,
+        include_keywords: false,
+        body_kind: BodyKind::Book,
+    },
+];
+
+// ── Body kind ─────────────────────────────────────────────────────────────────
+
+#[derive(Clone, Copy, Default)]
+enum BodyKind {
+    #[default]
+    Academic,
+    Book,
+}
+
 // ── Settings struct ───────────────────────────────────────────────────────────
 
 struct TemplateSettings {
@@ -103,6 +217,7 @@ struct TemplateSettings {
     keywords: String,
     languages: Vec<String>,
     packages: Vec<String>,
+    body_kind: BodyKind,
 }
 
 // ── Dialog ────────────────────────────────────────────────────────────────────
@@ -348,6 +463,159 @@ impl TemplateDialog {
         tab5_box.append(&pkg_group);
         notebook.append_page(&tab_scroll(tab5_box), Some(&tab_label("Packages")));
 
+        // Tracks which body kind was most recently chosen via the gallery
+        let body_kind_state: Rc<RefCell<BodyKind>> =
+            Rc::new(RefCell::new(BodyKind::Academic));
+
+        // ── Tab 0: Templates gallery — prepended so it becomes the first tab ─
+        {
+            let gallery_outer = GtkBox::new(Orientation::Horizontal, 0);
+            gallery_outer.set_hexpand(true);
+            gallery_outer.set_vexpand(true);
+
+            // Left: scrollable preset list
+            let gallery_group = adw::PreferencesGroup::new();
+            gallery_group.set_title("Starting Template");
+            gallery_group.set_description(Some(
+                "Click a preset to pre-fill the form and see a preview.",
+            ));
+            let left_box = pref_tab_box();
+            left_box.append(&gallery_group);
+            let left_scroll = ScrolledWindow::new();
+            left_scroll.set_width_request(300);
+            left_scroll.set_vexpand(true);
+            left_scroll.set_hscrollbar_policy(PolicyType::Never);
+            left_scroll.set_child(Some(&left_box));
+            gallery_outer.append(&left_scroll);
+            gallery_outer.append(&Separator::new(Orientation::Vertical));
+
+            // Right: preview pane
+            let preview_overlay = Overlay::new();
+            preview_overlay.set_hexpand(true);
+            preview_overlay.set_vexpand(true);
+
+            let preview_picture = Picture::new();
+            preview_picture.set_hexpand(true);
+            preview_picture.set_vexpand(true);
+            preview_picture.set_can_shrink(true);
+            preview_picture.set_content_fit(gtk4::ContentFit::Contain);
+            preview_picture.set_margin_top(16);
+            preview_picture.set_margin_bottom(16);
+            preview_picture.set_margin_start(16);
+            preview_picture.set_margin_end(16);
+            preview_overlay.set_child(Some(&preview_picture));
+
+            let preview_spinner = Spinner::new();
+            preview_spinner.set_halign(Align::Center);
+            preview_spinner.set_valign(Align::Center);
+            preview_spinner.set_width_request(32);
+            preview_spinner.set_height_request(32);
+            preview_spinner.set_visible(false);
+            preview_overlay.add_overlay(&preview_spinner);
+
+            let hint_label = Label::new(Some("Select a template\nto preview it here"));
+            hint_label.add_css_class("dim-label");
+            hint_label.set_halign(Align::Center);
+            hint_label.set_valign(Align::Center);
+            hint_label.set_justify(gtk4::Justification::Center);
+            preview_overlay.add_overlay(&hint_label);
+
+            gallery_outer.append(&preview_overlay);
+
+            // Form widget captures for preset application
+            let g_style = style_row.clone();
+            let g_paper = paper_row.clone();
+            let g_margin = margin_row.clone();
+            let g_spacing = spacing_row.clone();
+            let g_pnum = pnum_row.clone();
+            let g_toc = toc_row.clone();
+            let g_abstract = abstract_row.clone();
+            let g_keywords = keywords_row.clone();
+
+            for (idx, preset) in TEMPLATE_PRESETS.iter().enumerate() {
+                let row = adw::ActionRow::new();
+                row.set_title(preset.name);
+                row.set_subtitle(preset.description);
+                row.set_activatable(true);
+                row.add_suffix(&gtk4::Image::from_icon_name("go-next-symbolic"));
+
+                let g_style_c = g_style.clone();
+                let g_paper_c = g_paper.clone();
+                let g_margin_c = g_margin.clone();
+                let g_spacing_c = g_spacing.clone();
+                let g_pnum_c = g_pnum.clone();
+                let g_toc_c = g_toc.clone();
+                let g_abstract_c = g_abstract.clone();
+                let g_keywords_c = g_keywords.clone();
+                let pic_c = preview_picture.clone();
+                let spin_c = preview_spinner.clone();
+                let hint_c = hint_label.clone();
+                let bk_state_c = body_kind_state.clone();
+
+                row.connect_activated(move |_| {
+                    // Apply preset values to form
+                    let p = &TEMPLATE_PRESETS[idx];
+                    *bk_state_c.borrow_mut() = p.body_kind;
+                    g_style_c.set_selected(p.style_idx);
+                    g_paper_c.set_selected(p.paper_idx);
+                    g_margin_c.set_selected(p.margin_idx);
+                    g_spacing_c.set_selected(p.spacing_idx);
+                    g_pnum_c.set_selected(p.page_num_pos);
+                    g_toc_c.set_active(p.include_toc);
+                    g_abstract_c.set_active(p.include_abstract);
+                    g_keywords_c.set_active(p.include_keywords);
+
+                    // Kick off preview render
+                    hint_c.set_visible(false);
+                    pic_c.set_paintable(None::<&gtk4::gdk::Paintable>);
+                    spin_c.set_visible(true);
+                    spin_c.start();
+
+                    let (tx, rx) = std::sync::mpsc::sync_channel::<Result<Vec<u8>, String>>(1);
+                    std::thread::spawn(move || {
+                        tx.send(generate_preset_preview(idx)).ok();
+                    });
+
+                    let rx = std::rc::Rc::new(rx);
+                    let pic = pic_c.clone();
+                    let spin = spin_c.clone();
+                    glib::timeout_add_local(
+                        std::time::Duration::from_millis(100),
+                        move || {
+                            use std::sync::mpsc::TryRecvError;
+                            match rx.try_recv() {
+                                Ok(Ok(png_bytes)) => {
+                                    spin.stop();
+                                    spin.set_visible(false);
+                                    let bytes = glib::Bytes::from_owned(png_bytes);
+                                    if let Ok(tex) = gtk4::gdk::Texture::from_bytes(&bytes) {
+                                        pic.set_paintable(Some(
+                                            tex.upcast_ref::<gtk4::gdk::Paintable>(),
+                                        ));
+                                    }
+                                    glib::ControlFlow::Break
+                                }
+                                Ok(Err(_)) => {
+                                    spin.stop();
+                                    spin.set_visible(false);
+                                    glib::ControlFlow::Break
+                                }
+                                Err(TryRecvError::Empty) => glib::ControlFlow::Continue,
+                                Err(TryRecvError::Disconnected) => {
+                                    spin.stop();
+                                    glib::ControlFlow::Break
+                                }
+                            }
+                        },
+                    );
+                });
+
+                gallery_group.add(&row);
+            }
+
+            notebook.prepend_page(&gallery_outer, Some(&tab_label("Templates")));
+        }
+
         // ── Layout ───────────────────────────────────────────────────────────
         let toolbar_view = adw::ToolbarView::new();
         toolbar_view.add_top_bar(&header);
@@ -385,6 +653,7 @@ impl TemplateDialog {
         let w_keywords_text = keywords_text_row.clone();
         let w_langs = lang_switches.clone();
         let w_pkgs = pkg_switches.clone();
+        let w_body_kind = body_kind_state.clone();
 
         create_btn.connect_clicked(move |_| {
             let font_idx = w_font.selected() as usize;
@@ -434,6 +703,7 @@ impl TemplateDialog {
                     .filter(|(_, sw)| sw.is_active())
                     .map(|(k, _)| k.clone())
                     .collect(),
+                body_kind: *w_body_kind.borrow(),
             };
 
             let content = generate_typst_template(&settings);
@@ -561,9 +831,16 @@ fn slug(s: &str) -> String {
 fn generate_typst_template(s: &TemplateSettings) -> String {
     let style_key = CITATION_STYLES.get(s.style_idx).map(|(_, k)| *k).unwrap_or("chicago-notes");
     let style_name = CITATION_STYLES.get(s.style_idx).map(|(n, _)| *n).unwrap_or("Chicago");
-    let paper = PAPER_SIZES.get(s.paper_idx).map(|(_, k)| *k).unwrap_or("us-letter");
-    let (mt, mb, ml, mr) = margin_values(s.margin_idx);
     let bib = bib_style(style_key);
+
+    // GOST 7.32 mandates A4, specific margins, and 14 pt body text regardless of form selection.
+    let (paper, mt, mb, ml, mr, font_size) = if style_key == "gost-7-32" {
+        ("a4", "20mm", "20mm", "30mm", "15mm", "14pt")
+    } else {
+        let p = PAPER_SIZES.get(s.paper_idx).map(|(_, k)| *k).unwrap_or("us-letter");
+        let (mt, mb, ml, mr) = margin_values(s.margin_idx);
+        (p, mt, mb, ml, mr, "12pt")
+    };
 
     let mut out = String::new();
 
@@ -595,13 +872,19 @@ fn generate_typst_template(s: &TemplateSettings) -> String {
     let _ = writeln!(out);
 
     // Typography
-    let _ = writeln!(out, "#set text(font: \"{}\", size: 12pt, lang: \"en\")", s.font);
+    let _ = writeln!(out, "#set text(font: \"{}\", size: {font_size}, lang: \"en\")", s.font);
     let _ = writeln!(out, "#set par(spacing: {}, first-line-indent: 1em, justify: true)", s.spacing);
     let _ = writeln!(out);
 
     // Heading styles
     let _ = writeln!(out, "{}", heading_styles(style_key).trim_start_matches('\n'));
     let _ = writeln!(out);
+
+    // Style-specific extras
+    if style_key == "ieee" {
+        let _ = writeln!(out, "#set page(columns: 2)");
+        let _ = writeln!(out);
+    }
 
     // Language support
     for lang in &s.languages {
@@ -643,6 +926,8 @@ fn generate_typst_template(s: &TemplateSettings) -> String {
     let _ = writeln!(out, "  #v(1em)");
     let _ = writeln!(out, "]");
     let _ = writeln!(out);
+    let _ = writeln!(out, "#pagebreak()");
+    let _ = writeln!(out);
 
     // Abstract
     if s.include_abstract {
@@ -668,15 +953,40 @@ fn generate_typst_template(s: &TemplateSettings) -> String {
     }
 
     // Body
-    let _ = writeln!(out, "// ── Document body ───────────────────────────────────────────────────");
-    let _ = writeln!(out);
-    let _ = writeln!(out, "= Introduction");
-    let _ = writeln!(out);
-    let _ = writeln!(out, "Start writing here...");
-    let _ = writeln!(out);
-    let _ = writeln!(out, "// ── Bibliography ────────────────────────────────────────────────────");
-    let _ = writeln!(out, "// Uncomment when your .bib file is ready:");
-    let _ = writeln!(out, "// #bibliography(\"refs.bib\", style: \"{bib}\")");
+    match s.body_kind {
+        BodyKind::Book => {
+            let _ = writeln!(out, "// ── Chapters ────────────────────────────────────────────────────────");
+            let _ = writeln!(out);
+            let _ = writeln!(out, "= Chapter One: The Beginning");
+            let _ = writeln!(out);
+            let _ = writeln!(out, "Start writing your opening chapter here...");
+            let _ = writeln!(out);
+            let _ = writeln!(out, "#pagebreak()");
+            let _ = writeln!(out);
+            let _ = writeln!(out, "= Chapter Two");
+            let _ = writeln!(out);
+            let _ = writeln!(out, "Continue here...");
+            let _ = writeln!(out);
+            let _ = writeln!(out, "#pagebreak()");
+            let _ = writeln!(out);
+            let _ = writeln!(out, "// ── Back matter ─────────────────────────────────────────────────────");
+            let _ = writeln!(out, "// Uncomment when your .bib file is ready:");
+            let _ = writeln!(out, "// #bibliography(\"refs.bib\", style: \"{bib}\")");
+        }
+        BodyKind::Academic => {
+            let _ = writeln!(out, "// ── Document body ───────────────────────────────────────────────────");
+            let _ = writeln!(out);
+            let _ = writeln!(out, "= Introduction");
+            let _ = writeln!(out);
+            let _ = writeln!(out, "Start writing here...");
+            let _ = writeln!(out);
+            let _ = writeln!(out, "#pagebreak()");
+            let _ = writeln!(out);
+            let _ = writeln!(out, "// ── Bibliography ────────────────────────────────────────────────────");
+            let _ = writeln!(out, "// Uncomment when your .bib file is ready:");
+            let _ = writeln!(out, "// #bibliography(\"refs.bib\", style: \"{bib}\")");
+        }
+    }
 
     out
 }
@@ -690,11 +1000,13 @@ fn margin_values(idx: usize) -> (&'static str, &'static str, &'static str, &'sta
 }
 
 fn page_num_block(pos: u32) -> &'static str {
+    // Returns parameters to embed inside #set page(...).
+    // The \n  keeps correct indentation when inserted as a single writeln line.
     match pos {
-        0 => "footer: align(center)[#context counter(page).display()]",
-        1 => "footer: align(right)[#context counter(page).display()]",
-        2 => "header: align(center)[#context counter(page).display()]",
-        3 => "header: align(right)[#context counter(page).display()]",
+        0 => "numbering: \"1\",\n  number-align: bottom + center,",
+        1 => "numbering: \"1\",\n  number-align: bottom + right,",
+        2 => "numbering: \"1\",\n  number-align: top + center,",
+        3 => "numbering: \"1\",\n  number-align: top + right,",
         _ => "",
     }
 }
@@ -703,9 +1015,11 @@ fn bib_style(style_key: &str) -> &'static str {
     match style_key {
         "sbl" | "turabian" => "chicago-notes",
         "chicago-notes" => "chicago-notes",
+        "chicago-author-date" | "harvard" => "chicago-author-date",
         "mla" => "mla",
         "apa" | "asa" => "apa",
-        "harvard" => "chicago-author-date",
+        "ieee" => "ieee",
+        "gost-7-32" => "apa",  // No built-in GOST CSL; use APA as fallback
         _ => "apa",
     }
 }
@@ -725,46 +1039,78 @@ fn package_import(key: &str) -> Option<&'static str> {
 }
 
 fn language_block(lang_key: &str) -> Option<&'static str> {
+    // Each block sets up inline helpers for inserting foreign-script words inside
+    // English text. Usage: #ru[Привет], #he[שלום], etc.
+    // The document language/direction is NOT changed globally.
     match lang_key {
         "lang_ru" => Some(
-            "// Russian: Cyrillic hyphenation, date/number locale, Cyrillic-capable font\n\
-             #set text(lang: \"ru\", region: \"RU\")\n\
-             // If using a Latin-only font, switch to one with Cyrillic coverage:\n\
-             // #set text(font: (\"Linux Libertine O\", \"Times New Roman\"), lang: \"ru\")",
+            "// Russian inline helper — wraps Cyrillic words with the right font.\n\
+             // Needs a font with Cyrillic coverage (Linux Libertine O, FreeSerif, XITS, etc.).\n\
+             // Usage: #ru[Привет мир]\n\
+             #let ru(content) = text(\n\
+               lang: \"ru\",\n\
+               font: (\"Linux Libertine O\", \"FreeSerif\", \"XITS\"),\n\
+               content\n\
+             )",
         ),
         "lang_he" => Some(
-            "// Hebrew: right-to-left document\n\
-             #set text(lang: \"he\", dir: ltr)  // keep ltr for body default\n\
-             // Wrap Hebrew passages in: #text(lang: \"he\", dir: rtl)[...]\n\
-             // For a fully-Hebrew document use: #set text(lang: \"he\", dir: rtl)",
+            "// Hebrew inline helper — wraps RTL words, preserving LTR document flow.\n\
+             // Usage: #he[שָׁלוֹם]\n\
+             #let he(content) = text(\n\
+               lang: \"he\",\n\
+               dir: rtl,\n\
+               content\n\
+             )",
         ),
         "lang_el" => Some(
-            "// Ancient/Modern Greek: polytonic Unicode coverage\n\
-             #set text(lang: \"el\")\n\
-             // Recommended fonts: Linux Libertine O, GFS Artemisia, Gentium Plus\n\
-             // #set text(font: \"Linux Libertine O\", lang: \"el\")",
+            "// Ancient / Modern Greek inline helper.\n\
+             // Needs a Unicode polytonic font (Linux Libertine O, GFS Artemisia, Gentium Plus).\n\
+             // Usage: #el[λόγος]\n\
+             #let el(content) = text(\n\
+               lang: \"el\",\n\
+               font: (\"Linux Libertine O\", \"GFS Artemisia\", \"Gentium Plus\"),\n\
+               content\n\
+             )",
         ),
         "lang_ja" => Some(
-            "// Japanese: install Noto Serif CJK JP (or Source Han Serif JP)\n\
+            "// Japanese inline helper — install Noto Serif CJK JP (or Source Han Serif JP).\n\
              // Linux/openSUSE: zypper install google-noto-serif-cjk-fonts\n\
-             // macOS: brew install --cask font-noto-serif-cjk\n\
-             #set text(lang: \"ja\", font: (\"Noto Serif CJK JP\", \"Source Han Serif JP\"))",
+             // Usage: #ja[日本語]\n\
+             #let ja(content) = text(\n\
+               lang: \"ja\",\n\
+               font: (\"Noto Serif CJK JP\", \"Source Han Serif JP\"),\n\
+               content\n\
+             )",
         ),
         "lang_sa" => Some(
-            "// Sanskrit / Devanagari: install Noto Serif Devanagari\n\
+            "// Sanskrit / Devanagari inline helper — install Noto Serif Devanagari.\n\
              // Linux/openSUSE: zypper install google-noto-serif-devanagari-fonts\n\
-             #set text(lang: \"sa\", font: (\"Noto Serif Devanagari\", \"Sanskrit 2003\"))",
+             // Usage: #sa[संस्कृत]\n\
+             #let sa(content) = text(\n\
+               lang: \"sa\",\n\
+               font: (\"Noto Serif Devanagari\", \"Sanskrit 2003\"),\n\
+               content\n\
+             )",
         ),
         "lang_bo" => Some(
-            "// Tibetan: install Noto Serif Tibetan\n\
+            "// Tibetan inline helper — install Noto Serif Tibetan.\n\
              // Linux/openSUSE: zypper install google-noto-serif-tibetan-fonts\n\
-             #set text(lang: \"bo\", font: \"Noto Serif Tibetan\")",
+             // Usage: #bo[བོད་སྐད]\n\
+             #let bo(content) = text(\n\
+               lang: \"bo\",\n\
+               font: \"Noto Serif Tibetan\",\n\
+               content\n\
+             )",
         ),
         "lang_zh" => Some(
-            "// Chinese (Simplified): install Noto Serif CJK SC (or Source Han Serif SC)\n\
+            "// Chinese (Simplified) inline helper — install Noto Serif CJK SC.\n\
              // Linux/openSUSE: zypper install google-noto-serif-cjk-fonts\n\
-             // macOS: brew install --cask font-noto-serif-cjk\n\
-             #set text(lang: \"zh\", font: (\"Noto Serif CJK SC\", \"Source Han Serif SC\"))",
+             // Usage: #zh[中文]\n\
+             #let zh(content) = text(\n\
+               lang: \"zh\",\n\
+               font: (\"Noto Serif CJK SC\", \"Source Han Serif SC\"),\n\
+               content\n\
+             )",
         ),
         _ => None,
     }
@@ -856,6 +1202,60 @@ fn heading_styles(style_key: &str) -> &'static str {
   #text(weight: "bold", style: "italic")[#it.body]
 ]"#
         }
+        "chicago-author-date" => {
+            r#"
+// Chicago (Author-Date) heading styles
+#show heading.where(level: 1): it => block(width: 100%, above: 1em, below: 0.5em)[
+  #set par(first-line-indent: 0pt)
+  #align(center)[#text(weight: "bold")[#it.body]]
+]
+#show heading.where(level: 2): it => block(width: 100%, above: 0.8em, below: 0.4em)[
+  #set par(first-line-indent: 0pt)
+  #align(center)[#text(style: "italic")[#it.body]]
+]
+#show heading.where(level: 3): it => block(width: 100%, above: 0.6em, below: 0.2em)[
+  #set par(first-line-indent: 0pt)
+  #text(style: "italic")[#it.body]
+]"#
+        }
+        "ieee" => {
+            // IEEE Std: H1 centred bold ALL CAPS with Roman-numeral numbering;
+            // H2 flush-left bold italic with capital-letter numbering; H3 run-in italic.
+            r#"
+// IEEE heading styles
+#set heading(numbering: "I.A.1.")
+#show heading.where(level: 1): it => block(width: 100%, above: 1em, below: 0.5em)[
+  #set par(first-line-indent: 0pt)
+  #align(center)[#text(weight: "bold")[#upper(it.body)]]
+]
+#show heading.where(level: 2): it => block(width: 100%, above: 0.8em, below: 0.4em)[
+  #set par(first-line-indent: 0pt)
+  #text(weight: "bold", style: "italic")[#it.body]
+]
+#show heading.where(level: 3): it => block(width: 100%, above: 0.4em, below: 0em)[
+  #set par(first-line-indent: 0pt)
+  #text(style: "italic")[#it.body]
+]"#
+        }
+        "gost-7-32" => {
+            // GOST 7.32-2017: numbered decimal headings; H1 centred bold upper;
+            // H2 flush-left bold; H3 flush-left bold italic.
+            r#"
+// GOST 7.32 heading styles
+#set heading(numbering: "1.")
+#show heading.where(level: 1): it => block(width: 100%, above: 1em, below: 0.5em)[
+  #set par(first-line-indent: 0pt)
+  #align(center)[#text(weight: "bold")[#upper(it.body)]]
+]
+#show heading.where(level: 2): it => block(width: 100%, above: 0.8em, below: 0.4em)[
+  #set par(first-line-indent: 0pt)
+  #text(weight: "bold")[#it.body]
+]
+#show heading.where(level: 3): it => block(width: 100%, above: 0.6em, below: 0.2em)[
+  #set par(first-line-indent: 0pt)
+  #text(weight: "bold", style: "italic")[#it.body]
+]"#
+        }
         "asa" => {
             // ASA §4.2: H1 flush-left ALL CAPS no bold; H2 flush-left italic;
             // H3 indented italic run-in with trailing period
@@ -888,6 +1288,183 @@ fn heading_styles(style_key: &str) -> &'static str {
         }
     }
 }
+
+// ── Preview helper ────────────────────────────────────────────────────────────
+
+const PREVIEW_BIB: &str = r#"@book{smith2020,
+  author = {Smith, John A.},
+  title = {Academic Writing: A Comprehensive Guide},
+  year = {2020},
+  publisher = {Oxford University Press},
+  address = {Oxford},
+}
+@article{jones2019,
+  author = {Jones, Jane B.},
+  title = {Modern Approaches to Scholarly Communication},
+  journal = {Journal of Academic Research},
+  year = {2019},
+  volume = {45},
+  number = {3},
+  pages = {123--145},
+}
+"#;
+
+fn generate_preset_preview(idx: usize) -> Result<Vec<u8>, String> {
+    let p = &TEMPLATE_PRESETS[idx];
+    let bib_key = CITATION_STYLES
+        .get(p.style_idx as usize)
+        .map(|(_, k)| *k)
+        .unwrap_or("chicago-notes");
+    let bib_style_name = bib_style(bib_key);
+    let spacing = SPACING_OPTIONS
+        .get(p.spacing_idx as usize)
+        .map(|(_, v)| v.to_string())
+        .unwrap_or_else(|| "1.5em".to_string());
+
+    let settings = TemplateSettings {
+        title: "Sample Document".to_string(),
+        subtitle: String::new(),
+        author: "Author Name".to_string(),
+        affiliation: "Sample University".to_string(),
+        course: String::new(),
+        date: "2026".to_string(),
+        style_idx: p.style_idx as usize,
+        paper_idx: p.paper_idx as usize,
+        margin_idx: p.margin_idx as usize,
+        font: "Times New Roman".to_string(),
+        spacing,
+        page_num_pos: p.page_num_pos,
+        include_toc: false,
+        toc_depth: 2,
+        include_abstract: p.include_abstract,
+        abstract_text: "This sample abstract demonstrates the layout for this template style. \
+            It summarises the main argument and methodology of the paper."
+            .to_string(),
+        include_keywords: false,
+        keywords: String::new(),
+        languages: Vec::new(),
+        packages: Vec::new(),
+        body_kind: p.body_kind,
+    };
+
+    let mut preamble = generate_typst_template(&settings);
+
+    // Replace the starter body with richer sample content
+    let body = match p.body_kind {
+        BodyKind::Book => PREVIEW_BOOK_BODY,
+        BodyKind::Academic => PREVIEW_ACADEMIC_BODY,
+    };
+    // Strip everything from the first chapter/section marker onward and append rich body
+    let marker = match p.body_kind {
+        BodyKind::Book => "// ── Chapters",
+        BodyKind::Academic => "// ── Document body",
+    };
+    if let Some(pos) = preamble.find(marker) {
+        preamble.truncate(pos);
+    }
+    let bib_line = format!("#bibliography(\"zerkalo_preview_refs.bib\", style: \"{bib_style_name}\")");
+    preamble.push_str(body);
+    preamble.push('\n');
+    preamble.push_str(&bib_line);
+    preamble.push('\n');
+
+    let tmp_dir = std::env::temp_dir();
+    let bib_path = tmp_dir.join("zerkalo_preview_refs.bib");
+    let typ_path = tmp_dir.join(format!("zerkalo_tmpl_preview_{idx}.typ"));
+    std::fs::write(&bib_path, PREVIEW_BIB).map_err(|e| e.to_string())?;
+    std::fs::write(&typ_path, &preamble).map_err(|e| e.to_string())?;
+
+    crate::compiler::compile_to_png_bytes(&typ_path, 1.5)
+        .map(|pages| {
+            // Page 2 shows the content style; fall back to page 1 if only one page
+            let idx = if pages.len() > 1 { 1 } else { 0 };
+            pages.into_iter().nth(idx).unwrap_or_default()
+        })
+}
+
+const PREVIEW_ACADEMIC_BODY: &str = r#"
+= Introduction
+
+This study examines the nature of academic discourse @jones2019[p.~125].
+As recent scholarship has shown, effective writing requires careful
+attention to structure and argumentation @smith2020.
+The present analysis builds upon established frameworks to offer
+a new perspective on scholarly communication.
+
+Prior research has established the fundamental importance of clear
+argumentation in academic writing @smith2020[chap.~3].
+The relationship between form and content has been the subject of
+considerable scholarly debate, and the field continues to evolve.
+
+== Background
+
+Several theoretical traditions have informed this inquiry.
+First, rhetorical theory emphasises the importance of audience
+awareness and situational context @jones2019.
+Second, genre theory draws attention to the conventions that
+govern scholarly communication across disciplines @smith2020.
+
+= Methods
+
+The methodology employed in this study follows standard practices
+in the field @jones2019. Data were gathered from a range of primary
+and secondary sources, then analysed using established interpretive
+techniques. Each source was evaluated for reliability and relevance.
+
+== Data Analysis
+
+The analysis proceeded in three stages. First, all sources were
+catalogued and cross-referenced. Second, thematic patterns were
+identified across the corpus. Third, these patterns were interpreted
+in light of current theoretical frameworks @smith2020[pp.~45--67].
+
+= Conclusion
+
+This paper has demonstrated the central role of clear structure
+in academic writing @smith2020.
+Further research should examine the ways in which digital tools
+continue to reshape scholarly communication practices @jones2019.
+
+#pagebreak()
+
+"#;
+
+const PREVIEW_BOOK_BODY: &str = r#"
+= Chapter One: The Beginning
+
+The first chapter opens the narrative, establishing the world
+and the central questions that will guide the reader through the text.
+Here the author sets the stage, introducing the key themes that
+will develop over the course of the work.
+
+Second paragraph continues the opening, deepening the scene and
+beginning to draw the reader into the argument.
+Details accumulate, each one chosen to serve the larger purpose
+of the work.
+
+== A First Section
+
+Further elaboration follows, each paragraph contributing to the whole.
+The author's voice comes through clearly, guiding the reader
+with care and precision through the material.
+
+#pagebreak()
+
+= Chapter Two: Development
+
+The second chapter advances the central argument, building on
+the foundations laid in the opening chapter.
+New material is introduced, connecting to earlier themes
+while moving the narrative forward in unexpected directions.
+
+Further paragraphs deepen the analysis, drawing threads together
+and pointing toward the resolution that the final chapters
+will bring. The reader is carried forward by the momentum
+of the argument and the clarity of the prose.
+
+#pagebreak()
+
+"#;
 
 const TEMPLATE_BEGIN: &str = "// ZERKALO-TEMPLATE-BEGIN";
 const TEMPLATE_END: &str = "// ZERKALO-TEMPLATE-END";

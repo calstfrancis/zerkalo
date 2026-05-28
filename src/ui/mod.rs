@@ -19,4 +19,5 @@ pub mod settings_dialog;
 pub mod sync_dialog;
 pub mod template_dialog;
 pub mod todo_panel;
+pub mod setup_wizard;
 pub mod welcome_window;

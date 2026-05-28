@@ -1,4 +1,5 @@
 mod bibliography;
+mod compiler;
 mod config;
 mod error;
 mod fonts;

@@ -43,7 +43,11 @@
       "Read(//home/calstfrancis/.local/share/applications/**)",
       "WebFetch(domain:www.svots.edu)",
       "Bash(./install.sh *)",
-      "Bash(unzip -p \"A Manual for Writers of Research Papers, Theses, and Dissertations - Chicago Style for Students and Researchers \\(Kate L. Turabian, Wayne C. Booth etc.\\) \\(z-library.sk, 1lib.sk, z-lib.sk\\).epub\")"
+      "Bash(unzip -p \"A Manual for Writers of Research Papers, Theses, and Dissertations - Chicago Style for Students and Researchers \\(Kate L. Turabian, Wayne C. Booth etc.\\) \\(z-library.sk, 1lib.sk, z-lib.sk\\).epub\")",
+      "Read(//home/calstfrancis/.local/bin/**)",
+      "Bash(bash *)",
+      "Bash(cargo search *)",
+      "Bash(cargo fetch *)"
     ]
   }
 }

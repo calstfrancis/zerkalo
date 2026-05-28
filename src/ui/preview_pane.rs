@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::mpsc::{self, TryRecvError};
 use std::time::Duration;
@@ -14,7 +14,7 @@ use gtk4::{
 // ── Result sent from compile thread ──────────────────────────────────────────
 
 enum CompileResult {
-    Success,
+    Success(Vec<Vec<u8>>),
     Error(String),
 }
 
@@ -35,8 +35,10 @@ pub struct PreviewPane {
     auto_fit: Rc<RefCell<bool>>,
     on_compile_done: Rc<RefCell<Option<Box<dyn Fn(Option<String>)>>>>,
     on_zoom_changed: Rc<RefCell<Option<Box<dyn Fn(f64)>>>>,
+    on_page_changed: Rc<RefCell<Option<Box<dyn Fn(usize, usize)>>>>,
     page_pixbufs: Rc<RefCell<Vec<Pixbuf>>>,
-    watch_child: Rc<RefCell<Option<std::process::Child>>>,
+    watch_active: Rc<RefCell<bool>>,
+    compile_gen: Rc<RefCell<u64>>,
 }
 
 impl PreviewPane {
@@ -143,8 +145,10 @@ impl PreviewPane {
             auto_fit: Rc::new(RefCell::new(true)),
             on_compile_done: Rc::new(RefCell::new(None)),
             on_zoom_changed: Rc::new(RefCell::new(None)),
+            on_page_changed: Rc::new(RefCell::new(None)),
             page_pixbufs,
-            watch_child: Rc::new(RefCell::new(None)),
+            watch_active: Rc::new(RefCell::new(false)),
+            compile_gen: Rc::new(RefCell::new(0)),
         };
 
         pane
@@ -230,74 +234,99 @@ impl PreviewPane {
         *self.on_zoom_changed.borrow_mut() = Some(Box::new(f));
     }
 
+    pub fn set_on_page_changed(&self, f: impl Fn(usize, usize) + 'static) {
+        *self.on_page_changed.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn page_count(&self) -> usize {
+        self.page_pixbufs.borrow().len()
+    }
+
+    pub fn current_page_idx(&self) -> usize {
+        let z = *self.zoom.borrow();
+        let adj = self.img_scroll.vadjustment();
+        let mid_y = adj.value() + adj.page_size() / 2.0;
+        let pbs = self.page_pixbufs.borrow();
+        let mut y = 0.0f64;
+        for (i, pb) in pbs.iter().enumerate() {
+            let page_h = pb.height() as f64 * z + 8.0;
+            if mid_y < y + page_h {
+                return i;
+            }
+            y += page_h;
+        }
+        pbs.len().saturating_sub(1)
+    }
+
+    pub fn scroll_to_page(&self, idx: usize) {
+        let z = *self.zoom.borrow();
+        let pbs = self.page_pixbufs.borrow();
+        let mut y = 0.0f64;
+        for (i, pb) in pbs.iter().enumerate() {
+            if i == idx { break; }
+            y += pb.height() as f64 * z + 8.0;
+        }
+        drop(pbs);
+        self.img_scroll.vadjustment().set_value(y);
+        self.fire_page_changed();
+    }
+
+    fn fire_page_changed(&self) {
+        let current = self.current_page_idx();
+        let total = self.page_count();
+        if total > 0 {
+            if let Some(f) = self.on_page_changed.borrow().as_ref() {
+                f(current, total);
+            }
+        }
+    }
+
     // ── Watch mode ────────────────────────────────────────────────────────────
 
     pub fn start_watch(&self) {
         self.stop_watch();
-
-        let root = match self.root_file.borrow().clone() {
-            Some(f) => f,
-            None => return,
-        };
-
-        let _ = std::fs::create_dir_all(&*self.output_dir);
-        let pdf_path = self.output_dir.join("preview.pdf");
-        let extra_args = (*self.extra_args).clone();
-
-        let child = std::process::Command::new("typst")
-            .arg("watch")
-            .args(&extra_args)
-            .arg(&root)
-            .arg(&pdf_path)
-            .current_dir(root.parent().unwrap_or(Path::new(".")))
-            .stderr(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .spawn()
-            .ok();
-
-        if let Some(child) = child {
-            *self.watch_child.borrow_mut() = Some(child);
-
-            let last_mtime: Rc<RefCell<Option<std::time::SystemTime>>> =
-                Rc::new(RefCell::new(
-                    std::fs::metadata(&pdf_path)
-                        .and_then(|m| m.modified())
-                        .ok(),
-                ));
-
-            let pane = self.clone();
-            glib::timeout_add_local(Duration::from_millis(400), move || {
-                if pane.watch_child.borrow().is_none() {
-                    return glib::ControlFlow::Break;
-                }
-                let pdf = pane.output_dir.join("preview.pdf");
-                let current_mtime = std::fs::metadata(&pdf)
-                    .and_then(|m| m.modified())
-                    .ok();
-
-                let changed = match (*last_mtime.borrow(), current_mtime) {
-                    (Some(old), Some(new)) => old != new,
-                    (None, Some(_)) => true,
-                    _ => false,
-                };
-                if changed {
-                    *last_mtime.borrow_mut() = current_mtime;
-                    pane.render_pdf_and_display(&pdf);
-                }
-                glib::ControlFlow::Continue
-            });
+        if self.root_file.borrow().is_none() {
+            return;
         }
+        *self.watch_active.borrow_mut() = true;
+        self.trigger_compile();
+
+        let root_file_rc = self.root_file.clone();
+        let last_mtime: Rc<RefCell<Option<std::time::SystemTime>>> =
+            Rc::new(RefCell::new(
+                root_file_rc.borrow().as_ref().and_then(|p| {
+                    std::fs::metadata(p).and_then(|m| m.modified()).ok()
+                }),
+            ));
+
+        let pane = self.clone();
+        glib::timeout_add_local(Duration::from_millis(500), move || {
+            if !*pane.watch_active.borrow() {
+                return glib::ControlFlow::Break;
+            }
+            let current_mtime = root_file_rc.borrow().as_ref().and_then(|p| {
+                std::fs::metadata(p).and_then(|m| m.modified()).ok()
+            });
+            let changed = match (*last_mtime.borrow(), current_mtime) {
+                (Some(old), Some(new)) => old != new,
+                (None, Some(_)) => true,
+                _ => false,
+            };
+            if changed {
+                *last_mtime.borrow_mut() = current_mtime;
+                pane.trigger_compile();
+            }
+            glib::ControlFlow::Continue
+        });
     }
 
     pub fn stop_watch(&self) {
-        if let Some(mut child) = self.watch_child.borrow_mut().take() {
-            let _ = child.kill();
-        }
+        *self.watch_active.borrow_mut() = false;
     }
 
     #[allow(dead_code)]
     pub fn is_watching(&self) -> bool {
-        self.watch_child.borrow().is_some()
+        *self.watch_active.borrow()
     }
 
     // ── Compile ───────────────────────────────────────────────────────────────
@@ -313,28 +342,38 @@ impl PreviewPane {
             }
         };
 
+        *self.compile_gen.borrow_mut() += 1;
+        let my_gen = *self.compile_gen.borrow();
+        let gen_rc = self.compile_gen.clone();
+
         self.spinner.set_spinning(true);
         self.stack.set_visible_child_name("compiling");
 
         let (tx, rx) = mpsc::sync_channel::<CompileResult>(1);
-        let output_dir = (*self.output_dir).clone();
-        let extra_args = (*self.extra_args).clone();
 
         std::thread::spawn(move || {
-            let result = run_typst_compile(&root, &output_dir, &extra_args);
-            tx.send(result).ok();
+            let result = crate::compiler::compile_to_png_bytes(&root, 2.0);
+            tx.send(match result {
+                Ok(pages) => CompileResult::Success(pages),
+                Err(msg) => CompileResult::Error(msg),
+            })
+            .ok();
         });
 
         let rx = Rc::new(rx);
         let pane = self.clone();
         glib::timeout_add_local(Duration::from_millis(50), move || {
+            if *gen_rc.borrow() != my_gen {
+                pane.spinner.set_spinning(false);
+                return glib::ControlFlow::Break;
+            }
             match rx.try_recv() {
                 Ok(result) => {
                     pane.spinner.set_spinning(false);
                     match result {
-                        CompileResult::Success => {
-                            let pdf = pane.output_dir.join("preview.pdf");
-                            pane.render_pdf_and_display(&pdf);
+                        CompileResult::Success(pages) => {
+                            pane.load_pixbufs_from_bytes(&pages);
+                            pane.stack.set_visible_child_name("ready");
                             if let Some(f) = pane.on_compile_done.borrow().as_ref() {
                                 f(None);
                             }
@@ -358,70 +397,35 @@ impl PreviewPane {
         });
     }
 
-    /// Re-render the PDF from disk without recompiling. Called by pop-out window
-    /// and by watch mode when the PDF changes.
     pub fn refresh_display(&self) {
-        let pdf = self.output_dir.join("preview.pdf");
-        if pdf.exists() {
-            self.render_pdf_and_display(&pdf);
-        }
+        self.trigger_compile();
     }
 
     // ── Internal ──────────────────────────────────────────────────────────────
 
-    fn render_pdf_and_display(&self, pdf_path: &Path) {
-        let dpi = (150.0 * self.zoom().max(1.0)).round() as u32;
-        let pdf = pdf_path.to_path_buf();
-        let output_dir = (*self.output_dir).clone();
-
-        self.spinner.set_spinning(true);
-        self.stack.set_visible_child_name("compiling");
-
-        let (tx, rx) = mpsc::sync_channel::<Result<Vec<PathBuf>, String>>(1);
-        std::thread::spawn(move || {
-            tx.send(render_pdf_to_pngs(&pdf, &output_dir, dpi)).ok();
-        });
-
-        let rx = Rc::new(rx);
-        let pane = self.clone();
-        glib::timeout_add_local(Duration::from_millis(30), move || {
-            match rx.try_recv() {
-                Ok(Ok(pages)) => {
-                    pane.spinner.set_spinning(false);
-                    pane.load_pixbufs(&pages);
-                    pane.stack.set_visible_child_name("ready");
-                    glib::ControlFlow::Break
-                }
-                Ok(Err(_)) => {
-                    pane.spinner.set_spinning(false);
-                    pane.stack.set_visible_child_name("ready");
-                    glib::ControlFlow::Break
-                }
-                Err(TryRecvError::Empty) => glib::ControlFlow::Continue,
-                Err(TryRecvError::Disconnected) => {
-                    pane.spinner.set_spinning(false);
-                    glib::ControlFlow::Break
-                }
-            }
-        });
-    }
-
-    fn load_pixbufs(&self, pages: &[PathBuf]) {
+    fn load_pixbufs_from_bytes(&self, pages: &[Vec<u8>]) {
         let mut pixbufs = Vec::new();
-        for path in pages {
-            match Pixbuf::from_file(path) {
+        for png_bytes in pages {
+            let gbytes = glib::Bytes::from(png_bytes.as_slice());
+            let stream = gtk4::gio::MemoryInputStream::from_bytes(&gbytes);
+            match Pixbuf::from_stream(&stream, None::<&gtk4::gio::Cancellable>) {
                 Ok(pb) => pixbufs.push(pb),
-                Err(e) => eprintln!("Failed to load pixbuf {}: {e}", path.display()),
+                Err(e) => tracing::warn!("Failed to decode preview PNG from bytes: {e}"),
             }
         }
         *self.page_pixbufs.borrow_mut() = pixbufs;
         if *self.auto_fit.borrow() {
-            // Defer fit_width so the scroll widget has been allocated its size
             let pane = self.clone();
             glib::idle_add_local_once(move || { pane.fit_width(); });
         } else {
             self.refit_drawing_area();
         }
+        // Wire scroll adjustment to fire page-changed (only wire once per load)
+        let pane = self.clone();
+        self.img_scroll.vadjustment().connect_value_changed(move |_| {
+            pane.fire_page_changed();
+        });
+        self.fire_page_changed();
     }
 
     fn refit_drawing_area(&self) {
@@ -462,97 +466,3 @@ impl PreviewPane {
     }
 }
 
-// ── Background workers ────────────────────────────────────────────────────────
-
-fn run_typst_compile(
-    root_file: &Path,
-    output_dir: &Path,
-    extra_args: &[String],
-) -> CompileResult {
-    if let Err(e) = std::fs::create_dir_all(output_dir) {
-        return CompileResult::Error(format!("Cannot create output dir: {e}"));
-    }
-
-    let pdf_path = output_dir.join("preview.pdf");
-    let typst = std::process::Command::new("typst")
-        .arg("compile")
-        .args(extra_args)
-        .args([
-            root_file.to_str().unwrap_or(""),
-            pdf_path.to_str().unwrap_or(""),
-        ])
-        .current_dir(root_file.parent().unwrap_or(Path::new(".")))
-        .output();
-
-    match typst {
-        Err(_) => CompileResult::Error(
-            "Could not run 'typst'.\n\nInstall it from https://typst.app\nor via your package manager.".into(),
-        ),
-        Ok(out) if !out.status.success() => {
-            let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
-            let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            CompileResult::Error(if !stderr.is_empty() { stderr } else { stdout })
-        }
-        Ok(_) => CompileResult::Success,
-    }
-}
-
-fn render_pdf_to_pngs(
-    pdf_path: &Path,
-    output_dir: &Path,
-    dpi: u32,
-) -> Result<Vec<PathBuf>, String> {
-    // Remove stale preview PNGs before rendering new ones
-    if let Ok(entries) = std::fs::read_dir(output_dir) {
-        for entry in entries.flatten() {
-            let name = entry.file_name().to_string_lossy().to_string();
-            if name.starts_with("preview-") && name.ends_with(".png") {
-                let _ = std::fs::remove_file(entry.path());
-            }
-        }
-    }
-
-    let dpi_str = dpi.to_string();
-    let png_prefix = output_dir.join("preview");
-    let out = std::process::Command::new("pdftoppm")
-        .args([
-            "-r", &dpi_str,
-            "-png",
-            pdf_path.to_str().unwrap_or(""),
-            png_prefix.to_str().unwrap_or(""),
-        ])
-        .output();
-
-    match out {
-        Err(_) => Err("Could not run 'pdftoppm'.\n\nInstall poppler-tools:\n  zypper install poppler-tools".to_string()),
-        Ok(o) if !o.status.success() => {
-            Err(format!("pdftoppm failed: {}", String::from_utf8_lossy(&o.stderr).trim()))
-        }
-        Ok(_) => {
-            let pages = collect_preview_pngs(output_dir);
-            if pages.is_empty() {
-                Err("No preview pages generated.".to_string())
-            } else {
-                Ok(pages)
-            }
-        }
-    }
-}
-
-fn collect_preview_pngs(output_dir: &Path) -> Vec<PathBuf> {
-    let mut pages: Vec<PathBuf> = std::fs::read_dir(output_dir)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter_map(|e| {
-            let name = e.file_name().to_string_lossy().to_string();
-            if name.starts_with("preview-") && name.ends_with(".png") {
-                Some(e.path())
-            } else {
-                None
-            }
-        })
-        .collect();
-    pages.sort();
-    pages
-}
