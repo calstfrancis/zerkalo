@@ -83,6 +83,7 @@ impl FileTree {
         scrolled.set_child(Some(&list_box));
         scrolled.set_vexpand(true);
         scrolled.set_min_content_width(200);
+        scrolled.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
         root_widget.append(&scrolled);
 
         let on_open: Callback<PathBuf> = Rc::new(RefCell::new(None));

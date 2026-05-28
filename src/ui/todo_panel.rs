@@ -71,6 +71,7 @@ impl TodoList {
         scroll.set_vexpand(true);
         scroll.set_margin_start(4);
         scroll.set_margin_end(4);
+        scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
 
         let list_box = ListBox::new();
         list_box.set_selection_mode(SelectionMode::None);

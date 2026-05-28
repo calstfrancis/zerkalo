@@ -72,6 +72,7 @@ impl RefManager {
 
         let scroll = ScrolledWindow::new();
         scroll.set_vexpand(true);
+        scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
         let list_box = ListBox::new();
         list_box.set_selection_mode(SelectionMode::None);
         list_box.add_css_class("navigation-sidebar");

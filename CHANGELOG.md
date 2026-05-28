@@ -74,6 +74,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.6.0] — 2026-05-28
+
+### Added
+- **Line spacing control** — Settings → Editor → Line spacing: Compact (0 px), Normal (2 px, default), Spacious (6 px); persisted in config
+- **Zen writing mode** — Focus button now dims the sidebar to 30 % opacity via a CSS transition instead of hiding it entirely; editor text gains 40 px left/right padding so the writing area feels centred
+- **Typewriter scrolling** — Settings → Editor → Typewriter scrolling; on every cursor move the view scrolls to keep the cursor at ~45 % from the top of the viewport; automatically disabled during mouse-selection drags
+- **Per-document word-count goal** — add `// @goal: 3000` anywhere in a `.typ` file to set a word target; a progress bar appears in the status bar showing progress toward the goal; bar is hidden when no goal is set
+- **Command palette** — `Ctrl+P` opens a fuzzy command palette listing all standard app commands and every heading in the current document; `↑`/`↓` navigates; `Enter` activates; `Esc` closes
+- **Selection word/sentence stats** — while text is selected the status bar replaces the word count with "N words, M sentences selected"; reverts to the document word count when selection is cleared
+- **High contrast mode** — Settings → Editor → High contrast mode; adds a `high-contrast` CSS class to the window that forces white-on-black in the editor text view; persisted in config
+- **Auto-pair brackets and quotes** — typing `(`, `[`, `{`, or `"` inserts the matching closing character and places the cursor between them; implemented as a single undo-able buffer action
+- **Save-before-close dialog** — closing the window with unsaved files now shows a modal listing each modified filename with **Save All**, **Discard**, and **Cancel** responses; "Save All" writes all modified buffers to disk before closing
+
+### Changed
+- **Horizontal scroll locked in word-wrap mode** — editor `ScrolledWindow` horizontal policy is set to `Never` when word wrap is active, eliminating the rightward cursor-follow drift; policy is updated when word wrap is toggled and when existing tabs are affected
+- **Sidebar scroll fixed** — all sidebar panels (reference manager, file tree, outline, search, todo) now enforce horizontal scroll policy `Never`, preventing unexpected rightward scroll when clicking items
+
+### Removed
+- **Git history panel** — the git-history sidebar panel has been removed; it was unreliable and of unclear value. Use `git log` in a terminal or a dedicated Git client for history browsing.
+
+### Fixed
+- **Update Template Settings** — the "Update Template Settings" flow no longer opens a file-save dialog; preamble is applied in-memory and written directly to the current file
+
+---
+
 ## [Unreleased]
 
 ---

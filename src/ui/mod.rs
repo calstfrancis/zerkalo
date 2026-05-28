@@ -1,4 +1,5 @@
 pub mod app_window;
+pub mod command_palette;
 pub mod bib_popup;
 pub mod dep_graph;
 pub mod docs_browser;
@@ -9,7 +10,6 @@ pub mod file_tree;
 pub mod find_bar;
 pub mod font_manager;
 pub mod help_window;
-pub mod history_panel;
 pub mod lsp_popup;
 pub mod outline_panel;
 pub mod package_browser;

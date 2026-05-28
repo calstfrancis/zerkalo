@@ -2,7 +2,7 @@
 
 A contemplative [Typst](https://typst.app) editor built with Rust, GTK4, and libadwaita.  
 Live preview · Academic styles · LSP completions · Git sync · Adwaita design.  
-**v0.5.0** — Animated find bar · Dark-mode syntax themes · Multi-remote Git push · Animated find bar · Style + filename label · Sidebar section headers
+**v0.6.0** — Command palette · Zen writing mode · Typewriter scrolling · Word-count goals · Auto-pair brackets · Save-before-close dialog
 
 ---
 
@@ -20,9 +20,16 @@ Live preview · Academic styles · LSP completions · Git sync · Adwaita design
 | **Find & Replace** | `Ctrl+F`; forward/backward; animated slide-in bar; replace one or all |
 | **Spell check** | Blue wavy underlines on misspelled prose words; right-click for suggestions, Ignore All; language selector in Settings; optional autocorrect on word boundary |
 | **Breadcrumb bar** | Heading path shown above the editor (e.g. "Introduction › Methods") updated as the cursor moves |
-| **Word count** | Live count and reading-time estimate in the status bar |
+| **Auto-pair brackets** | Typing `(`, `[`, `{`, or `"` inserts the closing character and positions the cursor between them |
+| **Typewriter scrolling** | Optional (Settings → Editor); cursor stays fixed at ~45 % from the top of the viewport |
+| **Line spacing** | Settings → Editor → Compact / Normal / Spacious |
+| **High contrast mode** | Settings → Editor → High contrast; forces white-on-black in the editor |
+| **Word count** | Live count and reading-time estimate in the status bar; selection shows "N words, M sentences selected" |
+| **Word-count goal** | Add `// @goal: 3000` in your file; a progress bar tracks progress in the status bar |
 | **Cursor position** | Line and column in the editor status bar |
+| **Command palette** | `Ctrl+P`; fuzzy search over app commands and document headings |
 | **Session restore** | Open files, active tab, and cursor positions are restored on next launch |
+| **Save-before-close** | Closing with unsaved files shows a dialog listing modified files with Save All / Discard / Cancel |
 | **Configurable keybindings** | Edit `~/.config/zerkalo/keybindings.toml` to remap any shortcut |
 
 ### Sidebar
@@ -149,6 +156,7 @@ All settings are also editable via **☰ → Settings** inside the app.
 | `Ctrl+Tab` | Next tab |
 | `Ctrl+Shift+Tab` | Previous tab |
 | `Ctrl+Shift+R` | Add reference (citation autocomplete) |
+| `Ctrl+P` | Command palette |
 | `Ctrl+Q` | Quit |
 | `@` | Citation popup (requires a `.bib` file) |
 | `#` | LSP completion popup (requires tinymist) |

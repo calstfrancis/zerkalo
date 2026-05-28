@@ -48,6 +48,7 @@ impl SearchPanel {
         let scroll = ScrolledWindow::new();
         scroll.set_max_content_height(220);
         scroll.set_propagate_natural_height(true);
+        scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
 
         let results = ListBox::new();
         results.set_selection_mode(SelectionMode::Single);

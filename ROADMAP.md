@@ -1,6 +1,6 @@
 # Zerkalo — Roadmap
 
-Current release: **0.4.0** (2026-05-28)
+Current release: **0.6.0** (2026-05-28)
 
 ---
 
@@ -74,20 +74,35 @@ Current release: **0.4.0** (2026-05-28)
 - Removed stale typst-CLI startup check (compiler is now embedded)
 - `[profile.dev] debug = 1` in Cargo.toml — debug builds ~40 % smaller
 
+### 0.6.0
+- Command palette (`Ctrl+P`) — fuzzy search over app commands and document headings
+- Zen writing mode — Focus button dims sidebar via CSS opacity transition; editor padding
+- Typewriter scrolling — cursor pinned to 45 % from top; guards against selection-drag conflict
+- Per-document word-count goal — `// @goal: N` comment + status bar progress bar
+- Selection stats — "N words, M sentences selected" in status bar while text is selected
+- Line spacing control — Compact / Normal / Spacious in Settings → Editor
+- High contrast mode — white-on-black editor CSS; persisted in config
+- Auto-pair brackets and quotes — `(`, `[`, `{`, `"` insert matching closer and position cursor
+- Save-before-close dialog — lists unsaved files; Save All / Discard / Cancel
+- Horizontal scroll locked in word-wrap mode; all sidebar panels also locked horizontally
+- Git history panel removed
+- Update Template Settings — applies in-memory without file-save dialog
+
 ---
 
-## Near-term (0.5.0)
+## Near-term (0.7.0)
 
 ### Export
 - **EPUB metadata**: title, author, cover image fields in Export dialog
 - **Custom export profiles**: save frequently-used pandoc flag combinations
 
 ### Template improvements
+- Per-style title-page formatting in the Style switcher (manual Typst title layout per citation style)
 - Shared template-spec schema with Gost toolchain
 
 ---
 
-## Medium-term (0.5.0)
+## Medium-term (0.8.0)
 
 ### Collaboration
 - Basic conflict-free file watching: detect external edits and offer to reload

@@ -7,12 +7,12 @@ use std::time::Duration;
 use gtk4::prelude::*;
 use gtk4::{
     Box as GtkBox, Button, CssProvider, DropTarget, EventControllerKey, GestureClick, Label,
-    Notebook, Orientation, Popover, PropagationPhase, ScrolledWindow, Separator, TextSearchFlags,
-    TextTag, TextWindowType,
+    Notebook, Orientation, Popover, ProgressBar, PropagationPhase, ScrolledWindow, Separator,
+    TextSearchFlags, TextTag, TextWindowType,
 };
 use libadwaita as adw;
 use sourceview5::prelude::*;
-use sourceview5::{Buffer, LanguageManager, Map, StyleSchemeManager, View};
+use sourceview5::{Buffer, LanguageManager, StyleSchemeManager, View};
 
 use crate::bibliography::BibEntry;
 use crate::lsp::CompletionItem;
@@ -132,8 +132,6 @@ struct EditorState {
 pub struct EditorPane {
     outer: GtkBox,
     notebook: Notebook,
-    map: Map,
-    map_sep: gtk4::Separator,
     state: Rc<RefCell<EditorState>>,
     on_change: Rc<RefCell<Option<Box<dyn Fn()>>>>,
     on_modified_changed: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
@@ -150,11 +148,19 @@ pub struct EditorPane {
     show_whitespace: Rc<RefCell<bool>>,
     tab_width: Rc<RefCell<u32>>,
     find_bar: FindBar,
+    undo_btn: Button,
+    redo_btn: Button,
     word_count_label: Label,
+    goal_bar: ProgressBar,
     lsp_status_label: Label,
     cursor_label: Label,
     breadcrumb_label: Label,
+    tab_dropdown_btn: Button,
     spell_checker: Rc<RefCell<crate::spellcheck::SpellChecker>>,
+    line_spacing: Rc<RefCell<u32>>,
+    typewriter_scroll: Rc<RefCell<bool>>,
+    word_count_goal: Rc<RefCell<u32>>,
+    last_wc_text: Rc<RefCell<String>>,
 }
 
 impl EditorPane {
@@ -204,6 +210,23 @@ impl EditorPane {
         let status_bar = GtkBox::new(Orientation::Horizontal, 0);
         status_bar.set_hexpand(true);
 
+        let undo_btn = Button::from_icon_name("edit-undo-symbolic");
+        undo_btn.add_css_class("flat");
+        undo_btn.set_tooltip_text(Some("Undo (Ctrl+Z)"));
+        undo_btn.set_sensitive(false);
+        undo_btn.set_margin_start(4);
+        undo_btn.set_margin_top(2);
+        undo_btn.set_margin_bottom(2);
+        status_bar.append(&undo_btn);
+
+        let redo_btn = Button::from_icon_name("edit-redo-symbolic");
+        redo_btn.add_css_class("flat");
+        redo_btn.set_tooltip_text(Some("Redo (Ctrl+Shift+Z)"));
+        redo_btn.set_sensitive(false);
+        redo_btn.set_margin_top(2);
+        redo_btn.set_margin_bottom(2);
+        status_bar.append(&redo_btn);
+
         let cursor_label = Label::new(Some("L1:C1"));
         cursor_label.add_css_class("dim-label");
         cursor_label.add_css_class("caption");
@@ -226,10 +249,18 @@ impl EditorPane {
         word_count_label.add_css_class("caption");
         word_count_label.set_hexpand(true);
         word_count_label.set_xalign(1.0);
-        word_count_label.set_margin_end(12);
+        word_count_label.set_margin_end(8);
         word_count_label.set_margin_top(3);
         word_count_label.set_margin_bottom(3);
         status_bar.append(&word_count_label);
+
+        let goal_bar = ProgressBar::new();
+        goal_bar.set_visible(false);
+        goal_bar.set_valign(gtk4::Align::Center);
+        goal_bar.set_size_request(80, -1);
+        goal_bar.set_margin_end(8);
+        goal_bar.set_tooltip_text(Some("Word count progress toward goal"));
+        status_bar.append(&goal_bar);
 
         let breadcrumb_label = Label::new(Some(""));
         breadcrumb_label.add_css_class("dim-label");
@@ -241,24 +272,20 @@ impl EditorPane {
         breadcrumb_label.set_xalign(0.0);
         breadcrumb_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
 
+        let tab_dropdown_btn = Button::from_icon_name("pan-down-symbolic");
+        tab_dropdown_btn.add_css_class("flat");
+        tab_dropdown_btn.set_tooltip_text(Some("Open tabs"));
+        tab_dropdown_btn.set_margin_end(4);
+        tab_dropdown_btn.set_valign(gtk4::Align::Center);
+
         let breadcrumb_bar = GtkBox::new(Orientation::Horizontal, 0);
         breadcrumb_bar.append(&breadcrumb_label);
-
-        let map = Map::new();
-        map.set_width_request(100);
-        map.set_hexpand(false);
-        map.set_vexpand(true);
-        map.set_visible(false);
-
-        let map_sep = gtk4::Separator::new(Orientation::Vertical);
-        map_sep.set_visible(false);
+        breadcrumb_bar.append(&tab_dropdown_btn);
 
         let editor_row = GtkBox::new(Orientation::Horizontal, 0);
         editor_row.set_hexpand(true);
         editor_row.set_vexpand(true);
         editor_row.append(&notebook);
-        editor_row.append(&map_sep);
-        editor_row.append(&map);
 
         let outer = GtkBox::new(Orientation::Vertical, 0);
         outer.set_hexpand(true);
@@ -287,12 +314,17 @@ impl EditorPane {
         let word_wrap: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
         let show_whitespace: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
         let tab_width: Rc<RefCell<u32>> = Rc::new(RefCell::new(2));
+        let line_spacing: Rc<RefCell<u32>> = Rc::new(RefCell::new(2));
+        let typewriter_scroll: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
+        let word_count_goal: Rc<RefCell<u32>> = Rc::new(RefCell::new(0));
+        let last_wc_text: Rc<RefCell<String>> = Rc::new(RefCell::new(String::new()));
 
         {
             let state2 = state.clone();
             let wc = word_count_label.clone();
             let ps = on_page_switch.clone();
-            let map_c = map.clone();
+            let ub = undo_btn.clone();
+            let rb = redo_btn.clone();
             notebook.connect_switch_page(move |nb, _, page_num| {
                 let bstate = state2.borrow();
                 for (path, tab) in &bstate.tabs {
@@ -300,7 +332,8 @@ impl EditorPane {
                         let (s, e) = tab.buffer.bounds();
                         let content = tab.buffer.text(&s, &e, false).to_string();
                         set_wc_text(&wc, &content);
-                        map_c.set_view(&tab.view);
+                        ub.set_sensitive(tab.buffer.can_undo());
+                        rb.set_sensitive(tab.buffer.can_redo());
                         if let Some(f) = ps.borrow().as_ref() {
                             f(content, path.clone());
                         }
@@ -313,8 +346,6 @@ impl EditorPane {
         let ep = Self {
             outer,
             notebook,
-            map,
-            map_sep,
             state,
             on_change,
             on_modified_changed,
@@ -331,13 +362,49 @@ impl EditorPane {
             show_whitespace,
             tab_width,
             find_bar,
+            undo_btn,
+            redo_btn,
             word_count_label,
+            goal_bar,
             lsp_status_label,
             cursor_label,
             breadcrumb_label,
+            tab_dropdown_btn,
             spell_checker: Rc::new(RefCell::new(crate::spellcheck::SpellChecker::new("en_US"))),
+            line_spacing,
+            typewriter_scroll,
+            word_count_goal,
+            last_wc_text,
         };
 
+        {
+            let state_u = ep.state.clone();
+            let nb_u = ep.notebook.clone();
+            ep.undo_btn.connect_clicked(move |_| {
+                let current = nb_u.current_page().unwrap_or(0);
+                let state = state_u.borrow();
+                for tab in state.tabs.values() {
+                    if nb_u.page_num(&tab.scroll_window) == Some(current) {
+                        tab.buffer.undo();
+                        break;
+                    }
+                }
+            });
+        }
+        {
+            let state_r = ep.state.clone();
+            let nb_r = ep.notebook.clone();
+            ep.redo_btn.connect_clicked(move |_| {
+                let current = nb_r.current_page().unwrap_or(0);
+                let state = state_r.borrow();
+                for tab in state.tabs.values() {
+                    if nb_r.page_num(&tab.scroll_window) == Some(current) {
+                        tab.buffer.redo();
+                        break;
+                    }
+                }
+            });
+        }
         {
             let ep2 = ep.clone();
             ep.find_bar.set_on_search(move |text, forward| ep2.do_find(text, forward));
@@ -349,6 +416,56 @@ impl EditorPane {
         {
             let ep2 = ep.clone();
             ep.find_bar.set_on_replace_all(move |find, replace| ep2.do_replace_all(find, replace));
+        }
+
+        // Tab dropdown: show popover listing all open tabs
+        {
+            let ep2 = ep.clone();
+            let btn = ep.tab_dropdown_btn.clone();
+            btn.connect_clicked(move |b| {
+                let popover = Popover::new();
+                popover.set_parent(b);
+                let vbox = GtkBox::new(Orientation::Vertical, 0);
+                vbox.set_margin_top(4);
+                vbox.set_margin_bottom(4);
+
+                let state = ep2.state.borrow();
+                let mut pages: Vec<(u32, &std::path::Path)> = state.tabs.iter()
+                    .filter_map(|(path, tab)| {
+                        ep2.notebook.page_num(&tab.scroll_window).map(|n| (n, path.as_path()))
+                    })
+                    .collect();
+                pages.sort_by_key(|(n, _)| *n);
+
+                for (n, path) in pages {
+                    let name = path.file_name()
+                        .and_then(|f| f.to_str())
+                        .unwrap_or("untitled")
+                        .to_string();
+                    let row_btn = Button::with_label(&name);
+                    row_btn.add_css_class("flat");
+                    let nb = ep2.notebook.clone();
+                    let pop = popover.clone();
+                    row_btn.connect_clicked(move |_| {
+                        nb.set_current_page(Some(n));
+                        pop.popdown();
+                    });
+                    vbox.append(&row_btn);
+                }
+
+                if vbox.first_child().is_none() {
+                    let lbl = Label::new(Some("No open files"));
+                    lbl.add_css_class("dim-label");
+                    lbl.set_margin_start(8);
+                    lbl.set_margin_end(8);
+                    vbox.append(&lbl);
+                }
+
+                popover.set_child(Some(&vbox));
+                let pop_close = popover.clone();
+                popover.connect_closed(move |_| pop_close.unparent());
+                popover.popup();
+            });
         }
 
         ep
@@ -388,9 +505,15 @@ impl EditorPane {
     pub fn apply_word_wrap(&self, enabled: bool) {
         *self.word_wrap.borrow_mut() = enabled;
         let mode = if enabled { gtk4::WrapMode::Word } else { gtk4::WrapMode::None };
+        let hpol = if enabled {
+            gtk4::PolicyType::Never
+        } else {
+            gtk4::PolicyType::Automatic
+        };
         let state = self.state.borrow();
         for tab in state.tabs.values() {
             tab.view.set_wrap_mode(mode);
+            tab.scroll_window.set_policy(hpol, gtk4::PolicyType::Automatic);
         }
     }
 
@@ -412,6 +535,30 @@ impl EditorPane {
         }
     }
 
+    pub fn apply_line_spacing(&self, spacing: u32) {
+        *self.line_spacing.borrow_mut() = spacing;
+        let state = self.state.borrow();
+        for tab in state.tabs.values() {
+            set_view_line_spacing(&tab.view, spacing);
+        }
+    }
+
+    pub fn apply_typewriter_scroll(&self, enabled: bool) {
+        *self.typewriter_scroll.borrow_mut() = enabled;
+    }
+
+    #[allow(dead_code)]
+    pub fn apply_word_count_goal(&self, goal: u32) {
+        *self.word_count_goal.borrow_mut() = goal;
+        if goal == 0 {
+            self.goal_bar.set_visible(false);
+        } else {
+            if let Some(text) = self.get_active_content() {
+                update_goal_bar(&self.goal_bar, &text, goal);
+            }
+        }
+    }
+
     pub fn apply_style_scheme(&self, is_dark: bool) {
         let candidates: &[&str] = if is_dark {
             &["Adwaita-dark", "oblivion", "solarized-dark", "classic-dark"]
@@ -430,11 +577,6 @@ impl EditorPane {
 
     pub fn toggle_find(&self) {
         self.find_bar.toggle();
-    }
-
-    pub fn set_minimap_visible(&self, visible: bool) {
-        self.map.set_visible(visible);
-        self.map_sep.set_visible(visible);
     }
 
     pub fn do_find(&self, text: &str, forward: bool) {
@@ -757,6 +899,7 @@ impl EditorPane {
         let wrap_mode = if *self.word_wrap.borrow() { gtk4::WrapMode::Word } else { gtk4::WrapMode::None };
         view.set_wrap_mode(wrap_mode);
         apply_space_drawer(&view, *self.show_whitespace.borrow());
+        set_view_line_spacing(&view, *self.line_spacing.borrow());
 
         // ── Image drag-and-drop ───────────────────────────────────────────────
         {
@@ -786,6 +929,13 @@ impl EditorPane {
         scroll.set_child(Some(&view));
         scroll.set_hexpand(true);
         scroll.set_vexpand(true);
+        // When word wrap is on, there is nothing to the right — lock horizontal scroll.
+        let hpol = if *self.word_wrap.borrow() {
+            gtk4::PolicyType::Never
+        } else {
+            gtk4::PolicyType::Automatic
+        };
+        scroll.set_policy(hpol, gtk4::PolicyType::Automatic);
 
         // ── Tab label ─────────────────────────────────────────────────────────
 
@@ -820,6 +970,9 @@ impl EditorPane {
         let on_change_cb = self.on_change.clone();
         let on_modified_cb = self.on_modified_changed.clone();
         let wc_for_change = self.word_count_label.clone();
+        let goal_for_change = self.goal_bar.clone();
+        let goal_val_for_change = self.word_count_goal.clone();
+        let last_wc_for_change = self.last_wc_text.clone();
         buffer.connect_changed(move |buf| {
             let newly_modified = {
                 let mut state = state_for_change.borrow_mut();
@@ -836,7 +989,13 @@ impl EditorPane {
             }
             let (s, e) = buf.bounds();
             let text = buf.text(&s, &e, false);
-            set_wc_text(&wc_for_change, &text);
+            let goal = *goal_val_for_change.borrow();
+            if goal > 0 {
+                update_goal_bar(&goal_for_change, &text, goal);
+            }
+            let wc_str = wc_str_for(&text);
+            *last_wc_for_change.borrow_mut() = wc_str.clone();
+            wc_for_change.set_text(&wc_str);
             if let Some(f) = on_change_cb.borrow().as_ref() { f(); }
             // Defer comment highlight to next idle frame
             let buf_c = buf.clone();
@@ -846,10 +1005,14 @@ impl EditorPane {
         // ── Cursor position tracking + heading detection ──────────────────────
 
         let cursor_lbl = self.cursor_label.clone();
+        let wc_lbl_for_sel = self.word_count_label.clone();
+        let last_wc_for_mark = self.last_wc_text.clone();
         let breadcrumb_lbl = self.breadcrumb_label.clone();
         let on_heading_cb = self.on_cursor_heading.clone();
         let path_for_heading = path.clone();
         let last_heading_line: Rc<RefCell<u32>> = Rc::new(RefCell::new(u32::MAX));
+        let typewriter_for_mark = self.typewriter_scroll.clone();
+        let view_for_typewriter = view.clone();
         buffer.connect_mark_set(move |buf, _iter, mark| {
             if mark.name().as_deref() == Some("insert") {
                 let cursor = buf.iter_at_mark(mark);
@@ -857,6 +1020,34 @@ impl EditorPane {
                 let col = cursor.line_offset() + 1;
                 cursor_lbl.set_text(&format!("L{line}:C{col}"));
                 cursor_lbl.set_tooltip_text(Some(&format!("Line {line}, Column {col}")));
+
+                // Selection word/sentence stats — use cached wc to avoid reading entire buffer
+                if let Some((sel_s, sel_e)) = buf.selection_bounds() {
+                    let sel_text = buf.text(&sel_s, &sel_e, false).to_string();
+                    let word_count = sel_text.split_whitespace().count();
+                    let sentence_count = sel_text
+                        .split(|c: char| matches!(c, '.' | '!' | '?'))
+                        .filter(|s| !s.trim().is_empty())
+                        .count();
+                    wc_lbl_for_sel.set_text(&format!(
+                        "{word_count} words, {sentence_count} sentences selected"
+                    ));
+                } else {
+                    // Restore cached word count — no full buffer read needed
+                    let cached = last_wc_for_mark.borrow().clone();
+                    if !cached.is_empty() {
+                        wc_lbl_for_sel.set_text(&cached);
+                    }
+                }
+
+                // Typewriter scroll: keep cursor centred; skip during drag selection
+                if *typewriter_for_mark.borrow() && !buf.has_selection() {
+                    let mut c = cursor.clone();
+                    let vt = view_for_typewriter.clone();
+                    glib::idle_add_local_once(move || {
+                        vt.scroll_to_iter(&mut c, 0.0, true, 0.0, 0.45);
+                    });
+                }
 
                 // Update breadcrumb heading path
                 let heading_path = build_heading_path(buf, cursor.line());
@@ -874,6 +1065,18 @@ impl EditorPane {
                 }
             }
         });
+
+        // ── Undo / Redo sensitivity ───────────────────────────────────────────
+        {
+            let ub = self.undo_btn.clone();
+            buffer.connect_can_undo_notify(move |buf| {
+                ub.set_sensitive(buf.can_undo());
+            });
+            let rb = self.redo_btn.clone();
+            buffer.connect_can_redo_notify(move |buf| {
+                rb.set_sensitive(buf.can_redo());
+            });
+        }
 
         // ── @-citation autocomplete ───────────────────────────────────────────
 
@@ -1194,6 +1397,46 @@ impl EditorPane {
         });
         view.add_controller(key_ctrl);
 
+        // ── Auto-pair brackets and quotes ─────────────────────────────────────
+        {
+            let buf_pair = buffer.clone();
+            let pair_ctrl = EventControllerKey::new();
+            pair_ctrl.set_propagation_phase(PropagationPhase::Capture);
+            pair_ctrl.connect_key_pressed(move |_, key, _, mods| {
+                use gtk4::gdk::Key;
+                // Don't interfere when modifier keys are held (shortcuts)
+                if mods.intersects(
+                    gtk4::gdk::ModifierType::CONTROL_MASK | gtk4::gdk::ModifierType::ALT_MASK,
+                ) {
+                    return glib::Propagation::Proceed;
+                }
+                // Don't auto-pair when there is a selection
+                if buf_pair.has_selection() {
+                    return glib::Propagation::Proceed;
+                }
+                let pair = match key {
+                    Key::parenleft      => Some(("(", ")")),
+                    Key::bracketleft    => Some(("[", "]")),
+                    Key::braceleft      => Some(("{", "}")),
+                    Key::quotedbl       => Some(("\"", "\"")),
+                    _ => None,
+                };
+                if let Some((open, close)) = pair {
+                    buf_pair.begin_user_action();
+                    buf_pair.insert_at_cursor(open);
+                    buf_pair.insert_at_cursor(close);
+                    // Move cursor back one character to sit between the pair
+                    let pos = buf_pair.cursor_position();
+                    let iter = buf_pair.iter_at_offset(pos - 1);
+                    buf_pair.place_cursor(&iter);
+                    buf_pair.end_user_action();
+                    return glib::Propagation::Stop;
+                }
+                glib::Propagation::Proceed
+            });
+            view.add_controller(pair_ctrl);
+        }
+
         // ── Spell check: debounced buffer check ───────────────────────────────
 
         {
@@ -1447,7 +1690,7 @@ impl EditorPane {
 
         let path_for_callback = path.clone();
         let content_for_callback = content.to_string();
-        let view_for_map = view.clone();
+
 
         self.state.borrow_mut().tabs.insert(
             path,
@@ -1461,9 +1704,14 @@ impl EditorPane {
             },
         );
 
-        self.map.set_view(&view_for_map);
         self.notebook.set_current_page(Some(page_index));
         set_wc_text(&self.word_count_label, content);
+
+        // Parse per-document goal from `// @zerkalo-goal: N`
+        if let Some(goal) = parse_goal_comment(content) {
+            *self.word_count_goal.borrow_mut() = goal;
+            update_goal_bar(&self.goal_bar, content, goal);
+        }
 
         // Explicitly fire page_switch so title/outline update even when this is
         // the first tab (connect_switch_page fires before the tab is in state.tabs).
@@ -1643,14 +1891,15 @@ impl EditorPane {
         self.notebook.set_current_page(Some(prev));
     }
 
-    /// Jump to the first occurrence of `text` in the active buffer.
+    /// Jump to the first occurrence of `text` in the active buffer, select it, and scroll to centre.
     pub fn jump_to_text(&self, text: &str) {
         let Some((view, buffer)) = self.active_view_buffer() else { return };
         let flags = TextSearchFlags::TEXT_ONLY | TextSearchFlags::CASE_INSENSITIVE;
         let start_iter = buffer.start_iter();
         if let Some((s, e)) = start_iter.forward_search(text, flags, None) {
-            buffer.select_range(&e, &s);
-            view.scroll_to_iter(&mut s.clone(), 0.1, false, 0.0, 0.5);
+            buffer.select_range(&s, &e);
+            view.scroll_to_iter(&mut s.clone(), 0.0, true, 0.0, 0.5);
+            view.grab_focus();
         }
     }
 
@@ -1821,10 +2070,14 @@ fn lsp_hash_prefix(buffer: &Buffer) -> String {
     String::new()
 }
 
-fn set_wc_text(label: &Label, text: &str) {
+fn wc_str_for(text: &str) -> String {
     let words = count_content_words(text);
     let reading = if words < 200 { "< 1 min".to_string() } else { format!("{} min", words / 200) };
-    label.set_text(&format!("{words} words · {reading} read"));
+    format!("{words} words · {reading} read")
+}
+
+fn set_wc_text(label: &Label, text: &str) {
+    label.set_text(&wc_str_for(text));
 }
 
 fn count_content_words(text: &str) -> usize {
@@ -2090,6 +2343,35 @@ fn do_bib_complete(
     popup.hide();
     view.grab_focus();
     *completing.borrow_mut() = false;
+}
+
+fn set_view_line_spacing(view: &View, spacing: u32) {
+    view.set_pixels_above_lines(spacing as i32);
+    view.set_pixels_below_lines(spacing as i32);
+}
+
+fn update_goal_bar(bar: &ProgressBar, text: &str, goal: u32) {
+    if goal == 0 {
+        bar.set_visible(false);
+        return;
+    }
+    let words = count_content_words(text);
+    let fraction = (words as f64 / goal as f64).min(1.0);
+    bar.set_fraction(fraction);
+    bar.set_visible(true);
+    bar.set_tooltip_text(Some(&format!("{words} / {goal} words ({:.0}%)", fraction * 100.0)));
+}
+
+fn parse_goal_comment(content: &str) -> Option<u32> {
+    for line in content.lines().take(20) {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("// @zerkalo-goal:") {
+            if let Ok(n) = rest.trim().parse::<u32>() {
+                return Some(n);
+            }
+        }
+    }
+    None
 }
 
 fn apply_space_drawer(view: &View, enabled: bool) {
