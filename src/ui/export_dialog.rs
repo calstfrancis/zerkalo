@@ -106,7 +106,7 @@ impl ExportDialog {
                 std::thread::spawn(move || {
                     let val = match fmt_idx {
                         1 => {
-                            // HTML via typst compile --format html
+                            // HTML via typst CLI (not available via embedded compiler)
                             let out_path = out_dir_owned.join(format!("{stem}.html"));
                             let result = std::process::Command::new("typst")
                                 .arg("compile")
@@ -117,8 +117,14 @@ impl ExportDialog {
                                 .output();
                             match result {
                                 Ok(o) if o.status.success() => Ok(()),
-                                Ok(o) => Err(String::from_utf8_lossy(&o.stderr).to_string()),
-                                Err(e) => Err(format!("typst not found: {e}")),
+                                Ok(o) => {
+                                    let msg = String::from_utf8_lossy(&o.stderr).to_string();
+                                    Err(if msg.is_empty() { "HTML export failed".to_string() } else { msg })
+                                }
+                                Err(_) => Err(
+                                    "HTML export requires the typst CLI.\n\
+                                     Install it with: cargo install typst-cli".to_string()
+                                ),
                             }
                         }
                         2 => {

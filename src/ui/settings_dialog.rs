@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use gtk4::prelude::*;
-use gtk4::{Align, Button};
+use gtk4::{Align, Button, Label, Notebook};
 use libadwaita as adw;
 use adw::prelude::*;
 
@@ -21,6 +21,7 @@ impl SettingsDialog {
             .transient_for(parent)
             .modal(true)
             .default_width(480)
+            .default_height(520)
             .resizable(false)
             .build();
 
@@ -38,8 +39,9 @@ impl SettingsDialog {
         save_btn.add_css_class("suggested-action");
         header.pack_end(&save_btn);
 
-        // ── Folders group ────────────────────────────────────────────────────
+        // ── Groups ───────────────────────────────────────────────────────────
 
+        // Folders
         let folders_group = adw::PreferencesGroup::new();
         folders_group.set_title("Folders");
 
@@ -55,17 +57,13 @@ impl SettingsDialog {
         work_dir_btn.connect_clicked(move |_| {
             let row = work_dir_row_c.clone();
             let fd = gtk4::FileDialog::new();
-            fd.select_folder(
-                Some(&win_c),
-                None::<&gtk4::gio::Cancellable>,
-                move |result| {
-                    if let Ok(file) = result {
-                        if let Some(path) = file.path() {
-                            row.set_text(path.to_str().unwrap_or(""));
-                        }
+            fd.select_folder(Some(&win_c), None::<&gtk4::gio::Cancellable>, move |result| {
+                if let Ok(file) = result {
+                    if let Some(path) = file.path() {
+                        row.set_text(path.to_str().unwrap_or(""));
                     }
-                },
-            );
+                }
+            });
         });
         work_dir_row.add_suffix(&work_dir_btn);
         folders_group.add(&work_dir_row);
@@ -73,9 +71,7 @@ impl SettingsDialog {
         let output_dir_row = adw::EntryRow::new();
         output_dir_row.set_title("Output folder");
         output_dir_row.set_text(
-            current.output_dir.as_deref()
-                .and_then(|p| p.to_str())
-                .unwrap_or(""),
+            current.output_dir.as_deref().and_then(|p| p.to_str()).unwrap_or(""),
         );
 
         let output_dir_btn = Button::from_icon_name("document-open-symbolic");
@@ -86,57 +82,35 @@ impl SettingsDialog {
         output_dir_btn.connect_clicked(move |_| {
             let row = output_dir_row_c.clone();
             let fd = gtk4::FileDialog::new();
-            fd.select_folder(
-                Some(&win_c2),
-                None::<&gtk4::gio::Cancellable>,
-                move |result| {
-                    if let Ok(file) = result {
-                        if let Some(path) = file.path() {
-                            row.set_text(path.to_str().unwrap_or(""));
-                        }
+            fd.select_folder(Some(&win_c2), None::<&gtk4::gio::Cancellable>, move |result| {
+                if let Ok(file) = result {
+                    if let Some(path) = file.path() {
+                        row.set_text(path.to_str().unwrap_or(""));
                     }
-                },
-            );
+                }
+            });
         });
         output_dir_row.add_suffix(&output_dir_btn);
         folders_group.add(&output_dir_row);
 
-        // ── Bibliography group ───────────────────────────────────────────────
+        // Compilation
+        let compile_group = adw::PreferencesGroup::new();
+        compile_group.set_title("Compilation");
 
-        let bib_group = adw::PreferencesGroup::new();
-        bib_group.set_title("Bibliography");
+        let debounce_spin = adw::SpinRow::with_range(100.0, 5000.0, 50.0);
+        debounce_spin.set_title("Debounce");
+        debounce_spin.set_subtitle("Milliseconds before recompile");
+        debounce_spin.set_value(current.debounce_ms as f64);
 
-        let bib_row = adw::EntryRow::new();
-        bib_row.set_title("Bib file");
-        if let Some(ref p) = current.bib_path {
-            bib_row.set_text(p.to_str().unwrap_or(""));
-        }
+        let auto_row = adw::SwitchRow::new();
+        auto_row.set_title("Auto-compile");
+        auto_row.set_subtitle("Recompile automatically on change");
+        auto_row.set_active(current.auto_compile);
 
-        let browse_btn = Button::from_icon_name("document-open-symbolic");
-        browse_btn.set_valign(Align::Center);
-        browse_btn.add_css_class("flat");
-        let bib_row_browse = bib_row.clone();
-        let window_browse = window.clone();
-        browse_btn.connect_clicked(move |_| {
-            let row = bib_row_browse.clone();
-            let fd = gtk4::FileDialog::new();
-            fd.open(
-                Some(&window_browse),
-                None::<&gtk4::gio::Cancellable>,
-                move |result| {
-                    if let Ok(file) = result {
-                        if let Some(path) = file.path() {
-                            row.set_text(path.to_str().unwrap_or(""));
-                        }
-                    }
-                },
-            );
-        });
-        bib_row.add_suffix(&browse_btn);
-        bib_group.add(&bib_row);
+        compile_group.add(&debounce_spin);
+        compile_group.add(&auto_row);
 
-        // ── Appearance group ─────────────────────────────────────────────────
-
+        // Appearance
         let editor_group = adw::PreferencesGroup::new();
         editor_group.set_title("Appearance");
 
@@ -150,11 +124,9 @@ impl SettingsDialog {
             Theme::Dark => 2u32,
         };
         theme_row.set_selected(theme_idx);
-
         editor_group.add(&theme_row);
 
-        // ── Editor group ─────────────────────────────────────────────────────
-
+        // Editor
         let font_group = adw::PreferencesGroup::new();
         font_group.set_title("Editor");
 
@@ -189,26 +161,36 @@ impl SettingsDialog {
         font_group.add(&wrap_row);
         font_group.add(&ws_row);
 
-        // ── Compilation group ────────────────────────────────────────────────
+        // Bibliography
+        let bib_group = adw::PreferencesGroup::new();
+        bib_group.set_title("Bibliography");
 
-        let compile_group = adw::PreferencesGroup::new();
-        compile_group.set_title("Compilation");
+        let bib_row = adw::EntryRow::new();
+        bib_row.set_title("Bib file");
+        if let Some(ref p) = current.bib_path {
+            bib_row.set_text(p.to_str().unwrap_or(""));
+        }
 
-        let debounce_spin = adw::SpinRow::with_range(100.0, 5000.0, 50.0);
-        debounce_spin.set_title("Debounce");
-        debounce_spin.set_subtitle("Milliseconds before recompile");
-        debounce_spin.set_value(current.debounce_ms as f64);
+        let browse_btn = Button::from_icon_name("document-open-symbolic");
+        browse_btn.set_valign(Align::Center);
+        browse_btn.add_css_class("flat");
+        let bib_row_browse = bib_row.clone();
+        let window_browse = window.clone();
+        browse_btn.connect_clicked(move |_| {
+            let row = bib_row_browse.clone();
+            let fd = gtk4::FileDialog::new();
+            fd.open(Some(&window_browse), None::<&gtk4::gio::Cancellable>, move |result| {
+                if let Ok(file) = result {
+                    if let Some(path) = file.path() {
+                        row.set_text(path.to_str().unwrap_or(""));
+                    }
+                }
+            });
+        });
+        bib_row.add_suffix(&browse_btn);
+        bib_group.add(&bib_row);
 
-        let auto_row = adw::SwitchRow::new();
-        auto_row.set_title("Auto-compile");
-        auto_row.set_subtitle("Recompile automatically on change");
-        auto_row.set_active(current.auto_compile);
-
-        compile_group.add(&debounce_spin);
-        compile_group.add(&auto_row);
-
-        // ── Spell check group ────────────────────────────────────────────────
-
+        // Spell check
         let spell_group = adw::PreferencesGroup::new();
         spell_group.set_title("Spell Check");
 
@@ -237,21 +219,32 @@ impl SettingsDialog {
         spell_group.add(&spell_autocorrect_row);
         spell_group.add(&lang_row);
 
-        // ── Preferences page ─────────────────────────────────────────────────
+        // ── Tabs ─────────────────────────────────────────────────────────────
 
-        let page = adw::PreferencesPage::new();
-        page.add(&folders_group);
-        page.add(&editor_group);
-        page.add(&font_group);
-        page.add(&compile_group);
-        page.add(&spell_group);
-        page.add(&bib_group);
+        let notebook = Notebook::new();
+        notebook.set_tab_pos(gtk4::PositionType::Top);
+        notebook.set_vexpand(true);
+
+        let page_general = adw::PreferencesPage::new();
+        page_general.add(&folders_group);
+        page_general.add(&compile_group);
+        notebook.append_page(&page_general, Some(&Label::new(Some("General"))));
+
+        let page_editor = adw::PreferencesPage::new();
+        page_editor.add(&editor_group);
+        page_editor.add(&font_group);
+        notebook.append_page(&page_editor, Some(&Label::new(Some("Editor"))));
+
+        let page_extras = adw::PreferencesPage::new();
+        page_extras.add(&bib_group);
+        page_extras.add(&spell_group);
+        notebook.append_page(&page_extras, Some(&Label::new(Some("Extras"))));
 
         // ── Toolbar view ─────────────────────────────────────────────────────
 
         let toolbar_view = adw::ToolbarView::new();
         toolbar_view.add_top_bar(&header);
-        toolbar_view.set_content(Some(&page));
+        toolbar_view.set_content(Some(&notebook));
         window.set_content(Some(&toolbar_view));
 
         // ── Wiring ──────────────────────────────────────────────────────────
@@ -261,6 +254,7 @@ impl SettingsDialog {
 
         let on_save_cb = on_save.clone();
         let recent_files_cur = current.recent_files.clone();
+        let recent_projects_cur = current.recent_projects.clone();
         let preview_zoom_cur = current.preview_zoom;
         let win_save = window.clone();
         save_btn.connect_clicked(move |_| {
@@ -312,6 +306,7 @@ impl SettingsDialog {
                 work_dir,
                 output_dir,
                 recent_files: recent_files_cur.clone(),
+                recent_projects: recent_projects_cur.clone(),
                 bib_path,
                 debounce_ms: debounce_spin.value() as u64,
                 auto_compile: auto_row.is_active(),

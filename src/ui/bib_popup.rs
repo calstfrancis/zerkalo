@@ -204,21 +204,32 @@ impl BibPopup {
         let key_lbl = Label::new(Some(&format!("@{}", entry.key)));
         key_lbl.set_halign(Align::Start);
         key_lbl.set_xalign(0.0);
+        key_lbl.add_css_class("caption");
+        key_lbl.add_css_class("dim-label");
         row_box.append(&key_lbl);
 
-        let detail = if !entry.author.is_empty() && !entry.year.is_empty() {
-            format!("{} ({})", truncate(&entry.author, 40), entry.year)
-        } else if !entry.title.is_empty() {
-            truncate(&entry.title, 52)
-        } else {
-            entry.entry_type.clone()
+        if !entry.title.is_empty() {
+            let title_lbl = Label::new(Some(&truncate(&entry.title, 50)));
+            title_lbl.set_halign(Align::Start);
+            title_lbl.set_xalign(0.0);
+            title_lbl.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+            row_box.append(&title_lbl);
+        }
+
+        let author_year = match (entry.author.is_empty(), entry.year.is_empty()) {
+            (false, false) => format!("{} ({})", truncate(&entry.author, 30), entry.year),
+            (false, true) => truncate(&entry.author, 40),
+            (true, false) => entry.year.clone(),
+            (true, true) if entry.title.is_empty() => entry.entry_type.clone(),
+            _ => String::new(),
         };
 
-        if !detail.is_empty() {
-            let detail_lbl = Label::new(Some(&detail));
+        if !author_year.is_empty() {
+            let detail_lbl = Label::new(Some(&author_year));
             detail_lbl.set_halign(Align::Start);
             detail_lbl.set_xalign(0.0);
             detail_lbl.add_css_class("dim-label");
+            detail_lbl.add_css_class("caption");
             row_box.append(&detail_lbl);
         }
 

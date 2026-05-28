@@ -101,3 +101,76 @@ fn extract_body(content: &str, start: usize) -> &str {
 fn clean_braces(s: &str) -> String {
     s.replace('{', "").replace('}', "").trim().to_string()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SAMPLE_BIB: &str = r#"
+@article{smith2020,
+  author = {John Smith},
+  title = {A Great Paper},
+  year = {2020},
+  journal = {Journal of Things},
+}
+
+@book{doe2019,
+  author = {Jane Doe},
+  title = {Important Book},
+  year = {2019},
+  publisher = {Academic Press},
+}
+
+@misc{anon,
+  title = {Anonymous Entry},
+}
+"#;
+
+    #[test]
+    fn parse_bib_entry_count() {
+        let entries = parse_bib(SAMPLE_BIB);
+        assert_eq!(entries.len(), 3);
+    }
+
+    #[test]
+    fn parse_bib_article_fields() {
+        let entries = parse_bib(SAMPLE_BIB);
+        let art = entries.iter().find(|e| e.key == "smith2020").unwrap();
+        assert_eq!(art.entry_type, "article");
+        assert_eq!(art.author, "John Smith");
+        assert_eq!(art.title, "A Great Paper");
+        assert_eq!(art.year, "2020");
+    }
+
+    #[test]
+    fn parse_bib_missing_fields_use_empty_strings() {
+        let entries = parse_bib(SAMPLE_BIB);
+        let anon = entries.iter().find(|e| e.key == "anon").unwrap();
+        assert!(anon.author.is_empty());
+        assert_eq!(anon.title, "Anonymous Entry");
+        assert!(anon.year.is_empty());
+    }
+
+    #[test]
+    fn parse_bib_ignores_string_preamble_comment() {
+        let bib = r#"
+@string{jot = "Journal of Things"}
+@preamble{"Some preamble"}
+@comment{this is a comment}
+@article{real,
+  author = {Real Author},
+  title = {Real Title},
+  year = {2024},
+}
+"#;
+        let entries = parse_bib(bib);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].key, "real");
+    }
+
+    #[test]
+    fn load_bib_returns_empty_for_nonexistent_file() {
+        let entries = load_bib(std::path::Path::new("/nonexistent/path/refs.bib"));
+        assert!(entries.is_empty());
+    }
+}

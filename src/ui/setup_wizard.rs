@@ -44,7 +44,10 @@ impl SetupWizard {
         // ── Section 2: GitHub repository ──────────────────────────────────
         body.append(&github_repo_group(work_dir));
 
-        // ── Section 3: Optional tools ──────────────────────────────────────
+        // ── Section 3: Backup remote ───────────────────────────────────────
+        body.append(&backup_remote_group(work_dir));
+
+        // ── Section 4: Optional tools ──────────────────────────────────────
         body.append(&optional_tools_group());
 
         scroll.set_child(Some(&body));
@@ -288,6 +291,97 @@ fn github_repo_group(work_dir: &Path) -> adw::PreferencesGroup {
     group
 }
 
+fn backup_remote_group(work_dir: &Path) -> adw::PreferencesGroup {
+    let work_dir = work_dir.to_path_buf();
+
+    let group = adw::PreferencesGroup::new();
+    group.set_title("Backup Remote");
+    group.set_description(Some(
+        "Push to a second host on every sync for redundancy. \
+         GitLab, Codeberg, or a self-hosted server all work.",
+    ));
+
+    let current_url = crate::git_sync::get_remote_url(&work_dir, "backup")
+        .unwrap_or_default();
+
+    let url_row = adw::EntryRow::new();
+    url_row.set_title("Backup URL (optional)");
+    url_row.set_text(&current_url);
+
+    let status_lbl = Label::new(None);
+    status_lbl.set_xalign(0.0);
+    status_lbl.set_margin_top(4);
+    if !current_url.is_empty() {
+        status_lbl.set_label(&format!("✓ Backup remote: {current_url}"));
+        status_lbl.add_css_class("success");
+    } else {
+        status_lbl.set_label("Optional — leave blank to skip.");
+        status_lbl.add_css_class("dim-label");
+    }
+
+    let apply_btn = Button::with_label("Save");
+    apply_btn.set_halign(Align::End);
+    apply_btn.add_css_class("suggested-action");
+
+    {
+        let entry_c = url_row.clone();
+        let lbl_c = status_lbl.clone();
+        let wdir = work_dir.clone();
+        apply_btn.connect_clicked(move |_| {
+            let url = entry_c.text().trim().to_string();
+            if url.is_empty() {
+                lbl_c.set_label("No backup remote set.");
+                return;
+            }
+            match crate::git_sync::add_backup_remote(&wdir, &url) {
+                Ok(()) => {
+                    lbl_c.set_label(&format!("✓ Backup remote saved: {url}"));
+                    lbl_c.remove_css_class("dim-label");
+                    lbl_c.remove_css_class("error");
+                    lbl_c.add_css_class("success");
+                }
+                Err(e) => {
+                    lbl_c.set_label(&format!("Error: {e}"));
+                    lbl_c.remove_css_class("success");
+                    lbl_c.add_css_class("error");
+                }
+            }
+        });
+    }
+
+    group.add(&url_row);
+
+    let hint_row = adw::ActionRow::new();
+    hint_row.set_activatable(false);
+    let links_box = GtkBox::new(Orientation::Horizontal, 8);
+    links_box.set_margin_top(4);
+    links_box.set_margin_bottom(4);
+    let gitlab_link = LinkButton::with_label("https://gitlab.com", "GitLab ↗");
+    gitlab_link.add_css_class("flat");
+    gitlab_link.add_css_class("caption");
+    let codeberg_link = LinkButton::with_label("https://codeberg.org", "Codeberg ↗");
+    codeberg_link.add_css_class("flat");
+    codeberg_link.add_css_class("caption");
+    links_box.append(&gitlab_link);
+    links_box.append(&Separator::new(Orientation::Vertical));
+    links_box.append(&codeberg_link);
+    hint_row.add_suffix(&links_box);
+
+    let suffix_box = GtkBox::new(Orientation::Vertical, 6);
+    suffix_box.set_margin_top(8);
+    suffix_box.set_margin_bottom(4);
+    suffix_box.append(&status_lbl);
+    suffix_box.append(&apply_btn);
+    let wrapper = adw::ActionRow::new();
+    wrapper.set_activatable(false);
+    wrapper.add_suffix(&suffix_box);
+
+    group.add(&hint_row);
+    group.add(&wrapper);
+
+    group
+}
+
 fn optional_tools_group() -> adw::PreferencesGroup {
     let group = adw::PreferencesGroup::new();
     group.set_title("Optional Tools");
@@ -300,7 +394,7 @@ fn optional_tools_group() -> adw::PreferencesGroup {
             "tinymist",
             "tinymist",
             "Autocomplete & LSP hints in the editor",
-            "cargo install tinymist",
+            "curl -fsSL https://github.com/Myriad-Dreamin/tinymist/releases/latest/download/tinymist-installer.sh | sh",
         ),
         (
             "pandoc",

@@ -48,6 +48,7 @@ pub struct AppWindow {
     #[allow(dead_code)]
     project_model: ProjectModel,
     sync_btn: Button,
+    search_panel: super::search_panel::SearchPanel,
 }
 
 impl AppWindow {
@@ -74,6 +75,14 @@ impl AppWindow {
                 .linked > button:checked { \
                     background-color: @accent_bg_color; \
                     color: @accent_fg_color; \
+                } \
+                .paned > separator { \
+                    min-width: 4px; \
+                    min-height: 4px; \
+                    transition: background-color 200ms; \
+                } \
+                .paned > separator:hover { \
+                    background-color: alpha(@accent_color, 0.3); \
                 }",
             );
             if let Some(display) = gtk4::gdk::Display::default() {
@@ -108,23 +117,15 @@ impl AppWindow {
         sidebar_btn.add_css_class("flat");
         header.pack_start(&sidebar_btn);
 
-        let docs_btn = Button::from_icon_name("folder-open-symbolic");
-        docs_btn.set_tooltip_text(Some("Browse documents"));
-        docs_btn.add_css_class("flat");
-        header.pack_start(&docs_btn);
-
         let focus_btn = ToggleButton::new();
         focus_btn.set_icon_name("view-fullscreen-symbolic");
         focus_btn.set_tooltip_text(Some("Focus mode — hide sidebar and preview"));
         focus_btn.add_css_class("flat");
         header.pack_start(&focus_btn);
 
+        // minimap_btn is logical only — not in header, but referenced by simple mode
         let minimap_btn = ToggleButton::new();
-        minimap_btn.set_icon_name("view-paged-symbolic");
-        minimap_btn.set_tooltip_text(Some("Toggle minimap"));
-        minimap_btn.add_css_class("flat");
         minimap_btn.set_active(false);
-        header.pack_start(&minimap_btn);
 
         // Style switcher dropdown — placed in header start, beside the title
         let style_names = crate::styles::STYLES.iter().map(|(n, _, _, _)| *n).collect::<Vec<_>>();
@@ -170,13 +171,18 @@ impl AppWindow {
         let menu_reapply_template_item = make_menu_item("Update Template Settings…", None);
         let menu_new_item           = make_menu_item("New Blank Document…",         None);
         let menu_open_item          = make_menu_item("Open File…",                  None);
+        let menu_open_project_item  = make_menu_item("Open Project Folder…",        None);
+        let menu_recent_projects_item = make_menu_item("Recent Projects…",          None);
         let menu_save_item          = make_menu_item("Save",                        Some("Ctrl+S"));
         let menu_save_as_item       = make_menu_item("Save As…",                    None);
         let menu_export_item        = make_menu_item("Export…",                     None);
         let menu_import_item        = make_menu_item("Import…",                     None);
+        let menu_docs_item          = make_menu_item("Browse Documents…",           None);
+        let menu_minimap_item       = make_menu_item("Toggle Minimap",              None);
         let menu_fonts_item         = make_menu_item("Font Management…",            None);
         let menu_settings_item      = make_menu_item("Settings",                    None);
         let menu_setup_item         = make_menu_item("Setup & Onboarding…",         None);
+        let menu_backup_remote_item = make_menu_item("Backup Remotes…",             None);
         let menu_help_item          = make_menu_item("Keyboard Shortcuts & Help",   Some("Ctrl+?"));
         let menu_about_item         = make_menu_item("About Zerkalo",               None);
 
@@ -185,30 +191,37 @@ impl AppWindow {
         let menu_import_docx_item   = make_menu_item("Import DOCX File…",           None);
         let menu_import_pdf_item    = make_menu_item("Import PDF File…",            None);
 
-        // ── Popover layout (Setzer-style: File → Tools → App) ─────────────────
+        // ── Popover layout ────────────────────────────────────────────────────
         let menu_popover_box = GtkBox::new(Orientation::Vertical, 0);
         menu_popover_box.set_margin_top(4);
         menu_popover_box.set_margin_bottom(4);
         menu_popover_box.set_width_request(260);
 
-        // File group
+        // New / Open
         menu_popover_box.append(&menu_new_template_item);
         menu_popover_box.append(&menu_new_item);
-        menu_popover_box.append(&menu_open_item);
         menu_popover_box.append(&Separator::new(Orientation::Horizontal));
+        menu_popover_box.append(&menu_open_item);
+        menu_popover_box.append(&menu_open_project_item);
+        menu_popover_box.append(&menu_recent_projects_item);
+        menu_popover_box.append(&Separator::new(Orientation::Horizontal));
+        // Save
         menu_popover_box.append(&menu_save_item);
         menu_popover_box.append(&menu_save_as_item);
         menu_popover_box.append(&Separator::new(Orientation::Horizontal));
-        menu_popover_box.append(&menu_reapply_template_item);
-        menu_popover_box.append(&Separator::new(Orientation::Horizontal));
-        // Tools group
+        // Convert / share
         menu_popover_box.append(&menu_export_item);
         menu_popover_box.append(&menu_import_item);
-        menu_popover_box.append(&menu_fonts_item);
         menu_popover_box.append(&Separator::new(Orientation::Horizontal));
-        // App group
+        // View
+        menu_popover_box.append(&menu_docs_item);
+        menu_popover_box.append(&menu_minimap_item);
+        menu_popover_box.append(&Separator::new(Orientation::Horizontal));
+        // App settings
+        menu_popover_box.append(&menu_fonts_item);
         menu_popover_box.append(&menu_settings_item);
         menu_popover_box.append(&menu_setup_item);
+        menu_popover_box.append(&menu_backup_remote_item);
         menu_popover_box.append(&Separator::new(Orientation::Horizontal));
         menu_popover_box.append(&menu_help_item);
         menu_popover_box.append(&menu_about_item);
@@ -525,12 +538,19 @@ impl AppWindow {
             });
         }
 
-        // ── Reference manager: insert citation at cursor ────────────────────
+        // ── Reference manager: insert citation / jump to broken citation ──────
 
         let editor_for_ref = editor_pane.clone();
         ref_manager.set_on_insert(move |citation| {
             editor_for_ref.insert_at_cursor(&citation);
         });
+
+        {
+            let ep = editor_pane.clone();
+            ref_manager.set_on_jump_citation(move |key| {
+                ep.jump_to_text(&format!("@{key}"));
+            });
+        }
 
         // ── Sidebar toggle (item 1) ─────────────────────────────────────────
         // (left_paned is set up in the layout section below; we capture it via Rc)
@@ -580,11 +600,13 @@ impl AppWindow {
             }
         });
 
-        // ── Docs browser button ─────────────────────────────────────────────
+        // ── Menu: Browse Documents ──────────────────────────────────────────
         let window_for_docs = window.clone();
         let editor_for_docs = editor_pane.clone();
         let root_for_docs = project_root.clone();
-        docs_btn.connect_clicked(move |_| {
+        let menu_popover_for_docs = menu_popover.clone();
+        menu_docs_item.connect_clicked(move |_| {
+            menu_popover_for_docs.popdown();
             let browser = DocsBrowser::new(&window_for_docs, root_for_docs.clone());
             let ep = editor_for_docs.clone();
             browser.set_on_open(move |path| {
@@ -659,6 +681,105 @@ impl AppWindow {
             HelpWindow::new(&window_for_help).present();
         });
 
+        // ── Menu: Open Project Folder ───────────────────────────────────────
+
+        let window_for_open_proj = window.clone();
+        let cfg_for_open_proj = current_config.clone();
+        let menu_popover_for_open_proj = menu_popover.clone();
+        menu_open_project_item.connect_clicked(move |_| {
+            menu_popover_for_open_proj.popdown();
+            let dlg = gtk4::FileDialog::builder()
+                .title("Open Project Folder")
+                .modal(true)
+                .build();
+            let cfg_c = cfg_for_open_proj.clone();
+            dlg.select_folder(
+                Some(&window_for_open_proj),
+                None::<&gtk4::gio::Cancellable>,
+                move |result| {
+                    if let Ok(gfile) = result {
+                        if let Some(folder) = gfile.path() {
+                            let mut cfg = cfg_c.borrow_mut();
+                            cfg.push_recent_project(folder.clone());
+                            cfg.work_dir = folder;
+                            let _ = cfg.save();
+                            if let Ok(exe) = std::env::current_exe() {
+                                let _ = std::process::Command::new(exe).spawn();
+                            }
+                            std::process::exit(0);
+                        }
+                    }
+                },
+            );
+        });
+
+        // ── Menu: Recent Projects ───────────────────────────────────────────
+
+        let window_for_recent_proj = window.clone();
+        let cfg_for_recent_proj = current_config.clone();
+        let menu_popover_for_recent_proj = menu_popover.clone();
+        menu_recent_projects_item.connect_clicked(move |_| {
+            menu_popover_for_recent_proj.popdown();
+            let projects = cfg_for_recent_proj.borrow().recent_projects.clone();
+            if projects.is_empty() {
+                let dlg = adw::MessageDialog::new(
+                    Some(&window_for_recent_proj),
+                    Some("No recent projects"),
+                    Some("Open a project folder to add it to this list."),
+                );
+                dlg.add_response("ok", "OK");
+                dlg.present();
+                return;
+            }
+            let dialog = adw::Window::builder()
+                .title("Recent Projects")
+                .transient_for(&window_for_recent_proj)
+                .modal(true)
+                .default_width(420)
+                .default_height(320)
+                .build();
+            let header = adw::HeaderBar::new();
+            let list = gtk4::ListBox::new();
+            list.add_css_class("boxed-list");
+            list.set_margin_start(12);
+            list.set_margin_end(12);
+            list.set_margin_top(12);
+            list.set_margin_bottom(12);
+            for proj in &projects {
+                let row = adw::ActionRow::new();
+                let name = proj.file_name().and_then(|n| n.to_str()).unwrap_or("?");
+                row.set_title(name);
+                row.set_subtitle(&proj.to_string_lossy());
+                row.set_activatable(true);
+                row.set_widget_name(&proj.to_string_lossy());
+                list.append(&row);
+            }
+            let scroll = gtk4::ScrolledWindow::new();
+            scroll.set_vexpand(true);
+            scroll.set_child(Some(&list));
+            let body = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+            body.append(&scroll);
+            let tv = adw::ToolbarView::new();
+            tv.add_top_bar(&header);
+            tv.set_content(Some(&body));
+            dialog.set_content(Some(&tv));
+            let cfg_c2 = cfg_for_recent_proj.clone();
+            let win_c = dialog.clone();
+            list.connect_row_activated(move |_, row| {
+                let path = std::path::PathBuf::from(row.widget_name().to_string());
+                let mut cfg = cfg_c2.borrow_mut();
+                cfg.push_recent_project(path.clone());
+                cfg.work_dir = path;
+                let _ = cfg.save();
+                win_c.close();
+                if let Ok(exe) = std::env::current_exe() {
+                    let _ = std::process::Command::new(exe).spawn();
+                }
+                std::process::exit(0);
+            });
+            dialog.present();
+        });
+
         // ── Menu: Setup & Onboarding ────────────────────────────────────────
 
         let window_for_setup = window.clone();
@@ -667,6 +788,16 @@ impl AppWindow {
         menu_setup_item.connect_clicked(move |_| {
             menu_popover_for_setup.popdown();
             super::setup_wizard::SetupWizard::new(&window_for_setup, &root_for_setup).present();
+        });
+
+        // ── Menu: Backup Remotes ────────────────────────────────────────────
+
+        let window_for_backup = window.clone();
+        let root_for_backup = project_root.clone();
+        let menu_popover_for_backup = menu_popover.clone();
+        menu_backup_remote_item.connect_clicked(move |_| {
+            menu_popover_for_backup.popdown();
+            show_backup_remote_dialog(&window_for_backup, &root_for_backup);
         });
 
         // ── Menu: About ─────────────────────────────────────────────────────
@@ -1147,6 +1278,7 @@ impl AppWindow {
         let debounce_for_change = debounce_ms.clone();
         let auto_compile_for_change = auto_compile.clone();
         let outline_for_change = outline_panel.clone();
+        let refs_for_change = ref_manager.clone();
         let lsp_for_change = lsp_client.clone();
         let gen: Rc<RefCell<u64>> = Rc::new(RefCell::new(0));
         let gen2 = gen.clone();
@@ -1158,6 +1290,7 @@ impl AppWindow {
             let gen3 = gen2.clone();
             let auto = auto_compile_for_change.clone();
             let outline = outline_for_change.clone();
+            let refs = refs_for_change.clone();
             let lsp = lsp_for_change.clone();
             let delay = Duration::from_millis(*debounce_for_change.borrow());
             glib::timeout_add_local(delay, move || {
@@ -1169,10 +1302,11 @@ impl AppWindow {
                         }
                         preview.trigger_compile();
                     }
-                    // Outline update
+                    // Outline + ref manager update
                     if let Some(path) = editor.get_active_path() {
                         if let Some(content) = editor.get_active_content() {
                             outline.update(&content, &path);
+                            refs.update_used_keys(&content);
                         }
                     }
                     // LSP didChange
@@ -1195,13 +1329,16 @@ impl AppWindow {
         // ── Outline + title: update on tab switch ──────────────────────────
 
         let outline_for_switch = outline_panel.clone();
+        let refs_for_switch = ref_manager.clone();
         let history_for_switch = history_panel.clone();
         let dep_graph_for_switch = dep_graph.clone();
         let title_widget_for_switch = file_title_widget.clone();
         let preview_for_switch = preview_pane.clone();
         let todo_panel_for_switch = todo_panel.clone();
+        let style_btn_for_switch = style_btn.clone();
         editor_pane.set_on_page_switch(move |content, path| {
             outline_for_switch.update(&content, &path);
+            refs_for_switch.update_used_keys(&content);
             history_for_switch.load_file_history(&path);
             dep_graph_for_switch.refresh(Some(&path));
             preview_for_switch.set_root_file(path.clone());
@@ -1211,6 +1348,19 @@ impl AppWindow {
                 let display = name.strip_suffix(".typ").unwrap_or(name);
                 title_widget_for_switch.set_title(display);
             }
+            let basename = path.file_name()
+                .and_then(|n| n.to_str())
+                .map(|s| s.strip_suffix(".typ").unwrap_or(s).to_string())
+                .unwrap_or_default();
+            let style_name = super::template_dialog::parse_style_key(&content)
+                .and_then(|key| super::template_dialog::style_name_for_key(&key))
+                .unwrap_or("Style");
+            let style_label = if basename.is_empty() {
+                style_name.to_string()
+            } else {
+                format!("{style_name} · {basename}")
+            };
+            style_btn_for_switch.set_label(&style_label);
         });
 
         // ── Modified / autosave indicator ──────────────────────────────────────
@@ -1229,19 +1379,63 @@ impl AppWindow {
             });
         }
 
-        // ── LSP: did_open + recent tracking when a file is opened ───────────
+        // ── LSP: did_open + recent tracking + auto-save recovery ────────────
 
         let lsp_for_open = lsp_client.clone();
         let current_config_for_open = current_config.clone();
         let todo_panel_for_open = todo_panel.clone();
+        let editor_for_recovery = editor_pane.clone();
+        let window_for_recovery = window.clone();
+        let style_btn_for_open = style_btn.clone();
         editor_pane.set_on_file_opened(move |path, content| {
             if let Some(client) = lsp_for_open.borrow_mut().as_mut() {
                 client.did_open(&path, &content);
             }
             todo_panel_for_open.set_current_file(Some(&path));
+            let basename = path.file_name()
+                .and_then(|n| n.to_str())
+                .map(|s| s.strip_suffix(".typ").unwrap_or(s).to_string())
+                .unwrap_or_default();
+            let style_name = super::template_dialog::parse_style_key(&content)
+                .and_then(|key| super::template_dialog::style_name_for_key(&key))
+                .unwrap_or("Style");
+            let style_label = if basename.is_empty() {
+                style_name.to_string()
+            } else {
+                format!("{style_name} · {basename}")
+            };
+            style_btn_for_open.set_label(&style_label);
             let mut cfg = current_config_for_open.borrow_mut();
             cfg.push_recent(path.clone());
             let _ = cfg.save();
+
+            // Auto-save recovery check
+            if let Some((recovered, save_time)) = crate::auto_save::find_recovery(&path) {
+                let ts = chrono::DateTime::<chrono::Local>::from(save_time)
+                    .format("%H:%M:%S")
+                    .to_string();
+                let dlg = adw::MessageDialog::new(
+                    Some(&window_for_recovery),
+                    Some("Unsaved changes detected"),
+                    Some(&format!(
+                        "An auto-save from {ts} is newer than the last saved version.\n\
+                         Restore the auto-saved content?"
+                    )),
+                );
+                dlg.add_response("discard", "Discard");
+                dlg.add_response("restore", "Restore");
+                dlg.set_response_appearance("restore", adw::ResponseAppearance::Suggested);
+                dlg.set_default_response(Some("restore"));
+                let ep = editor_for_recovery.clone();
+                let path_c = path.clone();
+                dlg.connect_response(None, move |_, resp| {
+                    if resp == "restore" {
+                        ep.set_content(&path_c, &recovered);
+                    }
+                    crate::auto_save::clear(&path_c);
+                });
+                dlg.present();
+            }
         });
 
         // ── LSP: request completions when # trigger fires ────────────────────
@@ -1383,6 +1577,16 @@ impl AppWindow {
             glib::ControlFlow::Break
         });
 
+        // ── Auto-save: write modified buffers every 30 seconds ──────────────
+
+        let editor_for_autosave = editor_pane.clone();
+        glib::timeout_add_local(Duration::from_secs(30), move || {
+            for (path, content) in editor_for_autosave.modified_buffers() {
+                crate::auto_save::save(&path, &content);
+            }
+            glib::ControlFlow::Continue
+        });
+
         // ── Setup wizard (shows when git identity or remote is missing) ──────
 
         let win_for_setup2 = window.clone();
@@ -1398,25 +1602,46 @@ impl AppWindow {
 
         let lsp_init = lsp_client.clone();
         let root_for_lsp = project_root.clone();
+        let editor_for_lsp_init = editor_pane.clone();
         glib::timeout_add_local(Duration::from_millis(500), move || {
             *lsp_init.borrow_mut() = LspClient::new(&root_for_lsp);
             if lsp_init.borrow().is_some() {
                 tracing::info!("tinymist LSP active");
+                editor_for_lsp_init.set_lsp_status("LSP ●");
             } else {
                 tracing::info!("tinymist not found — LSP disabled");
+                editor_for_lsp_init.set_lsp_status("");
             }
             glib::ControlFlow::Break
         });
 
-        // ── LSP: poll for diagnostics + completions ──────────────────────────
+        // ── LSP: poll for diagnostics + completions + auto-restart ──────────
 
         let lsp_poll = lsp_client.clone();
         let error_panel_for_lsp = error_panel.clone();
         let editor_for_comp_poll = editor_pane.clone();
         let editor_for_lsp_diag = editor_pane.clone();
+        let editor_for_lsp_status = editor_pane.clone();
         let last_req_poll = last_completion_request.clone();
         let lsp_diags_for_poll = lsp_has_diags.clone();
         glib::timeout_add_local(Duration::from_millis(400), move || {
+            // Auto-restart if tinymist crashed
+            {
+                let mut slot = lsp_poll.borrow_mut();
+                if let Some(client) = slot.as_mut() {
+                    if !client.is_alive() {
+                        tracing::warn!("tinymist crashed — restarting");
+                        editor_for_lsp_status.set_lsp_status("LSP ↻");
+                        let root = client.root.clone();
+                        *slot = LspClient::new(&root);
+                        if slot.is_some() {
+                            editor_for_lsp_status.set_lsp_status("LSP ●");
+                        } else {
+                            editor_for_lsp_status.set_lsp_status("LSP ✗");
+                        }
+                    }
+                }
+            }
             if let Some(client) = lsp_poll.borrow().as_ref() {
                 let diags = client.poll();
                 if !diags.is_empty() {
@@ -1441,7 +1666,6 @@ impl AppWindow {
                     editor_for_lsp_diag.mark_diagnostics(&diag_marks);
                     error_panel_for_lsp.show_errors(errors);
                 } else {
-                    // LSP reported no diagnostics — allow compile-stderr to show again
                     *lsp_diags_for_poll.borrow_mut() = false;
                 }
                 if let Some((id, items)) = client.poll_completion() {
@@ -1855,8 +2079,6 @@ impl AppWindow {
         for (widget, label) in [
             (ref_manager.widget().upcast_ref::<gtk4::Widget>(), "Refs"),
             (history_panel.widget().upcast_ref(), "History"),
-            (dep_graph.widget().upcast_ref(), "Graph"),
-            (package_browser.widget().upcast_ref(), "Pkgs"),
             (file_tree.widget().upcast_ref(), "Files"),
         ] {
             let tab_lbl = Label::new(Some(label));
@@ -1864,9 +2086,18 @@ impl AppWindow {
             advanced_notebook.append_page(widget, Some(&tab_lbl));
         }
 
+        let project_header = Label::new(Some("Project"));
+        project_header.add_css_class("dim-label");
+        project_header.add_css_class("caption");
+        project_header.set_halign(Align::Start);
+        project_header.set_margin_start(12);
+        project_header.set_margin_top(8);
+        project_header.set_margin_bottom(2);
+
         let advanced_section = GtkBox::new(Orientation::Vertical, 0);
         advanced_section.set_visible(false);
         advanced_section.append(&Separator::new(Orientation::Horizontal));
+        advanced_section.append(&project_header);
         advanced_section.append(&advanced_notebook);
 
         // ── Bottom sidebar controls: Simple mode + GOST font switches ─────────
@@ -1878,10 +2109,16 @@ impl AppWindow {
         let simple_mode_lbl = Label::new(Some("Simple mode"));
         simple_mode_lbl.set_hexpand(true);
         simple_mode_lbl.set_xalign(0.0);
+        let simple_mode_help_btn = Button::with_label("?");
+        simple_mode_help_btn.add_css_class("flat");
+        simple_mode_help_btn.add_css_class("circular");
+        simple_mode_help_btn.set_tooltip_text(Some("What is simple mode?"));
+        simple_mode_help_btn.set_valign(Align::Center);
         let simple_mode_sw = Switch::new();
         simple_mode_sw.set_active(true);
         simple_mode_sw.set_valign(Align::Center);
         simple_mode_row.append(&simple_mode_lbl);
+        simple_mode_row.append(&simple_mode_help_btn);
         simple_mode_row.append(&simple_mode_sw);
 
         let gost_font_row = GtkBox::new(Orientation::Horizontal, 8);
@@ -1898,11 +2135,37 @@ impl AppWindow {
         gost_font_row.append(&gost_font_lbl);
         gost_font_row.append(&gost_font_sw);
 
-        // Wire simple mode switch: ON = simple view = advanced panels hidden
+        // Wire simple mode switch: ON = simple view = advanced panels + minimap hidden
         {
             let adv_c = advanced_section.clone();
+            let ep_simple = editor_pane.clone();
+            let mm_btn = minimap_btn.clone();
             simple_mode_sw.connect_active_notify(move |sw| {
-                adv_c.set_visible(!sw.is_active());
+                let simple = sw.is_active();
+                adv_c.set_visible(!simple);
+                if simple {
+                    ep_simple.set_minimap_visible(false);
+                } else {
+                    ep_simple.set_minimap_visible(mm_btn.is_active());
+                }
+            });
+        }
+
+        // Simple mode "?" help button
+        {
+            let win_sm = window.clone();
+            simple_mode_help_btn.connect_clicked(move |_| {
+                let dlg = adw::MessageDialog::new(
+                    Some(&win_sm),
+                    Some("Simple Mode"),
+                    Some(
+                        "Simple mode hides the Refs, History, and Files panels, \
+                         and disables the minimap. \
+                         It gives you a clean writing space with just the document outline.",
+                    ),
+                );
+                dlg.add_response("ok", "OK");
+                dlg.present();
             });
         }
 
@@ -1939,9 +2202,61 @@ impl AppWindow {
             });
         }
 
+        // ── Sidebar toolbar: Update Template button ───────────────────────────
+        let update_template_btn = Button::new();
+        update_template_btn.set_label("Update Template…");
+        update_template_btn.add_css_class("flat");
+        update_template_btn.set_hexpand(true);
+        update_template_btn.set_tooltip_text(Some(
+            "Change formatting style, margins, fonts for this document",
+        ));
+        let sidebar_toolbar = GtkBox::new(Orientation::Horizontal, 0);
+        sidebar_toolbar.set_margin_start(6);
+        sidebar_toolbar.set_margin_end(6);
+        sidebar_toolbar.set_margin_top(4);
+        sidebar_toolbar.set_margin_bottom(4);
+        sidebar_toolbar.append(&update_template_btn);
+
+        {
+            let win_ut = window.clone();
+            let ep_ut = editor_pane.clone();
+            let root_ut = project_root.clone();
+            update_template_btn.connect_clicked(move |_| {
+                let Some(current_path) = ep_ut.get_active_path() else { return };
+                let current_content = ep_ut.get_active_content().unwrap_or_default();
+                let dlg = TemplateDialog::new(&win_ut, &root_ut);
+                dlg.preselect_style(
+                    &super::template_dialog::parse_style_key(&current_content)
+                        .unwrap_or_default(),
+                );
+                let ep2 = ep_ut.clone();
+                dlg.set_on_create(move |new_path| {
+                    if let Ok(new_preamble_doc) = std::fs::read_to_string(&new_path) {
+                        let preamble = super::template_dialog::extract_preamble(&new_preamble_doc);
+                        let updated = super::template_dialog::reapply_preamble(&current_content, &preamble);
+                        if std::fs::write(&current_path, &updated).is_ok() {
+                            ep2.open_file(current_path.clone(), &updated);
+                        }
+                    }
+                });
+                dlg.present();
+            });
+        }
+
+        let structure_header = Label::new(Some("Structure"));
+        structure_header.add_css_class("dim-label");
+        structure_header.add_css_class("caption");
+        structure_header.set_halign(Align::Start);
+        structure_header.set_margin_start(12);
+        structure_header.set_margin_top(8);
+        structure_header.set_margin_bottom(2);
+
         let left_box = GtkBox::new(Orientation::Vertical, 0);
         left_box.set_hexpand(false);
         left_box.set_vexpand(true);
+        left_box.append(&sidebar_toolbar);
+        left_box.append(&Separator::new(Orientation::Horizontal));
+        left_box.append(&structure_header);
         left_box.append(outline_panel.widget());
         left_box.append(&advanced_section);
         left_box.append(&Separator::new(Orientation::Horizontal));
@@ -1958,37 +2273,50 @@ impl AppWindow {
         *right_sidebar_holder.borrow_mut() = Some(right_sidebar.clone());
         right_sidebar.set_visible(todo_btn.is_active());
 
-        // ── Minimap panel (narrow strip between editor and preview) ──────────
-        let minimap = editor_pane.minimap();
-        let minimap_sep = Separator::new(Orientation::Vertical);
-        minimap_sep.set_visible(false);
-        let minimap_btn_c = minimap_btn.clone();
-        let mm_for_toggle = minimap.clone();
-        let mmsep_for_toggle = minimap_sep.clone();
-        minimap_btn_c.connect_toggled(move |btn| {
-            let show = btn.is_active();
-            mm_for_toggle.set_visible(show);
-            mmsep_for_toggle.set_visible(show);
-        });
+        // ── Minimap toggle wiring (map lives inside editor_pane) ─────────────
+        {
+            let ep = editor_pane.clone();
+            minimap_btn.connect_toggled(move |btn| {
+                ep.set_minimap_visible(btn.is_active());
+            });
+        }
 
-        let editor_col = GtkBox::new(Orientation::Horizontal, 0);
-        editor_col.set_hexpand(true);
-        editor_col.set_vexpand(true);
-        editor_col.append(editor_pane.widget());
-        editor_col.append(&minimap_sep);
-        editor_col.append(&minimap);
+        // Menu: Toggle Minimap
+        {
+            let mm = minimap_btn.clone();
+            let pop = menu_popover.clone();
+            menu_minimap_item.connect_clicked(move |_| {
+                pop.popdown();
+                mm.set_active(!mm.is_active());
+            });
+        }
 
         let inner_paned = Paned::new(Orientation::Horizontal);
         inner_paned.set_position(600);
         inner_paned.set_hexpand(true);
         inner_paned.set_vexpand(true);
-        inner_paned.set_start_child(Some(&editor_col));
+        inner_paned.set_start_child(Some(editor_pane.widget()));
         inner_paned.set_end_child(Some(&preview_outer));
+
+        // ── Global search panel (Ctrl+Shift+F) ───────────────────────────────
+        let search_panel = super::search_panel::SearchPanel::new(project_root.clone());
+        {
+            let ep = editor_pane.clone();
+            search_panel.set_on_result(move |path, line| {
+                if !ep.state_has_file(&path) {
+                    if let Ok(content) = std::fs::read_to_string(&path) {
+                        ep.open_file(path.clone(), &content);
+                    }
+                }
+                ep.jump_to_line(&path, line);
+            });
+        }
 
         let right_col = GtkBox::new(Orientation::Vertical, 0);
         right_col.set_hexpand(true);
         right_col.set_vexpand(true);
         right_col.append(&inner_paned);
+        right_col.append(search_panel.widget());
         right_col.append(error_panel.widget());
 
         let content_paned = Paned::new(Orientation::Horizontal);
@@ -2031,6 +2359,7 @@ impl AppWindow {
             project_root,
             project_model,
             sync_btn,
+            search_panel,
         }
     }
 
@@ -2042,6 +2371,7 @@ impl AppWindow {
         let preview = self.preview_pane.clone();
         let window = self.window.clone();
         let sync = self.sync_btn.clone();
+        let search = self.search_panel.clone();
         let controller = gtk4::EventControllerKey::new();
 
         controller.connect_key_pressed(move |_, key, _, modifier| {
@@ -2085,6 +2415,14 @@ impl AppWindow {
             if matches_binding(&kb.git_sync, ctrl, shift, alt, key) {
                 sync.emit_clicked();
                 return glib::Propagation::Stop;
+            }
+            // Ctrl+Shift+F — global project search
+            {
+                use gtk4::gdk::Key;
+                if ctrl && shift && key == Key::f {
+                    search.toggle();
+                    return glib::Propagation::Stop;
+                }
             }
             // Ctrl+Shift+Tab also maps to ISO_Left_Tab on X11
             {
@@ -2234,7 +2572,21 @@ fn show_sync_result(
 ) {
     if let Some(err) = result.error {
         show_alert(window, "Sync Failed", &err);
-    } else if result.pushed {
+        return;
+    }
+    if !result.push_errors.is_empty() {
+        let detail = result.push_errors.join("\n");
+        if result.pushed {
+            // Some remotes failed — toast for success, alert for the failures
+            let summary = result.commit_message.lines().next().unwrap_or("Synced").to_string();
+            overlay.add_toast(adw::Toast::new(&format!("Synced — {summary}")));
+            show_alert(window, "Some remotes failed", &detail);
+        } else {
+            show_alert(window, "Push Failed", &detail);
+        }
+        return;
+    }
+    if result.pushed {
         let summary = result.commit_message.lines().next().unwrap_or("Synced").to_string();
         overlay.add_toast(adw::Toast::new(&format!("Synced — {summary}")));
     } else if result.committed {
@@ -2242,6 +2594,116 @@ fn show_sync_result(
     } else {
         overlay.add_toast(adw::Toast::new("Nothing to sync"));
     }
+}
+
+fn show_backup_remote_dialog(window: &adw::ApplicationWindow, repo_path: &std::path::Path) {
+    let dialog = adw::Window::builder()
+        .title("Backup Remotes")
+        .transient_for(window)
+        .modal(true)
+        .default_width(460)
+        .resizable(false)
+        .build();
+
+    let header = adw::HeaderBar::new();
+    header.set_show_end_title_buttons(false);
+    let close_btn = Button::with_label("Close");
+    close_btn.add_css_class("flat");
+    header.pack_start(&close_btn);
+
+    let current_url = git_sync::get_remote_url(repo_path, "backup")
+        .unwrap_or_default();
+
+    let group = adw::PreferencesGroup::new();
+    group.set_title("Backup Remote");
+    group.set_description(Some(
+        "Push to a second host (GitLab, Codeberg, self-hosted Git) on every sync. \
+         Uses the remote name \"backup\".",
+    ));
+
+    let url_row = adw::EntryRow::new();
+    url_row.set_title("Remote URL");
+    url_row.set_text(&current_url);
+
+    let status_lbl = Label::new(None);
+    status_lbl.set_xalign(0.0);
+    status_lbl.set_margin_top(4);
+    if !current_url.is_empty() {
+        status_lbl.set_label(&format!("✓ Backup remote: {current_url}"));
+        status_lbl.add_css_class("success");
+    } else {
+        status_lbl.set_label("No backup remote configured.");
+        status_lbl.add_css_class("dim-label");
+    }
+
+    let apply_btn = Button::with_label("Save");
+    apply_btn.add_css_class("suggested-action");
+    apply_btn.set_halign(Align::End);
+
+    let suffix_box = gtk4::Box::new(Orientation::Vertical, 6);
+    suffix_box.set_margin_top(8);
+    suffix_box.set_margin_bottom(4);
+    suffix_box.append(&status_lbl);
+    suffix_box.append(&apply_btn);
+    let wrapper = adw::ActionRow::new();
+    wrapper.set_activatable(false);
+    wrapper.add_suffix(&suffix_box);
+
+    let hint_group = adw::PreferencesGroup::new();
+    hint_group.set_title("Where to get a URL");
+
+    for (name, hint) in [
+        ("GitLab", "gitlab.com — free private repos, CI/CD included"),
+        ("Codeberg", "codeberg.org — nonprofit, FOSS-friendly"),
+        ("Self-hosted", "Gitea / Forgejo on your own server"),
+    ] {
+        let row = adw::ActionRow::new();
+        row.set_title(name);
+        row.set_subtitle(hint);
+        hint_group.add(&row);
+    }
+
+    group.add(&url_row);
+    group.add(&wrapper);
+
+    let page = adw::PreferencesPage::new();
+    page.add(&group);
+    page.add(&hint_group);
+
+    let toolbar = adw::ToolbarView::new();
+    toolbar.add_top_bar(&header);
+    toolbar.set_content(Some(&page));
+    dialog.set_content(Some(&toolbar));
+
+    let dlg_close = dialog.clone();
+    close_btn.connect_clicked(move |_| dlg_close.close());
+
+    let root_c = repo_path.to_path_buf();
+    let lbl_c = status_lbl.clone();
+    let dlg_apply = dialog.clone();
+    apply_btn.connect_clicked(move |_| {
+        let url = url_row.text().trim().to_string();
+        if url.is_empty() {
+            lbl_c.set_label("Enter a URL first.");
+            return;
+        }
+        match git_sync::add_backup_remote(&root_c, &url) {
+            Ok(()) => {
+                lbl_c.set_label(&format!("✓ Backup remote saved: {url}"));
+                lbl_c.remove_css_class("dim-label");
+                lbl_c.remove_css_class("error");
+                lbl_c.add_css_class("success");
+                let _ = dlg_apply.clone(); // keep alive
+            }
+            Err(e) => {
+                lbl_c.set_label(&format!("Error: {e}"));
+                lbl_c.remove_css_class("success");
+                lbl_c.add_css_class("error");
+            }
+        }
+    });
+
+    dialog.present();
 }
 
 fn show_alert(window: &adw::ApplicationWindow, title: &str, body: &str) {
