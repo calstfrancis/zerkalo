@@ -53,9 +53,9 @@ const PAGE_NUM_OPTIONS: &[&str] = &[
 ];
 
 const SPACING_OPTIONS: &[(&str, &str)] = &[
-    ("Single (1.0em)", "1.0em"),
-    ("1.5 Lines (1.5em)", "1.5em"),
-    ("Double (2.0em)", "2.0em"),
+    ("Single", "0.65em"),
+    ("1.5 Lines", "0.9em"),
+    ("Double", "1.2em"),
 ];
 
 const ACADEMIC_FONTS: &[&str] = &[
@@ -229,6 +229,9 @@ pub struct TemplateDialog {
     on_apply: OnApplyCb,
     apply_btn: Button,
     style_row: adw::ComboRow,
+    font_row: adw::ComboRow,
+    paper_row: adw::ComboRow,
+    spacing_row: adw::ComboRow,
 }
 
 impl TemplateDialog {
@@ -817,7 +820,7 @@ impl TemplateDialog {
             win_for_apply.close();
         });
 
-        Self { window, on_create, on_apply, apply_btn, style_row }
+        Self { window, on_create, on_apply, apply_btn, style_row, font_row, paper_row, spacing_row }
     }
 
     pub fn set_on_create(&self, f: impl Fn(PathBuf) + 'static) {
@@ -839,6 +842,37 @@ impl TemplateDialog {
         for (i, (_, key)) in CITATION_STYLES.iter().enumerate() {
             if *key == style_key {
                 self.style_row.set_selected(i as u32);
+                return;
+            }
+        }
+    }
+
+    /// Pre-select the body font by name.
+    pub fn preselect_font(&self, font: &str) {
+        let available = build_font_list();
+        for (i, f) in available.iter().enumerate() {
+            if f.eq_ignore_ascii_case(font) {
+                self.font_row.set_selected(i as u32);
+                return;
+            }
+        }
+    }
+
+    /// Pre-select paper size by its Typst key (e.g. "us-letter", "a4").
+    pub fn preselect_paper(&self, paper_key: &str) {
+        for (i, (_, key)) in PAPER_SIZES.iter().enumerate() {
+            if *key == paper_key {
+                self.paper_row.set_selected(i as u32);
+                return;
+            }
+        }
+    }
+
+    /// Pre-select line spacing by its value string (e.g. "1.5em", "2.0em").
+    pub fn preselect_spacing(&self, spacing_value: &str) {
+        for (i, (_, val)) in SPACING_OPTIONS.iter().enumerate() {
+            if *val == spacing_value {
+                self.spacing_row.set_selected(i as u32);
                 return;
             }
         }
@@ -967,7 +1001,7 @@ fn generate_typst_template(s: &TemplateSettings) -> String {
 
     // Typography
     let _ = writeln!(out, "#set text(font: \"{}\", size: {font_size}, lang: \"en\")", s.font);
-    let _ = writeln!(out, "#set par(spacing: {}, first-line-indent: 1em, justify: true)", s.spacing);
+    let _ = writeln!(out, "#set par(leading: {}, spacing: 1.2em, first-line-indent: 1em, justify: true)", s.spacing);
     let _ = writeln!(out);
 
     // Heading styles
@@ -1581,12 +1615,125 @@ pub fn parse_style_key(content: &str) -> Option<String> {
     None
 }
 
+/// Parse `#set text(font: "…")` from document content.
+pub fn parse_font(content: &str) -> Option<String> {
+    // Handle both inline  ("#set text(font: "X", ...)")
+    // and multi-line  ("#set text(\n  font: "X",\n)") forms.
+    // Returns the LAST occurrence so the effective (overriding) value is reported.
+    let mut last_found: Option<String> = None;
+    let mut in_set_text = false;
+    for line in content.lines() {
+        let t = line.trim();
+        if t.starts_with("//") { continue; }
+        if t.starts_with("#set text(") {
+            in_set_text = true;
+        }
+        if in_set_text {
+            if let Some(start) = t.find("font:") {
+                let after = t[start + 5..].trim_start();
+                if let Some(after) = after.strip_prefix('"') {
+                    if let Some(end) = after.find('"') {
+                        let f = after[..end].to_string();
+                        if !f.is_empty() { last_found = Some(f); }
+                    }
+                }
+            }
+            // Close the block: inline form ends with ")" on same line as "#set text(",
+            // multi-line form has ")" alone on its own line.
+            let opened_inline = t.starts_with("#set text(") && t.contains(')');
+            let closed_alone  = !t.starts_with("#set text(") && t.starts_with(')');
+            if opened_inline || closed_alone {
+                in_set_text = false;
+            }
+        }
+    }
+    last_found
+}
+
+/// Parse `paper: "…"` from `#set page(…)` in document content.
+pub fn parse_paper(content: &str) -> Option<String> {
+    for line in content.lines() {
+        let t = line.trim();
+        if t.starts_with("paper:") || t.contains("paper:") {
+            if let Some(start) = t.find("paper:") {
+                let after = t[start + 6..].trim_start();
+                if let Some(after) = after.strip_prefix('"') {
+                    if let Some(end) = after.find('"') {
+                        let p = after[..end].to_string();
+                        if !p.is_empty() { return Some(p); }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Parse `leading: …` from `#set par(…)` in document content.
+/// Returns the LAST effective value so the overriding occurrence is reported.
+pub fn parse_spacing(content: &str) -> Option<String> {
+    let mut last_found: Option<String> = None;
+    let mut in_set_par = false;
+    for line in content.lines() {
+        let t = line.trim();
+        if t.starts_with("//") { continue; }
+        if t.starts_with("#set par(") { in_set_par = true; }
+        if in_set_par {
+            if let Some(start) = t.find("leading:") {
+                let after = t[start + 8..].trim_start();
+                let val: String = after.chars().take_while(|c| !matches!(c, ',' | ')')).collect();
+                let val = val.trim().to_string();
+                if !val.is_empty() { last_found = Some(val); }
+            }
+            let opened_inline = t.starts_with("#set par(") && t.contains(')');
+            let closed_alone  = !t.starts_with("#set par(") && t.starts_with(')');
+            if opened_inline || closed_alone { in_set_par = false; }
+        }
+    }
+    last_found
+}
+
+/// Replace `old_pat` with `new_pat` only inside `block_prefix(…)` blocks,
+/// skipping comment lines. Handles both inline and multi-line block forms.
+fn replace_in_set_blocks(content: &str, block_prefix: &str, old_pat: &str, new_pat: &str) -> String {
+    let mut result = String::with_capacity(content.len());
+    let mut in_block = false;
+    for line in content.lines() {
+        let t = line.trim();
+        if !t.starts_with("//") && t.starts_with(block_prefix) { in_block = true; }
+        let line_out = if in_block && !t.starts_with("//") {
+            line.replace(old_pat, new_pat)
+        } else {
+            line.to_string()
+        };
+        result.push_str(&line_out);
+        result.push('\n');
+        if in_block {
+            let opened_inline = t.starts_with(block_prefix) && t.contains(')');
+            let closed_alone  = !t.starts_with(block_prefix) && t.starts_with(')');
+            if opened_inline || closed_alone { in_block = false; }
+        }
+    }
+    if !content.ends_with('\n') && result.ends_with('\n') {
+        result.truncate(result.len() - 1);
+    }
+    result
+}
+
 /// Replace the preamble section (between TEMPLATE markers) with `new_preamble`.
 /// If no markers exist, prepends the new preamble (with markers) before the body.
+/// Also removes any ZERKALO-STYLE-BEGIN/END block, which would otherwise override
+/// font/spacing/page settings with stale values from a previous style application.
 pub fn reapply_preamble(existing: &str, new_preamble: &str) -> String {
     let wrapped = format!("{TEMPLATE_BEGIN}\n{new_preamble}\n{TEMPLATE_END}\n");
 
-    if let (Some(begin_pos), Some(end_marker_pos)) =
+    // Capture old font/spacing BEFORE replacing the template section.
+    let old_font = parse_font(existing);
+    let new_font = parse_font(new_preamble);
+    let old_spacing = parse_spacing(existing);
+    let new_spacing = parse_spacing(new_preamble);
+
+    let with_template = if let (Some(begin_pos), Some(end_marker_pos)) =
         (existing.find(TEMPLATE_BEGIN), existing.find(TEMPLATE_END))
     {
         let end_pos = end_marker_pos + TEMPLATE_END.len();
@@ -1608,5 +1755,204 @@ pub fn reapply_preamble(existing: &str, new_preamble: &str) -> String {
         } else {
             format!("{wrapped}\n{existing}")
         }
+    };
+
+    let with_style_stripped = strip_style_block(&with_template);
+
+    // Propagate font change to any #set text(font:...) blocks in the document.
+    // Only replaces inside #set text(...) blocks to avoid touching comments/strings.
+    let after_font = match (old_font, new_font) {
+        (Some(old), Some(new)) if old != new => replace_in_set_blocks(
+            &with_style_stripped,
+            "#set text(",
+            &format!("font: \"{old}\""),
+            &format!("font: \"{new}\""),
+        ),
+        _ => with_style_stripped,
+    };
+
+    // Propagate spacing (leading) change to any #set par(leading:...) blocks.
+    match (old_spacing, new_spacing) {
+        (Some(old), Some(new)) if old != new => replace_in_set_blocks(
+            &after_font,
+            "#set par(",
+            &format!("leading: {old}"),
+            &format!("leading: {new}"),
+        ),
+        _ => after_font,
+    }
+}
+
+/// Remove the legacy ZERKALO-STYLE-BEGIN/END block if present. The template section
+/// owns font, spacing, and page settings; a stale style block after it would override them.
+/// Generate a minimal Zerkalo template preamble for wrapping imported content.
+/// Returns the TEMPLATE_BEGIN…TEMPLATE_END block with sensible academic defaults.
+/// The user can immediately update font, spacing, and citation style via
+/// "Update Template Settings" after import.
+pub fn default_import_preamble() -> String {
+    let settings = TemplateSettings {
+        title: String::new(),
+        subtitle: String::new(),
+        author: String::new(),
+        affiliation: String::new(),
+        course: String::new(),
+        date: String::new(),
+        style_idx: 1,    // Chicago (Notes-Bib) — common humanities default
+        paper_idx: 0,    // US Letter
+        margin_idx: 0,   // Normal (1" / 1.25")
+        font: "Times New Roman".to_string(),
+        spacing: "0.9em".to_string(),
+        page_num_pos: 0, // Bottom center
+        include_toc: false,
+        toc_depth: 2,
+        include_abstract: false,
+        abstract_text: String::new(),
+        include_keywords: false,
+        keywords: String::new(),
+        languages: vec![],
+        packages: vec![],
+        body_kind: BodyKind::default(),
+    };
+    let full = generate_typst_template(&settings);
+    if let Some(end_pos) = full.find(TEMPLATE_END) {
+        format!("{}\n", &full[..end_pos + TEMPLATE_END.len()])
+    } else {
+        String::new()
+    }
+}
+
+fn strip_style_block(content: &str) -> String {
+    const STYLE_BEGIN: &str = "// ZERKALO-STYLE-BEGIN";
+    const STYLE_END: &str = "// ZERKALO-STYLE-END";
+    let (Some(begin_pos), Some(end_pos)) = (content.find(STYLE_BEGIN), content.find(STYLE_END))
+    else {
+        return content.to_string();
+    };
+    let end_full = end_pos + STYLE_END.len();
+    let after = if content[end_full..].starts_with('\n') { end_full + 1 } else { end_full };
+    format!("{}{}", &content[..begin_pos], &content[after..])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_font_inline() {
+        let doc = "#set text(font: \"Times New Roman\", size: 12pt)\n";
+        assert_eq!(parse_font(doc), Some("Times New Roman".to_string()));
+    }
+
+    #[test]
+    fn parse_font_multiline() {
+        let doc = "#set text(\n  font: \"Junicode\",\n  size: 12pt,\n)\n";
+        assert_eq!(parse_font(doc), Some("Junicode".to_string()));
+    }
+
+    #[test]
+    fn parse_font_last_wins() {
+        let doc = "#set text(font: \"Arial\", size: 12pt)\n\
+                   #set text(\n  font: \"Times New Roman\",\n)\n";
+        assert_eq!(parse_font(doc), Some("Times New Roman".to_string()));
+    }
+
+    #[test]
+    fn parse_font_ignores_comments() {
+        let doc = "// font: \"Arial\"\n#set text(font: \"Garamond\", size: 12pt)\n";
+        assert_eq!(parse_font(doc), Some("Garamond".to_string()));
+    }
+
+    #[test]
+    fn parse_paper_basic() {
+        let doc = "#set page(paper: \"a4\", margin: (top: 1in))\n";
+        assert_eq!(parse_paper(doc), Some("a4".to_string()));
+    }
+
+    #[test]
+    fn parse_spacing_leading_inline() {
+        let doc = "#set par(leading: 0.9em, spacing: 1.2em, justify: true)\n";
+        assert_eq!(parse_spacing(doc), Some("0.9em".to_string()));
+    }
+
+    #[test]
+    fn parse_spacing_leading_multiline() {
+        let doc = "#set par(\n  leading: 1.2em,\n  justify: false,\n)\n";
+        assert_eq!(parse_spacing(doc), Some("1.2em".to_string()));
+    }
+
+    #[test]
+    fn parse_spacing_last_wins() {
+        let doc = "#set par(leading: 0.65em)\n#set par(\n  leading: 1.2em,\n)\n";
+        assert_eq!(parse_spacing(doc), Some("1.2em".to_string()));
+    }
+
+    #[test]
+    fn parse_spacing_ignores_comments() {
+        let doc = "// leading: 1.5em\n#set par(leading: 0.9em)\n";
+        assert_eq!(parse_spacing(doc), Some("0.9em".to_string()));
+    }
+
+    #[test]
+    fn replace_in_set_blocks_font() {
+        let doc = "#set text(font: \"Arial\", size: 12pt)\n\
+                   // font: \"Arial\"\n\
+                   = Heading\n\
+                   #set text(\n  font: \"Arial\",\n)\n";
+        let result = replace_in_set_blocks(doc, "#set text(", "font: \"Arial\"", "font: \"Garamond\"");
+        assert!(result.contains("font: \"Garamond\""));
+        assert!(result.contains("// font: \"Arial\""), "comment should not be changed");
+        assert!(!result.contains("#set text(font: \"Arial\""));
+    }
+
+    #[test]
+    fn replace_in_set_blocks_leading() {
+        let doc = "#set par(leading: 0.65em, spacing: 1.2em)\n\
+                   #set par(\n  leading: 0.65em,\n  justify: true,\n)\n";
+        let result = replace_in_set_blocks(doc, "#set par(", "leading: 0.65em", "leading: 1.2em");
+        assert_eq!(result.matches("leading: 1.2em").count(), 2);
+        assert!(!result.contains("leading: 0.65em"));
+    }
+
+    #[test]
+    fn strip_style_block_removes_section() {
+        let doc = "before\n// ZERKALO-STYLE-BEGIN\n#set text(font: \"X\")\n// ZERKALO-STYLE-END\nafter\n";
+        let result = strip_style_block(doc);
+        assert_eq!(result, "before\nafter\n");
+    }
+
+    #[test]
+    fn strip_style_block_noop_when_absent() {
+        let doc = "no style block here\n";
+        assert_eq!(strip_style_block(doc), doc);
+    }
+
+    #[test]
+    fn reapply_preamble_replaces_markers() {
+        let existing = "// ZERKALO-TEMPLATE-BEGIN\n#set text(font: \"Arial\")\n// ZERKALO-TEMPLATE-END\n= Body\n";
+        let new_preamble = "#set text(font: \"Garamond\", size: 12pt)\n#set par(leading: 0.9em, spacing: 1.2em)\n";
+        let result = reapply_preamble(existing, new_preamble);
+        assert!(result.contains("font: \"Garamond\""));
+        assert!(result.contains("= Body"));
+        assert!(!result.contains("font: \"Arial\""));
+    }
+
+    #[test]
+    fn reapply_preamble_propagates_font_change() {
+        let existing = "// ZERKALO-TEMPLATE-BEGIN\n#set text(font: \"Arial\")\n// ZERKALO-TEMPLATE-END\n\
+                        #set text(\n  font: \"Arial\",\n  size: 14pt,\n)\n= Body\n";
+        let new_preamble = "#set text(font: \"Garamond\", size: 12pt)\n#set par(leading: 0.9em, spacing: 1.2em)\n";
+        let result = reapply_preamble(existing, new_preamble);
+        assert_eq!(result.matches("font: \"Garamond\"").count(), 2, "font in both template and manual section");
+        assert!(!result.contains("font: \"Arial\""));
+    }
+
+    #[test]
+    fn reapply_preamble_propagates_spacing_change() {
+        let existing = "// ZERKALO-TEMPLATE-BEGIN\n#set par(leading: 0.65em, spacing: 1.2em)\n// ZERKALO-TEMPLATE-END\n\
+                        #set par(\n  leading: 0.65em,\n  justify: false,\n)\n= Body\n";
+        let new_preamble = "#set text(font: \"Arial\")\n#set par(leading: 1.2em, spacing: 1.2em)\n";
+        let result = reapply_preamble(existing, new_preamble);
+        assert_eq!(result.matches("leading: 1.2em").count(), 2, "leading in both template and manual section");
+        assert!(!result.contains("leading: 0.65em"));
     }
 }

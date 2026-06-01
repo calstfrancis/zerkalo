@@ -12,6 +12,7 @@ use crate::config::{Config, Theme};
 pub struct SettingsDialog {
     window: adw::Window,
     on_save: Rc<RefCell<Option<Box<dyn Fn(Config)>>>>,
+    on_preview: Rc<RefCell<Option<Box<dyn Fn(Config)>>>>,
 }
 
 impl SettingsDialog {
@@ -26,6 +27,7 @@ impl SettingsDialog {
             .build();
 
         let on_save: Rc<RefCell<Option<Box<dyn Fn(Config)>>>> = Rc::new(RefCell::new(None));
+        let on_preview: Rc<RefCell<Option<Box<dyn Fn(Config)>>>> = Rc::new(RefCell::new(None));
 
         // ── Header bar ──────────────────────────────────────────────────────
 
@@ -275,104 +277,155 @@ impl SettingsDialog {
         // ── Wiring ──────────────────────────────────────────────────────────
 
         let win_cancel = window.clone();
-        cancel_btn.connect_clicked(move |_| win_cancel.close());
+        let on_preview_cancel = on_preview.clone();
+        let revert_cfg = current.clone();
+        cancel_btn.connect_clicked(move |_| {
+            // Revert appearance to original config on Cancel
+            if let Some(f) = on_preview_cancel.borrow().as_ref() {
+                f(revert_cfg.clone());
+            }
+            win_cancel.close();
+        });
+
+        // Helper that reads the current dialog state into a Config
+        let build_config = {
+            let work_dir_row = work_dir_row.clone();
+            let output_dir_row = output_dir_row.clone();
+            let bib_row = bib_row.clone();
+            let theme_row = theme_row.clone();
+            let font_btn = font_btn.clone();
+            let debounce_spin = debounce_spin.clone();
+            let auto_row = auto_row.clone();
+            let tab_spin = tab_spin.clone();
+            let wrap_row = wrap_row.clone();
+            let ws_row = ws_row.clone();
+            let spacing_row = spacing_row.clone();
+            let typewriter_row = typewriter_row.clone();
+            let high_contrast_row = high_contrast_row.clone();
+            let spell_enabled_row = spell_enabled_row.clone();
+            let spell_autocorrect_row = spell_autocorrect_row.clone();
+            let lang_row = lang_row.clone();
+            let available_langs = available_langs.clone();
+            let recent_files_cur = current.recent_files.clone();
+            let recent_projects_cur = current.recent_projects.clone();
+            let preview_zoom_cur = current.preview_zoom;
+            let sidebar_width_cur = current.sidebar_width;
+            let preview_split_cur = current.preview_split;
+            move || {
+                let work_dir_text = work_dir_row.text().trim().to_string();
+                let work_dir = if work_dir_text.is_empty() {
+                    crate::config::default_work_dir_pub()
+                } else {
+                    PathBuf::from(work_dir_text)
+                };
+                let output_dir_text = output_dir_row.text().trim().to_string();
+                let output_dir: Option<PathBuf> = if output_dir_text.is_empty() {
+                    None
+                } else {
+                    Some(PathBuf::from(output_dir_text))
+                };
+                let bib_path_text = bib_row.text().trim().to_string();
+                let bib_path: Option<PathBuf> = if bib_path_text.is_empty() {
+                    None
+                } else {
+                    Some(PathBuf::from(bib_path_text))
+                };
+                let theme = match theme_row.selected() {
+                    1 => Theme::Light,
+                    2 => Theme::Dark,
+                    _ => Theme::System,
+                };
+                let (editor_font_family, editor_font_size) = font_btn
+                    .font_desc()
+                    .map(|fd| {
+                        let family = fd.family()
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|| "Monospace".to_string());
+                        let pts = fd.size() / gtk4::pango::SCALE;
+                        let size = if pts <= 0 { 13u32 } else { pts as u32 };
+                        (family, size)
+                    })
+                    .unwrap_or_else(|| ("Monospace".to_string(), 13u32));
+                let spell_language = available_langs
+                    .get(lang_row.selected() as usize)
+                    .cloned()
+                    .unwrap_or_else(|| "en_US".to_string());
+                let editor_line_spacing = match spacing_row.selected() {
+                    0 => 0u32,
+                    2 => 6u32,
+                    _ => 2u32,
+                };
+                Config {
+                    work_dir,
+                    output_dir,
+                    recent_files: recent_files_cur.clone(),
+                    recent_projects: recent_projects_cur.clone(),
+                    bib_path,
+                    debounce_ms: debounce_spin.value() as u64,
+                    auto_compile: auto_row.is_active(),
+                    editor_font_size,
+                    theme,
+                    editor_font_family,
+                    editor_word_wrap: wrap_row.is_active(),
+                    editor_show_whitespace: ws_row.is_active(),
+                    editor_tab_width: tab_spin.value() as u32,
+                    preview_zoom: preview_zoom_cur,
+                    spell_enabled: spell_enabled_row.is_active(),
+                    spell_autocorrect: spell_autocorrect_row.is_active(),
+                    spell_language,
+                    editor_line_spacing,
+                    typewriter_scrolling: typewriter_row.is_active(),
+                    high_contrast: high_contrast_row.is_active(),
+                    word_count_goal: 0,
+                    sidebar_width: sidebar_width_cur,
+                    preview_split: preview_split_cur,
+                }
+            }
+        };
+        let build_config = std::rc::Rc::new(build_config);
+
+        // Live preview: fire on_preview whenever appearance-affecting rows change
+        macro_rules! wire_preview {
+            ($widget:expr, $signal:ident) => {{
+                let bc = build_config.clone();
+                let op = on_preview.clone();
+                $widget.$signal(move |_| {
+                    if let Some(f) = op.borrow().as_ref() { f(bc()); }
+                });
+            }};
+        }
+        wire_preview!(theme_row, connect_selected_notify);
+        wire_preview!(font_btn, connect_font_desc_notify);
+        wire_preview!(tab_spin, connect_value_notify);
+        wire_preview!(spacing_row, connect_selected_notify);
+        wire_preview!(wrap_row, connect_active_notify);
+        wire_preview!(ws_row, connect_active_notify);
+        wire_preview!(typewriter_row, connect_active_notify);
+        wire_preview!(high_contrast_row, connect_active_notify);
 
         let on_save_cb = on_save.clone();
-        let recent_files_cur = current.recent_files.clone();
-        let recent_projects_cur = current.recent_projects.clone();
-        let preview_zoom_cur = current.preview_zoom;
+        let bc_save = build_config.clone();
         let win_save = window.clone();
         save_btn.connect_clicked(move |_| {
-            let work_dir_text = work_dir_row.text().trim().to_string();
-            let work_dir = if work_dir_text.is_empty() {
-                crate::config::default_work_dir_pub()
-            } else {
-                PathBuf::from(work_dir_text)
-            };
-
-            let output_dir_text = output_dir_row.text().trim().to_string();
-            let output_dir: Option<PathBuf> = if output_dir_text.is_empty() {
-                None
-            } else {
-                Some(PathBuf::from(output_dir_text))
-            };
-
-            let bib_path_text = bib_row.text().trim().to_string();
-            let bib_path: Option<PathBuf> = if bib_path_text.is_empty() {
-                None
-            } else {
-                Some(PathBuf::from(bib_path_text))
-            };
-
-            let theme = match theme_row.selected() {
-                1 => Theme::Light,
-                2 => Theme::Dark,
-                _ => Theme::System,
-            };
-
-            let (editor_font_family, editor_font_size) = font_btn
-                .font_desc()
-                .map(|fd| {
-                    let family = fd.family()
-                        .map(|s| s.to_string())
-                        .unwrap_or_else(|| "Monospace".to_string());
-                    let pts = fd.size() / gtk4::pango::SCALE;
-                    let size = if pts <= 0 { 13u32 } else { pts as u32 };
-                    (family, size)
-                })
-                .unwrap_or_else(|| ("Monospace".to_string(), 13u32));
-
-            let spell_language = available_langs
-                .get(lang_row.selected() as usize)
-                .cloned()
-                .unwrap_or_else(|| "en_US".to_string());
-
-            let editor_line_spacing = match spacing_row.selected() {
-                0 => 0u32,
-                2 => 6u32,
-                _ => 2u32,
-            };
-
-            let new_cfg = Config {
-                work_dir,
-                output_dir,
-                recent_files: recent_files_cur.clone(),
-                recent_projects: recent_projects_cur.clone(),
-                bib_path,
-                debounce_ms: debounce_spin.value() as u64,
-                auto_compile: auto_row.is_active(),
-                editor_font_size,
-                theme,
-                editor_font_family,
-                editor_word_wrap: wrap_row.is_active(),
-                editor_show_whitespace: ws_row.is_active(),
-                editor_tab_width: tab_spin.value() as u32,
-                preview_zoom: preview_zoom_cur,
-                spell_enabled: spell_enabled_row.is_active(),
-                spell_autocorrect: spell_autocorrect_row.is_active(),
-                spell_language,
-                editor_line_spacing,
-                typewriter_scrolling: typewriter_row.is_active(),
-                high_contrast: high_contrast_row.is_active(),
-                word_count_goal: 0,
-            };
-
+            let new_cfg = bc_save();
             if let Err(e) = new_cfg.save() {
                 eprintln!("Failed to save config: {e}");
             }
-
             if let Some(f) = on_save_cb.borrow().as_ref() {
                 f(new_cfg);
             }
-
             win_save.close();
         });
 
-        Self { window, on_save }
+        Self { window, on_save, on_preview }
     }
 
     pub fn set_on_save(&self, f: impl Fn(Config) + 'static) {
         *self.on_save.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn set_on_preview(&self, f: impl Fn(Config) + 'static) {
+        *self.on_preview.borrow_mut() = Some(Box::new(f));
     }
 
     pub fn present(&self) {

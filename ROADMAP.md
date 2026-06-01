@@ -1,6 +1,6 @@
 # Zerkalo — Roadmap
 
-Current release: **0.6.0** (2026-05-28)
+Current release: **0.7.0** (2026-06-01)
 
 ---
 
@@ -88,9 +88,22 @@ Current release: **0.6.0** (2026-05-28)
 - Git history panel removed
 - Update Template Settings — applies in-memory without file-save dialog
 
+### 0.7.0
+- Import wrapping — LaTeX, DOCX, and PDF imports receive a Zerkalo template section; immediately responsive to "Update Template Settings"
+- Line spacing recalibrated — `leading:` (inter-line gap) rather than `spacing:` (paragraph gap); Single/1.5/Double = 0.65/0.9/1.2 em
+- Template propagation — font and `leading:` changes in "Update Template Settings" now propagate to manual config sections after the template marker
+- Font replacement scoped — only replaces inside `#set text(…)` blocks; comments/strings untouched
+- Style-block stripping — legacy `ZERKALO-STYLE-BEGIN/END` block stripped on every template reapply
+- Startup checks for `hunspell` and `tinymist` with per-distro install instructions
+- Detailed install commands in pandoc and pdftotext error dialogs
+- 3 RefCell re-entrancy crash classes fixed (`set_content`, `set_active_content`, `close_file`)
+- Startup crash on stale `glib::SourceId` fixed
+- Tab dropdown borrow released before GTK calls
+- 22 new unit tests
+
 ---
 
-## Near-term (0.7.0)
+## Near-term (0.8.0)
 
 ### Export
 - **EPUB metadata**: title, author, cover image fields in Export dialog
@@ -102,7 +115,7 @@ Current release: **0.6.0** (2026-05-28)
 
 ---
 
-## Medium-term (0.8.0)
+## Medium-term (0.9.0)
 
 ### Collaboration
 - Basic conflict-free file watching: detect external edits and offer to reload

@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::io::Write as IoWrite;
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 const DICT_DIRS: &[&str] = &[
@@ -18,18 +19,43 @@ pub struct SpellChecker {
     ignored: HashSet<String>,
 }
 
+fn user_dict_path() -> PathBuf {
+    let base = shellexpand::tilde("~/.local/share/zerkalo").into_owned();
+    PathBuf::from(base).join("user_dict.txt")
+}
+
 impl SpellChecker {
     pub fn new(language: &str) -> Self {
+        let mut ignored = HashSet::new();
+        if let Ok(content) = std::fs::read_to_string(user_dict_path()) {
+            for word in content.lines() {
+                let w = word.trim();
+                if !w.is_empty() {
+                    ignored.insert(w.to_lowercase());
+                }
+            }
+        }
         Self {
             language: language.to_string(),
             enabled: true,
             autocorrect: false,
-            ignored: HashSet::new(),
+            ignored,
         }
     }
 
     pub fn ignore(&mut self, word: &str) {
         self.ignored.insert(word.to_lowercase());
+    }
+
+    pub fn add_to_user_dict(&mut self, word: &str) {
+        self.ignore(word);
+        let path = user_dict_path();
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+            let _ = f.write_all(format!("{}\n", word.to_lowercase()).as_bytes());
+        }
     }
 
     pub fn is_ignored(&self, word: &str) -> bool {

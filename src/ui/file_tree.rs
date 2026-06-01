@@ -6,8 +6,8 @@ use std::rc::Rc;
 use gtk4::gdk::Rectangle;
 use gtk4::prelude::*;
 use gtk4::{
-    Align, AlertDialog, Box as GtkBox, Button, Entry, GestureClick, Label, ListBox, ListBoxRow,
-    Orientation, Popover, ScrolledWindow, SelectionMode, Separator,
+    Align, AlertDialog, Box as GtkBox, Button, DragSource, DropTarget, Entry, GestureClick,
+    Label, ListBox, ListBoxRow, Orientation, Popover, ScrolledWindow, SelectionMode, Separator,
 };
 
 type Callback<T> = Rc<RefCell<Option<Box<dyn Fn(T)>>>>;
@@ -21,6 +21,11 @@ pub struct FileTree {
     on_new_file: Callback<String>,
     on_delete: Callback<PathBuf>,
     file_errors: Rc<RefCell<HashSet<PathBuf>>>,
+    modified_files: Rc<RefCell<HashSet<PathBuf>>>,
+    /// User-defined display order: full paths in preferred display order.
+    custom_order: Rc<RefCell<Vec<PathBuf>>>,
+    /// Path of the row being dragged (set on drag-begin).
+    drag_source_path: Rc<RefCell<Option<PathBuf>>>,
 }
 
 impl FileTree {
@@ -103,6 +108,11 @@ impl FileTree {
             }
         });
 
+        // Load any saved custom order from project config
+        let saved_order: Vec<PathBuf> = crate::config::ProjectConfig::load(&project_root)
+            .map(|pc| pc.file_order.iter().map(|s| project_root.join(s)).collect())
+            .unwrap_or_default();
+
         let ft = Self {
             root_widget,
             list_box,
@@ -111,6 +121,9 @@ impl FileTree {
             on_new_file,
             on_delete,
             file_errors: Rc::new(RefCell::new(HashSet::new())),
+            modified_files: Rc::new(RefCell::new(HashSet::new())),
+            custom_order: Rc::new(RefCell::new(saved_order)),
+            drag_source_path: Rc::new(RefCell::new(None)),
         };
         ft.refresh();
         ft
@@ -143,6 +156,17 @@ impl FileTree {
         self.refresh();
     }
 
+    pub fn set_file_modified(&self, path: &Path, modified: bool) {
+        let mut set = self.modified_files.borrow_mut();
+        if modified { set.insert(path.to_path_buf()); } else { set.remove(path); }
+        drop(set);
+        self.refresh();
+    }
+
+    pub fn grab_focus(&self) {
+        self.list_box.grab_focus();
+    }
+
     pub fn refresh(&self) {
         while let Some(row) = self.list_box.row_at_index(0) {
             self.list_box.remove(&row);
@@ -163,9 +187,18 @@ impl FileTree {
             return;
         }
 
-        // Group files by relative directory
+        // Sort files by custom order first, then alphabetically
+        let custom = self.custom_order.borrow();
+        let mut ordered: Vec<PathBuf> = files.clone();
+        ordered.sort_by_key(|p| {
+            let pos = custom.iter().position(|q| q == p);
+            (pos.is_none() as usize, pos.unwrap_or(usize::MAX), p.to_string_lossy().to_string())
+        });
+        drop(custom);
+
+        // Group by directory (preserve custom-sorted order within each group)
         let mut by_dir: BTreeMap<PathBuf, Vec<PathBuf>> = BTreeMap::new();
-        for file in &files {
+        for file in &ordered {
             let rel = file.strip_prefix(self.project_root.as_ref()).unwrap_or(file);
             let dir = rel.parent().unwrap_or(Path::new("")).to_path_buf();
             by_dir.entry(dir).or_default().push(file.clone());
@@ -187,7 +220,7 @@ impl FileTree {
                 self.list_box.append(&row);
             }
 
-            let indent = if dir == Path::new("") { 10 } else { 22 };
+            let indent: i32 = if dir == Path::new("") { 10 } else { 22 };
 
             for file_path in dir_files {
                 let filename = file_path
@@ -196,17 +229,31 @@ impl FileTree {
                     .unwrap_or("?")
                     .to_string();
                 let has_error = self.file_errors.borrow().contains(file_path.as_path());
+                let is_modified = self.modified_files.borrow().contains(file_path.as_path());
 
                 let row = ListBoxRow::new();
+                // Drag handle icon to signal reorderability
                 let row_box = GtkBox::new(Orientation::Horizontal, 4);
                 row_box.set_hexpand(true);
+                let drag_icon = gtk4::Image::from_icon_name("list-drag-handle-symbolic");
+                drag_icon.set_pixel_size(12);
+                drag_icon.add_css_class("dim-label");
+                drag_icon.set_margin_start(4);
+                row_box.append(&drag_icon);
                 let lbl = Label::new(Some(&filename));
                 lbl.set_halign(Align::Start);
                 lbl.set_hexpand(true);
-                lbl.set_margin_start(indent);
+                lbl.set_margin_start(indent.saturating_sub(4));
                 lbl.set_margin_top(5);
                 lbl.set_margin_bottom(5);
                 row_box.append(&lbl);
+                if is_modified {
+                    let dot = Label::new(Some("●"));
+                    dot.add_css_class("accent");
+                    dot.set_margin_end(4);
+                    dot.set_tooltip_text(Some("Unsaved changes"));
+                    row_box.append(&dot);
+                }
                 if has_error {
                     let err_icon = gtk4::Image::from_icon_name("dialog-error-symbolic");
                     err_icon.set_pixel_size(12);
@@ -228,9 +275,118 @@ impl FileTree {
                 // Right-click: delete context popover
                 self.attach_delete_gesture(&row, file_path, &filename);
 
+                // Drag-and-drop: reorder within the list
+                self.attach_dnd(&row, file_path);
+
                 self.list_box.append(&row);
             }
         }
+    }
+
+    /// Attach drag-source and drop-target controllers to a file row.
+    fn attach_dnd(&self, row: &ListBoxRow, file_path: &PathBuf) {
+        // Drag source: record which path is being dragged
+        let drag_src = DragSource::new();
+        drag_src.set_actions(gtk4::gdk::DragAction::MOVE);
+        let src_path = file_path.clone();
+        let drag_holder = self.drag_source_path.clone();
+        drag_src.connect_drag_begin(move |src, _drag| {
+            *drag_holder.borrow_mut() = Some(src_path.clone());
+            // Provide a plain-text payload (the path string)
+            let path_str = src_path.to_string_lossy().to_string();
+            src.set_content(Some(&gtk4::gdk::ContentProvider::for_value(
+                &path_str.to_value(),
+            )));
+        });
+        row.add_controller(drag_src);
+
+        // Drop target: accept a path string and reorder
+        let drop_tgt = DropTarget::new(glib::Type::STRING, gtk4::gdk::DragAction::MOVE);
+        let target_path = file_path.clone();
+        let order = self.custom_order.clone();
+        let project_root = self.project_root.clone();
+        let drag_holder2 = self.drag_source_path.clone();
+        let all_files_snapshot = crate::project::collect_typ_files(&self.project_root);
+        drop_tgt.connect_drop(move |_, _value, _, _| {
+            let src_path = drag_holder2.borrow().clone();
+            let Some(src) = src_path else { return false; };
+            if src == target_path { return false; }
+
+            // Build the new order from current custom_order, inserting src before target
+            let mut current: Vec<PathBuf> = {
+                let ord = order.borrow();
+                if ord.is_empty() {
+                    all_files_snapshot.clone()
+                } else {
+                    // Merge: listed + unlisted (in filesystem order)
+                    let mut v: Vec<PathBuf> = ord.iter().filter(|p| all_files_snapshot.contains(p)).cloned().collect();
+                    for f in &all_files_snapshot { if !v.contains(f) { v.push(f.clone()); } }
+                    v
+                }
+            };
+
+            // Remove src from current position
+            current.retain(|p| p != &src);
+            // Insert before target
+            if let Some(idx) = current.iter().position(|p| p == &target_path) {
+                current.insert(idx, src);
+            } else {
+                current.push(src);
+            }
+
+            *order.borrow_mut() = current.clone();
+
+            // Persist to .zerkalo/config.toml
+            let rel_order: Vec<String> = current.iter()
+                .filter_map(|p| p.strip_prefix(project_root.as_ref()).ok())
+                .map(|r| r.to_string_lossy().to_string())
+                .collect();
+            let mut proj_cfg = crate::config::ProjectConfig::load(&project_root).unwrap_or_default();
+            proj_cfg.file_order = rel_order;
+            let _ = proj_cfg.save(&project_root);
+
+            true
+        });
+        // Refresh display after drop completes
+        let order_after = self.custom_order.clone();
+        let project_root_after = self.project_root.clone();
+        let file_errors_after = self.file_errors.clone();
+        let modified_after = self.modified_files.clone();
+        let list_box_after = self.list_box.clone();
+        let on_open_after = self.on_open.clone();
+        let on_delete_after = self.on_delete.clone();
+        let drag_src_after = self.drag_source_path.clone();
+        drop_tgt.connect_drop(move |_, _, _, _| {
+            // Clone a minimal FileTree to call refresh — rebuild via a second DnD handler
+            // We can't call self.refresh() here because we can't capture self in Fn.
+            // Instead post an idle refresh via glib.
+            let order_c = order_after.clone();
+            let root_c = project_root_after.clone();
+            let errors_c = file_errors_after.clone();
+            let modified_c = modified_after.clone();
+            let lb_c = list_box_after.clone();
+            let open_c = on_open_after.clone();
+            let del_c = on_delete_after.clone();
+            let drag_c = drag_src_after.clone();
+            glib::idle_add_local_once(move || {
+                // Rebuild the list box in place (minimal re-render)
+                let ft = FileTree {
+                    root_widget: GtkBox::new(Orientation::Horizontal, 0), // unused
+                    list_box: lb_c.clone(),
+                    project_root: Rc::new((*root_c).clone()),
+                    on_open: open_c,
+                    on_new_file: Rc::new(RefCell::new(None)),
+                    on_delete: del_c,
+                    file_errors: errors_c,
+                    modified_files: modified_c,
+                    custom_order: order_c,
+                    drag_source_path: drag_c,
+                };
+                ft.refresh();
+            });
+            false
+        });
+        row.add_controller(drop_tgt);
     }
 
     /// Attach a right-click gesture to `row` that shows a delete popover.
