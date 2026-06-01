@@ -2,7 +2,7 @@
 
 A contemplative [Typst](https://typst.app) editor built with Rust, GTK4, and libadwaita.  
 Live preview · Academic styles · LSP completions · Git sync · Adwaita design.  
-**v0.7.0** — Template round-trip fixes · Import wrapping · Crash hardening · 22 new tests
+**v0.7.1** — Template round-trip fixes · Import wrapping · Crash hardening · 22 new tests
 
 ---
 

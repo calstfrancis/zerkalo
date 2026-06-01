@@ -1,6 +1,6 @@
 # Zerkalo — Roadmap
 
-Current release: **0.7.0** (2026-06-01)
+Current release: **0.7.1** (2026-06-01)
 
 ---
 
