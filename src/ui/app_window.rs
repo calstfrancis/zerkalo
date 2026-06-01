@@ -872,7 +872,7 @@ impl AppWindow {
             menu_popover_for_about.popdown();
             let dlg = adw::MessageDialog::new(
                 Some(&window_for_about),
-                Some("Zerkalo 0.7.0"),
+                Some("Zerkalo 0.7.1"),
                 Some(
                     "A contemplative Typst editor.\n\n\
                      Built with Rust · GTK4 · libadwaita · sourceview5\n\
@@ -2310,9 +2310,10 @@ impl AppWindow {
                          • Refs and Files panels\n\
                          • Style, Sync, and TODO toolbar buttons\n\
                          • Find-in-project and error panels\n\
-                         • Preview toolbar controls (compile time, page navigation, watch mode, pop-out, cheatsheet)\n\
+                         • Preview toolbar controls (compile time, page navigation, watch mode)\n\
                          • Several advanced menu items\n\n\
-                         Turn off simple mode to access these features.",
+                         The cheatsheet toggle and pop-out preview remain available.\n\n\
+                         Turn off simple mode to access the full interface.",
                     ),
                 );
                 dlg.add_response("ok", "OK");
@@ -2470,9 +2471,7 @@ impl AppWindow {
             let error_c = error_panel.widget().clone();
             let ctl_c = compile_time_label.clone();
             let pnav_c = page_nav_box.clone();
-            let popout_c = popout_btn.clone();
             let watch_c = watch_btn.clone();
-            let ref_c = ref_toggle_btn.clone();
             let reapply_c = menu_reapply_template_item.clone();
             let fonts_c = menu_fonts_item.clone();
             let backup_c = menu_backup_remote_item.clone();
@@ -2489,9 +2488,7 @@ impl AppWindow {
                 error_c.set_visible(show);
                 ctl_c.set_visible(show);
                 pnav_c.set_visible(show);
-                popout_c.set_visible(show);
                 watch_c.set_visible(show);
-                ref_c.set_visible(show);
                 reapply_c.set_visible(show);
                 fonts_c.set_visible(show);
                 backup_c.set_visible(show);
@@ -2512,9 +2509,7 @@ impl AppWindow {
             error_panel.widget().set_visible(show);
             compile_time_label.set_visible(show);
             page_nav_box.set_visible(show);
-            popout_btn.set_visible(show);
             watch_btn.set_visible(show);
-            ref_toggle_btn.set_visible(show);
             menu_reapply_template_item.set_visible(show);
             menu_fonts_item.set_visible(show);
             menu_backup_remote_item.set_visible(show);

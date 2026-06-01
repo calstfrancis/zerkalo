@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.7.1] — 2026-06-01
+
+### Fixed
+- **Simple mode** — cheatsheet/help toggle and pop-out preview button are now visible in simple mode; only watch mode, page navigation, compile-time label, and advanced menu items are hidden
+
+---
+
 ## [0.7.0] — 2026-06-01
 
 ### Added
