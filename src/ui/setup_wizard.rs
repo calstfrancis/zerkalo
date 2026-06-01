@@ -295,24 +295,47 @@ fn backup_remote_group(work_dir: &Path) -> adw::PreferencesGroup {
     let work_dir = work_dir.to_path_buf();
 
     let group = adw::PreferencesGroup::new();
-    group.set_title("Backup Remote");
+    group.set_title("Local Backup");
     group.set_description(Some(
-        "Push to a second host on every sync for redundancy. \
-         GitLab, Codeberg, or a self-hosted server all work.",
+        "On every sync, push a copy to a second location. Use a mounted drive \
+         (pCloud, Nextcloud, USB), an external path, or any git URL.",
     ));
 
     let current_url = crate::git_sync::get_remote_url(&work_dir, "backup")
         .unwrap_or_default();
 
     let url_row = adw::EntryRow::new();
-    url_row.set_title("Backup URL (optional)");
+    url_row.set_title("Path or URL (optional)");
     url_row.set_text(&current_url);
+
+    // Folder-picker button for local paths
+    let pick_btn = Button::from_icon_name("document-open-symbolic");
+    pick_btn.set_valign(Align::Center);
+    pick_btn.add_css_class("flat");
+    pick_btn.set_tooltip_text(Some("Browse for a folder"));
+    {
+        let row_c = url_row.clone();
+        pick_btn.connect_clicked(move |_| {
+            // The folder picker needs a parent window — we use the default
+            // display's active window as a best-effort parent.
+            let fd = gtk4::FileDialog::new();
+            let row2 = row_c.clone();
+            fd.select_folder(None::<&gtk4::Window>, None::<&gtk4::gio::Cancellable>, move |result| {
+                if let Ok(file) = result {
+                    if let Some(path) = file.path() {
+                        row2.set_text(path.to_str().unwrap_or(""));
+                    }
+                }
+            });
+        });
+    }
+    url_row.add_suffix(&pick_btn);
 
     let status_lbl = Label::new(None);
     status_lbl.set_xalign(0.0);
     status_lbl.set_margin_top(4);
     if !current_url.is_empty() {
-        status_lbl.set_label(&format!("✓ Backup remote: {current_url}"));
+        status_lbl.set_label(&format!("✓ Backup: {current_url}"));
         status_lbl.add_css_class("success");
     } else {
         status_lbl.set_label("Optional — leave blank to skip.");
@@ -328,14 +351,14 @@ fn backup_remote_group(work_dir: &Path) -> adw::PreferencesGroup {
         let lbl_c = status_lbl.clone();
         let wdir = work_dir.clone();
         apply_btn.connect_clicked(move |_| {
-            let url = entry_c.text().trim().to_string();
-            if url.is_empty() {
-                lbl_c.set_label("No backup remote set.");
+            let target = entry_c.text().trim().to_string();
+            if target.is_empty() {
+                lbl_c.set_label("No backup location set.");
                 return;
             }
-            match crate::git_sync::add_backup_remote(&wdir, &url) {
+            match crate::git_sync::add_backup_remote(&wdir, &target) {
                 Ok(()) => {
-                    lbl_c.set_label(&format!("✓ Backup remote saved: {url}"));
+                    lbl_c.set_label(&format!("✓ Backup saved: {target}"));
                     lbl_c.remove_css_class("dim-label");
                     lbl_c.remove_css_class("error");
                     lbl_c.add_css_class("success");
@@ -351,22 +374,6 @@ fn backup_remote_group(work_dir: &Path) -> adw::PreferencesGroup {
 
     group.add(&url_row);
 
-    let hint_row = adw::ActionRow::new();
-    hint_row.set_activatable(false);
-    let links_box = GtkBox::new(Orientation::Horizontal, 8);
-    links_box.set_margin_top(4);
-    links_box.set_margin_bottom(4);
-    let gitlab_link = LinkButton::with_label("https://gitlab.com", "GitLab ↗");
-    gitlab_link.add_css_class("flat");
-    gitlab_link.add_css_class("caption");
-    let codeberg_link = LinkButton::with_label("https://codeberg.org", "Codeberg ↗");
-    codeberg_link.add_css_class("flat");
-    codeberg_link.add_css_class("caption");
-    links_box.append(&gitlab_link);
-    links_box.append(&Separator::new(Orientation::Vertical));
-    links_box.append(&codeberg_link);
-    hint_row.add_suffix(&links_box);
-
     let suffix_box = GtkBox::new(Orientation::Vertical, 6);
     suffix_box.set_margin_top(8);
     suffix_box.set_margin_bottom(4);
@@ -376,7 +383,6 @@ fn backup_remote_group(work_dir: &Path) -> adw::PreferencesGroup {
     wrapper.set_activatable(false);
     wrapper.add_suffix(&suffix_box);
 
-    group.add(&hint_row);
     group.add(&wrapper);
 
     group

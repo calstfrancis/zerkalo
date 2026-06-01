@@ -8,11 +8,11 @@ use gtk4::prelude::*;
 use gtk4::{
     Box as GtkBox, Button, CssProvider, DropTarget, EventControllerKey, GestureClick, Label,
     Notebook, Orientation, Popover, ProgressBar, PropagationPhase, ScrolledWindow, Separator,
-    TextSearchFlags, TextTag, TextWindowType,
+    TextSearchFlags, TextTag, TextWindowType, ToggleButton,
 };
 use libadwaita as adw;
 use sourceview5::prelude::*;
-use sourceview5::{Buffer, LanguageManager, StyleSchemeManager, View};
+use sourceview5::{Buffer, LanguageManager, MarkAttributes, StyleSchemeManager, View};
 
 use crate::bibliography::BibEntry;
 use crate::lsp::CompletionItem;
@@ -120,6 +120,7 @@ struct EditorTab {
     modified: bool,
     dot_label: Label,
     lsp_popup: LspPopup,
+    session_start_words: u32,
 }
 
 struct EditorState {
@@ -135,6 +136,7 @@ pub struct EditorPane {
     state: Rc<RefCell<EditorState>>,
     on_change: Rc<RefCell<Option<Box<dyn Fn()>>>>,
     on_modified_changed: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
+    on_file_dirty: Rc<RefCell<Option<Box<dyn Fn(PathBuf, bool)>>>>,
     on_image_drop: Rc<RefCell<Option<Box<dyn Fn(PathBuf)>>>>,
     on_page_switch: Rc<RefCell<Option<Box<dyn Fn(String, PathBuf)>>>>,
     on_file_opened: Rc<RefCell<Option<Box<dyn Fn(PathBuf, String)>>>>,
@@ -156,11 +158,13 @@ pub struct EditorPane {
     cursor_label: Label,
     breadcrumb_label: Label,
     tab_dropdown_btn: Button,
+    word_wrap_btn: ToggleButton,
     spell_checker: Rc<RefCell<crate::spellcheck::SpellChecker>>,
     line_spacing: Rc<RefCell<u32>>,
     typewriter_scroll: Rc<RefCell<bool>>,
     word_count_goal: Rc<RefCell<u32>>,
     last_wc_text: Rc<RefCell<String>>,
+    project_root: Rc<RefCell<Option<PathBuf>>>,
 }
 
 impl EditorPane {
@@ -278,9 +282,17 @@ impl EditorPane {
         tab_dropdown_btn.set_margin_end(4);
         tab_dropdown_btn.set_valign(gtk4::Align::Center);
 
+        let word_wrap_btn = ToggleButton::new();
+        word_wrap_btn.set_icon_name("format-justify-left-symbolic");
+        word_wrap_btn.add_css_class("flat");
+        word_wrap_btn.set_tooltip_text(Some("Toggle word wrap"));
+        word_wrap_btn.set_valign(gtk4::Align::Center);
+        word_wrap_btn.update_property(&[gtk4::accessible::Property::Label("Toggle word wrap")]);
+
         let breadcrumb_bar = GtkBox::new(Orientation::Horizontal, 0);
         breadcrumb_bar.append(&breadcrumb_label);
         breadcrumb_bar.append(&tab_dropdown_btn);
+        breadcrumb_bar.append(&word_wrap_btn);
 
         let editor_row = GtkBox::new(Orientation::Horizontal, 0);
         editor_row.set_hexpand(true);
@@ -299,6 +311,7 @@ impl EditorPane {
 
         let on_change: Rc<RefCell<Option<Box<dyn Fn()>>>> = Rc::new(RefCell::new(None));
         let on_modified_changed: Rc<RefCell<Option<Box<dyn Fn(bool)>>>> = Rc::new(RefCell::new(None));
+        let on_file_dirty: Rc<RefCell<Option<Box<dyn Fn(PathBuf, bool)>>>> = Rc::new(RefCell::new(None));
         let on_image_drop: Rc<RefCell<Option<Box<dyn Fn(PathBuf)>>>> = Rc::new(RefCell::new(None));
         let on_page_switch: Rc<RefCell<Option<Box<dyn Fn(String, PathBuf)>>>> =
             Rc::new(RefCell::new(None));
@@ -318,6 +331,7 @@ impl EditorPane {
         let typewriter_scroll: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
         let word_count_goal: Rc<RefCell<u32>> = Rc::new(RefCell::new(0));
         let last_wc_text: Rc<RefCell<String>> = Rc::new(RefCell::new(String::new()));
+        let project_root: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
 
         {
             let state2 = state.clone();
@@ -331,7 +345,7 @@ impl EditorPane {
                     if nb.page_num(&tab.scroll_window) == Some(page_num) {
                         let (s, e) = tab.buffer.bounds();
                         let content = tab.buffer.text(&s, &e, false).to_string();
-                        set_wc_text(&wc, &content);
+                        wc.set_text(&wc_str_with_delta(&content, tab.session_start_words));
                         ub.set_sensitive(tab.buffer.can_undo());
                         rb.set_sensitive(tab.buffer.can_redo());
                         if let Some(f) = ps.borrow().as_ref() {
@@ -349,6 +363,7 @@ impl EditorPane {
             state,
             on_change,
             on_modified_changed,
+            on_file_dirty,
             on_image_drop,
             on_page_switch,
             on_file_opened,
@@ -370,11 +385,13 @@ impl EditorPane {
             cursor_label,
             breadcrumb_label,
             tab_dropdown_btn,
+            word_wrap_btn,
             spell_checker: Rc::new(RefCell::new(crate::spellcheck::SpellChecker::new("en_US"))),
             line_spacing,
             typewriter_scroll,
             word_count_goal,
             last_wc_text,
+            project_root,
         };
 
         {
@@ -418,6 +435,14 @@ impl EditorPane {
             ep.find_bar.set_on_replace_all(move |find, replace| ep2.do_replace_all(find, replace));
         }
 
+        // Word wrap toggle button
+        {
+            let ep2 = ep.clone();
+            ep.word_wrap_btn.connect_toggled(move |btn| {
+                ep2.apply_word_wrap(btn.is_active());
+            });
+        }
+
         // Tab dropdown: show popover listing all open tabs
         {
             let ep2 = ep.clone();
@@ -429,19 +454,25 @@ impl EditorPane {
                 vbox.set_margin_top(4);
                 vbox.set_margin_bottom(4);
 
-                let state = ep2.state.borrow();
-                let mut pages: Vec<(u32, &std::path::Path)> = state.tabs.iter()
-                    .filter_map(|(path, tab)| {
-                        ep2.notebook.page_num(&tab.scroll_window).map(|n| (n, path.as_path()))
-                    })
-                    .collect();
-                pages.sort_by_key(|(n, _)| *n);
+                // Collect page data and drop the borrow before any GTK UI calls.
+                let pages: Vec<(u32, String)> = {
+                    let state = ep2.state.borrow();
+                    let mut v: Vec<(u32, String)> = state.tabs.iter()
+                        .filter_map(|(path, tab)| {
+                            ep2.notebook.page_num(&tab.scroll_window).map(|n| {
+                                let name = path.file_name()
+                                    .and_then(|f| f.to_str())
+                                    .unwrap_or("untitled")
+                                    .to_string();
+                                (n, name)
+                            })
+                        })
+                        .collect();
+                    v.sort_by_key(|(n, _)| *n);
+                    v
+                };
 
-                for (n, path) in pages {
-                    let name = path.file_name()
-                        .and_then(|f| f.to_str())
-                        .unwrap_or("untitled")
-                        .to_string();
+                for (n, name) in pages {
                     let row_btn = Button::with_label(&name);
                     row_btn.add_css_class("flat");
                     let nb = ep2.notebook.clone();
@@ -502,6 +533,22 @@ impl EditorPane {
         self.font_provider.load_from_data(&css);
     }
 
+    pub fn set_project_root(&self, path: PathBuf) {
+        *self.project_root.borrow_mut() = Some(path);
+    }
+
+    pub fn set_word_wrap_btn(&self, active: bool) {
+        self.word_wrap_btn.set_active(active);
+    }
+
+    pub fn set_word_wrap_btn_visible(&self, v: bool) {
+        self.word_wrap_btn.set_visible(v);
+    }
+
+    pub fn set_lsp_label_visible(&self, v: bool) {
+        self.lsp_status_label.set_visible(v);
+    }
+
     pub fn apply_word_wrap(&self, enabled: bool) {
         *self.word_wrap.borrow_mut() = enabled;
         let mode = if enabled { gtk4::WrapMode::Word } else { gtk4::WrapMode::None };
@@ -545,6 +592,23 @@ impl EditorPane {
 
     pub fn apply_typewriter_scroll(&self, enabled: bool) {
         *self.typewriter_scroll.borrow_mut() = enabled;
+    }
+
+    /// Constrain editor to a comfortable reading width when zen/focus mode is on.
+    pub fn set_zen_width(&self, enabled: bool) {
+        if enabled {
+            self.outer.set_halign(gtk4::Align::Center);
+            self.outer.set_size_request(720, -1);
+        } else {
+            self.outer.set_halign(gtk4::Align::Fill);
+            self.outer.set_size_request(-1, -1);
+        }
+    }
+
+    pub fn grab_focus(&self) {
+        if let Some((view, _)) = self.active_view_buffer() {
+            view.grab_focus();
+        }
     }
 
     #[allow(dead_code)]
@@ -715,16 +779,22 @@ impl EditorPane {
             ensure_diag_tags(&tab.buffer);
             tab.buffer.remove_tag_by_name("zerkalo-diag-error", &buf_start, &buf_end);
             tab.buffer.remove_tag_by_name("zerkalo-diag-warning", &buf_start, &buf_end);
+            // Clear gutter marks for this buffer
+            tab.buffer.remove_source_marks(&buf_start, &buf_end, Some("zerkalo-error"));
+            tab.buffer.remove_source_marks(&buf_start, &buf_end, Some("zerkalo-warning"));
             for (err_file, err_line, is_error) in diagnostics {
                 if err_file != path {
                     continue;
                 }
                 let line_idx = err_line.saturating_sub(1) as i32;
                 if let Some(line_start) = tab.buffer.iter_at_line(line_idx) {
-                    let mut line_end = line_start;
+                    let mut line_end = line_start.clone();
                     line_end.forward_to_line_end();
                     let tag = if *is_error { "zerkalo-diag-error" } else { "zerkalo-diag-warning" };
                     tab.buffer.apply_tag_by_name(tag, &line_start, &line_end);
+                    // Gutter marker at line start
+                    let category = if *is_error { "zerkalo-error" } else { "zerkalo-warning" };
+                    tab.buffer.create_source_mark(None, category, &line_start);
                 }
             }
         }
@@ -737,6 +807,8 @@ impl EditorPane {
             ensure_diag_tags(&tab.buffer);
             tab.buffer.remove_tag_by_name("zerkalo-diag-error", &start, &end);
             tab.buffer.remove_tag_by_name("zerkalo-diag-warning", &start, &end);
+            tab.buffer.remove_source_marks(&start, &end, Some("zerkalo-error"));
+            tab.buffer.remove_source_marks(&start, &end, Some("zerkalo-warning"));
         }
     }
 
@@ -848,6 +920,24 @@ impl EditorPane {
 
     // ── File management ───────────────────────────────────────────────────────
 
+    /// Like `open_file` but forces a buffer refresh if the file is already open.
+    pub fn reload_file(&self, path: PathBuf, content: &str) {
+        // Clone the buffer out before releasing the borrow — set_text fires
+        // connect_changed which re-borrows state, causing a double-borrow panic.
+        let existing = {
+            let state = self.state.borrow();
+            state.tabs.get(&path).map(|tab| (tab.buffer.clone(), tab.scroll_window.clone()))
+        };
+        if let Some((buffer, scroll)) = existing {
+            buffer.set_text(content);
+            if let Some(n) = self.notebook.page_num(&scroll) {
+                self.notebook.set_current_page(Some(n));
+            }
+            return;
+        }
+        self.open_file(path, content);
+    }
+
     pub fn open_file(&self, path: PathBuf, content: &str) {
         {
             let state = self.state.borrow();
@@ -888,6 +978,16 @@ impl EditorPane {
 
         let view = View::with_buffer(&buffer);
         view.set_show_line_numbers(true);
+        view.set_show_right_margin(false);
+
+        // Gutter icons for error and warning marks
+        let err_attrs = MarkAttributes::new();
+        err_attrs.set_icon_name("dialog-error-symbolic");
+        view.set_mark_attributes("zerkalo-error", &err_attrs, 1);
+        let warn_attrs = MarkAttributes::new();
+        warn_attrs.set_icon_name("dialog-warning-symbolic");
+        view.set_mark_attributes("zerkalo-warning", &warn_attrs, 1);
+
         view.set_auto_indent(true);
         view.set_smart_backspace(true);
         view.set_insert_spaces_instead_of_tabs(true);
@@ -969,10 +1069,13 @@ impl EditorPane {
         let dot_for_change = dot_label.clone();
         let on_change_cb = self.on_change.clone();
         let on_modified_cb = self.on_modified_changed.clone();
+        let on_file_dirty_cb = self.on_file_dirty.clone();
         let wc_for_change = self.word_count_label.clone();
         let goal_for_change = self.goal_bar.clone();
         let goal_val_for_change = self.word_count_goal.clone();
         let last_wc_for_change = self.last_wc_text.clone();
+        let project_root_for_wc = self.project_root.clone();
+        let session_start_for_change: Rc<std::cell::Cell<u32>> = Rc::new(std::cell::Cell::new(count_words(content)));
         buffer.connect_changed(move |buf| {
             let newly_modified = {
                 let mut state = state_for_change.borrow_mut();
@@ -986,6 +1089,7 @@ impl EditorPane {
             };
             if newly_modified {
                 if let Some(f) = on_modified_cb.borrow().as_ref() { f(true); }
+                if let Some(f) = on_file_dirty_cb.borrow().as_ref() { f(path_for_change.clone(), true); }
             }
             let (s, e) = buf.bounds();
             let text = buf.text(&s, &e, false);
@@ -993,9 +1097,13 @@ impl EditorPane {
             if goal > 0 {
                 update_goal_bar(&goal_for_change, &text, goal);
             }
-            let wc_str = wc_str_for(&text);
+            let wc_str = wc_str_with_delta(&text, session_start_for_change.get());
             *last_wc_for_change.borrow_mut() = wc_str.clone();
             wc_for_change.set_text(&wc_str);
+            if let Some(root) = project_root_for_wc.borrow().as_ref() {
+                let total = count_project_words(root);
+                wc_for_change.set_tooltip_text(Some(&format!("Project total: {total} words")));
+            }
             if let Some(f) = on_change_cb.borrow().as_ref() { f(); }
             // Defer comment highlight to next idle frame
             let buf_c = buf.clone();
@@ -1419,6 +1527,7 @@ impl EditorPane {
                     Key::bracketleft    => Some(("[", "]")),
                     Key::braceleft      => Some(("{", "}")),
                     Key::quotedbl       => Some(("\"", "\"")),
+                    Key::dollar         => Some(("$", "$")),
                     _ => None,
                 };
                 if let Some((open, close)) = pair {
@@ -1435,6 +1544,114 @@ impl EditorPane {
                 glib::Propagation::Proceed
             });
             view.add_controller(pair_ctrl);
+        }
+
+        // ── Comment toggle (Ctrl+/) ───────────────────────────────────────────
+        {
+            let buf_cmt = buffer.clone();
+            let cmt_ctrl = EventControllerKey::new();
+            cmt_ctrl.set_propagation_phase(PropagationPhase::Capture);
+            cmt_ctrl.connect_key_pressed(move |_, key, _, mods| {
+                use gtk4::gdk::Key;
+                let ctrl = mods.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
+                if !ctrl || key != Key::slash {
+                    return glib::Propagation::Proceed;
+                }
+
+                let (first_line, last_line) = if let Some((s, e)) = buf_cmt.selection_bounds() {
+                    let end_line = if e.line_offset() == 0 && e.line() > s.line() {
+                        e.line() - 1
+                    } else {
+                        e.line()
+                    };
+                    (s.line(), end_line)
+                } else {
+                    let line = buf_cmt.iter_at_offset(buf_cmt.cursor_position()).line();
+                    (line, line)
+                };
+
+                // Determine whether all non-empty lines start with "//"
+                let all_commented = (first_line..=last_line).all(|ln| {
+                    if let Some(it) = buf_cmt.iter_at_line(ln) {
+                        let mut end = it.clone();
+                        end.forward_to_line_end();
+                        let line_text = buf_cmt.text(&it, &end, false).to_string();
+                        line_text.trim_start().is_empty() || line_text.trim_start().starts_with("//")
+                    } else {
+                        true
+                    }
+                });
+
+                buf_cmt.begin_user_action();
+                for ln in (first_line..=last_line).rev() {
+                    let Some(line_start) = buf_cmt.iter_at_line(ln) else { continue };
+                    let mut line_end = line_start.clone();
+                    line_end.forward_to_line_end();
+                    let line_text = buf_cmt.text(&line_start, &line_end, false).to_string();
+                    if line_text.trim_start().is_empty() { continue; }
+
+                    if all_commented {
+                        // Remove "// " or "//" prefix
+                        let stripped = line_text.trim_start();
+                        let indent_len = (line_text.len() - stripped.len()) as i32;
+                        if let Some(mut del_start) = buf_cmt.iter_at_line_offset(ln, indent_len) {
+                            let remove = if stripped.starts_with("// ") { 3 } else { 2 };
+                            let mut del_end = del_start.clone();
+                            del_end.forward_chars(remove);
+                            buf_cmt.delete(&mut del_start, &mut del_end);
+                        }
+                    } else {
+                        // Insert "// " at indent level
+                        let stripped = line_text.trim_start();
+                        let indent_len = (line_text.len() - stripped.len()) as i32;
+                        if let Some(mut ins) = buf_cmt.iter_at_line_offset(ln, indent_len) {
+                            buf_cmt.insert(&mut ins, "// ");
+                        }
+                    }
+                }
+                buf_cmt.end_user_action();
+                glib::Propagation::Stop
+            });
+            view.add_controller(cmt_ctrl);
+        }
+
+        // ── Duplicate line / selection (Ctrl+D) ──────────────────────────────
+        {
+            let buf_dup = buffer.clone();
+            let dup_ctrl = EventControllerKey::new();
+            dup_ctrl.set_propagation_phase(PropagationPhase::Capture);
+            dup_ctrl.connect_key_pressed(move |_, key, _, mods| {
+                use gtk4::gdk::Key;
+                let ctrl = mods.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
+                let shift = mods.contains(gtk4::gdk::ModifierType::SHIFT_MASK);
+                if !ctrl || shift || key != Key::d {
+                    return glib::Propagation::Proceed;
+                }
+                buf_dup.begin_user_action();
+                if let Some((sel_s, sel_e)) = buf_dup.selection_bounds() {
+                    let text = buf_dup.text(&sel_s, &sel_e, false).to_string();
+                    let mut ins = sel_e.clone();
+                    buf_dup.insert(&mut ins, &text);
+                } else {
+                    let cursor_pos = buf_dup.cursor_position();
+                    let cursor = buf_dup.iter_at_offset(cursor_pos);
+                    let ln = cursor.line();
+                    let Some(line_start) = buf_dup.iter_at_line(ln) else {
+                        buf_dup.end_user_action();
+                        return glib::Propagation::Stop;
+                    };
+                    let mut line_end = line_start.clone();
+                    if !line_end.ends_line() {
+                        line_end.forward_to_line_end();
+                    }
+                    let text = buf_dup.text(&line_start, &line_end, false).to_string();
+                    let mut ins = line_end.clone();
+                    buf_dup.insert(&mut ins, &format!("\n{text}"));
+                }
+                buf_dup.end_user_action();
+                glib::Propagation::Stop
+            });
+            view.add_controller(dup_ctrl);
         }
 
         // ── Spell check: debounced buffer check ───────────────────────────────
@@ -1671,6 +1888,39 @@ impl EditorPane {
                 });
                 vbox.append(&ignore_btn);
 
+                let add_dict_btn = Button::with_label("Add to Dictionary");
+                add_dict_btn.add_css_class("flat");
+                let spell_dict = spell_rc.clone();
+                let buf_dict = buf_rc.clone();
+                let word_dict = word.clone();
+                let pop_dict = popover.clone();
+                add_dict_btn.connect_clicked(move |_| {
+                    spell_dict.borrow_mut().add_to_user_dict(&word_dict);
+                    let tag_table = buf_dict.tag_table();
+                    if let Some(t) = tag_table.lookup("zerkalo-spell") {
+                        let (s, e) = buf_dict.bounds();
+                        let mut it = s.clone();
+                        while it < e {
+                            if it.has_tag(&t) {
+                                let mut ws2 = it.clone();
+                                let mut we2 = it.clone();
+                                while ws2.backward_char() && ws2.char().is_alphabetic() {}
+                                if !ws2.char().is_alphabetic() { ws2.forward_char(); }
+                                while we2.char().is_alphabetic() {
+                                    if !we2.forward_char() { break; }
+                                }
+                                let w = buf_dict.text(&ws2, &we2, false).to_string();
+                                if w.to_lowercase() == word_dict.to_lowercase() {
+                                    buf_dict.remove_tag(&t, &ws2, &we2);
+                                }
+                            }
+                            if !it.forward_char() { break; }
+                        }
+                    }
+                    pop_dict.popdown();
+                });
+                vbox.append(&add_dict_btn);
+
                 popover.set_child(Some(&vbox));
 
                 let pop_close = popover.clone();
@@ -1692,6 +1942,7 @@ impl EditorPane {
         let content_for_callback = content.to_string();
 
 
+        let session_start_words = count_words(content);
         self.state.borrow_mut().tabs.insert(
             path,
             EditorTab {
@@ -1701,11 +1952,12 @@ impl EditorPane {
                 modified: false,
                 dot_label,
                 lsp_popup,
+                session_start_words,
             },
         );
 
         self.notebook.set_current_page(Some(page_index));
-        set_wc_text(&self.word_count_label, content);
+        set_wc_text_with_session(&self.word_count_label, content, session_start_words);
 
         // Parse per-document goal from `// @zerkalo-goal: N`
         if let Some(goal) = parse_goal_comment(content) {
@@ -1726,11 +1978,16 @@ impl EditorPane {
 
     #[allow(dead_code)]
     pub fn close_file(&self, path: &PathBuf) {
-        let mut state = self.state.borrow_mut();
-        if let Some(tab) = state.tabs.remove(path) {
-            if let Some(n) = self.notebook.page_num(&tab.scroll_window) {
-                self.notebook.remove_page(Some(n));
-            }
+        // Extract page number and drop the borrow before remove_page, which fires
+        // switch_page → connect_switch_page tries state.borrow() → double-borrow panic.
+        let page_num = {
+            let state = self.state.borrow();
+            state.tabs.get(path)
+                .and_then(|t| self.notebook.page_num(&t.scroll_window))
+        };
+        self.state.borrow_mut().tabs.remove(path);
+        if let Some(n) = page_num {
+            self.notebook.remove_page(Some(n));
         }
     }
 
@@ -1754,14 +2011,14 @@ impl EditorPane {
             Some(p) => p,
             None => return,
         };
-        let state = self.state.borrow();
-        for tab in state.tabs.values() {
-            if let Some(n) = self.notebook.page_num(&tab.scroll_window) {
-                if n == current {
-                    tab.buffer.set_text(text);
-                    return;
-                }
-            }
+        let buf = {
+            let state = self.state.borrow();
+            state.tabs.values()
+                .find(|t| self.notebook.page_num(&t.scroll_window) == Some(current))
+                .map(|t| t.buffer.clone())
+        };
+        if let Some(buffer) = buf {
+            buffer.set_text(text);
         }
     }
 
@@ -1770,9 +2027,9 @@ impl EditorPane {
     }
 
     pub fn set_content(&self, path: &std::path::Path, text: &str) {
-        let state = self.state.borrow();
-        if let Some(tab) = state.tabs.get(path) {
-            tab.buffer.set_text(text);
+        let buf = self.state.borrow().tabs.get(path).map(|t| t.buffer.clone());
+        if let Some(buffer) = buf {
+            buffer.set_text(text);
         }
     }
 
@@ -1793,6 +2050,11 @@ impl EditorPane {
         }
         drop(state);
         if let Some(f) = self.on_modified_changed.borrow().as_ref() { f(false); }
+        if let Some(f) = self.on_file_dirty.borrow().as_ref() { f(path.clone(), false); }
+    }
+
+    pub fn set_on_file_dirty(&self, f: impl Fn(PathBuf, bool) + 'static) {
+        *self.on_file_dirty.borrow_mut() = Some(Box::new(f));
     }
 
     pub fn get_open_paths_ordered(&self) -> Vec<PathBuf> {
@@ -2070,14 +2332,31 @@ fn lsp_hash_prefix(buffer: &Buffer) -> String {
     String::new()
 }
 
-fn wc_str_for(text: &str) -> String {
-    let words = count_content_words(text);
-    let reading = if words < 200 { "< 1 min".to_string() } else { format!("{} min", words / 200) };
-    format!("{words} words · {reading} read")
+fn count_words(text: &str) -> u32 {
+    count_content_words(text) as u32
 }
 
-fn set_wc_text(label: &Label, text: &str) {
-    label.set_text(&wc_str_for(text));
+fn count_project_words(root: &std::path::Path) -> u32 {
+    crate::project::collect_typ_files(root)
+        .iter()
+        .filter_map(|p| std::fs::read_to_string(p).ok())
+        .map(|c| count_content_words(&c) as u32)
+        .sum()
+}
+
+fn wc_str_with_delta(text: &str, session_start: u32) -> String {
+    let words = count_content_words(text) as u32;
+    let reading = if words < 200 { "< 1 min".to_string() } else { format!("{} min", words / 200) };
+    if words > session_start {
+        let delta = words - session_start;
+        format!("{words} words (+{delta}) · {reading} read")
+    } else {
+        format!("{words} words · {reading} read")
+    }
+}
+
+fn set_wc_text_with_session(label: &Label, text: &str, session_start: u32) {
+    label.set_text(&wc_str_with_delta(text, session_start));
 }
 
 fn count_content_words(text: &str) -> usize {

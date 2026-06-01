@@ -5,6 +5,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.7.0] — 2026-06-01
+
+### Added
+- **Import wrapping** — LaTeX, DOCX, and PDF files imported via ☰ → Import… now receive a Zerkalo-managed template section (`ZERKALO-TEMPLATE-BEGIN/END`) automatically; imported documents are immediately responsive to "Update Template Settings" without any manual preamble setup
+- **Startup checks for `hunspell` and `tinymist`** — if either is missing, a dialog at startup shows per-distro install instructions (`zypper`, `apt`, `brew`, `dnf`); pandoc and pdftotext error dialogs also now include platform-specific install commands
+- **22 new unit tests** — covering `parse_font`, `parse_paper`, `parse_spacing`, `replace_in_set_blocks`, `strip_style_block`, `reapply_preamble` (font and spacing propagation), and `strip_pandoc_preamble`
+
+### Changed
+- **Line spacing recalibrated** — spacing options now use Typst `leading:` (inter-line gap) rather than `spacing:` (paragraph gap): Single = 0.65 em, 1.5 Lines = 0.9 em, Double = 1.2 em; templates generate both `leading:` and a fixed `spacing: 1.2em` in `#set par`
+- **Font replacement scoped** — "Update Template Settings" font substitution now only touches `#set text(…)` blocks; comments and string literals containing the old font name are left unchanged
+- **Spacing propagation** — "Update Template Settings" now propagates `leading:` changes to every `#set par(…)` block in the document (including hand-written config sections after the template marker), matching the existing font-propagation behaviour
+
+### Fixed
+- **RefCell re-entrancy crashes (3 classes)** — `set_content`, `set_active_content`, and `close_file` each held an active borrow guard when calling `buffer.set_text()` or `notebook.remove_page()`, which synchronously fired GTK signals that re-entered the same `RefCell` and panicked; all three patched with the borrow-then-clone-then-drop pattern
+- **Startup crash: stale `glib::SourceId`** — `SourceId::remove()` was called on a timer ID that had already auto-removed itself on first fire, causing a panic on startup; timer callbacks now clear their own slot immediately so stale IDs are never removed
+- **Template style-block override** — a `ZERKALO-STYLE-BEGIN/END` block from the legacy Style button appearing after the template marker would silently override font and spacing; it is now stripped whenever "Update Template Settings" is applied
+- **Tab dropdown borrow safety** — the tab-list popover held `state.borrow()` across GTK widget construction and `vbox.append()` calls; the borrow is now released before any GTK calls
+
+---
+
 ## [0.4.0] — 2026-05-28
 
 ### Added
@@ -96,10 +116,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 - **Update Template Settings** — the "Update Template Settings" flow no longer opens a file-save dialog; preamble is applied in-memory and written directly to the current file
-
----
-
-## [Unreleased]
 
 ---
 

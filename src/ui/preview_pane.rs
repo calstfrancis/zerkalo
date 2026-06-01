@@ -14,8 +14,8 @@ use gtk4::{
 // ── Result sent from compile thread ──────────────────────────────────────────
 
 enum CompileResult {
-    Success(Vec<Vec<u8>>),
-    Error(String),
+    Success(Vec<Vec<u8>>, std::time::Duration),
+    Error(String, std::time::Duration),
 }
 
 // ── Widget ────────────────────────────────────────────────────────────────────
@@ -35,6 +35,7 @@ pub struct PreviewPane {
     zoom: Rc<RefCell<f64>>,
     auto_fit: Rc<RefCell<bool>>,
     on_compile_done: Rc<RefCell<Option<Box<dyn Fn(Option<String>)>>>>,
+    on_compile_time: Rc<RefCell<Option<Box<dyn Fn(u64)>>>>,
     on_zoom_changed: Rc<RefCell<Option<Box<dyn Fn(f64)>>>>,
     on_page_changed: Rc<RefCell<Option<Box<dyn Fn(usize, usize)>>>>,
     page_pixbufs: Rc<RefCell<Vec<Pixbuf>>>,
@@ -150,6 +151,7 @@ impl PreviewPane {
             zoom: zoom_draw2,
             auto_fit: Rc::new(RefCell::new(true)),
             on_compile_done: Rc::new(RefCell::new(None)),
+            on_compile_time: Rc::new(RefCell::new(None)),
             on_zoom_changed: Rc::new(RefCell::new(None)),
             on_page_changed: Rc::new(RefCell::new(None)),
             page_pixbufs,
@@ -251,6 +253,10 @@ impl PreviewPane {
 
     pub fn set_on_compile_done(&self, f: impl Fn(Option<String>) + 'static) {
         *self.on_compile_done.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn set_on_compile_time(&self, f: impl Fn(u64) + 'static) {
+        *self.on_compile_time.borrow_mut() = Some(Box::new(f));
     }
 
     pub fn set_on_zoom_changed(&self, f: impl Fn(f64) + 'static) {
@@ -385,10 +391,12 @@ impl PreviewPane {
         let (tx, rx) = mpsc::sync_channel::<CompileResult>(1);
 
         std::thread::spawn(move || {
+            let t0 = std::time::Instant::now();
             let result = crate::compiler::compile_to_png_bytes(&root, 2.0);
+            let elapsed = t0.elapsed();
             tx.send(match result {
-                Ok(pages) => CompileResult::Success(pages),
-                Err(msg) => CompileResult::Error(msg),
+                Ok(pages) => CompileResult::Success(pages, elapsed),
+                Err(msg) => CompileResult::Error(msg, elapsed),
             })
             .ok();
         });
@@ -405,18 +413,24 @@ impl PreviewPane {
                     pane.spinner.set_spinning(false);
                     pane.cancel_btn.set_visible(false);
                     match result {
-                        CompileResult::Success(pages) => {
+                        CompileResult::Success(pages, elapsed) => {
                             pane.load_pixbufs_from_bytes(&pages);
                             pane.stack.set_visible_child_name("ready");
                             if let Some(f) = pane.on_compile_done.borrow().as_ref() {
                                 f(None);
                             }
+                            if let Some(f) = pane.on_compile_time.borrow().as_ref() {
+                                f(elapsed.as_millis() as u64);
+                            }
                         }
-                        CompileResult::Error(msg) => {
+                        CompileResult::Error(msg, elapsed) => {
                             pane.error_label.set_label(&msg);
                             pane.stack.set_visible_child_name("error");
                             if let Some(f) = pane.on_compile_done.borrow().as_ref() {
                                 f(Some(msg));
+                            }
+                            if let Some(f) = pane.on_compile_time.borrow().as_ref() {
+                                f(elapsed.as_millis() as u64);
                             }
                         }
                     }

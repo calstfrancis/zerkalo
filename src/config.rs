@@ -61,6 +61,10 @@ pub struct Config {
     pub high_contrast: bool,
     #[serde(default)]
     pub word_count_goal: u32,
+    #[serde(default = "default_sidebar_width")]
+    pub sidebar_width: i32,
+    #[serde(default = "default_preview_split")]
+    pub preview_split: i32,
 }
 
 fn default_work_dir() -> PathBuf {
@@ -78,6 +82,8 @@ fn default_tab_width() -> u32 { 2 }
 fn default_preview_zoom() -> f64 { 1.0 }
 fn default_spell_language() -> String { "en_US".to_string() }
 fn default_line_spacing() -> u32 { 2 }
+fn default_sidebar_width() -> i32 { 220 }
+fn default_preview_split() -> i32 { 600 }
 
 impl Default for Config {
     fn default() -> Self {
@@ -103,6 +109,8 @@ impl Default for Config {
             typewriter_scrolling: false,
             high_contrast: false,
             word_count_goal: 0,
+            sidebar_width: default_sidebar_width(),
+            preview_split: default_preview_split(),
         }
     }
 }
@@ -160,6 +168,10 @@ pub struct ProjectConfig {
     /// Override the PDF/PNG output directory (default: /tmp/zerkalo_preview).
     #[serde(default)]
     pub output_dir: Option<PathBuf>,
+    /// User-defined file display order (filenames relative to project root).
+    /// Files not listed appear after those that are.
+    #[serde(default)]
+    pub file_order: Vec<String>,
 }
 
 #[cfg(test)]
@@ -216,7 +228,6 @@ impl ProjectConfig {
         toml::from_str(&content).ok()
     }
 
-    #[allow(dead_code)]
     pub fn save(&self, project_root: &Path) -> Result<()> {
         let dir = project_root.join(".zerkalo");
         std::fs::create_dir_all(&dir)?;

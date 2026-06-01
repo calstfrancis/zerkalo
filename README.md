@@ -2,7 +2,7 @@
 
 A contemplative [Typst](https://typst.app) editor built with Rust, GTK4, and libadwaita.  
 Live preview · Academic styles · LSP completions · Git sync · Adwaita design.  
-**v0.6.0** — Command palette · Zen writing mode · Typewriter scrolling · Word-count goals · Auto-pair brackets · Save-before-close dialog
+**v0.7.0** — Template round-trip fixes · Import wrapping · Crash hardening · 22 new tests
 
 ---
 
@@ -47,8 +47,8 @@ Live preview · Academic styles · LSP completions · Git sync · Adwaita design
 | **Cheatsheet & Help panel** | Toggle (`?` button) in preview toolbar shows a three-tab reference panel (Cheatsheet, Help, FAQ) in place of the preview |
 | **Style switcher** | Header-bar dropdown applies a citation style to the open document; button label shows detected style and filename ("GOST 7.32 · main") |
 | **New from Template** | Dialog with five tabs — Document, Layout, Sections, Languages, Packages — generates a complete `.typ` preamble |
-| **Update Template Settings** | ☰ → Update Template Settings — re-applies preamble settings (citation style, margins, fonts, …) to an existing document without touching the body |
-| **LaTeX import** | ☰ → Import LaTeX File — converts `.tex` to Typst via pandoc |
+| **Update Template Settings** | ☰ → Update Template Settings — re-applies preamble settings (citation style, margins, fonts, line spacing) to an existing document without touching the body; font and spacing changes propagate to manual config sections |
+| **LaTeX / DOCX / PDF import** | ☰ → Import… — converts to Typst via pandoc or pdftotext; all imported files receive a Zerkalo template section and are immediately responsive to "Update Template Settings" |
 | **Export** | PDF (typst), HTML (typst), DOCX, ODT, LaTeX (all via pandoc where needed) |
 | **Font management** | ☰ → Font Management — searchable list of system fonts; enable/disable; persisted to `~/.config/zerkalo/font-preferences.toml` |
 | **GOST Type B font** | Bundled and installed automatically on first launch |

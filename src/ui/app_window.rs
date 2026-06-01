@@ -49,6 +49,9 @@ pub struct AppWindow {
     project_model: ProjectModel,
     sync_btn: Button,
     search_panel: super::search_panel::SearchPanel,
+    #[allow(dead_code)]
+    toast_overlay: adw::ToastOverlay,
+    file_tree: FileTree,
 }
 
 impl AppWindow {
@@ -132,12 +135,14 @@ impl AppWindow {
         let sidebar_btn = Button::from_icon_name("sidebar-show-symbolic");
         sidebar_btn.set_tooltip_text(Some("Toggle sidebar"));
         sidebar_btn.add_css_class("flat");
+        sidebar_btn.update_property(&[gtk4::accessible::Property::Label("Toggle sidebar")]);
         header.pack_start(&sidebar_btn);
 
         let focus_btn = ToggleButton::new();
         focus_btn.set_icon_name("view-fullscreen-symbolic");
         focus_btn.set_tooltip_text(Some("Focus mode — hide sidebar and preview"));
         focus_btn.add_css_class("flat");
+        focus_btn.update_property(&[gtk4::accessible::Property::Label("Toggle focus mode")]);
         header.pack_start(&focus_btn);
 
         // Style switcher dropdown — placed in header start, beside the title
@@ -168,6 +173,7 @@ impl AppWindow {
         todo_btn.set_tooltip_text(Some("Toggle TODO panel"));
         todo_btn.add_css_class("flat");
         todo_btn.set_active(false);
+        todo_btn.update_property(&[gtk4::accessible::Property::Label("Toggle TODO panel")]);
 
         // ── Primary header buttons (packed together at end of section) ────────
         let compile_btn = Button::with_label("Preview");
@@ -178,6 +184,7 @@ impl AppWindow {
         let sync_btn = Button::from_icon_name("vcs-commit-symbolic");
         sync_btn.set_tooltip_text(Some("Commit & Push to Git (Ctrl+Shift+G)"));
         sync_btn.add_css_class("flat");
+        sync_btn.update_property(&[gtk4::accessible::Property::Label("Commit and push to Git")]);
 
         // ── Hamburger menu items (using make_menu_item for left+shortcut layout) ──
         let menu_new_template_item  = make_menu_item("New from Template…",         None);
@@ -194,7 +201,7 @@ impl AppWindow {
         let menu_fonts_item         = make_menu_item("Font Management…",            None);
         let menu_settings_item      = make_menu_item("Settings",                    None);
         let menu_setup_item         = make_menu_item("Setup & Onboarding…",         None);
-        let menu_backup_remote_item = make_menu_item("Backup Remotes…",             None);
+        let menu_backup_remote_item = make_menu_item("Local Backup…",               None);
         let menu_help_item          = make_menu_item("Keyboard Shortcuts & Help",   Some("Ctrl+?"));
         let menu_about_item         = make_menu_item("About Zerkalo",               None);
 
@@ -346,6 +353,9 @@ impl AppWindow {
                 op.select_for_line(line);
             });
         }
+
+        // Set project root for project-wide word count tooltip
+        editor_pane.set_project_root(project_root.clone());
 
         // Wire dep_graph → open file in editor
         {
@@ -499,6 +509,7 @@ impl AppWindow {
         editor_pane.apply_font_size(config.editor_font_size);
         editor_pane.apply_font_family(&config.editor_font_family);
         editor_pane.apply_word_wrap(config.editor_word_wrap);
+        editor_pane.set_word_wrap_btn(config.editor_word_wrap);
         editor_pane.apply_show_whitespace(config.editor_show_whitespace);
         editor_pane.apply_tab_width(config.editor_tab_width);
         editor_pane.apply_line_spacing(config.editor_line_spacing);
@@ -599,6 +610,7 @@ impl AppWindow {
         let rsh_for_focus = right_sidebar_holder.clone();
         let todo_btn_for_focus = todo_btn.clone();
         let window_for_focus = window.clone();
+        let editor_for_focus = editor_pane.clone();
         focus_btn.connect_toggled(move |btn| {
             let focused = btn.is_active();
             *focus_active_c.borrow_mut() = focused;
@@ -608,6 +620,8 @@ impl AppWindow {
             } else {
                 window_for_focus.remove_css_class("zen-writing");
             }
+            // Constrain editor to a comfortable reading width in zen mode
+            editor_for_focus.set_zen_width(focused);
             if let Some(pc) = preview_vis_for_focus.borrow().as_ref() {
                 pc.set_visible(!focused);
             }
@@ -664,12 +678,37 @@ impl AppWindow {
             let auto_flag = auto_compile_for_settings.clone();
             let cfg_rc = current_config_for_settings.clone();
             let window_for_save = window_for_settings.clone();
+
+            // Live preview — apply appearance changes immediately while dialog is open
+            {
+                let editor_p = editor.clone();
+                let win_p = window_for_save.clone();
+                dialog.set_on_preview(move |cfg| {
+                    editor_p.apply_font_size(cfg.editor_font_size);
+                    editor_p.apply_font_family(&cfg.editor_font_family);
+                    editor_p.apply_word_wrap(cfg.editor_word_wrap);
+                    editor_p.set_word_wrap_btn(cfg.editor_word_wrap);
+                    editor_p.apply_show_whitespace(cfg.editor_show_whitespace);
+                    editor_p.apply_tab_width(cfg.editor_tab_width);
+                    editor_p.apply_line_spacing(cfg.editor_line_spacing);
+                    editor_p.apply_typewriter_scroll(cfg.typewriter_scrolling);
+                    apply_theme(&cfg.theme);
+                    editor_p.apply_style_scheme(adw::StyleManager::default().is_dark());
+                    if cfg.high_contrast {
+                        win_p.add_css_class("high-contrast");
+                    } else {
+                        win_p.remove_css_class("high-contrast");
+                    }
+                });
+            }
+
             dialog.set_on_save(move |new_cfg| {
                 *debounce.borrow_mut() = new_cfg.debounce_ms;
                 *auto_flag.borrow_mut() = new_cfg.auto_compile;
                 editor.apply_font_size(new_cfg.editor_font_size);
                 editor.apply_font_family(&new_cfg.editor_font_family);
                 editor.apply_word_wrap(new_cfg.editor_word_wrap);
+                editor.set_word_wrap_btn(new_cfg.editor_word_wrap);
                 editor.apply_show_whitespace(new_cfg.editor_show_whitespace);
                 editor.apply_tab_width(new_cfg.editor_tab_width);
                 editor.apply_line_spacing(new_cfg.editor_line_spacing);
@@ -833,7 +872,7 @@ impl AppWindow {
             menu_popover_for_about.popdown();
             let dlg = adw::MessageDialog::new(
                 Some(&window_for_about),
-                Some("Zerkalo 0.6.0"),
+                Some("Zerkalo 0.7.0"),
                 Some(
                     "A contemplative Typst editor.\n\n\
                      Built with Rust · GTK4 · libadwaita · sourceview5\n\
@@ -991,7 +1030,13 @@ impl AppWindow {
                                 show_alert(&win2, "Import Failed", &format!("pandoc error:\n{}", msg.lines().take(5).collect::<Vec<_>>().join("\n")));
                             }
                             Err(_) => {
-                                show_alert(&win2, "Import Failed", "pandoc not found. Install pandoc 3.1+ to use LaTeX import.");
+                                show_alert(&win2, "Import Failed",
+                                    "pandoc was not found. Install it to use LaTeX import:\n\
+                                     \n  zypper install pandoc\
+                                     \n  apt   install pandoc\
+                                     \n  brew  install pandoc\
+                                     \n  dnf   install pandoc\
+                                     \nVersion 3.1 or later is required.");
                             }
                         }
                     }
@@ -1047,7 +1092,13 @@ impl AppWindow {
                                 show_alert(&win2, "Import Failed", &format!("pandoc error:\n{}", msg.lines().take(5).collect::<Vec<_>>().join("\n")));
                             }
                             Err(_) => {
-                                show_alert(&win2, "Import Failed", "pandoc not found. Install pandoc 3.1+ to use DOCX import.");
+                                show_alert(&win2, "Import Failed",
+                                    "pandoc was not found. Install it to use DOCX import:\n\
+                                     \n  zypper install pandoc\
+                                     \n  apt   install pandoc\
+                                     \n  brew  install pandoc\
+                                     \n  dnf   install pandoc\
+                                     \nVersion 3.1 or later is required.");
                             }
                         }
                     }
@@ -1096,7 +1147,12 @@ impl AppWindow {
                                 show_alert(&win2, "Import Failed", "pdftotext could not extract text from this PDF.");
                             }
                             Err(_) => {
-                                show_alert(&win2, "Import Failed", "pdftotext not found. Install poppler-utils to use PDF import.");
+                                show_alert(&win2, "Import Failed",
+                                    "pdftotext was not found. Install poppler-utils to use PDF import:\n\
+                                     \n  zypper install poppler-tools\
+                                     \n  apt   install poppler-utils\
+                                     \n  brew  install poppler\
+                                     \n  dnf   install poppler-utils");
                             }
                         }
                     }
@@ -1137,6 +1193,15 @@ impl AppWindow {
                 &super::template_dialog::parse_style_key(&current_content)
                     .unwrap_or_default(),
             );
+            if let Some(f) = super::template_dialog::parse_font(&current_content) {
+                dlg.preselect_font(&f);
+            }
+            if let Some(p) = super::template_dialog::parse_paper(&current_content) {
+                dlg.preselect_paper(&p);
+            }
+            if let Some(s) = super::template_dialog::parse_spacing(&current_content) {
+                dlg.preselect_spacing(&s);
+            }
             let ep = editor_for_reapply.clone();
             dlg.set_on_apply(move |new_content| {
                 let preamble = super::template_dialog::extract_preamble(&new_content);
@@ -1144,7 +1209,7 @@ impl AppWindow {
                 if let Err(e) = std::fs::write(&current_path, &updated) {
                     tracing::error!("Failed to write re-applied template: {e}");
                 } else {
-                    ep.open_file(current_path.clone(), &updated);
+                    ep.reload_file(current_path.clone(), &updated);
                 }
             });
             dlg.present();
@@ -1251,14 +1316,15 @@ impl AppWindow {
         let window_for_sync = window.clone();
         let sync_btn_ref = sync_btn.clone();
         let editor_for_sync = editor_pane.clone();
-        let toast_for_sync_btn = adw::ToastOverlay::new();
-        let toast_overlay = toast_for_sync_btn.clone();
+        let toast_overlay = adw::ToastOverlay::new();
+        let toast_for_sync_btn = toast_overlay.clone();
+        let toast_for_sync_closure = toast_overlay.clone();
         sync_btn.connect_clicked(move |_| {
             editor_for_sync.save_all_modified();
             let root = project_root_for_sync.clone();
             let win = window_for_sync.clone();
             let btn = sync_btn_ref.clone();
-            let toasts = toast_overlay.clone();
+            let toasts = toast_for_sync_closure.clone();
 
             if !git_sync::has_remote(&root) {
                 let dialog = SyncDialog::new(&win);
@@ -1506,6 +1572,7 @@ impl AppWindow {
         let error_banner_lbl_for_compile = error_banner.clone();
         let file_tree_holder_for_compile = file_tree_holder.clone();
         let root_file_for_compile = project_model.root_file.clone();
+        let toast_for_compile = toast_overlay.clone();
         preview_pane.set_on_compile_done(move |result| {
             match &result {
                 None => {
@@ -1518,6 +1585,9 @@ impl AppWindow {
                             ft.set_file_error(p.as_path(), false);
                         }
                     }
+                    let t = adw::Toast::new("Compiled successfully");
+                    t.set_timeout(2);
+                    toast_for_compile.add_toast(t);
                 }
                 Some(stderr) => {
                     // Show first error line in the inline banner above the preview toolbar
@@ -1530,6 +1600,9 @@ impl AppWindow {
                             ft.set_file_error(p.as_path(), true);
                         }
                     }
+                    let t = adw::Toast::new("Compile error — see panel");
+                    t.set_timeout(3);
+                    toast_for_compile.add_toast(t);
                     // If LSP is providing diagnostics, skip showing compile stderr
                     if *lsp_diags_for_compile.borrow() {
                         dep_graph_for_compile.refresh(None);
@@ -1566,23 +1639,50 @@ impl AppWindow {
         let win_for_check = window.clone();
         glib::timeout_add_local(Duration::from_millis(900), move || {
             // typst is no longer checked — compilation is built in
-            let mut missing: Vec<&'static str> = Vec::new();
-            if std::process::Command::new("git")
-                .arg("--version")
-                .output()
-                .is_err()
-            {
-                missing.push("git");
-            }
-            if !missing.is_empty() {
-                tracing::warn!("Required tools not found in PATH: {}", missing.join(", "));
+            let git_ok = std::process::Command::new("git")
+                .arg("--version").output().is_ok();
+            let hunspell_ok = std::process::Command::new("hunspell")
+                .arg("--version").output().is_ok();
+            let pandoc_ok = std::process::Command::new("pandoc")
+                .arg("--version").output().is_ok();
+            let tinymist_ok = std::process::Command::new("tinymist")
+                .arg("--version").output().is_ok();
+
+            if !git_ok {
+                tracing::warn!("git not found in PATH");
                 show_alert(
                     &win_for_check,
-                    "Missing Tools",
-                    "git was not found in your PATH. Install it to enable git sync:\n\
+                    "Missing: git",
+                    "git was not found. Install it to enable git sync:\n\
                      \n  zypper install git\
-                     \n  apt  install  git\
-                     \n  brew install  git"
+                     \n  apt   install git\
+                     \n  brew  install git\
+                     \n  dnf   install git"
+                );
+            }
+            if !hunspell_ok {
+                tracing::warn!("hunspell not found in PATH — spell check disabled");
+                show_alert(
+                    &win_for_check,
+                    "Missing: hunspell",
+                    "hunspell was not found. Install it to enable spell checking:\n\
+                     \n  zypper install hunspell hunspell-en\
+                     \n  apt   install hunspell hunspell-en-us\
+                     \n  brew  install hunspell\
+                     \n  dnf   install hunspell hunspell-en"
+                );
+            }
+            if !pandoc_ok {
+                tracing::info!("pandoc not found — LaTeX/DOCX import disabled");
+            }
+            if !tinymist_ok {
+                tracing::info!("tinymist not found — LSP completions disabled");
+                show_alert(
+                    &win_for_check,
+                    "Optional: tinymist",
+                    "tinymist was not found. Install it to enable LSP completions and diagnostics:\n\
+                     \n  cargo install tinymist\
+                     \n  # or download from: https://github.com/Myriad-Dreamin/tinymist/releases"
                 );
             }
             glib::ControlFlow::Break
@@ -1602,9 +1702,16 @@ impl AppWindow {
         // ── Auto-save: write modified buffers every 30 seconds ──────────────
 
         let editor_for_autosave = editor_pane.clone();
+        let toast_for_autosave = toast_overlay.clone();
         glib::timeout_add_local(Duration::from_secs(30), move || {
-            for (path, content) in editor_for_autosave.modified_buffers() {
-                crate::auto_save::save(&path, &content);
+            let buffers: Vec<_> = editor_for_autosave.modified_buffers();
+            if !buffers.is_empty() {
+                for (path, content) in &buffers {
+                    crate::auto_save::save(path, content);
+                }
+                let t = adw::Toast::new("Autosaved");
+                t.set_timeout(2);
+                toast_for_autosave.add_toast(t);
             }
             glib::ControlFlow::Continue
         });
@@ -1712,17 +1819,21 @@ impl AppWindow {
         // Preview toolbar: linked zoom group + pop-out button (rubric style)
         let zoom_out_btn = Button::from_icon_name("zoom-out-symbolic");
         zoom_out_btn.set_tooltip_text(Some("Zoom out"));
+        zoom_out_btn.update_property(&[gtk4::accessible::Property::Label("Zoom out preview")]);
 
         let zoom_in_btn = Button::from_icon_name("zoom-in-symbolic");
         zoom_in_btn.set_tooltip_text(Some("Zoom in"));
+        zoom_in_btn.update_property(&[gtk4::accessible::Property::Label("Zoom in preview")]);
 
         let fit_width_btn = Button::from_icon_name("zoom-fit-best-symbolic");
         fit_width_btn.set_tooltip_text(Some("Fit page width"));
         fit_width_btn.add_css_class("flat");
+        fit_width_btn.update_property(&[gtk4::accessible::Property::Label("Fit page width")]);
 
         let fit_page_btn = Button::from_icon_name("view-fullscreen-symbolic");
         fit_page_btn.set_tooltip_text(Some("Fit page to window"));
         fit_page_btn.add_css_class("flat");
+        fit_page_btn.update_property(&[gtk4::accessible::Property::Label("Fit page to window")]);
 
         // Zoom buttons as a linked pill (rubric pattern)
         let zoom_box = GtkBox::new(Orientation::Horizontal, 0);
@@ -1741,28 +1852,38 @@ impl AppWindow {
         watch_btn.set_icon_name("media-record-symbolic");
         watch_btn.add_css_class("flat");
         watch_btn.set_tooltip_text(Some("Watch mode: auto-recompile on save"));
+        watch_btn.update_property(&[gtk4::accessible::Property::Label("Toggle watch mode")]);
 
         let popout_btn = Button::from_icon_name("window-new-symbolic");
         popout_btn.add_css_class("flat");
+        popout_btn.update_property(&[gtk4::accessible::Property::Label("Pop out preview window")]);
         popout_btn.set_tooltip_text(Some("Pop out preview"));
 
         let ref_toggle_btn = ToggleButton::new();
         ref_toggle_btn.set_icon_name("help-contents-symbolic");
         ref_toggle_btn.add_css_class("flat");
         ref_toggle_btn.set_tooltip_text(Some("Toggle Cheatsheet & Help"));
+        ref_toggle_btn.update_property(&[gtk4::accessible::Property::Label("Toggle cheatsheet and help panel")]);
 
         // Page navigation
         let page_prev_btn = Button::from_icon_name("go-previous-symbolic");
         page_prev_btn.add_css_class("flat");
         page_prev_btn.set_tooltip_text(Some("Previous page"));
+        page_prev_btn.update_property(&[gtk4::accessible::Property::Label("Previous page")]);
         let page_next_btn = Button::from_icon_name("go-next-symbolic");
         page_next_btn.add_css_class("flat");
         page_next_btn.set_tooltip_text(Some("Next page"));
+        page_next_btn.update_property(&[gtk4::accessible::Property::Label("Next page")]);
         let page_label = Label::new(Some(""));
         page_label.add_css_class("caption");
         page_label.add_css_class("dim-label");
         page_label.set_width_chars(8);
         page_label.set_xalign(0.5);
+
+        let compile_time_label = Label::new(None);
+        compile_time_label.add_css_class("caption");
+        compile_time_label.add_css_class("dim-label");
+        compile_time_label.set_tooltip_text(Some("Last compile time"));
 
         let preview_toolbar = GtkBox::new(Orientation::Horizontal, 4);
         preview_toolbar.set_margin_start(8);
@@ -1773,6 +1894,7 @@ impl AppWindow {
         preview_toolbar.append(&fit_page_btn);
         preview_toolbar.append(&zoom_box);
         preview_toolbar.append(&zoom_label);
+        preview_toolbar.append(&compile_time_label);
         let preview_spacer = GtkBox::new(Orientation::Horizontal, 0);
         preview_spacer.set_hexpand(true);
         preview_toolbar.append(&preview_spacer);
@@ -1804,6 +1926,15 @@ impl AppWindow {
             let zoom_lbl_auto = zoom_label.clone();
             preview_pane.set_on_zoom_changed(move |z| {
                 zoom_lbl_auto.set_text(&format!("{}%", (z * 100.0).round() as u32));
+            });
+        }
+
+        // Compile time display
+        {
+            let lbl = compile_time_label.clone();
+            preview_pane.set_on_compile_time(move |ms| {
+                let secs = ms as f64 / 1000.0;
+                lbl.set_text(&format!("{secs:.1}s"));
             });
         }
 
@@ -2069,6 +2200,14 @@ impl AppWindow {
         // Wire file_tree into the compile-done holder
         *file_tree_holder.borrow_mut() = Some(file_tree.clone());
 
+        // ── Unsaved-file indicator in file tree ─────────────────────────────
+        {
+            let ft = file_tree.clone();
+            editor_pane.set_on_file_dirty(move |path, dirty| {
+                ft.set_file_modified(&path, dirty);
+            });
+        }
+
         // ── Image drag-and-drop handler ──────────────────────────────────────────
         {
             let root = project_root.clone();
@@ -2156,13 +2295,7 @@ impl AppWindow {
         gost_font_row.append(&gost_font_lbl);
         gost_font_row.append(&gost_font_sw);
 
-        // Wire simple mode switch: ON = simple view = advanced panels hidden
-        {
-            let adv_c = advanced_section.clone();
-            simple_mode_sw.connect_active_notify(move |sw| {
-                adv_c.set_visible(!sw.is_active());
-            });
-        }
+        // simple_mode_sw callback wired below after search_panel + error_panel are built
 
         // Simple mode "?" help button
         {
@@ -2172,8 +2305,14 @@ impl AppWindow {
                     Some(&win_sm),
                     Some("Simple Mode"),
                     Some(
-                        "Simple mode hides the Refs and Files panels. \
-                         It gives you a clean writing space with just the document outline.",
+                        "Simple mode gives you a distraction-free writing space.\n\n\
+                         Hidden in simple mode:\n\
+                         • Refs and Files panels\n\
+                         • Style, Sync, and TODO toolbar buttons\n\
+                         • Find-in-project and error panels\n\
+                         • Preview toolbar controls (compile time, page navigation, watch mode, pop-out, cheatsheet)\n\
+                         • Several advanced menu items\n\n\
+                         Turn off simple mode to access these features.",
                     ),
                 );
                 dlg.add_response("ok", "OK");
@@ -2241,12 +2380,21 @@ impl AppWindow {
                     &super::template_dialog::parse_style_key(&current_content)
                         .unwrap_or_default(),
                 );
+                if let Some(f) = super::template_dialog::parse_font(&current_content) {
+                    dlg.preselect_font(&f);
+                }
+                if let Some(p) = super::template_dialog::parse_paper(&current_content) {
+                    dlg.preselect_paper(&p);
+                }
+                if let Some(s) = super::template_dialog::parse_spacing(&current_content) {
+                    dlg.preselect_spacing(&s);
+                }
                 let ep2 = ep_ut.clone();
                 dlg.set_on_apply(move |new_content| {
                     let preamble = super::template_dialog::extract_preamble(&new_content);
                     let updated = super::template_dialog::reapply_preamble(&current_content, &preamble);
                     if std::fs::write(&current_path, &updated).is_ok() {
-                        ep2.open_file(current_path.clone(), &updated);
+                        ep2.reload_file(current_path.clone(), &updated);
                     }
                 });
                 dlg.present();
@@ -2285,7 +2433,7 @@ impl AppWindow {
         right_sidebar.set_visible(todo_btn.is_active());
 
         let inner_paned = Paned::new(Orientation::Horizontal);
-        inner_paned.set_position(600);
+        inner_paned.set_position(config.preview_split);
         inner_paned.set_hexpand(true);
         inner_paned.set_vexpand(true);
         inner_paned.set_start_child(Some(editor_pane.widget()));
@@ -2312,6 +2460,70 @@ impl AppWindow {
         right_col.append(search_panel.widget());
         right_col.append(error_panel.widget());
 
+        // ── Simple mode switch — wired here so all affected widgets are in scope ──
+        {
+            let adv_c = advanced_section.clone();
+            let style_c = style_btn.clone();
+            let sync_c = sync_btn.clone();
+            let todo_c = todo_btn.clone();
+            let search_c = search_panel.widget().clone();
+            let error_c = error_panel.widget().clone();
+            let ctl_c = compile_time_label.clone();
+            let pnav_c = page_nav_box.clone();
+            let popout_c = popout_btn.clone();
+            let watch_c = watch_btn.clone();
+            let ref_c = ref_toggle_btn.clone();
+            let reapply_c = menu_reapply_template_item.clone();
+            let fonts_c = menu_fonts_item.clone();
+            let backup_c = menu_backup_remote_item.clone();
+            let import_c = menu_import_item.clone();
+            let docs_c = menu_docs_item.clone();
+            let ep_c = editor_pane.clone();
+            simple_mode_sw.connect_active_notify(move |sw| {
+                let show = !sw.is_active();
+                adv_c.set_visible(show);
+                style_c.set_visible(show);
+                sync_c.set_visible(show);
+                todo_c.set_visible(show);
+                search_c.set_visible(show);
+                error_c.set_visible(show);
+                ctl_c.set_visible(show);
+                pnav_c.set_visible(show);
+                popout_c.set_visible(show);
+                watch_c.set_visible(show);
+                ref_c.set_visible(show);
+                reapply_c.set_visible(show);
+                fonts_c.set_visible(show);
+                backup_c.set_visible(show);
+                import_c.set_visible(show);
+                docs_c.set_visible(show);
+                ep_c.set_word_wrap_btn_visible(show);
+                ep_c.set_lsp_label_visible(show);
+            });
+        }
+
+        // Apply initial simple mode state (ON = hidden by default)
+        {
+            let show = !simple_mode_sw.is_active();
+            style_btn.set_visible(show);
+            sync_btn.set_visible(show);
+            todo_btn.set_visible(show);
+            search_panel.widget().set_visible(show);
+            error_panel.widget().set_visible(show);
+            compile_time_label.set_visible(show);
+            page_nav_box.set_visible(show);
+            popout_btn.set_visible(show);
+            watch_btn.set_visible(show);
+            ref_toggle_btn.set_visible(show);
+            menu_reapply_template_item.set_visible(show);
+            menu_fonts_item.set_visible(show);
+            menu_backup_remote_item.set_visible(show);
+            menu_import_item.set_visible(show);
+            menu_docs_item.set_visible(show);
+            editor_pane.set_word_wrap_btn_visible(show);
+            editor_pane.set_lsp_label_visible(show);
+        }
+
         let content_paned = Paned::new(Orientation::Horizontal);
         content_paned.set_hexpand(true);
         content_paned.set_vexpand(true);
@@ -2322,13 +2534,55 @@ impl AppWindow {
         content_paned.set_end_child(Some(&right_sidebar));
 
         let outer_paned = Paned::new(Orientation::Horizontal);
-        outer_paned.set_position(220);
+        outer_paned.set_position(config.sidebar_width);
         outer_paned.set_resize_start_child(false);
         outer_paned.set_shrink_start_child(false);
         outer_paned.set_hexpand(true);
         outer_paned.set_vexpand(true);
         outer_paned.set_start_child(Some(&left_box));
         outer_paned.set_end_child(Some(&content_paned));
+
+        // ── Persist pane positions (debounced, 400 ms after last drag) ────────
+        {
+            let cfg = current_config.clone();
+            let pending: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
+            outer_paned.connect_position_notify(move |p| {
+                let pos = p.position();
+                let cfg2 = cfg.clone();
+                let pending_for_cb = pending.clone();
+                let mut slot = pending.borrow_mut();
+                if let Some(id) = slot.take() { id.remove(); }
+                *slot = Some(glib::timeout_add_local_once(
+                    std::time::Duration::from_millis(400),
+                    move || {
+                        *pending_for_cb.borrow_mut() = None;
+                        let mut c = cfg2.borrow_mut();
+                        c.sidebar_width = pos;
+                        let _ = c.save();
+                    },
+                ));
+            });
+        }
+        {
+            let cfg = current_config.clone();
+            let pending: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
+            inner_paned.connect_position_notify(move |p| {
+                let pos = p.position();
+                let cfg2 = cfg.clone();
+                let pending_for_cb = pending.clone();
+                let mut slot = pending.borrow_mut();
+                if let Some(id) = slot.take() { id.remove(); }
+                *slot = Some(glib::timeout_add_local_once(
+                    std::time::Duration::from_millis(400),
+                    move || {
+                        *pending_for_cb.borrow_mut() = None;
+                        let mut c = cfg2.borrow_mut();
+                        c.preview_split = pos;
+                        let _ = c.save();
+                    },
+                ));
+            });
+        }
 
         let main_content = GtkBox::new(Orientation::Horizontal, 0);
         main_content.set_hexpand(true);
@@ -2353,7 +2607,16 @@ impl AppWindow {
             project_model,
             sync_btn,
             search_panel,
+            toast_overlay: toast_for_sync_btn,
+            file_tree,
         }
+    }
+
+    #[allow(dead_code)]
+    pub fn show_toast(&self, msg: &str) {
+        let toast = adw::Toast::new(msg);
+        toast.set_timeout(3);
+        self.toast_overlay.add_toast(toast);
     }
 
     pub fn setup_keybindings(&self) {
@@ -2365,6 +2628,7 @@ impl AppWindow {
         let window = self.window.clone();
         let sync = self.sync_btn.clone();
         let search = self.search_panel.clone();
+        let file_tree = self.file_tree.clone();
         let controller = gtk4::EventControllerKey::new();
 
         // ── Command palette (Ctrl+P) ────────────────────────────────────────
@@ -2449,6 +2713,15 @@ impl AppWindow {
                 use gtk4::gdk::Key;
                 if ctrl && shift && key == Key::f {
                     search.toggle();
+                    return glib::Propagation::Stop;
+                }
+                // F6 — cycle pane focus: file tree → editor → (repeat)
+                if !ctrl && !alt && key == Key::F6 {
+                    if shift {
+                        editor.grab_focus();
+                    } else {
+                        file_tree.grab_focus();
+                    }
                     return glib::Propagation::Stop;
                 }
             }
@@ -2702,7 +2975,7 @@ fn show_sync_result(
 
 fn show_backup_remote_dialog(window: &adw::ApplicationWindow, repo_path: &std::path::Path) {
     let dialog = adw::Window::builder()
-        .title("Backup Remotes")
+        .title("Local Backup")
         .transient_for(window)
         .modal(true)
         .default_width(460)
@@ -2719,24 +2992,47 @@ fn show_backup_remote_dialog(window: &adw::ApplicationWindow, repo_path: &std::p
         .unwrap_or_default();
 
     let group = adw::PreferencesGroup::new();
-    group.set_title("Backup Remote");
+    group.set_title("Backup Location");
     group.set_description(Some(
-        "Push to a second host (GitLab, Codeberg, self-hosted Git) on every sync. \
-         Uses the remote name \"backup\".",
+        "On every sync, a copy is pushed here in addition to GitHub. \
+         Enter a folder path (mounted pCloud, external drive, NAS) \
+         or any git URL.",
     ));
 
     let url_row = adw::EntryRow::new();
-    url_row.set_title("Remote URL");
+    url_row.set_title("Path or URL");
     url_row.set_text(&current_url);
+
+    // Folder-picker button
+    let pick_btn = Button::from_icon_name("document-open-symbolic");
+    pick_btn.set_valign(Align::Center);
+    pick_btn.add_css_class("flat");
+    pick_btn.set_tooltip_text(Some("Browse for a folder"));
+    {
+        let row_c = url_row.clone();
+        let win_c = window.clone();
+        pick_btn.connect_clicked(move |_| {
+            let fd = gtk4::FileDialog::new();
+            let row2 = row_c.clone();
+            fd.select_folder(Some(&win_c), None::<&gtk4::gio::Cancellable>, move |result| {
+                if let Ok(file) = result {
+                    if let Some(path) = file.path() {
+                        row2.set_text(path.to_str().unwrap_or(""));
+                    }
+                }
+            });
+        });
+    }
+    url_row.add_suffix(&pick_btn);
 
     let status_lbl = Label::new(None);
     status_lbl.set_xalign(0.0);
     status_lbl.set_margin_top(4);
     if !current_url.is_empty() {
-        status_lbl.set_label(&format!("✓ Backup remote: {current_url}"));
+        status_lbl.set_label(&format!("✓ Backup: {current_url}"));
         status_lbl.add_css_class("success");
     } else {
-        status_lbl.set_label("No backup remote configured.");
+        status_lbl.set_label("No backup location configured.");
         status_lbl.add_css_class("dim-label");
     }
 
@@ -2754,12 +3050,12 @@ fn show_backup_remote_dialog(window: &adw::ApplicationWindow, repo_path: &std::p
     wrapper.add_suffix(&suffix_box);
 
     let hint_group = adw::PreferencesGroup::new();
-    hint_group.set_title("Where to get a URL");
+    hint_group.set_title("Examples");
 
     for (name, hint) in [
-        ("GitLab", "gitlab.com — free private repos, CI/CD included"),
-        ("Codeberg", "codeberg.org — nonprofit, FOSS-friendly"),
-        ("Self-hosted", "Gitea / Forgejo on your own server"),
+        ("Mounted drive", "/run/media/you/pcloud/my-project  — pCloud, Nextcloud, USB"),
+        ("External path", "/mnt/backup/my-project  — NAS, external hard drive"),
+        ("Git URL", "git@gitlab.com:you/my-project.git  — GitLab, Codeberg, self-hosted"),
     ] {
         let row = adw::ActionRow::new();
         row.set_title(name);
@@ -2784,20 +3080,18 @@ fn show_backup_remote_dialog(window: &adw::ApplicationWindow, repo_path: &std::p
 
     let root_c = repo_path.to_path_buf();
     let lbl_c = status_lbl.clone();
-    let dlg_apply = dialog.clone();
     apply_btn.connect_clicked(move |_| {
-        let url = url_row.text().trim().to_string();
-        if url.is_empty() {
-            lbl_c.set_label("Enter a URL first.");
+        let target = url_row.text().trim().to_string();
+        if target.is_empty() {
+            lbl_c.set_label("Enter a path or URL first.");
             return;
         }
-        match git_sync::add_backup_remote(&root_c, &url) {
+        match git_sync::add_backup_remote(&root_c, &target) {
             Ok(()) => {
-                lbl_c.set_label(&format!("✓ Backup remote saved: {url}"));
+                lbl_c.set_label(&format!("✓ Backup saved: {target}"));
                 lbl_c.remove_css_class("dim-label");
                 lbl_c.remove_css_class("error");
                 lbl_c.add_css_class("success");
-                let _ = dlg_apply.clone(); // keep alive
             }
             Err(e) => {
                 lbl_c.set_label(&format!("Error: {e}"));
@@ -2834,8 +3128,42 @@ fn format_file_mtime(mtime: std::time::SystemTime) -> String {
 ///   2. Insert `#pagebreak()` before the `#bibliography(...)` call.
 ///   3. Fix the bibliography path to the configured `.bib` file if supplied;
 ///      add a commented-out bibliography stub if none exists.
-fn post_process_latex_import(content: &str, bib_path: Option<&std::path::Path>) -> String {
+/// Strip pandoc's generated `#set` preamble from a standalone Typst output so we can
+/// replace it with a Zerkalo template section.
+fn strip_pandoc_preamble(content: &str) -> String {
     let lines: Vec<&str> = content.lines().collect();
+    let n = lines.len();
+    let mut i = 0;
+    while i < n {
+        let t = lines[i].trim();
+        if t.is_empty() || t.starts_with("//") {
+            i += 1;
+            continue;
+        }
+        if t.starts_with("#set ") {
+            // Count parens to skip multi-line #set blocks
+            let mut depth: i32 = 0;
+            loop {
+                for c in lines[i].chars() {
+                    match c { '(' => depth += 1, ')' => depth -= 1, _ => {} }
+                }
+                i += 1;
+                if depth <= 0 || i >= n { break; }
+            }
+            continue;
+        }
+        break;
+    }
+    // Trim leading blank lines before actual content
+    while i < n && lines[i].trim().is_empty() { i += 1; }
+    if i >= n { return String::new(); }
+    let result = lines[i..].join("\n");
+    if result.ends_with('\n') { result } else { result + "\n" }
+}
+
+fn post_process_latex_import(content: &str, bib_path: Option<&std::path::Path>) -> String {
+    let body = strip_pandoc_preamble(content);
+    let lines: Vec<&str> = body.lines().collect();
     let mut out: Vec<String> = Vec::with_capacity(lines.len() + 8);
 
     // Locate first top-level heading that isn't `== ...`
@@ -2904,17 +3232,16 @@ fn post_process_latex_import(content: &str, bib_path: Option<&std::path::Path>) 
         out.push(bib_call);
     }
 
-    out.join("\n")
+    let preamble = super::template_dialog::default_import_preamble();
+    format!("{preamble}\n{}", out.join("\n"))
 }
 
-/// Wrap plain text extracted from a PDF into a minimal Typst document.
+/// Wrap plain text extracted from a PDF into a Typst document managed by Zerkalo's template system.
 fn post_process_pdf_import(text: &str, title: &str) -> String {
     let escaped_title = title.replace('"', "\\\"");
+    let preamble = super::template_dialog::default_import_preamble();
     let mut out = format!(
-        "#set text(size: 12pt, font: \"Times New Roman\", lang: \"en\")\n\
-         #set par(leading: 1em, first-line-indent: 0.5in, justify: true)\n\
-         #set page(margin: 1in, numbering: \"1\", number-align: top + right)\n\
-         \n\
+        "{preamble}\n\
          // Imported from PDF — formatting is not preserved.\n\
          \n\
          = {escaped_title}\n\
@@ -2959,4 +3286,48 @@ fn make_menu_item(label: &str, shortcut: Option<&str>) -> Button {
 
     btn.set_child(Some(&row));
     btn
+}
+
+#[cfg(test)]
+mod tests {
+    use super::strip_pandoc_preamble;
+
+    #[test]
+    fn strip_pandoc_empty_input() {
+        assert_eq!(strip_pandoc_preamble(""), "");
+    }
+
+    #[test]
+    fn strip_pandoc_only_set_rules() {
+        let input = "#set text(font: \"Arial\")\n#set page(paper: \"a4\")\n";
+        assert_eq!(strip_pandoc_preamble(input), "");
+    }
+
+    #[test]
+    fn strip_pandoc_preserves_body() {
+        let input = "#set text(font: \"Arial\")\n\n= Introduction\n\nBody text.\n";
+        let result = strip_pandoc_preamble(input);
+        assert_eq!(result, "= Introduction\n\nBody text.\n");
+    }
+
+    #[test]
+    fn strip_pandoc_multiline_set_rule() {
+        let input = "#set text(\n  font: \"Arial\",\n  size: 12pt,\n)\n\n= Heading\n";
+        let result = strip_pandoc_preamble(input);
+        assert_eq!(result, "= Heading\n");
+    }
+
+    #[test]
+    fn strip_pandoc_skips_leading_comments() {
+        let input = "// Generated by pandoc\n#set text(font: \"Arial\")\n\n= Body\n";
+        let result = strip_pandoc_preamble(input);
+        assert_eq!(result, "= Body\n");
+    }
+
+    #[test]
+    fn strip_pandoc_no_preamble() {
+        let input = "= Just a heading\n\nSome text.\n";
+        let result = strip_pandoc_preamble(input);
+        assert_eq!(result, "= Just a heading\n\nSome text.\n");
+    }
 }

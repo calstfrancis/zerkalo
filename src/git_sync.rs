@@ -57,9 +57,33 @@ pub fn get_remote_url(repo_path: &Path, name: &str) -> Option<String> {
 }
 
 /// Add (or update) a remote named "backup". Removes any existing "backup" first.
-pub fn add_backup_remote(repo_path: &Path, url: &str) -> Result<(), String> {
+/// If `target` is a local path (starts with `/`, `~`, `./`, or `../`), a bare
+/// git repository is initialised there automatically so the path is ready to
+/// receive pushes.
+pub fn add_backup_remote(repo_path: &Path, target: &str) -> Result<(), String> {
+    let resolved = if is_local_path(target) {
+        let expanded = shellexpand::tilde(target).into_owned();
+        ensure_bare_repo(Path::new(&expanded))?;
+        expanded
+    } else {
+        target.to_string()
+    };
     let _ = run_git(repo_path, &["remote", "remove", "backup"]);
-    run_git(repo_path, &["remote", "add", "backup", url])
+    run_git(repo_path, &["remote", "add", "backup", &resolved])
+}
+
+/// Returns true when the string looks like a filesystem path rather than a git URL.
+pub fn is_local_path(s: &str) -> bool {
+    s.starts_with('/') || s.starts_with('~') || s.starts_with("./") || s.starts_with("../")
+}
+
+/// Ensures `path` contains a bare git repository, creating one if needed.
+fn ensure_bare_repo(path: &Path) -> Result<(), String> {
+    if path.join("HEAD").exists() {
+        return Ok(());
+    }
+    std::fs::create_dir_all(path).map_err(|e| e.to_string())?;
+    run_git(path, &["init", "--bare"])
 }
 
 /// Returns the name of the current branch (falls back to "main").
