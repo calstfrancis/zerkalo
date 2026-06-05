@@ -12,7 +12,7 @@ use libadwaita as adw;
 use adw::prelude::*;
 
 use crate::bibliography;
-use crate::config::{Config, ProjectConfig, Theme};
+use crate::config::{CompileProfile, Config, ProjectConfig, Theme};
 use crate::writing_log::{WritingLog, count_words, new_file_start_words, FileStartWords};
 use crate::git_sync;
 use crate::keybindings::{matches_binding, Keybindings};
@@ -37,6 +37,7 @@ use super::settings_dialog::SettingsDialog;
 use super::sync_dialog::SyncDialog;
 use super::template_dialog::TemplateDialog;
 use super::plan_panel::PlanPanel;
+use super::snapshot_dialog::{SnapshotDialog, save_snapshot};
 
 pub struct AppWindow {
     window: adw::ApplicationWindow,
@@ -140,6 +141,28 @@ impl AppWindow {
         todo_btn.set_active(false);
         todo_btn.update_property(&[gtk4::accessible::Property::Label("Toggle plan panel")]);
 
+        // ── Compilation profile dropdown ─────────────────────────────────────
+        let profile_box = GtkBox::new(Orientation::Vertical, 0);
+        profile_box.set_margin_top(4);
+        profile_box.set_margin_bottom(4);
+        let profile_popover = Popover::new();
+        profile_popover.set_child(Some(&profile_box));
+        let profile_btn = MenuButton::new();
+        profile_btn.add_css_class("flat");
+        profile_btn.set_tooltip_text(Some("Compilation profile: Final (full quality) or Draft (fast preview)"));
+        profile_btn.set_popover(Some(&profile_popover));
+
+        let profile_final_btn = Button::with_label("Final");
+        profile_final_btn.add_css_class("flat");
+        profile_final_btn.set_halign(Align::Start);
+        profile_final_btn.set_size_request(100, -1);
+        let profile_draft_btn = Button::with_label("Draft");
+        profile_draft_btn.add_css_class("flat");
+        profile_draft_btn.set_halign(Align::Start);
+        profile_draft_btn.set_size_request(100, -1);
+        profile_box.append(&profile_final_btn);
+        profile_box.append(&profile_draft_btn);
+
         // ── Primary header buttons (packed together at end of section) ────────
         let compile_btn = Button::with_label("Preview");
         compile_btn.set_tooltip_text(Some("Compile & Preview (Ctrl+Shift+P)"));
@@ -162,6 +185,7 @@ impl AppWindow {
             menu_recent_projects_item,
             menu_save_item,
             menu_save_as_item,
+            menu_snapshots_item,
             menu_export_item,
             menu_import_item,
             menu_docs_item,
@@ -195,6 +219,7 @@ impl AppWindow {
         // Save
         menu_popover_box.append(&menu_save_item);
         menu_popover_box.append(&menu_save_as_item);
+        menu_popover_box.append(&menu_snapshots_item);
         menu_popover_box.append(&Separator::new(Orientation::Horizontal));
         // Convert / share
         menu_popover_box.append(&menu_export_item);
@@ -220,10 +245,11 @@ impl AppWindow {
         menu_btn.add_css_class("flat");
         menu_btn.set_popover(Some(&menu_popover));
 
-        // Header end section layout (left → right): sync | todo | Preview | ≡
+        // Header end section layout (left → right): sync | todo | profile | Preview | ≡
         // In GTK4 pack_end the last-packed widget is leftmost in the end section.
         header.pack_end(&menu_btn);
         header.pack_end(&compile_btn);
+        header.pack_end(&profile_btn);
         header.pack_end(&todo_btn);
         header.pack_end(&sync_btn);
 
@@ -542,6 +568,44 @@ impl AppWindow {
             });
         }
         preview_pane.set_zoom(config.preview_zoom);
+
+        // ── Compilation profile wiring ──────────────────────────────────────
+        {
+            let initial_draft = config.active_profile == CompileProfile::Draft;
+            preview_pane.set_draft_mode(initial_draft);
+            if initial_draft {
+                profile_btn.set_label("Draft");
+            } else {
+                profile_btn.set_label("Final");
+            }
+        }
+        {
+            let pp = preview_pane.clone();
+            let btn = profile_btn.clone();
+            let pop = profile_popover.clone();
+            let cfg = current_config.clone();
+            profile_final_btn.connect_clicked(move |_| {
+                pp.set_draft_mode(false);
+                btn.set_label("Final");
+                cfg.borrow_mut().active_profile = CompileProfile::Final;
+                let _ = cfg.borrow().save();
+                pop.popdown();
+            });
+        }
+        {
+            let pp = preview_pane.clone();
+            let btn = profile_btn.clone();
+            let pop = profile_popover.clone();
+            let cfg = current_config.clone();
+            profile_draft_btn.connect_clicked(move |_| {
+                pp.set_draft_mode(true);
+                btn.set_label("Draft");
+                cfg.borrow_mut().active_profile = CompileProfile::Draft;
+                let _ = cfg.borrow().save();
+                pop.popdown();
+            });
+        }
+
         apply_theme(&config.theme);
         if config.high_contrast {
             window.add_css_class("high-contrast");
@@ -1464,9 +1528,13 @@ impl AppWindow {
         let editor_for_menu_save = editor_pane.clone();
         let preview_for_menu_save = preview_pane.clone();
         let menu_popover_for_save = menu_popover.clone();
+        let root_for_menu_save = project_root.clone();
         menu_save_item.connect_clicked(move |_| {
             menu_popover_for_save.popdown();
-            if editor_for_menu_save.save_current().is_some() {
+            if let Some(path) = editor_for_menu_save.save_current() {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    save_snapshot(&root_for_menu_save, &path, &content);
+                }
                 preview_for_menu_save.trigger_compile();
             }
         });
@@ -1496,6 +1564,25 @@ impl AppWindow {
                     }
                 }
             });
+        });
+
+        // ── Menu: Browse Snapshots ──────────────────────────────────────────
+
+        let window_for_snap = window.clone();
+        let editor_for_snap = editor_pane.clone();
+        let root_for_snap = project_root.clone();
+        let menu_popover_for_snap = menu_popover.clone();
+        menu_snapshots_item.connect_clicked(move |_| {
+            menu_popover_for_snap.popdown();
+            let Some(path) = editor_for_snap.get_active_path() else { return };
+            let content = editor_for_snap.get_active_content().unwrap_or_default();
+            let dialog = SnapshotDialog::new(&window_for_snap, &root_for_snap, &path, &content);
+            let ep = editor_for_snap.clone();
+            let pp_path = path.clone();
+            dialog.set_on_restore(move |text| {
+                ep.open_file(pp_path.clone(), &text);
+            });
+            dialog.present();
         });
 
         // ── Sync button ─────────────────────────────────────────────────────
@@ -2887,6 +2974,7 @@ impl AppWindow {
         let search = self.search_panel.clone();
         let file_tree = self.file_tree.clone();
         let kb_manual_only = self.manual_compile_only.clone();
+        let snapshot_root = self.project_root.clone();
         let controller = gtk4::EventControllerKey::new();
 
         // ── Command palette (Ctrl+P) ────────────────────────────────────────
@@ -2935,6 +3023,7 @@ impl AppWindow {
                     if let Some(content) = editor.get_active_content() {
                         if std::fs::write(&path, &content).is_ok() {
                             editor.mark_saved(&path);
+                            save_snapshot(&snapshot_root, &path, &content);
                             if !*kb_manual_only.borrow() {
                                 preview.set_buffer_snapshot(path.clone(), content);
                                 preview.set_root_file(path);
@@ -3962,6 +4051,7 @@ struct HamburgerItems {
     menu_recent_projects_item: Button,
     menu_save_item: Button,
     menu_save_as_item: Button,
+    menu_snapshots_item: Button,
     menu_export_item: Button,
     menu_import_item: Button,
     menu_docs_item: Button,
@@ -3988,6 +4078,7 @@ fn build_hamburger_menu_items() -> HamburgerItems {
         menu_recent_projects_item: make_menu_item("Recent Projects…",            None),
         menu_save_item:            make_menu_item("Save",                        Some("Ctrl+S")),
         menu_save_as_item:         make_menu_item("Save As…",                    None),
+        menu_snapshots_item:       make_menu_item("Browse Snapshots…",           None),
         menu_export_item:          make_menu_item("Export…",                     None),
         menu_import_item:          make_menu_item("Import…",                     None),
         menu_docs_item:            make_menu_item("Browse Documents…",           None),

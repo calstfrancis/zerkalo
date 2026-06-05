@@ -1956,7 +1956,7 @@ fn generate_preset_preview(idx: usize) -> Result<Vec<u8>, String> {
     std::fs::write(&bib_path, PREVIEW_BIB).map_err(|e| e.to_string())?;
     std::fs::write(&typ_path, &preamble).map_err(|e| e.to_string())?;
 
-    crate::compiler::compile_to_png_bytes(&typ_path, 1.5, &std::collections::HashMap::new())
+    crate::compiler::compile_to_png_bytes(&typ_path, 1.5, &std::collections::HashMap::new(), &std::collections::HashMap::new())
         .map(|pages| {
             // Page 2 shows the content style; fall back to page 1 if only one page
             let page_idx = if pages.len() > 1 { 1 } else { 0 };

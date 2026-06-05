@@ -198,6 +198,7 @@ impl ExportDialog {
                                 match crate::compiler::compile_to_pdf_bytes(
                                     &input_owned,
                                     &std::collections::HashMap::new(),
+                                    &std::collections::HashMap::new(),
                                 ) {
                                     Ok(bytes) => std::fs::write(&out_path, &bytes)
                                         .map_err(|e| format!("Write error: {e}")),

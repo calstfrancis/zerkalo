@@ -153,6 +153,18 @@ fn faq_blocks() -> Vec<Block<'static>> {
         Block::Gap,
         Block::H2("I built from source but changes aren't appearing"),
         Block::Body("Run cargo build --release first, then bash install.sh. The install script now detects a local build and installs it directly — it no longer downloads from GitHub when a built binary exists in target/release/."),
+        Block::Gap,
+        Block::H2("How do compilation profiles work?"),
+        Block::Body("The header-bar dropdown next to 'Preview' switches between Final (full 144 dpi) and Draft (72 dpi, fast) profiles. In Draft mode Zerkalo passes sys.inputs.at(\"draft\") = \"true\" so documents can skip slow elements:\n  #if sys.inputs.at(\"draft\", default: \"false\") == \"true\" {\n    // skip heavy rendering in draft\n  }"),
+        Block::Gap,
+        Block::H2("How do snapshots work?"),
+        Block::Body("Every Ctrl+S saves a timestamped copy of the current file to ~/.local/share/zerkalo/snapshots/<project>/<file>/. The last 50 snapshots per file are kept. Open ☰ → Browse Snapshots… to see the timeline, compare with the current text, and restore any version."),
+        Block::Gap,
+        Block::H2("How do I use the project dictionary?"),
+        Block::Body("Right-click a misspelled word and choose 'Add to Project Dictionary' to save it in <work_dir>/.zerkalo/dictionary.dic. This dictionary is project-specific and can be committed to git. 'Add to Dictionary' saves to the global user dictionary at ~/.config/zerkalo/user.dic."),
+        Block::Gap,
+        Block::H2("What is the inline error assistant?"),
+        Block::Body("Hover over red-underlined text in the editor to see the error message. For known patterns (missing brace, unknown variable, etc.) a 'Fix It' button applies the correction automatically. The fix patterns live in src/error_patterns.rs."),
     ]
 }
 

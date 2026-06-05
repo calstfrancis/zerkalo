@@ -509,6 +509,7 @@ impl SettingsDialog {
                     developer_mode: dev_mode_row.is_active(),
                     last_export_format: 0,
                     recent_searches: Vec::new(),
+                    active_profile: crate::config::CompileProfile::default(),
                 }
             }
         };

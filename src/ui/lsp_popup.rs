@@ -5,7 +5,7 @@ use gtk4::gdk::Rectangle;
 use gtk4::prelude::*;
 use gtk4::{
     Align, Box as GtkBox, Label, ListBox, ListBoxRow, Orientation, Popover, ScrolledWindow,
-    SelectionMode,
+    SelectionMode, Separator,
 };
 
 use crate::lsp::CompletionItem;
@@ -30,15 +30,25 @@ impl LspPopup {
 
         let scroll = ScrolledWindow::new();
         scroll.set_child(Some(&list_box));
-        scroll.set_min_content_width(320);
+        scroll.set_min_content_width(480);
         scroll.set_min_content_height(60);
-        scroll.set_max_content_height(280);
+        scroll.set_max_content_height(380);
         scroll.set_propagate_natural_height(true);
+
+        let hint = Label::new(Some("↑ ↓ navigate · Tab / ↵ insert · Esc dismiss"));
+        hint.add_css_class("dim-label");
+        hint.set_margin_top(4);
+        hint.set_margin_bottom(4);
+        hint.set_margin_start(10);
+        hint.set_margin_end(10);
+        hint.set_xalign(0.0);
 
         let outer = GtkBox::new(Orientation::Vertical, 0);
         outer.set_margin_top(2);
-        outer.set_margin_bottom(2);
+        outer.set_margin_bottom(4);
         outer.append(&scroll);
+        outer.append(&Separator::new(Orientation::Horizontal));
+        outer.append(&hint);
         popover.set_child(Some(&outer));
 
         let items: Rc<RefCell<Vec<CompletionItem>>> = Rc::new(RefCell::new(Vec::new()));
@@ -152,7 +162,9 @@ impl LspPopup {
             detail_lbl.set_halign(Align::Start);
             detail_lbl.set_xalign(0.0);
             detail_lbl.add_css_class("dim-label");
-            detail_lbl.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+            detail_lbl.set_wrap(true);
+            detail_lbl.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
+            detail_lbl.set_max_width_chars(60);
             text_col.append(&detail_lbl);
         }
 

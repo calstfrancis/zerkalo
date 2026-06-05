@@ -15,6 +15,16 @@ pub enum Theme {
     Dark,
 }
 
+// ── Compilation profile ───────────────────────────────────────────────────────
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum CompileProfile {
+    Draft,
+    #[default]
+    Final,
+}
+
 // ── Global config ─────────────────────────────────────────────────────────────
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -75,6 +85,8 @@ pub struct Config {
     pub manual_compile_only: bool,
     #[serde(default)]
     pub recent_searches: Vec<String>,
+    #[serde(default)]
+    pub active_profile: CompileProfile,
 }
 
 fn default_work_dir() -> PathBuf {
@@ -126,6 +138,7 @@ impl Default for Config {
             compile_on_save: true,
             manual_compile_only: false,
             recent_searches: Vec::new(),
+            active_profile: CompileProfile::default(),
         }
     }
 }

@@ -45,6 +45,7 @@ pub struct PreviewPane {
     watch_active: Rc<RefCell<bool>>,
     compile_gen: Rc<RefCell<u64>>,
     buffer_snapshot: Rc<RefCell<HashMap<PathBuf, String>>>,
+    draft_mode: Rc<RefCell<bool>>,
 }
 
 impl PreviewPane {
@@ -205,6 +206,7 @@ impl PreviewPane {
             watch_active: Rc::new(RefCell::new(false)),
             compile_gen: Rc::new(RefCell::new(0)),
             buffer_snapshot: Rc::new(RefCell::new(HashMap::new())),
+            draft_mode: Rc::new(RefCell::new(false)),
         };
 
         // Refit to width whenever the scroll viewport width changes (window resize).
@@ -247,6 +249,15 @@ impl PreviewPane {
 
     pub fn set_buffer_snapshot(&self, path: PathBuf, text: String) {
         self.buffer_snapshot.borrow_mut().insert(path, text);
+    }
+
+    pub fn set_draft_mode(&self, draft: bool) {
+        *self.draft_mode.borrow_mut() = draft;
+    }
+
+    #[allow(dead_code)]
+    pub fn is_draft_mode(&self) -> bool {
+        *self.draft_mode.borrow()
     }
 
     pub fn output_dir(&self) -> PathBuf {
@@ -468,9 +479,15 @@ impl PreviewPane {
         let (tx, rx) = mpsc::sync_channel::<CompileResult>(1);
 
         let snapshots = self.buffer_snapshot.borrow().clone();
+        let draft = *self.draft_mode.borrow();
+        let pixel_per_pt = if draft { 1.0f32 } else { 2.0f32 };
+        let mut sys_inputs = std::collections::HashMap::new();
+        if draft {
+            sys_inputs.insert("draft".to_string(), "true".to_string());
+        }
         std::thread::spawn(move || {
             let t0 = std::time::Instant::now();
-            let result = crate::compiler::compile_to_png_bytes(&root, 2.0, &snapshots);
+            let result = crate::compiler::compile_to_png_bytes(&root, pixel_per_pt, &snapshots, &sys_inputs);
             let elapsed = t0.elapsed();
             tx.send(match result {
                 Ok(pages) => CompileResult::Success(pages, elapsed),
@@ -600,7 +617,7 @@ pub fn extract_page_text_via_pdftotext(pane: &PreviewPane, page: usize, _y_start
     let pdf_path = pane.output_dir().join(format!("{stem}.pdf"));
     if !pdf_path.exists() {
         let snapshots = pane.buffer_snapshot.borrow().clone();
-        let bytes = crate::compiler::compile_to_pdf_bytes(&root, &snapshots).ok()?;
+        let bytes = crate::compiler::compile_to_pdf_bytes(&root, &snapshots, &std::collections::HashMap::new()).ok()?;
         std::fs::write(&pdf_path, bytes).ok()?;
     }
     let page_str = (page + 1).to_string();

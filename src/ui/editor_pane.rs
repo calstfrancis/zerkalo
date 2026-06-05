@@ -6,7 +6,8 @@ use std::time::Duration;
 
 use gtk4::prelude::*;
 use gtk4::{
-    Box as GtkBox, Button, CssProvider, DropTarget, EventControllerKey, GestureClick, Label,
+    Box as GtkBox, Button, CssProvider, DropTarget, EventControllerKey, EventControllerMotion,
+    GestureClick, Label,
     Notebook, Orientation, Popover, ProgressBar, PropagationPhase, ScrolledWindow, Separator,
     TextSearchFlags, TextTag, TextWindowType, ToggleButton,
 };
@@ -106,19 +107,41 @@ const TYPST_LANG: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 
 // ── Built-in academic snippets ────────────────────────────────────────────────
 // (match_key, display_label, insert_text_with_leading_#)
-const ACADEMIC_SNIPPETS: &[(&str, &str, &str)] = &[
+// (match_key, display_label, description, insert_text)
+const ACADEMIC_SNIPPETS: &[(&str, &str, &str, &str)] = &[
     ("figure", "Figure",
+     "Image with caption and cross-reference label",
      "#figure(\n  image(\"\", width: 80%),\n  caption: [Caption text],\n) <fig:label>"),
     ("table", "Table",
+     "Table with a header row and cross-reference label",
      "#figure(\n  table(\n    columns: (auto, auto),\n    table.header([*Column 1*], [*Column 2*]),\n    [Cell 1], [Cell 2],\n  ),\n  caption: [Table title],\n) <tab:label>"),
-    ("footnote", "Footnote", "#footnote[Note text]"),
-    ("bibliography", "Bibliography", "#bibliography(\"refs.bib\")"),
-    ("pagebreak", "Page break", "#pagebreak()"),
-    ("outline", "Table of Contents", "#outline(title: [Contents], depth: 3)"),
-    ("lorem", "Lorem ipsum", "#lorem(100)"),
-    ("set", "Set rule", "#set text(size: 11pt, font: \"Liberation Serif\")"),
-    ("show", "Show rule", "#show heading: it => strong(it)"),
-    ("block", "Block / quote", "#block(inset: (left: 2em))[\n  Quoted text\n]"),
+    ("footnote", "Footnote",
+     "Inline footnote — appears at the bottom of the page",
+     "#footnote[Note text]"),
+    ("bibliography", "Bibliography",
+     "Bibliography section from a .bib file",
+     "#bibliography(\"refs.bib\")"),
+    ("pagebreak", "Page break",
+     "Force content to start on a new page",
+     "#pagebreak()"),
+    ("outline", "Table of Contents",
+     "Auto-generated table of contents (headings up to depth 3)",
+     "#outline(title: [Contents], depth: 3)"),
+    ("lorem", "Lorem ipsum",
+     "100 words of placeholder text",
+     "#lorem(100)"),
+    ("set", "Set rule",
+     "Change text size and font for the rest of the document",
+     "#set text(size: 11pt, font: \"Liberation Serif\")"),
+    ("show", "Show rule",
+     "Transform how an element is displayed (example: bold headings)",
+     "#show heading: it => strong(it)"),
+    ("block", "Block / quote",
+     "Indented block — use for block quotations",
+     "#block(inset: (left: 2em))[\n  Quoted text\n]"),
+    ("dropcap", "Drop cap",
+     "Large decorative first letter. Requires Droplet enabled in template settings → Packages.",
+     "#dropcap[\n  First paragraph text here.\n]"),
 ];
 
 // ── Internal types ────────────────────────────────────────────────────────────
@@ -164,6 +187,7 @@ pub struct EditorPane {
     undo_btn: Button,
     redo_btn: Button,
     word_count_label: Label,
+    on_word_count_click: Rc<RefCell<Option<Box<dyn Fn()>>>>,
     session_delta_label: Label,
     goal_bar: ProgressBar,
     lsp_status_label: Label,
@@ -180,7 +204,29 @@ pub struct EditorPane {
     last_wc_text: Rc<RefCell<String>>,
     project_root: Rc<RefCell<Option<PathBuf>>>,
     status_bar: GtkBox,
+    autocorrect_label: Label,
+    on_autocorrect_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
+    gost_label: Label,
+    on_gost_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
+    on_version_click: Rc<RefCell<Option<Box<dyn Fn()>>>>,
 }
+
+fn set_autocorrect_label(label: &Label, enabled: bool) {
+    if enabled {
+        label.set_markup("<b>autocorrect</b>");
+    } else {
+        label.set_text("autocorrect");
+    }
+}
+
+fn set_toggle_label(label: &Label, text: &str, enabled: bool) {
+    if enabled {
+        label.set_markup(&format!("<b>{text}</b>"));
+    } else {
+        label.set_text(text);
+    }
+}
+
 
 impl EditorPane {
     pub fn new() -> Self {
@@ -229,6 +275,15 @@ impl EditorPane {
         let status_bar = GtkBox::new(Orientation::Horizontal, 0);
         status_bar.set_hexpand(true);
 
+        let search_btn = Button::with_label("search");
+        search_btn.add_css_class("flat");
+        search_btn.add_css_class("dim-label");
+        search_btn.add_css_class("caption");
+        search_btn.set_tooltip_text(Some("Find & Replace (Ctrl+F)"));
+        search_btn.set_margin_start(4);
+        search_btn.set_margin_end(4);
+        status_bar.append(&search_btn);
+
         let undo_btn = Button::from_icon_name("edit-undo-symbolic");
         undo_btn.add_css_class("flat");
         undo_btn.set_tooltip_text(Some("Undo (Ctrl+Z)"));
@@ -267,12 +322,17 @@ impl EditorPane {
         let word_count_label = Label::new(Some(""));
         word_count_label.add_css_class("dim-label");
         word_count_label.add_css_class("caption");
-        word_count_label.set_hexpand(true);
         word_count_label.set_xalign(1.0);
-        word_count_label.set_margin_end(8);
-        word_count_label.set_margin_top(3);
-        word_count_label.set_margin_bottom(3);
-        status_bar.append(&word_count_label);
+
+        let wc_btn = Button::new();
+        wc_btn.set_child(Some(&word_count_label));
+        wc_btn.add_css_class("flat");
+        wc_btn.set_hexpand(true);
+        wc_btn.set_margin_end(4);
+        wc_btn.set_margin_top(1);
+        wc_btn.set_margin_bottom(1);
+        wc_btn.set_tooltip_text(Some("Document statistics"));
+        status_bar.append(&wc_btn);
 
         let session_delta_label = Label::new(None);
         session_delta_label.add_css_class("dim-label");
@@ -291,13 +351,41 @@ impl EditorPane {
         goal_bar.set_tooltip_text(Some("Word count progress toward goal"));
         status_bar.append(&goal_bar);
 
-        let version_lbl = Label::new(Some(concat!("v", env!("CARGO_PKG_VERSION"))));
-        version_lbl.add_css_class("dim-label");
-        version_lbl.add_css_class("caption");
-        version_lbl.set_margin_end(8);
-        version_lbl.set_margin_top(3);
-        version_lbl.set_margin_bottom(3);
-        status_bar.append(&version_lbl);
+        let gost_label = Label::new(Some("gost type b"));
+        gost_label.add_css_class("dim-label");
+        gost_label.add_css_class("caption");
+        gost_label.set_use_markup(true);
+        gost_label.set_margin_top(3);
+        gost_label.set_margin_bottom(3);
+
+        let gost_btn = Button::new();
+        gost_btn.set_child(Some(&gost_label));
+        gost_btn.add_css_class("flat");
+        gost_btn.set_tooltip_text(Some("Toggle GOST type B engineering font for the whole UI"));
+        gost_btn.set_margin_end(4);
+        status_bar.append(&gost_btn);
+
+        let autocorrect_label = Label::new(Some("autocorrect"));
+        autocorrect_label.add_css_class("dim-label");
+        autocorrect_label.add_css_class("caption");
+        autocorrect_label.set_use_markup(true);
+        autocorrect_label.set_margin_top(3);
+        autocorrect_label.set_margin_bottom(3);
+
+        let autocorrect_btn = Button::new();
+        autocorrect_btn.set_child(Some(&autocorrect_label));
+        autocorrect_btn.add_css_class("flat");
+        autocorrect_btn.set_tooltip_text(Some("Toggle autocorrect (fixes spelling as you type)"));
+        autocorrect_btn.set_margin_end(4);
+        status_bar.append(&autocorrect_btn);
+
+        let version_btn = Button::with_label(concat!("v", env!("CARGO_PKG_VERSION")));
+        version_btn.add_css_class("flat");
+        version_btn.add_css_class("dim-label");
+        version_btn.add_css_class("caption");
+        version_btn.set_margin_end(4);
+        version_btn.set_tooltip_text(Some("View changelog"));
+        status_bar.append(&version_btn);
 
         let breadcrumb_label = Label::new(Some(""));
         breadcrumb_label.add_css_class("dim-label");
@@ -363,6 +451,12 @@ impl EditorPane {
             Rc::new(RefCell::new(None));
         let on_cursor_heading: Rc<RefCell<Option<Box<dyn Fn(PathBuf, u32)>>>> =
             Rc::new(RefCell::new(None));
+        let on_autocorrect_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>> =
+            Rc::new(RefCell::new(None));
+        let on_gost_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>> =
+            Rc::new(RefCell::new(None));
+        let on_version_click: Rc<RefCell<Option<Box<dyn Fn()>>>> = Rc::new(RefCell::new(None));
+        let on_word_count_click: Rc<RefCell<Option<Box<dyn Fn()>>>> = Rc::new(RefCell::new(None));
 
         let font_size: Rc<RefCell<u32>> = Rc::new(RefCell::new(13));
         let font_family: Rc<RefCell<String>> = Rc::new(RefCell::new("Monospace".to_string()));
@@ -431,14 +525,61 @@ impl EditorPane {
             breadcrumb_label,
             tab_dropdown_btn,
             word_wrap_btn,
-            spell_checker: Rc::new(RefCell::new(crate::spellcheck::SpellChecker::new("en_US"))),
+            spell_checker: Rc::new(RefCell::new(crate::spellcheck::SpellChecker::new(vec!["en_US".to_string()]))),
             line_spacing,
             typewriter_scroll,
             word_count_goal,
             last_wc_text,
             project_root,
             status_bar,
+            autocorrect_label,
+            on_autocorrect_toggle,
+            gost_label,
+            on_gost_toggle,
+            on_version_click,
+            on_word_count_click,
         };
+
+        {
+            let cb = ep.on_version_click.clone();
+            version_btn.connect_clicked(move |_| {
+                if let Some(f) = cb.borrow().as_ref() { f(); }
+            });
+        }
+        {
+            let cb = ep.on_word_count_click.clone();
+            wc_btn.connect_clicked(move |_| {
+                if let Some(f) = cb.borrow().as_ref() { f(); }
+            });
+        }
+        {
+            let fb = ep.find_bar.clone();
+            search_btn.connect_clicked(move |_| {
+                fb.toggle();
+            });
+        }
+        {
+            let lbl_g = ep.gost_label.clone();
+            let cb_g = ep.on_gost_toggle.clone();
+            let gost_on: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
+            gost_btn.connect_clicked(move |_| {
+                let new_val = !*gost_on.borrow();
+                *gost_on.borrow_mut() = new_val;
+                set_toggle_label(&lbl_g, "gost type b", new_val);
+                if let Some(f) = cb_g.borrow().as_ref() { f(new_val); }
+            });
+        }
+        {
+            let sc_ac = ep.spell_checker.clone();
+            let lbl_ac = ep.autocorrect_label.clone();
+            let cb_ac = ep.on_autocorrect_toggle.clone();
+            autocorrect_btn.connect_clicked(move |_| {
+                let new_val = !sc_ac.borrow().autocorrect;
+                sc_ac.borrow_mut().autocorrect = new_val;
+                set_autocorrect_label(&lbl_ac, new_val);
+                if let Some(f) = cb_ac.borrow().as_ref() { f(new_val); }
+            });
+        }
 
         {
             let state_u = ep.state.clone();
@@ -585,6 +726,7 @@ impl EditorPane {
     }
 
     pub fn set_project_root(&self, path: PathBuf) {
+        self.spell_checker.borrow_mut().set_project_root(&path);
         *self.project_root.borrow_mut() = Some(path);
     }
 
@@ -605,10 +747,11 @@ impl EditorPane {
     pub fn apply_word_wrap(&self, enabled: bool) {
         *self.word_wrap.borrow_mut() = enabled;
         let mode = if enabled { gtk4::WrapMode::Word } else { gtk4::WrapMode::None };
+        let h_policy = if enabled { gtk4::PolicyType::Never } else { gtk4::PolicyType::Automatic };
         let state = self.state.borrow();
         for tab in state.tabs.values() {
             tab.view.set_wrap_mode(mode);
-            // H-scroll policy is permanently Never; no change needed here.
+            tab.scroll_window.set_policy(h_policy, gtk4::PolicyType::Automatic);
         }
     }
 
@@ -793,11 +936,11 @@ impl EditorPane {
                 let prefix = lsp_hash_prefix(&tab.buffer);
                 let mut all_items: Vec<CompletionItem> = ACADEMIC_SNIPPETS
                     .iter()
-                    .filter(|(key, _, _)| prefix.is_empty() || key.starts_with(prefix.as_str()))
-                    .map(|(key, label, body)| CompletionItem {
-                        label: format!("{label}  ·  snippet"),
+                    .filter(|(key, _, _, _)| prefix.is_empty() || key.starts_with(prefix.as_str()))
+                    .map(|(_, label, desc, body)| CompletionItem {
+                        label: label.to_string(),
                         kind: 15,
-                        detail: Some(key.to_string()),
+                        detail: Some(desc.to_string()),
                         insert_text: Some(body.to_string()),
                     })
                     .collect();
@@ -805,11 +948,14 @@ impl EditorPane {
 
                 let cursor = tab.buffer.iter_at_offset(tab.buffer.cursor_position());
                 let loc = tab.view.iter_location(&cursor);
-                let (wx, wy) = tab.view.buffer_to_window_coords(
+                let (_, wy) = tab.view.buffer_to_window_coords(
                     TextWindowType::Widget,
                     loc.x(),
                     loc.y() + loc.height(),
                 );
+                // Anchor at left margin rather than the cursor so the popup
+                // doesn't obscure the word being typed.
+                let wx = tab.view.left_margin();
                 tab.lsp_popup.show_items(all_items, wx, wy);
                 break;
             }
@@ -996,10 +1142,27 @@ impl EditorPane {
 
     pub fn set_spell_autocorrect(&self, enabled: bool) {
         self.spell_checker.borrow_mut().autocorrect = enabled;
+        set_autocorrect_label(&self.autocorrect_label, enabled);
     }
 
-    pub fn set_spell_language(&self, lang: &str) {
-        self.spell_checker.borrow_mut().language = lang.to_string();
+    pub fn set_on_autocorrect_toggle(&self, f: impl Fn(bool) + 'static) {
+        *self.on_autocorrect_toggle.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn set_on_gost_toggle(&self, f: impl Fn(bool) + 'static) {
+        *self.on_gost_toggle.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn set_on_version_click(&self, f: impl Fn() + 'static) {
+        *self.on_version_click.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn set_on_word_count_click(&self, f: impl Fn() + 'static) {
+        *self.on_word_count_click.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn set_spell_languages(&self, langs: Vec<String>) {
+        self.spell_checker.borrow_mut().languages = langs;
         self.recheck_all_buffers();
     }
 
@@ -1146,7 +1309,12 @@ impl EditorPane {
         // Horizontal scroll is permanently disabled — all wrapping is done in the
         // text view itself. Kinetic scrolling is disabled to prevent the view from
         // "coasting" past where the user clicked.
-        scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
+        let h_policy = if *self.word_wrap.borrow() {
+            gtk4::PolicyType::Never
+        } else {
+            gtk4::PolicyType::Automatic
+        };
+        scroll.set_policy(h_policy, gtk4::PolicyType::Automatic);
         scroll.set_kinetic_scrolling(false);
 
         // ── Tab label ─────────────────────────────────────────────────────────
@@ -2271,6 +2439,41 @@ impl EditorPane {
                 });
                 vbox.append(&add_dict_btn);
 
+                if spell_rc.borrow().has_project_dict() {
+                    let add_proj_btn = Button::with_label("Add to Project Dictionary");
+                    add_proj_btn.add_css_class("flat");
+                    let spell_proj = spell_rc.clone();
+                    let buf_proj = buf_rc.clone();
+                    let word_proj = word.clone();
+                    let pop_proj = popover.clone();
+                    add_proj_btn.connect_clicked(move |_| {
+                        spell_proj.borrow_mut().add_to_project_dict(&word_proj);
+                        let tag_table = buf_proj.tag_table();
+                        if let Some(t) = tag_table.lookup("zerkalo-spell") {
+                            let (s, e) = buf_proj.bounds();
+                            let mut it = s.clone();
+                            while it < e {
+                                if it.has_tag(&t) {
+                                    let mut ws2 = it.clone();
+                                    let mut we2 = it.clone();
+                                    while ws2.backward_char() && ws2.char().is_alphabetic() {}
+                                    if !ws2.char().is_alphabetic() { ws2.forward_char(); }
+                                    while we2.char().is_alphabetic() {
+                                        if !we2.forward_char() { break; }
+                                    }
+                                    let w = buf_proj.text(&ws2, &we2, false).to_string();
+                                    if w.to_lowercase() == word_proj.to_lowercase() {
+                                        buf_proj.remove_tag(&t, &ws2, &we2);
+                                    }
+                                }
+                                if !it.forward_char() { break; }
+                            }
+                        }
+                        pop_proj.popdown();
+                    });
+                    vbox.append(&add_proj_btn);
+                }
+
                 popover.set_child(Some(&vbox));
 
                 let pop_close = popover.clone();
@@ -2281,6 +2484,105 @@ impl EditorPane {
                 popover.popup();
             });
             view.add_controller(gesture);
+        }
+
+        // ── Inline error assistant — hover over error-tagged line ─────────────
+        {
+            let last_diags = self.last_diagnostics.clone();
+            let view_hover = view.clone();
+            let buf_hover = buffer.clone();
+            let active_popup: Rc<RefCell<Option<Popover>>> = Rc::new(RefCell::new(None));
+
+            let motion = EventControllerMotion::new();
+            let active_popup_c = active_popup.clone();
+            motion.connect_motion(move |_, x, y| {
+                let diags = last_diags.borrow();
+                if diags.is_empty() { return; }
+
+                let (bx, by) = view_hover.window_to_buffer_coords(
+                    TextWindowType::Widget, x as i32, y as i32,
+                );
+                let Some(iter) = view_hover.iter_at_location(bx, by) else { return };
+                let line_1based = iter.line() as u32 + 1;
+
+                let tag_table = buf_hover.tag_table();
+                let has_error_tag = tag_table.lookup("zerkalo-diag-error")
+                    .map(|t| iter.has_tag(&t))
+                    .unwrap_or(false);
+                if !has_error_tag { return; }
+
+                let error_msg: Option<String> = diags.iter()
+                    .find(|(_, ln, _)| *ln == line_1based)
+                    .map(|(path, ln, _)| format!("Error on line {ln} in {}", path.file_name().and_then(|n| n.to_str()).unwrap_or("?")));
+                let Some(msg) = error_msg else { return };
+
+                // Only create a new popup if none is showing (avoid flicker)
+                if active_popup_c.borrow().is_some() { return; }
+
+                let fix = crate::error_patterns::match_fix(&msg);
+
+                let popover = Popover::new();
+                popover.set_parent(&view_hover);
+                popover.set_has_arrow(true);
+                popover.set_autohide(true);
+                popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+
+                let vbox = GtkBox::new(Orientation::Vertical, 4);
+                vbox.set_margin_top(8);
+                vbox.set_margin_bottom(8);
+                vbox.set_margin_start(10);
+                vbox.set_margin_end(10);
+
+                let msg_lbl = Label::new(Some(&msg));
+                msg_lbl.set_xalign(0.0);
+                msg_lbl.set_wrap(true);
+                msg_lbl.set_max_width_chars(50);
+                vbox.append(&msg_lbl);
+
+                if let Some(fx) = fix {
+                    vbox.append(&Separator::new(Orientation::Horizontal));
+                    let fix_row = GtkBox::new(Orientation::Horizontal, 8);
+                    let fix_desc = Label::new(Some(fx.description));
+                    fix_desc.add_css_class("dim-label");
+                    fix_desc.set_xalign(0.0);
+                    fix_desc.set_wrap(true);
+                    fix_desc.set_max_width_chars(40);
+                    fix_desc.set_hexpand(true);
+                    fix_row.append(&fix_desc);
+
+                    if let Some(fix_fn) = fx.fix_fn {
+                        let fix_btn = Button::with_label("Fix It");
+                        fix_btn.add_css_class("suggested-action");
+                        let buf_fix = buf_hover.clone();
+                        let line_fix = iter.line() as usize;
+                        let pop_fix = popover.clone();
+                        fix_btn.connect_clicked(move |_| {
+                            let (s, e) = buf_fix.bounds();
+                            let text = buf_fix.text(&s, &e, false).to_string();
+                            if let Some(patched) = fix_fn(&text, line_fix) {
+                                buf_fix.begin_user_action();
+                                let mut start = buf_fix.start_iter();
+                                let mut end = buf_fix.end_iter();
+                                buf_fix.delete(&mut start, &mut end);
+                                buf_fix.insert(&mut start, &patched);
+                                buf_fix.end_user_action();
+                            }
+                            pop_fix.popdown();
+                        });
+                        fix_row.append(&fix_btn);
+                    }
+                    vbox.append(&fix_row);
+                }
+
+                popover.set_child(Some(&vbox));
+                *active_popup_c.borrow_mut() = Some(popover.clone());
+                let ap_closed = active_popup_c.clone();
+                popover.connect_closed(move |_| {
+                    *ap_closed.borrow_mut() = None;
+                });
+                popover.popup();
+            });
+            view.add_controller(motion);
         }
 
         // Re-apply squiggles after undo restores old text
@@ -2566,6 +2868,27 @@ impl EditorPane {
             let mut scroll_iter = line_start;
             tab.view.scroll_to_iter(&mut scroll_iter, 0.0, true, 0.0, 0.5);
         }
+    }
+
+    pub fn active_text(&self) -> Option<String> {
+        let (_, buf) = self.active_view_buffer()?;
+        let (s, e) = buf.bounds();
+        Some(buf.text(&s, &e, false).to_string())
+    }
+
+    pub fn project_root(&self) -> Option<PathBuf> {
+        self.project_root.borrow().clone()
+    }
+
+    pub fn session_start_words(&self) -> u32 {
+        let current = self.notebook.current_page().unwrap_or(0);
+        let state = self.state.borrow();
+        for tab in state.tabs.values() {
+            if self.notebook.page_num(&tab.scroll_window) == Some(current) {
+                return tab.session_start_words;
+            }
+        }
+        0
     }
 
     fn active_view_buffer(&self) -> Option<(View, Buffer)> {
