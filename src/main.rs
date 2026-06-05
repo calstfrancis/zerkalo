@@ -2,6 +2,7 @@ mod auto_save;
 mod bibliography;
 mod writing_log;
 mod compiler;
+mod error_patterns;
 mod file_watcher;
 mod config;
 mod error;

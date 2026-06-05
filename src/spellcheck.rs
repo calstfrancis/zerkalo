@@ -13,21 +13,57 @@ const DICT_DIRS: &[&str] = &[
 // ── Core struct ───────────────────────────────────────────────────────────────
 
 pub struct SpellChecker {
-    pub language: String,
+    pub languages: Vec<String>,
     pub enabled: bool,
     pub autocorrect: bool,
     ignored: HashSet<String>,
+    project_dict_path: Option<PathBuf>,
 }
 
-fn user_dict_path() -> PathBuf {
-    let base = shellexpand::tilde("~/.local/share/zerkalo").into_owned();
-    PathBuf::from(base).join("user_dict.txt")
+fn global_user_dict_path() -> PathBuf {
+    let base = shellexpand::tilde("~/.config/zerkalo").into_owned();
+    PathBuf::from(base).join("user.dic")
+}
+
+fn project_dict_path(project_root: &PathBuf) -> PathBuf {
+    project_root.join(".zerkalo").join("dictionary.dic")
+}
+
+fn load_dic_words(path: &PathBuf) -> HashSet<String> {
+    let mut words = HashSet::new();
+    let Ok(content) = std::fs::read_to_string(path) else { return words };
+    // Hunspell .dic format: first line is word count, then one word per line
+    for (i, line) in content.lines().enumerate() {
+        let word = line.split('/').next().unwrap_or(line).trim();
+        if i == 0 && word.parse::<usize>().is_ok() { continue; }
+        if !word.is_empty() {
+            words.insert(word.to_lowercase());
+        }
+    }
+    words
+}
+
+fn append_dic_word(path: &PathBuf, word: &str) {
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    // If file doesn't exist, create with header count "0"
+    if !path.exists() {
+        let _ = std::fs::write(path, "0\n");
+    }
+    if let Ok(mut f) = std::fs::OpenOptions::new().append(true).open(path) {
+        let _ = f.write_all(format!("{}\n", word.to_lowercase()).as_bytes());
+    }
 }
 
 impl SpellChecker {
-    pub fn new(language: &str) -> Self {
-        let mut ignored = HashSet::new();
-        if let Ok(content) = std::fs::read_to_string(user_dict_path()) {
+    pub fn new(languages: Vec<String>) -> Self {
+        let user_path = global_user_dict_path();
+        let mut ignored = load_dic_words(&user_path);
+        // Legacy fallback: also load old user_dict.txt format
+        let legacy = PathBuf::from(shellexpand::tilde("~/.local/share/zerkalo").into_owned())
+            .join("user_dict.txt");
+        if let Ok(content) = std::fs::read_to_string(&legacy) {
             for word in content.lines() {
                 let w = word.trim();
                 if !w.is_empty() {
@@ -36,11 +72,25 @@ impl SpellChecker {
             }
         }
         Self {
-            language: language.to_string(),
+            languages,
             enabled: true,
             autocorrect: false,
             ignored,
+            project_dict_path: None,
         }
+    }
+
+    pub fn set_project_root(&mut self, root: &PathBuf) {
+        let path = project_dict_path(root);
+        let words = load_dic_words(&path);
+        for w in words {
+            self.ignored.insert(w);
+        }
+        self.project_dict_path = Some(path);
+    }
+
+    pub fn primary_language(&self) -> &str {
+        self.languages.first().map(|s| s.as_str()).unwrap_or("en_US")
     }
 
     pub fn ignore(&mut self, word: &str) {
@@ -49,13 +99,20 @@ impl SpellChecker {
 
     pub fn add_to_user_dict(&mut self, word: &str) {
         self.ignore(word);
-        let path = user_dict_path();
-        if let Some(dir) = path.parent() {
-            let _ = std::fs::create_dir_all(dir);
+        append_dic_word(&global_user_dict_path(), word);
+    }
+
+    pub fn add_to_project_dict(&mut self, word: &str) {
+        self.ignore(word);
+        if let Some(ref path) = self.project_dict_path.clone() {
+            append_dic_word(path, word);
+        } else {
+            self.add_to_user_dict(word);
         }
-        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
-            let _ = f.write_all(format!("{}\n", word.to_lowercase()).as_bytes());
-        }
+    }
+
+    pub fn has_project_dict(&self) -> bool {
+        self.project_dict_path.is_some()
     }
 
     pub fn is_ignored(&self, word: &str) -> bool {
@@ -63,16 +120,24 @@ impl SpellChecker {
     }
 
     /// Check a set of unique words. Returns a map of misspelled word → suggestion list.
+    /// A word is considered correct if it passes in ANY of the configured languages.
     pub fn check_unique(&self, unique_words: &[&str]) -> HashMap<String, Vec<String>> {
         let filtered: Vec<&str> = unique_words
             .iter()
             .copied()
             .filter(|w| !self.is_ignored(w))
             .collect();
-        if filtered.is_empty() {
+        if filtered.is_empty() || self.languages.is_empty() {
             return HashMap::new();
         }
-        run_hunspell_batch(&filtered, &self.language)
+        // Start with all words flagged by the primary language (includes suggestions).
+        let mut result = run_hunspell_batch(&filtered, self.primary_language());
+        // For each additional language, remove words that pass in that language.
+        for lang in self.languages.iter().skip(1) {
+            let also_wrong = run_hunspell_batch(&filtered, lang);
+            result.retain(|word, _| also_wrong.contains_key(word));
+        }
+        result
     }
 
     /// Return list of dictionary language codes installed on the system.
@@ -94,12 +159,13 @@ impl SpellChecker {
     }
 
     /// Get suggestions for a single word (used by right-click menu).
+    /// Uses the primary language for suggestions.
     pub fn suggestions_for(&self, word: &str) -> Vec<String> {
         if self.is_ignored(word) {
             return Vec::new();
         }
         let words = [word];
-        run_hunspell_batch(&words, &self.language)
+        run_hunspell_batch(&words, self.primary_language())
             .remove(&word.to_lowercase())
             .unwrap_or_default()
     }

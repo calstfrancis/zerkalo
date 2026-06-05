@@ -5,6 +5,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.11.0] — 2026-06-05
+
+### Added
+
+- **Configurable Compilation Profiles**: header-bar dropdown switches between **Final** (full 144 dpi render) and **Draft** (72 dpi, fast preview) profiles. Draft mode passes `sys.inputs.at("draft", default: "false") == "true"` so documents can detect the mode and skip slow elements. Profile persists to `config.toml`.
+- **Session Snapshots & Version Recovery**: every Ctrl+S (and ☰ → Save) writes a timestamped `.typ` snapshot to `~/.local/share/zerkalo/snapshots/<project>/<file>/`. The last 50 snapshots per file are retained automatically. ☰ → **Browse Snapshots…** opens a timeline dialog showing each snapshot with a simple diff against the current text; **Restore** replaces the editor content.
+- **Enhanced Spell Check**: project-specific dictionary at `<work_dir>/.zerkalo/dictionary.dic` (hunspell `.dic` format). Global user dictionary moved to `~/.config/zerkalo/user.dic`. Right-click on a misspelled word now shows **Add to Project Dictionary** when a project dictionary is available, in addition to the existing **Add to Dictionary** (global).
+- **Inline Typst Error Assistant** (`src/error_patterns.rs`): hovering over a red-underlined error line shows a popover with the error description. For known patterns (missing brace/bracket/paren, unknown variable) a **Fix It** button applies the automated correction inline. The fix table lives in `src/error_patterns.rs` and is easy to extend.
+
+---
+
 ## [0.10.0] — 2026-06-05
 
 ### Added

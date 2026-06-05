@@ -1,0 +1,279 @@
+use std::path::{Path, PathBuf};
+use std::rc::Rc;
+use std::cell::RefCell;
+
+use gtk4::prelude::*;
+use gtk4::{
+    Box as GtkBox, Button, Label, ListBox, ListBoxRow, Orientation,
+    ScrolledWindow, SelectionMode, Separator, TextView, WrapMode,
+};
+use libadwaita as adw;
+use adw::prelude::*;
+
+const MAX_SNAPSHOTS: usize = 50;
+
+// ── Snapshot paths ────────────────────────────────────────────────────────────
+
+pub fn snapshot_dir(project_root: &Path, file_path: &Path) -> PathBuf {
+    let base = shellexpand::tilde("~/.local/share/zerkalo/snapshots").into_owned();
+    let project_name = project_root
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown");
+    let file_stem = file_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("unnamed");
+    PathBuf::from(base).join(project_name).join(file_stem)
+}
+
+/// Save a snapshot of `content` for `file_path` under `project_root`.
+/// Keeps only the last MAX_SNAPSHOTS snapshots; deletes the oldest when over.
+pub fn save_snapshot(project_root: &Path, file_path: &Path, content: &str) {
+    let dir = snapshot_dir(project_root, file_path);
+    if std::fs::create_dir_all(&dir).is_err() { return; }
+
+    let ts = chrono::Local::now().format("%Y%m%dT%H%M%S%.3f").to_string();
+    let snap_path = dir.join(format!("{ts}.typ"));
+    let _ = std::fs::write(&snap_path, content);
+
+    // Prune oldest if over limit
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        let mut files: Vec<PathBuf> = entries
+            .flatten()
+            .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("typ"))
+            .map(|e| e.path())
+            .collect();
+        files.sort();
+        while files.len() > MAX_SNAPSHOTS {
+            let _ = std::fs::remove_file(&files[0]);
+            files.remove(0);
+        }
+    }
+}
+
+fn list_snapshots(dir: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
+    let mut files: Vec<PathBuf> = entries
+        .flatten()
+        .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("typ"))
+        .map(|e| e.path())
+        .collect();
+    files.sort_by(|a, b| b.cmp(a)); // newest first
+    files
+}
+
+fn simple_diff(old: &str, new: &str) -> String {
+    let old_lines: Vec<&str> = old.lines().collect();
+    let new_lines: Vec<&str> = new.lines().collect();
+    let mut out = String::new();
+    // Very simple line-by-line diff: show lines added/removed in first 200 lines
+    let max = old_lines.len().max(new_lines.len()).min(200);
+    for i in 0..max {
+        let ol = old_lines.get(i).copied().unwrap_or("");
+        let nl = new_lines.get(i).copied().unwrap_or("");
+        if ol != nl {
+            if !ol.is_empty() { out.push_str(&format!("- {ol}\n")); }
+            if !nl.is_empty() { out.push_str(&format!("+ {nl}\n")); }
+        }
+    }
+    if out.is_empty() { out = "(no differences)".to_string(); }
+    out
+}
+
+// ── SnapshotDialog ────────────────────────────────────────────────────────────
+
+pub struct SnapshotDialog {
+    window: adw::Window,
+    on_restore: Rc<RefCell<Option<Box<dyn Fn(String)>>>>,
+}
+
+impl SnapshotDialog {
+    pub fn new(
+        parent: &impl IsA<gtk4::Window>,
+        project_root: &Path,
+        file_path: &Path,
+        current_content: &str,
+    ) -> Self {
+        let window = adw::Window::builder()
+            .title("Browse Snapshots")
+            .transient_for(parent)
+            .modal(true)
+            .default_width(800)
+            .default_height(600)
+            .build();
+
+        let on_restore: Rc<RefCell<Option<Box<dyn Fn(String)>>>> =
+            Rc::new(RefCell::new(None));
+
+        let header = adw::HeaderBar::new();
+        let close_btn = Button::with_label("Close");
+        header.pack_end(&close_btn);
+
+        let content_box = GtkBox::new(Orientation::Vertical, 0);
+        content_box.append(&header);
+
+        let body = GtkBox::new(Orientation::Horizontal, 0);
+        body.set_hexpand(true);
+        body.set_vexpand(true);
+        content_box.append(&body);
+
+        // ── Left: snapshot list ───────────────────────────────────────────────
+        let left = GtkBox::new(Orientation::Vertical, 0);
+        left.set_width_request(220);
+
+        let list_header = Label::new(Some("Snapshots"));
+        list_header.add_css_class("heading");
+        list_header.set_margin_start(12);
+        list_header.set_margin_top(8);
+        list_header.set_margin_bottom(8);
+        list_header.set_xalign(0.0);
+        left.append(&list_header);
+        left.append(&Separator::new(Orientation::Horizontal));
+
+        let list_scroll = ScrolledWindow::new();
+        list_scroll.set_vexpand(true);
+        let list_box = ListBox::new();
+        list_box.set_selection_mode(SelectionMode::Single);
+        list_box.add_css_class("navigation-sidebar");
+        list_scroll.set_child(Some(&list_box));
+        left.append(&list_scroll);
+
+        body.append(&left);
+        body.append(&Separator::new(Orientation::Vertical));
+
+        // ── Right: diff + restore ─────────────────────────────────────────────
+        let right = GtkBox::new(Orientation::Vertical, 0);
+        right.set_hexpand(true);
+
+        let diff_scroll = ScrolledWindow::new();
+        diff_scroll.set_vexpand(true);
+        let diff_view = TextView::new();
+        diff_view.set_editable(false);
+        diff_view.set_monospace(true);
+        diff_view.set_wrap_mode(WrapMode::None);
+        diff_view.set_margin_start(8);
+        diff_view.set_margin_end(8);
+        diff_view.set_margin_top(6);
+        diff_view.set_margin_bottom(6);
+        diff_scroll.set_child(Some(&diff_view));
+        right.append(&diff_scroll);
+
+        right.append(&Separator::new(Orientation::Horizontal));
+
+        let restore_bar = GtkBox::new(Orientation::Horizontal, 8);
+        restore_bar.set_margin_start(12);
+        restore_bar.set_margin_end(12);
+        restore_bar.set_margin_top(8);
+        restore_bar.set_margin_bottom(8);
+        let restore_info = Label::new(Some("Select a snapshot to see changes"));
+        restore_info.add_css_class("dim-label");
+        restore_info.set_hexpand(true);
+        restore_info.set_xalign(0.0);
+        let restore_btn = Button::with_label("Restore");
+        restore_btn.add_css_class("suggested-action");
+        restore_btn.set_sensitive(false);
+        restore_bar.append(&restore_info);
+        restore_bar.append(&restore_btn);
+        right.append(&restore_bar);
+
+        body.append(&right);
+
+        window.set_content(Some(&content_box));
+
+        // ── Populate snapshot list ─────────────────────────────────────────────
+        let dir = snapshot_dir(project_root, file_path);
+        let snapshots = list_snapshots(&dir);
+        let current_text = current_content.to_string();
+
+        let selected_content: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+
+        for snap_path in &snapshots {
+            let name = snap_path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_string();
+            // Format: YYYYMMDDTHHMMSS.mmm → "YYYY-MM-DD HH:MM:SS"
+            let display = if name.len() >= 15 {
+                format!(
+                    "{}-{}-{} {}:{}:{}",
+                    &name[0..4], &name[4..6], &name[6..8],
+                    &name[9..11], &name[11..13], &name[13..15]
+                )
+            } else {
+                name.clone()
+            };
+
+            let row = ListBoxRow::new();
+            row.set_activatable(true);
+            let lbl = Label::new(Some(&display));
+            lbl.set_xalign(0.0);
+            lbl.set_margin_start(12);
+            lbl.set_margin_top(6);
+            lbl.set_margin_bottom(6);
+            row.set_child(Some(&lbl));
+
+            let snap_path_clone = snap_path.clone();
+            let current_clone = current_text.clone();
+            let diff_buf = diff_view.buffer();
+            let sel = selected_content.clone();
+            let restore_btn_c = restore_btn.clone();
+            let info_c = restore_info.clone();
+            row.connect_activate(move |_| {
+                let Ok(snap_text) = std::fs::read_to_string(&snap_path_clone) else { return };
+                let diff = simple_diff(&snap_text, &current_clone);
+                diff_buf.set_text(&diff);
+                *sel.borrow_mut() = Some(snap_text.clone());
+                restore_btn_c.set_sensitive(true);
+                let wc = snap_text.split_whitespace().count();
+                info_c.set_text(&format!("{wc} words in this snapshot"));
+            });
+
+            list_box.append(&row);
+        }
+
+        if snapshots.is_empty() {
+            let row = ListBoxRow::new();
+            row.set_activatable(false);
+            row.set_selectable(false);
+            let lbl = Label::new(Some("No snapshots yet.\nSnapshots are saved automatically on Ctrl+S."));
+            lbl.add_css_class("dim-label");
+            lbl.set_justify(gtk4::Justification::Center);
+            lbl.set_margin_top(16);
+            lbl.set_margin_bottom(16);
+            row.set_child(Some(&lbl));
+            list_box.append(&row);
+        }
+
+        // ── Wire restore button ───────────────────────────────────────────────
+        {
+            let sel = selected_content.clone();
+            let cb = on_restore.clone();
+            let win = window.clone();
+            restore_btn.connect_clicked(move |_| {
+                if let Some(ref text) = *sel.borrow() {
+                    if let Some(f) = cb.borrow().as_ref() {
+                        f(text.clone());
+                    }
+                    win.close();
+                }
+            });
+        }
+
+        {
+            let win = window.clone();
+            close_btn.connect_clicked(move |_| win.close());
+        }
+
+        Self { window, on_restore }
+    }
+
+    pub fn set_on_restore(&self, f: impl Fn(String) + 'static) {
+        *self.on_restore.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn present(&self) {
+        self.window.present();
+    }
+}

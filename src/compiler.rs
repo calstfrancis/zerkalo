@@ -4,7 +4,7 @@ use std::sync::{Mutex, OnceLock};
 
 use chrono::Datelike;
 use typst::diag::{FileError, FileResult, SourceDiagnostic, Severity};
-use typst::foundations::{Bytes, Datetime};
+use typst::foundations::{Bytes, Datetime, Dict, IntoValue, Str};
 use typst::layout::PagedDocument;
 use typst::syntax::{FileId, Source, VirtualPath};
 use typst::text::{Font, FontBook};
@@ -12,11 +12,9 @@ use typst::utils::LazyHash;
 use typst::{Library, LibraryExt, World as TypstWorld};
 use typst_kit::fonts::{FontSearcher, FontSlot, Fonts};
 
-// ── Static globals: initialized once, reused across every compile ─────────────
+// ── Static globals: fonts only — library is built per-compile with inputs ─────
 
 static FONTS: OnceLock<(LazyHash<FontBook>, Vec<FontSlot>)> = OnceLock::new();
-static LIBRARY: OnceLock<LazyHash<Library>> = OnceLock::new();
-
 fn global_fonts() -> &'static (LazyHash<FontBook>, Vec<FontSlot>) {
     FONTS.get_or_init(|| {
         let Fonts { book, fonts } = FontSearcher::new().search();
@@ -24,8 +22,15 @@ fn global_fonts() -> &'static (LazyHash<FontBook>, Vec<FontSlot>) {
     })
 }
 
-fn global_library() -> &'static LazyHash<Library> {
-    LIBRARY.get_or_init(|| LazyHash::new(Library::default()))
+fn build_library(sys_inputs: &HashMap<String, String>) -> LazyHash<Library> {
+    if sys_inputs.is_empty() {
+        return LazyHash::new(Library::default());
+    }
+    let mut dict = Dict::new();
+    for (k, v) in sys_inputs {
+        dict.insert(Str::from(k.as_str()), v.as_str().into_value());
+    }
+    LazyHash::new(Library::builder().with_inputs(dict).build())
 }
 
 // ── World implementation ──────────────────────────────────────────────────────
@@ -36,22 +41,29 @@ struct ZerkaloWorld {
     source_cache: Mutex<HashMap<FileId, FileResult<Source>>>,
     file_cache: Mutex<HashMap<FileId, FileResult<Bytes>>>,
     overrides: HashMap<PathBuf, String>,
+    library: LazyHash<Library>,
 }
 
 impl ZerkaloWorld {
-    fn new(root_file: &Path, overrides: HashMap<PathBuf, String>) -> Result<Self, String> {
+    fn new(
+        root_file: &Path,
+        overrides: HashMap<PathBuf, String>,
+        sys_inputs: &HashMap<String, String>,
+    ) -> Result<Self, String> {
         let root = root_file
             .parent()
             .ok_or_else(|| format!("no parent directory: {}", root_file.display()))?
             .to_path_buf();
         let rel = root_file.strip_prefix(&root).unwrap_or(root_file);
         let main_id = FileId::new(None, VirtualPath::new(rel));
+        let library = build_library(sys_inputs);
         Ok(Self {
             root,
             main_id,
             source_cache: Mutex::new(HashMap::new()),
             file_cache: Mutex::new(HashMap::new()),
             overrides,
+            library,
         })
     }
 
@@ -81,7 +93,7 @@ impl ZerkaloWorld {
 
 impl typst::World for ZerkaloWorld {
     fn library(&self) -> &LazyHash<Library> {
-        global_library()
+        &self.library
     }
 
     fn book(&self) -> &LazyHash<FontBook> {
@@ -188,8 +200,9 @@ fn format_one(world: &ZerkaloWorld, d: &SourceDiagnostic) -> String {
 pub fn compile_to_pdf_bytes(
     root_file: &Path,
     overrides: &HashMap<PathBuf, String>,
+    sys_inputs: &HashMap<String, String>,
 ) -> Result<Vec<u8>, String> {
-    let world = ZerkaloWorld::new(root_file, overrides.clone())?;
+    let world = ZerkaloWorld::new(root_file, overrides.clone(), sys_inputs)?;
     let result = typst::compile::<PagedDocument>(&world);
 
     match result.output {
@@ -220,37 +233,46 @@ mod tests {
     #[test]
     fn compile_trivial_document_to_pdf() {
         let path = write_temp_typ("Hello, world!");
-        let result = compile_to_pdf_bytes(&path, &HashMap::new());
+        let result = compile_to_pdf_bytes(&path, &HashMap::new(), &HashMap::new());
         assert!(result.is_ok(), "trivial doc should compile: {:?}", result.err());
         let bytes = result.unwrap();
-        // PDF starts with "%PDF-"
         assert!(bytes.starts_with(b"%PDF-"), "output should be valid PDF");
     }
 
     #[test]
     fn compile_with_heading_and_content() {
         let path = write_temp_typ("= Introduction\n\nThis is a test document.\n");
-        let result = compile_to_pdf_bytes(&path, &HashMap::new());
+        let result = compile_to_pdf_bytes(&path, &HashMap::new(), &HashMap::new());
         assert!(result.is_ok(), "document with heading should compile");
     }
 
     #[test]
     fn compile_nonexistent_root_fails() {
-        // Compiling a file that does not exist should return an error
         let path = std::path::PathBuf::from("/tmp/zerkalo-nonexistent-root-abc123.typ");
         let _ = std::fs::remove_file(&path);
-        let result = compile_to_pdf_bytes(&path, &HashMap::new());
+        let result = compile_to_pdf_bytes(&path, &HashMap::new(), &HashMap::new());
         assert!(result.is_err(), "compiling a nonexistent root file should fail");
     }
 
     #[test]
     fn compile_to_png_single_page() {
         let path = write_temp_typ("= Heading\n\nSome content here.");
-        let result = compile_to_png_bytes(&path, 1.0, &HashMap::new());
+        let result = compile_to_png_bytes(&path, 1.0, &HashMap::new(), &HashMap::new());
         assert!(result.is_ok(), "doc should compile to PNG");
         let pages = result.unwrap();
         assert!(!pages.is_empty(), "should produce at least one page");
         assert!(pages[0].starts_with(b"\x89PNG"), "output should be valid PNG");
+    }
+
+    #[test]
+    fn compile_with_sys_inputs() {
+        let path = write_temp_typ(
+            "#let d = sys.inputs.at(\"draft\", default: \"false\")\nDraft: #d"
+        );
+        let mut inputs = HashMap::new();
+        inputs.insert("draft".to_string(), "true".to_string());
+        let result = compile_to_png_bytes(&path, 1.0, &HashMap::new(), &inputs);
+        assert!(result.is_ok(), "doc with sys.inputs should compile: {:?}", result.err());
     }
 }
 
@@ -260,8 +282,9 @@ pub fn compile_to_png_bytes(
     root_file: &Path,
     pixel_per_pt: f32,
     overrides: &HashMap<PathBuf, String>,
+    sys_inputs: &HashMap<String, String>,
 ) -> Result<Vec<Vec<u8>>, String> {
-    let world = ZerkaloWorld::new(root_file, overrides.clone())?;
+    let world = ZerkaloWorld::new(root_file, overrides.clone(), sys_inputs)?;
     let result = typst::compile::<PagedDocument>(&world);
 
     match result.output {
