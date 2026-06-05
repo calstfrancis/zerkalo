@@ -73,6 +73,8 @@ pub struct Config {
     pub compile_on_save: bool,
     #[serde(default)]
     pub manual_compile_only: bool,
+    #[serde(default)]
+    pub recent_searches: Vec<String>,
 }
 
 fn default_work_dir() -> PathBuf {
@@ -123,6 +125,17 @@ impl Default for Config {
             last_export_format: 0,
             compile_on_save: true,
             manual_compile_only: false,
+            recent_searches: Vec::new(),
+        }
+    }
+}
+
+impl Config {
+    pub fn push_recent_search(&mut self, query: String) {
+        self.recent_searches.retain(|s| s != &query);
+        self.recent_searches.insert(0, query);
+        if self.recent_searches.len() > 10 {
+            self.recent_searches.truncate(10);
         }
     }
 }

@@ -964,6 +964,7 @@ impl AppWindow {
         let window_for_export = window.clone();
         let menu_popover_for_export = menu_popover.clone();
         let current_config_for_export = current_config.clone();
+        let project_root_for_export = project_root.clone();
         menu_export_item.connect_clicked(move |_| {
             menu_popover_for_export.popdown();
             let initial_fmt = current_config_for_export.borrow().last_export_format;
@@ -972,6 +973,7 @@ impl AppWindow {
                 &window_for_export,
                 preview_for_export.root_file_path(),
                 preview_for_export.output_dir(),
+                project_root_for_export.clone(),
                 initial_fmt,
                 move |fmt| {
                     let mut cfg = cfg_for_save.borrow_mut();
@@ -2128,6 +2130,20 @@ impl AppWindow {
         preview_toolbar.append(&page_label);
         preview_toolbar.append(&watch_btn);
         preview_toolbar.append(&ref_toggle_btn);
+
+        // ── Preview click-to-jump toolbar buttons ────────────────────────────
+        let copy_text_btn = Button::from_icon_name("edit-copy-symbolic");
+        copy_text_btn.add_css_class("flat");
+        copy_text_btn.set_tooltip_text(Some("Copy Text from Preview (current page via pdftotext)"));
+        copy_text_btn.update_property(&[gtk4::accessible::Property::Label("Copy text from preview")]);
+
+        let jump_to_editor_btn = Button::from_icon_name("go-jump-symbolic");
+        jump_to_editor_btn.add_css_class("flat");
+        jump_to_editor_btn.set_tooltip_text(Some("Jump to Editor (Ctrl+Click on preview to jump to a position)"));
+        jump_to_editor_btn.update_property(&[gtk4::accessible::Property::Label("Jump to editor position")]);
+
+        preview_toolbar.append(&copy_text_btn);
+        preview_toolbar.append(&jump_to_editor_btn);
         preview_toolbar.append(&popout_btn);
 
         // Watch button wiring
@@ -2203,6 +2219,54 @@ impl AppWindow {
                 let cur = p.current_page_idx();
                 let total = p.page_count();
                 if total > 0 && cur < total - 1 { p.scroll_to_page(cur + 1); }
+            });
+        }
+
+        // ── Preview click-to-jump wiring ─────────────────────────────────────
+        {
+            let editor_for_jump = editor_pane.clone();
+            let window_for_jump = window.clone();
+            let preview_for_jump = preview_pane.clone();
+            preview_pane.set_on_click_jump(move |page, rel_y| {
+                handle_preview_click_jump(
+                    &preview_for_jump,
+                    &editor_for_jump,
+                    &window_for_jump,
+                    page,
+                    rel_y,
+                );
+            });
+        }
+
+        // Copy Text button
+        {
+            let preview_for_copy = preview_pane.clone();
+            let window_for_copy = window.clone();
+            copy_text_btn.connect_clicked(move |_| {
+                match super::preview_pane::extract_page_text_via_pdftotext(
+                    &preview_for_copy,
+                    preview_for_copy.current_page_idx(),
+                    0.0, 1.0,
+                ) {
+                    Some(text) => {
+                        if let Some(display) = gtk4::gdk::Display::default() {
+                            display.clipboard().set_text(&text);
+                        }
+                    }
+                    None => {
+                        show_alert(&window_for_copy, "Copy Text",
+                            "Could not extract text. pdftotext (poppler-utils) may not be installed,\
+                             or the document has not been compiled yet.");
+                    }
+                }
+            });
+        }
+
+        // Jump to Editor button
+        {
+            let preview_for_jmp = preview_pane.clone();
+            jump_to_editor_btn.connect_clicked(move |_| {
+                preview_for_jmp.fire_jump_to_current_page();
             });
         }
 
@@ -2650,6 +2714,28 @@ impl AppWindow {
                 ep.jump_to_line(&path, line);
             });
         }
+        {
+            // Reload file in editor when replace_all modifies it
+            let ep = editor_pane.clone();
+            search_panel.set_on_replace_done(move |path| {
+                if ep.state_has_file(&path) {
+                    if let Ok(content) = std::fs::read_to_string(&path) {
+                        ep.reload_file(path, &content);
+                    }
+                }
+            });
+        }
+        {
+            // Push searches to config history
+            let cfg = current_config.clone();
+            search_panel.set_on_search(move |query| {
+                let mut c = cfg.borrow_mut();
+                c.push_recent_search(query);
+                let _ = c.save();
+            });
+        }
+        // Seed recent searches from config
+        search_panel.set_recent_searches(config.recent_searches.clone());
 
         // Search panel is hidden by default; Ctrl+Shift+F toggles it
         search_panel.widget().set_visible(false);
@@ -3447,6 +3533,44 @@ fn show_alert(window: &adw::ApplicationWindow, title: &str, body: &str) {
     let dlg = adw::MessageDialog::new(Some(window), Some(title), Some(body));
     dlg.add_response("ok", "OK");
     dlg.present();
+}
+
+fn handle_preview_click_jump(
+    preview: &super::preview_pane::PreviewPane,
+    editor: &super::editor_pane::EditorPane,
+    window: &adw::ApplicationWindow,
+    page: usize,
+    rel_y: f64,
+) {
+    match super::preview_pane::extract_page_text_via_pdftotext(preview, page, 0.0, 1.0) {
+        Some(text) => {
+            let lines: Vec<&str> = text.lines().collect();
+            if lines.is_empty() { return; }
+            let target = ((lines.len() as f64 * rel_y) as usize).min(lines.len().saturating_sub(1));
+            // Search a ±3 line window for a non-trivial snippet
+            let start = target.saturating_sub(3);
+            let end = (target + 3).min(lines.len().saturating_sub(1));
+            let snippet = (start..=end)
+                .filter_map(|i| {
+                    let l = lines[i].trim();
+                    if l.len() >= 6 { Some(l) } else { None }
+                })
+                .next()
+                .unwrap_or("");
+            if snippet.len() >= 6 {
+                let phrase: String = snippet.chars().take(40).collect();
+                editor.jump_to_text(&phrase);
+            }
+        }
+        None => {
+            show_alert(window, "Click-to-Jump",
+                "Could not extract text from the preview. Make sure pdftotext \
+                 (poppler-utils) is installed and the document has been compiled at least once.\
+                 \n\n  apt install poppler-utils\
+                 \n  dnf install poppler-utils\
+                 \n  zypper install poppler-tools");
+        }
+    }
 }
 
 fn format_file_mtime(mtime: std::time::SystemTime) -> String {

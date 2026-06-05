@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.10.0] — 2026-06-05
+
+### Added
+
+- **Find in Files enhancements** (Ctrl+Shift+F): search results now highlight the matched text in bold (Pango markup); `.gitignore` patterns are respected so build artifacts and output directories are excluded; replace-in-files mode (toggle button in search bar) with a replace entry and "Replace All" button that writes files and reloads any open tabs; last 10 searches stored in `config.toml` and shown in a dropdown next to the search entry.
+- **Interactive Preview Click-to-Jump**: Ctrl+Click on the preview jumps to the matching source line by extracting text from the current PDF page via `pdftotext`; if no PDF exists it is compiled on demand. New "Copy Text from Preview" button (clipboard icon) and "Jump to Editor" button (jump icon) in the preview toolbar. Graceful error message if `pdftotext` (poppler-utils) is not installed.
+- **Export Progress Dialog**: redesigned with a scrollable log view showing real-time stderr output line-by-line for all export operations; batch export mode with per-format checkboxes so multiple formats can be exported in one click; "Install Dependencies…" button opens the System Check Wizard; full error detail is always visible instead of only the first line.
+
+---
+
 ## [0.9.0] — 2026-06-05
 
 ### Added

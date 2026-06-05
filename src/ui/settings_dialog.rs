@@ -508,6 +508,7 @@ impl SettingsDialog {
                     preview_split: preview_split_cur,
                     developer_mode: dev_mode_row.is_active(),
                     last_export_format: 0,
+                    recent_searches: Vec::new(),
                 }
             }
         };
