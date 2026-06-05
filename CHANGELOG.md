@@ -5,6 +5,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.9.0] — 2026-06-05
+
+### Added
+
+- **System Check Wizard**: dependency rows now detect the Linux distro from `/etc/os-release` and show the exact `apt`/`dnf`/`pacman`/`zypper` install command for each missing tool (pandoc, hunspell, git, tinymist). A "Verify" button re-checks presence after installation.
+- **Template Marker Recovery**: ☰ → "Repair Template Markers…" scans the active file for the `// ── Document body` marker; if missing, re-inserts it at the preamble boundary and saves a `.typ.bak` backup. Generated templates now include a "DO NOT DELETE" warning comment above the marker.
+- **Compile-on-save mode** (`compile_on_save = true` by default): on-keystroke debounce no longer triggers compilation; compilation fires on Ctrl+S instead. New `manual_compile_only` setting (default `false`) disables all automatic compilation — use Ctrl+Shift+P to compile manually. Both settings exposed in Settings → Compilation.
+- **Filesystem watcher** (`notify` crate): watches the project directory for external `.typ` file changes (e.g., sync agents, other editors) and triggers re-compilation automatically.
+
+### Fixed
+
+- Config test: `spell_language` → `spell_languages` (field name mismatch)
+- Template dialog test: added missing `sidecar_to_settings` function used by the round-trip test
+
+---
+
 ## [0.8.19] — 2026-06-05
 
 ### Fixed

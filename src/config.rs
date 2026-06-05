@@ -51,8 +51,8 @@ pub struct Config {
     pub spell_enabled: bool,
     #[serde(default)]
     pub spell_autocorrect: bool,
-    #[serde(default = "default_spell_language")]
-    pub spell_language: String,
+    #[serde(default = "default_spell_languages")]
+    pub spell_languages: Vec<String>,
     #[serde(default = "default_line_spacing")]
     pub editor_line_spacing: u32,
     #[serde(default)]
@@ -69,6 +69,10 @@ pub struct Config {
     pub developer_mode: bool,
     #[serde(default)]
     pub last_export_format: u32,
+    #[serde(default = "default_true")]
+    pub compile_on_save: bool,
+    #[serde(default)]
+    pub manual_compile_only: bool,
 }
 
 fn default_work_dir() -> PathBuf {
@@ -84,7 +88,7 @@ fn default_font_size() -> u32 { 13 }
 fn default_font_family() -> String { "Monospace".to_string() }
 fn default_tab_width() -> u32 { 2 }
 fn default_preview_zoom() -> f64 { 1.0 }
-fn default_spell_language() -> String { "en_US".to_string() }
+fn default_spell_languages() -> Vec<String> { vec!["en_US".to_string()] }
 fn default_line_spacing() -> u32 { 2 }
 fn default_sidebar_width() -> i32 { 220 }
 fn default_preview_split() -> i32 { 600 }
@@ -108,7 +112,7 @@ impl Default for Config {
             preview_zoom: 1.0,
             spell_enabled: true,
             spell_autocorrect: false,
-            spell_language: default_spell_language(),
+            spell_languages: default_spell_languages(),
             editor_line_spacing: default_line_spacing(),
             typewriter_scrolling: false,
             high_contrast: false,
@@ -117,6 +121,8 @@ impl Default for Config {
             preview_split: default_preview_split(),
             developer_mode: false,
             last_export_format: 0,
+            compile_on_save: true,
+            manual_compile_only: false,
         }
     }
 }
@@ -197,7 +203,7 @@ mod tests {
         assert_eq!(cfg.editor_font_size, loaded.editor_font_size);
         assert_eq!(cfg.editor_tab_width, loaded.editor_tab_width);
         assert_eq!(cfg.auto_compile, loaded.auto_compile);
-        assert_eq!(cfg.spell_language, loaded.spell_language);
+        assert_eq!(cfg.spell_languages, loaded.spell_languages);
     }
 
     #[test]

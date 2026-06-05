@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use gtk4::prelude::*;
-use gtk4::{Align, Button, Label, Notebook};
+use gtk4::{Align, Box as GtkBox, Button, Label, ListBox, ListBoxRow, Notebook, Orientation};
 use libadwaita as adw;
 use adw::prelude::*;
 
@@ -109,8 +109,20 @@ impl SettingsDialog {
         auto_row.set_subtitle("Recompile automatically on change");
         auto_row.set_active(current.auto_compile);
 
+        let compile_on_save_row = adw::SwitchRow::new();
+        compile_on_save_row.set_title("Compile on save");
+        compile_on_save_row.set_subtitle("Only compile when Ctrl+S saves the file, not on every keystroke");
+        compile_on_save_row.set_active(current.compile_on_save);
+
+        let manual_only_row = adw::SwitchRow::new();
+        manual_only_row.set_title("Manual compile only");
+        manual_only_row.set_subtitle("Disable automatic compilation — use Ctrl+Shift+P to compile");
+        manual_only_row.set_active(current.manual_compile_only);
+
         compile_group.add(&debounce_spin);
         compile_group.add(&auto_row);
+        compile_group.add(&compile_on_save_row);
+        compile_group.add(&manual_only_row);
 
         // Appearance
         let editor_group = adw::PreferencesGroup::new();
@@ -231,20 +243,123 @@ impl SettingsDialog {
         spell_autocorrect_row.set_active(current.spell_autocorrect);
 
         let available_langs = crate::spellcheck::SpellChecker::available_languages();
-        let lang_strings: Vec<&str> = available_langs.iter().map(|s| s.as_str()).collect();
-        let lang_model = gtk4::StringList::new(&lang_strings);
-        let lang_row = adw::ComboRow::new();
-        lang_row.set_title("Dictionary language");
-        lang_row.set_model(Some(&lang_model));
-        let current_lang_idx = available_langs
-            .iter()
-            .position(|l| l == &current.spell_language)
-            .unwrap_or(0) as u32;
-        lang_row.set_selected(current_lang_idx);
+
+        // ── Language list ─────────────────────────────────────────────────────
+        let selected_langs: Rc<RefCell<Vec<String>>> =
+            Rc::new(RefCell::new(current.spell_languages.clone()));
+
+        let lang_list_box = ListBox::new();
+        lang_list_box.add_css_class("boxed-list");
+
+        let rebuild_lang_list = {
+            let lb = lang_list_box.clone();
+            let sl = selected_langs.clone();
+            move || {
+                while let Some(row) = lb.row_at_index(0) {
+                    lb.remove(&row);
+                }
+                for (i, lang) in sl.borrow().iter().enumerate() {
+                    let row = ListBoxRow::new();
+                    row.set_activatable(false);
+                    let hbox = GtkBox::new(Orientation::Horizontal, 8);
+                    hbox.set_margin_start(12);
+                    hbox.set_margin_end(8);
+                    hbox.set_margin_top(6);
+                    hbox.set_margin_bottom(6);
+                    let lbl = Label::new(Some(lang));
+                    lbl.set_hexpand(true);
+                    lbl.set_xalign(0.0);
+                    let rm_btn = Button::from_icon_name("list-remove-symbolic");
+                    rm_btn.add_css_class("flat");
+                    rm_btn.set_tooltip_text(Some("Remove this language"));
+                    let sl2 = sl.clone();
+                    let lb2 = lb.clone();
+                    rm_btn.connect_clicked(move |_| {
+                        sl2.borrow_mut().remove(i);
+                        // trigger rebuild by emitting a fake signal — we do it by
+                        // directly modifying the list since rebuild is a closure we
+                        // can't call recursively here
+                        while let Some(r) = lb2.row_at_index(0) { lb2.remove(&r); }
+                        for (j, l) in sl2.borrow().iter().enumerate() {
+                            let r2 = ListBoxRow::new();
+                            r2.set_activatable(false);
+                            let h2 = GtkBox::new(Orientation::Horizontal, 8);
+                            h2.set_margin_start(12);
+                            h2.set_margin_end(8);
+                            h2.set_margin_top(6);
+                            h2.set_margin_bottom(6);
+                            let l2 = Label::new(Some(l));
+                            l2.set_hexpand(true);
+                            l2.set_xalign(0.0);
+                            let rb = Button::from_icon_name("list-remove-symbolic");
+                            rb.add_css_class("flat");
+                            let sl3 = sl2.clone();
+                            let lb3 = lb2.clone();
+                            rb.connect_clicked(move |_| {
+                                sl3.borrow_mut().remove(j);
+                                while let Some(r3) = lb3.row_at_index(0) { lb3.remove(&r3); }
+                            });
+                            h2.append(&l2);
+                            h2.append(&rb);
+                            r2.set_child(Some(&h2));
+                            lb2.append(&r2);
+                        }
+                    });
+                    hbox.append(&lbl);
+                    hbox.append(&rm_btn);
+                    row.set_child(Some(&hbox));
+                    lb.append(&row);
+                }
+            }
+        };
+        rebuild_lang_list();
+
+        // Add-language row: dropdown + button
+        let add_lang_strings: Vec<&str> = available_langs.iter().map(|s| s.as_str()).collect();
+        let add_lang_model = gtk4::StringList::new(&add_lang_strings);
+        let add_combo = adw::ComboRow::new();
+        add_combo.set_title("Add language");
+        add_combo.set_model(Some(&add_lang_model));
+
+        let add_btn = Button::with_label("Add");
+        add_btn.add_css_class("flat");
+        add_btn.set_valign(Align::Center);
+        {
+            let sl = selected_langs.clone();
+            let al = available_langs.clone();
+            let lb = lang_list_box.clone();
+            let combo = add_combo.clone();
+            add_btn.connect_clicked(move |_| {
+                let idx = combo.selected() as usize;
+                if let Some(lang) = al.get(idx) {
+                    if !sl.borrow().contains(lang) {
+                        sl.borrow_mut().push(lang.clone());
+                        // Rebuild rows
+                        while let Some(r) = lb.row_at_index(0) { lb.remove(&r); }
+                        for lang2 in sl.borrow().iter() {
+                            let row = ListBoxRow::new();
+                            row.set_activatable(false);
+                            let hbox = GtkBox::new(Orientation::Horizontal, 8);
+                            hbox.set_margin_start(12);
+                            hbox.set_margin_end(8);
+                            hbox.set_margin_top(6);
+                            hbox.set_margin_bottom(6);
+                            let lbl = Label::new(Some(lang2));
+                            lbl.set_hexpand(true);
+                            lbl.set_xalign(0.0);
+                            hbox.append(&lbl);
+                            row.set_child(Some(&hbox));
+                            lb.append(&row);
+                        }
+                    }
+                }
+            });
+        }
 
         spell_group.add(&spell_enabled_row);
         spell_group.add(&spell_autocorrect_row);
-        spell_group.add(&lang_row);
+        spell_group.add(&lang_list_box);
+        spell_group.add(&add_combo);
 
         // ── Tabs ─────────────────────────────────────────────────────────────
 
@@ -314,8 +429,7 @@ impl SettingsDialog {
             let high_contrast_row = high_contrast_row.clone();
             let spell_enabled_row = spell_enabled_row.clone();
             let spell_autocorrect_row = spell_autocorrect_row.clone();
-            let lang_row = lang_row.clone();
-            let available_langs = available_langs.clone();
+            let selected_langs = selected_langs.clone();
             let dev_mode_row = dev_mode_row.clone();
             let recent_files_cur = current.recent_files.clone();
             let recent_projects_cur = current.recent_projects.clone();
@@ -357,10 +471,10 @@ impl SettingsDialog {
                         (family, size)
                     })
                     .unwrap_or_else(|| ("Monospace".to_string(), 13u32));
-                let spell_language = available_langs
-                    .get(lang_row.selected() as usize)
-                    .cloned()
-                    .unwrap_or_else(|| "en_US".to_string());
+                let spell_languages = {
+                    let langs = selected_langs.borrow().clone();
+                    if langs.is_empty() { vec!["en_US".to_string()] } else { langs }
+                };
                 let editor_line_spacing = match spacing_row.selected() {
                     0 => 0u32,
                     2 => 6u32,
@@ -374,6 +488,8 @@ impl SettingsDialog {
                     bib_path,
                     debounce_ms: debounce_spin.value() as u64,
                     auto_compile: auto_row.is_active(),
+                    compile_on_save: compile_on_save_row.is_active(),
+                    manual_compile_only: manual_only_row.is_active(),
                     editor_font_size,
                     theme,
                     editor_font_family,
@@ -383,7 +499,7 @@ impl SettingsDialog {
                     preview_zoom: preview_zoom_cur,
                     spell_enabled: spell_enabled_row.is_active(),
                     spell_autocorrect: spell_autocorrect_row.is_active(),
-                    spell_language,
+                    spell_languages,
                     editor_line_spacing,
                     typewriter_scrolling: typewriter_row.is_active(),
                     high_contrast: high_contrast_row.is_active(),

@@ -390,44 +390,112 @@ fn backup_remote_group(work_dir: &Path) -> adw::PreferencesGroup {
 
 fn optional_tools_group() -> adw::PreferencesGroup {
     let group = adw::PreferencesGroup::new();
-    group.set_title("Optional Tools");
+    group.set_title("Required & Optional Tools");
     group.set_description(Some(
-        "These tools extend Zerkalo's capabilities. Install them via your package manager.",
+        "Tools Zerkalo needs or can use. Install missing ones, then click Verify.",
     ));
 
-    for (name, cmd, purpose, pkg_hint) in [
-        (
-            "tinymist",
-            "tinymist",
-            "Autocomplete & LSP hints in the editor",
-            "curl -fsSL https://github.com/Myriad-Dreamin/tinymist/releases/latest/download/tinymist-installer.sh | sh",
-        ),
-        (
-            "pandoc",
-            "pandoc",
-            "Export to DOCX and LaTeX import",
-            "zypper in pandoc  (openSUSE)  /  apt install pandoc",
-        ),
-        (
-            "hunspell",
-            "hunspell",
-            "Spellcheck in the editor",
-            "zypper in hunspell  (openSUSE)  /  apt install hunspell",
-        ),
-    ] {
-        group.add(&tool_row(name, cmd, purpose, pkg_hint));
-    }
+    let distro = detect_distro();
+
+    // Required
+    group.add(&tool_row("git", "git", "Version control (required for sync)", &distro, ToolKind::Package {
+        apt: "git", dnf: "git", pacman: "git", zypper: "git",
+    }));
+
+    // Optional
+    group.add(&tool_row("pandoc", "pandoc", "Export to DOCX / import LaTeX (optional)", &distro, ToolKind::Package {
+        apt: "pandoc", dnf: "pandoc", pacman: "pandoc", zypper: "pandoc",
+    }));
+    group.add(&tool_row("hunspell", "hunspell", "Spellcheck (optional)", &distro, ToolKind::Package {
+        apt: "hunspell", dnf: "hunspell", pacman: "hunspell", zypper: "hunspell",
+    }));
+    group.add(&tool_row("tinymist", "tinymist", "LSP autocomplete (optional)", &distro, ToolKind::Cargo {
+        crate_name: "tinymist",
+    }));
 
     group
+}
+
+// ── Distro detection ──────────────────────────────────────────────────────────
+
+#[derive(Clone)]
+enum Distro {
+    Debian,
+    Fedora,
+    Arch,
+    OpenSUSE,
+    Unknown,
+}
+
+fn detect_distro() -> Distro {
+    let content = std::fs::read_to_string("/etc/os-release").unwrap_or_default();
+    let id = content
+        .lines()
+        .find_map(|l| l.strip_prefix("ID="))
+        .unwrap_or("")
+        .trim_matches('"')
+        .to_lowercase();
+    let id_like = content
+        .lines()
+        .find_map(|l| l.strip_prefix("ID_LIKE="))
+        .unwrap_or("")
+        .trim_matches('"')
+        .to_lowercase();
+
+    if id.contains("ubuntu") || id.contains("debian") || id.contains("mint")
+        || id_like.contains("ubuntu") || id_like.contains("debian")
+    {
+        Distro::Debian
+    } else if id.contains("fedora") || id.contains("rhel") || id.contains("centos")
+        || id_like.contains("fedora") || id_like.contains("rhel")
+    {
+        Distro::Fedora
+    } else if id.contains("arch") || id.contains("manjaro") || id.contains("endeavour")
+        || id_like.contains("arch")
+    {
+        Distro::Arch
+    } else if id.contains("opensuse") || id.contains("suse") || id_like.contains("suse") {
+        Distro::OpenSUSE
+    } else {
+        Distro::Unknown
+    }
+}
+
+enum ToolKind<'a> {
+    Package { apt: &'a str, dnf: &'a str, pacman: &'a str, zypper: &'a str },
+    Cargo { crate_name: &'a str },
+}
+
+fn install_hint(distro: &Distro, kind: &ToolKind) -> String {
+    match kind {
+        ToolKind::Package { apt, dnf, pacman, zypper } => match distro {
+            Distro::Debian  => format!("sudo apt install {apt}"),
+            Distro::Fedora  => format!("sudo dnf install {dnf}"),
+            Distro::Arch    => format!("sudo pacman -S {pacman}"),
+            Distro::OpenSUSE => format!("sudo zypper in {zypper}"),
+            Distro::Unknown => format!("apt: sudo apt install {apt}  |  dnf: sudo dnf install {dnf}  |  pacman: sudo pacman -S {pacman}"),
+        },
+        ToolKind::Cargo { crate_name } => {
+            if check_command("cargo") {
+                format!("cargo install {crate_name}")
+            } else {
+                format!("Install Rust first (rustup.rs), then: cargo install {crate_name}")
+            }
+        }
+    }
 }
 
 fn tool_row(
     name: &str,
     cmd: &str,
     purpose: &str,
-    pkg_hint: &str,
+    distro: &Distro,
+    kind: ToolKind,
 ) -> adw::ActionRow {
+    let hint = install_hint(distro, &kind);
     let ok = check_command(cmd);
+    let cmd = cmd.to_string();
+
     let row = adw::ActionRow::new();
     row.set_title(name);
     row.set_subtitle(purpose);
@@ -437,14 +505,14 @@ fn tool_row(
         icon.add_css_class("success");
         row.add_suffix(&icon);
     } else {
-        // Revealer with install hint
         let outer = GtkBox::new(Orientation::Vertical, 0);
         outer.set_valign(Align::Center);
 
         let hint_box = GtkBox::new(Orientation::Vertical, 4);
         hint_box.set_margin_top(4);
         hint_box.set_margin_bottom(4);
-        let hint_lbl = Label::new(Some(pkg_hint));
+
+        let hint_lbl = Label::new(Some(&hint));
         hint_lbl.set_xalign(0.0);
         hint_lbl.set_selectable(true);
         hint_lbl.add_css_class("monospace");
@@ -456,10 +524,16 @@ fn tool_row(
         revealer.set_transition_type(gtk4::RevealerTransitionType::SlideDown);
         revealer.set_child(Some(&hint_box));
 
+        // Status indicator (✗ → ✓ after verify)
+        let status_lbl = Label::new(Some("✗"));
+        status_lbl.add_css_class("error");
+
+        let btn_box = GtkBox::new(Orientation::Horizontal, 4);
+        btn_box.set_valign(Align::Center);
+
         let toggle_btn = Button::with_label("How to install");
         toggle_btn.add_css_class("flat");
         toggle_btn.add_css_class("caption");
-        toggle_btn.set_valign(Align::Center);
         {
             let rev = revealer.clone();
             toggle_btn.connect_clicked(move |_| {
@@ -467,13 +541,31 @@ fn tool_row(
             });
         }
 
-        outer.append(&toggle_btn);
+        let verify_btn = Button::with_label("Verify");
+        verify_btn.add_css_class("flat");
+        verify_btn.add_css_class("caption");
+        {
+            let cmd = cmd.clone();
+            let status = status_lbl.clone();
+            let rev = revealer.clone();
+            verify_btn.connect_clicked(move |_| {
+                if check_command(&cmd) {
+                    status.set_label("✓");
+                    status.remove_css_class("error");
+                    status.add_css_class("success");
+                    rev.set_reveal_child(false);
+                } else {
+                    status.set_label("✗ not found yet");
+                }
+            });
+        }
+
+        btn_box.append(&toggle_btn);
+        btn_box.append(&verify_btn);
+        outer.append(&btn_box);
         outer.append(&revealer);
 
-        let missing = Label::new(Some("✗"));
-        missing.add_css_class("error");
-
-        row.add_suffix(&missing);
+        row.add_suffix(&status_lbl);
         row.add_suffix(&outer);
     }
 
