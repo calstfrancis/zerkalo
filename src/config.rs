@@ -65,6 +65,10 @@ pub struct Config {
     pub sidebar_width: i32,
     #[serde(default = "default_preview_split")]
     pub preview_split: i32,
+    #[serde(default)]
+    pub developer_mode: bool,
+    #[serde(default)]
+    pub last_export_format: u32,
 }
 
 fn default_work_dir() -> PathBuf {
@@ -98,7 +102,7 @@ impl Default for Config {
             editor_font_size: 13,
             theme: Theme::default(),
             editor_font_family: default_font_family(),
-            editor_word_wrap: false,
+            editor_word_wrap: true,
             editor_show_whitespace: false,
             editor_tab_width: 2,
             preview_zoom: 1.0,
@@ -111,6 +115,8 @@ impl Default for Config {
             word_count_goal: 0,
             sidebar_width: default_sidebar_width(),
             preview_split: default_preview_split(),
+            developer_mode: false,
+            last_export_format: 0,
         }
     }
 }
@@ -172,6 +178,10 @@ pub struct ProjectConfig {
     /// Files not listed appear after those that are.
     #[serde(default)]
     pub file_order: Vec<String>,
+    /// Explicit compilation root (path relative to project root).
+    /// When set, overrides the auto-detected root file.
+    #[serde(default)]
+    pub root_file: Option<PathBuf>,
 }
 
 #[cfg(test)]

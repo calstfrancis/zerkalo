@@ -1,5 +1,6 @@
 mod auto_save;
 mod bibliography;
+mod writing_log;
 mod compiler;
 mod config;
 mod error;

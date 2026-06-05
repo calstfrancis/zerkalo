@@ -26,6 +26,7 @@ fn cite_re() -> &'static Regex {
 
 #[derive(Clone)]
 pub struct RefManager {
+    #[allow(dead_code)]
     widget: GtkBox,
     list_box: ListBox,
     filter_entry: Entry,
@@ -119,6 +120,7 @@ impl RefManager {
         panel
     }
 
+    #[allow(dead_code)]
     pub fn widget(&self) -> &GtkBox {
         &self.widget
     }

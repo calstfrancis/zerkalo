@@ -8,46 +8,57 @@ ICONS_BASE="${HOME}/.local/share/icons/hicolor"
 INSTALL_DESKTOP="${HOME}/.local/share/applications"
 GITHUB_REPO="calstfrancis/zerkalo"
 
-# ── Try to download a pre-built AppImage from the latest GitHub release ──────
-USE_APPIMAGE=0
-if command -v curl &>/dev/null || command -v wget &>/dev/null; then
-    echo "Checking for pre-built release on GitHub..."
-    LATEST_URL="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
-    if command -v curl &>/dev/null; then
-        RELEASE_JSON=$(curl -fsSL "${LATEST_URL}" 2>/dev/null || true)
-    else
-        RELEASE_JSON=$(wget -qO- "${LATEST_URL}" 2>/dev/null || true)
-    fi
-    APPIMAGE_URL=$(echo "${RELEASE_JSON}" | grep -o '"browser_download_url": *"[^"]*\.AppImage"' \
-        | head -1 | grep -o 'https://[^"]*' || true)
-    if [ -n "${APPIMAGE_URL}" ]; then
-        echo "Downloading pre-built AppImage (no compile needed)..."
-        APPIMAGE_FILE="${INSTALL_BIN}/zerkalo.AppImage"
-        mkdir -p "${INSTALL_BIN}"
-        if command -v curl &>/dev/null; then
-            curl -fsSL -o "${APPIMAGE_FILE}" "${APPIMAGE_URL}"
-        else
-            wget -qO "${APPIMAGE_FILE}" "${APPIMAGE_URL}"
-        fi
-        chmod +x "${APPIMAGE_FILE}"
-        # Thin wrapper so the binary can be called as just "zerkalo"
-        cat > "${INSTALL_BIN}/${BINARY_NAME}" << WRAPPER
-#!/bin/sh
-exec "${APPIMAGE_FILE}" "\$@"
-WRAPPER
-        chmod +x "${INSTALL_BIN}/${BINARY_NAME}"
-        USE_APPIMAGE=1
-        echo "  Downloaded: ${APPIMAGE_FILE}"
-    fi
-fi
+# ── Prefer a locally-built binary; only fall back to downloading ──────────────
+# If you ran `cargo build --release` before this script, that binary is used
+# directly — no network access needed.  Only when there is no local build does
+# the script try to download a pre-built AppImage from the latest GitHub release.
 
-if [ "${USE_APPIMAGE}" -eq 0 ]; then
-    echo "No pre-built release found — building from source (this takes a few minutes)..."
-    cargo build --release
+if [ -f "target/release/${BINARY_NAME}" ]; then
+    echo "Local build found — installing target/release/${BINARY_NAME}..."
     mkdir -p "${INSTALL_BIN}"
     cp "target/release/${BINARY_NAME}" "${INSTALL_BIN}/${BINARY_NAME}"
     chmod +x "${INSTALL_BIN}/${BINARY_NAME}"
-    echo "  Binary built and installed."
+    echo "  Installed local build."
+else
+    USE_APPIMAGE=0
+    if command -v curl &>/dev/null || command -v wget &>/dev/null; then
+        echo "No local build found — checking for pre-built release on GitHub..."
+        LATEST_URL="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
+        if command -v curl &>/dev/null; then
+            RELEASE_JSON=$(curl -fsSL "${LATEST_URL}" 2>/dev/null || true)
+        else
+            RELEASE_JSON=$(wget -qO- "${LATEST_URL}" 2>/dev/null || true)
+        fi
+        APPIMAGE_URL=$(echo "${RELEASE_JSON}" | grep -o '"browser_download_url": *"[^"]*\.AppImage"' \
+            | head -1 | grep -o 'https://[^"]*' || true)
+        if [ -n "${APPIMAGE_URL}" ]; then
+            echo "Downloading pre-built AppImage..."
+            APPIMAGE_FILE="${INSTALL_BIN}/zerkalo.AppImage"
+            mkdir -p "${INSTALL_BIN}"
+            if command -v curl &>/dev/null; then
+                curl -fsSL -o "${APPIMAGE_FILE}" "${APPIMAGE_URL}"
+            else
+                wget -qO "${APPIMAGE_FILE}" "${APPIMAGE_URL}"
+            fi
+            chmod +x "${APPIMAGE_FILE}"
+            cat > "${INSTALL_BIN}/${BINARY_NAME}" << WRAPPER
+#!/bin/sh
+exec "${APPIMAGE_FILE}" "\$@"
+WRAPPER
+            chmod +x "${INSTALL_BIN}/${BINARY_NAME}"
+            USE_APPIMAGE=1
+            echo "  Downloaded: ${APPIMAGE_FILE}"
+        fi
+    fi
+
+    if [ "${USE_APPIMAGE}" -eq 0 ]; then
+        echo "Building from source (this takes a few minutes)..."
+        cargo build --release
+        mkdir -p "${INSTALL_BIN}"
+        cp "target/release/${BINARY_NAME}" "${INSTALL_BIN}/${BINARY_NAME}"
+        chmod +x "${INSTALL_BIN}/${BINARY_NAME}"
+        echo "  Binary built and installed."
+    fi
 fi
 
 echo "Installing icons..."

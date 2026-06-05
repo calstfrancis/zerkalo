@@ -4,16 +4,9 @@ use std::sync::OnceLock;
 use regex::Regex;
 
 static ENTRY_RE: OnceLock<Regex> = OnceLock::new();
-static FIELD_RE: OnceLock<Regex> = OnceLock::new();
 
 fn entry_re() -> &'static Regex {
     ENTRY_RE.get_or_init(|| Regex::new(r"(?i)@(\w+)\s*\{\s*([^,\s\}]+)").unwrap())
-}
-
-fn field_re() -> &'static Regex {
-    FIELD_RE.get_or_init(|| {
-        Regex::new(r#"(?is)(\w+)\s*=\s*(?:\{([^{}]*)\}|"([^"]*)")"#).unwrap()
-    })
 }
 
 #[derive(Clone, Debug, Default)]
@@ -50,32 +43,98 @@ pub fn parse_bib(content: &str) -> Vec<BibEntry> {
         let mut title = String::new();
         let mut year = String::new();
 
-        for fc in field_re().captures_iter(body) {
-            let name = fc[1].to_lowercase();
-            let val = fc
-                .get(2)
-                .or_else(|| fc.get(3))
-                .map_or("", |m| m.as_str())
-                .trim()
-                .to_string();
-            match name.as_str() {
+        for (name, val) in parse_fields(body) {
+            match name.to_lowercase().as_str() {
                 "author" => author = clean_braces(&val),
-                "title" => title = clean_braces(&val),
-                "year" => year = val,
+                "title"  => title  = clean_braces(&val),
+                "year"   => year   = val,
                 _ => {}
             }
         }
 
-        entries.push(BibEntry {
-            key,
-            entry_type,
-            author,
-            title,
-            year,
-        });
+        entries.push(BibEntry { key, entry_type, author, title, year });
     }
 
     entries
+}
+
+/// Parse `field = {value}` or `field = "value"` pairs from an entry body,
+/// handling arbitrarily nested braces in the value.
+fn parse_fields(body: &str) -> Vec<(String, String)> {
+    let mut fields = Vec::new();
+    let bytes = body.as_bytes();
+    let len = bytes.len();
+    let mut i = 0;
+
+    while i < len {
+        // Skip whitespace and commas between fields
+        while i < len && (bytes[i].is_ascii_whitespace() || bytes[i] == b',') {
+            i += 1;
+        }
+        if i >= len { break; }
+
+        // Read field name (word chars)
+        let name_start = i;
+        while i < len && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_' || bytes[i] == b'-') {
+            i += 1;
+        }
+        if i == name_start { i += 1; continue; } // skip unexpected char
+        let name = body[name_start..i].to_string();
+
+        // Skip whitespace then expect '='
+        while i < len && bytes[i].is_ascii_whitespace() { i += 1; }
+        if i >= len || bytes[i] != b'=' { continue; }
+        i += 1;
+
+        // Skip whitespace
+        while i < len && bytes[i].is_ascii_whitespace() { i += 1; }
+        if i >= len { break; }
+
+        let value = if bytes[i] == b'{' {
+            // Brace-delimited value — track depth so nested braces are included
+            i += 1; // skip opening brace
+            let val_start = i;
+            let mut depth = 1i32;
+            while i < len {
+                match bytes[i] {
+                    b'{' => depth += 1,
+                    b'}' => {
+                        depth -= 1;
+                        if depth == 0 { break; }
+                    }
+                    _ => {}
+                }
+                i += 1;
+            }
+            let val = body[val_start..i].to_string();
+            if i < len { i += 1; } // skip closing brace
+            val
+        } else if bytes[i] == b'"' {
+            // Quote-delimited value — no nesting, but respect escaped quotes
+            i += 1;
+            let val_start = i;
+            while i < len && bytes[i] != b'"' {
+                if bytes[i] == b'\\' { i += 1; } // skip escaped char
+                i += 1;
+            }
+            let val = body[val_start..i].to_string();
+            if i < len { i += 1; } // skip closing quote
+            val
+        } else {
+            // Bare value (e.g. year = 2020) — read until comma or brace
+            let val_start = i;
+            while i < len && bytes[i] != b',' && bytes[i] != b'}' {
+                i += 1;
+            }
+            body[val_start..i].trim().to_string()
+        };
+
+        if !name.is_empty() {
+            fields.push((name, value));
+        }
+    }
+
+    fields
 }
 
 fn extract_body(content: &str, start: usize) -> &str {
@@ -166,6 +225,45 @@ mod tests {
         let entries = parse_bib(bib);
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].key, "real");
+    }
+
+    #[test]
+    fn parse_bib_nested_braces_in_title() {
+        let bib = r#"
+@book{patristic,
+  author = {Ignatius of {Antioch}},
+  title = {On the {Epistle} to the {Romans}},
+  year = {2021},
+}
+"#;
+        let entries = parse_bib(bib);
+        assert_eq!(entries[0].title, "On the Epistle to the Romans");
+        assert_eq!(entries[0].author, "Ignatius of Antioch");
+    }
+
+    #[test]
+    fn parse_bib_double_braced_title() {
+        let bib = r#"
+@article{caps,
+  title = {{A Title With Protected Caps}},
+  year = {2020},
+}
+"#;
+        let entries = parse_bib(bib);
+        assert_eq!(entries[0].title, "A Title With Protected Caps");
+    }
+
+    #[test]
+    fn parse_bib_bare_year() {
+        let bib = r#"
+@article{bare,
+  author = {Someone},
+  title = {A Title},
+  year = 2022,
+}
+"#;
+        let entries = parse_bib(bib);
+        assert_eq!(entries[0].year, "2022");
     }
 
     #[test]

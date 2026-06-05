@@ -4240,7 +4240,7 @@ dependencies = [
 
 [[package]]
 name = "zerkalo"
-version = "0.7.1"
+version = "0.8.6"
 dependencies = [
  "chrono",
  "git2",
@@ -4252,6 +4252,7 @@ dependencies = [
  "serde_json",
  "shellexpand",
  "sourceview5",
+ "tempfile",
  "thiserror 1.0.69",
  "tiny-skia",
  "tokio",

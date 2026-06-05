@@ -132,7 +132,16 @@ impl SearchPanel {
         let query_lower = query.to_lowercase();
         let matches = search_typ_files(&work_dir, &query_lower, 200);
 
-        count_lbl.set_text(&format!("{} results", matches.len()));
+        if matches.is_empty() {
+            count_lbl.set_text("No results");
+        } else {
+            let file_count = {
+                let mut seen = std::collections::HashSet::new();
+                for m in &matches { seen.insert(m.file.clone()); }
+                seen.len()
+            };
+            count_lbl.set_text(&format!("{} matches in {} files", matches.len(), file_count));
+        }
 
         if matches.is_empty() {
             let row = ListBoxRow::new();

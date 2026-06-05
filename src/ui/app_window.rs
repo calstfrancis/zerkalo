@@ -13,6 +13,7 @@ use adw::prelude::*;
 
 use crate::bibliography;
 use crate::config::{Config, ProjectConfig, Theme};
+use crate::writing_log::{WritingLog, count_words, new_file_start_words, FileStartWords};
 use crate::git_sync;
 use crate::keybindings::{matches_binding, Keybindings};
 use crate::lsp::{DiagSeverity, LspClient};
@@ -27,6 +28,7 @@ use super::font_manager::FontManager;
 use super::error_panel::{parse_typst_errors, CompileError, ErrorPanel, Severity};
 use super::export_dialog::ExportDialog;
 use super::help_window::HelpWindow;
+use super::citation_panel::CitationPanel;
 use super::outline_panel::OutlinePanel;
 use super::package_browser::PackageBrowser;
 use super::preview_pane::PreviewPane;
@@ -34,7 +36,7 @@ use super::ref_manager::RefManager;
 use super::settings_dialog::SettingsDialog;
 use super::sync_dialog::SyncDialog;
 use super::template_dialog::TemplateDialog;
-use super::todo_panel::TodoPanel;
+use super::plan_panel::PlanPanel;
 
 pub struct AppWindow {
     window: adw::ApplicationWindow,
@@ -52,6 +54,9 @@ pub struct AppWindow {
     #[allow(dead_code)]
     toast_overlay: adw::ToastOverlay,
     file_tree: FileTree,
+    writing_log: Rc<RefCell<WritingLog>>,
+    file_start_words: FileStartWords,
+    session_start: Rc<RefCell<std::time::Instant>>,
 }
 
 impl AppWindow {
@@ -64,55 +69,7 @@ impl AppWindow {
         window.set_default_height(1000);
 
         // ── Application-wide accent CSS ─────────────────────────────────────
-        {
-            let css = gtk4::CssProvider::new();
-            css.load_from_data(
-                ".navigation-sidebar > row:hover:not(:selected) { \
-                    background-color: alpha(@accent_color, 0.08); \
-                } \
-                .navigation-sidebar > row:selected { \
-                    background-color: @accent_bg_color; \
-                    color: @accent_fg_color; \
-                } \
-                .linked > toggle:checked, \
-                .linked > button:checked { \
-                    background-color: @accent_bg_color; \
-                    color: @accent_fg_color; \
-                } \
-                .paned > separator { \
-                    min-width: 4px; \
-                    min-height: 4px; \
-                    transition: background-color 200ms; \
-                } \
-                .paned > separator:hover { \
-                    background-color: alpha(@accent_color, 0.3); \
-                } \
-                .zerkalo-sidebar { \
-                    transition: opacity 250ms; \
-                } \
-                window.zen-writing .zerkalo-sidebar { \
-                    opacity: 0.3; \
-                } \
-                window.zen-writing textview text { \
-                    padding-left: 40px; \
-                    padding-right: 40px; \
-                } \
-                window.high-contrast textview { \
-                    color: #ffffff; \
-                    background-color: #000000; \
-                } \
-                window.high-contrast textview text { \
-                    color: #ffffff; \
-                }",
-            );
-            if let Some(display) = gtk4::gdk::Display::default() {
-                gtk4::style_context_add_provider_for_display(
-                    &display,
-                    &css,
-                    gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
-                );
-            }
-        }
+        load_app_css();
 
         // ── Per-project config ──────────────────────────────────────────────
 
@@ -146,7 +103,7 @@ impl AppWindow {
         header.pack_start(&focus_btn);
 
         // Style switcher dropdown — placed in header start, beside the title
-        let style_names = crate::styles::STYLES.iter().map(|(n, _, _, _)| *n).collect::<Vec<_>>();
+        let style_names = crate::styles::STYLES.iter().map(|(n, _, _, _, _)| *n).collect::<Vec<_>>();
         let style_box = GtkBox::new(Orientation::Vertical, 0);
         style_box.set_margin_top(4);
         style_box.set_margin_bottom(4);
@@ -169,11 +126,11 @@ impl AppWindow {
         // Wire style buttons after editor_pane is available (done below)
 
         let todo_btn = ToggleButton::new();
-        todo_btn.set_icon_name("view-list-symbolic");
-        todo_btn.set_tooltip_text(Some("Toggle TODO panel"));
+        todo_btn.set_icon_name("text-editor-symbolic");
+        todo_btn.set_tooltip_text(Some("Toggle plan panel"));
         todo_btn.add_css_class("flat");
         todo_btn.set_active(false);
-        todo_btn.update_property(&[gtk4::accessible::Property::Label("Toggle TODO panel")]);
+        todo_btn.update_property(&[gtk4::accessible::Property::Label("Toggle plan panel")]);
 
         // ── Primary header buttons (packed together at end of section) ────────
         let compile_btn = Button::with_label("Preview");
@@ -187,28 +144,29 @@ impl AppWindow {
         sync_btn.update_property(&[gtk4::accessible::Property::Label("Commit and push to Git")]);
 
         // ── Hamburger menu items (using make_menu_item for left+shortcut layout) ──
-        let menu_new_template_item  = make_menu_item("New from Template…",         None);
-        let menu_reapply_template_item = make_menu_item("Update Template Settings…", None);
-        let menu_new_item           = make_menu_item("New Blank Document…",         None);
-        let menu_open_item          = make_menu_item("Open File…",                  None);
-        let menu_open_project_item  = make_menu_item("Open Project Folder…",        None);
-        let menu_recent_projects_item = make_menu_item("Recent Projects…",          None);
-        let menu_save_item          = make_menu_item("Save",                        Some("Ctrl+S"));
-        let menu_save_as_item       = make_menu_item("Save As…",                    None);
-        let menu_export_item        = make_menu_item("Export…",                     None);
-        let menu_import_item        = make_menu_item("Import…",                     None);
-        let menu_docs_item          = make_menu_item("Browse Documents…",           None);
-        let menu_fonts_item         = make_menu_item("Font Management…",            None);
-        let menu_settings_item      = make_menu_item("Settings",                    None);
-        let menu_setup_item         = make_menu_item("Setup & Onboarding…",         None);
-        let menu_backup_remote_item = make_menu_item("Local Backup…",               None);
-        let menu_help_item          = make_menu_item("Keyboard Shortcuts & Help",   Some("Ctrl+?"));
-        let menu_about_item         = make_menu_item("About Zerkalo",               None);
-
-        // Hidden trigger buttons for the import picker (not in popover)
-        let menu_import_latex_item  = make_menu_item("Import LaTeX File…",          None);
-        let menu_import_docx_item   = make_menu_item("Import DOCX File…",           None);
-        let menu_import_pdf_item    = make_menu_item("Import PDF File…",            None);
+        let HamburgerItems {
+            menu_new_template_item,
+            menu_reapply_template_item,
+            menu_new_item,
+            menu_open_item,
+            menu_open_project_item,
+            menu_recent_projects_item,
+            menu_save_item,
+            menu_save_as_item,
+            menu_export_item,
+            menu_import_item,
+            menu_docs_item,
+            menu_fonts_item,
+            menu_settings_item,
+            menu_setup_item,
+            menu_backup_remote_item,
+            menu_help_item,
+            menu_writing_stats_item,
+            menu_about_item,
+            menu_import_latex_item,
+            menu_import_docx_item,
+            menu_import_pdf_item,
+        } = build_hamburger_menu_items();
 
         // ── Popover layout ────────────────────────────────────────────────────
         let menu_popover_box = GtkBox::new(Orientation::Vertical, 0);
@@ -240,6 +198,7 @@ impl AppWindow {
         menu_popover_box.append(&menu_settings_item);
         menu_popover_box.append(&menu_setup_item);
         menu_popover_box.append(&menu_backup_remote_item);
+        menu_popover_box.append(&menu_writing_stats_item);
         menu_popover_box.append(&Separator::new(Orientation::Horizontal));
         menu_popover_box.append(&menu_help_item);
         menu_popover_box.append(&menu_about_item);
@@ -299,33 +258,41 @@ impl AppWindow {
         let editor_pane = EditorPane::new();
         let project_model = ProjectModel::scan(project_root.clone());
         let outline_panel = OutlinePanel::new();
+        let citation_panel = CitationPanel::new();
         let ref_manager = RefManager::new();
         let dep_graph = DepGraph::new(project_root.clone());
         let package_browser = PackageBrowser::new();
-        let todo_panel = TodoPanel::new();
+        let todo_panel = PlanPanel::new(config.work_dir.clone());
+
+        let writing_log: Rc<RefCell<WritingLog>> = Rc::new(RefCell::new(WritingLog::load()));
+        let file_start_words = new_file_start_words();
+        let session_start: Rc<RefCell<std::time::Instant>> =
+            Rc::new(RefCell::new(std::time::Instant::now()));
 
         // Wire style buttons → editor; update style_btn label to current style name
         {
             let mut child_opt = style_box.first_child();
-            for (name, code, bib_style, bib_title) in crate::styles::STYLES {
-                if let Some(child) = child_opt {
-                    let btn = child.downcast::<Button>().unwrap();
-                    let ep = editor_pane.clone();
-                    let pop = style_popover.clone();
-                    let code_s = code.to_string();
-                    let bib_s = bib_style.to_string();
-                    let title_s = bib_title.to_string();
-                    let sbtn = style_btn.clone();
-                    let name_s = name.to_string();
-                    btn.connect_clicked(move |_| {
-                        pop.popdown();
-                        ep.apply_style(&code_s, &bib_s, &title_s);
-                        sbtn.set_label(&name_s);
-                    });
-                    child_opt = btn.next_sibling();
-                } else {
-                    break;
-                }
+            for (name, code, bib_style, bib_title, style_key) in crate::styles::STYLES {
+                let Some(child) = child_opt else { break };
+                let next = child.next_sibling();
+                let Some(btn) = child.downcast::<Button>().ok() else {
+                    child_opt = next;
+                    continue;
+                };
+                let ep = editor_pane.clone();
+                let pop = style_popover.clone();
+                let code_s = code.to_string();
+                let bib_s = bib_style.to_string();
+                let title_s = bib_title.to_string();
+                let key_s = style_key.to_string();
+                let sbtn = style_btn.clone();
+                let name_s = name.to_string();
+                btn.connect_clicked(move |_| {
+                    pop.popdown();
+                    ep.apply_style(&code_s, &bib_s, &title_s, &key_s);
+                    sbtn.set_label(&name_s);
+                });
+                child_opt = btn.next_sibling();
             }
         }
 
@@ -346,11 +313,26 @@ impl AppWindow {
             });
         }
 
-        // Wire cursor movement → outline auto-select
+        // Wire cursor movement → outline auto-select and preview scroll
+        // preview_pane_ref is populated after preview_pane is created below.
+        let preview_pane_for_heading: Rc<RefCell<Option<PreviewPane>>> =
+            Rc::new(RefCell::new(None));
         {
             let op = outline_panel.clone();
-            editor_pane.set_on_cursor_heading(move |_path, line| {
-                op.select_for_line(line);
+            let ep = editor_pane.clone();
+            let pp_ref = preview_pane_for_heading.clone();
+            editor_pane.set_on_cursor_heading(move |_path, heading_line| {
+                op.select_for_line(heading_line);
+                if let Some(ref pp) = *pp_ref.borrow() {
+                    let total = ep.active_line_count().max(1);
+                    let page_count = pp.page_count();
+                    if page_count > 0 {
+                        let page_idx = ((heading_line as f64 / total as f64)
+                            * page_count as f64) as usize;
+                        let page_idx = page_idx.min(page_count - 1);
+                        pp.scroll_to_page(page_idx);
+                    }
+                }
             });
         }
 
@@ -493,12 +475,20 @@ impl AppWindow {
             tracing::info!("Detected root file: {}", f.display());
         }
 
+        let initial_root = if let Some(rel) = &proj_cfg.root_file {
+            let abs = project_root.join(rel);
+            if abs.exists() { Some(abs) } else { project_model.root_file.clone() }
+        } else {
+            project_model.root_file.clone()
+        };
         let preview_pane = PreviewPane::new(
-            project_model.root_file.clone(),
+            initial_root,
             effective_output_dir,
             extra_compiler_args,
         );
+        *preview_pane_for_heading.borrow_mut() = Some(preview_pane.clone());
         let error_panel = ErrorPanel::new();
+        error_panel.widget().set_visible(false);
 
         // ── LSP client ──────────────────────────────────────────────────────
 
@@ -522,6 +512,8 @@ impl AppWindow {
         if config.high_contrast {
             window.add_css_class("high-contrast");
         }
+        // Import is experimental — only visible in developer mode
+        menu_import_item.set_visible(config.developer_mode);
 
         let editor_for_dark = editor_pane.clone();
         adw::StyleManager::default().connect_dark_notify(move |mgr| {
@@ -535,10 +527,12 @@ impl AppWindow {
             if !entries.is_empty() {
                 tracing::info!("Loaded {} bib entries from {}", entries.len(), bp.display());
             }
-            editor_pane.set_bib_entries(entries);
+            editor_pane.set_bib_entries(entries.clone());
+            citation_panel.load_bib(entries);
             ref_manager.load_bib(bp);
 
             let editor_for_bib = editor_pane.clone();
+            let citation_for_bib = citation_panel.clone();
             let bib_for_watch = bp.clone();
             let last_mtime: Rc<RefCell<Option<SystemTime>>> = Rc::new(RefCell::new(
                 std::fs::metadata(&bib_for_watch)
@@ -558,10 +552,18 @@ impl AppWindow {
                     *last_mtime.borrow_mut() = current;
                     let entries = bibliography::load_bib(&bib_for_watch);
                     tracing::info!("Reloaded {} bib entries", entries.len());
-                    editor_for_bib.set_bib_entries(entries);
+                    editor_for_bib.set_bib_entries(entries.clone());
+                    citation_for_bib.load_bib(entries);
                 }
                 glib::ControlFlow::Continue
             });
+        }
+
+        // ── Citation panel: insert @key at cursor ─────────────────────────────
+
+        {
+            let ep = editor_pane.clone();
+            citation_panel.set_on_insert(move |key| ep.insert_at_cursor(&format!("@{key}")));
         }
 
         // ── Reference manager: insert citation / jump to broken citation ──────
@@ -596,7 +598,7 @@ impl AppWindow {
             }
         });
 
-        // ── TODO sidebar toggle ─────────────────────────────────────────────
+        // ── Plan sidebar toggle ─────────────────────────────────────────────
         let rsh_for_todo = right_sidebar_holder.clone();
         todo_btn.connect_toggled(move |btn| {
             if let Some(rs) = rsh_for_todo.borrow().as_ref() {
@@ -652,8 +654,10 @@ impl AppWindow {
         let preview_for_btn = preview_pane.clone();
         let editor_for_btn = editor_pane.clone();
         compile_btn.connect_clicked(move |_| {
-            editor_for_btn.save_all_modified();
             if let Some(path) = editor_for_btn.get_active_path() {
+                if let Some(content) = editor_for_btn.get_active_content() {
+                    preview_for_btn.set_buffer_snapshot(path.clone(), content);
+                }
                 preview_for_btn.set_root_file(path);
             }
             preview_for_btn.trigger_compile();
@@ -667,6 +671,7 @@ impl AppWindow {
         let auto_compile_for_settings = auto_compile.clone();
         let current_config_for_settings = current_config.clone();
         let menu_popover_for_settings = menu_popover.clone();
+        let import_item_for_settings = menu_import_item.clone();
         menu_settings_item.connect_clicked(move |_| {
             menu_popover_for_settings.popdown();
             let dialog = SettingsDialog::new(
@@ -678,6 +683,7 @@ impl AppWindow {
             let auto_flag = auto_compile_for_settings.clone();
             let cfg_rc = current_config_for_settings.clone();
             let window_for_save = window_for_settings.clone();
+            let import_item_save = import_item_for_settings.clone();
 
             // Live preview — apply appearance changes immediately while dialog is open
             {
@@ -731,6 +737,7 @@ impl AppWindow {
                         None => editor.set_bib_entries(Vec::new()),
                     }
                 }
+                import_item_save.set_visible(new_cfg.developer_mode);
                 *cfg_rc.borrow_mut() = new_cfg;
             });
             dialog.present();
@@ -872,7 +879,7 @@ impl AppWindow {
             menu_popover_for_about.popdown();
             let dlg = adw::MessageDialog::new(
                 Some(&window_for_about),
-                Some("Zerkalo 0.7.1"),
+                Some(concat!("Zerkalo ", env!("CARGO_PKG_VERSION"))),
                 Some(
                     "A contemplative Typst editor.\n\n\
                      Built with Rust · GTK4 · libadwaita · sourceview5\n\
@@ -884,17 +891,53 @@ impl AppWindow {
             dlg.present();
         });
 
+        // ── Menu: Writing Stats ─────────────────────────────────────────────
+
+        let window_for_stats = window.clone();
+        let writing_log_for_stats = writing_log.clone();
+        let menu_popover_for_stats = menu_popover.clone();
+        menu_writing_stats_item.connect_clicked(move |_| {
+            menu_popover_for_stats.popdown();
+            let log = writing_log_for_stats.borrow();
+            let today = log.total_today();
+            let week = log.total_this_week();
+            let streak = log.streak_days();
+            let total = log.sessions.len();
+            let body = format!(
+                "Today: {:+} words\nThis week: {:+} words\nStreak: {} day{}\nTotal sessions: {}",
+                today, week, streak,
+                if streak == 1 { "" } else { "s" },
+                total,
+            );
+            let dlg = adw::MessageDialog::new(
+                Some(&window_for_stats),
+                Some("Writing Stats"),
+                Some(&body),
+            );
+            dlg.add_response("ok", "OK");
+            dlg.present();
+        });
+
         // ── Menu: Export ────────────────────────────────────────────────────
 
         let preview_for_export = preview_pane.clone();
         let window_for_export = window.clone();
         let menu_popover_for_export = menu_popover.clone();
+        let current_config_for_export = current_config.clone();
         menu_export_item.connect_clicked(move |_| {
             menu_popover_for_export.popdown();
+            let initial_fmt = current_config_for_export.borrow().last_export_format;
+            let cfg_for_save = current_config_for_export.clone();
             ExportDialog::new(
                 &window_for_export,
                 preview_for_export.root_file_path(),
                 preview_for_export.output_dir(),
+                initial_fmt,
+                move |fmt| {
+                    let mut cfg = cfg_for_save.borrow_mut();
+                    cfg.last_export_format = fmt;
+                    let _ = cfg.save();
+                },
             )
             .present();
         });
@@ -1166,9 +1209,11 @@ impl AppWindow {
         let editor_for_template = editor_pane.clone();
         let menu_popover_for_template = menu_popover.clone();
         let project_root_for_template = project_root.clone();
+        let cfg_for_template = current_config.clone();
         menu_new_template_item.connect_clicked(move |_| {
             menu_popover_for_template.popdown();
             let dlg = TemplateDialog::new(&window_for_template, &project_root_for_template);
+            dlg.set_bib_path(cfg_for_template.borrow().bib_path.clone());
             let ep = editor_for_template.clone();
             dlg.set_on_create(move |path| {
                 if let Ok(content) = std::fs::read_to_string(&path) {
@@ -1184,32 +1229,97 @@ impl AppWindow {
         let editor_for_reapply = editor_pane.clone();
         let menu_popover_for_reapply = menu_popover.clone();
         let project_root_for_reapply = project_root.clone();
+        let cfg_for_reapply = current_config.clone();
         menu_reapply_template_item.connect_clicked(move |_| {
             menu_popover_for_reapply.popdown();
             let Some(current_path) = editor_for_reapply.get_active_path() else { return };
             let current_content = editor_for_reapply.get_active_content().unwrap_or_default();
             let dlg = TemplateDialog::new(&window_for_reapply, &project_root_for_reapply);
-            dlg.preselect_style(
-                &super::template_dialog::parse_style_key(&current_content)
-                    .unwrap_or_default(),
-            );
-            if let Some(f) = super::template_dialog::parse_font(&current_content) {
-                dlg.preselect_font(&f);
+            dlg.set_bib_path(cfg_for_reapply.borrow().bib_path.clone());
+
+            if let Some(sidecar) = super::template_dialog::load_sidecar(&current_path) {
+                dlg.preselect_from_sidecar(&sidecar);
+            } else {
+                dlg.preselect_style(
+                    &super::template_dialog::parse_style_key(&current_content)
+                        .unwrap_or_default(),
+                );
+                if let Some(f) = super::template_dialog::parse_font(&current_content) {
+                    dlg.preselect_font(&f);
+                }
+                if let Some(p) = super::template_dialog::parse_paper(&current_content) {
+                    dlg.preselect_paper(&p);
+                }
+                if let Some(s) = super::template_dialog::parse_spacing(&current_content) {
+                    dlg.preselect_spacing(&s);
+                }
+                dlg.preselect_margin(super::template_dialog::parse_margin(&current_content));
+                dlg.preselect_metadata(
+                    &super::template_dialog::parse_meta(&current_content, "title"),
+                    &super::template_dialog::parse_meta(&current_content, "subtitle"),
+                    &super::template_dialog::parse_meta(&current_content, "author"),
+                    &super::template_dialog::parse_meta(&current_content, "affiliation"),
+                    &super::template_dialog::parse_meta(&current_content, "course"),
+                    &super::template_dialog::parse_meta(&current_content, "date"),
+                );
+                dlg.preselect_toc(
+                    super::template_dialog::parse_has_toc(&current_content),
+                    super::template_dialog::parse_toc_depth(&current_content),
+                );
+                dlg.preselect_abstract(
+                    super::template_dialog::parse_has_abstract(&current_content),
+                    &super::template_dialog::parse_abstract_text(&current_content),
+                );
+                dlg.preselect_keywords(
+                    super::template_dialog::parse_has_keywords(&current_content),
+                    &super::template_dialog::parse_keywords_text(&current_content),
+                );
             }
-            if let Some(p) = super::template_dialog::parse_paper(&current_content) {
-                dlg.preselect_paper(&p);
-            }
-            if let Some(s) = super::template_dialog::parse_spacing(&current_content) {
-                dlg.preselect_spacing(&s);
-            }
+
             let ep = editor_for_reapply.clone();
-            dlg.set_on_apply(move |new_content| {
-                let preamble = super::template_dialog::extract_preamble(&new_content);
-                let updated = super::template_dialog::reapply_preamble(&current_content, &preamble);
-                if let Err(e) = std::fs::write(&current_path, &updated) {
-                    tracing::error!("Failed to write re-applied template: {e}");
+            let win_for_apply = window_for_reapply.clone();
+            dlg.set_on_apply(move |new_content, sidecar| {
+                let do_apply = {
+                    let cc = current_content.clone();
+                    let nc = new_content.clone();
+                    let sc = sidecar.clone();
+                    let path = current_path.clone();
+                    let ep2 = ep.clone();
+                    move || {
+                        let updated = super::template_dialog::apply_body_splice(&cc, &nc);
+                        super::template_dialog::save_sidecar(&path, &sc);
+                        if let Err(e) = std::fs::write(&path, &updated) {
+                            tracing::error!("Failed to write updated template: {e}");
+                        } else {
+                            ep2.reload_file(path.clone(), &updated);
+                        }
+                    }
+                };
+
+                if super::template_dialog::has_body_marker(&current_content) {
+                    do_apply();
                 } else {
-                    ep.reload_file(current_path.clone(), &updated);
+                    let confirm = adw::MessageDialog::new(
+                        Some(&win_for_apply),
+                        Some("Replace entire document?"),
+                        Some("This document has no body marker, so the template \
+                              will replace the whole file. Your current text will \
+                              be lost. Make sure you have a backup."),
+                    );
+                    confirm.add_response("cancel", "Cancel");
+                    confirm.add_response("replace", "Replace Document");
+                    confirm.set_response_appearance(
+                        "replace",
+                        adw::ResponseAppearance::Destructive,
+                    );
+                    confirm.set_default_response(Some("cancel"));
+                    confirm.set_close_response("cancel");
+                    confirm.connect_response(None, move |_, id| {
+                        if id == "replace" {
+                            do_apply();
+                        }
+                    });
+                    confirm.present();
                 }
             });
             dlg.present();
@@ -1372,6 +1482,7 @@ impl AppWindow {
         let lsp_for_change = lsp_client.clone();
         let gen: Rc<RefCell<u64>> = Rc::new(RefCell::new(0));
         let gen2 = gen.clone();
+        let editor_pane_for_delta = editor_pane.clone();
         editor_pane.set_on_change(move || {
             *gen2.borrow_mut() += 1;
             let my_gen = *gen2.borrow();
@@ -1383,11 +1494,15 @@ impl AppWindow {
             let refs = refs_for_change.clone();
             let lsp = lsp_for_change.clone();
             let delay = Duration::from_millis(*debounce_for_change.borrow());
+            let delta = editor_pane_for_delta.get_active_session_delta();
+            editor_pane_for_delta.set_session_delta(delta);
             glib::timeout_add_local(delay, move || {
                 if *gen3.borrow() == my_gen {
                     if *auto.borrow() {
-                        editor.save_all_modified();
                         if let Some(path) = editor.get_active_path() {
+                            if let Some(content) = editor.get_active_content() {
+                                preview.set_buffer_snapshot(path.clone(), content);
+                            }
                             preview.set_root_file(path);
                         }
                         preview.trigger_compile();
@@ -1425,10 +1540,14 @@ impl AppWindow {
         let preview_for_switch = preview_pane.clone();
         let todo_panel_for_switch = todo_panel.clone();
         let style_btn_for_switch = style_btn.clone();
+        let editor_pane_for_switch_delta = editor_pane.clone();
         editor_pane.set_on_page_switch(move |content, path| {
+            let delta = editor_pane_for_switch_delta.get_active_session_delta();
+            editor_pane_for_switch_delta.set_session_delta(delta);
             outline_for_switch.update(&content, &path);
             refs_for_switch.update_used_keys(&content);
             dep_graph_for_switch.refresh(Some(&path));
+            preview_for_switch.set_buffer_snapshot(path.clone(), content.clone());
             preview_for_switch.set_root_file(path.clone());
             preview_for_switch.trigger_compile();
             todo_panel_for_switch.set_current_file(Some(&path));
@@ -1475,7 +1594,14 @@ impl AppWindow {
         let editor_for_recovery = editor_pane.clone();
         let window_for_recovery = window.clone();
         let style_btn_for_open = style_btn.clone();
+        let file_start_words_for_open = file_start_words.clone();
         editor_pane.set_on_file_opened(move |path, content| {
+            // Track initial word count for this file (first open only)
+            let mut starts = file_start_words_for_open.borrow_mut();
+            if !starts.contains_key(&path) {
+                starts.insert(path.clone(), count_words(&content));
+            }
+            drop(starts);
             if let Some(client) = lsp_for_open.borrow_mut().as_mut() {
                 client.did_open(&path, &content);
             }
@@ -1577,7 +1703,9 @@ impl AppWindow {
             match &result {
                 None => {
                     error_panel_for_compile.clear();
+                    error_panel_for_compile.widget().set_visible(false);
                     editor_for_diag.clear_diagnostic_marks();
+                    editor_for_diag.set_diag_summary(0, 0);
                     error_banner_for_compile.set_visible(false);
                     error_banner_lbl_for_compile.set_visible(false);
                     if let Some(ref p) = root_file_for_compile {
@@ -1616,8 +1744,12 @@ impl AppWindow {
                         .iter()
                         .map(|e| (e.file.clone(), e.line, matches!(e.severity, Severity::Error)))
                         .collect();
+                    let err_count = diags.iter().filter(|(_, _, is_err)| *is_err).count() as u32;
+                    let warn_count = diags.iter().filter(|(_, _, is_err)| !*is_err).count() as u32;
                     editor_for_diag.mark_diagnostics(&diags);
                     error_panel_for_compile.show_errors(errors);
+                    error_panel_for_compile.widget().set_visible(true);
+                    editor_for_diag.set_diag_summary(err_count, warn_count);
                 }
             }
             dep_graph_for_compile.refresh(None);
@@ -1792,8 +1924,12 @@ impl AppWindow {
                         .iter()
                         .map(|e| (e.file.clone(), e.line, matches!(e.severity, Severity::Error)))
                         .collect();
+                    let err_count = diag_marks.iter().filter(|(_, _, is_err)| *is_err).count() as u32;
+                    let warn_count = diag_marks.iter().filter(|(_, _, is_err)| !*is_err).count() as u32;
                     editor_for_lsp_diag.mark_diagnostics(&diag_marks);
                     error_panel_for_lsp.show_errors(errors);
+                    error_panel_for_lsp.widget().set_visible(true);
+                    editor_for_lsp_diag.set_diag_summary(err_count, warn_count);
                 } else {
                     *lsp_diags_for_poll.borrow_mut() = false;
                 }
@@ -2232,54 +2368,10 @@ impl AppWindow {
             });
         }
 
-        // ── Advanced panels (Refs, Files) — hidden in simple mode ────────────
-        let advanced_notebook = Notebook::new();
-        advanced_notebook.set_vexpand(true);
-        advanced_notebook.set_tab_pos(gtk4::PositionType::Top);
-        advanced_notebook.set_scrollable(true);
-        for (widget, label) in [
-            (ref_manager.widget().upcast_ref::<gtk4::Widget>(), "Refs"),
-            (file_tree.widget().upcast_ref(), "Files"),
-        ] {
-            let tab_lbl = Label::new(Some(label));
-            tab_lbl.add_css_class("caption");
-            advanced_notebook.append_page(widget, Some(&tab_lbl));
-        }
+        // (Refs and Files panels removed — refs/file-tree callbacks kept for
+        //  compile-error marking, dirty indicators, and image-drop insertion)
 
-        let project_header = Label::new(Some("Project"));
-        project_header.add_css_class("dim-label");
-        project_header.add_css_class("caption");
-        project_header.set_halign(Align::Start);
-        project_header.set_margin_start(12);
-        project_header.set_margin_top(8);
-        project_header.set_margin_bottom(2);
-
-        let advanced_section = GtkBox::new(Orientation::Vertical, 0);
-        advanced_section.set_visible(false);
-        advanced_section.append(&Separator::new(Orientation::Horizontal));
-        advanced_section.append(&project_header);
-        advanced_section.append(&advanced_notebook);
-
-        // ── Bottom sidebar controls: Simple mode + GOST font switches ─────────
-        let simple_mode_row = GtkBox::new(Orientation::Horizontal, 8);
-        simple_mode_row.set_margin_start(12);
-        simple_mode_row.set_margin_end(12);
-        simple_mode_row.set_margin_top(6);
-        simple_mode_row.set_margin_bottom(4);
-        let simple_mode_lbl = Label::new(Some("Simple mode"));
-        simple_mode_lbl.set_hexpand(true);
-        simple_mode_lbl.set_xalign(0.0);
-        let simple_mode_help_btn = Button::with_label("?");
-        simple_mode_help_btn.add_css_class("flat");
-        simple_mode_help_btn.add_css_class("circular");
-        simple_mode_help_btn.set_tooltip_text(Some("What is simple mode?"));
-        simple_mode_help_btn.set_valign(Align::Center);
-        let simple_mode_sw = Switch::new();
-        simple_mode_sw.set_active(true);
-        simple_mode_sw.set_valign(Align::Center);
-        simple_mode_row.append(&simple_mode_lbl);
-        simple_mode_row.append(&simple_mode_help_btn);
-        simple_mode_row.append(&simple_mode_sw);
+        // ── Bottom sidebar controls: GOST font switch ─────────────────────────
 
         let gost_font_row = GtkBox::new(Orientation::Horizontal, 8);
         gost_font_row.set_margin_start(12);
@@ -2295,31 +2387,6 @@ impl AppWindow {
         gost_font_row.append(&gost_font_lbl);
         gost_font_row.append(&gost_font_sw);
 
-        // simple_mode_sw callback wired below after search_panel + error_panel are built
-
-        // Simple mode "?" help button
-        {
-            let win_sm = window.clone();
-            simple_mode_help_btn.connect_clicked(move |_| {
-                let dlg = adw::MessageDialog::new(
-                    Some(&win_sm),
-                    Some("Simple Mode"),
-                    Some(
-                        "Simple mode gives you a distraction-free writing space.\n\n\
-                         Hidden in simple mode:\n\
-                         • Refs and Files panels\n\
-                         • Style, Sync, and TODO toolbar buttons\n\
-                         • Find-in-project and error panels\n\
-                         • Preview toolbar controls (compile time, page navigation, watch mode)\n\
-                         • Several advanced menu items\n\n\
-                         The cheatsheet toggle and pop-out preview remain available.\n\n\
-                         Turn off simple mode to access the full interface.",
-                    ),
-                );
-                dlg.add_response("ok", "OK");
-                dlg.present();
-            });
-        }
 
         // Wire GOST type B font switch — applies to editor AND whole UI
         let current_config_for_gost = current_config.clone();
@@ -2377,25 +2444,88 @@ impl AppWindow {
                 let Some(current_path) = ep_ut.get_active_path() else { return };
                 let current_content = ep_ut.get_active_content().unwrap_or_default();
                 let dlg = TemplateDialog::new(&win_ut, &root_ut);
-                dlg.preselect_style(
-                    &super::template_dialog::parse_style_key(&current_content)
-                        .unwrap_or_default(),
-                );
-                if let Some(f) = super::template_dialog::parse_font(&current_content) {
-                    dlg.preselect_font(&f);
+
+                if let Some(sidecar) = super::template_dialog::load_sidecar(&current_path) {
+                    dlg.preselect_from_sidecar(&sidecar);
+                } else {
+                    dlg.preselect_style(
+                        &super::template_dialog::parse_style_key(&current_content)
+                            .unwrap_or_default(),
+                    );
+                    if let Some(f) = super::template_dialog::parse_font(&current_content) {
+                        dlg.preselect_font(&f);
+                    }
+                    if let Some(p) = super::template_dialog::parse_paper(&current_content) {
+                        dlg.preselect_paper(&p);
+                    }
+                    if let Some(s) = super::template_dialog::parse_spacing(&current_content) {
+                        dlg.preselect_spacing(&s);
+                    }
+                    dlg.preselect_margin(super::template_dialog::parse_margin(&current_content));
+                    dlg.preselect_metadata(
+                        &super::template_dialog::parse_meta(&current_content, "title"),
+                        &super::template_dialog::parse_meta(&current_content, "subtitle"),
+                        &super::template_dialog::parse_meta(&current_content, "author"),
+                        &super::template_dialog::parse_meta(&current_content, "affiliation"),
+                        &super::template_dialog::parse_meta(&current_content, "course"),
+                        &super::template_dialog::parse_meta(&current_content, "date"),
+                    );
+                    dlg.preselect_toc(
+                        super::template_dialog::parse_has_toc(&current_content),
+                        super::template_dialog::parse_toc_depth(&current_content),
+                    );
+                    dlg.preselect_abstract(
+                        super::template_dialog::parse_has_abstract(&current_content),
+                        &super::template_dialog::parse_abstract_text(&current_content),
+                    );
+                    dlg.preselect_keywords(
+                        super::template_dialog::parse_has_keywords(&current_content),
+                        &super::template_dialog::parse_keywords_text(&current_content),
+                    );
                 }
-                if let Some(p) = super::template_dialog::parse_paper(&current_content) {
-                    dlg.preselect_paper(&p);
-                }
-                if let Some(s) = super::template_dialog::parse_spacing(&current_content) {
-                    dlg.preselect_spacing(&s);
-                }
+
                 let ep2 = ep_ut.clone();
-                dlg.set_on_apply(move |new_content| {
-                    let preamble = super::template_dialog::extract_preamble(&new_content);
-                    let updated = super::template_dialog::reapply_preamble(&current_content, &preamble);
-                    if std::fs::write(&current_path, &updated).is_ok() {
-                        ep2.reload_file(current_path.clone(), &updated);
+                let win_ut2 = win_ut.clone();
+                dlg.set_on_apply(move |new_content, sidecar| {
+                    let do_apply = {
+                        let cc = current_content.clone();
+                        let nc = new_content.clone();
+                        let sc = sidecar.clone();
+                        let path = current_path.clone();
+                        let ep3 = ep2.clone();
+                        move || {
+                            let updated = super::template_dialog::apply_body_splice(&cc, &nc);
+                            super::template_dialog::save_sidecar(&path, &sc);
+                            if std::fs::write(&path, &updated).is_ok() {
+                                ep3.reload_file(path.clone(), &updated);
+                            }
+                        }
+                    };
+
+                    if super::template_dialog::has_body_marker(&current_content) {
+                        do_apply();
+                    } else {
+                        let confirm = adw::MessageDialog::new(
+                            Some(&win_ut2),
+                            Some("Replace entire document?"),
+                            Some("This document has no body marker, so the template \
+                                  will replace the whole file. Your current text will \
+                                  be lost. Make sure you have a backup."),
+                        );
+                        confirm.add_response("cancel", "Cancel");
+                        confirm.add_response("replace", "Replace Document");
+                        confirm.set_response_appearance(
+                            "replace",
+                            adw::ResponseAppearance::Destructive,
+                        );
+                        confirm.set_default_response(Some("cancel"));
+                        confirm.set_close_response("cancel");
+                        confirm.connect_response(None, move |_, id| {
+                            if id == "replace" {
+                                do_apply();
+                            }
+                        });
+                        confirm.present();
                     }
                 });
                 dlg.present();
@@ -2413,18 +2543,19 @@ impl AppWindow {
         let left_box = GtkBox::new(Orientation::Vertical, 0);
         left_box.set_hexpand(false);
         left_box.set_vexpand(true);
+        left_box.set_overflow(gtk4::Overflow::Hidden);
         left_box.add_css_class("zerkalo-sidebar");
         left_box.append(&sidebar_toolbar);
         left_box.append(&Separator::new(Orientation::Horizontal));
         left_box.append(&structure_header);
         left_box.append(outline_panel.widget());
-        left_box.append(&advanced_section);
         left_box.append(&Separator::new(Orientation::Horizontal));
-        left_box.append(&simple_mode_row);
+        left_box.append(citation_panel.widget());
+        left_box.append(&Separator::new(Orientation::Horizontal));
         left_box.append(&gost_font_row);
         *left_paned_holder.borrow_mut() = Some(left_box.clone());
 
-        // ── Right sidebar (TODO panel) ────────────────────────────────────────
+        // ── Right sidebar (plan panel) ────────────────────────────────────────
         let right_sidebar = GtkBox::new(Orientation::Vertical, 0);
         right_sidebar.set_width_request(240);
         right_sidebar.set_vexpand(true);
@@ -2454,70 +2585,18 @@ impl AppWindow {
             });
         }
 
+        // Search panel is hidden by default; Ctrl+Shift+F toggles it
+        search_panel.widget().set_visible(false);
+
         let right_col = GtkBox::new(Orientation::Vertical, 0);
         right_col.set_hexpand(true);
         right_col.set_vexpand(true);
         right_col.append(&inner_paned);
         right_col.append(search_panel.widget());
         right_col.append(error_panel.widget());
+        right_col.append(&Separator::new(Orientation::Horizontal));
+        right_col.append(editor_pane.status_bar_widget());
 
-        // ── Simple mode switch — wired here so all affected widgets are in scope ──
-        {
-            let adv_c = advanced_section.clone();
-            let style_c = style_btn.clone();
-            let sync_c = sync_btn.clone();
-            let todo_c = todo_btn.clone();
-            let search_c = search_panel.widget().clone();
-            let error_c = error_panel.widget().clone();
-            let ctl_c = compile_time_label.clone();
-            let pnav_c = page_nav_box.clone();
-            let watch_c = watch_btn.clone();
-            let reapply_c = menu_reapply_template_item.clone();
-            let fonts_c = menu_fonts_item.clone();
-            let backup_c = menu_backup_remote_item.clone();
-            let import_c = menu_import_item.clone();
-            let docs_c = menu_docs_item.clone();
-            let ep_c = editor_pane.clone();
-            simple_mode_sw.connect_active_notify(move |sw| {
-                let show = !sw.is_active();
-                adv_c.set_visible(show);
-                style_c.set_visible(show);
-                sync_c.set_visible(show);
-                todo_c.set_visible(show);
-                search_c.set_visible(show);
-                error_c.set_visible(show);
-                ctl_c.set_visible(show);
-                pnav_c.set_visible(show);
-                watch_c.set_visible(show);
-                reapply_c.set_visible(show);
-                fonts_c.set_visible(show);
-                backup_c.set_visible(show);
-                import_c.set_visible(show);
-                docs_c.set_visible(show);
-                ep_c.set_word_wrap_btn_visible(show);
-                ep_c.set_lsp_label_visible(show);
-            });
-        }
-
-        // Apply initial simple mode state (ON = hidden by default)
-        {
-            let show = !simple_mode_sw.is_active();
-            style_btn.set_visible(show);
-            sync_btn.set_visible(show);
-            todo_btn.set_visible(show);
-            search_panel.widget().set_visible(show);
-            error_panel.widget().set_visible(show);
-            compile_time_label.set_visible(show);
-            page_nav_box.set_visible(show);
-            watch_btn.set_visible(show);
-            menu_reapply_template_item.set_visible(show);
-            menu_fonts_item.set_visible(show);
-            menu_backup_remote_item.set_visible(show);
-            menu_import_item.set_visible(show);
-            menu_docs_item.set_visible(show);
-            editor_pane.set_word_wrap_btn_visible(show);
-            editor_pane.set_lsp_label_visible(show);
-        }
 
         let content_paned = Paned::new(Orientation::Horizontal);
         content_paned.set_hexpand(true);
@@ -2531,7 +2610,9 @@ impl AppWindow {
         let outer_paned = Paned::new(Orientation::Horizontal);
         outer_paned.set_position(config.sidebar_width);
         outer_paned.set_resize_start_child(false);
+        outer_paned.set_resize_end_child(true);
         outer_paned.set_shrink_start_child(false);
+        outer_paned.set_shrink_end_child(false);
         outer_paned.set_hexpand(true);
         outer_paned.set_vexpand(true);
         outer_paned.set_start_child(Some(&left_box));
@@ -2604,6 +2685,9 @@ impl AppWindow {
             search_panel,
             toast_overlay: toast_for_sync_btn,
             file_tree,
+            writing_log,
+            file_start_words,
+            session_start,
         }
     }
 
@@ -2744,6 +2828,19 @@ impl AppWindow {
                     palette_for_key.show();
                     return glib::Propagation::Stop;
                 }
+                // Ctrl+G — go to heading
+                if ctrl && !shift && key == Key::g {
+                    if let Some(content) = editor_for_palette_key.get_active_content() {
+                        if let Some(path) = editor_for_palette_key.get_active_path() {
+                            let items = heading_items(&content, &path);
+                            if !items.is_empty() {
+                                palette_for_key.set_items(items);
+                                palette_for_key.show();
+                                return glib::Propagation::Stop;
+                            }
+                        }
+                    }
+                }
             }
 
             glib::Propagation::Proceed
@@ -2818,9 +2915,17 @@ impl AppWindow {
         let win = self.window.clone();
         let force_close: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
 
+        let writing_log_for_close = self.writing_log.clone();
+        let file_start_words_for_close = self.file_start_words.clone();
+        let session_start_for_close = self.session_start.clone();
+
         self.window.connect_close_request(move |_| {
             // Second call after user confirmed — save session and proceed
             if *force_close.borrow() {
+                record_writing_session(
+                    &ep, &writing_log_for_close,
+                    &file_start_words_for_close, &session_start_for_close,
+                );
                 let open_files = ep.get_open_paths_ordered();
                 let active_file = ep.get_active_path();
                 let cursor_positions = ep.get_cursor_positions();
@@ -2830,6 +2935,10 @@ impl AppWindow {
 
             let unsaved = ep.modified_buffers();
             if unsaved.is_empty() {
+                record_writing_session(
+                    &ep, &writing_log_for_close,
+                    &file_start_words_for_close, &session_start_for_close,
+                );
                 let open_files = ep.get_open_paths_ordered();
                 let active_file = ep.get_active_path();
                 let cursor_positions = ep.get_cursor_positions();
@@ -2890,6 +2999,23 @@ impl AppWindow {
         });
 
         self.window.present();
+    }
+}
+
+// ── Writing session recorder ──────────────────────────────────────────────────
+
+fn record_writing_session(
+    ep: &super::editor_pane::EditorPane,
+    writing_log: &Rc<RefCell<WritingLog>>,
+    file_start_words: &crate::writing_log::FileStartWords,
+    session_start: &Rc<RefCell<std::time::Instant>>,
+) {
+    if let (Some(path), Some(content)) = (ep.get_active_path(), ep.get_active_content()) {
+        let current_words = count_words(&content);
+        let start_words = file_start_words.borrow().get(&path).copied().unwrap_or(current_words);
+        let words_added = current_words - start_words;
+        let duration_secs = session_start.borrow().elapsed().as_secs();
+        writing_log.borrow_mut().record(path, words_added, duration_secs);
     }
 }
 
@@ -2970,11 +3096,11 @@ fn show_sync_result(
 
 fn show_backup_remote_dialog(window: &adw::ApplicationWindow, repo_path: &std::path::Path) {
     let dialog = adw::Window::builder()
-        .title("Local Backup")
+        .title("Backup Remotes")
         .transient_for(window)
         .modal(true)
-        .default_width(460)
-        .resizable(false)
+        .default_width(520)
+        .default_height(560)
         .build();
 
     let header = adw::HeaderBar::new();
@@ -2983,26 +3109,99 @@ fn show_backup_remote_dialog(window: &adw::ApplicationWindow, repo_path: &std::p
     close_btn.add_css_class("flat");
     header.pack_start(&close_btn);
 
-    let current_url = git_sync::get_remote_url(repo_path, "backup")
-        .unwrap_or_default();
+    let page = adw::PreferencesPage::new();
 
-    let group = adw::PreferencesGroup::new();
-    group.set_title("Backup Location");
-    group.set_description(Some(
-        "On every sync, a copy is pushed here in addition to GitHub. \
-         Enter a folder path (mounted pCloud, external drive, NAS) \
-         or any git URL.",
+    // ── How it works ─────────────────────────────────────────────────────────
+    let how_group = adw::PreferencesGroup::new();
+    how_group.set_description(Some(
+        "Every sync (Ctrl+Shift+G) pushes to your primary remote (origin) \
+         AND to every backup remote listed here. You can have as many as you like — \
+         one for local storage, one for a privacy-respecting git host, etc.",
+    ));
+    page.add(&how_group);
+
+    // ── Current backup remotes ────────────────────────────────────────────────
+    let current_group = adw::PreferencesGroup::new();
+    current_group.set_title("Current Backup Remotes");
+
+    let root_for_rebuild = repo_path.to_path_buf();
+    let current_group_c = current_group.clone();
+
+    // Populate the current list — we rebuild it after each add/remove
+    let rebuild_current = {
+        let group = current_group_c.clone();
+        let root = root_for_rebuild.clone();
+        move || {
+            // Remove all existing children from the group
+            while let Some(child) = group.first_child() {
+                group.remove(&child);
+            }
+            let remotes = git_sync::list_backup_remotes(&root);
+            if remotes.is_empty() {
+                let row = adw::ActionRow::new();
+                row.set_title("No backup remotes configured");
+                row.add_css_class("dim-label");
+                group.add(&row);
+            } else {
+                for (name, url) in remotes {
+                    let row = adw::ActionRow::new();
+                    row.set_title(&name);
+                    row.set_subtitle(&url);
+                    let rm_btn = Button::from_icon_name("user-trash-symbolic");
+                    rm_btn.add_css_class("flat");
+                    rm_btn.add_css_class("destructive-action");
+                    rm_btn.set_valign(Align::Center);
+                    rm_btn.set_tooltip_text(Some("Remove this backup remote"));
+                    let root2 = root.clone();
+                    let grp2 = group.clone();
+                    rm_btn.connect_clicked(move |_| {
+                        let _ = git_sync::remove_remote(&root2, &name);
+                        // Rebuild the list in place
+                        while let Some(child) = grp2.first_child() {
+                            grp2.remove(&child);
+                        }
+                        let remotes2 = git_sync::list_backup_remotes(&root2);
+                        if remotes2.is_empty() {
+                            let placeholder = adw::ActionRow::new();
+                            placeholder.set_title("No backup remotes configured");
+                            grp2.add(&placeholder);
+                        } else {
+                            for (n, u) in remotes2 {
+                                let r = adw::ActionRow::new();
+                                r.set_title(&n);
+                                r.set_subtitle(&u);
+                                grp2.add(&r);
+                            }
+                        }
+                    });
+                    row.add_suffix(&rm_btn);
+                    group.add(&row);
+                }
+            }
+        }
+    };
+    rebuild_current();
+    page.add(&current_group);
+
+    // ── Add a new backup remote ───────────────────────────────────────────────
+    let add_group = adw::PreferencesGroup::new();
+    add_group.set_title("Add a Backup Remote");
+    add_group.set_description(Some(
+        "Enter a name (e.g. \"disroot\", \"backup\", \"nas\") and a URL or local path.",
     ));
 
+    let name_row = adw::EntryRow::new();
+    name_row.set_title("Remote name");
+    name_row.set_text("backup");
+
     let url_row = adw::EntryRow::new();
-    url_row.set_title("Path or URL");
-    url_row.set_text(&current_url);
+    url_row.set_title("URL or path");
 
     // Folder-picker button
     let pick_btn = Button::from_icon_name("document-open-symbolic");
     pick_btn.set_valign(Align::Center);
     pick_btn.add_css_class("flat");
-    pick_btn.set_tooltip_text(Some("Browse for a folder"));
+    pick_btn.set_tooltip_text(Some("Browse for a local folder"));
     {
         let row_c = url_row.clone();
         let win_c = window.clone();
@@ -3023,46 +3222,117 @@ fn show_backup_remote_dialog(window: &adw::ApplicationWindow, repo_path: &std::p
     let status_lbl = Label::new(None);
     status_lbl.set_xalign(0.0);
     status_lbl.set_margin_top(4);
-    if !current_url.is_empty() {
-        status_lbl.set_label(&format!("✓ Backup: {current_url}"));
-        status_lbl.add_css_class("success");
-    } else {
-        status_lbl.set_label("No backup location configured.");
-        status_lbl.add_css_class("dim-label");
+    status_lbl.add_css_class("dim-label");
+
+    let add_btn = Button::with_label("Add Remote");
+    add_btn.add_css_class("suggested-action");
+    add_btn.set_halign(Align::End);
+
+    let btn_box = gtk4::Box::new(Orientation::Vertical, 6);
+    btn_box.set_margin_top(8);
+    btn_box.set_margin_bottom(4);
+    btn_box.append(&status_lbl);
+    btn_box.append(&add_btn);
+    let btn_wrapper = adw::ActionRow::new();
+    btn_wrapper.set_activatable(false);
+    btn_wrapper.add_suffix(&btn_box);
+
+    add_group.add(&name_row);
+    add_group.add(&url_row);
+    add_group.add(&btn_wrapper);
+    page.add(&add_group);
+
+    {
+        let root_c = repo_path.to_path_buf();
+        let lbl_c = status_lbl.clone();
+        let name_r = name_row.clone();
+        let url_r = url_row.clone();
+        let grp = current_group.clone();
+        add_btn.connect_clicked(move |_| {
+            let name = name_r.text().trim().to_string();
+            let url  = url_r.text().trim().to_string();
+            if name.is_empty() || url.is_empty() {
+                lbl_c.set_text("Enter both a name and a URL.");
+                return;
+            }
+            if name == "origin" {
+                lbl_c.set_text("\"origin\" is reserved for the primary remote.");
+                return;
+            }
+            match git_sync::add_named_remote(&root_c, &name, &url) {
+                Ok(()) => {
+                    lbl_c.set_text(&format!("✓ Added «{name}»"));
+                    url_r.set_text("");
+                    // Refresh the current-remotes list
+                    while let Some(child) = grp.first_child() {
+                        grp.remove(&child);
+                    }
+                    for (n, u) in git_sync::list_backup_remotes(&root_c) {
+                        let row = adw::ActionRow::new();
+                        row.set_title(&n);
+                        row.set_subtitle(&u);
+                        grp.add(&row);
+                    }
+                }
+                Err(e) => lbl_c.set_text(&format!("Error: {e}")),
+            }
+        });
     }
 
-    let apply_btn = Button::with_label("Save");
-    apply_btn.add_css_class("suggested-action");
-    apply_btn.set_halign(Align::End);
+    // ── Disroot: privacy-respecting git hosting ───────────────────────────────
+    let disroot_group = adw::PreferencesGroup::new();
+    disroot_group.set_title("Disroot (git.disroot.org)");
+    disroot_group.set_description(Some(
+        "Disroot is a non-profit, privacy-respecting community hosting Gitea at \
+         git.disroot.org. Free to use. Good for a second off-site copy of your work.",
+    ));
+    for (title, subtitle) in [
+        ("1. Create account", "Register at https://disroot.org/en/register"),
+        ("2. Create repository", "Log in to git.disroot.org → New repository"),
+        ("3. Copy the clone URL", "Use HTTPS or SSH — shown on the repo page"),
+        ("4. Add it below", "Name it \"disroot\", paste the URL above, click Add"),
+    ] {
+        let row = adw::ActionRow::new();
+        row.set_title(title);
+        row.set_subtitle(subtitle);
+        disroot_group.add(&row);
+    }
+    // Quick-fill button for Disroot
+    let disroot_fill_btn = Button::with_label("Set name to \"disroot\"");
+    disroot_fill_btn.add_css_class("flat");
+    disroot_fill_btn.set_halign(Align::Start);
+    disroot_fill_btn.set_margin_top(4);
+    {
+        let nr = name_row.clone();
+        disroot_fill_btn.connect_clicked(move |_| nr.set_text("disroot"));
+    }
+    disroot_group.add(&adw::ActionRow::new()); // spacer
+    // Can't add a plain Button to PreferencesGroup, so wrap in ActionRow suffix
+    let fill_row = adw::ActionRow::new();
+    fill_row.set_title("Quick-fill name");
+    fill_row.set_activatable(true);
+    let nr2 = name_row.clone();
+    fill_row.connect_activated(move |_| nr2.set_text("disroot"));
+    fill_row.add_suffix(&Button::from_icon_name("go-next-symbolic"));
+    // Re-use disroot_fill_btn logic via action row activation
+    disroot_group.add(&fill_row);
+    page.add(&disroot_group);
 
-    let suffix_box = gtk4::Box::new(Orientation::Vertical, 6);
-    suffix_box.set_margin_top(8);
-    suffix_box.set_margin_bottom(4);
-    suffix_box.append(&status_lbl);
-    suffix_box.append(&apply_btn);
-    let wrapper = adw::ActionRow::new();
-    wrapper.set_activatable(false);
-    wrapper.add_suffix(&suffix_box);
-
+    // ── Examples ─────────────────────────────────────────────────────────────
     let hint_group = adw::PreferencesGroup::new();
-    hint_group.set_title("Examples");
-
+    hint_group.set_title("Other URL Examples");
     for (name, hint) in [
-        ("Mounted drive", "/run/media/you/pcloud/my-project  — pCloud, Nextcloud, USB"),
-        ("External path", "/mnt/backup/my-project  — NAS, external hard drive"),
-        ("Git URL", "git@gitlab.com:you/my-project.git  — GitLab, Codeberg, self-hosted"),
+        ("Local / NAS", "/mnt/backup/my-project  or  /run/media/you/usb/project"),
+        ("pCloud / Nextcloud", "Mount the drive, then use the mount path above"),
+        ("Codeberg", "git@codeberg.org:username/project.git"),
+        ("GitLab", "git@gitlab.com:username/project.git"),
+        ("Self-hosted Gitea", "git@my-server.example.com:username/project.git"),
     ] {
         let row = adw::ActionRow::new();
         row.set_title(name);
         row.set_subtitle(hint);
         hint_group.add(&row);
     }
-
-    group.add(&url_row);
-    group.add(&wrapper);
-
-    let page = adw::PreferencesPage::new();
-    page.add(&group);
     page.add(&hint_group);
 
     let toolbar = adw::ToolbarView::new();
@@ -3072,29 +3342,6 @@ fn show_backup_remote_dialog(window: &adw::ApplicationWindow, repo_path: &std::p
 
     let dlg_close = dialog.clone();
     close_btn.connect_clicked(move |_| dlg_close.close());
-
-    let root_c = repo_path.to_path_buf();
-    let lbl_c = status_lbl.clone();
-    apply_btn.connect_clicked(move |_| {
-        let target = url_row.text().trim().to_string();
-        if target.is_empty() {
-            lbl_c.set_label("Enter a path or URL first.");
-            return;
-        }
-        match git_sync::add_backup_remote(&root_c, &target) {
-            Ok(()) => {
-                lbl_c.set_label(&format!("✓ Backup saved: {target}"));
-                lbl_c.remove_css_class("dim-label");
-                lbl_c.remove_css_class("error");
-                lbl_c.add_css_class("success");
-            }
-            Err(e) => {
-                lbl_c.set_label(&format!("Error: {e}"));
-                lbl_c.remove_css_class("success");
-                lbl_c.add_css_class("error");
-            }
-        }
-    });
 
     dialog.present();
 }
@@ -3125,6 +3372,7 @@ fn format_file_mtime(mtime: std::time::SystemTime) -> String {
 ///      add a commented-out bibliography stub if none exists.
 /// Strip pandoc's generated `#set` preamble from a standalone Typst output so we can
 /// replace it with a Zerkalo template section.
+#[cfg_attr(not(test), allow(dead_code))]
 fn strip_pandoc_preamble(content: &str) -> String {
     let lines: Vec<&str> = content.lines().collect();
     let n = lines.len();
@@ -3135,8 +3383,8 @@ fn strip_pandoc_preamble(content: &str) -> String {
             i += 1;
             continue;
         }
+        // Strip #set rules (paren-depth aware for multi-line blocks)
         if t.starts_with("#set ") {
-            // Count parens to skip multi-line #set blocks
             let mut depth: i32 = 0;
             loop {
                 for c in lines[i].chars() {
@@ -3145,6 +3393,22 @@ fn strip_pandoc_preamble(content: &str) -> String {
                 i += 1;
                 if depth <= 0 || i >= n { break; }
             }
+            continue;
+        }
+        // Strip #show rules (bracket-depth aware) — pandoc emits #show heading: etc.
+        if t.starts_with("#show ") {
+            let mut depth: i32 = 0;
+            loop {
+                depth += lines[i].chars().filter(|&c| c == '[').count() as i32;
+                depth -= lines[i].chars().filter(|&c| c == ']').count() as i32;
+                i += 1;
+                if depth <= 0 || i >= n { break; }
+            }
+            continue;
+        }
+        // Strip standalone #import / #let lines in the preamble region.
+        if t.starts_with("#import ") || t.starts_with("#let ") {
+            i += 1;
             continue;
         }
         break;
@@ -3157,23 +3421,139 @@ fn strip_pandoc_preamble(content: &str) -> String {
 }
 
 fn post_process_latex_import(content: &str, bib_path: Option<&std::path::Path>) -> String {
-    let body = strip_pandoc_preamble(content);
-    let lines: Vec<&str> = body.lines().collect();
-    let mut out: Vec<String> = Vec::with_capacity(lines.len() + 8);
+    // ── Phase 1: single-pass classifier ───────────────────────────────────────
+    //
+    // Every line in the pandoc-converted content falls into one of three buckets:
+    //
+    //  DISCARDED  — formatting rules that Zerkalo's template block controls:
+    //               #set page(...)  #set text(...)  #set par(...)
+    //               #show heading*  #set heading(...)
+    //
+    //  MACROS     — definitions the body may depend on; placed after the template:
+    //               #import "..."   #let name = ...
+    //
+    //  BODY       — all actual document content (headings, paragraphs, citations,
+    //               #page(...) content blocks, #figure, #footnote, etc.)
+    //
+    // This approach handles content scattered throughout the file, not just at the
+    // top, which is what pandoc produces for complex LaTeX sources.
 
-    // Locate first top-level heading that isn't `== ...`
-    let first_heading = lines.iter().position(|l| {
+    enum Scan { Body, SkipSet(i32), SkipShow(i32), CollectLet(i32) }
+
+    let lines: Vec<&str> = content.lines().collect();
+    let mut macro_defs: Vec<String> = Vec::new();
+    let mut body: Vec<String> = Vec::new();
+    let mut scan = Scan::Body;
+    let mut let_buf = String::new();
+
+    // Combined depth counting for all delimiter types
+    let paren_depth = |s: &str| -> i32 {
+        s.chars().fold(0i32, |d, c| match c {
+            '(' => d + 1,
+            ')' => d - 1,
+            _ => d,
+        })
+    };
+    // For #show heading blocks, which use block(...)[\n...\n] syntax, we must
+    // track ALL delimiters together: the `(` opens before the `[` does.
+    let total_depth = |s: &str| -> i32 {
+        s.chars().fold(0i32, |d, c| match c {
+            '(' | '[' | '{' => d + 1,
+            ')' | ']' | '}' => d - 1,
+            _ => d,
+        })
+    };
+    // For #let definitions which use content/code blocks
+    let bracket_depth = |s: &str| -> i32 {
+        s.chars().fold(0i32, |d, c| match c {
+            '[' | '{' => d + 1,
+            ']' | '}' => d - 1,
+            _ => d,
+        })
+    };
+
+    for &line in &lines {
+        let t = line.trim();
+        scan = match scan {
+            // ── Continuation: discarding a multi-line #set block ────────────────
+            Scan::SkipSet(d) => {
+                let d = d + paren_depth(t);
+                if d > 0 { Scan::SkipSet(d) } else { Scan::Body }
+            }
+
+            // ── Continuation: discarding a multi-line #show heading block ────────
+            // Uses total_depth (all delimiters) because show rules use block(...)[\n...\n]
+            // where the `(` opens before the `[` does.
+            Scan::SkipShow(d) => {
+                let d = d + total_depth(t);
+                if d > 0 { Scan::SkipShow(d) } else { Scan::Body }
+            }
+
+            // ── Continuation: collecting a multi-line #let definition ────────────
+            Scan::CollectLet(d) => {
+                let_buf.push('\n');
+                let_buf.push_str(line);
+                let d = d + bracket_depth(t);
+                if d <= 0 {
+                    macro_defs.push(std::mem::take(&mut let_buf));
+                    Scan::Body
+                } else {
+                    Scan::CollectLet(d)
+                }
+            }
+
+            // ── Normal body scan ─────────────────────────────────────────────────
+            Scan::Body => {
+                if t.starts_with("#set page(")
+                    || t.starts_with("#set text(")
+                    || t.starts_with("#set par(")
+                {
+                    // Discard; track depth for multi-line blocks
+                    let d = paren_depth(t);
+                    if d > 0 { Scan::SkipSet(d) } else { Scan::Body }
+                } else if t.starts_with("#set heading(") {
+                    // Always single-line in practice; discard silently
+                    Scan::Body
+                } else if t.starts_with("#show heading") {
+                    // Must use total_depth: block(...)[\n] opens with `(` before `[`
+                    let d = total_depth(t);
+                    if d > 0 { Scan::SkipShow(d) } else { Scan::Body }
+                } else if t.starts_with("#import ") {
+                    macro_defs.push(line.to_string());
+                    Scan::Body
+                } else if t.starts_with("#let ") {
+                    let d = bracket_depth(t);
+                    let_buf = line.to_string();
+                    if d > 0 {
+                        Scan::CollectLet(d)
+                    } else {
+                        macro_defs.push(std::mem::take(&mut let_buf));
+                        Scan::Body
+                    }
+                } else {
+                    body.push(line.to_string());
+                    Scan::Body
+                }
+            }
+        };
+    }
+
+    // ── Phase 2: process body — insert pagebreaks, fix bibliography ───────────
+
+    // Trim leading blank lines from the body
+    let skip = body.iter().position(|l| !l.trim().is_empty()).unwrap_or(body.len());
+    let body = body[skip..].to_vec();
+
+    let first_heading = body.iter().position(|l| {
         let t = l.trim();
         t.starts_with("= ") && !t.starts_with("==")
     });
 
-    // Locate existing #bibliography call
-    let bib_idx = lines.iter().position(|l| l.trim_start().starts_with("#bibliography"));
+    let bib_idx = body.iter().position(|l| l.trim().starts_with("#bibliography"));
 
-    // Determine bibliography style from existing call or default
     let bib_style = bib_idx
-        .and_then(|i| {
-            let s = lines[i];
+        .and_then(|bi| {
+            let s = body[bi].trim();
             let start = s.find("style:")? + 6;
             let after = s[start..].trim_start().trim_start_matches('"');
             let end = after.find('"')?;
@@ -3181,54 +3561,79 @@ fn post_process_latex_import(content: &str, bib_path: Option<&std::path::Path>) 
         })
         .unwrap_or_else(|| "chicago-author-date".to_string());
 
-    // Build the bibliography line (real or commented)
     let bib_call = match bib_path {
         Some(bp) => format!("#bibliography(\"{}\", style: \"{}\")", bp.display(), bib_style),
-        None if bib_idx.is_some() => {
-            // Keep the path from the existing call but don't replace content
-            lines[bib_idx.unwrap()].to_string()
-        }
+        None if bib_idx.is_some() => body[bib_idx.unwrap()].trim().to_string(),
         None => format!("// #bibliography(\"refs.bib\", style: \"{}\")", bib_style),
     };
 
-    let mut pagebreak_before_body_done = false;
+    let trim_trailing = |v: &mut Vec<String>| {
+        while v.last().map(|l: &String| l.trim().is_empty()).unwrap_or(false) {
+            v.pop();
+        }
+    };
 
-    for (i, &line) in lines.iter().enumerate() {
-        // Before first heading: insert pagebreak (title page → body)
-        if Some(i) == first_heading && !pagebreak_before_body_done && i > 0 {
-            while out.last().map(|l: &String| l.trim().is_empty()).unwrap_or(false) {
-                out.pop();
-            }
-            out.push(String::new());
-            out.push("#pagebreak()".to_string());
-            out.push(String::new());
-            pagebreak_before_body_done = true;
+    let mut processed: Vec<String> = Vec::with_capacity(body.len() + 8);
+    let mut pb_done = false;
+
+    for (i, line) in body.iter().enumerate() {
+        // Pagebreak before first top-level heading (separates title block from body)
+        if Some(i) == first_heading && !pb_done && i > 0 {
+            trim_trailing(&mut processed);
+            processed.push(String::new());
+            processed.push("#pagebreak()".to_string());
+            processed.push(String::new());
+            pb_done = true;
         }
 
-        // Before bibliography: insert pagebreak and replace line
+        // Replace bibliography line with a clean, properly-placed version
         if Some(i) == bib_idx {
-            while out.last().map(|l: &String| l.trim().is_empty()).unwrap_or(false) {
-                out.pop();
-            }
-            out.push(String::new());
-            out.push("#pagebreak()".to_string());
-            out.push(String::new());
-            out.push(bib_call.clone());
+            trim_trailing(&mut processed);
+            processed.push(String::new());
+            processed.push("#pagebreak()".to_string());
+            processed.push(String::new());
+            processed.push(bib_call.clone());
             continue;
         }
 
-        out.push(line.to_string());
+        processed.push(line.clone());
     }
 
-    // No bibliography in original → append stub
     if bib_idx.is_none() {
-        out.push(String::new());
-        out.push("// ── Bibliography ────────────────────────────────────────────────────".to_string());
-        out.push(bib_call);
+        processed.push(String::new());
+        processed.push(
+            "// ── Bibliography ────────────────────────────────────────────────────"
+                .to_string(),
+        );
+        processed.push(bib_call);
     }
+
+    // ── Phase 3: assemble a well-formed Zerkalo document ─────────────────────
 
     let preamble = super::template_dialog::default_import_preamble();
-    format!("{preamble}\n{}", out.join("\n"))
+    let mut out = preamble;
+    out.push('\n');
+
+    if !macro_defs.is_empty() {
+        out.push_str(
+            "// ── Imported macros ─────────────────────────────────────────────────────\n",
+        );
+        for def in &macro_defs {
+            out.push_str(def);
+            out.push('\n');
+        }
+        out.push('\n');
+    }
+
+    out.push_str(
+        "// ── Document body ───────────────────────────────────────────────────────\n\n",
+    );
+    out.push_str(&processed.join("\n"));
+    if !out.ends_with('\n') {
+        out.push('\n');
+    }
+
+    out
 }
 
 /// Wrap plain text extracted from a PDF into a Typst document managed by Zerkalo's template system.
@@ -3237,7 +3642,8 @@ fn post_process_pdf_import(text: &str, title: &str) -> String {
     let preamble = super::template_dialog::default_import_preamble();
     let mut out = format!(
         "{preamble}\n\
-         // Imported from PDF — formatting is not preserved.\n\
+         // ── Document body ───────────────────────────────────────────────────────\n\
+         // Imported from PDF — plain text only, formatting not preserved.\n\
          \n\
          = {escaped_title}\n\
          \n"
@@ -3253,7 +3659,126 @@ fn post_process_pdf_import(text: &str, title: &str) -> String {
         }
     }
 
+    // Bibliography stub so Zerkalo can locate it
+    out.push_str(
+        "\n// ── Bibliography ────────────────────────────────────────────────────\n\
+         // #bibliography(\"refs.bib\", style: \"chicago-author-date\")\n",
+    );
+
     out
+}
+
+fn load_app_css() {
+    let css = gtk4::CssProvider::new();
+    css.load_from_data(
+        ".navigation-sidebar > row:hover:not(:selected) { \
+            background-color: alpha(@accent_color, 0.08); \
+        } \
+        .navigation-sidebar > row:selected { \
+            background-color: @accent_bg_color; \
+            color: @accent_fg_color; \
+        } \
+        .linked > toggle:checked, \
+        .linked > button:checked { \
+            background-color: @accent_bg_color; \
+            color: @accent_fg_color; \
+        } \
+        .paned > separator { \
+            min-width: 4px; \
+            min-height: 4px; \
+            transition: background-color 200ms; \
+        } \
+        .paned > separator:hover { \
+            background-color: alpha(@accent_color, 0.3); \
+        } \
+        .zerkalo-sidebar { \
+            transition: opacity 250ms; \
+        } \
+        .zerkalo-sidebar entry, \
+        .zerkalo-sidebar button, \
+        .zerkalo-sidebar label { \
+            min-width: 0; \
+        } \
+        window.zen-writing .zerkalo-sidebar { \
+            opacity: 0.3; \
+        } \
+        window.zen-writing textview text { \
+            padding-left: 40px; \
+            padding-right: 40px; \
+        } \
+        window.high-contrast textview { \
+            color: #ffffff; \
+            background-color: #000000; \
+        } \
+        window.high-contrast textview text { \
+            color: #ffffff; \
+        } \
+        textview.view { \
+            caret-color: @accent_color; \
+        } \
+        notebook tab button.circular { \
+            min-width: 20px; \
+            min-height: 20px; \
+            padding: 2px; \
+        }",
+    );
+    if let Some(display) = gtk4::gdk::Display::default() {
+        gtk4::style_context_add_provider_for_display(
+            &display,
+            &css,
+            gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
+    }
+}
+
+struct HamburgerItems {
+    menu_new_template_item: Button,
+    menu_reapply_template_item: Button,
+    menu_new_item: Button,
+    menu_open_item: Button,
+    menu_open_project_item: Button,
+    menu_recent_projects_item: Button,
+    menu_save_item: Button,
+    menu_save_as_item: Button,
+    menu_export_item: Button,
+    menu_import_item: Button,
+    menu_docs_item: Button,
+    menu_fonts_item: Button,
+    menu_settings_item: Button,
+    menu_setup_item: Button,
+    menu_backup_remote_item: Button,
+    menu_help_item: Button,
+    menu_writing_stats_item: Button,
+    menu_about_item: Button,
+    menu_import_latex_item: Button,
+    menu_import_docx_item: Button,
+    menu_import_pdf_item: Button,
+}
+
+fn build_hamburger_menu_items() -> HamburgerItems {
+    HamburgerItems {
+        menu_new_template_item:    make_menu_item("New from Template…",         None),
+        menu_reapply_template_item: make_menu_item("Update Template Settings…", None),
+        menu_new_item:             make_menu_item("New Blank Document…",         None),
+        menu_open_item:            make_menu_item("Open File…",                  None),
+        menu_open_project_item:    make_menu_item("Open Project Folder…",        None),
+        menu_recent_projects_item: make_menu_item("Recent Projects…",            None),
+        menu_save_item:            make_menu_item("Save",                        Some("Ctrl+S")),
+        menu_save_as_item:         make_menu_item("Save As…",                    None),
+        menu_export_item:          make_menu_item("Export…",                     None),
+        menu_import_item:          make_menu_item("Import…",                     None),
+        menu_docs_item:            make_menu_item("Browse Documents…",           None),
+        menu_fonts_item:           make_menu_item("Font Management…",            None),
+        menu_settings_item:        make_menu_item("Settings",                    None),
+        menu_setup_item:           make_menu_item("Setup & Onboarding…",         None),
+        menu_backup_remote_item:   make_menu_item("Backup Remotes…",             None),
+        menu_help_item:            make_menu_item("Keyboard Shortcuts & Help",   Some("Ctrl+?")),
+        menu_writing_stats_item:   make_menu_item("Writing Stats",               None),
+        menu_about_item:           make_menu_item("About Zerkalo",               None),
+        menu_import_latex_item:    make_menu_item("Import LaTeX File…",          None),
+        menu_import_docx_item:     make_menu_item("Import DOCX File…",           None),
+        menu_import_pdf_item:      make_menu_item("Import PDF File…",            None),
+    }
 }
 
 /// Build a hamburger-menu row: label flush-left, optional shortcut dim-right.
@@ -3285,7 +3810,130 @@ fn make_menu_item(label: &str, shortcut: Option<&str>) -> Button {
 
 #[cfg(test)]
 mod tests {
-    use super::strip_pandoc_preamble;
+    use super::{post_process_latex_import, strip_pandoc_preamble};
+
+    // ── post_process_latex_import ─────────────────────────────────────────────
+
+    #[test]
+    fn import_discards_formatting_rules() {
+        // Simulates a complex pandoc output with set/show rules throughout the file
+        let input = "\
+#set page(paper: \"a4\", margin: 1in)\n\
+#set text(font: \"Arial\", size: 12pt)\n\
+#set par(leading: 1em)\n\
+#set heading(numbering: \"1.1.\")\n\
+#show heading: it => block[#it.body]\n\
+\n\
+= Introduction\n\
+\n\
+Some text.\n\
+\n\
+#bibliography(\"refs.bib\", style: \"apa\")\n";
+
+        let result = post_process_latex_import(input, None);
+
+        // Template block is present
+        assert!(result.contains("// ZERKALO-TEMPLATE-BEGIN"), "template block present");
+        assert!(result.contains("// ZERKALO-TEMPLATE-END"), "template block closed");
+
+        // Check only the section AFTER the template markers — that's where the
+        // user's formatting rules would appear if they weren't discarded.
+        // (The template block itself legitimately contains these directives.)
+        let after_template = result
+            .split("// ZERKALO-TEMPLATE-END")
+            .nth(1)
+            .unwrap_or("");
+        assert!(!after_template.contains("#set page("), "set page not in body");
+        assert!(!after_template.contains("#set text("), "set text not in body");
+        assert!(!after_template.contains("#set par("), "set par not in body");
+        assert!(!after_template.contains("#set heading("), "set heading not in body");
+        assert!(!after_template.contains("#show heading"), "show heading not in body");
+
+        // Body content is preserved
+        assert!(result.contains("= Introduction"), "heading preserved");
+        assert!(result.contains("Some text."), "body text preserved");
+
+        // Bibliography is present
+        assert!(after_template.contains("#bibliography("), "bibliography present");
+    }
+
+    #[test]
+    fn import_moves_macros_to_section() {
+        let input = "\
+#set text(font: \"Arial\")\n\
+#import \"@preview/droplet:0.3.1\": dropcap\n\
+#let essay-par(body) = block(width: 100%, body)\n\
+\n\
+= Heading\n\
+\n\
+#essay-par[Some text.]\n";
+
+        let result = post_process_latex_import(input, None);
+
+        // Macros are placed after the template block, not discarded
+        assert!(result.contains("#import \"@preview/droplet:0.3.1\""), "import preserved");
+        assert!(result.contains("#let essay-par"), "let definition preserved");
+
+        // Macros come AFTER the template block
+        let template_end = result.find("// ZERKALO-TEMPLATE-END").unwrap();
+        let import_pos = result.find("#import").unwrap();
+        assert!(import_pos > template_end, "import is after template block");
+
+        // Body content is preserved
+        assert!(result.contains("= Heading"), "heading preserved");
+        assert!(result.contains("#essay-par[Some text.]"), "macro usage preserved");
+    }
+
+    #[test]
+    fn import_multiline_show_heading_discarded() {
+        let input = "\
+#show heading.where(level: 1): it => block(\n\
+  width: 100%,\n\
+  above: 1em,\n\
+)[\n\
+  #align(center)[#it.body]\n\
+]\n\
+\n\
+= Body\n";
+
+        let result = post_process_latex_import(input, None);
+        let after_template = result
+            .split("// ZERKALO-TEMPLATE-END")
+            .nth(1)
+            .unwrap_or("");
+        // The user's custom show rule should not appear in the body
+        assert!(!after_template.contains("#show heading"), "multi-line show heading discarded from body");
+        // The body inside the show rule should also be gone
+        assert!(!after_template.contains("#align(center)[#it.body]"), "show heading body discarded");
+        // Actual document content is kept
+        assert!(result.contains("= Body"), "actual content kept");
+    }
+
+    #[test]
+    fn import_inserts_pagebreak_before_first_heading() {
+        // When there is content before the first heading (a title block), a
+        // pagebreak must be inserted between them.
+        let input = "\
+#set text(font: \"Arial\")\n\
+\n\
+Title material here\n\
+\n\
+= Introduction\n\
+\n\
+Body.\n";
+
+        let result = post_process_latex_import(input, None);
+        let pb = result.find("#pagebreak()").unwrap();
+        let h1 = result.find("= Introduction").unwrap();
+        assert!(pb < h1, "pagebreak before first heading");
+    }
+
+    #[test]
+    fn import_body_marker_present() {
+        let input = "= Heading\n\nText.\n";
+        let result = post_process_latex_import(input, None);
+        assert!(result.contains("// ── Document body"), "body marker present");
+    }
 
     #[test]
     fn strip_pandoc_empty_input() {

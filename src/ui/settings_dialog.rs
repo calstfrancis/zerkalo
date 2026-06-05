@@ -252,9 +252,19 @@ impl SettingsDialog {
         notebook.set_tab_pos(gtk4::PositionType::Top);
         notebook.set_vexpand(true);
 
+        // Developer mode
+        let dev_group = adw::PreferencesGroup::new();
+        dev_group.set_title("Advanced");
+        let dev_mode_row = adw::SwitchRow::new();
+        dev_mode_row.set_title("Developer mode");
+        dev_mode_row.set_subtitle("Show experimental features (Import…)");
+        dev_mode_row.set_active(current.developer_mode);
+        dev_group.add(&dev_mode_row);
+
         let page_general = adw::PreferencesPage::new();
         page_general.add(&folders_group);
         page_general.add(&compile_group);
+        page_general.add(&dev_group);
         notebook.append_page(&page_general, Some(&Label::new(Some("General"))));
 
         let page_editor = adw::PreferencesPage::new();
@@ -306,6 +316,7 @@ impl SettingsDialog {
             let spell_autocorrect_row = spell_autocorrect_row.clone();
             let lang_row = lang_row.clone();
             let available_langs = available_langs.clone();
+            let dev_mode_row = dev_mode_row.clone();
             let recent_files_cur = current.recent_files.clone();
             let recent_projects_cur = current.recent_projects.clone();
             let preview_zoom_cur = current.preview_zoom;
@@ -379,6 +390,8 @@ impl SettingsDialog {
                     word_count_goal: 0,
                     sidebar_width: sidebar_width_cur,
                     preview_split: preview_split_cur,
+                    developer_mode: dev_mode_row.is_active(),
+                    last_export_format: 0,
                 }
             }
         };

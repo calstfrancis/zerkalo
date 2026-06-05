@@ -2,7 +2,7 @@
 
 A contemplative [Typst](https://typst.app) editor built with Rust, GTK4, and libadwaita.  
 Live preview · Academic styles · LSP completions · Git sync · Adwaita design.  
-**v0.7.1** — Template round-trip fixes · Import wrapping · Crash hardening · 22 new tests
+**v0.8.6** — Template sidecar · Plan panel · Session delta · Tab error indicator · Citation panel fixes
 
 ---
 
@@ -11,7 +11,7 @@ Live preview · Academic styles · LSP completions · Git sync · Adwaita design
 ### Editor
 | Feature | Detail |
 |---|---|
-| **Multi-file tabs** | Open multiple `.typ` files; modified-indicator dot; close button |
+| **Multi-file tabs** | Open multiple `.typ` files; modified-indicator dot; red error dot on compile failure; close button |
 | **Syntax highlighting** | Full Typst grammar via GtkSourceView 5 |
 | **LSP completions** | `#` triggers a popup via [tinymist](https://github.com/Myriad-Dreamin/tinymist) |
 | **Built-in snippets** | Academic snippets (figure, table, footnote, bibliography, …) prepended to the LSP popup |
@@ -26,8 +26,9 @@ Live preview · Academic styles · LSP completions · Git sync · Adwaita design
 | **High contrast mode** | Settings → Editor → High contrast; forces white-on-black in the editor |
 | **Word count** | Live count and reading-time estimate in the status bar; selection shows "N words, M sentences selected" |
 | **Word-count goal** | Add `// @goal: 3000` in your file; a progress bar tracks progress in the status bar |
+| **Session delta** | Status bar shows `↑ N` words added since the file was opened |
 | **Cursor position** | Line and column in the editor status bar |
-| **Command palette** | `Ctrl+P`; fuzzy search over app commands and document headings |
+| **Command palette** | `Ctrl+P`; fuzzy search over app commands and document headings; `Ctrl+G` for headings only |
 | **Session restore** | Open files, active tab, and cursor positions are restored on next launch |
 | **Save-before-close** | Closing with unsaved files shows a dialog listing modified files with Save All / Discard / Cancel |
 | **Configurable keybindings** | Edit `~/.config/zerkalo/keybindings.toml` to remap any shortcut |
@@ -38,7 +39,8 @@ Live preview · Academic styles · LSP completions · Git sync · Adwaita design
 | **Document outline** | Heading tree with cursor-tracking highlight; click to centre and select the heading in the editor |
 | **Symbol insert** | One-click insertion of Cyrillic, Greek, Hebrew, and Sanskrit characters |
 | **File tree** | Project `.typ` files; click to open, buttons to create/delete |
-| **Todo panel** | Global and per-file checkbox lists; Enter adds an item; checked items move to a Completed section with strikethrough |
+| **Citation panel** | Searchable list of all BibTeX entries; double-click or Enter inserts the `@key` at the cursor |
+| **Plan panel** | Freeform scratchpad saved as a `.plan` sidecar alongside the open `.typ` file; falls back to `project.plan` in the work folder when no file is open |
 
 ### Document workflow
 | Feature | Detail |
@@ -47,13 +49,12 @@ Live preview · Academic styles · LSP completions · Git sync · Adwaita design
 | **Cheatsheet & Help panel** | Toggle (`?` button) in preview toolbar shows a three-tab reference panel (Cheatsheet, Help, FAQ) in place of the preview |
 | **Style switcher** | Header-bar dropdown applies a citation style to the open document; button label shows detected style and filename ("GOST 7.32 · main") |
 | **New from Template** | Dialog with five tabs — Document, Layout, Sections, Languages, Packages — generates a complete `.typ` preamble |
-| **Update Template Settings** | ☰ → Update Template Settings — re-applies preamble settings (citation style, margins, fonts, line spacing) to an existing document without touching the body; font and spacing changes propagate to manual config sections |
+| **Update Template Settings** | ☰ → Update Template Settings — re-applies preamble settings from a per-document `.zerkalo.toml` sidecar; splices at the `// ── Document body` marker so body content is never touched; font and spacing propagate to manual config sections |
 | **LaTeX / DOCX / PDF import** | ☰ → Import… — converts to Typst via pandoc or pdftotext; all imported files receive a Zerkalo template section and are immediately responsive to "Update Template Settings" |
 | **Export** | PDF (typst), HTML (typst), DOCX, ODT, LaTeX (all via pandoc where needed) |
 | **Font management** | ☰ → Font Management — searchable list of system fonts; enable/disable; persisted to `~/.config/zerkalo/font-preferences.toml` |
 | **GOST Type B font** | Bundled and installed automatically on first launch |
 | **Git sync** | Commit and push in one click or `Ctrl+Shift+G`; pushes to all configured remotes |
-| **DOCX/PDF import** | ☰ → Import… converts Word documents (pandoc) and PDFs (pdftotext) to Typst |
 
 ---
 
@@ -156,7 +157,9 @@ All settings are also editable via **☰ → Settings** inside the app.
 | `Ctrl+Tab` | Next tab |
 | `Ctrl+Shift+Tab` | Previous tab |
 | `Ctrl+Shift+R` | Add reference (citation autocomplete) |
-| `Ctrl+P` | Command palette |
+| `Ctrl+P` | Command palette (commands + headings) |
+| `Ctrl+G` | Command palette — headings only |
+| `Ctrl+Shift+G` | Git sync (commit & push) |
 | `Ctrl+Q` | Quit |
 | `@` | Citation popup (requires a `.bib` file) |
 | `#` | LSP completion popup (requires tinymist) |

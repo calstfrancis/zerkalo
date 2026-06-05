@@ -1,4 +1,5 @@
 pub mod app_window;
+pub mod citation_panel;
 pub mod command_palette;
 pub mod bib_popup;
 pub mod dep_graph;
@@ -18,7 +19,7 @@ pub mod ref_manager;
 pub mod settings_dialog;
 pub mod sync_dialog;
 pub mod template_dialog;
-pub mod todo_panel;
+pub mod plan_panel;
 pub mod search_panel;
 pub mod setup_wizard;
 pub mod welcome_window;

@@ -25,7 +25,17 @@ impl ProjectModel {
     pub fn scan(root: PathBuf) -> Self {
         let files = crate::project::collect_typ_files(&root);
         let imports = build_import_graph(&files);
-        let root_file = detect_root(&files, &imports);
+        let root_file = if let Some(cfg) = crate::config::ProjectConfig::load(&root) {
+            if let Some(rel) = cfg.root_file {
+                // Config wins unconditionally; fall back to detect_root if path is bad
+                let abs = root.join(&rel);
+                if abs.exists() { Some(abs) } else { detect_root(&files, &imports) }
+            } else {
+                detect_root(&files, &imports)
+            }
+        } else {
+            detect_root(&files, &imports)
+        };
         Self {
             root,
             root_file,

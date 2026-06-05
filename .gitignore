@@ -1,6 +1,5 @@
 # Rust / Cargo
 /target/
-Cargo.lock
 
 # Editor swap/backup files
 *.swp
@@ -22,8 +21,15 @@ assets/icons/
 # Reference style guide PDFs/EPUBs (local only)
 Reference Documents/
 
+# Working documents (local only)
+We Awaken In Christ's Body.typ
+
+# Plans / future work (local only)
+future-plans.md
+
 # Zerkalo user data (never commit these)
 *.todo
+*.plan
 global-todo.md
 session.json
 zerkalo.log
