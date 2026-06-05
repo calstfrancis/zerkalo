@@ -9,7 +9,8 @@ use gtk4::gdk::prelude::GdkCairoContextExt;
 use gtk4::gdk_pixbuf::Pixbuf;
 use gtk4::prelude::*;
 use gtk4::{
-    Align, Box as GtkBox, Button, DrawingArea, Label, Orientation, ScrolledWindow, Spinner, Stack,
+    Align, Box as GtkBox, Button, DrawingArea, GestureClick, Label, Orientation, ScrolledWindow,
+    Spinner, Stack,
 };
 
 // ── Result sent from compile thread ──────────────────────────────────────────
@@ -39,6 +40,7 @@ pub struct PreviewPane {
     on_compile_time: Rc<RefCell<Option<Box<dyn Fn(u64)>>>>,
     on_zoom_changed: Rc<RefCell<Option<Box<dyn Fn(f64)>>>>,
     on_page_changed: Rc<RefCell<Option<Box<dyn Fn(usize, usize)>>>>,
+    on_click_jump: Rc<RefCell<Option<Box<dyn Fn(usize, f64)>>>>,
     page_pixbufs: Rc<RefCell<Vec<Pixbuf>>>,
     watch_active: Rc<RefCell<bool>>,
     compile_gen: Rc<RefCell<u64>>,
@@ -137,6 +139,48 @@ impl PreviewPane {
             }
         });
 
+        let on_click_jump: Rc<RefCell<Option<Box<dyn Fn(usize, f64)>>>> =
+            Rc::new(RefCell::new(None));
+
+        // Ctrl+Click → click-to-jump callback
+        {
+            let on_click_jump_c = on_click_jump.clone();
+            let page_pixbufs_c = page_pixbufs.clone();
+            let zoom_c = zoom_draw2.clone();
+            let scroll_c = img_scroll.clone();
+            let gesture = GestureClick::new();
+            gesture.set_button(1);
+            gesture.connect_pressed(move |g, _n, x, y| {
+                let state = g.current_event_state();
+                if !state.contains(gtk4::gdk::ModifierType::CONTROL_MASK) {
+                    return;
+                }
+                let _ = x;
+                let zoom = *zoom_c.borrow();
+                let adj_val = scroll_c.vadjustment().value();
+                let doc_y = y + adj_val;
+                let pbs = page_pixbufs_c.borrow();
+                let mut cum_y = 0.0f64;
+                let mut clicked_page = pbs.len().saturating_sub(1);
+                let mut clicked_rel_y = 1.0f64;
+                for (i, pb) in pbs.iter().enumerate() {
+                    let page_h = pb.height() as f64 * zoom + 8.0;
+                    if doc_y < cum_y + page_h {
+                        clicked_page = i;
+                        let raw_h = pb.height() as f64 * zoom;
+                        clicked_rel_y = if raw_h > 0.0 { ((doc_y - cum_y) / raw_h).clamp(0.0, 1.0) } else { 0.0 };
+                        break;
+                    }
+                    cum_y += page_h;
+                }
+                drop(pbs);
+                if let Some(f) = on_click_jump_c.borrow().as_ref() {
+                    f(clicked_page, clicked_rel_y);
+                }
+            });
+            drawing_area.add_controller(gesture);
+        }
+
         let pane = Self {
             root_widget,
             stack,
@@ -156,11 +200,22 @@ impl PreviewPane {
             on_compile_time: Rc::new(RefCell::new(None)),
             on_zoom_changed: Rc::new(RefCell::new(None)),
             on_page_changed: Rc::new(RefCell::new(None)),
+            on_click_jump,
             page_pixbufs,
             watch_active: Rc::new(RefCell::new(false)),
             compile_gen: Rc::new(RefCell::new(0)),
             buffer_snapshot: Rc::new(RefCell::new(HashMap::new())),
         };
+
+        // Refit to width whenever the scroll viewport width changes (window resize).
+        {
+            let pane_r = pane.clone();
+            pane.img_scroll.hadjustment().connect_page_size_notify(move |_| {
+                if *pane_r.auto_fit.borrow() && !pane_r.page_pixbufs.borrow().is_empty() {
+                    pane_r.fit_width();
+                }
+            });
+        }
 
         // Wire cancel button once
         let gen_c = pane.compile_gen.clone();
@@ -234,13 +289,17 @@ impl PreviewPane {
     }
 
     pub fn fit_width(&self) {
-        *self.auto_fit.borrow_mut() = false;
+        *self.auto_fit.borrow_mut() = true;
         let scroll_w = self.img_scroll.allocated_width() as f64;
         let pb_w = self.page_pixbufs.borrow().first()
             .map(|pb| pb.width() as f64)
             .unwrap_or(0.0);
         if pb_w > 0.0 && scroll_w > 16.0 {
-            self.set_zoom((scroll_w - 16.0) / pb_w);
+            // Don't call set_zoom here — that would set auto_fit = false.
+            let z = ((scroll_w - 16.0) / pb_w).clamp(0.25, 4.0);
+            *self.zoom.borrow_mut() = z;
+            self.refit_drawing_area_centered(None);
+            if let Some(f) = self.on_zoom_changed.borrow().as_ref() { f(z); }
         }
     }
 
@@ -272,6 +331,17 @@ impl PreviewPane {
 
     pub fn set_on_page_changed(&self, f: impl Fn(usize, usize) + 'static) {
         *self.on_page_changed.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn set_on_click_jump(&self, f: impl Fn(usize, f64) + 'static) {
+        *self.on_click_jump.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn fire_jump_to_current_page(&self) {
+        let page = self.current_page_idx();
+        if let Some(f) = self.on_click_jump.borrow().as_ref() {
+            f(page, 0.45);
+        }
     }
 
     pub fn page_count(&self) -> usize {
@@ -521,6 +591,27 @@ impl PreviewPane {
                 }
             }
         });
+    }
+}
+
+pub fn extract_page_text_via_pdftotext(pane: &PreviewPane, page: usize, _y_start: f64, _y_end: f64) -> Option<String> {
+    let root = pane.root_file.borrow().clone()?;
+    let stem = root.file_stem()?.to_str()?.to_string();
+    let pdf_path = pane.output_dir().join(format!("{stem}.pdf"));
+    if !pdf_path.exists() {
+        let snapshots = pane.buffer_snapshot.borrow().clone();
+        let bytes = crate::compiler::compile_to_pdf_bytes(&root, &snapshots).ok()?;
+        std::fs::write(&pdf_path, bytes).ok()?;
+    }
+    let page_str = (page + 1).to_string();
+    let out = std::process::Command::new("pdftotext")
+        .args(["-layout", "-f", &page_str, "-l", &page_str,
+               pdf_path.to_str().unwrap_or(""), "-"])
+        .output().ok()?;
+    if out.status.success() {
+        Some(String::from_utf8_lossy(&out.stdout).to_string())
+    } else {
+        None
     }
 }
 
