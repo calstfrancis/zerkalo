@@ -510,6 +510,7 @@ impl SettingsDialog {
                     last_export_format: 0,
                     recent_searches: Vec::new(),
                     active_profile: crate::config::CompileProfile::default(),
+                    auto_save_idle_ms: crate::config::default_auto_save_idle_ms_pub(),
                 }
             }
         };

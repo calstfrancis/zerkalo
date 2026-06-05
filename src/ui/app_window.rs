@@ -91,7 +91,10 @@ impl AppWindow {
         let auto_compile: Rc<RefCell<bool>> = Rc::new(RefCell::new(config.auto_compile));
         let compile_on_save: Rc<RefCell<bool>> = Rc::new(RefCell::new(config.compile_on_save));
         let manual_compile_only: Rc<RefCell<bool>> = Rc::new(RefCell::new(config.manual_compile_only));
+        let auto_save_idle_ms: Rc<RefCell<u64>> = Rc::new(RefCell::new(config.auto_save_idle_ms));
         let current_config: Rc<RefCell<Config>> = Rc::new(RefCell::new(config.clone()));
+        let last_edit_instant: Rc<RefCell<Option<std::time::Instant>>> = Rc::new(RefCell::new(None));
+        let has_compile_errors: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
 
         // ── Header bar ──────────────────────────────────────────────────────
 
@@ -1647,10 +1650,12 @@ impl AppWindow {
         let outline_for_change = outline_panel.clone();
         let refs_for_change = ref_manager.clone();
         let lsp_for_change = lsp_client.clone();
+        let last_edit_for_change = last_edit_instant.clone();
         let gen: Rc<RefCell<u64>> = Rc::new(RefCell::new(0));
         let gen2 = gen.clone();
         let editor_pane_for_delta = editor_pane.clone();
         editor_pane.set_on_change(move || {
+            *last_edit_for_change.borrow_mut() = Some(std::time::Instant::now());
             *gen2.borrow_mut() += 1;
             let my_gen = *gen2.borrow();
             let preview = preview_for_change.clone();
@@ -1873,9 +1878,11 @@ impl AppWindow {
         let file_tree_holder_for_compile = file_tree_holder.clone();
         let root_file_for_compile = project_model.root_file.clone();
         let toast_for_compile = toast_overlay.clone();
+        let has_errors_for_compile = has_compile_errors.clone();
         preview_pane.set_on_compile_done(move |result| {
             match &result {
                 None => {
+                    *has_errors_for_compile.borrow_mut() = false;
                     error_panel_for_compile.clear();
                     error_panel_for_compile.widget().set_visible(false);
                     editor_for_diag.clear_diagnostic_marks();
@@ -1892,7 +1899,7 @@ impl AppWindow {
                     toast_for_compile.add_toast(t);
                 }
                 Some(stderr) => {
-                    // Show first error line in the inline banner above the preview toolbar
+                    *has_errors_for_compile.borrow_mut() = true;
                     let first_line = stderr.lines().next().unwrap_or("Compile error").to_string();
                     error_banner_lbl_for_compile.set_text(&first_line);
                     error_banner_lbl_for_compile.set_visible(true);
@@ -2005,19 +2012,31 @@ impl AppWindow {
             glib::ControlFlow::Break
         });
 
-        // ── Auto-save: write modified buffers every 30 seconds ──────────────
+        // ── Auto-backup on idle: write modified buffers after idle for auto_save_idle_ms ──
 
         let editor_for_autosave = editor_pane.clone();
         let toast_for_autosave = toast_overlay.clone();
-        glib::timeout_add_local(Duration::from_secs(30), move || {
-            let buffers: Vec<_> = editor_for_autosave.modified_buffers();
-            if !buffers.is_empty() {
-                for (path, content) in &buffers {
-                    crate::auto_save::save(path, content);
+        let last_edit_for_autosave = last_edit_instant.clone();
+        let idle_ms_for_autosave = auto_save_idle_ms.clone();
+        let has_errors_for_autosave = has_compile_errors.clone();
+        glib::timeout_add_local(Duration::from_secs(5), move || {
+            let idle_threshold = *idle_ms_for_autosave.borrow();
+            let elapsed = last_edit_for_autosave
+                .borrow()
+                .map(|t| t.elapsed().as_millis() as u64);
+            if let Some(ms) = elapsed {
+                if ms >= idle_threshold && !*has_errors_for_autosave.borrow() {
+                    let buffers: Vec<_> = editor_for_autosave.modified_buffers();
+                    if !buffers.is_empty() {
+                        for (path, content) in &buffers {
+                            crate::auto_save::save(path, content);
+                        }
+                        let t = adw::Toast::new("Autosaved");
+                        t.set_timeout(2);
+                        toast_for_autosave.add_toast(t);
+                        *last_edit_for_autosave.borrow_mut() = None;
+                    }
                 }
-                let t = adw::Toast::new("Autosaved");
-                t.set_timeout(2);
-                toast_for_autosave.add_toast(t);
             }
             glib::ControlFlow::Continue
         });
@@ -2257,8 +2276,21 @@ impl AppWindow {
         {
             let lbl = compile_time_label.clone();
             preview_pane.set_on_compile_time(move |ms| {
+                crate::compile_stats::record(ms);
                 let secs = ms as f64 / 1000.0;
-                lbl.set_text(&format!("{secs:.1}s"));
+                lbl.set_text(&format!("Compiled in {secs:.1}s"));
+                if ms >= 3000 {
+                    lbl.add_css_class("warning");
+                    lbl.set_tooltip_text(Some(
+                        "Compilation took over 3 s — tips:\n\
+                         \u{2022} Use Draft profile (header bar) for faster preview\n\
+                         \u{2022} Move large images out of the main body\n\
+                         \u{2022} Split the document into included files"
+                    ));
+                } else {
+                    lbl.remove_css_class("warning");
+                    lbl.set_tooltip_text(Some("Last compile time"));
+                }
             });
         }
 
@@ -2982,6 +3014,9 @@ impl AppWindow {
         {
             let editor_for_pal = self.editor_pane.clone();
             let window_for_pal = self.window.clone();
+            let search_for_pal = self.search_panel.clone();
+            let preview_for_pal = self.preview_pane.clone();
+            let root_for_pal = self.project_root.clone();
             palette.set_on_activate(move |id| {
                 let w = window_for_pal.clone();
                 if id.starts_with("heading:") {
@@ -3001,10 +3036,41 @@ impl AppWindow {
                     }
                 } else {
                     match id {
-                        "toggle_find" => editor_for_pal.toggle_find(),
-                        "save"        => { editor_for_pal.save_all_modified(); }
-                        "help"        => { HelpWindow::new(&w).present(); }
-                        _             => {}
+                        "toggle_find"    => editor_for_pal.toggle_find(),
+                        "save"           => { editor_for_pal.save_all_modified(); }
+                        "help"           => { HelpWindow::new(&w).present(); }
+                        "find_in_files"  => { search_for_pal.toggle(); }
+                        "project_outline" => {
+                            if let (Some(content), Some(path)) = (
+                                editor_for_pal.get_active_content(),
+                                editor_for_pal.get_active_path(),
+                            ) {
+                                let items = super::command_palette::heading_items(&content, &path);
+                                // Return early — caller will set items; here we can't re-open
+                                // the palette from inside its own callback, so we just no-op
+                                // if already showing headings. The Ctrl+G shortcut covers this.
+                                let _ = items;
+                            }
+                        }
+                        "toggle_profile" => {
+                            let is_draft = preview_for_pal.is_draft_mode();
+                            preview_for_pal.set_draft_mode(!is_draft);
+                        }
+                        "browse_snapshots" => {
+                            if let Some(path) = editor_for_pal.get_active_path() {
+                                let content = editor_for_pal.get_active_content().unwrap_or_default();
+                                let dialog = super::snapshot_dialog::SnapshotDialog::new(
+                                    &w, &root_for_pal, &path, &content,
+                                );
+                                let ep = editor_for_pal.clone();
+                                let pp = path.clone();
+                                dialog.set_on_restore(move |text| {
+                                    ep.open_file(pp.clone(), &text);
+                                });
+                                dialog.present();
+                            }
+                        }
+                        _ => {}
                     }
                 }
             });
@@ -3088,8 +3154,8 @@ impl AppWindow {
                     HelpWindow::new(&window).present();
                     return glib::Propagation::Stop;
                 }
-                // Ctrl+P — command palette
-                if ctrl && !shift && key == Key::p {
+                // Command palette (default Ctrl+K, configurable via keybindings.toml)
+                if matches_binding(&kb.command_palette, ctrl, shift, alt, key) {
                     let mut items = default_commands();
                     if let Some(content) = editor_for_palette_key.get_active_content() {
                         if let Some(path) = editor_for_palette_key.get_active_path() {
@@ -3098,6 +3164,11 @@ impl AppWindow {
                     }
                     palette_for_key.set_items(items);
                     palette_for_key.show();
+                    return glib::Propagation::Stop;
+                }
+                // Ctrl+Shift+H (configurable) — dynamic keyboard shortcuts window
+                if matches_binding(&kb.shortcuts_help, ctrl, shift, alt, key) {
+                    show_dynamic_shortcuts_window(&window, &kb);
                     return glib::Propagation::Stop;
                 }
                 // Ctrl+G — go to heading
@@ -3620,6 +3691,53 @@ fn show_backup_remote_dialog(window: &adw::ApplicationWindow, repo_path: &std::p
 
 fn show_alert(window: &adw::ApplicationWindow, title: &str, body: &str) {
     let dlg = adw::MessageDialog::new(Some(window), Some(title), Some(body));
+    dlg.add_response("ok", "OK");
+    dlg.present();
+}
+
+fn show_dynamic_shortcuts_window(
+    window: &adw::ApplicationWindow,
+    kb: &crate::keybindings::Keybindings,
+) {
+    use gtk4::prelude::*;
+    let body = format!(
+        "Editing\n\
+         \u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\n\
+         Save                {save}\n\
+         Find & Replace      {find}\n\
+         Next tab            {next_tab}\n\
+         Previous tab        {prev_tab}\n\
+         Add reference       {add_ref}\n\n\
+         Navigation\n\
+         \u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\n\
+         Command Palette     {palette}\n\
+         Go to heading       Ctrl+G\n\
+         Find in Files       Ctrl+Shift+F\n\n\
+         Compile & Preview\n\
+         \u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\n\
+         Compile             {compile}\n\n\
+         Git & App\n\
+         \u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\n\
+         Git Sync            {git_sync}\n\
+         Keyboard Shortcuts  {shortcuts_help}\n\
+         Quit                {quit}\n\n\
+         Keybindings file: ~/.config/zerkalo/keybindings.toml",
+        save = kb.save,
+        find = kb.find,
+        next_tab = kb.next_tab,
+        prev_tab = kb.prev_tab,
+        add_ref = kb.add_reference,
+        palette = kb.command_palette,
+        compile = kb.compile,
+        git_sync = kb.git_sync,
+        shortcuts_help = kb.shortcuts_help,
+        quit = kb.quit,
+    );
+    let dlg = adw::MessageDialog::new(
+        Some(window),
+        Some("Keyboard Shortcuts"),
+        Some(&body),
+    );
     dlg.add_response("ok", "OK");
     dlg.present();
 }

@@ -82,7 +82,7 @@ fn cheatsheet_blocks() -> Vec<Block<'static>> {
         Block::Code("#set text(font: \"Times New Roman\", size: 12pt, lang: \"en\")\n#set par(justify: true, first-line-indent: 0.5in,\n         leading: 1em)\n#set page(paper: \"us-letter\", margin: 1in,\n          numbering: \"1\", number-align: top + right)\n#set heading(numbering: \"1.1\")\n\n// Double-spacing:\n#set par(leading: 24pt)"),
         Block::Gap,
         Block::H2("Git Sync"),
-        Block::Code("Ctrl+Shift+G   Commit & push all changes"),
+        Block::Code("Ctrl+Shift+S   Commit & push all changes"),
     ]
 }
 
@@ -97,13 +97,13 @@ fn shortcuts_blocks() -> Vec<Block<'static>> {
         Block::Code("Ctrl+Shift+P        Compile and refresh preview\nAuto-compile        Fires automatically after each change"),
         Block::Gap,
         Block::H2("Navigation"),
-        Block::Code("Ctrl+P              Command palette (commands + headings)\nCtrl+G              Command palette pre-filtered to headings only"),
+        Block::Code("Ctrl+K              Command palette (commands + headings)\nCtrl+G              Command palette pre-filtered to headings only\nCtrl+Shift+F        Find in Files (project-wide search)"),
         Block::Gap,
         Block::H2("Autocomplete"),
         Block::Code("@                   Citation popup (requires a .bib file)\n#                   LSP function/keyword popup (requires tinymist)\nTab / Return        Accept selected item\nEsc                 Dismiss popup\n↑ / ↓               Navigate completion list"),
         Block::Gap,
         Block::H2("Git & Window"),
-        Block::Code("Ctrl+Shift+G        Commit & push (git sync)\nCtrl+R              Refresh file tree\nCtrl+Q              Quit\nCtrl+?              Open this help window\nSidebar button      Toggle left sidebar\nInsert button       Toggle insert snippets panel\nPop-out button      Open preview in a separate window"),
+        Block::Code("Ctrl+Shift+S        Commit & push (git sync)\nCtrl+Shift+H        Show keyboard shortcuts (dynamic)\nCtrl+R              Refresh file tree\nCtrl+Q              Quit\nCtrl+?              Open this help window\nSidebar button      Toggle left sidebar\nInsert button       Toggle insert snippets panel\nPop-out button      Open preview in a separate window"),
     ]
 }
 
@@ -146,7 +146,7 @@ fn faq_blocks() -> Vec<Block<'static>> {
         Block::Code("~/.local/share/zerkalo/zerkalo.log"),
         Block::Gap,
         Block::H2("How do I set up git sync?"),
-        Block::Body("Git sync works on the work folder as a git repository. Press Ctrl+Shift+G or click the sync button — on first use Zerkalo will ask for a remote URL (e.g. GitHub or Gitea). After that, each sync commits all changes and pushes."),
+        Block::Body("Git sync works on the work folder as a git repository. Press Ctrl+Shift+S or click the sync button — on first use Zerkalo will ask for a remote URL (e.g. GitHub or Gitea). After that, each sync commits all changes and pushes."),
         Block::Gap,
         Block::H2("Can I edit the title, author, or date directly in the document?"),
         Block::Body("Yes — template documents store metadata as plain Typst variables near the top of the file:\n  #let doc-title = \"My Paper\"\n  #let doc-author = \"Jane Smith\"\n  #let doc-date = \"5 June 2026\"\nEdit these directly in the editor. When you open 'Update Template Settings' afterwards, Zerkalo reads the values from the document so the dialog will show your edits, not the old saved values."),

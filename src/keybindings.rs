@@ -20,6 +20,10 @@ pub struct Keybindings {
     pub add_reference: String,
     #[serde(default = "default_git_sync")]
     pub git_sync: String,
+    #[serde(default = "default_command_palette")]
+    pub command_palette: String,
+    #[serde(default = "default_shortcuts_help")]
+    pub shortcuts_help: String,
 }
 
 impl Default for Keybindings {
@@ -33,6 +37,8 @@ impl Default for Keybindings {
             prev_tab: default_prev_tab(),
             add_reference: default_add_ref(),
             git_sync: default_git_sync(),
+            command_palette: default_command_palette(),
+            shortcuts_help: default_shortcuts_help(),
         }
     }
 }
@@ -44,7 +50,9 @@ fn default_quit() -> String { "ctrl+q".to_string() }
 fn default_next_tab() -> String { "ctrl+tab".to_string() }
 fn default_prev_tab() -> String { "ctrl+shift+tab".to_string() }
 fn default_add_ref() -> String { "ctrl+shift+r".to_string() }
-fn default_git_sync() -> String { "ctrl+shift+g".to_string() }
+fn default_git_sync() -> String { "ctrl+shift+s".to_string() }
+fn default_command_palette() -> String { "ctrl+k".to_string() }
+fn default_shortcuts_help() -> String { "ctrl+shift+h".to_string() }
 
 impl Keybindings {
     pub fn load() -> Self {
@@ -78,7 +86,9 @@ impl Keybindings {
              next_tab = \"ctrl+tab\"\n\
              prev_tab = \"ctrl+shift+tab\"\n\
              add_reference = \"ctrl+shift+r\"\n\
-             git_sync = \"ctrl+shift+g\"\n",
+             git_sync = \"ctrl+shift+s\"\n\
+             command_palette = \"ctrl+k\"\n\
+             shortcuts_help = \"ctrl+shift+h\"\n",
         );
     }
 }
