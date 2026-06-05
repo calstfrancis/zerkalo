@@ -81,13 +81,21 @@ pub fn parse_typst_errors(stderr: &str, project_root: &Path) -> Vec<CompileError
         }
     }
 
-    // Any trailing message with no location
+    // Also consume any trailing hint lines (= hint: …) and attach to the last error
+    // (already parsed above, but make sure hints become part of the message)
+
+    // Any trailing message with no location — include the full text, not just first line
     if errors.is_empty() && !stderr.trim().is_empty() {
+        let first_msg = stderr.lines()
+            .find(|l| !l.trim().is_empty())
+            .unwrap_or("Compile error")
+            .trim()
+            .to_string();
         errors.push(CompileError {
             file: project_root.to_path_buf(),
             line: 1,
             col: 1,
-            message: stderr.lines().next().unwrap_or("Compile error").trim().to_string(),
+            message: enrich_error_message(&first_msg),
             severity: Severity::Error,
         });
     }
@@ -96,15 +104,78 @@ pub fn parse_typst_errors(stderr: &str, project_root: &Path) -> Vec<CompileError
 }
 
 // ── Error enrichment ─────────────────────────────────────────────────────────
+// Each pattern below maps a raw Typst error message to a plain-English explanation
+// suitable for a writer who may not know Typst internals.
 
 fn enrich_error_message(msg: &str) -> String {
-    // "@key" citation → missing #bibliography() call or wrong bib path
-    if msg.contains("does not exist in the document") && msg.contains('<') && msg.contains('>') {
+    // Citation key not found in bibliography
+    if msg.contains("does not exist in the document") && (msg.contains('<') || msg.contains('@')) {
         return format!(
-            "{msg}\n→ Hint: add #bibliography(\"refs.bib\") to your document, \
-             or check the bib file path is correct relative to the .typ file"
+            "{msg}\n\
+             → The bibliography key was not found. Check that:\n\
+             \x20 1. Your .bib file is referenced: #bibliography(\"refs.bib\")\n\
+             \x20 2. The .bib file is in the same folder as your .typ file\n\
+             \x20 3. The citation key spelling matches the .bib entry exactly"
         );
     }
+
+    // Show rule type error — "expected string or function, found none/something"
+    if msg.contains("expected string or function") {
+        return format!(
+            "{msg}\n\
+             → A #show rule has an invalid or missing body. This sometimes happens\n\
+             \x20 when Zerkalo updates heading styles. Try:\n\
+             \x20 1. Open 'Update Template Settings' and re-apply your chosen style\n\
+             \x20 2. Or manually delete any incomplete '#show heading:' lines in your document"
+        );
+    }
+
+    // File not found
+    if msg.contains("file not found") || msg.contains("not found") && msg.contains(".typ") {
+        return format!(
+            "{msg}\n\
+             → A file your document includes could not be found. Check that all\n\
+             \x20 #include \"…\" and #import \"…\" paths are correct and the files exist."
+        );
+    }
+
+    // Package not found
+    if msg.contains("package not found") || msg.contains("@preview/") && msg.contains("not") {
+        return format!(
+            "{msg}\n\
+             → A Typst package is missing from the local cache. Packages are\n\
+             \x20 downloaded on first use; try compiling again while online.\n\
+             \x20 Cached packages live in: ~/.cache/typst/packages/"
+        );
+    }
+
+    // Unexpected token / unexpected end of file
+    if msg.contains("unexpected end of file") || msg.contains("unexpected token") {
+        return format!(
+            "{msg}\n\
+             → The document has a syntax error — usually a missing closing bracket,\n\
+             \x20 parenthesis, or quote. Check the line shown for an unclosed delimiter."
+        );
+    }
+
+    // Variable/function not found
+    if msg.contains("unknown variable") || (msg.contains("not found in") && msg.contains("scope")) {
+        return format!(
+            "{msg}\n\
+             → A variable or function is used but not defined. Make sure any\n\
+             \x20 #let definitions or #import statements appear before their first use."
+        );
+    }
+
+    // Font not found — common for GOST type B or other custom fonts
+    if msg.to_lowercase().contains("font") && (msg.contains("not found") || msg.contains("missing")) {
+        return format!(
+            "{msg}\n\
+             → A font used in the document is not installed. Either install the font\n\
+             \x20 or change the font in 'Update Template Settings' (Layout → Body Font)."
+        );
+    }
+
     msg.to_string()
 }
 

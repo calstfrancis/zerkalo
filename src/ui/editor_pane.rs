@@ -20,6 +20,16 @@ use super::bib_popup::BibPopup;
 use super::find_bar::FindBar;
 use super::lsp_popup::LspPopup;
 
+// Package names/descriptions matching EXTRA_PACKAGES in template_dialog.rs
+const IMPORT_PACKAGE_TOOLTIPS: &[(&str, &str)] = &[
+    ("droplet", "Large decorative first-letter (dropcap)"),
+    ("codly", "Beautiful code listings with syntax highlighting"),
+    ("showybox", "Coloured callout and theorem boxes"),
+    ("gentle-clues", "Admonition blocks: note, tip, warning, important"),
+    ("tablex", "Advanced tables with merged cells and styling"),
+    ("drafting", "Margin notes and annotation tools"),
+];
+
 // Minimal Typst language definition for GtkSourceView
 const TYPST_LANG: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <language id="typst" name="Typst" version="2.0" _section="Markup">
@@ -119,6 +129,7 @@ struct EditorTab {
     scroll_window: ScrolledWindow,
     modified: bool,
     dot_label: Label,
+    diag_dot: Label,
     lsp_popup: LspPopup,
     session_start_words: u32,
 }
@@ -153,8 +164,11 @@ pub struct EditorPane {
     undo_btn: Button,
     redo_btn: Button,
     word_count_label: Label,
+    session_delta_label: Label,
     goal_bar: ProgressBar,
     lsp_status_label: Label,
+    diag_label: Label,
+    last_diagnostics: Rc<RefCell<Vec<(PathBuf, u32, bool)>>>,
     cursor_label: Label,
     breadcrumb_label: Label,
     tab_dropdown_btn: Button,
@@ -165,6 +179,7 @@ pub struct EditorPane {
     word_count_goal: Rc<RefCell<u32>>,
     last_wc_text: Rc<RefCell<String>>,
     project_root: Rc<RefCell<Option<PathBuf>>>,
+    status_bar: GtkBox,
 }
 
 impl EditorPane {
@@ -218,18 +233,11 @@ impl EditorPane {
         undo_btn.add_css_class("flat");
         undo_btn.set_tooltip_text(Some("Undo (Ctrl+Z)"));
         undo_btn.set_sensitive(false);
-        undo_btn.set_margin_start(4);
-        undo_btn.set_margin_top(2);
-        undo_btn.set_margin_bottom(2);
-        status_bar.append(&undo_btn);
 
         let redo_btn = Button::from_icon_name("edit-redo-symbolic");
         redo_btn.add_css_class("flat");
         redo_btn.set_tooltip_text(Some("Redo (Ctrl+Shift+Z)"));
         redo_btn.set_sensitive(false);
-        redo_btn.set_margin_top(2);
-        redo_btn.set_margin_bottom(2);
-        status_bar.append(&redo_btn);
 
         let cursor_label = Label::new(Some("L1:C1"));
         cursor_label.add_css_class("dim-label");
@@ -248,6 +256,14 @@ impl EditorPane {
         lsp_status_label.set_margin_bottom(3);
         status_bar.append(&lsp_status_label);
 
+        let diag_label = Label::new(None);
+        diag_label.add_css_class("dim-label");
+        diag_label.add_css_class("caption");
+        diag_label.set_margin_start(8);
+        diag_label.set_margin_top(3);
+        diag_label.set_margin_bottom(3);
+        status_bar.append(&diag_label);
+
         let word_count_label = Label::new(Some(""));
         word_count_label.add_css_class("dim-label");
         word_count_label.add_css_class("caption");
@@ -258,6 +274,15 @@ impl EditorPane {
         word_count_label.set_margin_bottom(3);
         status_bar.append(&word_count_label);
 
+        let session_delta_label = Label::new(None);
+        session_delta_label.add_css_class("dim-label");
+        session_delta_label.add_css_class("caption");
+        session_delta_label.set_margin_end(8);
+        session_delta_label.set_margin_top(3);
+        session_delta_label.set_margin_bottom(3);
+        session_delta_label.set_visible(false);
+        status_bar.append(&session_delta_label);
+
         let goal_bar = ProgressBar::new();
         goal_bar.set_visible(false);
         goal_bar.set_valign(gtk4::Align::Center);
@@ -265,6 +290,14 @@ impl EditorPane {
         goal_bar.set_margin_end(8);
         goal_bar.set_tooltip_text(Some("Word count progress toward goal"));
         status_bar.append(&goal_bar);
+
+        let version_lbl = Label::new(Some(concat!("v", env!("CARGO_PKG_VERSION"))));
+        version_lbl.add_css_class("dim-label");
+        version_lbl.add_css_class("caption");
+        version_lbl.set_margin_end(8);
+        version_lbl.set_margin_top(3);
+        version_lbl.set_margin_bottom(3);
+        status_bar.append(&version_lbl);
 
         let breadcrumb_label = Label::new(Some(""));
         breadcrumb_label.add_css_class("dim-label");
@@ -290,6 +323,15 @@ impl EditorPane {
         word_wrap_btn.update_property(&[gtk4::accessible::Property::Label("Toggle word wrap")]);
 
         let breadcrumb_bar = GtkBox::new(Orientation::Horizontal, 0);
+        // Undo/redo at top-left of the editor panel
+        breadcrumb_bar.append(&undo_btn);
+        breadcrumb_bar.append(&redo_btn);
+        let sep = Separator::new(Orientation::Vertical);
+        sep.set_margin_top(6);
+        sep.set_margin_bottom(6);
+        sep.set_margin_start(2);
+        sep.set_margin_end(2);
+        breadcrumb_bar.append(&sep);
         breadcrumb_bar.append(&breadcrumb_label);
         breadcrumb_bar.append(&tab_dropdown_btn);
         breadcrumb_bar.append(&word_wrap_btn);
@@ -306,8 +348,8 @@ impl EditorPane {
         outer.append(&Separator::new(Orientation::Horizontal));
         outer.append(&editor_row);
         outer.append(find_bar.widget());
-        outer.append(&Separator::new(Orientation::Horizontal));
-        outer.append(&status_bar);
+        // Note: status_bar is intentionally NOT appended here.
+        // app_window places it below inner_paned so it spans the full window width.
 
         let on_change: Rc<RefCell<Option<Box<dyn Fn()>>>> = Rc::new(RefCell::new(None));
         let on_modified_changed: Rc<RefCell<Option<Box<dyn Fn(bool)>>>> = Rc::new(RefCell::new(None));
@@ -380,8 +422,11 @@ impl EditorPane {
             undo_btn,
             redo_btn,
             word_count_label,
+            session_delta_label,
             goal_bar,
             lsp_status_label,
+            diag_label,
+            last_diagnostics: Rc::new(RefCell::new(Vec::new())),
             cursor_label,
             breadcrumb_label,
             tab_dropdown_btn,
@@ -392,6 +437,7 @@ impl EditorPane {
             word_count_goal,
             last_wc_text,
             project_root,
+            status_bar,
         };
 
         {
@@ -506,6 +552,11 @@ impl EditorPane {
         &self.outer
     }
 
+    /// The status bar widget — placed by app_window below the full-width inner_paned.
+    pub fn status_bar_widget(&self) -> &GtkBox {
+        &self.status_bar
+    }
+
     // ── Settings ──────────────────────────────────────────────────────────────
 
     pub fn set_bib_entries(&self, entries: Vec<BibEntry>) {
@@ -541,10 +592,12 @@ impl EditorPane {
         self.word_wrap_btn.set_active(active);
     }
 
+    #[allow(dead_code)]
     pub fn set_word_wrap_btn_visible(&self, v: bool) {
         self.word_wrap_btn.set_visible(v);
     }
 
+    #[allow(dead_code)]
     pub fn set_lsp_label_visible(&self, v: bool) {
         self.lsp_status_label.set_visible(v);
     }
@@ -552,15 +605,10 @@ impl EditorPane {
     pub fn apply_word_wrap(&self, enabled: bool) {
         *self.word_wrap.borrow_mut() = enabled;
         let mode = if enabled { gtk4::WrapMode::Word } else { gtk4::WrapMode::None };
-        let hpol = if enabled {
-            gtk4::PolicyType::Never
-        } else {
-            gtk4::PolicyType::Automatic
-        };
         let state = self.state.borrow();
         for tab in state.tabs.values() {
             tab.view.set_wrap_mode(mode);
-            tab.scroll_window.set_policy(hpol, gtk4::PolicyType::Automatic);
+            // H-scroll policy is permanently Never; no change needed here.
         }
     }
 
@@ -773,6 +821,7 @@ impl EditorPane {
     /// Apply underline squiggles for the given diagnostics. Each entry is
     /// (file, 1-based line, is_error). Call after compile or LSP diagnostics.
     pub fn mark_diagnostics(&self, diagnostics: &[(PathBuf, u32, bool)]) {
+        *self.last_diagnostics.borrow_mut() = diagnostics.to_vec();
         let state = self.state.borrow();
         for (path, tab) in &state.tabs {
             let (buf_start, buf_end) = tab.buffer.bounds();
@@ -782,6 +831,8 @@ impl EditorPane {
             // Clear gutter marks for this buffer
             tab.buffer.remove_source_marks(&buf_start, &buf_end, Some("zerkalo-error"));
             tab.buffer.remove_source_marks(&buf_start, &buf_end, Some("zerkalo-warning"));
+            let has_errors = diagnostics.iter().any(|(f, _, is_err)| f == path && *is_err);
+            tab.diag_dot.set_visible(has_errors);
             for (err_file, err_line, is_error) in diagnostics {
                 if err_file != path {
                     continue;
@@ -801,6 +852,7 @@ impl EditorPane {
     }
 
     pub fn clear_diagnostic_marks(&self) {
+        self.last_diagnostics.borrow_mut().clear();
         let state = self.state.borrow();
         for tab in state.tabs.values() {
             let (start, end) = tab.buffer.bounds();
@@ -809,6 +861,7 @@ impl EditorPane {
             tab.buffer.remove_tag_by_name("zerkalo-diag-warning", &start, &end);
             tab.buffer.remove_source_marks(&start, &end, Some("zerkalo-error"));
             tab.buffer.remove_source_marks(&start, &end, Some("zerkalo-warning"));
+            tab.diag_dot.set_visible(false);
         }
     }
 
@@ -842,10 +895,24 @@ impl EditorPane {
         *self.on_cursor_heading.borrow_mut() = Some(Box::new(f));
     }
 
-    pub fn apply_style(&self, style_code: &str, bib_style: &str, bib_title: &str) {
+    pub fn apply_style(&self, style_code: &str, bib_style: &str, bib_title: &str, style_key: &str) {
         let Some(path) = self.get_active_path() else { return };
         let Some(content) = self.get_active_content() else { return };
-        let new_content = crate::styles::apply_to(&content, style_code, bib_style, bib_title);
+
+        let new_content = if crate::styles::has_template_block(&content) {
+            // Template document: update heading styles within the TEMPLATE block,
+            // then regenerate the title page layout for the new style.
+            let with_headings = super::template_dialog::replace_heading_styles_in_template(
+                &content, style_key,
+            );
+            let with_title = super::template_dialog::rebuild_title_page_for_style(
+                &with_headings, style_key,
+            );
+            crate::styles::update_bibliography_only(&with_title, bib_style, bib_title)
+        } else {
+            crate::styles::apply_to(&content, style_code, bib_style, bib_title)
+        };
+
         if new_content != content {
             // Clone the buffer before dropping the borrow; set_text fires
             // connect_changed which calls borrow_mut — holding the borrow here
@@ -871,8 +938,48 @@ impl EditorPane {
 
     // ── Spell check API ───────────────────────────────────────────────────────
 
+    pub fn set_session_delta(&self, delta: i32) {
+        if delta > 0 {
+            self.session_delta_label.set_text(&format!("↑ {delta}"));
+            self.session_delta_label.set_visible(true);
+        } else {
+            self.session_delta_label.set_visible(false);
+        }
+    }
+
+    pub fn get_active_session_delta(&self) -> i32 {
+        let current = match self.notebook.current_page() {
+            Some(p) => p,
+            None => return 0,
+        };
+        let state = self.state.borrow();
+        for tab in state.tabs.values() {
+            if self.notebook.page_num(&tab.scroll_window) == Some(current) {
+                let (s, e) = tab.buffer.bounds();
+                let text = tab.buffer.text(&s, &e, false);
+                let current_words = count_words(&text) as i32;
+                return current_words - tab.session_start_words as i32;
+            }
+        }
+        0
+    }
+
     pub fn set_lsp_status(&self, status: &str) {
         self.lsp_status_label.set_text(status);
+    }
+
+    pub fn set_diag_summary(&self, errors: u32, warnings: u32) {
+        let text = match (errors, warnings) {
+            (0, 0) => String::new(),
+            (e, 0) => format!("{e} error{}", if e == 1 { "" } else { "s" }),
+            (0, w) => format!("{w} warning{}", if w == 1 { "" } else { "s" }),
+            (e, w) => format!(
+                "{e} error{} · {w} warning{}",
+                if e == 1 { "" } else { "s" },
+                if w == 1 { "" } else { "s" },
+            ),
+        };
+        self.diag_label.set_text(&text);
     }
 
     pub fn set_spell_enabled(&self, enabled: bool) {
@@ -978,7 +1085,10 @@ impl EditorPane {
 
         let view = View::with_buffer(&buffer);
         view.set_show_line_numbers(true);
-        view.set_show_right_margin(false);
+        // Soft right-margin guide at 90 characters — useful even with word wrap
+        // as a visual rhythm reference for longer code lines.
+        view.set_show_right_margin(true);
+        view.set_right_margin_position(90);
 
         // Gutter icons for error and warning marks
         let err_attrs = MarkAttributes::new();
@@ -994,12 +1104,16 @@ impl EditorPane {
         let tw = *self.tab_width.borrow();
         view.set_tab_width(tw.max(1));
         view.set_indent_width(tw as i32);
-        view.set_monospace(true);
+        // Do NOT set_monospace — the editor font family is set explicitly via
+        // apply_font_family; monospace mode only matters when no font is configured.
         view.set_highlight_current_line(true);
         let wrap_mode = if *self.word_wrap.borrow() { gtk4::WrapMode::Word } else { gtk4::WrapMode::None };
         view.set_wrap_mode(wrap_mode);
         apply_space_drawer(&view, *self.show_whitespace.borrow());
         set_view_line_spacing(&view, *self.line_spacing.borrow());
+        // Comfortable content padding so the text never runs edge-to-edge.
+        view.set_left_margin(8);
+        view.set_right_margin(8);
 
         // ── Image drag-and-drop ───────────────────────────────────────────────
         {
@@ -1029,25 +1143,33 @@ impl EditorPane {
         scroll.set_child(Some(&view));
         scroll.set_hexpand(true);
         scroll.set_vexpand(true);
-        // When word wrap is on, there is nothing to the right — lock horizontal scroll.
-        let hpol = if *self.word_wrap.borrow() {
-            gtk4::PolicyType::Never
-        } else {
-            gtk4::PolicyType::Automatic
-        };
-        scroll.set_policy(hpol, gtk4::PolicyType::Automatic);
+        // Horizontal scroll is permanently disabled — all wrapping is done in the
+        // text view itself. Kinetic scrolling is disabled to prevent the view from
+        // "coasting" past where the user clicked.
+        scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
+        scroll.set_kinetic_scrolling(false);
 
         // ── Tab label ─────────────────────────────────────────────────────────
 
         let tab_box = GtkBox::new(Orientation::Horizontal, 4);
+        tab_box.set_margin_start(2);
+        tab_box.set_margin_end(2);
         let name_label = Label::new(Some(&display_name));
+        name_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+        name_label.set_max_width_chars(24);
+        let diag_dot = Label::new(Some("⬤"));
+        diag_dot.add_css_class("error");
+        diag_dot.set_visible(false);
         let dot_label = Label::new(Some("●"));
         dot_label.set_visible(false);
-        let close_btn = Button::new();
-        close_btn.set_label("✕");
+        let close_btn = Button::from_icon_name("window-close-symbolic");
         close_btn.add_css_class("flat");
+        close_btn.add_css_class("circular");
+        close_btn.set_valign(gtk4::Align::Center);
+        close_btn.set_tooltip_text(Some("Close tab"));
 
         tab_box.append(&name_label);
+        tab_box.append(&diag_dot);
         tab_box.append(&dot_label);
         tab_box.append(&close_btn);
 
@@ -1061,6 +1183,23 @@ impl EditorPane {
             }
             state_for_close.borrow_mut().tabs.remove(&path_for_close);
         });
+
+        // Middle-click anywhere on the tab label also closes the tab
+        {
+            let nb_mc = self.notebook.clone();
+            let sc_mc = scroll.clone();
+            let st_mc = self.state.clone();
+            let p_mc  = path.clone();
+            let mc = gtk4::GestureClick::new();
+            mc.set_button(2); // middle button
+            mc.connect_pressed(move |_, _, _, _| {
+                if let Some(n) = nb_mc.page_num(&sc_mc) {
+                    nb_mc.remove_page(Some(n));
+                }
+                st_mc.borrow_mut().tabs.remove(&p_mc);
+            });
+            tab_box.add_controller(mc);
+        }
 
         // ── Modified flag + word count ────────────────────────────────────────
 
@@ -1116,11 +1255,23 @@ impl EditorPane {
         let wc_lbl_for_sel = self.word_count_label.clone();
         let last_wc_for_mark = self.last_wc_text.clone();
         let breadcrumb_lbl = self.breadcrumb_label.clone();
+        let lsp_lbl_for_pkg = self.lsp_status_label.clone();
         let on_heading_cb = self.on_cursor_heading.clone();
         let path_for_heading = path.clone();
         let last_heading_line: Rc<RefCell<u32>> = Rc::new(RefCell::new(u32::MAX));
         let typewriter_for_mark = self.typewriter_scroll.clone();
         let view_for_typewriter = view.clone();
+        let view_for_scroll_margin = view.clone();
+        // Track last line the typewriter scroll recentered on, so we only fire
+        // when the cursor crosses a line boundary (not every column move).
+        let last_tw_line: Rc<std::cell::Cell<i32>> = Rc::new(std::cell::Cell::new(-1));
+        // Only do typewriter scroll when typing, not on mouse click.
+        // connect_changed fires before connect_mark_set on keyboard input.
+        let typing_flag: Rc<std::cell::Cell<bool>> = Rc::new(std::cell::Cell::new(false));
+        let typing_flag_set = typing_flag.clone();
+        buffer.connect_changed(move |_| {
+            typing_flag_set.set(true);
+        });
         buffer.connect_mark_set(move |buf, _iter, mark| {
             if mark.name().as_deref() == Some("insert") {
                 let cursor = buf.iter_at_mark(mark);
@@ -1148,13 +1299,66 @@ impl EditorPane {
                     }
                 }
 
-                // Typewriter scroll: keep cursor centred; skip during drag selection
-                if *typewriter_for_mark.borrow() && !buf.has_selection() {
+                // Scroll margin: always keep the cursor at least ~3 lines away from
+                // the viewport edges (within_margin≈0.07 at typical window heights).
+                // use_align=false means it only scrolls when the cursor is actually
+                // outside the margin zone — so it never jumps when the cursor is
+                // already well-centred. Runs in idle so it doesn't fight GTK's own
+                // cursor-follow logic.
+                if !buf.has_selection() {
+                    let mut c = cursor.clone();
+                    let vs = view_for_scroll_margin.clone();
+                    glib::idle_add_local_once(move || {
+                        vs.scroll_to_iter(&mut c, 0.07, false, 0.0, 0.5);
+                    });
+                }
+
+                // Typewriter scroll: only recenter when typing (not on mouse click).
+                // typing_flag is set true by connect_changed (fires before mark_set on keypress).
+                let was_typing = typing_flag.get();
+                typing_flag.set(false);
+                if *typewriter_for_mark.borrow()
+                    && was_typing
+                    && !buf.has_selection()
+                    && cursor.line() != last_tw_line.get()
+                {
+                    last_tw_line.set(cursor.line());
                     let mut c = cursor.clone();
                     let vt = view_for_typewriter.clone();
                     glib::idle_add_local_once(move || {
                         vt.scroll_to_iter(&mut c, 0.0, true, 0.0, 0.45);
                     });
+                }
+
+                // #import "@preview/pkg:ver" tooltip
+                {
+                    let line_start = buf.iter_at_line(cursor.line()).unwrap_or_else(|| buf.start_iter());
+                    let line_end = {
+                        let mut e = line_start.clone();
+                        if !e.ends_line() { e.forward_to_line_end(); }
+                        e
+                    };
+                    let line_text = buf.text(&line_start, &line_end, false).to_string();
+                    let trimmed = line_text.trim();
+                    if let Some(rest) = trimmed.strip_prefix("#import \"@preview/") {
+                        let pkg_name: String = rest.chars()
+                            .take_while(|c| *c != ':' && *c != '"')
+                            .collect();
+                        // Strip version suffix (e.g. "codly" from "codly:1.0.0")
+                        let base_name = pkg_name.split(':').next().unwrap_or(&pkg_name);
+                        if let Some((_, desc)) = IMPORT_PACKAGE_TOOLTIPS.iter()
+                            .find(|(n, _)| *n == base_name)
+                        {
+                            let lbl = lsp_lbl_for_pkg.clone();
+                            let desc_s = desc.to_string();
+                            let pkg_s = base_name.to_string();
+                            lbl.set_text(&format!("{pkg_s}: {desc_s}"));
+                            glib::timeout_add_local_once(
+                                std::time::Duration::from_secs(3),
+                                move || { lbl.set_text(""); },
+                            );
+                        }
+                    }
                 }
 
                 // Update breadcrumb heading path
@@ -1506,22 +1710,47 @@ impl EditorPane {
         view.add_controller(key_ctrl);
 
         // ── Auto-pair brackets and quotes ─────────────────────────────────────
+        let last_was_autopair: Rc<std::cell::Cell<bool>> = Rc::new(std::cell::Cell::new(false));
         {
             let buf_pair = buffer.clone();
             let pair_ctrl = EventControllerKey::new();
             pair_ctrl.set_propagation_phase(PropagationPhase::Capture);
+            let last_ap = last_was_autopair.clone();
             pair_ctrl.connect_key_pressed(move |_, key, _, mods| {
                 use gtk4::gdk::Key;
                 // Don't interfere when modifier keys are held (shortcuts)
                 if mods.intersects(
                     gtk4::gdk::ModifierType::CONTROL_MASK | gtk4::gdk::ModifierType::ALT_MASK,
                 ) {
+                    last_ap.set(false);
                     return glib::Propagation::Proceed;
                 }
                 // Don't auto-pair when there is a selection
                 if buf_pair.has_selection() {
+                    last_ap.set(false);
                     return glib::Propagation::Proceed;
                 }
+
+                // Skip-forward if the closing char is already there from a prior autopair
+                let skip_char: Option<char> = match key {
+                    Key::parenright   => Some(')'),
+                    Key::bracketright => Some(']'),
+                    Key::braceright   => Some('}'),
+                    // Only skip " when we know it was auto-inserted
+                    Key::quotedbl if last_ap.get() => Some('"'),
+                    _ => None,
+                };
+                if let Some(expected) = skip_char {
+                    let pos = buf_pair.cursor_position();
+                    let next = buf_pair.iter_at_offset(pos);
+                    if next.char() == expected {
+                        let ahead = buf_pair.iter_at_offset(pos + 1);
+                        buf_pair.place_cursor(&ahead);
+                        last_ap.set(false);
+                        return glib::Propagation::Stop;
+                    }
+                }
+
                 let pair = match key {
                     Key::parenleft      => Some(("(", ")")),
                     Key::bracketleft    => Some(("[", "]")),
@@ -1539,8 +1768,10 @@ impl EditorPane {
                     let iter = buf_pair.iter_at_offset(pos - 1);
                     buf_pair.place_cursor(&iter);
                     buf_pair.end_user_action();
+                    last_ap.set(true);
                     return glib::Propagation::Stop;
                 }
+                last_ap.set(false);
                 glib::Propagation::Proceed
             });
             view.add_controller(pair_ctrl);
@@ -1652,6 +1883,125 @@ impl EditorPane {
                 glib::Propagation::Stop
             });
             view.add_controller(dup_ctrl);
+        }
+
+        // ── Page break (Ctrl+Enter) ───────────────────────────────────────────
+        {
+            let buf_pb = buffer.clone();
+            let pb_ctrl = EventControllerKey::new();
+            pb_ctrl.set_propagation_phase(PropagationPhase::Capture);
+            pb_ctrl.connect_key_pressed(move |_, key, _, mods| {
+                use gtk4::gdk::Key;
+                let ctrl = mods.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
+                if !ctrl || key != Key::Return {
+                    return glib::Propagation::Proceed;
+                }
+                buf_pb.begin_user_action();
+                buf_pb.insert_at_cursor("\n#pagebreak()\n");
+                buf_pb.end_user_action();
+                glib::Propagation::Stop
+            });
+            view.add_controller(pb_ctrl);
+        }
+
+        // ── Undo / Redo keyboard shortcuts ───────────────────────────────────
+        // GTK4 GtkTextView has built-in Ctrl+Z / Ctrl+Shift+Z bindings, but we add
+        // explicit handling here so our nav_ctrl (Capture phase) can also update the
+        // button sensitivity immediately rather than waiting for the next idle cycle.
+        {
+            let buf_undo = buffer.clone();
+            let undo_ctrl = EventControllerKey::new();
+            undo_ctrl.set_propagation_phase(PropagationPhase::Capture);
+            undo_ctrl.connect_key_pressed(move |_, key, _, mods| {
+                use gtk4::gdk::Key;
+                let ctrl  = mods.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
+                let shift = mods.contains(gtk4::gdk::ModifierType::SHIFT_MASK);
+                let alt   = mods.contains(gtk4::gdk::ModifierType::ALT_MASK);
+                if !ctrl || alt || key != Key::z { return glib::Propagation::Proceed; }
+                if shift {
+                    if buf_undo.can_redo() { buf_undo.redo(); }
+                } else {
+                    if buf_undo.can_undo() { buf_undo.undo(); }
+                }
+                glib::Propagation::Stop
+            });
+            view.add_controller(undo_ctrl);
+        }
+
+        // ── Typst-aware word navigation (Ctrl+Left/Right) ────────────────────
+        // GTK's default word boundaries stop at '#' and '@', forcing two presses to
+        // skip past `#set`, `@citation`, etc.  This controller intercepts Ctrl+arrow
+        // and moves to the true end of the token (including the sigil character).
+        {
+            let buf_nav = buffer.clone();
+            let view_nav = view.clone();
+            let nav_ctrl = EventControllerKey::new();
+            nav_ctrl.set_propagation_phase(PropagationPhase::Capture);
+            nav_ctrl.connect_key_pressed(move |_, key, _, mods| {
+                use gtk4::gdk::Key;
+                let ctrl  = mods.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
+                let shift = mods.contains(gtk4::gdk::ModifierType::SHIFT_MASK);
+                let alt   = mods.contains(gtk4::gdk::ModifierType::ALT_MASK);
+                if !ctrl || alt { return glib::Propagation::Proceed; }
+
+                // ── Heading jump: Ctrl+Shift+Up / Ctrl+Shift+Down ────────────
+                if shift && (key == Key::Up || key == Key::Down) {
+                    let pos = buf_nav.cursor_position();
+                    let cur_line = buf_nav.iter_at_offset(pos).line();
+                    let line_count = buf_nav.line_count();
+                    let target_line = if key == Key::Up {
+                        (0..cur_line).rev().find(|&ln| is_heading_line(&buf_nav, ln))
+                    } else {
+                        (cur_line + 1..line_count).find(|&ln| is_heading_line(&buf_nav, ln))
+                    };
+                    if let Some(ln) = target_line {
+                        if let Some(it) = buf_nav.iter_at_line(ln) {
+                            buf_nav.place_cursor(&it);
+                            let mut it2 = it.clone();
+                            view_nav.scroll_to_iter(&mut it2, 0.1, false, 0.0, 0.3);
+                        }
+                    }
+                    return glib::Propagation::Stop;
+                }
+
+                // ── Typst-aware word movement: Ctrl+Left / Ctrl+Right ────────
+                if shift { return glib::Propagation::Proceed; } // let Ctrl+Shift+Left/Right select
+                if key != Key::Left && key != Key::Right { return glib::Propagation::Proceed; }
+
+                let pos = buf_nav.cursor_position();
+                let mut it = buf_nav.iter_at_offset(pos);
+                let forward = key == Key::Right;
+
+                if forward {
+                    // Skip leading whitespace first (mirrors GtkTextView default)
+                    while !it.is_end() && it.char().is_whitespace() {
+                        it.forward_char();
+                    }
+                    // If we're now on '#' or '@' (Typst sigils), absorb the sigil so
+                    // the next word_end lands after the whole `#keyword` or `@key`.
+                    if matches!(it.char(), '#' | '@') {
+                        it.forward_char();
+                    }
+                    it.forward_word_end();
+                } else {
+                    // Skip trailing whitespace
+                    while !it.is_start() && it.char().is_whitespace() {
+                        it.backward_char();
+                    }
+                    it.backward_word_start();
+                    // If the character just before the new position is '#' or '@', absorb it
+                    let mut probe = it.clone();
+                    if probe.backward_char() && matches!(probe.char(), '#' | '@') {
+                        it = probe;
+                    }
+                }
+
+                buf_nav.place_cursor(&it);
+                let mut sc = it.clone();
+                view_nav.scroll_to_iter(&mut sc, 0.07, false, 0.0, 0.5);
+                glib::Propagation::Stop
+            });
+            view.add_controller(nav_ctrl);
         }
 
         // ── Spell check: debounced buffer check ───────────────────────────────
@@ -1933,6 +2283,25 @@ impl EditorPane {
             view.add_controller(gesture);
         }
 
+        // Re-apply squiggles after undo restores old text
+        {
+            let last_diags = self.last_diagnostics.clone();
+            let ep_rem = self.clone();
+            let remarking: Rc<std::cell::Cell<bool>> = Rc::new(std::cell::Cell::new(false));
+            buffer.connect_changed(move |_| {
+                if remarking.get() { return; }
+                let diags = last_diags.borrow().clone();
+                if diags.is_empty() { return; }
+                remarking.set(true);
+                let ep = ep_rem.clone();
+                let rem = remarking.clone();
+                glib::idle_add_local_once(move || {
+                    ep.mark_diagnostics(&diags);
+                    rem.set(false);
+                });
+            });
+        }
+
         // ── Insert into notebook ──────────────────────────────────────────────
 
         let page_index = self.notebook.append_page(&scroll, Some(&tab_box));
@@ -1951,6 +2320,7 @@ impl EditorPane {
                 scroll_window: scroll,
                 modified: false,
                 dot_label,
+                diag_dot,
                 lsp_popup,
                 session_start_words,
             },
@@ -1989,6 +2359,20 @@ impl EditorPane {
         if let Some(n) = page_num {
             self.notebook.remove_page(Some(n));
         }
+    }
+
+    pub fn active_line_count(&self) -> u32 {
+        let current = match self.notebook.current_page() {
+            Some(p) => p,
+            None => return 1,
+        };
+        let state = self.state.borrow();
+        for tab in state.tabs.values() {
+            if self.notebook.page_num(&tab.scroll_window) == Some(current) {
+                return tab.buffer.line_count() as u32;
+            }
+        }
+        1
     }
 
     pub fn get_active_content(&self) -> Option<String> {
@@ -2080,7 +2464,7 @@ impl EditorPane {
     pub fn restore_cursor(&self, path: &PathBuf, offset: i32) {
         let state = self.state.borrow();
         if let Some(tab) = state.tabs.get(path) {
-            let clamped = offset.min(tab.buffer.char_count());
+            let clamped = offset.max(0).min(tab.buffer.char_count());
             let iter = tab.buffer.iter_at_offset(clamped);
             tab.buffer.place_cursor(&iter);
         }
@@ -2575,6 +2959,17 @@ fn find_heading_line_for(buf: &sourceview5::Buffer, line_idx: i32) -> u32 {
         check -= 1;
     }
     u32::MAX
+}
+
+/// True if `ln` is a Typst heading line (starts with `=`).
+fn is_heading_line(buf: &sourceview5::Buffer, ln: i32) -> bool {
+    if let Some(it) = buf.iter_at_line(ln) {
+        let mut end = it.clone();
+        end.forward_to_line_end();
+        let text = buf.text(&it, &end, false);
+        return text.starts_with('=');
+    }
+    false
 }
 
 fn dismiss_popup(

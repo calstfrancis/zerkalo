@@ -5,6 +5,65 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.8.6] — 2026-06-05
+
+### Fixed
+- **Citation panel — missing titles** — replaced regex `[^{}]*` field parser with a brace-depth-aware manual parser; titles containing nested braces (e.g. `{On {Church} and {State}}`, `{{All Caps Title}}`) now parse correctly instead of returning empty
+- **Citation panel — double-click** — switched from per-row `connect_activate` to a single `list.connect_row_activated` handler (the canonical GTK4 activation path); double-click and Enter now both insert the citation key; `activate_on_single_click` explicitly set to `false` to match expected UX
+
+---
+
+## [0.8.5] — 2026-06-05
+
+### Fixed
+- **No-marker confirmation** — "Update Template Settings" now shows a destructive-action confirmation dialog when the document has no `// ── Document body` marker, warning the user that their content will be replaced
+- **Corrupt sidecar logging** — `load_sidecar` now emits a `WARN` log entry when the `.zerkalo.toml` exists but fails to parse (previously swallowed the error silently)
+
+---
+
+## [0.8.4] — 2026-06-05
+
+### Changed
+- **Template settings sidecar** — each `.typ` document now gets a `<stem>.zerkalo.toml` sidecar file that stores all template settings (style, font, paper, margins, sections, languages, packages, metadata). "Update Template Settings" reads from the sidecar instead of text-parsing the `.typ` file, so pre-fill is always reliable.
+- **Apply redesign** — "Apply to Current" now regenerates the preamble/title/front-matter completely from the new settings and splices at the `// ── Document body` marker, preserving user body content. Replaces the fragile four-pass text-surgery approach.
+- **`TemplateDialog` extended** — dialog now stores and preselects page-numbers, language switches, and package switches from sidecar (previously could not round-trip these fields).
+
+---
+
+## [0.8.3] — 2026-06-05
+
+### Changed
+- **app_window.rs split** — CSS loading extracted to `load_app_css()`; hamburger menu items extracted to `build_hamburger_menu_items()` + `HamburgerItems` struct
+- **Plan panel project fallback** — panel accepts `work_dir`; when no file is open it loads `project.plan` from the project root instead of disabling
+- **Export dialog** — remembers last-used format across sessions via `last_export_format` in config
+- **Style button loop** — replaced `unwrap()` on downcast with safe `if let`
+
+### Added
+- **Session delta label** — status bar shows `↑ N` words added since file was opened
+- **Tab error indicator** — red ⬤ dot on tab label when the file has compile/LSP errors
+- **Ctrl+G** — opens command palette pre-filtered to document headings only
+
+### Fixed
+- `Cargo.lock` removed from `.gitignore` (correct for binary applications)
+
+---
+
+## [0.8.2] — 2026-06-05
+
+### Changed
+- **TODO panel → Plan panel** — replaced the per-file checklist with a freeform text scratchpad; notes are saved as a `.plan` sidecar file alongside the `.typ` document
+
+---
+
+## [0.8.1] — 2026-06-05
+
+### Fixed
+- **Style switch** — switching styles no longer wipes out the abstract, outline, extra pagebreaks, bib file pointer, or bibliography; the title-block replacement now stops at the first front-matter/body marker instead of scanning the whole document for `#pagebreak()`
+- **Default font** — template dialog now defaults to Times New Roman instead of GOST type B
+- **Sidebar** — sidebar can now be compressed to a much smaller width; search entry, buttons, and labels have `min-width: 0` so the paned divider is no longer blocked; citation key labels ellipsize rather than forcing a minimum width
+
+---
+
 ## [0.7.1] — 2026-06-01
 
 ### Fixed

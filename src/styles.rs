@@ -1,10 +1,11 @@
-/// (name, typst_code, bib_style_key, bib_title)
+/// (name, typst_code, bib_style_key, bib_title, zerkalo_style_key)
 ///
-/// `bib_style_key` — Typst built-in style name for `#bibliography(style: ...)`.
-/// `bib_title`     — Override title for the bibliography section; empty string
-///                   uses Typst's default ("Bibliography").
-pub const STYLES: &[(&str, &str, &str, &str)] = &[
-    ("Default", "", "", ""),
+/// `bib_style_key`      — Typst built-in style name for `#bibliography(style: ...)`.
+/// `bib_title`          — Override title for the bibliography section; empty string
+///                        uses Typst's default ("Bibliography").
+/// `zerkalo_style_key`  — The key stored in `// @zerkalo-style:` in template documents.
+pub const STYLES: &[(&str, &str, &str, &str, &str)] = &[
+    ("Default", "", "", "", ""),
     (
         "SBL",
         // SBL HS 2nd ed. §4.1
@@ -40,6 +41,7 @@ pub const STYLES: &[(&str, &str, &str, &str)] = &[
 ]"#,
         "chicago-notes",
         "",
+        "sbl",
     ),
     (
         "Chicago (Notes-Bib)",
@@ -60,6 +62,7 @@ pub const STYLES: &[(&str, &str, &str, &str)] = &[
 ]"#,
         "chicago-notes",
         "",
+        "chicago-notes",
     ),
     (
         "Chicago (Author-Date)",
@@ -80,6 +83,7 @@ pub const STYLES: &[(&str, &str, &str, &str)] = &[
 ]"#,
         "chicago-author-date",
         "Reference List",
+        "chicago-author-date",
     ),
     (
         "MLA",
@@ -92,6 +96,7 @@ pub const STYLES: &[(&str, &str, &str, &str)] = &[
 ]"#,
         "mla",
         "Works Cited",
+        "mla",
     ),
     (
         "APA 7th",
@@ -114,6 +119,7 @@ pub const STYLES: &[(&str, &str, &str, &str)] = &[
 ]"#,
         "apa",
         "References",
+        "apa",
     ),
     (
         "ASA",
@@ -134,6 +140,7 @@ pub const STYLES: &[(&str, &str, &str, &str)] = &[
 ]"#,
         "apa",
         "References",
+        "asa",
     ),
     (
         "Turabian",
@@ -154,6 +161,7 @@ pub const STYLES: &[(&str, &str, &str, &str)] = &[
 ]"#,
         "chicago-notes",
         "",
+        "turabian",
     ),
     (
         "IEEE",
@@ -176,6 +184,7 @@ pub const STYLES: &[(&str, &str, &str, &str)] = &[
 ]"#,
         "ieee",
         "References",
+        "ieee",
     ),
     (
         "GOST 7.32",
@@ -204,6 +213,7 @@ pub const STYLES: &[(&str, &str, &str, &str)] = &[
 ]"#,
         "apa",  // No built-in GOST CSL; substitute APA until a GOST CSL file is provided
         "",
+        "gost-7-32",
     ),
     (
         "Harvard",
@@ -224,14 +234,29 @@ pub const STYLES: &[(&str, &str, &str, &str)] = &[
 ]"#,
         "chicago-author-date",
         "References",
+        "harvard",
     ),
 ];
 
 const STYLE_BEGIN: &str = "// ZERKALO-STYLE-BEGIN";
 const STYLE_END: &str = "// ZERKALO-STYLE-END";
 
+/// Returns true when the document uses the Zerkalo template system (has TEMPLATE markers).
+/// For those documents, heading styles are owned by the template block; the legacy STYLE
+/// block must not be injected on top of them.
+pub fn has_template_block(content: &str) -> bool {
+    content.contains("// ZERKALO-TEMPLATE-BEGIN") && content.contains("// ZERKALO-TEMPLATE-END")
+}
+
 /// Insert or replace the style block, then update/append the bibliography call.
+/// For template documents (those with ZERKALO-TEMPLATE markers), this is a no-op —
+/// call `editor_pane::apply_style` instead which routes to the template-aware path.
 pub fn apply_to(content: &str, style_code: &str, bib_style: &str, bib_title: &str) -> String {
+    // Template documents own their formatting via the TEMPLATE block.
+    // Adding a STYLE block on top would cause duplicate #show heading rules.
+    if has_template_block(content) {
+        return content.to_string();
+    }
     let new_block = if style_code.is_empty() {
         String::new()
     } else {
@@ -262,6 +287,10 @@ pub fn apply_to(content: &str, style_code: &str, bib_style: &str, bib_title: &st
 
 /// Find any `#bibliography(...)` line (commented or live) and update its
 /// `style:` and `title:` arguments. If none found, append a commented hint.
+pub fn update_bibliography_only(content: &str, bib_style: &str, bib_title: &str) -> String {
+    update_bibliography(content, bib_style, bib_title)
+}
+
 fn update_bibliography(content: &str, bib_style: &str, bib_title: &str) -> String {
     if bib_style.is_empty() {
         return content.to_string();

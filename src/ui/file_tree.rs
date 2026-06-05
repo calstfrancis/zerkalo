@@ -14,6 +14,7 @@ type Callback<T> = Rc<RefCell<Option<Box<dyn Fn(T)>>>>;
 
 #[derive(Clone)]
 pub struct FileTree {
+    #[allow(dead_code)]
     root_widget: GtkBox,
     list_box: ListBox,
     project_root: Rc<PathBuf>,
@@ -129,6 +130,7 @@ impl FileTree {
         ft
     }
 
+    #[allow(dead_code)]
     pub fn widget(&self) -> &GtkBox {
         &self.root_widget
     }

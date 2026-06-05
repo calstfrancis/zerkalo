@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::mpsc::{self, TryRecvError};
@@ -41,6 +42,7 @@ pub struct PreviewPane {
     page_pixbufs: Rc<RefCell<Vec<Pixbuf>>>,
     watch_active: Rc<RefCell<bool>>,
     compile_gen: Rc<RefCell<u64>>,
+    buffer_snapshot: Rc<RefCell<HashMap<PathBuf, String>>>,
 }
 
 impl PreviewPane {
@@ -157,6 +159,7 @@ impl PreviewPane {
             page_pixbufs,
             watch_active: Rc::new(RefCell::new(false)),
             compile_gen: Rc::new(RefCell::new(0)),
+            buffer_snapshot: Rc::new(RefCell::new(HashMap::new())),
         };
 
         // Wire cancel button once
@@ -185,6 +188,10 @@ impl PreviewPane {
 
     pub fn set_root_file(&self, path: PathBuf) {
         *self.root_file.borrow_mut() = Some(path);
+    }
+
+    pub fn set_buffer_snapshot(&self, path: PathBuf, text: String) {
+        self.buffer_snapshot.borrow_mut().insert(path, text);
     }
 
     pub fn output_dir(&self) -> PathBuf {
@@ -390,9 +397,10 @@ impl PreviewPane {
 
         let (tx, rx) = mpsc::sync_channel::<CompileResult>(1);
 
+        let snapshots = self.buffer_snapshot.borrow().clone();
         std::thread::spawn(move || {
             let t0 = std::time::Instant::now();
-            let result = crate::compiler::compile_to_png_bytes(&root, 2.0);
+            let result = crate::compiler::compile_to_png_bytes(&root, 2.0, &snapshots);
             let elapsed = t0.elapsed();
             tx.send(match result {
                 Ok(pages) => CompileResult::Success(pages, elapsed),

@@ -3,13 +3,13 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
 use chrono::Datelike;
-use typst::diag::{FileError, FileResult};
+use typst::diag::{FileError, FileResult, SourceDiagnostic, Severity};
 use typst::foundations::{Bytes, Datetime};
 use typst::layout::PagedDocument;
 use typst::syntax::{FileId, Source, VirtualPath};
 use typst::text::{Font, FontBook};
 use typst::utils::LazyHash;
-use typst::{Library, LibraryExt};
+use typst::{Library, LibraryExt, World as TypstWorld};
 use typst_kit::fonts::{FontSearcher, FontSlot, Fonts};
 
 // ── Static globals: initialized once, reused across every compile ─────────────
@@ -35,10 +35,11 @@ struct ZerkaloWorld {
     main_id: FileId,
     source_cache: Mutex<HashMap<FileId, FileResult<Source>>>,
     file_cache: Mutex<HashMap<FileId, FileResult<Bytes>>>,
+    overrides: HashMap<PathBuf, String>,
 }
 
 impl ZerkaloWorld {
-    fn new(root_file: &Path) -> Result<Self, String> {
+    fn new(root_file: &Path, overrides: HashMap<PathBuf, String>) -> Result<Self, String> {
         let root = root_file
             .parent()
             .ok_or_else(|| format!("no parent directory: {}", root_file.display()))?
@@ -50,6 +51,7 @@ impl ZerkaloWorld {
             main_id,
             source_cache: Mutex::new(HashMap::new()),
             file_cache: Mutex::new(HashMap::new()),
+            overrides,
         })
     }
 
@@ -98,6 +100,9 @@ impl typst::World for ZerkaloWorld {
             }
         }
         let result = self.resolve(id).and_then(|path| {
+            if let Some(text) = self.overrides.get(&path) {
+                return Ok(Source::new(id, text.clone()));
+            }
             std::fs::read_to_string(&path)
                 .map(|text| Source::new(id, text))
                 .map_err(|_| FileError::NotFound(path))
@@ -134,11 +139,57 @@ impl typst::World for ZerkaloWorld {
     }
 }
 
+// ── Error formatting ──────────────────────────────────────────────────────────
+
+/// Convert a byte offset in `text` to a (line, column) pair (both 1-based).
+fn offset_to_line_col(text: &str, offset: usize) -> (usize, usize) {
+    let safe = offset.min(text.len());
+    let before = &text[..safe];
+    let line = before.bytes().filter(|&b| b == b'\n').count() + 1;
+    let col  = safe - before.rfind('\n').map(|p| p + 1).unwrap_or(0) + 1;
+    (line, col)
+}
+
+/// Format a list of `SourceDiagnostic` into the `error: …\n --> file:line:col` text
+/// that `parse_typst_errors` in the UI layer understands.  We use the compile world
+/// to resolve span → source → byte range → human-readable location.
+fn format_diagnostics(world: &ZerkaloWorld, diags: &[SourceDiagnostic]) -> String {
+    diags.iter().map(|d| format_one(world, d)).collect::<Vec<_>>().join("\n")
+}
+
+fn format_one(world: &ZerkaloWorld, d: &SourceDiagnostic) -> String {
+    let sev = match d.severity {
+        Severity::Error   => "error",
+        Severity::Warning => "warning",
+    };
+
+    // Try to resolve the source location from the span
+    let location: Option<String> = d.span.id().and_then(|fid| {
+        let src = TypstWorld::source(world, fid).ok()?;
+        let range = d.span.range()?;
+        let (line, col) = offset_to_line_col(src.text(), range.start);
+        let path = src.id().vpath().as_rootless_path().display().to_string();
+        Some(format!("{path}:{line}:{col}"))
+    });
+
+    let mut out = format!("{sev}: {}", d.message);
+    if let Some(loc) = location {
+        out.push_str(&format!("\n --> {loc}"));
+    }
+    for hint in &d.hints {
+        out.push_str(&format!("\n   = hint: {hint}"));
+    }
+    out
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /// Compile `root_file` in-process and return PDF bytes.
-pub fn compile_to_pdf_bytes(root_file: &Path) -> Result<Vec<u8>, String> {
-    let world = ZerkaloWorld::new(root_file)?;
+pub fn compile_to_pdf_bytes(
+    root_file: &Path,
+    overrides: &HashMap<PathBuf, String>,
+) -> Result<Vec<u8>, String> {
+    let world = ZerkaloWorld::new(root_file, overrides.clone())?;
     let result = typst::compile::<PagedDocument>(&world);
 
     match result.output {
@@ -152,11 +203,7 @@ pub fn compile_to_pdf_bytes(root_file: &Path) -> Result<Vec<u8>, String> {
                         .join("\n")
                 })
         }
-        Err(errors) => Err(errors
-            .iter()
-            .map(|e| e.message.to_string())
-            .collect::<Vec<_>>()
-            .join("\n")),
+        Err(errors) => Err(format_diagnostics(&world, &errors)),
     }
 }
 
@@ -173,7 +220,7 @@ mod tests {
     #[test]
     fn compile_trivial_document_to_pdf() {
         let path = write_temp_typ("Hello, world!");
-        let result = compile_to_pdf_bytes(&path);
+        let result = compile_to_pdf_bytes(&path, &HashMap::new());
         assert!(result.is_ok(), "trivial doc should compile: {:?}", result.err());
         let bytes = result.unwrap();
         // PDF starts with "%PDF-"
@@ -183,7 +230,7 @@ mod tests {
     #[test]
     fn compile_with_heading_and_content() {
         let path = write_temp_typ("= Introduction\n\nThis is a test document.\n");
-        let result = compile_to_pdf_bytes(&path);
+        let result = compile_to_pdf_bytes(&path, &HashMap::new());
         assert!(result.is_ok(), "document with heading should compile");
     }
 
@@ -192,14 +239,14 @@ mod tests {
         // Compiling a file that does not exist should return an error
         let path = std::path::PathBuf::from("/tmp/zerkalo-nonexistent-root-abc123.typ");
         let _ = std::fs::remove_file(&path);
-        let result = compile_to_pdf_bytes(&path);
+        let result = compile_to_pdf_bytes(&path, &HashMap::new());
         assert!(result.is_err(), "compiling a nonexistent root file should fail");
     }
 
     #[test]
     fn compile_to_png_single_page() {
         let path = write_temp_typ("= Heading\n\nSome content here.");
-        let result = compile_to_png_bytes(&path, 1.0);
+        let result = compile_to_png_bytes(&path, 1.0, &HashMap::new());
         assert!(result.is_ok(), "doc should compile to PNG");
         let pages = result.unwrap();
         assert!(!pages.is_empty(), "should produce at least one page");
@@ -212,8 +259,9 @@ mod tests {
 pub fn compile_to_png_bytes(
     root_file: &Path,
     pixel_per_pt: f32,
+    overrides: &HashMap<PathBuf, String>,
 ) -> Result<Vec<Vec<u8>>, String> {
-    let world = ZerkaloWorld::new(root_file)?;
+    let world = ZerkaloWorld::new(root_file, overrides.clone())?;
     let result = typst::compile::<PagedDocument>(&world);
 
     match result.output {
@@ -228,13 +276,6 @@ pub fn compile_to_png_bytes(
             }
             Ok(pages)
         }
-        Err(errors) => {
-            let msg = errors
-                .iter()
-                .map(|e| e.message.to_string())
-                .collect::<Vec<_>>()
-                .join("\n");
-            Err(msg)
-        }
+        Err(errors) => Err(format_diagnostics(&world, &errors)),
     }
 }

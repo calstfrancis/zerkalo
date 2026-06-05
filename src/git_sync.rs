@@ -61,15 +61,40 @@ pub fn get_remote_url(repo_path: &Path, name: &str) -> Option<String> {
 /// git repository is initialised there automatically so the path is ready to
 /// receive pushes.
 pub fn add_backup_remote(repo_path: &Path, target: &str) -> Result<(), String> {
-    let resolved = if is_local_path(target) {
-        let expanded = shellexpand::tilde(target).into_owned();
+    add_named_remote(repo_path, "backup", target)
+}
+
+/// Add (or update) a remote with `name`. Removes any existing remote with that
+/// name first. Local paths get a bare repository initialised automatically.
+/// The remote is pushed to on every `sync()` call alongside all other remotes.
+pub fn add_named_remote(repo_path: &Path, name: &str, url: &str) -> Result<(), String> {
+    let resolved = if is_local_path(url) {
+        let expanded = shellexpand::tilde(url).into_owned();
         ensure_bare_repo(Path::new(&expanded))?;
         expanded
     } else {
-        target.to_string()
+        url.to_string()
     };
-    let _ = run_git(repo_path, &["remote", "remove", "backup"]);
-    run_git(repo_path, &["remote", "add", "backup", &resolved])
+    let _ = run_git(repo_path, &["remote", "remove", name]);
+    run_git(repo_path, &["remote", "add", name, &resolved])
+}
+
+/// Remove a named remote.
+pub fn remove_remote(repo_path: &Path, name: &str) -> Result<(), String> {
+    run_git(repo_path, &["remote", "remove", name])
+}
+
+/// Return all configured remotes except "origin", paired with their push URL.
+/// These are the backup / secondary remotes that `sync()` also pushes to.
+pub fn list_backup_remotes(repo_path: &Path) -> Vec<(String, String)> {
+    list_remotes(repo_path)
+        .into_iter()
+        .filter(|n| n != "origin")
+        .filter_map(|name| {
+            let url = get_remote_url(repo_path, &name)?;
+            Some((name, url))
+        })
+        .collect()
 }
 
 /// Returns true when the string looks like a filesystem path rather than a git URL.

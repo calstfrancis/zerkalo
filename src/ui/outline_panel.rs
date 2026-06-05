@@ -1,10 +1,10 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 use std::rc::Rc;
 
 use gtk4::prelude::*;
 use gtk4::{
-    Box as GtkBox, FlowBox, ListBox, ListBoxRow, Notebook, Orientation, ScrolledWindow,
+    Box as GtkBox, FlowBox, Label, ListBox, ListBoxRow, Notebook, Orientation, ScrolledWindow,
     SelectionMode, Separator, Stack, ToggleButton,
 };
 
@@ -22,6 +22,8 @@ pub struct OutlinePanel {
     #[allow(dead_code)] symbols_btn: ToggleButton,
     row_lines: Rc<RefCell<Vec<u32>>>,
     current_path: Rc<RefCell<Option<PathBuf>>>,
+    max_depth: Rc<Cell<u32>>,
+    cached_content: Rc<RefCell<String>>,
 }
 
 impl OutlinePanel {
@@ -49,6 +51,44 @@ impl OutlinePanel {
         seg_box.append(&symbols_btn);
 
         widget.append(&seg_box);
+        widget.append(&Separator::new(Orientation::Horizontal));
+
+        // ── Depth filter row ─────────────────────────────────────────────────
+        let max_depth: Rc<Cell<u32>> = Rc::new(Cell::new(u32::MAX));
+
+        let depth_box = GtkBox::new(Orientation::Horizontal, 0);
+        depth_box.add_css_class("linked");
+        depth_box.set_margin_start(8);
+        depth_box.set_margin_end(8);
+        depth_box.set_margin_top(4);
+        depth_box.set_margin_bottom(4);
+
+        let depth_lbl = Label::new(Some("Depth: "));
+        depth_lbl.add_css_class("caption");
+        depth_lbl.add_css_class("dim-label");
+        depth_lbl.set_margin_end(4);
+        depth_box.append(&depth_lbl);
+
+        let all_btn = ToggleButton::with_label("All");
+        all_btn.set_active(true);
+        all_btn.add_css_class("flat");
+        all_btn.add_css_class("caption");
+
+        // Depth buttons — closures stored for wiring after Self is built
+        let depth_buttons: Vec<(ToggleButton, u32)> = [("H1", 1u32), ("H1–2", 2), ("H1–3", 3)]
+            .iter()
+            .map(|(label, depth)| {
+                let btn = ToggleButton::with_label(label);
+                btn.set_group(Some(&all_btn));
+                btn.add_css_class("flat");
+                btn.add_css_class("caption");
+                depth_box.append(&btn);
+                (btn, *depth)
+            })
+            .collect();
+        depth_box.append(&all_btn);
+
+        widget.append(&depth_box);
         widget.append(&Separator::new(Orientation::Horizontal));
 
         let stack = Stack::new();
@@ -91,7 +131,7 @@ impl OutlinePanel {
             flow.set_margin_top(4);
             flow.set_margin_bottom(4);
             flow.set_max_children_per_line(8);
-            flow.set_min_children_per_line(4);
+            flow.set_min_children_per_line(2);
 
             for (ch, name) in chars {
                 let cb = on_symbol_insert.clone();
@@ -159,7 +199,34 @@ impl OutlinePanel {
             });
         }
 
-        Self { widget, list_box, on_jump, on_symbol_insert, stack, outline_btn, symbols_btn, row_lines, current_path }
+        let panel = Self {
+            widget, list_box, on_jump, on_symbol_insert, stack, outline_btn, symbols_btn,
+            row_lines, current_path, max_depth, cached_content: Rc::new(RefCell::new(String::new())),
+        };
+
+        // Wire depth toggle buttons
+        for (btn, depth) in depth_buttons {
+            let p = panel.clone();
+            btn.connect_toggled(move |b| {
+                if b.is_active() {
+                    p.max_depth.set(depth);
+                    let content = p.cached_content.borrow().clone();
+                    p.repopulate(&content);
+                }
+            });
+        }
+        {
+            let p = panel.clone();
+            all_btn.connect_toggled(move |b| {
+                if b.is_active() {
+                    p.max_depth.set(u32::MAX);
+                    let content = p.cached_content.borrow().clone();
+                    p.repopulate(&content);
+                }
+            });
+        }
+
+        panel
     }
 
     #[allow(dead_code)]
@@ -174,11 +241,16 @@ impl OutlinePanel {
 
     pub fn update(&self, content: &str, path: &PathBuf) {
         *self.current_path.borrow_mut() = Some(path.clone());
+        *self.cached_content.borrow_mut() = content.to_string();
+        self.repopulate(content);
+    }
 
+    fn repopulate(&self, content: &str) {
         while let Some(child) = self.list_box.first_child() {
             self.list_box.remove(&child);
         }
 
+        let max_depth = self.max_depth.get();
         let all_lines: Vec<&str> = content.lines().collect();
         let n = all_lines.len();
 
@@ -190,6 +262,7 @@ impl OutlinePanel {
                 let stripped = line.trim_start_matches('=');
                 let level = line.len() - stripped.len();
                 if level == 0 || !stripped.starts_with(' ') { return None; }
+                if level as u32 > max_depth { return None; }
                 let text = stripped.trim_start().to_string();
                 if text.is_empty() { return None; }
                 Some((i, level, text))

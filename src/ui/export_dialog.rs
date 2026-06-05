@@ -16,6 +16,8 @@ impl ExportDialog {
         parent: &adw::ApplicationWindow,
         root_file: Option<PathBuf>,
         output_dir: PathBuf,
+        initial_format: u32,
+        on_save_format: impl Fn(u32) + 'static,
     ) -> Self {
         let window = adw::Window::new();
         window.set_title(Some("Export"));
@@ -40,6 +42,7 @@ impl ExportDialog {
         fmt_row.set_title("Format");
         let fmt_model = gtk4::StringList::new(&["PDF", "HTML", "DOCX", "ODT", "LaTeX", "EPUB"]);
         fmt_row.set_model(Some(&fmt_model));
+        fmt_row.set_selected(initial_format);
         prefs_group.add(&fmt_row);
         content.append(&prefs_group);
 
@@ -76,11 +79,13 @@ impl ExportDialog {
 
         // Wire export button
         {
+            let on_save_format = Rc::new(on_save_format);
             let spinner_c = spinner.clone();
             let status_c = status_lbl.clone();
             let fmt_c = fmt_row.clone();
             let out_dir = output_dir.clone();
 
+            let on_save_fmt_c = on_save_format.clone();
             export_btn.connect_clicked(move |btn| {
                 let Some(ref input) = root_file else {
                     status_c.set_text("No file is currently open.");
@@ -88,6 +93,7 @@ impl ExportDialog {
                 };
 
                 let fmt_idx = fmt_c.selected();
+                let on_save_fmt_inner = on_save_fmt_c.clone();
                 let stem = input
                     .file_stem()
                     .and_then(|s| s.to_str())
@@ -188,7 +194,7 @@ impl ExportDialog {
                         _ => {
                             // PDF via embedded compiler
                             let out_path = out_dir_owned.join(format!("{stem}.pdf"));
-                            match crate::compiler::compile_to_pdf_bytes(&input_owned) {
+                            match crate::compiler::compile_to_pdf_bytes(&input_owned, &std::collections::HashMap::new()) {
                                 Ok(pdf_bytes) => std::fs::write(&out_path, &pdf_bytes)
                                     .map_err(|e| format!("Failed to write PDF: {e}")),
                                 Err(e) => Err(e),
@@ -207,6 +213,7 @@ impl ExportDialog {
                     match rx.try_recv() {
                         Ok(Ok(())) => {
                             spinner_p.stop();
+                            on_save_fmt_inner(fmt_idx);
                             status_p.set_text("Done. Opening output folder…");
                             std::process::Command::new("xdg-open")
                                 .arg(&out_dir_for_open)
