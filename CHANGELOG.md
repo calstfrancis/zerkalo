@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.12.0] — 2026-06-05
+
+### Added
+
+- **Keyboard Shortcut Remap**: Command Palette moved to **Ctrl+K** (was Ctrl+P); Git Sync moved to **Ctrl+Shift+S** (was Ctrl+Shift+G). Both are configurable via `~/.config/zerkalo/keybindings.toml` using the new `command_palette` and `shortcuts_help` keys.
+- **Ctrl+Shift+H — Dynamic Keyboard Shortcuts Help**: opens a dialog showing the *current* effective keybindings read from `keybindings.toml` at runtime rather than a static list.
+- **Compilation Time Display**: status bar now shows "Compiled in Xs". Times over 3 s turn **yellow** and show a tooltip with three optimization tips (Draft profile, image placement, file splitting). Stats are appended to `~/.cache/zerkalo/compile_stats.json` on every compile.
+- **Auto-backup on Idle**: the autosave backup ticker is now idle-triggered — it fires `auto_save_idle_ms` milliseconds (default 30 000) after the last keystroke, not on a fixed wall-clock interval. Backups are skipped when the document has active compile errors. `auto_save_idle_ms` is a new field in `config.toml`.
+- **Command Palette Enhancements**: four new commands — **Find in Files…** (opens the project search panel), **Toggle Profile** (switches Final ↔ Draft compile profile), **Browse Snapshots…** (opens the snapshot timeline for the current file), and **Project Outline** placeholder (use Ctrl+G for full heading navigation).
+
+---
+
 ## [0.11.0] — 2026-06-05
 
 ### Added

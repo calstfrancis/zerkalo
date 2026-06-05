@@ -87,6 +87,8 @@ pub struct Config {
     pub recent_searches: Vec<String>,
     #[serde(default)]
     pub active_profile: CompileProfile,
+    #[serde(default = "default_auto_save_idle_ms")]
+    pub auto_save_idle_ms: u64,
 }
 
 fn default_work_dir() -> PathBuf {
@@ -106,6 +108,8 @@ fn default_spell_languages() -> Vec<String> { vec!["en_US".to_string()] }
 fn default_line_spacing() -> u32 { 2 }
 fn default_sidebar_width() -> i32 { 220 }
 fn default_preview_split() -> i32 { 600 }
+fn default_auto_save_idle_ms() -> u64 { 30_000 }
+pub fn default_auto_save_idle_ms_pub() -> u64 { 30_000 }
 
 impl Default for Config {
     fn default() -> Self {
@@ -139,6 +143,7 @@ impl Default for Config {
             manual_compile_only: false,
             recent_searches: Vec::new(),
             active_profile: CompileProfile::default(),
+            auto_save_idle_ms: default_auto_save_idle_ms(),
         }
     }
 }
