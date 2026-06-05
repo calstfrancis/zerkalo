@@ -57,6 +57,12 @@ pub struct AppWindow {
     writing_log: Rc<RefCell<WritingLog>>,
     file_start_words: FileStartWords,
     session_start: Rc<RefCell<std::time::Instant>>,
+    #[allow(dead_code)]
+    compile_on_save: Rc<RefCell<bool>>,
+    #[allow(dead_code)]
+    manual_compile_only: Rc<RefCell<bool>>,
+    #[allow(dead_code)]
+    file_watcher: Option<notify::RecommendedWatcher>,
 }
 
 impl AppWindow {
@@ -82,6 +88,8 @@ impl AppWindow {
 
         let debounce_ms: Rc<RefCell<u64>> = Rc::new(RefCell::new(config.debounce_ms));
         let auto_compile: Rc<RefCell<bool>> = Rc::new(RefCell::new(config.auto_compile));
+        let compile_on_save: Rc<RefCell<bool>> = Rc::new(RefCell::new(config.compile_on_save));
+        let manual_compile_only: Rc<RefCell<bool>> = Rc::new(RefCell::new(config.manual_compile_only));
         let current_config: Rc<RefCell<Config>> = Rc::new(RefCell::new(config.clone()));
 
         // ── Header bar ──────────────────────────────────────────────────────
@@ -147,6 +155,7 @@ impl AppWindow {
         let HamburgerItems {
             menu_new_template_item,
             menu_reapply_template_item,
+            menu_repair_markers_item,
             menu_new_item,
             menu_open_item,
             menu_open_project_item,
@@ -176,6 +185,7 @@ impl AppWindow {
 
         // New / Open
         menu_popover_box.append(&menu_new_template_item);
+        menu_popover_box.append(&menu_repair_markers_item);
         menu_popover_box.append(&menu_new_item);
         menu_popover_box.append(&Separator::new(Orientation::Horizontal));
         menu_popover_box.append(&menu_open_item);
@@ -693,6 +703,8 @@ impl AppWindow {
         let editor_for_settings = editor_pane.clone();
         let debounce_for_settings = debounce_ms.clone();
         let auto_compile_for_settings = auto_compile.clone();
+        let compile_on_save_for_settings = compile_on_save.clone();
+        let manual_compile_only_for_settings = manual_compile_only.clone();
         let current_config_for_settings = current_config.clone();
         let menu_popover_for_settings = menu_popover.clone();
         let import_item_for_settings = menu_import_item.clone();
@@ -705,6 +717,8 @@ impl AppWindow {
             let editor = editor_for_settings.clone();
             let debounce = debounce_for_settings.clone();
             let auto_flag = auto_compile_for_settings.clone();
+            let cos_flag = compile_on_save_for_settings.clone();
+            let mco_flag = manual_compile_only_for_settings.clone();
             let cfg_rc = current_config_for_settings.clone();
             let window_for_save = window_for_settings.clone();
             let import_item_save = import_item_for_settings.clone();
@@ -735,6 +749,8 @@ impl AppWindow {
             dialog.set_on_save(move |new_cfg| {
                 *debounce.borrow_mut() = new_cfg.debounce_ms;
                 *auto_flag.borrow_mut() = new_cfg.auto_compile;
+                *cos_flag.borrow_mut() = new_cfg.compile_on_save;
+                *mco_flag.borrow_mut() = new_cfg.manual_compile_only;
                 editor.apply_font_size(new_cfg.editor_font_size);
                 editor.apply_font_family(&new_cfg.editor_font_family);
                 editor.apply_word_wrap(new_cfg.editor_word_wrap);
@@ -1351,6 +1367,40 @@ impl AppWindow {
             dlg.present();
         });
 
+        // ── Menu: Repair Template Markers ───────────────────────────────────
+
+        let editor_for_repair = editor_pane.clone();
+        let window_for_repair = window.clone();
+        let menu_popover_for_repair = menu_popover.clone();
+        menu_repair_markers_item.connect_clicked(move |_| {
+            menu_popover_for_repair.popdown();
+            let Some(path) = editor_for_repair.get_active_path() else { return };
+            let (title, body) = match super::template_dialog::repair_template_markers(&path) {
+                Ok(true) => {
+                    if let Ok(new_content) = std::fs::read_to_string(&path) {
+                        editor_for_repair.reload_file(path, &new_content);
+                    }
+                    (
+                        "Marker repaired",
+                        "The body marker was re-inserted. A backup was saved as .typ.bak.".to_string(),
+                    )
+                }
+                Ok(false) => (
+                    "Marker already present",
+                    "The file already contains a valid body marker. No changes were made.".to_string(),
+                ),
+                Err(e) => ("Repair failed", e),
+            };
+            let dlg = adw::MessageDialog::new(
+                Some(&window_for_repair),
+                Some(title),
+                Some(&body),
+            );
+            dlg.add_response("ok", "OK");
+            dlg.set_default_response(Some("ok"));
+            dlg.present();
+        });
+
         // ── Menu: New Document ──────────────────────────────────────────────
 
         let window_for_new = window.clone();
@@ -1503,6 +1553,8 @@ impl AppWindow {
         let editor_for_change = editor_pane.clone();
         let debounce_for_change = debounce_ms.clone();
         let auto_compile_for_change = auto_compile.clone();
+        let compile_on_save_for_change = compile_on_save.clone();
+        let manual_compile_only_for_change = manual_compile_only.clone();
         let outline_for_change = outline_panel.clone();
         let refs_for_change = ref_manager.clone();
         let lsp_for_change = lsp_client.clone();
@@ -1516,6 +1568,8 @@ impl AppWindow {
             let editor = editor_for_change.clone();
             let gen3 = gen2.clone();
             let auto = auto_compile_for_change.clone();
+            let cos = compile_on_save_for_change.clone();
+            let mco = manual_compile_only_for_change.clone();
             let outline = outline_for_change.clone();
             let refs = refs_for_change.clone();
             let lsp = lsp_for_change.clone();
@@ -1524,7 +1578,12 @@ impl AppWindow {
             editor_pane_for_delta.set_session_delta(delta);
             glib::timeout_add_local(delay, move || {
                 if *gen3.borrow() == my_gen {
-                    if *auto.borrow() {
+                    // Compile on every keystroke only when auto-compile is on AND
+                    // neither compile_on_save nor manual_compile_only is active.
+                    let should_compile = *auto.borrow()
+                        && !*cos.borrow()
+                        && !*mco.borrow();
+                    if should_compile {
                         if let Some(path) = editor.get_active_path() {
                             if let Some(content) = editor.get_active_content() {
                                 preview.set_buffer_snapshot(path.clone(), content);
@@ -2680,6 +2739,29 @@ impl AppWindow {
 
         window.set_content(Some(&toolbar_view));
 
+        // ── File-system watcher for external .typ changes ───────────────────
+        // Fires when a .typ file in the project is written by an external tool
+        // (e.g., a sync agent, another editor) so the preview stays current.
+        let preview_for_watch = preview_pane.clone();
+        let editor_for_watch = editor_pane.clone();
+        let cos_for_watch = compile_on_save.clone();
+        let mco_for_watch = manual_compile_only.clone();
+        let file_watcher = crate::file_watcher::start(
+            project_root.clone(),
+            move |changed_path| {
+                // Only react to files we don't have open — those are handled by
+                // the editor's own save path.
+                let is_open = editor_for_watch.get_active_path()
+                    .map_or(false, |p| p == changed_path);
+                if !is_open && !*mco_for_watch.borrow() {
+                    // If compile_on_save, still compile on external writes
+                    if *cos_for_watch.borrow() || true {
+                        preview_for_watch.trigger_compile();
+                    }
+                }
+            },
+        );
+
         Self {
             window,
             editor_pane,
@@ -2695,6 +2777,9 @@ impl AppWindow {
             writing_log,
             file_start_words,
             session_start,
+            compile_on_save,
+            manual_compile_only,
+            file_watcher,
         }
     }
 
@@ -2715,6 +2800,7 @@ impl AppWindow {
         let sync = self.sync_btn.clone();
         let search = self.search_panel.clone();
         let file_tree = self.file_tree.clone();
+        let kb_manual_only = self.manual_compile_only.clone();
         let controller = gtk4::EventControllerKey::new();
 
         // ── Command palette (Ctrl+P) ────────────────────────────────────────
@@ -2763,7 +2849,11 @@ impl AppWindow {
                     if let Some(content) = editor.get_active_content() {
                         if std::fs::write(&path, &content).is_ok() {
                             editor.mark_saved(&path);
-                            preview.trigger_compile();
+                            if !*kb_manual_only.borrow() {
+                                preview.set_buffer_snapshot(path.clone(), content);
+                                preview.set_root_file(path);
+                                preview.trigger_compile();
+                            }
                         }
                     }
                 }
@@ -3741,6 +3831,7 @@ fn load_app_css() {
 struct HamburgerItems {
     menu_new_template_item: Button,
     menu_reapply_template_item: Button,
+    menu_repair_markers_item: Button,
     menu_new_item: Button,
     menu_open_item: Button,
     menu_open_project_item: Button,
@@ -3766,6 +3857,7 @@ fn build_hamburger_menu_items() -> HamburgerItems {
     HamburgerItems {
         menu_new_template_item:    make_menu_item("New from Template…",         None),
         menu_reapply_template_item: make_menu_item("Update Template Settings…", None),
+        menu_repair_markers_item:  make_menu_item("Repair Template Markers…",   None),
         menu_new_item:             make_menu_item("New Blank Document…",         None),
         menu_open_item:            make_menu_item("Open File…",                  None),
         menu_open_project_item:    make_menu_item("Open Project Folder…",        None),

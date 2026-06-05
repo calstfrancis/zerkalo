@@ -1091,6 +1091,92 @@ pub fn build_sidecar(t: &TemplateSettings) -> SidecarSettings {
     }
 }
 
+/// Reconstructs a [`TemplateSettings`] from a saved [`SidecarSettings`].
+#[allow(dead_code)]
+pub fn sidecar_to_settings(sc: &SidecarSettings) -> TemplateSettings {
+    let style_idx = CITATION_STYLES
+        .iter()
+        .position(|(_, k)| *k == sc.style)
+        .unwrap_or(0);
+    let paper_idx = PAPER_SIZES
+        .iter()
+        .position(|(_, k)| *k == sc.paper)
+        .unwrap_or(0);
+    TemplateSettings {
+        title: sc.title.clone(),
+        subtitle: sc.subtitle.clone(),
+        author: sc.author.clone(),
+        affiliation: sc.affiliation.clone(),
+        course: sc.course.clone(),
+        date: sc.date.clone(),
+        style_idx,
+        paper_idx,
+        margin_idx: sc.margin as usize,
+        font: sc.font.clone(),
+        spacing: sc.spacing.clone(),
+        page_num_pos: sc.page_numbers,
+        include_toc: sc.toc,
+        toc_depth: sc.toc_depth,
+        include_abstract: sc.abstract_enabled,
+        abstract_text: sc.abstract_text.clone(),
+        include_keywords: sc.keywords_enabled,
+        keywords: sc.keywords_text.clone(),
+        languages: sc.languages.clone(),
+        packages: sc.packages.clone(),
+        body_kind: if sc.body_kind == "book" { BodyKind::Book } else { BodyKind::Academic },
+        bib_path: sc.bib_path.as_ref().map(|s| std::path::PathBuf::from(s)),
+    }
+}
+
+/// Re-inserts the `// ── Document body` marker into a file that is missing it.
+/// Creates a `.typ.bak` backup first. Returns `Ok(true)` when the file was
+/// modified, `Ok(false)` when the marker was already present.
+pub fn repair_template_markers(path: &std::path::Path) -> Result<bool, String> {
+    let content = std::fs::read_to_string(path)
+        .map_err(|e| format!("Cannot read file: {e}"))?;
+
+    if has_body_marker(&content) {
+        return Ok(false);
+    }
+
+    let backup = path.with_extension("typ.bak");
+    std::fs::write(&backup, &content)
+        .map_err(|e| format!("Cannot create backup at {}: {e}", backup.display()))?;
+
+    // Find the end of the preamble: the last line from the top that is a
+    // #directive, // comment, or blank. The first body-content line (heading,
+    // paragraph text) follows it.
+    let lines: Vec<&str> = content.lines().collect();
+    let mut insert_before = lines.len(); // default: append at end
+    for (i, line) in lines.iter().enumerate() {
+        let t = line.trim();
+        if !t.starts_with('#') && !t.starts_with("//") && !t.is_empty() {
+            insert_before = i;
+            break;
+        }
+    }
+
+    let prefix = lines[..insert_before].join("\n");
+    let suffix = lines[insert_before..].join("\n");
+
+    let mut new_content = String::with_capacity(content.len() + 128);
+    new_content.push_str(&prefix);
+    if !prefix.is_empty() {
+        new_content.push('\n');
+    }
+    new_content.push_str("// ── Document body – DO NOT DELETE or Zerkalo template system will break\n");
+    new_content.push_str("// ── Document body ───────────────────────────────────────────────────\n\n");
+    new_content.push_str(&suffix);
+    if !suffix.is_empty() && !new_content.ends_with('\n') {
+        new_content.push('\n');
+    }
+
+    std::fs::write(path, &new_content)
+        .map_err(|e| format!("Cannot write repaired file: {e}"))?;
+
+    Ok(true)
+}
+
 /// Returns true when the document has a body-section marker and `apply_body_splice`
 /// will safely preserve the user's writing.
 pub fn has_body_marker(content: &str) -> bool {
@@ -1295,6 +1381,7 @@ fn generate_typst_template(s: &TemplateSettings) -> String {
     // Body
     match s.body_kind {
         BodyKind::Book => {
+            let _ = writeln!(out, "// ── Chapters – DO NOT DELETE or Zerkalo template system will break");
             let _ = writeln!(out, "// ── Chapters ────────────────────────────────────────────────────────");
             let _ = writeln!(out);
             let _ = writeln!(out, "= Chapter One: The Beginning");
@@ -1318,6 +1405,7 @@ fn generate_typst_template(s: &TemplateSettings) -> String {
             }
         }
         BodyKind::Academic => {
+            let _ = writeln!(out, "// ── Document body – DO NOT DELETE or Zerkalo template system will break");
             let _ = writeln!(out, "// ── Document body ───────────────────────────────────────────────────");
             let _ = writeln!(out);
             let _ = writeln!(out, "= Introduction");
