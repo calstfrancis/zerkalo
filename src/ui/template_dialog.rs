@@ -1038,30 +1038,6 @@ impl TemplateDialog {
     }
 }
 
-/// Extract the preamble content (between TEMPLATE markers) from a generated document.
-/// Returns the content between the markers, without the markers themselves.
-pub fn extract_preamble(content: &str) -> String {
-    if let (Some(begin_pos), Some(end_pos)) =
-        (content.find(TEMPLATE_BEGIN), content.find(TEMPLATE_END))
-    {
-        let after_begin = begin_pos + TEMPLATE_BEGIN.len();
-        let after_begin = if content[after_begin..].starts_with('\n') {
-            after_begin + 1
-        } else {
-            after_begin
-        };
-        content[after_begin..end_pos].trim_end().to_string()
-    } else {
-        // No markers — return everything before the title block separator
-        let sep = "// ── Title block";
-        if let Some(pos) = content.find(sep) {
-            content[..pos].trim_end().to_string()
-        } else {
-            String::new()
-        }
-    }
-}
-
 // ── Sidecar persistence ───────────────────────────────────────────────────────
 
 pub fn sidecar_path(typ_path: &std::path::Path) -> PathBuf {
@@ -1115,33 +1091,6 @@ pub fn build_sidecar(t: &TemplateSettings) -> SidecarSettings {
     }
 }
 
-pub fn sidecar_to_settings(s: &SidecarSettings) -> TemplateSettings {
-    TemplateSettings {
-        title:            s.title.clone(),
-        subtitle:         s.subtitle.clone(),
-        author:           s.author.clone(),
-        affiliation:      s.affiliation.clone(),
-        course:           s.course.clone(),
-        date:             s.date.clone(),
-        style_idx:        CITATION_STYLES.iter().position(|(_, k)| *k == s.style).unwrap_or(0),
-        paper_idx:        PAPER_SIZES.iter().position(|(_, k)| *k == s.paper).unwrap_or(0),
-        margin_idx:       s.margin as usize,
-        font:             if s.font.is_empty() { "Times New Roman".into() } else { s.font.clone() },
-        spacing:          if s.spacing.is_empty() { "0.9em".into() } else { s.spacing.clone() },
-        page_num_pos:     s.page_numbers,
-        include_toc:      s.toc,
-        toc_depth:        s.toc_depth,
-        include_abstract: s.abstract_enabled,
-        abstract_text:    s.abstract_text.clone(),
-        include_keywords: s.keywords_enabled,
-        keywords:         s.keywords_text.clone(),
-        languages:        s.languages.clone(),
-        packages:         s.packages.clone(),
-        body_kind:        if s.body_kind == "book" { BodyKind::Book } else { BodyKind::Academic },
-        bib_path:         s.bib_path.as_deref().filter(|p| !p.is_empty()).map(PathBuf::from),
-    }
-}
-
 /// Returns true when the document has a body-section marker and `apply_body_splice`
 /// will safely preserve the user's writing.
 pub fn has_body_marker(content: &str) -> bool {
@@ -1179,7 +1128,7 @@ pub fn apply_body_splice(existing: &str, fresh: &str) -> String {
 fn bib_title_for_style(style_key: &str) -> &'static str {
     match style_key {
         "mla"                 => "Works Cited",
-        "chicago-author-date" => "Reference List",
+        "chicago-author-date" => "References",
         "apa" | "asa" | "ieee" | "harvard" => "References",
         _                     => "",
     }
@@ -1554,7 +1503,7 @@ pub fn bib_style(style_key: &str) -> &'static str {
 
 fn package_import(key: &str) -> Option<&'static str> {
     match key {
-        "pkg_droplet" => Some("#import \"@preview/droplet:0.2.0\": dropcap"),
+        "pkg_droplet" => Some("#import \"@preview/droplet:0.3.1\": dropcap"),
         "pkg_codly" => {
             Some("#import \"@preview/codly:1.0.0\": *\n#show: codly-init.with()")
         }
@@ -2148,100 +2097,6 @@ pub fn parse_margin(content: &str) -> usize {
     0
 }
 
-/// Replace `old_pat` with `new_pat` only inside `block_prefix(…)` blocks,
-/// skipping comment lines. Handles both inline and multi-line block forms.
-fn replace_in_set_blocks(content: &str, block_prefix: &str, old_pat: &str, new_pat: &str) -> String {
-    let mut result = String::with_capacity(content.len());
-    let mut in_block = false;
-    for line in content.lines() {
-        let t = line.trim();
-        if !t.starts_with("//") && t.starts_with(block_prefix) { in_block = true; }
-        let line_out = if in_block && !t.starts_with("//") {
-            line.replace(old_pat, new_pat)
-        } else {
-            line.to_string()
-        };
-        result.push_str(&line_out);
-        result.push('\n');
-        if in_block {
-            let opened_inline = t.starts_with(block_prefix) && t.contains(')');
-            let closed_alone  = !t.starts_with(block_prefix) && t.starts_with(')');
-            if opened_inline || closed_alone { in_block = false; }
-        }
-    }
-    if !content.ends_with('\n') && result.ends_with('\n') {
-        result.truncate(result.len() - 1);
-    }
-    result
-}
-
-/// Replace the preamble section (between TEMPLATE markers) with `new_preamble`.
-/// If no markers exist, prepends the new preamble (with markers) before the body.
-/// Also removes any ZERKALO-STYLE-BEGIN/END block, which would otherwise override
-/// font/spacing/page settings with stale values from a previous style application.
-pub fn reapply_preamble(existing: &str, new_preamble: &str) -> String {
-    let wrapped = format!("{TEMPLATE_BEGIN}\n{new_preamble}\n{TEMPLATE_END}\n");
-
-    // Capture old font/spacing BEFORE replacing the template section.
-    let old_font = parse_font(existing);
-    let new_font = parse_font(new_preamble);
-    let old_spacing = parse_spacing(existing);
-    let new_spacing = parse_spacing(new_preamble);
-
-    let with_template = if let (Some(begin_pos), Some(end_marker_pos)) =
-        (existing.find(TEMPLATE_BEGIN), existing.find(TEMPLATE_END))
-    {
-        let end_pos = end_marker_pos + TEMPLATE_END.len();
-        let after = if existing[end_pos..].starts_with('\n') {
-            end_pos + 1
-        } else {
-            end_pos
-        };
-        let before = &existing[..begin_pos];
-        let rest = &existing[after..];
-        format!("{before}{wrapped}{rest}")
-    } else {
-        // No markers — prepend before the document body separator if present
-        let body_sep = "// ── Document body";
-        if let Some(pos) = existing.find(body_sep) {
-            let before = &existing[..pos];
-            let rest = &existing[pos..];
-            format!("{before}{wrapped}\n{rest}")
-        } else {
-            format!("{wrapped}\n{existing}")
-        }
-    };
-
-    let with_style_stripped = strip_style_block(&with_template);
-
-    // Propagate font change to any #set text(font:...) blocks in the document.
-    // Only replaces inside #set text(...) blocks to avoid touching comments/strings.
-    let after_font = match (old_font, new_font) {
-        (Some(old), Some(new)) if old != new => replace_in_set_blocks(
-            &with_style_stripped,
-            "#set text(",
-            &format!("font: \"{old}\""),
-            &format!("font: \"{new}\""),
-        ),
-        _ => with_style_stripped,
-    };
-
-    // Propagate spacing (leading) change to any #set par(leading:...) blocks.
-    let after_spacing = match (old_spacing, new_spacing) {
-        (Some(old), Some(new)) if old != new => replace_in_set_blocks(
-            &after_font,
-            "#set par(",
-            &format!("leading: {old}"),
-            &format!("leading: {new}"),
-        ),
-        _ => after_font,
-    };
-
-    // Remove any #show heading / #set heading(numbering:) rules that live outside
-    // the template markers — they would override the newly applied template styles.
-    strip_conflicting_heading_rules(&after_spacing)
-}
-
 /// Remove the legacy ZERKALO-STYLE-BEGIN/END block if present. The template section
 /// owns font, spacing, and page settings; a stale style block after it would override them.
 /// Generate a minimal Zerkalo template preamble for wrapping imported content.
@@ -2795,160 +2650,6 @@ pub fn replace_title_page(existing: &str, new_template: &str) -> String {
     format!("{}{}{}", &existing[..old_start], new_title_block, &existing[old_end..])
 }
 
-// ── Body front-matter updater ─────────────────────────────────────────────────
-
-/// Replace the zone between the title-block `#pagebreak()` and the body-section
-/// marker with the supplied abstract / keywords / ToC settings.
-/// This updates what the "Sections" tab in the template dialog controls.
-pub fn update_body_front_matter(
-    content: &str,
-    include_toc: bool,
-    toc_depth: u32,
-    include_abstract: bool,
-    abstract_text: &str,
-    include_keywords: bool,
-    keywords: &str,
-) -> String {
-    const BODY_MARKERS: &[&str] = &["// ── Document body", "// ── Chapters"];
-
-    let body_pos = BODY_MARKERS.iter().filter_map(|m| content.find(m)).min();
-    let Some(body_pos) = body_pos else {
-        // No body marker — try first top-level heading as anchor
-        return update_body_front_matter_headingless(
-            content, include_toc, toc_depth, include_abstract, abstract_text,
-            include_keywords, keywords,
-        );
-    };
-
-    let before_body = &content[..body_pos];
-
-    // Anchor: the FIRST #pagebreak() after TEMPLATE_END (= the title-page break).
-    // Using rfind() would pick up an existing TOC's page break instead, causing
-    // the old TOC to survive and a second one to be inserted alongside it.
-    let search_start = before_body.find(TEMPLATE_END)
-        .map(|p| p + TEMPLATE_END.len())
-        .unwrap_or(0);
-    let Some(pb_offset) = before_body[search_start..].find("#pagebreak()") else {
-        // No title-page break (MLA, IEEE): insert any front matter directly
-        // before the body marker with a blank-line separator.
-        let mut front_matter = String::new();
-        if include_abstract {
-            front_matter.push_str("#align(center)[*Abstract*]\n");
-            if !abstract_text.is_empty() {
-                front_matter.push_str("#block(inset: (x: 1in))[\n  ");
-                front_matter.push_str(abstract_text);
-                front_matter.push_str("\n]\n");
-            }
-            front_matter.push('\n');
-        }
-        if include_keywords && !keywords.is_empty() {
-            front_matter.push_str(&format!("_Keywords:_ {}\n\n", keywords));
-        }
-        if include_toc {
-            front_matter.push_str(&format!("#outline(depth: {})\n#pagebreak()\n\n", toc_depth));
-        }
-        if front_matter.is_empty() {
-            return content.to_string();
-        }
-        let before = content[..body_pos].trim_end_matches('\n');
-        return format!("{}\n\n{}{}", before, front_matter, &content[body_pos..]);
-    };
-    let pb_pos = search_start + pb_offset;
-
-    // Zone start: end of the #pagebreak() line (include the newline)
-    let pb_line_end = {
-        let after = &before_body[pb_pos + "#pagebreak()".len()..];
-        pb_pos + "#pagebreak()".len() + after.find('\n').map(|i| i + 1).unwrap_or(0)
-    };
-
-    let before_zone = &content[..pb_line_end];
-    let body_section = &content[body_pos..];
-
-    let mut front_matter = String::from("\n");
-    if include_abstract {
-        front_matter.push_str("#align(center)[*Abstract*]\n");
-        if !abstract_text.is_empty() {
-            front_matter.push_str("#block(inset: (x: 1in))[\n  ");
-            front_matter.push_str(abstract_text);
-            front_matter.push_str("\n]\n");
-        }
-        front_matter.push('\n');
-    }
-    if include_keywords && !keywords.is_empty() {
-        front_matter.push_str(&format!("_Keywords:_ {}\n\n", keywords));
-    }
-    if include_toc {
-        front_matter.push_str(&format!("#outline(depth: {})\n#pagebreak()\n\n", toc_depth));
-    }
-
-    format!("{before_zone}{front_matter}{body_section}")
-}
-
-fn update_body_front_matter_headingless(
-    content: &str,
-    include_toc: bool,
-    toc_depth: u32,
-    include_abstract: bool,
-    abstract_text: &str,
-    include_keywords: bool,
-    keywords: &str,
-) -> String {
-    // Fallback: find first `= ` heading and insert front-matter before it,
-    // after the nearest preceding #pagebreak().
-    let heading_pos = content
-        .lines()
-        .enumerate()
-        .find(|(_, l)| {
-            let t = l.trim();
-            t.starts_with("= ") && !t.starts_with("==")
-        })
-        .and_then(|(i, _)| {
-            // Convert line index to byte position
-            let mut pos = 0usize;
-            for (n, line) in content.lines().enumerate() {
-                if n == i { return Some(pos); }
-                pos += line.len() + 1;
-            }
-            None
-        });
-
-    let Some(heading_pos) = heading_pos else {
-        return content.to_string();
-    };
-
-    let before_heading = &content[..heading_pos];
-    let after_heading = &content[heading_pos..];
-
-    let pb_pos = before_heading.rfind("#pagebreak()");
-    let zone_start = if let Some(p) = pb_pos {
-        let after = &before_heading[p + "#pagebreak()".len()..];
-        p + "#pagebreak()".len() + after.find('\n').map(|i| i + 1).unwrap_or(0)
-    } else {
-        before_heading.len()
-    };
-
-    let before_zone = &content[..zone_start];
-
-    let mut front_matter = String::from("\n");
-    if include_abstract {
-        front_matter.push_str("#align(center)[*Abstract*]\n");
-        if !abstract_text.is_empty() {
-            front_matter.push_str("#block(inset: (x: 1in))[\n  ");
-            front_matter.push_str(abstract_text);
-            front_matter.push_str("\n]\n");
-        }
-        front_matter.push('\n');
-    }
-    if include_keywords && !keywords.is_empty() {
-        front_matter.push_str(&format!("_Keywords:_ {}\n\n", keywords));
-    }
-    if include_toc {
-        front_matter.push_str(&format!("#outline(depth: {})\n#pagebreak()\n\n", toc_depth));
-    }
-
-    format!("{before_zone}{front_matter}{after_heading}")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3009,27 +2710,6 @@ mod tests {
     }
 
     #[test]
-    fn replace_in_set_blocks_font() {
-        let doc = "#set text(font: \"Arial\", size: 12pt)\n\
-                   // font: \"Arial\"\n\
-                   = Heading\n\
-                   #set text(\n  font: \"Arial\",\n)\n";
-        let result = replace_in_set_blocks(doc, "#set text(", "font: \"Arial\"", "font: \"Garamond\"");
-        assert!(result.contains("font: \"Garamond\""));
-        assert!(result.contains("// font: \"Arial\""), "comment should not be changed");
-        assert!(!result.contains("#set text(font: \"Arial\""));
-    }
-
-    #[test]
-    fn replace_in_set_blocks_leading() {
-        let doc = "#set par(leading: 0.65em, spacing: 1.2em)\n\
-                   #set par(\n  leading: 0.65em,\n  justify: true,\n)\n";
-        let result = replace_in_set_blocks(doc, "#set par(", "leading: 0.65em", "leading: 1.2em");
-        assert_eq!(result.matches("leading: 1.2em").count(), 2);
-        assert!(!result.contains("leading: 0.65em"));
-    }
-
-    #[test]
     fn strip_style_block_removes_section() {
         let doc = "before\n// ZERKALO-STYLE-BEGIN\n#set text(font: \"X\")\n// ZERKALO-STYLE-END\nafter\n";
         let result = strip_style_block(doc);
@@ -3040,36 +2720,6 @@ mod tests {
     fn strip_style_block_noop_when_absent() {
         let doc = "no style block here\n";
         assert_eq!(strip_style_block(doc), doc);
-    }
-
-    #[test]
-    fn reapply_preamble_replaces_markers() {
-        let existing = "// ZERKALO-TEMPLATE-BEGIN\n#set text(font: \"Arial\")\n// ZERKALO-TEMPLATE-END\n= Body\n";
-        let new_preamble = "#set text(font: \"Garamond\", size: 12pt)\n#set par(leading: 0.9em, spacing: 1.2em)\n";
-        let result = reapply_preamble(existing, new_preamble);
-        assert!(result.contains("font: \"Garamond\""));
-        assert!(result.contains("= Body"));
-        assert!(!result.contains("font: \"Arial\""));
-    }
-
-    #[test]
-    fn reapply_preamble_propagates_font_change() {
-        let existing = "// ZERKALO-TEMPLATE-BEGIN\n#set text(font: \"Arial\")\n// ZERKALO-TEMPLATE-END\n\
-                        #set text(\n  font: \"Arial\",\n  size: 14pt,\n)\n= Body\n";
-        let new_preamble = "#set text(font: \"Garamond\", size: 12pt)\n#set par(leading: 0.9em, spacing: 1.2em)\n";
-        let result = reapply_preamble(existing, new_preamble);
-        assert_eq!(result.matches("font: \"Garamond\"").count(), 2, "font in both template and manual section");
-        assert!(!result.contains("font: \"Arial\""));
-    }
-
-    #[test]
-    fn reapply_preamble_propagates_spacing_change() {
-        let existing = "// ZERKALO-TEMPLATE-BEGIN\n#set par(leading: 0.65em, spacing: 1.2em)\n// ZERKALO-TEMPLATE-END\n\
-                        #set par(\n  leading: 0.65em,\n  justify: false,\n)\n= Body\n";
-        let new_preamble = "#set text(font: \"Arial\")\n#set par(leading: 1.2em, spacing: 1.2em)\n";
-        let result = reapply_preamble(existing, new_preamble);
-        assert_eq!(result.matches("leading: 1.2em").count(), 2, "leading in both template and manual section");
-        assert!(!result.contains("leading: 0.65em"));
     }
 
     #[test]
@@ -3197,20 +2847,6 @@ Body text.\n";
         assert_eq!(parse_abstract_text(doc), "My abstract text");
         assert!(parse_has_keywords(doc));
         assert_eq!(parse_keywords_text(doc), "one, two");
-    }
-
-    #[test]
-    fn update_body_front_matter_adds_toc() {
-        let doc = "// ZERKALO-TEMPLATE-END\n\n#pagebreak()\n\n// ── Document body\n= Introduction\n";
-        let result = update_body_front_matter(doc, true, 2, false, "", false, "");
-        assert!(result.contains("#outline(depth: 2)"), "ToC added");
-    }
-
-    #[test]
-    fn update_body_front_matter_removes_old_elements() {
-        let doc = "// ZERKALO-TEMPLATE-END\n\n#pagebreak()\n\n#outline(depth: 2)\n\n// ── Document body\n= Introduction\n";
-        let result = update_body_front_matter(doc, false, 2, false, "", false, "");
-        assert!(!result.contains("#outline("), "ToC removed when disabled");
     }
 
     #[test]

@@ -82,7 +82,7 @@ pub const STYLES: &[(&str, &str, &str, &str, &str)] = &[
   #text(style: "italic")[#it.body]
 ]"#,
         "chicago-author-date",
-        "Reference List",
+        "References",
         "chicago-author-date",
     ),
     (

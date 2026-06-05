@@ -1,6 +1,6 @@
 [package]
 name = "zerkalo"
-version = "0.8.6"
+version = "0.8.19"
 edition = "2021"
 
 [dependencies]

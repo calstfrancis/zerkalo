@@ -6,7 +6,7 @@ use std::time::{Duration, SystemTime};
 use gtk4::prelude::*;
 use gtk4::{
     Align, Box as GtkBox, Button, Entry, Label, MenuButton,
-    Notebook, Orientation, Paned, Popover, ScrolledWindow, Separator, Stack, Switch, ToggleButton,
+    Notebook, Orientation, Paned, Popover, ScrolledWindow, Separator, Stack, ToggleButton,
 };
 use libadwaita as adw;
 use adw::prelude::*;
@@ -138,7 +138,7 @@ impl AppWindow {
         compile_btn.add_css_class("suggested-action");
         compile_btn.add_css_class("pill");
 
-        let sync_btn = Button::from_icon_name("vcs-commit-symbolic");
+        let sync_btn = Button::from_icon_name("vcs-push-symbolic");
         sync_btn.set_tooltip_text(Some("Commit & Push to Git (Ctrl+Shift+G)"));
         sync_btn.add_css_class("flat");
         sync_btn.update_property(&[gtk4::accessible::Property::Label("Commit and push to Git")]);
@@ -506,7 +506,31 @@ impl AppWindow {
         editor_pane.apply_typewriter_scroll(config.typewriter_scrolling);
         editor_pane.set_spell_enabled(config.spell_enabled);
         editor_pane.set_spell_autocorrect(config.spell_autocorrect);
-        editor_pane.set_spell_language(&config.spell_language);
+        editor_pane.set_spell_languages(config.spell_languages.clone());
+        {
+            let cfg = current_config.clone();
+            editor_pane.set_on_autocorrect_toggle(move |enabled| {
+                cfg.borrow_mut().spell_autocorrect = enabled;
+                let _ = cfg.borrow().save();
+            });
+        }
+        {
+            let win = window.clone();
+            editor_pane.set_on_version_click(move || {
+                show_changelog(&win);
+            });
+        }
+        {
+            let win = window.clone();
+            let ep = editor_pane.clone();
+            editor_pane.set_on_word_count_click(move || {
+                if let Some(text) = ep.active_text() {
+                    let session_start = ep.session_start_words();
+                    let project_root = ep.project_root();
+                    show_doc_stats(&win, &text, session_start, project_root.as_deref());
+                }
+            });
+        }
         preview_pane.set_zoom(config.preview_zoom);
         apply_theme(&config.theme);
         if config.high_contrast {
@@ -721,7 +745,7 @@ impl AppWindow {
                 editor.apply_typewriter_scroll(new_cfg.typewriter_scrolling);
                 editor.set_spell_enabled(new_cfg.spell_enabled);
                 editor.set_spell_autocorrect(new_cfg.spell_autocorrect);
-                editor.set_spell_language(&new_cfg.spell_language);
+                editor.set_spell_languages(new_cfg.spell_languages.clone());
                 apply_theme(&new_cfg.theme);
                 editor.apply_style_scheme(adw::StyleManager::default().is_dark());
                 // High contrast CSS class on the window
@@ -1254,14 +1278,6 @@ impl AppWindow {
                     dlg.preselect_spacing(&s);
                 }
                 dlg.preselect_margin(super::template_dialog::parse_margin(&current_content));
-                dlg.preselect_metadata(
-                    &super::template_dialog::parse_meta(&current_content, "title"),
-                    &super::template_dialog::parse_meta(&current_content, "subtitle"),
-                    &super::template_dialog::parse_meta(&current_content, "author"),
-                    &super::template_dialog::parse_meta(&current_content, "affiliation"),
-                    &super::template_dialog::parse_meta(&current_content, "course"),
-                    &super::template_dialog::parse_meta(&current_content, "date"),
-                );
                 dlg.preselect_toc(
                     super::template_dialog::parse_has_toc(&current_content),
                     super::template_dialog::parse_toc_depth(&current_content),
@@ -1275,6 +1291,16 @@ impl AppWindow {
                     &super::template_dialog::parse_keywords_text(&current_content),
                 );
             }
+            // Always read metadata from the document — the user may have edited the
+            // #let doc-* variables directly, and the sidecar won't reflect those changes.
+            dlg.preselect_metadata(
+                &super::template_dialog::parse_meta(&current_content, "title"),
+                &super::template_dialog::parse_meta(&current_content, "subtitle"),
+                &super::template_dialog::parse_meta(&current_content, "author"),
+                &super::template_dialog::parse_meta(&current_content, "affiliation"),
+                &super::template_dialog::parse_meta(&current_content, "course"),
+                &super::template_dialog::parse_meta(&current_content, "date"),
+            );
 
             let ep = editor_for_reapply.clone();
             let win_for_apply = window_for_reapply.clone();
@@ -2371,24 +2397,7 @@ impl AppWindow {
         // (Refs and Files panels removed — refs/file-tree callbacks kept for
         //  compile-error marking, dirty indicators, and image-drop insertion)
 
-        // ── Bottom sidebar controls: GOST font switch ─────────────────────────
-
-        let gost_font_row = GtkBox::new(Orientation::Horizontal, 8);
-        gost_font_row.set_margin_start(12);
-        gost_font_row.set_margin_end(12);
-        gost_font_row.set_margin_top(4);
-        gost_font_row.set_margin_bottom(8);
-        let gost_font_lbl = Label::new(Some("GOST type B"));
-        gost_font_lbl.set_hexpand(true);
-        gost_font_lbl.set_xalign(0.0);
-        let gost_font_sw = Switch::new();
-        gost_font_sw.set_active(false);
-        gost_font_sw.set_valign(Align::Center);
-        gost_font_row.append(&gost_font_lbl);
-        gost_font_row.append(&gost_font_sw);
-
-
-        // Wire GOST type B font switch — applies to editor AND whole UI
+        // ── GOST font toggle (status bar button wired here) ───────────────────
         let current_config_for_gost = current_config.clone();
         let ui_font_provider = gtk4::CssProvider::new();
         if let Some(display) = gtk4::gdk::Display::default() {
@@ -2400,8 +2409,8 @@ impl AppWindow {
         }
         {
             let ui_prov = ui_font_provider.clone();
-            gost_font_sw.connect_active_notify(move |sw| {
-                if sw.is_active() {
+            editor_pane.set_on_gost_toggle(move |enabled| {
+                if enabled {
                     let cfg = current_config_for_gost.borrow();
                     let editor_font = cfg.editor_font_family.clone();
                     let size_clause = if cfg.editor_font_size > 0 {
@@ -2409,8 +2418,6 @@ impl AppWindow {
                     } else {
                         String::new()
                     };
-                    // Apply GOST to all UI furniture; the textview (editor) rule overrides it
-                    // because 'textview' is more specific than '*' within the same provider.
                     ui_prov.load_from_data(&format!(
                         "* {{ font-family: 'GOST type B'; }} \
                          textview {{ font-family: '{editor_font}'; {size_clause}}}",
@@ -2462,14 +2469,6 @@ impl AppWindow {
                         dlg.preselect_spacing(&s);
                     }
                     dlg.preselect_margin(super::template_dialog::parse_margin(&current_content));
-                    dlg.preselect_metadata(
-                        &super::template_dialog::parse_meta(&current_content, "title"),
-                        &super::template_dialog::parse_meta(&current_content, "subtitle"),
-                        &super::template_dialog::parse_meta(&current_content, "author"),
-                        &super::template_dialog::parse_meta(&current_content, "affiliation"),
-                        &super::template_dialog::parse_meta(&current_content, "course"),
-                        &super::template_dialog::parse_meta(&current_content, "date"),
-                    );
                     dlg.preselect_toc(
                         super::template_dialog::parse_has_toc(&current_content),
                         super::template_dialog::parse_toc_depth(&current_content),
@@ -2483,6 +2482,16 @@ impl AppWindow {
                         &super::template_dialog::parse_keywords_text(&current_content),
                     );
                 }
+                // Always read metadata from the document — the user may have edited the
+                // #let doc-* variables directly, and the sidecar won't reflect those changes.
+                dlg.preselect_metadata(
+                    &super::template_dialog::parse_meta(&current_content, "title"),
+                    &super::template_dialog::parse_meta(&current_content, "subtitle"),
+                    &super::template_dialog::parse_meta(&current_content, "author"),
+                    &super::template_dialog::parse_meta(&current_content, "affiliation"),
+                    &super::template_dialog::parse_meta(&current_content, "course"),
+                    &super::template_dialog::parse_meta(&current_content, "date"),
+                );
 
                 let ep2 = ep_ut.clone();
                 let win_ut2 = win_ut.clone();
@@ -2551,8 +2560,6 @@ impl AppWindow {
         left_box.append(outline_panel.widget());
         left_box.append(&Separator::new(Orientation::Horizontal));
         left_box.append(citation_panel.widget());
-        left_box.append(&Separator::new(Orientation::Horizontal));
-        left_box.append(&gost_font_row);
         *left_paned_holder.borrow_mut() = Some(left_box.clone());
 
         // ── Right sidebar (plan panel) ────────────────────────────────────────
@@ -3806,6 +3813,109 @@ fn make_menu_item(label: &str, shortcut: Option<&str>) -> Button {
 
     btn.set_child(Some(&row));
     btn
+}
+
+fn show_doc_stats(
+    parent: &impl IsA<gtk4::Window>,
+    text: &str,
+    session_start: u32,
+    project_root: Option<&std::path::Path>,
+) {
+    let words = text.split_whitespace().count();
+    let chars = text.chars().filter(|c| !c.is_whitespace()).count();
+    let chars_with_spaces = text.chars().count();
+    let paragraphs = text.split("\n\n").filter(|s| !s.trim().is_empty()).count();
+    let sentences = text
+        .split(|c: char| matches!(c, '.' | '!' | '?'))
+        .filter(|s| !s.trim().is_empty())
+        .count();
+    let reading_mins = if words < 200 { "<1".to_string() } else { format!("{}", words / 200) };
+    let session_delta = if words as u32 > session_start {
+        format!("+{}", words as u32 - session_start)
+    } else if (words as u32) < session_start {
+        format!("{}", words as i64 - session_start as i64)
+    } else {
+        "±0".to_string()
+    };
+
+    let mut body = format!(
+        "Words            {words}  ({session_delta} this session)\n\
+         Characters       {chars}  ({chars_with_spaces} with spaces)\n\
+         Paragraphs       {paragraphs}\n\
+         Sentences        {sentences}\n\
+         Reading time     {reading_mins} min",
+    );
+
+    if let Some(root) = project_root {
+        let total: u32 = crate::project::collect_typ_files(root)
+            .iter()
+            .filter_map(|p| std::fs::read_to_string(p).ok())
+            .map(|c| c.split_whitespace().count() as u32)
+            .sum();
+        body.push_str(&format!("\n\nProject total    {total} words"));
+    }
+
+    let win = adw::Window::new();
+    win.set_title(Some("Document Statistics"));
+    win.set_default_width(340);
+    win.set_default_height(-1);
+    win.set_transient_for(Some(parent));
+    win.set_modal(false);
+
+    let buf = gtk4::TextBuffer::new(None);
+    buf.set_text(&body);
+
+    let view = gtk4::TextView::with_buffer(&buf);
+    view.set_editable(false);
+    view.set_cursor_visible(false);
+    view.set_monospace(true);
+    view.set_left_margin(16);
+    view.set_right_margin(16);
+    view.set_top_margin(12);
+    view.set_bottom_margin(12);
+
+    let header = adw::HeaderBar::new();
+    let toolbar = adw::ToolbarView::new();
+    toolbar.add_top_bar(&header);
+    toolbar.set_content(Some(&view));
+    win.set_content(Some(&toolbar));
+    win.present();
+}
+
+fn show_changelog(parent: &impl IsA<gtk4::Window>) {
+    const CHANGELOG: &str = include_str!("../../CHANGELOG.md");
+
+    let win = adw::Window::new();
+    win.set_title(Some("Changelog — Zerkalo"));
+    win.set_default_width(640);
+    win.set_default_height(520);
+    win.set_transient_for(Some(parent));
+    win.set_modal(false);
+
+    let buf = gtk4::TextBuffer::new(None);
+    buf.set_text(CHANGELOG);
+
+    let view = gtk4::TextView::with_buffer(&buf);
+    view.set_editable(false);
+    view.set_cursor_visible(false);
+    view.set_wrap_mode(gtk4::WrapMode::Word);
+    view.set_monospace(true);
+    view.set_left_margin(16);
+    view.set_right_margin(16);
+    view.set_top_margin(12);
+    view.set_bottom_margin(12);
+
+    let scroll = gtk4::ScrolledWindow::new();
+    scroll.set_child(Some(&view));
+    scroll.set_hexpand(true);
+    scroll.set_vexpand(true);
+
+    let header = adw::HeaderBar::new();
+    let toolbar = adw::ToolbarView::new();
+    toolbar.add_top_bar(&header);
+    toolbar.set_content(Some(&scroll));
+    win.set_content(Some(&toolbar));
+    win.present();
 }
 
 #[cfg(test)]

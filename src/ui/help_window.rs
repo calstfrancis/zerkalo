@@ -148,6 +148,9 @@ fn faq_blocks() -> Vec<Block<'static>> {
         Block::H2("How do I set up git sync?"),
         Block::Body("Git sync works on the work folder as a git repository. Press Ctrl+Shift+G or click the sync button — on first use Zerkalo will ask for a remote URL (e.g. GitHub or Gitea). After that, each sync commits all changes and pushes."),
         Block::Gap,
+        Block::H2("Can I edit the title, author, or date directly in the document?"),
+        Block::Body("Yes — template documents store metadata as plain Typst variables near the top of the file:\n  #let doc-title = \"My Paper\"\n  #let doc-author = \"Jane Smith\"\n  #let doc-date = \"5 June 2026\"\nEdit these directly in the editor. When you open 'Update Template Settings' afterwards, Zerkalo reads the values from the document so the dialog will show your edits, not the old saved values."),
+        Block::Gap,
         Block::H2("I built from source but changes aren't appearing"),
         Block::Body("Run cargo build --release first, then bash install.sh. The install script now detects a local build and installs it directly — it no longer downloads from GitHub when a built binary exists in target/release/."),
     ]
