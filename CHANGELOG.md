@@ -5,6 +5,118 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.8.19] — 2026-06-05
+
+### Fixed
+
+- Update Template dialog now reads metadata (title, author, etc.) from the document rather than the sidecar, so in-document edits to `#let doc-*` variables are reflected when the dialog opens
+- Chicago Author-Date bibliography section heading corrected from "Reference List" to "References" (CMOS §15.2)
+
+---
+
+## [0.8.18] — 2026-06-05
+
+### Fixed
+
+- Preview auto-reflows when the window is resized: the viewport-width is now watched and `fit_width` re-runs whenever `auto_fit` is active. Zooming in/out disables auto_fit; clicking the fit-width button re-enables it
+
+---
+
+## [0.8.17] — 2026-06-05
+
+### Added
+
+- Multi-language spell checking: Settings → Extras → Spell Check now shows a list of active dictionaries with remove buttons, and an "Add language" dropdown to add more. A word is considered correctly spelled if it passes in any of the active dictionaries (so bilingual documents don't flag words from either language)
+
+---
+
+## [0.8.16] — 2026-06-05
+
+### Fixed
+
+- Word wrap now correctly reflowing on window resize: when wrap is on the horizontal scroll policy is `Never` (GTK wraps at the window edge); when wrap is off it switches to `Automatic` so long lines can be scrolled rather than silently clipped
+
+---
+
+## [0.8.15] — 2026-06-05
+
+### Added
+
+- Clicking the word count in the status bar opens a Document Statistics window: words (with session delta), characters, paragraphs, sentences, reading time, and project total if a project root is set
+
+---
+
+## [0.8.14] — 2026-06-05
+
+### Fixed
+
+- "search" status bar button now correctly shows/hides the Find & Replace bar (same as Ctrl+F), not a code-search toggle
+
+---
+
+## [0.8.13] — 2026-06-05
+
+### Added
+
+- Clicking the version number in the status bar opens the changelog in a scrollable window
+
+---
+
+## [0.8.12] — 2026-06-05
+
+### Changed
+
+- **GOST type B** toggle moved from the sidebar to the status bar — same clickable-text format as autocorrect (bold = on, dim = off)
+- **search** toggle added at the left end of the status bar — controls whether Find/Replace searches inside `#commands` and `//comments` (bold = searching code too, dim = prose only)
+- Removed the old sidebar Switch widget for GOST type B
+
+---
+
+## [0.8.11] — 2026-06-05
+
+### Fixed
+
+- Droplet package import updated from 0.2.0 to 0.3.1
+
+---
+
+## [0.8.10] — 2026-06-05
+
+### Improved
+
+- Completion popup snippets now show a plain-English description of what each snippet does, instead of just the raw key name
+- Snippet labels no longer carry the redundant "· snippet" suffix — the kind badge already shows that
+- Added a `dropcap` snippet: typing `#dropcap` now offers a ready-to-use example with a note that the Droplet package must be enabled in template settings → Packages
+
+---
+
+## [0.8.9] — 2026-06-05
+
+### Added
+
+- Autocorrect toggle in the status bar: click the word "autocorrect" to turn it on (bold) or off (dim). State is saved to config immediately, so it persists across sessions.
+
+---
+
+## [0.8.8] — 2026-06-05
+
+### Fixed
+
+- LSP/snippet completion popup no longer overlaps the text being typed — it now anchors at the left margin of the editor, below the current line
+- Popup is wider (480 px) and taller (380 px max), so function signatures and documentation are readable without truncation
+- Detail text now wraps instead of being cut off with an ellipsis
+- Added a footer hint showing the keyboard controls (↑↓ navigate · Tab/↵ insert · Esc dismiss)
+
+---
+
+## [0.8.7] — 2026-06-05
+
+### Internal
+
+- Removed 6 dead functions from `template_dialog.rs` (`extract_preamble`, `sidecar_to_settings`, `replace_in_set_blocks`, `reapply_preamble`, `update_body_front_matter`, `update_body_front_matter_headingless`) along with their tests
+
+---
+
 ## [0.8.6] — 2026-06-05
 
 ### Fixed
