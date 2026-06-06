@@ -81,7 +81,7 @@ fi
 # ── Prefer native packages ────────────────────────────────────────────────────
 
 if command -v dpkg &>/dev/null; then
-    DEB_URL=$(echo "${RELEASE_JSON}" | grep -o '"browser_download_url":"[^"]*\.deb"' \
+    DEB_URL=$(echo "${RELEASE_JSON}" | grep -o '"browser_download_url": *"[^"]*\.deb"' \
         | head -1 | grep -o 'https://[^"]*' || true)
     if [ -n "${DEB_URL}" ]; then
         echo "Downloading .deb package..."
@@ -101,7 +101,7 @@ if command -v dpkg &>/dev/null; then
 fi
 
 if command -v rpm &>/dev/null; then
-    RPM_URL=$(echo "${RELEASE_JSON}" | grep -o '"browser_download_url":"[^"]*\.rpm"' \
+    RPM_URL=$(echo "${RELEASE_JSON}" | grep -o '"browser_download_url": *"[^"]*\.rpm"' \
         | head -1 | grep -o 'https://[^"]*' || true)
     if [ -n "${RPM_URL}" ]; then
         echo "Downloading .rpm package..."
