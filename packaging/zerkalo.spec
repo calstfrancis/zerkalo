@@ -69,9 +69,7 @@ fi
 %{_bindir}/zerkalo
 %{_datadir}/applications/io.github.calstfrancis.Zerkalo.desktop
 %{_datadir}/icons/hicolor/scalable/apps/zerkalo.svg
-%if 0%{?with_tinymist}
 %{_libdir}/zerkalo/tinymist
-%endif
 
 %post
 %icon_theme_cache_post

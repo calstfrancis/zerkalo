@@ -723,6 +723,11 @@ impl EditorPane {
             format!("textview {{ font-family: '{family}'; }}")
         };
         self.font_provider.load_from_data(&css);
+        // Force a redraw on all open views so the font change is immediately visible
+        // on every tab, not just the active one.
+        for tab in self.state.borrow().tabs.values() {
+            tab.view.queue_draw();
+        }
     }
 
     pub fn set_project_root(&self, path: PathBuf) {
