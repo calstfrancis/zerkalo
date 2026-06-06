@@ -2,6 +2,7 @@
 name = "zerkalo"
 version = "0.12.1"
 edition = "2021"
+license = "MIT"
 
 [dependencies]
 gtk4 = { version = "0.7", features = ["v4_10"] }
