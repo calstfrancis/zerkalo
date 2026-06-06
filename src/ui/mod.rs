@@ -19,6 +19,7 @@ pub mod ref_manager;
 pub mod settings_dialog;
 pub mod sync_dialog;
 pub mod template_dialog;
+pub mod notes_panel;
 pub mod plan_panel;
 pub mod search_panel;
 pub mod setup_wizard;

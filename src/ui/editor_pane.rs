@@ -559,6 +559,16 @@ impl EditorPane {
             });
         }
         {
+            let sb = search_btn.clone();
+            ep.find_bar.set_on_reveal_changed(move |revealed| {
+                if revealed {
+                    sb.add_css_class("suggested-action");
+                } else {
+                    sb.remove_css_class("suggested-action");
+                }
+            });
+        }
+        {
             let lbl_g = ep.gost_label.clone();
             let cb_g = ep.on_gost_toggle.clone();
             let gost_on: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
@@ -1172,24 +1182,45 @@ impl EditorPane {
     }
 
     fn recheck_all_buffers(&self) {
+        let sc = self.spell_checker.borrow();
+        if !sc.enabled { return; }
+        let languages = sc.languages.clone();
+        let ignored = sc.ignored().clone();
+        drop(sc);
+
         let state = self.state.borrow();
         for tab in state.tabs.values() {
             let (s, e) = tab.buffer.bounds();
             let text = tab.buffer.text(&s, &e, false).to_string();
-            let sc = self.spell_checker.borrow();
-            if sc.enabled {
+            let buffer = tab.buffer.clone();
+            let langs = languages.clone();
+            let ig = ignored.clone();
+
+            let (tx, rx) = std::sync::mpsc::sync_channel(1);
+            std::thread::spawn(move || {
                 let words = crate::spellcheck::extract_words(&text);
-                let unique: Vec<&str> = {
+                let unique: Vec<String> = {
                     let mut seen = HashSet::new();
                     words.iter()
-                        .filter(|(_, _, w)| !sc.is_ignored(w) && seen.insert(w.to_lowercase()))
-                        .map(|(_, _, w)| w.as_str())
+                        .filter(|(_, _, w)| !ig.contains(&w.to_lowercase()) && seen.insert(w.to_lowercase()))
+                        .map(|(_, _, w)| w.clone())
                         .collect()
                 };
-                let misspelled = sc.check_unique(&unique);
-                drop(sc);
-                apply_spell_tags(&tab.buffer, &words, &misspelled);
-            }
+                let unique_refs: Vec<&str> = unique.iter().map(|s| s.as_str()).collect();
+                let misspelled = crate::spellcheck::check_words_batch(&unique_refs, &langs);
+                let _ = tx.send((words, misspelled));
+            });
+
+            glib::timeout_add_local(Duration::from_millis(50), move || {
+                match rx.try_recv() {
+                    Ok((words, misspelled)) => {
+                        apply_spell_tags(&buffer, &words, &misspelled);
+                        glib::ControlFlow::Break
+                    }
+                    Err(std::sync::mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => glib::ControlFlow::Break,
+                }
+            });
         }
     }
 

@@ -115,6 +115,10 @@ impl SpellChecker {
         self.project_dict_path.is_some()
     }
 
+    pub fn ignored(&self) -> &HashSet<String> {
+        &self.ignored
+    }
+
     pub fn is_ignored(&self, word: &str) -> bool {
         self.ignored.contains(&word.to_lowercase())
     }
@@ -374,6 +378,18 @@ fn skip_balanced(chars: &[char], start: usize, n: usize) -> usize {
 }
 
 // ── Hunspell subprocess ───────────────────────────────────────────────────────
+
+pub(crate) fn check_words_batch(words: &[&str], languages: &[String]) -> HashMap<String, Vec<String>> {
+    if words.is_empty() || languages.is_empty() {
+        return HashMap::new();
+    }
+    let mut result = run_hunspell_batch(words, &languages[0]);
+    for lang in languages.iter().skip(1) {
+        let also_wrong = run_hunspell_batch(words, lang);
+        result.retain(|word, _| also_wrong.contains_key(word));
+    }
+    result
+}
 
 fn run_hunspell_batch(words: &[&str], language: &str) -> HashMap<String, Vec<String>> {
     let mut result = HashMap::new();

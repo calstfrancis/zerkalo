@@ -348,6 +348,7 @@ impl PreviewPane {
         *self.on_click_jump.borrow_mut() = Some(Box::new(f));
     }
 
+    #[allow(dead_code)]
     pub fn fire_jump_to_current_page(&self) {
         let page = self.current_page_idx();
         if let Some(f) = self.on_click_jump.borrow().as_ref() {
@@ -400,6 +401,7 @@ impl PreviewPane {
 
     // ── Watch mode ────────────────────────────────────────────────────────────
 
+    #[allow(dead_code)]
     pub fn start_watch(&self) {
         self.stop_watch();
         if self.root_file.borrow().is_none() {
@@ -437,6 +439,7 @@ impl PreviewPane {
         });
     }
 
+    #[allow(dead_code)]
     pub fn stop_watch(&self) {
         *self.watch_active.borrow_mut() = false;
     }
