@@ -3,6 +3,9 @@ name = "zerkalo"
 version = "0.12.1"
 edition = "2021"
 license = "MIT"
+description = "Contemplative Typst editor with live preview, LSP completions, and git sync"
+homepage = "https://github.com/calstfrancis/zerkalo"
+repository = "https://github.com/calstfrancis/zerkalo"
 
 [dependencies]
 gtk4 = { version = "0.7", features = ["v4_10"] }
