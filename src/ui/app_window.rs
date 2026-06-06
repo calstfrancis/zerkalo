@@ -2959,10 +2959,7 @@ impl AppWindow {
                 let is_open = editor_for_watch.get_active_path()
                     .map_or(false, |p| p == changed_path);
                 if !is_open && !*mco_for_watch.borrow() {
-                    // If compile_on_save, still compile on external writes
-                    if *cos_for_watch.borrow() || true {
-                        preview_for_watch.trigger_compile();
-                    }
+                    preview_for_watch.trigger_compile();
                 }
             },
         );
