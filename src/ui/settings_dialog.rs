@@ -456,9 +456,14 @@ impl SettingsDialog {
             let token_row = token_row.clone();
             let recent_files_cur = current.recent_files.clone();
             let recent_projects_cur = current.recent_projects.clone();
+            let recent_searches_cur = current.recent_searches.clone();
             let preview_zoom_cur = current.preview_zoom;
             let sidebar_width_cur = current.sidebar_width;
             let preview_split_cur = current.preview_split;
+            let word_count_goal_cur = current.word_count_goal;
+            let last_export_format_cur = current.last_export_format;
+            let auto_save_idle_ms_cur = current.auto_save_idle_ms;
+            let active_profile_cur = current.active_profile.clone();
             move || {
                 let work_dir_text = work_dir_row.text().trim().to_string();
                 let work_dir = if work_dir_text.is_empty() {
@@ -528,14 +533,14 @@ impl SettingsDialog {
                     editor_line_spacing,
                     typewriter_scrolling: typewriter_row.is_active(),
                     high_contrast: high_contrast_row.is_active(),
-                    word_count_goal: 0,
+                    word_count_goal: word_count_goal_cur,
                     sidebar_width: sidebar_width_cur,
                     preview_split: preview_split_cur,
                     developer_mode: dev_mode_row.is_active(),
-                    last_export_format: 0,
-                    recent_searches: Vec::new(),
-                    active_profile: crate::config::CompileProfile::default(),
-                    auto_save_idle_ms: crate::config::default_auto_save_idle_ms_pub(),
+                    last_export_format: last_export_format_cur,
+                    recent_searches: recent_searches_cur.clone(),
+                    active_profile: active_profile_cur.clone(),
+                    auto_save_idle_ms: auto_save_idle_ms_cur,
                     github_token,
                 }
             }
