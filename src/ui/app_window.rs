@@ -1597,12 +1597,14 @@ impl AppWindow {
         let toast_overlay = adw::ToastOverlay::new();
         let toast_for_sync_btn = toast_overlay.clone();
         let toast_for_sync_closure = toast_overlay.clone();
+        let config_for_sync = current_config.clone();
         sync_btn.connect_clicked(move |_| {
             editor_for_sync.save_all_modified();
             let root = project_root_for_sync.clone();
             let win = window_for_sync.clone();
             let btn = sync_btn_ref.clone();
             let toasts = toast_for_sync_closure.clone();
+            let token = config_for_sync.borrow().github_token.clone();
 
             if !git_sync::has_remote(&root) {
                 let dialog = SyncDialog::new(&win);
@@ -1610,13 +1612,14 @@ impl AppWindow {
                 let win2 = win.clone();
                 let btn2 = btn.clone();
                 let toasts2 = toasts.clone();
+                let token2 = token.clone();
 
                 let confirmed = Rc::new(RefCell::new(false));
                 let confirmed_set = confirmed.clone();
                 dialog.set_on_confirm(move |url| {
                     *confirmed_set.borrow_mut() = true;
                     match git_sync::add_remote(&root2, &url) {
-                        Ok(()) => do_sync(root2.clone(), win2.clone(), toasts2.clone(), btn2.clone()),
+                        Ok(()) => do_sync(root2.clone(), win2.clone(), toasts2.clone(), btn2.clone(), token2.clone()),
                         Err(e) => {
                             show_alert(&win2, "Remote Setup Failed", &e);
                             btn2.set_sensitive(true);
@@ -1636,7 +1639,7 @@ impl AppWindow {
                 return;
             }
 
-            do_sync(root, win, toasts, btn);
+            do_sync(root, win, toasts, btn, token);
         });
 
         // ── Debounced compile + outline update + LSP ────────────────────────
@@ -3378,6 +3381,7 @@ fn do_sync(
     window: adw::ApplicationWindow,
     overlay: adw::ToastOverlay,
     btn: Button,
+    token: Option<String>,
 ) {
     use std::sync::mpsc::TryRecvError;
 
@@ -3385,7 +3389,7 @@ fn do_sync(
 
     let (tx, rx) = std::sync::mpsc::sync_channel::<git_sync::SyncResult>(1);
     std::thread::spawn(move || {
-        tx.send(git_sync::sync(&root)).ok();
+        tx.send(git_sync::sync(&root, token.as_deref())).ok();
     });
 
     let rx = Rc::new(rx);
@@ -3414,8 +3418,11 @@ fn show_sync_result(
     }
     if !result.push_errors.is_empty() {
         let detail = result.push_errors.join("\n");
+        if result.auth_failed {
+            show_github_token_dialog(window, "GitHub authentication failed. Enter a Personal Access Token (PAT) to continue.\n\nGenerate one at github.com → Settings → Developer settings → Personal access tokens.");
+            return;
+        }
         if result.pushed {
-            // Some remotes failed — toast for success, alert for the failures
             let summary = result.commit_message.lines().next().unwrap_or("Synced").to_string();
             overlay.add_toast(adw::Toast::new(&format!("Synced — {summary}")));
             show_alert(window, "Some remotes failed", &detail);
@@ -3432,6 +3439,77 @@ fn show_sync_result(
     } else {
         overlay.add_toast(adw::Toast::new("Nothing to sync"));
     }
+}
+
+fn show_github_token_dialog(window: &adw::ApplicationWindow, message: &str) {
+    let dialog = adw::Window::builder()
+        .title("GitHub Login")
+        .transient_for(window)
+        .modal(true)
+        .default_width(480)
+        .default_height(300)
+        .build();
+
+    let header = adw::HeaderBar::new();
+    header.set_show_end_title_buttons(false);
+
+    let label = gtk4::Label::new(Some(message));
+    label.set_wrap(true);
+    label.set_margin_top(12);
+    label.set_margin_bottom(8);
+    label.set_margin_start(16);
+    label.set_margin_end(16);
+    label.set_xalign(0.0);
+
+    let entry = gtk4::Entry::new();
+    entry.set_placeholder_text(Some("ghp_xxxxxxxxxxxxxxxxxxxx"));
+    entry.set_visibility(false);
+    entry.set_margin_start(16);
+    entry.set_margin_end(16);
+    entry.set_margin_bottom(12);
+
+    let hint = gtk4::Label::new(Some("Your token is stored locally and never shared."));
+    hint.add_css_class("caption");
+    hint.add_css_class("dim-label");
+    hint.set_margin_start(16);
+    hint.set_margin_end(16);
+    hint.set_margin_bottom(16);
+    hint.set_xalign(0.0);
+
+    let save_btn = Button::with_label("Save Token");
+    save_btn.add_css_class("suggested-action");
+    save_btn.set_margin_start(16);
+    save_btn.set_margin_end(16);
+    save_btn.set_margin_bottom(16);
+
+    let cancel_btn = Button::with_label("Cancel");
+    cancel_btn.add_css_class("flat");
+    header.pack_start(&cancel_btn);
+
+    let vbox = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    vbox.append(&header);
+    vbox.append(&label);
+    vbox.append(&entry);
+    vbox.append(&hint);
+    vbox.append(&save_btn);
+    dialog.set_content(Some(&vbox));
+
+    let dialog_cancel = dialog.clone();
+    cancel_btn.connect_clicked(move |_| dialog_cancel.close());
+
+    let dialog_save = dialog.clone();
+    let entry_save = entry.clone();
+    save_btn.connect_clicked(move |_| {
+        let tok = entry_save.text().to_string();
+        if tok.is_empty() { return; }
+        if let Ok(mut cfg) = Config::load() {
+            cfg.github_token = Some(tok);
+            let _ = cfg.save();
+        }
+        dialog_save.close();
+    });
+
+    dialog.present();
 }
 
 fn show_backup_remote_dialog(window: &adw::ApplicationWindow, repo_path: &std::path::Path) {
@@ -3465,23 +3543,27 @@ fn show_backup_remote_dialog(window: &adw::ApplicationWindow, repo_path: &std::p
     current_group.set_title("Current Backup Remotes");
 
     let root_for_rebuild = repo_path.to_path_buf();
-    let current_group_c = current_group.clone();
+    // Track only the rows we explicitly added so we can safely remove them
+    // without touching PreferencesGroup's internal header widgets.
+    let tracked_rows: Rc<RefCell<Vec<adw::ActionRow>>> = Rc::new(RefCell::new(Vec::new()));
 
-    // Populate the current list — we rebuild it after each add/remove
     let rebuild_current = {
-        let group = current_group_c.clone();
+        let group = current_group.clone();
         let root = root_for_rebuild.clone();
+        let tracked = tracked_rows.clone();
         move || {
-            // Remove all existing children from the group
-            while let Some(child) = group.first_child() {
-                group.remove(&child);
+            for row in tracked.borrow().iter() {
+                group.remove(row);
             }
+            tracked.borrow_mut().clear();
+
             let remotes = git_sync::list_backup_remotes(&root);
             if remotes.is_empty() {
                 let row = adw::ActionRow::new();
                 row.set_title("No backup remotes configured");
                 row.add_css_class("dim-label");
                 group.add(&row);
+                tracked.borrow_mut().push(row);
             } else {
                 for (name, url) in remotes {
                     let row = adw::ActionRow::new();
@@ -3493,33 +3575,37 @@ fn show_backup_remote_dialog(window: &adw::ApplicationWindow, repo_path: &std::p
                     rm_btn.set_valign(Align::Center);
                     rm_btn.set_tooltip_text(Some("Remove this backup remote"));
                     let root2 = root.clone();
-                    let grp2 = group.clone();
+                    let tracked2 = tracked.clone();
+                    let group2 = group.clone();
                     rm_btn.connect_clicked(move |_| {
                         let _ = git_sync::remove_remote(&root2, &name);
-                        // Rebuild the list in place
-                        while let Some(child) = grp2.first_child() {
-                            grp2.remove(&child);
-                        }
+                        for r in tracked2.borrow().iter() { group2.remove(r); }
+                        tracked2.borrow_mut().clear();
                         let remotes2 = git_sync::list_backup_remotes(&root2);
                         if remotes2.is_empty() {
-                            let placeholder = adw::ActionRow::new();
-                            placeholder.set_title("No backup remotes configured");
-                            grp2.add(&placeholder);
+                            let ph = adw::ActionRow::new();
+                            ph.set_title("No backup remotes configured");
+                            ph.add_css_class("dim-label");
+                            group2.add(&ph);
+                            tracked2.borrow_mut().push(ph);
                         } else {
                             for (n, u) in remotes2 {
                                 let r = adw::ActionRow::new();
                                 r.set_title(&n);
                                 r.set_subtitle(&u);
-                                grp2.add(&r);
+                                group2.add(&r);
+                                tracked2.borrow_mut().push(r);
                             }
                         }
                     });
                     row.add_suffix(&rm_btn);
                     group.add(&row);
+                    tracked.borrow_mut().push(row);
                 }
             }
         }
     };
+    let rebuild_current = Rc::new(rebuild_current);
     rebuild_current();
     page.add(&current_group);
 
@@ -3587,7 +3673,7 @@ fn show_backup_remote_dialog(window: &adw::ApplicationWindow, repo_path: &std::p
         let lbl_c = status_lbl.clone();
         let name_r = name_row.clone();
         let url_r = url_row.clone();
-        let grp = current_group.clone();
+        let rebuild_c = rebuild_current.clone();
         add_btn.connect_clicked(move |_| {
             let name = name_r.text().trim().to_string();
             let url  = url_r.text().trim().to_string();
@@ -3603,16 +3689,7 @@ fn show_backup_remote_dialog(window: &adw::ApplicationWindow, repo_path: &std::p
                 Ok(()) => {
                     lbl_c.set_text(&format!("✓ Added «{name}»"));
                     url_r.set_text("");
-                    // Refresh the current-remotes list
-                    while let Some(child) = grp.first_child() {
-                        grp.remove(&child);
-                    }
-                    for (n, u) in git_sync::list_backup_remotes(&root_c) {
-                        let row = adw::ActionRow::new();
-                        row.set_title(&n);
-                        row.set_subtitle(&u);
-                        grp.add(&row);
-                    }
+                    rebuild_c();
                 }
                 Err(e) => lbl_c.set_text(&format!("Error: {e}")),
             }

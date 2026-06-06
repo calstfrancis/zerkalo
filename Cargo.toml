@@ -1,6 +1,6 @@
 [package]
 name = "zerkalo"
-version = "0.12.1"
+version = "0.12.2"
 edition = "2021"
 license = "MIT"
 description = "Contemplative Typst editor with live preview, LSP completions, and git sync"
@@ -53,7 +53,7 @@ maintainer = "Cal St Francis <calstfrancis@gmail.com>"
 copyright = "2026, Cal St Francis"
 section = "text"
 priority = "optional"
-depends = "libc6, libglib2.0-0, libgtk-4-1 (>= 4.10), libadwaita-1-0 (>= 1.4), libgtksourceview-5-0, libcairo2, libgdk-pixbuf-2.0-0, libpango-1.0-0, libssl3, zlib1g, pandoc, hunspell"
+depends = "libc6, libglib2.0-0, libgtk-4-1 (>= 4.10), libadwaita-1-0 (>= 1.4), libgtksourceview-5-0, libcairo2, libgdk-pixbuf-2.0-0, libpango-1.0-0, libssl3, zlib1g, git, pandoc, hunspell"
 assets = [
     ["target/release/zerkalo", "usr/bin/", "755"],
     ["packaging/io.github.calstfrancis.Zerkalo.desktop", "usr/share/applications/", "644"],
@@ -85,5 +85,6 @@ dest = "/usr/lib/zerkalo/tinymist"
 mode = "755"
 
 [package.metadata.generate-rpm.requires]
+git = "*"
 pandoc = "*"
 hunspell = "*"

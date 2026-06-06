@@ -101,28 +101,39 @@ impl SettingsDialog {
 
         let debounce_spin = adw::SpinRow::with_range(100.0, 5000.0, 50.0);
         debounce_spin.set_title("Debounce");
-        debounce_spin.set_subtitle("Milliseconds before recompile");
+        debounce_spin.set_subtitle("Milliseconds between last keystroke and recompile (Auto mode only)");
         debounce_spin.set_value(current.debounce_ms as f64);
 
-        let auto_row = adw::SwitchRow::new();
-        auto_row.set_title("Auto-compile");
-        auto_row.set_subtitle("Recompile automatically on change");
-        auto_row.set_active(current.auto_compile);
+        // 3-way pill: Auto | On Save | Manual
+        let btn_auto   = gtk4::ToggleButton::with_label("Auto");
+        let btn_save   = gtk4::ToggleButton::with_label("On Save");
+        let btn_manual = gtk4::ToggleButton::with_label("Manual");
+        btn_save.set_group(Some(&btn_auto));
+        btn_manual.set_group(Some(&btn_auto));
 
-        let compile_on_save_row = adw::SwitchRow::new();
-        compile_on_save_row.set_title("Compile on save");
-        compile_on_save_row.set_subtitle("Only compile when Ctrl+S saves the file, not on every keystroke");
-        compile_on_save_row.set_active(current.compile_on_save);
+        if current.manual_compile_only {
+            btn_manual.set_active(true);
+        } else if current.compile_on_save {
+            btn_save.set_active(true);
+        } else {
+            btn_auto.set_active(true);
+        }
 
-        let manual_only_row = adw::SwitchRow::new();
-        manual_only_row.set_title("Manual compile only");
-        manual_only_row.set_subtitle("Disable automatic compilation — use Ctrl+Shift+P to compile");
-        manual_only_row.set_active(current.manual_compile_only);
+        let pill_box = GtkBox::new(Orientation::Horizontal, 0);
+        pill_box.add_css_class("linked");
+        pill_box.set_valign(Align::Center);
+        pill_box.append(&btn_auto);
+        pill_box.append(&btn_save);
+        pill_box.append(&btn_manual);
+
+        let compile_mode_row = adw::ActionRow::new();
+        compile_mode_row.set_title("Compile trigger");
+        compile_mode_row.set_subtitle("Auto: after each keystroke · On Save: Ctrl+S only · Manual: Ctrl+Shift+P only");
+        compile_mode_row.add_suffix(&pill_box);
+        compile_mode_row.set_activatable_widget(Some(&btn_auto));
 
         compile_group.add(&debounce_spin);
-        compile_group.add(&auto_row);
-        compile_group.add(&compile_on_save_row);
-        compile_group.add(&manual_only_row);
+        compile_group.add(&compile_mode_row);
 
         // Appearance
         let editor_group = adw::PreferencesGroup::new();
@@ -376,9 +387,21 @@ impl SettingsDialog {
         dev_mode_row.set_active(current.developer_mode);
         dev_group.add(&dev_mode_row);
 
+        let sync_group = adw::PreferencesGroup::new();
+        sync_group.set_title("GitHub Sync");
+        sync_group.set_description(Some("Personal Access Token for pushing to GitHub. Generate one at github.com → Settings → Developer settings → Personal access tokens → Fine-grained."));
+        let token_row = adw::EntryRow::new();
+        token_row.set_title("Personal Access Token");
+        token_row.set_show_apply_button(false);
+        if let Some(tok) = &current.github_token {
+            token_row.set_text(tok);
+        }
+        sync_group.add(&token_row);
+
         let page_general = adw::PreferencesPage::new();
         page_general.add(&folders_group);
         page_general.add(&compile_group);
+        page_general.add(&sync_group);
         page_general.add(&dev_group);
         notebook.append_page(&page_general, Some(&Label::new(Some("General"))));
 
@@ -420,7 +443,6 @@ impl SettingsDialog {
             let theme_row = theme_row.clone();
             let font_btn = font_btn.clone();
             let debounce_spin = debounce_spin.clone();
-            let auto_row = auto_row.clone();
             let tab_spin = tab_spin.clone();
             let wrap_row = wrap_row.clone();
             let ws_row = ws_row.clone();
@@ -431,6 +453,7 @@ impl SettingsDialog {
             let spell_autocorrect_row = spell_autocorrect_row.clone();
             let selected_langs = selected_langs.clone();
             let dev_mode_row = dev_mode_row.clone();
+            let token_row = token_row.clone();
             let recent_files_cur = current.recent_files.clone();
             let recent_projects_cur = current.recent_projects.clone();
             let preview_zoom_cur = current.preview_zoom;
@@ -480,6 +503,8 @@ impl SettingsDialog {
                     2 => 6u32,
                     _ => 2u32,
                 };
+                let token_text = token_row.text().trim().to_string();
+                let github_token = if token_text.is_empty() { None } else { Some(token_text) };
                 Config {
                     work_dir,
                     output_dir,
@@ -487,9 +512,9 @@ impl SettingsDialog {
                     recent_projects: recent_projects_cur.clone(),
                     bib_path,
                     debounce_ms: debounce_spin.value() as u64,
-                    auto_compile: auto_row.is_active(),
-                    compile_on_save: compile_on_save_row.is_active(),
-                    manual_compile_only: manual_only_row.is_active(),
+                    auto_compile: btn_auto.is_active(),
+                    compile_on_save: btn_save.is_active(),
+                    manual_compile_only: btn_manual.is_active(),
                     editor_font_size,
                     theme,
                     editor_font_family,
@@ -511,6 +536,7 @@ impl SettingsDialog {
                     recent_searches: Vec::new(),
                     active_profile: crate::config::CompileProfile::default(),
                     auto_save_idle_ms: crate::config::default_auto_save_idle_ms_pub(),
+                    github_token,
                 }
             }
         };
@@ -543,10 +569,10 @@ impl SettingsDialog {
             if let Err(e) = new_cfg.save() {
                 eprintln!("Failed to save config: {e}");
             }
+            win_save.close();
             if let Some(f) = on_save_cb.borrow().as_ref() {
                 f(new_cfg);
             }
-            win_save.close();
         });
 
         Self { window, on_save, on_preview }
