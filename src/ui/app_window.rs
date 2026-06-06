@@ -1963,7 +1963,13 @@ impl AppWindow {
                 .arg("--version").output().is_ok();
             let pandoc_ok = std::process::Command::new("pandoc")
                 .arg("--version").output().is_ok();
-            let tinymist_ok = std::process::Command::new("tinymist")
+            let bundled_tinymist = std::path::Path::new("/usr/lib/zerkalo/tinymist");
+            let tinymist_bin = if bundled_tinymist.exists() {
+                std::ffi::OsString::from(bundled_tinymist)
+            } else {
+                std::ffi::OsString::from("tinymist")
+            };
+            let tinymist_ok = std::process::Command::new(&tinymist_bin)
                 .arg("--version").output().is_ok();
 
             if !git_ok {

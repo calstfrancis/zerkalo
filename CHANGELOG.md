@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.12.5] — 2026-06-06
+
+### Fixed
+
+- **tinymist bundled in deb/rpm now detected correctly**: startup availability check now probes `/usr/lib/zerkalo/tinymist` first (matching the LSP launcher logic), so deb/rpm installs no longer show a spurious "Optional: tinymist" alert.
+- **RPM spec `%files` section**: removed the broken `%if 0%{?with_tinymist}` conditional — tinymist is always bundled in release packages and must be listed unconditionally to avoid an "installed but unpackaged files" build error.
+
+---
+
 ## [0.12.4] — 2026-06-06
 
 ### Fixed
