@@ -1,0 +1,25 @@
+<services>
+  <!-- Fetch source from the latest release tag on GitHub -->
+  <service name="obs_scm">
+    <param name="url">https://github.com/calstfrancis/zerkalo</param>
+    <param name="scm">git</param>
+    <param name="revision">v0.12.1</param>
+    <param name="versionformat">@PARENT_TAG@</param>
+    <param name="versionrewrite-pattern">v(.*)</param>
+    <param name="versionrewrite-replacement">\1</param>
+  </service>
+
+  <!-- Vendor all Cargo dependencies so OBS can build offline -->
+  <service name="cargo_vendor">
+    <param name="srcdir">zerkalo</param>
+    <param name="compression">gz</param>
+    <param name="update">true</param>
+  </service>
+
+  <service name="set_version"/>
+  <service name="tar"/>
+  <service name="recompress">
+    <param name="file">*.tar</param>
+    <param name="compression">gz</param>
+  </service>
+</services>
