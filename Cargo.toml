@@ -53,7 +53,7 @@ maintainer = "Cal St Francis <calstfrancis@gmail.com>"
 copyright = "2026, Cal St Francis"
 section = "text"
 priority = "optional"
-depends = "$auto, libgtk-4-1, libadwaita-1-0, libgtksourceview-5-0, pandoc, hunspell"
+depends = "libc6, libglib2.0-0, libgtk-4-1 (>= 4.10), libadwaita-1-0 (>= 1.4), libgtksourceview-5-0, libcairo2, libgdk-pixbuf-2.0-0, libpango-1.0-0, libssl3, zlib1g, pandoc, hunspell"
 assets = [
     ["target/release/zerkalo", "usr/bin/", "755"],
     ["packaging/io.github.calstfrancis.Zerkalo.desktop", "usr/share/applications/", "644"],
