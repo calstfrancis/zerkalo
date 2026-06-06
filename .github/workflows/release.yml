@@ -47,9 +47,11 @@ jobs:
       - name: Download tinymist
         run: |
           TINYMIST_URL=$(curl -fsSL https://api.github.com/repos/Myriad-Dreamin/tinymist/releases/latest \
-            | grep -o '"browser_download_url":"[^"]*tinymist-linux-x64"' \
+            | grep -o '"browser_download_url":"[^"]*tinymist-x86_64-unknown-linux-gnu\.tar\.gz"' \
             | grep -o 'https://[^"]*')
-          curl -fsSL -o packaging/tinymist "$TINYMIST_URL"
+          curl -fsSL "$TINYMIST_URL" \
+            | tar -xz --strip-components=1 -C packaging/ \
+              tinymist-x86_64-unknown-linux-gnu/tinymist
           chmod +x packaging/tinymist
 
       - name: Build .deb package
