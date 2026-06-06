@@ -5,6 +5,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.12.7] — 2026-06-06
+
+### Added
+
+- **Section Notes panel**: the right sidebar now has two tabs — "Plan" (existing scratchpad) and "Notes" (new). The Notes tab mirrors the document outline; clicking a heading loads that section's planning note in a text area below. Notes are saved as `<filename>.notes.json` alongside the `.typ` file. Keys are preserved by heading text across edits; headings that disappear are garbage-collected from the sidecar. The list and notes update live as you type.
+
+---
+
+## [0.12.6] — 2026-06-06
+
+### Changed
+
+- **Preview toolbar**: removed Copy Text, Jump to Editor, and Watch Mode buttons. Ctrl+Click on the preview for jump-to-source still works.
+- **Find bar**: hidden by default; the "search" button in the status bar now turns blue when the bar is open (Ctrl+F or Esc to toggle).
+
+### Fixed
+
+- **Settings hang**: spell recheck after changing languages/enabling spell check now runs hunspell off the GTK main thread, so the UI stays responsive.
+
+---
+
 ## [0.12.5] — 2026-06-06
 
 ### Fixed

@@ -36,6 +36,7 @@ use super::ref_manager::RefManager;
 use super::settings_dialog::SettingsDialog;
 use super::sync_dialog::SyncDialog;
 use super::template_dialog::TemplateDialog;
+use super::notes_panel::NotesPanel;
 use super::plan_panel::PlanPanel;
 use super::snapshot_dialog::{SnapshotDialog, save_snapshot};
 
@@ -302,6 +303,7 @@ impl AppWindow {
         let dep_graph = DepGraph::new(project_root.clone());
         let package_browser = PackageBrowser::new();
         let todo_panel = PlanPanel::new(config.work_dir.clone());
+        let notes_panel = NotesPanel::new();
 
         let writing_log: Rc<RefCell<WritingLog>> = Rc::new(RefCell::new(WritingLog::load()));
         let file_start_words = new_file_start_words();
@@ -1653,6 +1655,7 @@ impl AppWindow {
         let compile_on_save_for_change = compile_on_save.clone();
         let manual_compile_only_for_change = manual_compile_only.clone();
         let outline_for_change = outline_panel.clone();
+        let notes_for_change = notes_panel.clone();
         let refs_for_change = ref_manager.clone();
         let lsp_for_change = lsp_client.clone();
         let last_edit_for_change = last_edit_instant.clone();
@@ -1670,6 +1673,7 @@ impl AppWindow {
             let cos = compile_on_save_for_change.clone();
             let mco = manual_compile_only_for_change.clone();
             let outline = outline_for_change.clone();
+            let notes = notes_for_change.clone();
             let refs = refs_for_change.clone();
             let lsp = lsp_for_change.clone();
             let delay = Duration::from_millis(*debounce_for_change.borrow());
@@ -1691,10 +1695,11 @@ impl AppWindow {
                         }
                         preview.trigger_compile();
                     }
-                    // Outline + ref manager update
+                    // Outline + notes + ref manager update
                     if let Some(path) = editor.get_active_path() {
                         if let Some(content) = editor.get_active_content() {
                             outline.update(&content, &path);
+                            notes.update(&content, &path);
                             refs.update_used_keys(&content);
                         }
                     }
@@ -1723,12 +1728,14 @@ impl AppWindow {
         let title_widget_for_switch = file_title_widget.clone();
         let preview_for_switch = preview_pane.clone();
         let todo_panel_for_switch = todo_panel.clone();
+        let notes_panel_for_switch = notes_panel.clone();
         let style_btn_for_switch = style_btn.clone();
         let editor_pane_for_switch_delta = editor_pane.clone();
         editor_pane.set_on_page_switch(move |content, path| {
             let delta = editor_pane_for_switch_delta.get_active_session_delta();
             editor_pane_for_switch_delta.set_session_delta(delta);
             outline_for_switch.update(&content, &path);
+            notes_panel_for_switch.update(&content, &path);
             refs_for_switch.update_used_keys(&content);
             dep_graph_for_switch.refresh(Some(&path));
             preview_for_switch.set_buffer_snapshot(path.clone(), content.clone());
@@ -1775,6 +1782,7 @@ impl AppWindow {
         let lsp_for_open = lsp_client.clone();
         let current_config_for_open = current_config.clone();
         let todo_panel_for_open = todo_panel.clone();
+        let notes_panel_for_open = notes_panel.clone();
         let editor_for_recovery = editor_pane.clone();
         let window_for_recovery = window.clone();
         let style_btn_for_open = style_btn.clone();
@@ -1790,6 +1798,7 @@ impl AppWindow {
                 client.did_open(&path, &content);
             }
             todo_panel_for_open.set_current_file(Some(&path));
+            notes_panel_for_open.update(&content, &path);
             let basename = path.file_name()
                 .and_then(|n| n.to_str())
                 .map(|s| s.strip_suffix(".typ").unwrap_or(s).to_string())
@@ -2188,12 +2197,6 @@ impl AppWindow {
         zoom_label.add_css_class("caption");
         zoom_label.add_css_class("dim-label");
 
-        let watch_btn = ToggleButton::new();
-        watch_btn.set_icon_name("media-record-symbolic");
-        watch_btn.add_css_class("flat");
-        watch_btn.set_tooltip_text(Some("Watch mode: auto-recompile on save"));
-        watch_btn.update_property(&[gtk4::accessible::Property::Label("Toggle watch mode")]);
-
         let popout_btn = Button::from_icon_name("window-new-symbolic");
         popout_btn.add_css_class("flat");
         popout_btn.update_property(&[gtk4::accessible::Property::Label("Pop out preview window")]);
@@ -2245,35 +2248,8 @@ impl AppWindow {
         page_nav_box.append(&page_next_btn);
         preview_toolbar.append(&page_nav_box);
         preview_toolbar.append(&page_label);
-        preview_toolbar.append(&watch_btn);
         preview_toolbar.append(&ref_toggle_btn);
-
-        // ── Preview click-to-jump toolbar buttons ────────────────────────────
-        let copy_text_btn = Button::from_icon_name("edit-copy-symbolic");
-        copy_text_btn.add_css_class("flat");
-        copy_text_btn.set_tooltip_text(Some("Copy Text from Preview (current page via pdftotext)"));
-        copy_text_btn.update_property(&[gtk4::accessible::Property::Label("Copy text from preview")]);
-
-        let jump_to_editor_btn = Button::from_icon_name("go-jump-symbolic");
-        jump_to_editor_btn.add_css_class("flat");
-        jump_to_editor_btn.set_tooltip_text(Some("Jump to Editor (Ctrl+Click on preview to jump to a position)"));
-        jump_to_editor_btn.update_property(&[gtk4::accessible::Property::Label("Jump to editor position")]);
-
-        preview_toolbar.append(&copy_text_btn);
-        preview_toolbar.append(&jump_to_editor_btn);
         preview_toolbar.append(&popout_btn);
-
-        // Watch button wiring
-        let preview_for_watch = preview_pane.clone();
-        watch_btn.connect_toggled(move |btn| {
-            if btn.is_active() {
-                btn.add_css_class("suggested-action");
-                preview_for_watch.start_watch();
-            } else {
-                btn.remove_css_class("suggested-action");
-                preview_for_watch.stop_watch();
-            }
-        });
 
         // on_zoom_changed wires all zoom changes (including auto-fit) to the label
         {
@@ -2365,38 +2341,6 @@ impl AppWindow {
                     page,
                     rel_y,
                 );
-            });
-        }
-
-        // Copy Text button
-        {
-            let preview_for_copy = preview_pane.clone();
-            let window_for_copy = window.clone();
-            copy_text_btn.connect_clicked(move |_| {
-                match super::preview_pane::extract_page_text_via_pdftotext(
-                    &preview_for_copy,
-                    preview_for_copy.current_page_idx(),
-                    0.0, 1.0,
-                ) {
-                    Some(text) => {
-                        if let Some(display) = gtk4::gdk::Display::default() {
-                            display.clipboard().set_text(&text);
-                        }
-                    }
-                    None => {
-                        show_alert(&window_for_copy, "Copy Text",
-                            "Could not extract text. pdftotext (poppler-utils) may not be installed,\
-                             or the document has not been compiled yet.");
-                    }
-                }
-            });
-        }
-
-        // Jump to Editor button
-        {
-            let preview_for_jmp = preview_pane.clone();
-            jump_to_editor_btn.connect_clicked(move |_| {
-                preview_for_jmp.fire_jump_to_current_page();
             });
         }
 
@@ -2815,12 +2759,28 @@ impl AppWindow {
         left_box.append(citation_panel.widget());
         *left_paned_holder.borrow_mut() = Some(left_box.clone());
 
-        // ── Right sidebar (plan panel) ────────────────────────────────────────
+        // ── Right sidebar (Plan + Notes tabs) ────────────────────────────────
         let right_sidebar = GtkBox::new(Orientation::Vertical, 0);
-        right_sidebar.set_width_request(240);
+        right_sidebar.set_width_request(260);
         right_sidebar.set_vexpand(true);
+
+        let right_notebook = gtk4::Notebook::new();
+        right_notebook.set_vexpand(true);
+        right_notebook.set_tab_pos(gtk4::PositionType::Top);
+
         todo_panel.widget().set_vexpand(true);
-        right_sidebar.append(todo_panel.widget());
+        right_notebook.append_page(
+            todo_panel.widget(),
+            Some(&Label::new(Some("Plan"))),
+        );
+
+        notes_panel.widget().set_vexpand(true);
+        right_notebook.append_page(
+            notes_panel.widget(),
+            Some(&Label::new(Some("Notes"))),
+        );
+
+        right_sidebar.append(&right_notebook);
         *right_sidebar_holder.borrow_mut() = Some(right_sidebar.clone());
         right_sidebar.set_visible(todo_btn.is_active());
 

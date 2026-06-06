@@ -15,6 +15,7 @@ pub struct FindBar {
     on_search: Rc<RefCell<Option<Box<dyn Fn(&str, bool)>>>>,
     on_replace_one: Rc<RefCell<Option<Box<dyn Fn(&str, &str)>>>>,
     on_replace_all: Rc<RefCell<Option<Box<dyn Fn(&str, &str)>>>>,
+    on_reveal_changed: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
 }
 
 impl FindBar {
@@ -22,7 +23,7 @@ impl FindBar {
         let revealer = Revealer::new();
         revealer.set_transition_type(RevealerTransitionType::SlideDown);
         revealer.set_transition_duration(200);
-        revealer.set_reveal_child(true);
+        revealer.set_reveal_child(false);
 
         let bar_container = GtkBox::new(Orientation::Vertical, 0);
         bar_container.append(&Separator::new(Orientation::Horizontal));
@@ -78,6 +79,8 @@ impl FindBar {
             Rc::new(RefCell::new(None));
         let on_replace_all: Rc<RefCell<Option<Box<dyn Fn(&str, &str)>>>> =
             Rc::new(RefCell::new(None));
+        let on_reveal_changed: Rc<RefCell<Option<Box<dyn Fn(bool)>>>> =
+            Rc::new(RefCell::new(None));
 
         {
             let cb = on_search.clone();
@@ -119,12 +122,14 @@ impl FindBar {
         {
             let entry = find_entry.clone();
             let rev_c = revealer.clone();
+            let orc = on_reveal_changed.clone();
             let kc = EventControllerKey::new();
             kc.set_propagation_phase(PropagationPhase::Capture);
             kc.connect_key_pressed(move |_, key, _, _| {
                 if key == gtk4::gdk::Key::Escape {
                     entry.set_text("");
                     rev_c.set_reveal_child(false);
+                    if let Some(f) = orc.borrow().as_ref() { f(false); }
                     glib::Propagation::Stop
                 } else {
                     glib::Propagation::Proceed
@@ -140,6 +145,7 @@ impl FindBar {
             on_search,
             on_replace_one,
             on_replace_all,
+            on_reveal_changed,
         }
     }
 
@@ -153,6 +159,11 @@ impl FindBar {
         if reveal {
             self.find_entry.grab_focus();
         }
+        if let Some(f) = self.on_reveal_changed.borrow().as_ref() { f(reveal); }
+    }
+
+    pub fn set_on_reveal_changed(&self, f: impl Fn(bool) + 'static) {
+        *self.on_reveal_changed.borrow_mut() = Some(Box::new(f));
     }
 
     pub fn set_result(&self, text: &str) {
