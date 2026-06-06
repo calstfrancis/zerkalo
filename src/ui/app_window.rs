@@ -2952,7 +2952,6 @@ impl AppWindow {
         // (e.g., a sync agent, another editor) so the preview stays current.
         let preview_for_watch = preview_pane.clone();
         let editor_for_watch = editor_pane.clone();
-        let cos_for_watch = compile_on_save.clone();
         let mco_for_watch = manual_compile_only.clone();
         let file_watcher = crate::file_watcher::start(
             project_root.clone(),

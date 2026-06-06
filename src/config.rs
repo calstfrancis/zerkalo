@@ -111,7 +111,6 @@ fn default_line_spacing() -> u32 { 2 }
 fn default_sidebar_width() -> i32 { 220 }
 fn default_preview_split() -> i32 { 600 }
 fn default_auto_save_idle_ms() -> u64 { 30_000 }
-pub fn default_auto_save_idle_ms_pub() -> u64 { 30_000 }
 
 impl Default for Config {
     fn default() -> Self {

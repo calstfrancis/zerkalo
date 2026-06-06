@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.12.3] — 2026-06-06
+
+### Fixed
+
+- Settings dialog now preserves `active_profile`, `word_count_goal`, `last_export_format`, `recent_searches`, and `auto_save_idle_ms` when saving — previously these were reset to defaults on every Settings save.
+- Removed stale `cos_for_watch` variable in file-watcher callback (unused since compile-on-save logic was refactored into the pill).
+- Removed dead `default_auto_save_idle_ms_pub` export from `config.rs`.
+
+---
+
 ## [0.12.2] — 2026-06-06
 
 ### Added
