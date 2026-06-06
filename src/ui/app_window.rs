@@ -1605,6 +1605,7 @@ impl AppWindow {
             let btn = sync_btn_ref.clone();
             let toasts = toast_for_sync_closure.clone();
             let token = config_for_sync.borrow().github_token.clone();
+            let cfg_rc = config_for_sync.clone();
 
             if !git_sync::has_remote(&root) {
                 let dialog = SyncDialog::new(&win);
@@ -1613,13 +1614,14 @@ impl AppWindow {
                 let btn2 = btn.clone();
                 let toasts2 = toasts.clone();
                 let token2 = token.clone();
+                let cfg_rc2 = cfg_rc.clone();
 
                 let confirmed = Rc::new(RefCell::new(false));
                 let confirmed_set = confirmed.clone();
                 dialog.set_on_confirm(move |url| {
                     *confirmed_set.borrow_mut() = true;
                     match git_sync::add_remote(&root2, &url) {
-                        Ok(()) => do_sync(root2.clone(), win2.clone(), toasts2.clone(), btn2.clone(), token2.clone()),
+                        Ok(()) => do_sync(root2.clone(), win2.clone(), toasts2.clone(), btn2.clone(), token2.clone(), cfg_rc2.clone()),
                         Err(e) => {
                             show_alert(&win2, "Remote Setup Failed", &e);
                             btn2.set_sensitive(true);
@@ -1639,7 +1641,7 @@ impl AppWindow {
                 return;
             }
 
-            do_sync(root, win, toasts, btn, token);
+            do_sync(root, win, toasts, btn, token, cfg_rc);
         });
 
         // ── Debounced compile + outline update + LSP ────────────────────────
@@ -3381,21 +3383,23 @@ fn do_sync(
     overlay: adw::ToastOverlay,
     btn: Button,
     token: Option<String>,
+    current_config: Rc<RefCell<Config>>,
 ) {
     use std::sync::mpsc::TryRecvError;
 
     btn.set_sensitive(false);
 
+    let root_for_thread = root.clone();
     let (tx, rx) = std::sync::mpsc::sync_channel::<git_sync::SyncResult>(1);
     std::thread::spawn(move || {
-        tx.send(git_sync::sync(&root, token.as_deref())).ok();
+        tx.send(git_sync::sync(&root_for_thread, token.as_deref())).ok();
     });
 
     let rx = Rc::new(rx);
     glib::timeout_add_local(Duration::from_millis(100), move || match rx.try_recv() {
         Ok(result) => {
             btn.set_sensitive(true);
-            show_sync_result(&window, &overlay, result);
+            show_sync_result(&window, &overlay, result, root.clone(), current_config.clone());
             glib::ControlFlow::Break
         }
         Err(TryRecvError::Empty) => glib::ControlFlow::Continue,
@@ -3410,6 +3414,8 @@ fn show_sync_result(
     window: &adw::ApplicationWindow,
     overlay: &adw::ToastOverlay,
     result: git_sync::SyncResult,
+    root: PathBuf,
+    current_config: Rc<RefCell<Config>>,
 ) {
     if let Some(err) = result.error {
         show_alert(window, "Sync Failed", &err);
@@ -3418,7 +3424,13 @@ fn show_sync_result(
     if !result.push_errors.is_empty() {
         let detail = result.push_errors.join("\n");
         if result.auth_failed {
-            show_github_token_dialog(window, "GitHub authentication failed. Enter a Personal Access Token (PAT) to continue.\n\nGenerate one at github.com → Settings → Developer settings → Personal access tokens.");
+            show_github_token_dialog(
+                window,
+                overlay,
+                root,
+                current_config,
+                "GitHub authentication failed. Enter a Personal Access Token (PAT) to continue.\n\nGenerate one at github.com → Settings → Developer settings → Personal access tokens.",
+            );
             return;
         }
         if result.pushed {
@@ -3440,7 +3452,13 @@ fn show_sync_result(
     }
 }
 
-fn show_github_token_dialog(window: &adw::ApplicationWindow, message: &str) {
+fn show_github_token_dialog(
+    window: &adw::ApplicationWindow,
+    overlay: &adw::ToastOverlay,
+    root: PathBuf,
+    current_config: Rc<RefCell<Config>>,
+    message: &str,
+) {
     let dialog = adw::Window::builder()
         .title("GitHub Login")
         .transient_for(window)
@@ -3475,7 +3493,7 @@ fn show_github_token_dialog(window: &adw::ApplicationWindow, message: &str) {
     hint.set_margin_bottom(16);
     hint.set_xalign(0.0);
 
-    let save_btn = Button::with_label("Save Token");
+    let save_btn = Button::with_label("Save & Sync");
     save_btn.add_css_class("suggested-action");
     save_btn.set_margin_start(16);
     save_btn.set_margin_end(16);
@@ -3498,14 +3516,39 @@ fn show_github_token_dialog(window: &adw::ApplicationWindow, message: &str) {
 
     let dialog_save = dialog.clone();
     let entry_save = entry.clone();
-    save_btn.connect_clicked(move |_| {
+    let overlay_retry = overlay.clone();
+    let window_retry = window.clone();
+    save_btn.connect_clicked(move |btn| {
         let tok = entry_save.text().to_string();
         if tok.is_empty() { return; }
-        if let Ok(mut cfg) = Config::load() {
-            cfg.github_token = Some(tok);
-            let _ = cfg.save();
-        }
+
+        // Update in-memory config so the retry uses the new token immediately.
+        current_config.borrow_mut().github_token = Some(tok.clone());
+        let _ = current_config.borrow().save();
+
+        btn.set_sensitive(false);
         dialog_save.close();
+
+        // Auto-retry the sync with the new token — no need to click again.
+        let root_thread = root.clone();
+        let root_result = root.clone();
+        let win2 = window_retry.clone();
+        let ov2 = overlay_retry.clone();
+        let cfg2 = current_config.clone();
+        let (tx, rx) = std::sync::mpsc::sync_channel::<git_sync::SyncResult>(1);
+        std::thread::spawn(move || { tx.send(git_sync::sync(&root_thread, Some(&tok))).ok(); });
+        let rx = Rc::new(rx);
+        glib::timeout_add_local(Duration::from_millis(100), move || {
+            use std::sync::mpsc::TryRecvError;
+            match rx.try_recv() {
+                Ok(result) => {
+                    show_sync_result(&win2, &ov2, result, root_result.clone(), cfg2.clone());
+                    glib::ControlFlow::Break
+                }
+                Err(TryRecvError::Empty) => glib::ControlFlow::Continue,
+                Err(TryRecvError::Disconnected) => glib::ControlFlow::Break,
+            }
+        });
     });
 
     dialog.present();

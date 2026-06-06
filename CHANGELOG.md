@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.12.4] — 2026-06-06
+
+### Fixed
+
+- **GitHub token dialog now actually works**: previously the token was saved to disk but the in-memory config was not updated, so the next sync attempt still used no token. Fixed — the dialog now updates the live config immediately.
+- **Auto-retry after login**: the dialog button now reads "Save & Sync" and automatically retries the push after saving the token, so the user doesn't need to click the sync button a second time.
+- `do_sync` and `show_sync_result` now share the live `current_config` so future auth-failure retries read the correct token.
+
+---
+
 ## [0.12.3] — 2026-06-06
 
 ### Fixed
