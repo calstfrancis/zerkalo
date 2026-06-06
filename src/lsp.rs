@@ -40,11 +40,20 @@ pub struct LspClient {
     pub root: PathBuf,
 }
 
+fn tinymist_command() -> Command {
+    let bundled = std::path::Path::new("/usr/lib/zerkalo/tinymist");
+    if bundled.exists() {
+        Command::new(bundled)
+    } else {
+        Command::new("tinymist")
+    }
+}
+
 impl LspClient {
     /// Spawn tinymist, perform the LSP handshake. Returns None if tinymist is
     /// not available or the spawn fails.
     pub fn new(root: &Path) -> Option<Self> {
-        let mut child = Command::new("tinymist")
+        let mut child = tinymist_command()
             .arg("lsp")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

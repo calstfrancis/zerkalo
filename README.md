@@ -2,7 +2,7 @@
 
 A contemplative [Typst](https://typst.app) editor built with Rust, GTK4, and libadwaita.  
 Live preview · Academic styles · LSP completions · Git sync · Adwaita design.  
-**v0.8.6** — Template sidecar · Plan panel · Session delta · Tab error indicator · Citation panel fixes
+**v0.12.1** — Native .deb/.rpm packages · Bundled tinymist · pandoc & hunspell dependencies auto-installed
 
 ---
 
@@ -28,7 +28,7 @@ Live preview · Academic styles · LSP completions · Git sync · Adwaita design
 | **Word-count goal** | Add `// @goal: 3000` in your file; a progress bar tracks progress in the status bar |
 | **Session delta** | Status bar shows `↑ N` words added since the file was opened |
 | **Cursor position** | Line and column in the editor status bar |
-| **Command palette** | `Ctrl+P`; fuzzy search over app commands and document headings; `Ctrl+G` for headings only |
+| **Command palette** | `Ctrl+K`; fuzzy search over app commands and document headings; `Ctrl+G` for headings only |
 | **Session restore** | Open files, active tab, and cursor positions are restored on next launch |
 | **Save-before-close** | Closing with unsaved files shows a dialog listing modified files with Save All / Discard / Cancel |
 | **Configurable keybindings** | Edit `~/.config/zerkalo/keybindings.toml` to remap any shortcut |
@@ -54,7 +54,7 @@ Live preview · Academic styles · LSP completions · Git sync · Adwaita design
 | **Export** | PDF (typst), HTML (typst), DOCX, ODT, LaTeX (all via pandoc where needed) |
 | **Font management** | ☰ → Font Management — searchable list of system fonts; enable/disable; persisted to `~/.config/zerkalo/font-preferences.toml` |
 | **GOST Type B font** | Bundled and installed automatically on first launch |
-| **Git sync** | Commit and push in one click or `Ctrl+Shift+G`; pushes to all configured remotes |
+| **Git sync** | Commit and push in one click or `Ctrl+Shift+S`; pushes to all configured remotes |
 
 ---
 
@@ -62,11 +62,11 @@ Live preview · Academic styles · LSP completions · Git sync · Adwaita design
 
 | Tool | Purpose | Install |
 |---|---|---|
-| `pandoc` | DOCX, ODT, LaTeX export; LaTeX import | `zypper install pandoc` · `apt install pandoc` · `brew install pandoc` |
-| `hunspell` | Spell checking | `zypper install hunspell` · `apt install hunspell` · `brew install hunspell` |
-| `hunspell-en` | English dictionaries (example) | `zypper install hunspell-en` · `apt install hunspell-en-us` |
+| `pandoc` | DOCX, ODT, LaTeX export; LaTeX import | declared as a package dependency — installed automatically with .deb/.rpm |
+| `hunspell` | Spell checking | declared as a package dependency — installed automatically with .deb/.rpm |
+| `hunspell-en` | English dictionaries (example) | `apt install hunspell-en-us` · `dnf install hunspell-en` · `zypper install hunspell-en` |
 | `git` | Sync | system package |
-| `tinymist` | LSP completions (optional) | `cargo install tinymist` |
+| `tinymist` | LSP completions (optional) | bundled at `/usr/lib/zerkalo/tinymist` in .deb/.rpm; `cargo install tinymist` for source builds |
 
 > **Note:** `typst` and `pdftoppm` are no longer required. Compilation and preview rendering are handled in-process by the embedded Typst engine.
 
@@ -74,18 +74,40 @@ Live preview · Academic styles · LSP completions · Git sync · Adwaita design
 
 ## Installation
 
+### Ubuntu / Debian / Mint
+
+Download `zerkalo_*.deb` from the [latest release](https://github.com/calstfrancis/zerkalo/releases/latest) and install it:
+
+```bash
+sudo apt install ./zerkalo_0.12.1_amd64.deb
+```
+
+`pandoc`, `hunspell`, and a bundled `tinymist` LSP are included automatically.
+
+### Fedora / openSUSE / RHEL
+
+Download `zerkalo-*.rpm` from the [latest release](https://github.com/calstfrancis/zerkalo/releases/latest) and install it:
+
+```bash
+sudo dnf install ./zerkalo-0.12.1-1.x86_64.rpm   # Fedora
+sudo zypper install ./zerkalo-0.12.1-1.x86_64.rpm  # openSUSE
+```
+
+### install.sh (auto-detect)
+
+The install script detects your package manager and downloads the right package:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/calstfrancis/zerkalo/main/install.sh | bash
+```
+
+Or if you've cloned the repo:
+
 ```bash
 ./install.sh
 ```
 
-Builds a release binary and installs it to `~/.local/bin/`, the SVG icon to `~/.local/share/icons/`, and the `.desktop` file to `~/.local/share/applications/`. Most GNOME-based desktops will show Zerkalo in the app launcher immediately.
-
-If `~/.local/bin` is not in your `PATH`:
-
-```bash
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
-source ~/.bashrc
-```
+If no native package is found it falls back to building from source (requires Rust and system GTK dev headers — see *Building manually* below).
 
 To remove:
 
@@ -157,12 +179,13 @@ All settings are also editable via **☰ → Settings** inside the app.
 | `Ctrl+Tab` | Next tab |
 | `Ctrl+Shift+Tab` | Previous tab |
 | `Ctrl+Shift+R` | Add reference (citation autocomplete) |
-| `Ctrl+P` | Command palette (commands + headings) |
+| `Ctrl+K` | Command palette (commands + headings) |
 | `Ctrl+G` | Command palette — headings only |
-| `Ctrl+Shift+G` | Git sync (commit & push) |
+| `Ctrl+Shift+S` | Git sync (commit & push) |
+| `Ctrl+Shift+H` | Keyboard shortcuts help (dynamic, reads keybindings.toml) |
 | `Ctrl+Q` | Quit |
 | `@` | Citation popup (requires a `.bib` file) |
-| `#` | LSP completion popup (requires tinymist) |
+| `#` | LSP completion popup (tinymist — bundled in .deb/.rpm) |
 
 ---
 

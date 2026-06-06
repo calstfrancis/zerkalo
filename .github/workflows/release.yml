@@ -6,7 +6,7 @@ on:
       - 'v*'
 
 jobs:
-  appimage:
+  packages:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -23,10 +23,8 @@ jobs:
             libgtksourceview-5-dev \
             libgit2-dev \
             libssl-dev \
-            librsvg2-bin \
             pkg-config \
-            gcc \
-            file
+            gcc
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -40,50 +38,35 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
 
+      - name: Install cargo-deb and cargo-generate-rpm
+        run: cargo install cargo-deb cargo-generate-rpm
+
       - name: Build release binary
         run: cargo build --release
 
-      - name: Download appimagetool
+      - name: Download tinymist
         run: |
-          wget -q "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage"
-          chmod +x appimagetool-x86_64.AppImage
+          TINYMIST_URL=$(curl -fsSL https://api.github.com/repos/Myriad-Dreamin/tinymist/releases/latest \
+            | grep -o '"browser_download_url":"[^"]*tinymist-linux-x64"' \
+            | grep -o 'https://[^"]*')
+          curl -fsSL -o packaging/tinymist "$TINYMIST_URL"
+          chmod +x packaging/tinymist
 
-      - name: Assemble AppDir
+      - name: Build .deb package
+        run: cargo deb --no-build --no-strip
+
+      - name: Build .rpm package
+        run: cargo generate-rpm
+
+      - name: Collect packages
         run: |
-          mkdir -p AppDir/usr/bin
-          mkdir -p AppDir/usr/share/applications
-          mkdir -p AppDir/usr/share/icons/hicolor/scalable/apps
-
-          cp target/release/zerkalo AppDir/usr/bin/
-          cp packaging/io.github.calstfrancis.Zerkalo.desktop \
-             AppDir/io.github.calstfrancis.Zerkalo.desktop
-          cp packaging/io.github.calstfrancis.Zerkalo.desktop \
-             AppDir/usr/share/applications/
-          cp packaging/zerkalo.svg \
-             AppDir/usr/share/icons/hicolor/scalable/apps/zerkalo.svg
-          cp packaging/zerkalo.svg AppDir/zerkalo.svg
-          ln -sf zerkalo.svg AppDir/.DirIcon
-
-          cat > AppDir/AppRun << 'APPRUN'
-          #!/bin/sh
-          SELF=$(readlink -f "$0")
-          HERE=${SELF%/*}
-          exec "${HERE}/usr/bin/zerkalo" "$@"
-          APPRUN
-          chmod +x AppDir/AppRun
-
-      - name: Build AppImage
-        env:
-          ARCH: x86_64
-          VERSION: ${{ github.ref_name }}
-        run: |
-          ./appimagetool-x86_64.AppImage \
-            --appimage-extract-and-run \
-            AppDir \
-            "Zerkalo-${VERSION}-x86_64.AppImage"
+          mkdir -p dist
+          cp target/debian/*.deb dist/
+          cp target/generate-rpm/*.rpm dist/
+          ls -lh dist/
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: Zerkalo-*.AppImage
+          files: dist/*
           generate_release_notes: true

@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.12.1] — 2026-06-06
+
+### Changed
+
+- **Native packaging**: release workflow now produces `.deb` (Ubuntu/Debian/Mint) and `.rpm` (Fedora/openSUSE) packages instead of an AppImage. `pandoc` and `hunspell` are declared as package dependencies so they are installed automatically.
+- **Bundled tinymist**: the LSP binary is bundled at `/usr/lib/zerkalo/tinymist` inside the deb/rpm packages — no separate download step needed after install. The source-build path still prompts to install tinymist separately.
+- **install.sh**: now detects dpkg/rpm and downloads the appropriate native package; falls back to cargo build only as a last resort.
+
+---
+
 ## [0.12.0] — 2026-06-05
 
 ### Added
