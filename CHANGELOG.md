@@ -5,6 +5,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.12.2] — 2026-06-06
+
+### Added
+
+- **GitHub login dialog**: if a push fails with an authentication error, Zerkalo shows a "GitHub Login" dialog prompting for a Personal Access Token (PAT). The token is stored in the local config and injected into HTTPS remote URLs on future syncs — no terminal needed.
+- **GitHub token in Settings**: the "General" settings page now has a "GitHub Sync" section where the PAT can be set or updated at any time.
+- **Pull before push**: `sync()` now runs `git pull --rebase` before each push so that multi-machine workflows don't produce non-fast-forward rejections.
+
+### Fixed
+
+- `Config::default()` missing `github_token` field (would have caused a compile error on new installs).
+
+---
+
 ## [0.12.1] — 2026-06-06
 
 ### Changed

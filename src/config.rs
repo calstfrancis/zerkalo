@@ -89,6 +89,8 @@ pub struct Config {
     pub active_profile: CompileProfile,
     #[serde(default = "default_auto_save_idle_ms")]
     pub auto_save_idle_ms: u64,
+    #[serde(default)]
+    pub github_token: Option<String>,
 }
 
 fn default_work_dir() -> PathBuf {
@@ -144,6 +146,7 @@ impl Default for Config {
             recent_searches: Vec::new(),
             active_profile: CompileProfile::default(),
             auto_save_idle_ms: default_auto_save_idle_ms(),
+            github_token: None,
         }
     }
 }

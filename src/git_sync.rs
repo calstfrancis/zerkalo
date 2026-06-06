@@ -14,6 +14,8 @@ pub struct SyncResult {
     pub error: Option<String>,
     /// Non-fatal: per-remote push failures — "(remote_name) reason".
     pub push_errors: Vec<String>,
+    /// True if any push error looks like an authentication failure.
+    pub auth_failed: bool,
 }
 
 // ── Query helpers ─────────────────────────────────────────────────────────────
@@ -177,81 +179,106 @@ pub fn add_remote(repo_path: &Path, url: &str) -> Result<(), String> {
     run_git(repo_path, &["remote", "add", "origin", url])
 }
 
-/// Stage everything, commit with an auto-crafted message, then push to every
-/// configured remote. `pushed` is true if at least one remote succeeded.
-pub fn sync(repo_path: &Path) -> SyncResult {
+/// Stage everything, commit with an auto-crafted message, pull from each remote
+/// (rebase), then push to every configured remote.
+///
+/// `github_token` is injected into HTTPS GitHub remote URLs for authentication.
+/// `pushed` is true if at least one remote succeeded.
+pub fn sync(repo_path: &Path, github_token: Option<&str>) -> SyncResult {
     let changed = changed_files(repo_path);
     let msg = craft_message(&changed);
 
-    // git add .
     if let Err(e) = run_git(repo_path, &["add", "."]) {
         return SyncResult {
-            committed: false,
-            pushed: false,
-            commit_message: msg,
+            committed: false, pushed: false, commit_message: msg,
             error: Some(format!("git add: {e}")),
-            push_errors: Vec::new(),
+            push_errors: Vec::new(), auth_failed: false,
         };
     }
 
-    // git commit
     let committed = match Command::new("git")
         .args(["-C", path_str(repo_path), "commit", "-m", &msg])
         .output()
     {
-        Err(e) => {
-            return SyncResult {
-                committed: false,
-                pushed: false,
-                commit_message: msg,
-                error: Some(format!("git commit: {e}")),
-                push_errors: Vec::new(),
-            };
-        }
+        Err(e) => return SyncResult {
+            committed: false, pushed: false, commit_message: msg,
+            error: Some(format!("git commit: {e}")),
+            push_errors: Vec::new(), auth_failed: false,
+        },
         Ok(out) if !out.status.success() => {
             let text = lossy_combined(&out);
-            if text.contains("nothing to commit") {
-                false
-            } else {
+            if text.contains("nothing to commit") { false } else {
                 return SyncResult {
-                    committed: false,
-                    pushed: false,
-                    commit_message: msg,
-                    error: Some(text),
-                    push_errors: Vec::new(),
+                    committed: false, pushed: false, commit_message: msg,
+                    error: Some(text), push_errors: Vec::new(), auth_failed: false,
                 };
             }
         }
         Ok(_) => true,
     };
 
-    // Push to every remote
     let remotes = list_remotes(repo_path);
     let branch = current_branch(repo_path);
     let mut pushed = false;
     let mut push_errors: Vec<String> = Vec::new();
+    let mut auth_failed = false;
 
     for remote in &remotes {
-        let out = Command::new("git")
-            .args(["-C", path_str(repo_path), "push", "-u", remote, &branch])
-            .output();
+        let authed_url = github_token
+            .and_then(|_tok| get_remote_url(repo_path, remote))
+            .and_then(|url| inject_token_into_url(&url, github_token.unwrap_or("")));
 
-        match out {
+        // Pull --rebase before push so diverged histories are handled.
+        let pull_args: Vec<&str> = if let Some(ref url) = authed_url {
+            vec!["-C", path_str(repo_path), "pull", "--rebase", url, &branch]
+        } else {
+            vec!["-C", path_str(repo_path), "pull", "--rebase", remote, &branch]
+        };
+        // Ignore pull failures (no upstream yet, or empty repo).
+        let _ = Command::new("git").args(&pull_args).output();
+
+        let push_args: Vec<&str> = if let Some(ref url) = authed_url {
+            vec!["-C", path_str(repo_path), "push", "-u", url, &branch]
+        } else {
+            vec!["-C", path_str(repo_path), "push", "-u", remote, &branch]
+        };
+
+        match Command::new("git").args(&push_args).output() {
             Err(e) => push_errors.push(format!("({remote}) {e}")),
             Ok(o) if !o.status.success() => {
-                push_errors.push(format!("({remote}) {}", lossy_combined(&o)));
+                let msg = lossy_combined(&o);
+                if is_auth_error(&msg) { auth_failed = true; }
+                push_errors.push(format!("({remote}) {msg}"));
             }
             Ok(_) => pushed = true,
         }
     }
 
-    SyncResult {
-        committed,
-        pushed,
-        commit_message: msg,
-        error: None,
-        push_errors,
+    SyncResult { committed, pushed, commit_message: msg, error: None, push_errors, auth_failed }
+}
+
+fn inject_token_into_url(url: &str, token: &str) -> Option<String> {
+    if token.is_empty() { return None; }
+    if url.starts_with("https://github.com/") {
+        let rest = &url["https://github.com/".len()..];
+        Some(format!("https://{token}@github.com/{rest}"))
+    } else if url.starts_with("https://") {
+        // Generic HTTPS: insert token@ after https://
+        let rest = &url["https://".len()..];
+        // Remove any existing user@
+        let rest = if let Some(at) = rest.find('@') { &rest[at + 1..] } else { rest };
+        Some(format!("https://{token}@{rest}"))
+    } else {
+        None
     }
+}
+
+fn is_auth_error(msg: &str) -> bool {
+    msg.contains("Authentication failed")
+        || msg.contains("403")
+        || msg.contains("401")
+        || msg.contains("could not read Username")
+        || msg.contains("remote: Invalid username")
 }
 
 // ── Internals ─────────────────────────────────────────────────────────────────
