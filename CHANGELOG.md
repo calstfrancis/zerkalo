@@ -5,6 +5,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.12.9] — 2026-06-07
+
+### Changed
+- Syntax scheme preference order: `solarized-dark` / `tango` first, Adwaita as fallback
+- Comment block highlight changed from neutral grey wash to a faint blue tint for visual distinction
+- Current-line highlight now uses accent colour (`alpha(@accent_color, 0.06)`) for consistency with the cursor
+- Style dropdown shows only the style name, not the document filename
+
+---
+
+## [0.12.8] — 2026-06-07
+
+### Fixed
+- Plan panel toggle button now uses `view-list-symbolic` instead of the missing `text-editor-symbolic` icon
+
+---
+
 ## [0.12.7] — 2026-06-06
 
 ### Added
