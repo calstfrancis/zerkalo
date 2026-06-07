@@ -3504,11 +3504,11 @@ fn show_github_token_dialog(
 
 fn show_backup_remote_dialog(window: &adw::ApplicationWindow, repo_path: &std::path::Path) {
     let dialog = adw::Window::builder()
-        .title("Backup Remotes")
+        .title("Git Remotes")
         .transient_for(window)
         .modal(true)
         .default_width(520)
-        .default_height(560)
+        .default_height(600)
         .build();
 
     let header = adw::HeaderBar::new();
@@ -3519,18 +3519,70 @@ fn show_backup_remote_dialog(window: &adw::ApplicationWindow, repo_path: &std::p
 
     let page = adw::PreferencesPage::new();
 
-    // ── How it works ─────────────────────────────────────────────────────────
-    let how_group = adw::PreferencesGroup::new();
-    how_group.set_description(Some(
-        "Every sync (Ctrl+Shift+G) pushes to your primary remote (origin) \
-         AND to every backup remote listed here. You can have as many as you like — \
-         one for local storage, one for a privacy-respecting git host, etc.",
+    // ── Primary remote (origin / GitHub) ─────────────────────────────────────
+    let origin_group = adw::PreferencesGroup::new();
+    origin_group.set_title("Primary Remote");
+    origin_group.set_description(Some(
+        "Every sync pushes here first. Paste a GitHub HTTPS URL.",
     ));
-    page.add(&how_group);
 
-    // ── Current backup remotes ────────────────────────────────────────────────
+    let origin_entry = adw::EntryRow::new();
+    origin_entry.set_title("URL");
+    if let Some(url) = git_sync::get_remote_url(repo_path, "origin") {
+        origin_entry.set_text(&url);
+    }
+
+    let origin_status = Label::new(None);
+    origin_status.set_xalign(0.0);
+    origin_status.set_margin_top(4);
+    origin_status.add_css_class("dim-label");
+
+    let origin_apply = Button::with_label("Apply");
+    origin_apply.add_css_class("suggested-action");
+    origin_apply.set_halign(Align::End);
+    {
+        let entry = origin_entry.clone();
+        let lbl = origin_status.clone();
+        let root = repo_path.to_path_buf();
+        origin_apply.connect_clicked(move |_| {
+            let url = entry.text().to_string();
+            if url.is_empty() {
+                lbl.set_label("Enter a URL first.");
+                return;
+            }
+            let _ = git_sync::remove_remote(&root, "origin");
+            match git_sync::add_named_remote(&root, "origin", &url) {
+                Ok(()) => {
+                    lbl.set_label(&format!("✓ Origin set: {url}"));
+                    lbl.remove_css_class("error");
+                    lbl.add_css_class("success");
+                }
+                Err(e) => {
+                    lbl.set_label(&format!("Error: {e}"));
+                    lbl.remove_css_class("success");
+                    lbl.add_css_class("error");
+                }
+            }
+        });
+    }
+
+    let origin_suffix = GtkBox::new(Orientation::Vertical, 6);
+    origin_suffix.set_margin_top(8);
+    origin_suffix.set_margin_bottom(4);
+    origin_suffix.append(&origin_status);
+    origin_suffix.append(&origin_apply);
+
+    origin_group.add(&origin_entry);
+    origin_group.add(&{
+        let row = adw::PreferencesRow::new();
+        row.set_child(Some(&origin_suffix));
+        row
+    });
+    page.add(&origin_group);
+
+    // ── Additional remotes ────────────────────────────────────────────────────
     let current_group = adw::PreferencesGroup::new();
-    current_group.set_title("Current Backup Remotes");
+    current_group.set_title("Additional Remotes");
 
     let root_for_rebuild = repo_path.to_path_buf();
     // Track only the rows we explicitly added so we can safely remove them
@@ -3603,7 +3655,7 @@ fn show_backup_remote_dialog(window: &adw::ApplicationWindow, repo_path: &std::p
     let add_group = adw::PreferencesGroup::new();
     add_group.set_title("Add a Backup Remote");
     add_group.set_description(Some(
-        "Enter a name (e.g. \"disroot\", \"backup\", \"nas\") and a URL or local path.",
+        "Sync pushes here in addition to the primary remote. Enter a name and a URL or local path.",
     ));
 
     let name_row = adw::EntryRow::new();
@@ -4270,7 +4322,7 @@ fn build_hamburger_menu_items() -> HamburgerItems {
         menu_fonts_item:           make_menu_item("Font Management…",            None),
         menu_settings_item:        make_menu_item("Settings",                    None),
         menu_setup_item:           make_menu_item("Setup & Onboarding…",         None),
-        menu_backup_remote_item:   make_menu_item("Backup Remotes…",             None),
+        menu_backup_remote_item:   make_menu_item("Git Remotes…",                 None),
         menu_help_item:            make_menu_item("Keyboard Shortcuts & Help",   Some("Ctrl+?")),
         menu_writing_stats_item:   make_menu_item("Writing Stats",               None),
         menu_about_item:           make_menu_item("About Zerkalo",               None),

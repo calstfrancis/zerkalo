@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.12.10] — 2026-06-07
+
+### Changed
+- "Backup Remotes" menu item renamed to "Git Remotes"
+- Git Remotes dialog now includes a "Primary Remote" section at the top for viewing and editing the origin (GitHub) URL — no longer need the Setup Wizard to change which repo the project syncs with
+
+---
+
 ## [0.12.9] — 2026-06-07
 
 ### Changed
