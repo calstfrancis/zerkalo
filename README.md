@@ -47,7 +47,7 @@ Live preview · Academic styles · LSP completions · Git sync · Adwaita design
 |---|---|
 | **Live preview** | Auto-compiles on every edit (300 ms debounce); all pages rendered; embedded Typst engine — no binary required |
 | **Cheatsheet & Help panel** | Toggle (`?` button) in preview toolbar shows a three-tab reference panel (Cheatsheet, Help, FAQ) in place of the preview |
-| **Style switcher** | Header-bar dropdown applies a citation style to the open document; button label shows detected style and filename ("GOST 7.32 · main") |
+| **Style switcher** | Header-bar dropdown applies a citation style to the open document; button label shows the detected style name ("GOST 7.32") |
 | **New from Template** | Dialog with five tabs — Document, Layout, Sections, Languages, Packages — generates a complete `.typ` preamble |
 | **Update Template Settings** | ☰ → Update Template Settings — re-applies preamble settings from a per-document `.zerkalo.toml` sidecar; splices at the `// ── Document body` marker so body content is never touched; font and spacing propagate to manual config sections; metadata fields (`#let doc-title`, `#let doc-author`, etc.) are always read fresh from the document so in-source edits are picked up automatically |
 | **LaTeX / DOCX / PDF import** | ☰ → Import… — converts to Typst via pandoc or pdftotext; all imported files receive a Zerkalo template section and are immediately responsive to "Update Template Settings" |

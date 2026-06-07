@@ -118,7 +118,7 @@ fn faq_blocks() -> Vec<Block<'static>> {
         Block::Body("If you see 'expected string or function' after changing a style, your document may have a conflicting #show heading rule outside the template block. Fix it by opening 'Update Template Settings' (sidebar button or ≡ menu) and re-applying your style. That rewrites the formatting section cleanly."),
         Block::Gap,
         Block::H2("The style dropdown doesn't seem to do anything"),
-        Block::Body("For template documents (created with 'New from Template' or imported via File → Import), styles are applied inside the template block. If the heading appearance doesn't change, open the error panel — a compile error is likely preventing the preview from updating."),
+        Block::Body("For template documents (created with 'New from Template' or imported via File → Import), styles are applied inside the template block. If the heading appearance doesn't change, open the error panel — a compile error is likely preventing the preview from updating. The button label always shows just the style name; it no longer includes the filename."),
         Block::Gap,
         Block::H2("Table of Contents / abstract / keywords not appearing"),
         Block::Body("Use 'Update Template Settings' (sidebar button or ≡ → Update Template Settings…). Switch to the Sections tab and toggle Table of Contents, Abstract, or Keywords on. Click 'Apply to Current' — Zerkalo will insert or remove those sections in the document body."),

@@ -139,7 +139,7 @@ impl AppWindow {
         // Wire style buttons after editor_pane is available (done below)
 
         let todo_btn = ToggleButton::new();
-        todo_btn.set_icon_name("text-editor-symbolic");
+        todo_btn.set_icon_name("view-list-symbolic");
         todo_btn.set_tooltip_text(Some("Toggle plan panel"));
         todo_btn.add_css_class("flat");
         todo_btn.set_active(false);
@@ -1746,19 +1746,10 @@ impl AppWindow {
                 let display = name.strip_suffix(".typ").unwrap_or(name);
                 title_widget_for_switch.set_title(display);
             }
-            let basename = path.file_name()
-                .and_then(|n| n.to_str())
-                .map(|s| s.strip_suffix(".typ").unwrap_or(s).to_string())
-                .unwrap_or_default();
             let style_name = super::template_dialog::parse_style_key(&content)
                 .and_then(|key| super::template_dialog::style_name_for_key(&key))
                 .unwrap_or("Style");
-            let style_label = if basename.is_empty() {
-                style_name.to_string()
-            } else {
-                format!("{style_name} · {basename}")
-            };
-            style_btn_for_switch.set_label(&style_label);
+            style_btn_for_switch.set_label(style_name);
         });
 
         // ── Modified / autosave indicator ──────────────────────────────────────
@@ -1799,19 +1790,10 @@ impl AppWindow {
             }
             todo_panel_for_open.set_current_file(Some(&path));
             notes_panel_for_open.update(&content, &path);
-            let basename = path.file_name()
-                .and_then(|n| n.to_str())
-                .map(|s| s.strip_suffix(".typ").unwrap_or(s).to_string())
-                .unwrap_or_default();
             let style_name = super::template_dialog::parse_style_key(&content)
                 .and_then(|key| super::template_dialog::style_name_for_key(&key))
                 .unwrap_or("Style");
-            let style_label = if basename.is_empty() {
-                style_name.to_string()
-            } else {
-                format!("{style_name} · {basename}")
-            };
-            style_btn_for_open.set_label(&style_label);
+            style_btn_for_open.set_label(style_name);
             let mut cfg = current_config_for_open.borrow_mut();
             cfg.push_recent(path.clone());
             let _ = cfg.save();
@@ -4225,6 +4207,9 @@ fn load_app_css() {
         } \
         textview.view { \
             caret-color: @accent_color; \
+        } \
+        textview text .current-line { \
+            background-color: alpha(@accent_color, 0.06); \
         } \
         notebook tab button.circular { \
             min-width: 20px; \

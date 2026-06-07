@@ -831,9 +831,9 @@ impl EditorPane {
 
     pub fn apply_style_scheme(&self, is_dark: bool) {
         let candidates: &[&str] = if is_dark {
-            &["Adwaita-dark", "oblivion", "solarized-dark", "classic-dark"]
+            &["solarized-dark", "oblivion", "Adwaita-dark", "classic-dark"]
         } else {
-            &["Adwaita", "classic"]
+            &["tango", "Adwaita", "classic"]
         };
         let mgr = StyleSchemeManager::default();
         let scheme = candidates.iter().find_map(|id| mgr.scheme(id));
@@ -2957,9 +2957,9 @@ fn apply_comment_highlights(buffer: &Buffer) {
     // Update colour every call so theme switches are reflected on next keystroke
     let is_dark = adw::StyleManager::default().is_dark();
     let color = if is_dark {
-        gtk4::gdk::RGBA::new(1.0, 1.0, 1.0, 0.07)
+        gtk4::gdk::RGBA::new(0.3, 0.5, 1.0, 0.10)
     } else {
-        gtk4::gdk::RGBA::new(0.42, 0.47, 0.54, 0.11)
+        gtk4::gdk::RGBA::new(0.2, 0.35, 0.8, 0.08)
     };
     tag.set_paragraph_background_rgba(Some(&color));
 
