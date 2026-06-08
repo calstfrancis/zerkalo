@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.calstfrancis.Zerkalo</id>
+  <name>Zerkalo</name>
+  <summary>Typst editor with live preview, LSP completions, and git sync</summary>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <description>
+    <p>
+      Zerkalo is a GTK4 editor for Typst documents with a focus on academic and
+      contemplative writing. It embeds the Typst compiler directly — no external
+      binary required — and renders a live preview as you type.
+    </p>
+    <p>Editor features:</p>
+    <ul>
+      <li>Multi-file tabs with modified indicator and inline compile-error dots</li>
+      <li>Syntax highlighting, find and replace, auto-pair brackets</li>
+      <li>LSP completions via bundled tinymist — type # for a popup</li>
+      <li>Citation autocomplete — type @ for fuzzy BibTeX key search</li>
+      <li>Spell check with suggestions, Ignore All, and language selector</li>
+      <li>Word count, reading time, word-count goal, and session delta in the status bar</li>
+      <li>Command palette (Ctrl+K) — fuzzy search over commands and headings</li>
+      <li>Breadcrumb bar showing your heading path as the cursor moves</li>
+      <li>Configurable keybindings via keybindings.toml</li>
+    </ul>
+    <p>Document workflow:</p>
+    <ul>
+      <li>New from Template — dialog generates a complete Typst preamble</li>
+      <li>Import from LaTeX, DOCX, or PDF via pandoc</li>
+      <li>Export to PDF, HTML, DOCX, ODT, or LaTeX</li>
+      <li>Citation style switcher with GOST 7.32 support</li>
+      <li>Git sync — commit and push to all remotes in one click</li>
+    </ul>
+    <p>Sidebar:</p>
+    <ul>
+      <li>Document outline with cursor-tracking highlight</li>
+      <li>File tree, citation panel, plan scratchpad, and section notes</li>
+      <li>Symbol insert panel for Cyrillic, Greek, Hebrew, and Sanskrit</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">io.github.calstfrancis.Zerkalo.desktop</launchable>
+  <url type="homepage">https://github.com/calstfrancis/zerkalo</url>
+  <url type="bugtracker">https://github.com/calstfrancis/zerkalo/issues</url>
+  <developer id="io.github.calstfrancis">
+    <name>Cal St Francis</name>
+  </developer>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.12.11" date="2026-06-08">
+      <description>
+        <p>Strip debug symbols from flatpak binaries to reduce package size.</p>
+      </description>
+    </release>
+    <release version="0.12.10" date="2026-06-07">
+      <description>
+        <p>Git Remotes dialog now includes a Primary Remote section for viewing and editing the origin URL.</p>
+      </description>
+    </release>
+  </releases>
+</component>

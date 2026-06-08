@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.12.11] — 2026-06-08
+
+### Changed
+- Flatpak: strip debug symbols from zerkalo and tinymist binaries — reduces flatpak size by ~50 MB
+
+---
+
 ## [0.12.10] — 2026-06-07
 
 ### Changed
