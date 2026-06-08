@@ -35,7 +35,7 @@ Files touched: `ui/app_window.rs`, `ui/new_project_dialog.rs` (new),
 
 ---
 
-### 2. Root File Indicator + Right-Click "Set as Compilation Root" ← NEXT
+### ✅ 2. Root File Indicator + Right-Click "Set as Compilation Root" — DONE
 
 The file tree currently has no indication of which file is being compiled.
 
@@ -81,7 +81,7 @@ and `save()` already exist.
 
 ---
 
-### 3. Status Bar Root Chip
+### ✅ 3. Status Bar Root Chip — DONE
 
 The status bar currently has no indication of what file is being compiled.
 
