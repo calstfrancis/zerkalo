@@ -327,7 +327,7 @@ impl ErrorPanel {
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("?");
-        let loc_text = format!("{}:{}:{}", filename, err.line, err.col);
+        let loc_text = format!("Line {} · {}:{}", err.line, filename, err.col);
         let loc_lbl = Label::new(Some(&loc_text));
         loc_lbl.set_halign(Align::Start);
         loc_lbl.add_css_class("dim-label");
