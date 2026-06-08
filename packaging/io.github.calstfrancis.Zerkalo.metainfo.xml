@@ -46,7 +46,7 @@
   </developer>
   <content_rating type="oars-1.1"/>
   <releases>
-    <release version="0.12.33-rc2" date="2026-06-08">
+    <release version="0.12.33" date="2026-06-08">
       <description>
         <p>Delete button (trash icon) beside every file in the open dropdown — confirmation dialog, closes tab if open, removes from list.</p>
       </description>
