@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.12.22] — 2026-06-08
+
+### Fixed
+- **Preview not updating while typing in project mode**: the debounced on_change handler was calling `set_root_file(active_tab)` on every keystroke, so edits to a non-root file were compiled as if that file were the root. Now skips `set_root_file` when a project root is already set (same fix as the Compile button and tab-switch handler)
+- Flatpak runtime bumped to GNOME Platform 50
+
+---
+
 ## [0.12.21] — 2026-06-08
 
 ### Fixed

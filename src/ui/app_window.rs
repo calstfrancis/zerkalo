@@ -1728,7 +1728,9 @@ impl AppWindow {
                             if let Some(content) = editor.get_active_content() {
                                 preview.set_buffer_snapshot(path.clone(), content);
                             }
-                            preview.set_root_file(path);
+                            if editor.project_root().is_none() {
+                                preview.set_root_file(path);
+                            }
                         }
                         preview.trigger_compile();
                     }

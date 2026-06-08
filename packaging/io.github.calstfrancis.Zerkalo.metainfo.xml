@@ -46,6 +46,11 @@
   </developer>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.12.22" date="2026-06-08">
+      <description>
+        <p>Fix live preview not updating while typing in a multi-file project: the debounced change handler was overriding the compilation root with the active tab on every keystroke. Also bumps flatpak runtime to GNOME Platform 50.</p>
+      </description>
+    </release>
     <release version="0.12.21" date="2026-06-08">
       <description>
         <p>Fix crash when clicking files in a multi-file project (double-borrow panic in tab-switch handler). Fix compile button resetting the project compilation root on every tab switch. Fix tinymist, pandoc, git history, and pdftotext inside the flatpak sandbox.</p>
