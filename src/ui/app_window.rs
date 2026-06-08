@@ -188,6 +188,7 @@ impl AppWindow {
             menu_open_item,
             menu_open_project_item,
             menu_recent_projects_item,
+            menu_project_settings_item,
             menu_save_item,
             menu_save_as_item,
             menu_snapshots_item,
@@ -221,6 +222,7 @@ impl AppWindow {
         menu_popover_box.append(&menu_open_item);
         menu_popover_box.append(&menu_open_project_item);
         menu_popover_box.append(&menu_recent_projects_item);
+        menu_popover_box.append(&menu_project_settings_item);
         menu_popover_box.append(&Separator::new(Orientation::Horizontal));
         // Save
         menu_popover_box.append(&menu_save_item);
@@ -364,8 +366,8 @@ impl AppWindow {
             let op = outline_panel.clone();
             let ep = editor_pane.clone();
             let pp_ref = preview_pane_for_heading.clone();
-            editor_pane.set_on_cursor_heading(move |_path, heading_line| {
-                op.select_for_line(heading_line);
+            editor_pane.set_on_cursor_heading(move |path, heading_line| {
+                op.select_for_line(&path, heading_line);
                 if let Some(ref pp) = *pp_ref.borrow() {
                     let total = ep.active_line_count().max(1);
                     let page_count = pp.page_count();
@@ -907,6 +909,7 @@ impl AppWindow {
             let dlg = super::new_project_dialog::NewProjectDialog::new(
                 &window_for_new_proj,
                 work_dir,
+                crate::templates::all_templates(),
                 move |new_folder| {
                     let mut cfg = cfg_c.borrow_mut();
                     cfg.push_recent_project(new_folder.clone());
@@ -1729,7 +1732,23 @@ impl AppWindow {
                     // Outline + notes + ref manager update
                     if let Some(path) = editor.get_active_path() {
                         if let Some(content) = editor.get_active_content() {
-                            outline.update(&content, &path);
+                            // Multi-file outline: merge in-memory tabs with on-disk project files
+                            let tab_map: std::collections::HashMap<_, _> =
+                                editor.all_tab_texts().into_iter().collect();
+                            if let Some(root) = editor.project_root() {
+                                let mut project_files = crate::project::collect_typ_files(&root);
+                                project_files.retain(|p| p != &path);
+                                let mut outline_files: Vec<(std::path::PathBuf, String)> =
+                                    vec![(path.clone(), content.clone())];
+                                for p in project_files {
+                                    let text = tab_map.get(&p).cloned()
+                                        .unwrap_or_else(|| std::fs::read_to_string(&p).unwrap_or_default());
+                                    outline_files.push((p, text));
+                                }
+                                outline.update_project(outline_files);
+                            } else {
+                                outline.update(&content, &path);
+                            }
                             notes.update(&content, &path);
                             refs.update_used_keys(&content);
                         }
@@ -1762,10 +1781,27 @@ impl AppWindow {
         let notes_panel_for_switch = notes_panel.clone();
         let style_btn_for_switch = style_btn.clone();
         let editor_pane_for_switch_delta = editor_pane.clone();
+        let editor_pane_for_switch_outline = editor_pane.clone();
         editor_pane.set_on_page_switch(move |content, path| {
             let delta = editor_pane_for_switch_delta.get_active_session_delta();
             editor_pane_for_switch_delta.set_session_delta(delta);
-            outline_for_switch.update(&content, &path);
+            // Multi-file outline on tab switch
+            if let Some(root) = editor_pane_for_switch_outline.project_root() {
+                let tab_map: std::collections::HashMap<_, _> =
+                    editor_pane_for_switch_outline.all_tab_texts().into_iter().collect();
+                let mut project_files = crate::project::collect_typ_files(&root);
+                project_files.retain(|p| p != &path);
+                let mut outline_files: Vec<(std::path::PathBuf, String)> =
+                    vec![(path.clone(), content.clone())];
+                for p in project_files {
+                    let text = tab_map.get(&p).cloned()
+                        .unwrap_or_else(|| std::fs::read_to_string(&p).unwrap_or_default());
+                    outline_files.push((p, text));
+                }
+                outline_for_switch.update_project(outline_files);
+            } else {
+                outline_for_switch.update(&content, &path);
+            }
             notes_panel_for_switch.update(&content, &path);
             refs_for_switch.update_used_keys(&content);
             dep_graph_for_switch.refresh(Some(&path));
@@ -2577,6 +2613,37 @@ impl AppWindow {
             });
         }
         {
+            let root = project_root.clone();
+            let ft = file_tree.clone();
+            let ep = editor_pane.clone();
+            file_tree.set_on_new_chapter(move |name| {
+                let slug = crate::templates::slugify(&name);
+                if slug.is_empty() { return; }
+                let filename = format!("{slug}.typ");
+                let file_path = root.join(&filename);
+                if file_path.exists() { return; }
+                let _ = std::fs::write(&file_path, format!("= {name}\n\n"));
+                // Insert #include before #bibliography (or at end) in main.typ
+                let main_path = root.join("main.typ");
+                if main_path.exists() {
+                    if let Ok(content) = std::fs::read_to_string(&main_path) {
+                        let include_line = format!("#include \"{filename}\"");
+                        let new_content = if let Some(pos) = content.find("\n#bibliography(") {
+                            format!("{}\n{}{}", &content[..pos], include_line, &content[pos..])
+                        } else {
+                            format!("{}\n{}\n", content.trim_end(), include_line)
+                        };
+                        let _ = std::fs::write(&main_path, new_content);
+                    }
+                }
+                ft.refresh();
+                // Open the new chapter file
+                if let Ok(content) = std::fs::read_to_string(&file_path) {
+                    ep.open_file(file_path, &content);
+                }
+            });
+        }
+        {
             let ep = editor_pane.clone();
             let preview = preview_pane.clone();
             file_tree.set_on_insert_include(move |abs_path| {
@@ -2625,6 +2692,45 @@ impl AppWindow {
                 preview.trigger_compile();
                 ft.set_root_file(Some(path.clone()));
                 ep.set_root_chip(Some(&path));
+            });
+        }
+
+        // ── Menu: Project Settings ──────────────────────────────────────────
+        {
+            let win_ps = window.clone();
+            let root_ps = project_root.clone();
+            let pop_ps = menu_popover.clone();
+            let ep_ps = editor_pane.clone();
+            let preview_ps = preview_pane.clone();
+            let ft_ps = file_tree.clone();
+            menu_project_settings_item.connect_clicked(move |_| {
+                pop_ps.popdown();
+                let dlg = super::project_settings_dialog::ProjectSettingsDialog::new(
+                    &win_ps,
+                    root_ps.clone(),
+                    {
+                        let root = root_ps.clone();
+                        let ep = ep_ps.clone();
+                        let preview = preview_ps.clone();
+                        let ft = ft_ps.clone();
+                        move |new_cfg| {
+                            if let Some(ref rf) = new_cfg.root_file {
+                                let abs = root.join(rf);
+                                preview.set_root_file(abs.clone());
+                                preview.trigger_compile();
+                                ft.set_root_file(Some(abs.clone()));
+                                ep.set_root_chip(Some(&abs));
+                            }
+                            if let Some(ref bp) = new_cfg.bib_path {
+                                let abs_bib = if bp.is_absolute() { bp.clone() } else { root.join(bp) };
+                                if let Ok(content) = std::fs::read_to_string(&abs_bib) {
+                                    ep.set_bib_entries(crate::bibliography::parse_bib(&content));
+                                }
+                            }
+                        }
+                    },
+                );
+                dlg.present();
             });
         }
 
@@ -4405,6 +4511,7 @@ struct HamburgerItems {
     menu_open_item: Button,
     menu_open_project_item: Button,
     menu_recent_projects_item: Button,
+    menu_project_settings_item: Button,
     menu_save_item: Button,
     menu_save_as_item: Button,
     menu_snapshots_item: Button,
@@ -4432,8 +4539,9 @@ fn build_hamburger_menu_items() -> HamburgerItems {
         menu_new_project_item:     make_menu_item("New Project…",               None),
         menu_open_item:            make_menu_item("Open File…",                  None),
         menu_open_project_item:    make_menu_item("Open Project Folder…",        None),
-        menu_recent_projects_item: make_menu_item("Recent Projects…",            None),
-        menu_save_item:            make_menu_item("Save",                        Some("Ctrl+S")),
+        menu_recent_projects_item:    make_menu_item("Recent Projects…",          None),
+        menu_project_settings_item:  make_menu_item("Project Settings…",         None),
+        menu_save_item:              make_menu_item("Save",                      Some("Ctrl+S")),
         menu_save_as_item:         make_menu_item("Save As…",                    None),
         menu_snapshots_item:       make_menu_item("Browse Snapshots…",           None),
         menu_export_item:          make_menu_item("Export…",                     None),

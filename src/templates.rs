@@ -1,179 +1,215 @@
-/// Project template definitions and file generation.
+/// Project template definitions. Built-in templates are embedded via include_str!
+/// from templates/ at the project root. User templates are loaded at runtime from
+/// ~/.config/zerkalo/templates/<name>/manifest.toml.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use serde::Deserialize;
 use crate::error::Result;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ProjectTemplate {
-    Blank,
-    Essay,
-    JournalThesis,
-    TheologicalJournal,
+// ── Built-in templates ─────────────────────────────────────────────────────────
+
+pub(crate) struct BuiltinTemplate {
+    label: &'static str,
+    description: &'static str,
+    root_file: &'static str,
+    /// (filename, content-with-__NAME__-placeholder)
+    files: &'static [(&'static str, &'static str)],
 }
 
-impl ProjectTemplate {
-    pub fn label(&self) -> &'static str {
+static BLANK: BuiltinTemplate = BuiltinTemplate {
+    label: "Blank",
+    description: "An empty document. Start from scratch.",
+    root_file: "main.typ",
+    files: &[
+        ("main.typ", include_str!("../templates/blank/main.typ")),
+    ],
+};
+
+static ESSAY: BuiltinTemplate = BuiltinTemplate {
+    label: "Essay",
+    description: "Single-file essay with title block and bibliography.",
+    root_file: "main.typ",
+    files: &[
+        ("main.typ",         include_str!("../templates/essay/main.typ")),
+        ("bibliography.bib", include_str!("../templates/essay/bibliography.bib")),
+    ],
+};
+
+static JOURNAL_THESIS: BuiltinTemplate = BuiltinTemplate {
+    label: "Journal / Thesis",
+    description: "Multi-chapter document: title page, intro chapter, bibliography.",
+    root_file: "main.typ",
+    files: &[
+        ("main.typ",               include_str!("../templates/journal-thesis/main.typ")),
+        ("title.typ",              include_str!("../templates/journal-thesis/title.typ")),
+        ("ch01-introduction.typ",  include_str!("../templates/journal-thesis/ch01-introduction.typ")),
+        ("bibliography.bib",       include_str!("../templates/journal-thesis/bibliography.bib")),
+    ],
+};
+
+static THEOLOGICAL_JOURNAL: BuiltinTemplate = BuiltinTemplate {
+    label: "Theological Journal",
+    description: "Journal issue: front matter, article stub, bibliography.",
+    root_file: "main.typ",
+    files: &[
+        ("main.typ",        include_str!("../templates/theological-journal/main.typ")),
+        ("front-matter.typ",include_str!("../templates/theological-journal/front-matter.typ")),
+        ("article-01.typ",  include_str!("../templates/theological-journal/article-01.typ")),
+        ("bibliography.bib",include_str!("../templates/theological-journal/bibliography.bib")),
+    ],
+};
+
+// ── User templates ─────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct UserManifest {
+    name: String,
+    #[serde(default)]
+    description: String,
+    #[serde(default = "default_root_file")]
+    root_file: String,
+}
+
+fn default_root_file() -> String { "main.typ".into() }
+
+/// A template loaded at runtime from ~/.config/zerkalo/templates/<name>/manifest.toml.
+#[derive(Clone)]
+pub struct UserTemplate {
+    pub label: String,
+    pub description: String,
+    pub root_file: String,
+    /// The directory containing the template files.
+    pub source_dir: PathBuf,
+}
+
+impl UserTemplate {
+    fn generate(&self, project_dir: &Path, project_name: &str) -> Result<()> {
+        let entries = std::fs::read_dir(&self.source_dir)?;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.file_name().map(|n| n == "manifest.toml").unwrap_or(false) {
+                continue;
+            }
+            if let Some(fname) = path.file_name().and_then(|n| n.to_str()) {
+                let content = std::fs::read_to_string(&path).unwrap_or_default();
+                let content = if fname.ends_with(".typ") {
+                    content.replace("__NAME__", project_name)
+                } else {
+                    content
+                };
+                std::fs::write(project_dir.join(fname), content)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+// ── Public AnyTemplate type ────────────────────────────────────────────────────
+
+#[derive(Clone)]
+pub enum AnyTemplate {
+    Builtin(&'static BuiltinTemplate),
+    User(UserTemplate),
+}
+
+impl AnyTemplate {
+    pub fn label(&self) -> &str {
         match self {
-            Self::Blank            => "Blank",
-            Self::Essay            => "Essay",
-            Self::JournalThesis    => "Journal / Thesis",
-            Self::TheologicalJournal => "Theological Journal",
+            Self::Builtin(t) => t.label,
+            Self::User(t)    => &t.label,
         }
     }
 
-    pub fn all() -> &'static [ProjectTemplate] {
-        &[
-            Self::Blank,
-            Self::Essay,
-            Self::JournalThesis,
-            Self::TheologicalJournal,
-        ]
-    }
-
-    /// Description shown in the dialog.
-    pub fn description(&self) -> &'static str {
+    pub fn description(&self) -> &str {
         match self {
-            Self::Blank => "An empty document. Start from scratch.",
-            Self::Essay => "Single-file essay with title block and bibliography.",
-            Self::JournalThesis => "Multi-chapter document: title page, intro chapter, bibliography.",
-            Self::TheologicalJournal => "Journal issue: front matter, article stub, bibliography.",
+            Self::Builtin(t) => t.description,
+            Self::User(t)    => &t.description,
         }
     }
 
-    /// Root file relative to project folder (always "main.typ").
-    pub fn root_file(&self) -> &'static str {
-        "main.typ"
+    pub fn root_file(&self) -> &str {
+        match self {
+            Self::Builtin(t) => t.root_file,
+            Self::User(t)    => &t.root_file,
+        }
     }
 
-    /// Generate all files into `project_dir`. The directory must already exist.
     pub fn generate(&self, project_dir: &Path, project_name: &str) -> Result<()> {
         match self {
-            Self::Blank            => gen_blank(project_dir, project_name),
-            Self::Essay            => gen_essay(project_dir, project_name),
-            Self::JournalThesis    => gen_journal_thesis(project_dir, project_name),
-            Self::TheologicalJournal => gen_theological_journal(project_dir, project_name),
+            Self::Builtin(t) => {
+                for (filename, content) in t.files {
+                    let content = if filename.ends_with(".typ") {
+                        content.replace("__NAME__", project_name)
+                    } else {
+                        content.to_string()
+                    };
+                    std::fs::write(project_dir.join(filename), content)?;
+                }
+                Ok(())
+            }
+            Self::User(t) => t.generate(project_dir, project_name),
         }
     }
 }
 
-// ── Helpers ────────────────────────────────────────────────────────────────────
-
-fn write(dir: &Path, filename: &str, content: &str) -> Result<()> {
-    std::fs::write(dir.join(filename), content)?;
-    Ok(())
+/// All built-in templates in display order.
+pub fn builtin_templates() -> Vec<AnyTemplate> {
+    vec![
+        AnyTemplate::Builtin(&BLANK),
+        AnyTemplate::Builtin(&ESSAY),
+        AnyTemplate::Builtin(&JOURNAL_THESIS),
+        AnyTemplate::Builtin(&THEOLOGICAL_JOURNAL),
+    ]
 }
 
-// ── Blank ──────────────────────────────────────────────────────────────────────
+/// User-defined templates from ~/.config/zerkalo/templates/.
+/// Silently skips directories with missing or invalid manifests.
+pub fn user_templates() -> Vec<AnyTemplate> {
+    let base = dirs_sys_config_dir().join("zerkalo").join("templates");
+    if !base.is_dir() { return vec![]; }
 
-fn gen_blank(dir: &Path, name: &str) -> Result<()> {
-    write(dir, "main.typ", &format!(
-        "#set document(title: \"{name}\")\n\
-         #set page(margin: 1in)\n\
-         #set text(font: \"Linux Libertine\", size: 12pt)\n\n\
-         // Begin writing here.\n"
-    ))
+    let mut out = vec![];
+    if let Ok(entries) = std::fs::read_dir(&base) {
+        for entry in entries.flatten() {
+            let dir = entry.path();
+            if !dir.is_dir() { continue; }
+            let manifest_path = dir.join("manifest.toml");
+            let Ok(src) = std::fs::read_to_string(&manifest_path) else { continue };
+            let Ok(m) = toml::from_str::<UserManifest>(&src) else { continue };
+            out.push(AnyTemplate::User(UserTemplate {
+                label:       m.name,
+                description: m.description,
+                root_file:   m.root_file,
+                source_dir:  dir,
+            }));
+        }
+    }
+    out.sort_by(|a, b| a.label().cmp(b.label()));
+    out
 }
 
-// ── Essay ──────────────────────────────────────────────────────────────────────
-
-fn gen_essay(dir: &Path, name: &str) -> Result<()> {
-    write(dir, "main.typ", &format!(
-        "#set document(title: \"{name}\", author: \"Author Name\")\n\
-         #set page(margin: 1in)\n\
-         #set text(font: \"Linux Libertine\", size: 12pt)\n\
-         #set par(leading: 0.65em, justify: true)\n\n\
-         #align(center)[\n\
-           #text(size: 16pt, weight: \"bold\")[{name}]\n\
-           \\v(0.4em)\n\
-           Author Name\n\
-           \\v(0.2em)\n\
-           #datetime.today().display()\n\
-         ]\n\n\
-         #v(1em)\n\n\
-         = Introduction\n\n\
-         Your essay begins here.\n\n\
-         = Conclusion\n\n\
-         Conclusion goes here.\n\n\
-         #bibliography(\"bibliography.bib\")\n"
-    ))?;
-    write(dir, "bibliography.bib", EMPTY_BIB)
+/// Builtin templates followed by any user-defined templates.
+pub fn all_templates() -> Vec<AnyTemplate> {
+    let mut v = builtin_templates();
+    v.extend(user_templates());
+    v
 }
 
-// ── Journal / Thesis ───────────────────────────────────────────────────────────
-
-fn gen_journal_thesis(dir: &Path, name: &str) -> Result<()> {
-    write(dir, "main.typ", &format!(
-        "#set document(title: \"{name}\", author: \"Author Name\")\n\
-         #set page(margin: 1in)\n\
-         #set text(font: \"Linux Libertine\", size: 12pt)\n\
-         #set par(leading: 0.65em, justify: true)\n\n\
-         #include \"title.typ\"\n\
-         #pagebreak()\n\n\
-         #include \"ch01-introduction.typ\"\n\n\
-         #bibliography(\"bibliography.bib\")\n"
-    ))?;
-    write(dir, "title.typ", &format!(
-        "#align(center + horizon)[\n\
-           #text(size: 24pt, weight: \"bold\")[{name}]\n\
-           \\v(1em)\n\
-           #text(size: 14pt)[Author Name]\n\
-           \\v(0.5em)\n\
-           #text(size: 12pt, fill: luma(80))[\n\
-             Atlantic School of Theology\n\
-           ]\n\
-           \\v(0.5em)\n\
-           #datetime.today().display()\n\
-         ]\n"
-    ))?;
-    write(dir, "ch01-introduction.typ",
-        "= Introduction\n\n\
-         This is the opening chapter.\n"
-    )?;
-    write(dir, "bibliography.bib", EMPTY_BIB)
+fn dirs_sys_config_dir() -> PathBuf {
+    std::env::var("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| {
+            dirs_home_dir().join(".config")
+        })
 }
 
-// ── Theological Journal ────────────────────────────────────────────────────────
-
-fn gen_theological_journal(dir: &Path, name: &str) -> Result<()> {
-    write(dir, "main.typ", &format!(
-        "#set document(title: \"{name}\")\n\
-         #set page(margin: 1in)\n\
-         #set text(font: \"Linux Libertine\", size: 12pt)\n\
-         #set par(leading: 0.65em, justify: true)\n\n\
-         #include \"front-matter.typ\"\n\
-         #pagebreak()\n\n\
-         #include \"article-01.typ\"\n\n\
-         #bibliography(\"bibliography.bib\")\n"
-    ))?;
-    write(dir, "front-matter.typ", &format!(
-        "#align(center)[\n\
-           #text(size: 20pt, weight: \"bold\")[{name}]\n\
-           \\v(0.3em)\n\
-           #text(size: 12pt, fill: luma(80))[Volume 1, Issue 1]\n\
-         ]\n\n\
-         #line(length: 100%)\n\n\
-         == Editorial Note\n\n\
-         Editorial note goes here.\n\n\
-         #line(length: 100%)\n"
-    ))?;
-    write(dir, "article-01.typ",
-        "== Article Title\n\
-         _Author Name_\n\n\
-         === Abstract\n\n\
-         Abstract goes here.\n\n\
-         === Introduction\n\n\
-         Article body begins here.\n"
-    )?;
-    write(dir, "bibliography.bib", EMPTY_BIB)
+fn dirs_home_dir() -> PathBuf {
+    std::env::var("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("/"))
 }
 
-const EMPTY_BIB: &str = "% Bibliography — add entries here\n\
-                          % Example:\n\
-                          % @book{smith2020,\n\
-                          %   author = {Smith, John},\n\
-                          %   title  = {A Good Book},\n\
-                          %   year   = {2020},\n\
-                          % }\n";
+// ── slugify ────────────────────────────────────────────────────────────────────
 
 /// Turn a project name into a safe folder name: lowercase, spaces → hyphens,
 /// non-alphanumeric (except hyphens) stripped.

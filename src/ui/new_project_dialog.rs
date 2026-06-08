@@ -8,18 +8,20 @@ use libadwaita as adw;
 use adw::prelude::*;
 
 use crate::config::ProjectConfig;
-use crate::templates::{slugify, ProjectTemplate};
+use crate::templates::{slugify, AnyTemplate};
 
 pub struct NewProjectDialog {
     window: adw::Window,
 }
 
 impl NewProjectDialog {
-    /// `work_dir`: the parent folder where the new project subfolder will be created.
-    /// `on_create`: called with the new project folder path when the user confirms.
+    /// `work_dir`: parent folder where the new project subfolder will be created.
+    /// `templates`: full list of templates to show (use `templates::all_templates()`).
+    /// `on_create`: called with the new project folder path when confirmed.
     pub fn new(
         parent: &impl IsA<gtk4::Window>,
         work_dir: PathBuf,
+        templates: Vec<AnyTemplate>,
         on_create: impl Fn(PathBuf) + 'static,
     ) -> Self {
         let window = adw::Window::builder()
@@ -34,10 +36,7 @@ impl NewProjectDialog {
         header.set_show_end_title_buttons(true);
 
         // ── Template list (combo) ──────────────────────────────────────────
-        let template_labels: Vec<&str> = ProjectTemplate::all()
-            .iter()
-            .map(|t| t.label())
-            .collect();
+        let template_labels: Vec<&str> = templates.iter().map(|t| t.label()).collect();
         let string_list = StringList::new(&template_labels);
 
         let name_row = adw::EntryRow::new();
@@ -55,13 +54,29 @@ impl NewProjectDialog {
         group.add(&template_row);
 
         // ── Description label ─────────────────────────────────────────────
-        let desc_label = Label::new(Some(ProjectTemplate::all()[0].description()));
+        let desc_label = Label::new(templates.first().map(|t| t.description()));
         desc_label.set_wrap(true);
         desc_label.set_xalign(0.0);
         desc_label.add_css_class("dim-label");
         desc_label.set_margin_start(16);
         desc_label.set_margin_end(16);
         desc_label.set_margin_top(4);
+
+        // ── User templates hint ───────────────────────────────────────────
+        let user_count = templates.iter().filter(|t| matches!(t, AnyTemplate::User(_))).count();
+        let user_hint_text = if user_count > 0 {
+            format!("{user_count} custom template(s) loaded from ~/.config/zerkalo/templates/")
+        } else {
+            "Add custom templates to ~/.config/zerkalo/templates/<name>/".to_string()
+        };
+        let user_hint = Label::new(Some(&user_hint_text));
+        user_hint.set_wrap(true);
+        user_hint.set_xalign(0.0);
+        user_hint.add_css_class("dim-label");
+        user_hint.add_css_class("caption");
+        user_hint.set_margin_start(16);
+        user_hint.set_margin_end(16);
+        user_hint.set_margin_top(2);
 
         // ── Path preview label ────────────────────────────────────────────
         let path_label = Label::new(None);
@@ -95,6 +110,7 @@ impl NewProjectDialog {
         let body = GtkBox::new(Orientation::Vertical, 0);
         body.append(&group);
         body.append(&desc_label);
+        body.append(&user_hint);
         body.append(&path_label);
         body.append(&btn_row);
 
@@ -104,8 +120,8 @@ impl NewProjectDialog {
         window.set_content(Some(&tv));
 
         // ── Signals ───────────────────────────────────────────────────────
+        let templates = Rc::new(templates);
 
-        // Update path preview and create-button sensitivity as name is typed.
         {
             let create_btn_c = create_btn.clone();
             let path_label_c = path_label.clone();
@@ -118,12 +134,12 @@ impl NewProjectDialog {
             });
         }
 
-        // Update description when template selection changes.
         {
             let desc_label_c = desc_label.clone();
+            let templates_c = templates.clone();
             template_row.connect_selected_item_notify(move |row| {
                 let idx = row.selected() as usize;
-                if let Some(tmpl) = ProjectTemplate::all().get(idx) {
+                if let Some(tmpl) = templates_c.get(idx) {
                     desc_label_c.set_text(tmpl.description());
                 }
             });
@@ -132,7 +148,6 @@ impl NewProjectDialog {
         let win_for_cancel = window.clone();
         cancel_btn.connect_clicked(move |_| win_for_cancel.close());
 
-        // Store the callback behind Rc<RefCell<Option<...>>> so we can move into the closure.
         let on_create = Rc::new(RefCell::new(Some(on_create)));
 
         let win_for_create = window.clone();
@@ -145,14 +160,13 @@ impl NewProjectDialog {
             if slug.is_empty() { return; }
 
             let idx = template_row_c.selected() as usize;
-            let template = ProjectTemplate::all()
-                .get(idx)
-                .copied()
-                .unwrap_or(ProjectTemplate::Blank);
+            let template = templates.get(idx)
+                .cloned()
+                .unwrap_or_else(|| crate::templates::builtin_templates().remove(0));
 
             let project_dir = work_dir_c.join(&slug);
 
-            match create_project(&project_dir, &name, template) {
+            match create_project(&project_dir, &name, &template) {
                 Ok(()) => {
                     win_for_create.close();
                     if let Some(cb) = on_create.borrow_mut().take() {
@@ -192,9 +206,8 @@ fn update_path_label(label: &Label, work_dir: &std::path::Path, slug: &str) {
 fn create_project(
     project_dir: &std::path::Path,
     name: &str,
-    template: ProjectTemplate,
+    template: &AnyTemplate,
 ) -> crate::error::Result<()> {
-    // Refuse if folder already exists.
     if project_dir.exists() {
         return Err(crate::error::ZerkaloError::Io(std::io::Error::new(
             std::io::ErrorKind::AlreadyExists,
@@ -205,7 +218,6 @@ fn create_project(
     std::fs::create_dir_all(project_dir)?;
     template.generate(project_dir, name)?;
 
-    // Write .zerkalo/config.toml with root_file set.
     let project_config = ProjectConfig {
         root_file: Some(std::path::PathBuf::from(template.root_file())),
         ..Default::default()

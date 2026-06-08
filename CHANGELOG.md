@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.12.19] — 2026-06-08
+
+### Added
+- **Template build system**: built-in templates are now real `.typ` files in `templates/` (embedded via `include_str!` at compile time); user templates can be added to `~/.config/zerkalo/templates/<name>/manifest.toml` and appear in the New Project dialog automatically
+- **New Chapter**: file tree header has a "New Chapter" button — enter a chapter name, creates `<slug>.typ` with a heading stub and appends `#include "<slug>.typ"` to `main.typ` before `#bibliography` (or at end); opens the new file immediately
+- **Project Settings dialog**: "Project Settings…" in the menu opens a per-project settings sheet — change compilation root and bibliography path, saved to `.zerkalo/config.toml`
+- **Cross-file outline**: document outline now shows headings from all project `.typ` files, not just the active tab; each heading shows which file it belongs to; clicking jumps to the correct file and line
+
+---
+
 ## [0.12.18] — 2026-06-08
 
 ### Fixed
