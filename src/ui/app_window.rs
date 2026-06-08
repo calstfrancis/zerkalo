@@ -910,10 +910,13 @@ impl AppWindow {
                 move |new_folder| {
                     let mut cfg = cfg_c.borrow_mut();
                     cfg.push_recent_project(new_folder.clone());
-                    cfg.work_dir = new_folder;
+                    cfg.work_dir = new_folder.clone();
                     let _ = cfg.save();
                     if let Ok(exe) = std::env::current_exe() {
-                        let _ = std::process::Command::new(exe).spawn();
+                        // Pass main.typ so open_initial_file skips session restore
+                        // and opens the new project's root directly.
+                        let root = new_folder.join("main.typ");
+                        let _ = std::process::Command::new(exe).arg(&root).spawn();
                     }
                     std::process::exit(0);
                 },
@@ -3251,10 +3254,16 @@ impl AppWindow {
 
         let session = Session::load();
 
-        if !session.open_files.is_empty() {
-            for path in &session.open_files {
+        // Only restore files that belong to the current project root — prevents
+        // old-project files leaking in when the work_dir has changed.
+        let session_files: Vec<&PathBuf> = session.open_files.iter()
+            .filter(|p| p.starts_with(&self.project_root))
+            .collect();
+
+        if !session_files.is_empty() {
+            for path in &session_files {
                 if let Ok(content) = std::fs::read_to_string(path) {
-                    self.editor_pane.open_file(path.clone(), &content);
+                    self.editor_pane.open_file((*path).clone(), &content);
                 }
             }
             // Switch to the previously active file

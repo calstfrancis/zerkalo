@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.12.17] — 2026-06-08
+
+### Fixed
+- New Project: after creation, the spawned process now receives `main.typ` as a CLI argument so session restore is skipped and the new project opens directly instead of restoring the previous project's documents
+- Session restore: only files inside the current work_dir are restored; files from a previous project no longer leak in when the work_dir has changed
+
+---
+
 ## [0.12.16] — 2026-06-08
 
 ### Added
