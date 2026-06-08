@@ -624,7 +624,7 @@ pub fn extract_page_text_via_pdftotext(pane: &PreviewPane, page: usize, _y_start
         std::fs::write(&pdf_path, bytes).ok()?;
     }
     let page_str = (page + 1).to_string();
-    let out = std::process::Command::new("pdftotext")
+    let out = crate::git_sync::host_command("pdftotext")
         .args(["-layout", "-f", &page_str, "-l", &page_str,
                pdf_path.to_str().unwrap_or(""), "-"])
         .output().ok()?;

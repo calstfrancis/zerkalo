@@ -3,10 +3,26 @@ use std::process::Command;
 
 use chrono::Local;
 
+pub fn in_flatpak() -> bool {
+    std::path::Path::new("/.flatpak-info").exists()
+}
+
+/// Returns a `Command` for a host binary, using `flatpak-spawn --host` when
+/// running inside a flatpak sandbox so the binary is found on the host.
+pub fn host_command(bin: &str) -> Command {
+    if in_flatpak() {
+        let mut cmd = Command::new("flatpak-spawn");
+        cmd.arg("--host").arg(bin);
+        cmd
+    } else {
+        Command::new(bin)
+    }
+}
+
 /// Returns a `Command` pre-loaded with `git -C <repo>`, using
 /// `flatpak-spawn --host git` when running inside a flatpak sandbox.
 fn git_cmd(repo_path: &Path) -> Command {
-    if std::path::Path::new("/.flatpak-info").exists() {
+    if in_flatpak() {
         let mut cmd = Command::new("flatpak-spawn");
         cmd.args(["--host", "git", "-C", path_str(repo_path)]);
         cmd

@@ -5,6 +5,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.12.21] — 2026-06-08
+
+### Fixed
+- **Crash on file switch in project**: `connect_switch_page` held `state.borrow()` while the page-switch callback called `all_tab_texts()` which tried to borrow state again → double-borrow panic. Fixed by extracting page data and releasing the borrow before firing the callback
+- **Compile button resets project root**: clicking Compile (or switching tabs) was overwriting the project's compilation root with whatever file was active. Both now skip `set_root_file` when a project root is already set
+- **tinymist not found in flatpak**: binary is at `/app/lib/zerkalo/tinymist` in the flatpak, not `/usr/lib/`; both `lsp.rs` and the startup check now probe both paths
+- **history panel git calls broken in flatpak**: now uses `flatpak-spawn --host git` via the shared `host_command()` helper
+- **pandoc/pdftotext broken in flatpak**: export dialog and PDF text extraction now use `host_command()` so they reach the host binaries
+
+---
+
 ## [0.12.20] — 2026-06-08
 
 ### Fixed
