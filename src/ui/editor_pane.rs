@@ -3004,6 +3004,17 @@ impl EditorPane {
         Some(buf.text(&s, &e, false).to_string())
     }
 
+    /// Returns the in-memory content of every open tab as (path, text) pairs.
+    pub fn all_tab_texts(&self) -> Vec<(PathBuf, String)> {
+        self.state.borrow().tabs.iter()
+            .map(|(path, tab)| {
+                let (s, e) = tab.buffer.bounds();
+                let text = tab.buffer.text(&s, &e, false).to_string();
+                (path.clone(), text)
+            })
+            .collect()
+    }
+
     pub fn project_root(&self) -> Option<PathBuf> {
         self.project_root.borrow().clone()
     }

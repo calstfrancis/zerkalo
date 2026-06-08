@@ -23,6 +23,7 @@ pub struct FileTree {
     on_delete: Callback<PathBuf>,
     on_set_root: Callback<PathBuf>,
     on_new_folder: Callback<String>,
+    on_new_chapter: Callback<String>,
     on_insert_include: Callback<PathBuf>,
     on_insert_import: Callback<PathBuf>,
     file_errors: Rc<RefCell<HashSet<PathBuf>>>,
@@ -65,6 +66,11 @@ impl FileTree {
         new_folder_btn.add_css_class("flat");
         new_folder_btn.set_tooltip_text(Some("New folder"));
         header_row.append(&new_folder_btn);
+
+        let new_chapter_btn = Button::from_icon_name("document-new-symbolic");
+        new_chapter_btn.add_css_class("flat");
+        new_chapter_btn.set_tooltip_text(Some("New chapter (creates file + #include in main.typ)"));
+        header_row.append(&new_chapter_btn);
 
         root_widget.append(&header_row);
         root_widget.append(&Separator::new(Orientation::Horizontal));
@@ -117,6 +123,35 @@ impl FileTree {
             pop_for_folder_btn.popup();
         });
 
+        // ── New-chapter popover ─────────────────────────────────────────────
+        let nc_popover = Popover::new();
+        let nc_box = GtkBox::new(Orientation::Vertical, 6);
+        nc_box.set_margin_top(10);
+        nc_box.set_margin_bottom(10);
+        nc_box.set_margin_start(10);
+        nc_box.set_margin_end(10);
+        let nc_lbl = Label::new(Some("Chapter name"));
+        nc_lbl.set_halign(Align::Start);
+        let nc_hint = Label::new(Some("Creates <name>.typ and adds #include to main.typ"));
+        nc_hint.add_css_class("caption");
+        nc_hint.add_css_class("dim-label");
+        nc_hint.set_halign(Align::Start);
+        let nc_entry = Entry::new();
+        nc_entry.set_placeholder_text(Some("chapter-name"));
+        nc_entry.set_width_chars(22);
+        nc_box.append(&nc_lbl);
+        nc_box.append(&nc_hint);
+        nc_box.append(&nc_entry);
+        nc_popover.set_child(Some(&nc_box));
+        nc_popover.set_parent(&new_chapter_btn);
+
+        let pop_for_chapter_btn = nc_popover.clone();
+        let entry_for_chapter_btn = nc_entry.clone();
+        new_chapter_btn.connect_clicked(move |_| {
+            entry_for_chapter_btn.set_text("");
+            pop_for_chapter_btn.popup();
+        });
+
         // ── File list ───────────────────────────────────────────────────────
         let list_box = ListBox::new();
         list_box.set_selection_mode(SelectionMode::Single);
@@ -134,6 +169,7 @@ impl FileTree {
         let on_delete: Callback<PathBuf> = Rc::new(RefCell::new(None));
         let on_set_root: Callback<PathBuf> = Rc::new(RefCell::new(None));
         let on_new_folder: Callback<String> = Rc::new(RefCell::new(None));
+        let on_new_chapter: Callback<String> = Rc::new(RefCell::new(None));
         let on_insert_include: Callback<PathBuf> = Rc::new(RefCell::new(None));
         let on_insert_import: Callback<PathBuf> = Rc::new(RefCell::new(None));
 
@@ -163,6 +199,19 @@ impl FileTree {
             }
         });
 
+        // Wire new-chapter entry: Enter fires the callback
+        let pop_for_chapter_entry = nc_popover.clone();
+        let cb_new_chapter = on_new_chapter.clone();
+        nc_entry.connect_activate(move |entry| {
+            let name = entry.text().trim().to_string();
+            if !name.is_empty() {
+                if let Some(f) = cb_new_chapter.borrow().as_ref() {
+                    f(name);
+                }
+                pop_for_chapter_entry.popdown();
+            }
+        });
+
         // Load any saved custom order from project config
         let saved_order: Vec<PathBuf> = crate::config::ProjectConfig::load(&project_root)
             .map(|pc| pc.file_order.iter().map(|s| project_root.join(s)).collect())
@@ -177,6 +226,7 @@ impl FileTree {
             on_delete,
             on_set_root,
             on_new_folder,
+            on_new_chapter,
             on_insert_include,
             on_insert_import,
             file_errors: Rc::new(RefCell::new(HashSet::new())),
@@ -209,6 +259,10 @@ impl FileTree {
 
     pub fn set_on_set_root(&self, f: impl Fn(PathBuf) + 'static) {
         *self.on_set_root.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn set_on_new_chapter(&self, f: impl Fn(String) + 'static) {
+        *self.on_new_chapter.borrow_mut() = Some(Box::new(f));
     }
 
     pub fn set_on_new_folder(&self, f: impl Fn(String) + 'static) {

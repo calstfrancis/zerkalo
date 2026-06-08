@@ -20,10 +20,11 @@ pub struct OutlinePanel {
     #[allow(dead_code)] stack: Stack,
     #[allow(dead_code)] outline_btn: ToggleButton,
     #[allow(dead_code)] symbols_btn: ToggleButton,
-    row_lines: Rc<RefCell<Vec<u32>>>,
-    current_path: Rc<RefCell<Option<PathBuf>>>,
+    /// (file_path, line_number) for each outline row — supports single and multi-file.
+    row_positions: Rc<RefCell<Vec<(PathBuf, u32)>>>,
     max_depth: Rc<Cell<u32>>,
-    cached_content: Rc<RefCell<String>>,
+    /// Cached input for depth-filter re-renders.
+    cached_files: Rc<RefCell<Vec<(PathBuf, String)>>>,
 }
 
 impl OutlinePanel {
@@ -178,22 +179,17 @@ impl OutlinePanel {
         widget.append(&stack);
 
         let on_jump: JumpCb = Rc::new(RefCell::new(None));
-        let row_lines: Rc<RefCell<Vec<u32>>> = Rc::new(RefCell::new(Vec::new()));
-        let current_path: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
+        let row_positions: Rc<RefCell<Vec<(PathBuf, u32)>>> = Rc::new(RefCell::new(Vec::new()));
 
-        // Single click fires row-activated; per-row connect_activate only fires on Enter.
         {
             let on_jump_c = on_jump.clone();
-            let row_lines_c = row_lines.clone();
-            let current_path_c = current_path.clone();
+            let row_positions_c = row_positions.clone();
             list_box.connect_row_activated(move |_, row| {
                 let idx = row.index() as usize;
-                let lines = row_lines_c.borrow();
-                if let Some(&ln) = lines.get(idx) {
-                    if let Some(ref p) = *current_path_c.borrow() {
-                        if let Some(f) = on_jump_c.borrow().as_ref() {
-                            f(p.clone(), ln);
-                        }
+                let positions = row_positions_c.borrow();
+                if let Some((path, ln)) = positions.get(idx).cloned() {
+                    if let Some(f) = on_jump_c.borrow().as_ref() {
+                        f(path, ln);
                     }
                 }
             });
@@ -201,7 +197,8 @@ impl OutlinePanel {
 
         let panel = Self {
             widget, list_box, on_jump, on_symbol_insert, stack, outline_btn, symbols_btn,
-            row_lines, current_path, max_depth, cached_content: Rc::new(RefCell::new(String::new())),
+            row_positions, max_depth,
+            cached_files: Rc::new(RefCell::new(Vec::new())),
         };
 
         // Wire depth toggle buttons
@@ -210,8 +207,8 @@ impl OutlinePanel {
             btn.connect_toggled(move |b| {
                 if b.is_active() {
                     p.max_depth.set(depth);
-                    let content = p.cached_content.borrow().clone();
-                    p.repopulate(&content);
+                    let files = p.cached_files.borrow().clone();
+                    p.repopulate(&files);
                 }
             });
         }
@@ -220,8 +217,8 @@ impl OutlinePanel {
             all_btn.connect_toggled(move |b| {
                 if b.is_active() {
                     p.max_depth.set(u32::MAX);
-                    let content = p.cached_content.borrow().clone();
-                    p.repopulate(&content);
+                    let files = p.cached_files.borrow().clone();
+                    p.repopulate(&files);
                 }
             });
         }
@@ -239,91 +236,115 @@ impl OutlinePanel {
         }
     }
 
+    /// Update outline from a single file (single-document mode).
     pub fn update(&self, content: &str, path: &PathBuf) {
-        *self.current_path.borrow_mut() = Some(path.clone());
-        *self.cached_content.borrow_mut() = content.to_string();
-        self.repopulate(content);
+        let files = vec![(path.clone(), content.to_string())];
+        *self.cached_files.borrow_mut() = files.clone();
+        self.repopulate(&files);
     }
 
-    fn repopulate(&self, content: &str) {
+    /// Update outline from all project files (multi-file mode).
+    /// Files should be in document order (root first, then included files).
+    pub fn update_project(&self, files: Vec<(PathBuf, String)>) {
+        *self.cached_files.borrow_mut() = files.clone();
+        self.repopulate(&files);
+    }
+
+    fn repopulate(&self, files: &[(PathBuf, String)]) {
         while let Some(child) = self.list_box.first_child() {
             self.list_box.remove(&child);
         }
 
         let max_depth = self.max_depth.get();
-        let all_lines: Vec<&str> = content.lines().collect();
-        let n = all_lines.len();
+        let multi_file = files.len() > 1;
+        let mut positions_vec: Vec<(PathBuf, u32)> = Vec::new();
 
-        // Collect headings: (line_idx, level, text)
-        let headings: Vec<(usize, usize, String)> = all_lines.iter()
-            .enumerate()
-            .filter_map(|(i, line)| {
-                if !line.starts_with('=') { return None; }
-                let stripped = line.trim_start_matches('=');
-                let level = line.len() - stripped.len();
-                if level == 0 || !stripped.starts_with(' ') { return None; }
-                if level as u32 > max_depth { return None; }
-                let text = stripped.trim_start().to_string();
-                if text.is_empty() { return None; }
-                Some((i, level, text))
-            })
-            .collect();
+        for (path, content) in files {
+            let all_lines: Vec<&str> = content.lines().collect();
+            let n = all_lines.len();
+            let file_name = path.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("")
+                .to_string();
 
-        let mut lines_vec: Vec<u32> = Vec::new();
+            // Collect headings: (line_idx, level, text)
+            let headings: Vec<(usize, usize, String)> = all_lines.iter()
+                .enumerate()
+                .filter_map(|(i, line)| {
+                    if !line.starts_with('=') { return None; }
+                    let stripped = line.trim_start_matches('=');
+                    let level = line.len() - stripped.len();
+                    if level == 0 || !stripped.starts_with(' ') { return None; }
+                    if level as u32 > max_depth { return None; }
+                    let text = stripped.trim_start().to_string();
+                    if text.is_empty() { return None; }
+                    Some((i, level, text))
+                })
+                .collect();
 
-        for (h_idx, (line_idx, level, text)) in headings.iter().enumerate() {
-            let next_line_idx = headings.get(h_idx + 1).map(|(li, _, _)| *li).unwrap_or(n);
-            let word_count: usize = all_lines[line_idx + 1..next_line_idx]
-                .iter()
-                .flat_map(|l| l.split_whitespace())
-                .count();
+            if headings.is_empty() { continue; }
 
-            let ln = (line_idx + 1) as u32;
-            lines_vec.push(ln);
+            for (h_idx, (line_idx, level, text)) in headings.iter().enumerate() {
+                let next_line_idx = headings.get(h_idx + 1).map(|(li, _, _)| *li).unwrap_or(n);
+                let word_count: usize = all_lines[line_idx + 1..next_line_idx]
+                    .iter()
+                    .flat_map(|l| l.split_whitespace())
+                    .count();
 
-            let row = ListBoxRow::new();
-            row.set_activatable(true);
+                let ln = (line_idx + 1) as u32;
+                positions_vec.push((path.clone(), ln));
 
-            let row_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
+                let row = ListBoxRow::new();
+                row.set_activatable(true);
 
-            let label = gtk4::Label::new(Some(text));
-            label.set_xalign(0.0);
-            label.set_hexpand(true);
-            label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-            label.set_margin_start(8 + (*level as i32 - 1) * 14);
-            label.set_margin_end(4);
-            label.set_margin_top(4);
-            label.set_margin_bottom(4);
-            if *level == 1 {
-                label.add_css_class("heading");
+                let row_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
+
+                let label = gtk4::Label::new(Some(text));
+                label.set_xalign(0.0);
+                label.set_hexpand(true);
+                label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+                label.set_margin_start(8 + (*level as i32 - 1) * 14);
+                label.set_margin_end(4);
+                label.set_margin_top(4);
+                label.set_margin_bottom(4);
+                if *level == 1 {
+                    label.add_css_class("heading");
+                }
+
+                let count_lbl = gtk4::Label::new(Some(&word_count.to_string()));
+                count_lbl.add_css_class("dim-label");
+                count_lbl.add_css_class("caption");
+                count_lbl.set_margin_end(8);
+                count_lbl.set_valign(gtk4::Align::Center);
+
+                row_box.append(&label);
+                row_box.append(&count_lbl);
+
+                // In multi-file mode show which file each heading belongs to.
+                if multi_file {
+                    let file_lbl = gtk4::Label::new(Some(&file_name));
+                    file_lbl.add_css_class("dim-label");
+                    file_lbl.add_css_class("caption");
+                    file_lbl.set_margin_end(8);
+                    file_lbl.set_valign(gtk4::Align::Center);
+                    row_box.append(&file_lbl);
+                }
+
+                row.set_child(Some(&row_box));
+                self.list_box.append(&row);
             }
-
-            let count_lbl = gtk4::Label::new(Some(&word_count.to_string()));
-            count_lbl.add_css_class("dim-label");
-            count_lbl.add_css_class("caption");
-            count_lbl.set_margin_end(8);
-            count_lbl.set_valign(gtk4::Align::Center);
-
-            row_box.append(&label);
-            row_box.append(&count_lbl);
-            row.set_child(Some(&row_box));
-
-            self.list_box.append(&row);
         }
 
-        *self.row_lines.borrow_mut() = lines_vec;
+        *self.row_positions.borrow_mut() = positions_vec;
     }
 
-    /// Select the outline row whose heading line is nearest to (and not past) `line`.
-    pub fn select_for_line(&self, line: u32) {
-        let lines = self.row_lines.borrow();
-        // Find the last heading whose line ≤ cursor line
-        let idx = lines.iter().rposition(|&l| l <= line);
+    /// Select the outline row nearest to (and not past) `line` in `path`.
+    pub fn select_for_line(&self, path: &PathBuf, line: u32) {
+        let positions = self.row_positions.borrow();
+        let idx = positions.iter().rposition(|(p, l)| p == path && *l <= line);
         match idx {
             Some(i) => {
-                self.list_box.select_row(
-                    self.list_box.row_at_index(i as i32).as_ref(),
-                );
+                self.list_box.select_row(self.list_box.row_at_index(i as i32).as_ref());
             }
             None => {
                 self.list_box.unselect_all();
