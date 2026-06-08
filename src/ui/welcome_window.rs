@@ -45,16 +45,17 @@ impl WelcomeWindow {
         body.append(&sub_lbl);
         body.append(&Separator::new(Orientation::Horizontal));
 
-        body.append(&section_label("What's New in 0.12"));
+        body.append(&section_label("What's New in 0.12.29"));
         for item in [
-            "Multi-file projects: New Project wizard with four built-in templates",
-            "Template build system: edit built-in templates as real .typ files; add custom templates to ~/.config/zerkalo/templates/",
-            "New Chapter button in the file tree — creates a chapter file and wires up #include automatically",
-            "Project Settings dialog: change the compilation root and bibliography per project",
-            "Cross-file outline: headings from all project files, with file labels and jump-to-line",
-            "Command palette (Ctrl+K) — fuzzy search over commands and headings",
-            "Breadcrumb bar shows heading path as the cursor moves",
-            "Configurable keybindings via keybindings.toml",
+            "Single-file workspace: the active tab is always the compilation root — no project mode",
+            "Status bar: autocorrect and GOST Type B toggles on the left; Style dropdown and Draft/Final toggle on the right",
+            "Draft mode toggle in the status bar — bold when active, switches between fast preview and full quality",
+            "Preview: pages separated by a visible gray gap so page boundaries are clear",
+            "Opens the last file you had open when the app starts",
+            "Snapshot diff now uses a real LCS diff — only changed lines are shown in red/green",
+            "Git history and snapshot panels: single-click now works correctly",
+            "Color-coded diffs: removed lines red, added lines green, hunk headers blue",
+            "Popout preview window has a maximize button",
         ] {
             body.append(&bullet_row(item));
         }
@@ -63,13 +64,13 @@ impl WelcomeWindow {
         body.append(&section_label("Quick Start"));
         for item in [
             "Open or create a .typ file from the title-bar dropdown",
-            "Edit your document — the preview updates automatically",
+            "Edit your document — the preview updates as you type",
             "Press Ctrl+Shift+P to compile manually at any time",
             "Type # for Typst function completions (requires tinymist LSP)",
             "Type @ for citation completions (configure .bib in Settings ≡)",
             "Click ⟳ in the toolbar to commit and push to Git",
             "The Outline panel shows headings; click one to jump there",
-            "Toggle GOST type B font and Simple mode at the bottom of the sidebar",
+            "Toggle GOST Type B font and autocorrect in the status bar",
         ] {
             body.append(&bullet_row(item));
         }
@@ -77,12 +78,12 @@ impl WelcomeWindow {
         body.append(&Separator::new(Orientation::Horizontal));
         body.append(&section_label("Keyboard Shortcuts"));
         for (key, desc) in [
-            ("Ctrl+S", "Save current file"),
+            ("Ctrl+S", "Save and snapshot"),
             ("Ctrl+Shift+P", "Compile and preview"),
+            ("Ctrl+K", "Command palette"),
             ("Ctrl+F", "Find in document"),
             ("Ctrl+Tab", "Next open file"),
-            ("Ctrl+Shift+Tab", "Previous open file"),
-            ("Ctrl+Q", "Quit"),
+            ("Ctrl+Shift+G", "Git sync"),
         ] {
             body.append(&shortcut_row(key, desc));
         }

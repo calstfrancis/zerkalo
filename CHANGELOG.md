@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.12.30] — 2026-06-08
+
+### Changed
+- **Welcome window: What's New** — updated to reflect 0.12.29 features (single-file workspace, status bar layout, page gaps, session restore, LCS diff, popout maximize)
+
+---
+
 ## [0.12.29] — 2026-06-08
 
 ### Changed / Fixed
