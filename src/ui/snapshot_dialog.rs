@@ -187,6 +187,7 @@ impl SnapshotDialog {
         let current_text = current_content.to_string();
 
         let selected_content: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+        let snapshot_paths: Rc<Vec<PathBuf>> = Rc::new(snapshots.clone());
 
         for snap_path in &snapshots {
             let name = snap_path
@@ -206,22 +207,28 @@ impl SnapshotDialog {
             };
 
             let row = ListBoxRow::new();
-            row.set_activatable(true);
             let lbl = Label::new(Some(&display));
             lbl.set_xalign(0.0);
             lbl.set_margin_start(12);
             lbl.set_margin_top(6);
             lbl.set_margin_bottom(6);
             row.set_child(Some(&lbl));
+            list_box.append(&row);
+        }
 
-            let snap_path_clone = snap_path.clone();
+        // Single-click selection drives the diff view
+        {
+            let paths = snapshot_paths.clone();
             let current_clone = current_text.clone();
             let diff_buf = diff_view.buffer();
             let sel = selected_content.clone();
             let restore_btn_c = restore_btn.clone();
             let info_c = restore_info.clone();
-            row.connect_activate(move |_| {
-                let Ok(snap_text) = std::fs::read_to_string(&snap_path_clone) else { return };
+            list_box.connect_row_selected(move |_, row| {
+                let Some(row) = row else { return };
+                let idx = row.index() as usize;
+                let Some(snap_path) = paths.get(idx) else { return };
+                let Ok(snap_text) = std::fs::read_to_string(snap_path) else { return };
                 let diff = simple_diff(&snap_text, &current_clone);
                 diff_buf.set_text(&diff);
                 *sel.borrow_mut() = Some(snap_text.clone());
@@ -229,8 +236,6 @@ impl SnapshotDialog {
                 let wc = snap_text.split_whitespace().count();
                 info_c.set_text(&format!("{wc} words in this snapshot"));
             });
-
-            list_box.append(&row);
         }
 
         if snapshots.is_empty() {

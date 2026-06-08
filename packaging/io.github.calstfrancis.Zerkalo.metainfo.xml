@@ -46,6 +46,11 @@
   </developer>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.12.27" date="2026-06-08">
+      <description>
+        <p>Fix Browse Snapshots: clicking a snapshot now updates the diff view and enables the Restore button (was using connect_activate which only fires on Enter, not single click).</p>
+      </description>
+    </release>
     <release version="0.12.26" date="2026-06-08">
       <description>
         <p>Fix preview pane size resetting on open (pane position now ignored during initial GTK layout). Fix git sync using wrong directory (now uses git rev-parse to find repo root from active file). Remove leftover Open Project Folder and Recent Projects menu items.</p>
