@@ -46,6 +46,11 @@
   </developer>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.12.26" date="2026-06-08">
+      <description>
+        <p>Fix preview pane size resetting on open (pane position now ignored during initial GTK layout). Fix git sync using wrong directory (now uses git rev-parse to find repo root from active file). Remove leftover Open Project Folder and Recent Projects menu items.</p>
+      </description>
+    </release>
     <release version="0.12.25" date="2026-06-08">
       <description>
         <p>Single-file workspace: removed project mode entirely. The active tab is always the compilation root — no root chip, no "Set as Compilation Root", no project config root_file. Removes ProjectModel, is_project_mode flag, New Project wizard, and Project Settings dialog.</p>

@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.12.26] — 2026-06-08
+
+### Fixed
+- **Preview pane size resets on open**: pane position-notify now ignores changes during initial GTK layout (flag set on idle after realize), so the saved split is always restored correctly
+- **Git sync uses wrong directory**: sync now derives the git repo root from the active file's path (`git rev-parse --show-toplevel`) instead of `config.work_dir`
+- **Remove Open Project Folder / Recent Projects menu items**: these were holdovers from project mode and no longer serve any purpose
+
+---
+
 ## [0.12.25] — 2026-06-08
 
 ### Changed

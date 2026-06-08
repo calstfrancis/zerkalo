@@ -50,6 +50,20 @@ pub struct SyncResult {
 
 // ── Query helpers ─────────────────────────────────────────────────────────────
 
+/// Returns the git repository root for the given directory, or None if not in a git repo.
+pub fn git_repo_root(dir: &Path) -> Option<std::path::PathBuf> {
+    let out = git_cmd(dir)
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .ok()?;
+    if out.status.success() {
+        let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if !s.is_empty() { Some(std::path::PathBuf::from(s)) } else { None }
+    } else {
+        None
+    }
+}
+
 /// Returns true if the repo has at least one remote configured.
 pub fn has_remote(repo_path: &Path) -> bool {
     git_cmd(repo_path)
