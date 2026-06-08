@@ -94,7 +94,7 @@ Files to touch: `ui/editor_pane.rs` (status bar area), `ui/app_window.rs` (wirin
 
 ---
 
-### 4. Folder-Aware File Tree
+### ✅ 4. Folder-Aware File Tree — DONE
 
 The file tree is currently a flat list with directory headers. When projects each
 live in their own folder, this doesn't reflect the structure well.
