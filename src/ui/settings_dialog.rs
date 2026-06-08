@@ -464,6 +464,8 @@ impl SettingsDialog {
             let last_export_format_cur = current.last_export_format;
             let auto_save_idle_ms_cur = current.auto_save_idle_ms;
             let active_profile_cur = current.active_profile.clone();
+            let locked_author_cur = current.locked_author.clone();
+            let locked_affiliation_cur = current.locked_affiliation.clone();
             move || {
                 let work_dir_text = work_dir_row.text().trim().to_string();
                 let work_dir = if work_dir_text.is_empty() {
@@ -542,6 +544,8 @@ impl SettingsDialog {
                     active_profile: active_profile_cur.clone(),
                     auto_save_idle_ms: auto_save_idle_ms_cur,
                     github_token,
+                    locked_author: locked_author_cur.clone(),
+                    locked_affiliation: locked_affiliation_cur.clone(),
                 }
             }
         };

@@ -91,6 +91,10 @@ pub struct Config {
     pub auto_save_idle_ms: u64,
     #[serde(default)]
     pub github_token: Option<String>,
+    #[serde(default)]
+    pub locked_author: String,
+    #[serde(default)]
+    pub locked_affiliation: String,
 }
 
 fn default_work_dir() -> PathBuf {
@@ -146,6 +150,8 @@ impl Default for Config {
             active_profile: CompileProfile::default(),
             auto_save_idle_ms: default_auto_save_idle_ms(),
             github_token: None,
+            locked_author: String::new(),
+            locked_affiliation: String::new(),
         }
     }
 }

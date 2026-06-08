@@ -254,10 +254,13 @@ pub struct SidecarSettings {
 
 // ── Dialog ────────────────────────────────────────────────────────────────────
 
+type OnLockCb = Rc<RefCell<Option<Box<dyn Fn(String, String)>>>>;
+
 pub struct TemplateDialog {
     window: adw::Window,
     on_create: OnCreateCb,
     on_apply: OnApplyCb,
+    on_lock_identity: OnLockCb,
     apply_btn: Button,
     style_row: adw::ComboRow,
     font_row: adw::ComboRow,
@@ -295,6 +298,7 @@ impl TemplateDialog {
 
         let on_create: OnCreateCb = Rc::new(RefCell::new(None));
         let on_apply: OnApplyCb = Rc::new(RefCell::new(None));
+        let on_lock_identity: OnLockCb = Rc::new(RefCell::new(None));
 
         let header = adw::HeaderBar::new();
         let cancel_btn = Button::with_label("Cancel");
@@ -329,10 +333,18 @@ impl TemplateDialog {
 
         let author_row = adw::EntryRow::new();
         author_row.set_title("Author");
+        let author_pin = Button::from_icon_name("view-pin-symbolic");
+        author_pin.add_css_class("flat");
+        author_pin.set_tooltip_text(Some("Save as default for new documents"));
+        author_row.add_suffix(&author_pin);
         meta_group.add(&author_row);
 
         let affil_row = adw::EntryRow::new();
         affil_row.set_title("Affiliation");
+        let affil_pin = Button::from_icon_name("view-pin-symbolic");
+        affil_pin.add_css_class("flat");
+        affil_pin.set_tooltip_text(Some("Save as default for new documents"));
+        affil_row.add_suffix(&affil_pin);
         meta_group.add(&affil_row);
 
         let course_row = adw::EntryRow::new();
@@ -341,6 +353,7 @@ impl TemplateDialog {
 
         let date_row = adw::EntryRow::new();
         date_row.set_title("Date");
+        date_row.set_tooltip_text(Some("Leave blank to use today's date automatically"));
         meta_group.add(&date_row);
 
         let style_group = adw::PreferencesGroup::new();
@@ -878,8 +891,30 @@ impl TemplateDialog {
             win_for_apply.close();
         });
 
+        // ── Pin button wiring ─────────────────────────────────────────────────
+        {
+            let lock = on_lock_identity.clone();
+            let ar = author_row.clone();
+            let afr = affil_row.clone();
+            author_pin.connect_clicked(move |_| {
+                if let Some(f) = lock.borrow().as_ref() {
+                    f(ar.text().to_string(), afr.text().to_string());
+                }
+            });
+        }
+        {
+            let lock = on_lock_identity.clone();
+            let ar = author_row.clone();
+            let afr = affil_row.clone();
+            affil_pin.connect_clicked(move |_| {
+                if let Some(f) = lock.borrow().as_ref() {
+                    f(ar.text().to_string(), afr.text().to_string());
+                }
+            });
+        }
+
         Self {
-            window, on_create, on_apply, apply_btn,
+            window, on_create, on_apply, on_lock_identity, apply_btn,
             style_row, font_row, paper_row, margin_row, spacing_row,
             toc_row, toc_depth_row, abstract_row, abstract_text_row,
             keywords_row, keywords_text_row,
@@ -950,6 +985,22 @@ impl TemplateDialog {
     pub fn preselect_margin(&self, idx: usize) {
         if idx < MARGIN_PRESETS.len() {
             self.margin_row.set_selected(idx as u32);
+        }
+    }
+
+    /// Register a callback fired when the user clicks a pin button.
+    /// Receives (author, affiliation) — save both to config.
+    pub fn set_on_lock_identity(&self, f: impl Fn(String, String) + 'static) {
+        *self.on_lock_identity.borrow_mut() = Some(Box::new(f));
+    }
+
+    /// Pre-fill author and affiliation from saved defaults (only if the field is currently empty).
+    pub fn preselect_locked_identity(&self, author: &str, affiliation: &str) {
+        if self.author_row.text().is_empty() && !author.is_empty() {
+            self.author_row.set_text(author);
+        }
+        if self.affil_row.text().is_empty() && !affiliation.is_empty() {
+            self.affil_row.set_text(affiliation);
         }
     }
 

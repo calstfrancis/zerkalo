@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use gtk4::prelude::*;
 use gtk4::{
-    Box as GtkBox, Button, CssProvider, DropTarget, EventControllerKey, EventControllerMotion,
-    GestureClick, Label,
+    AlertDialog, Box as GtkBox, Button, CssProvider, DropTarget, EventControllerKey,
+    EventControllerMotion, GestureClick, Label,
     Notebook, Orientation, Popover, ProgressBar, PropagationPhase, ScrolledWindow, Separator,
     TextSearchFlags, TextTag, TextWindowType, ToggleButton,
 };
@@ -172,6 +172,7 @@ pub struct EditorPane {
     on_modified_changed: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
     on_file_dirty: Rc<RefCell<Option<Box<dyn Fn(PathBuf, bool)>>>>,
     on_image_drop: Rc<RefCell<Option<Box<dyn Fn(PathBuf)>>>>,
+    on_delete_file: Rc<RefCell<Option<Box<dyn Fn(PathBuf)>>>>,
     on_page_switch: Rc<RefCell<Option<Box<dyn Fn(String, PathBuf)>>>>,
     on_file_opened: Rc<RefCell<Option<Box<dyn Fn(PathBuf, String)>>>>,
     on_completion_needed: Rc<RefCell<Option<Box<dyn Fn(PathBuf, u32, u32)>>>>,
@@ -443,6 +444,7 @@ impl EditorPane {
         let on_modified_changed: Rc<RefCell<Option<Box<dyn Fn(bool)>>>> = Rc::new(RefCell::new(None));
         let on_file_dirty: Rc<RefCell<Option<Box<dyn Fn(PathBuf, bool)>>>> = Rc::new(RefCell::new(None));
         let on_image_drop: Rc<RefCell<Option<Box<dyn Fn(PathBuf)>>>> = Rc::new(RefCell::new(None));
+        let on_delete_file: Rc<RefCell<Option<Box<dyn Fn(PathBuf)>>>> = Rc::new(RefCell::new(None));
         let on_page_switch: Rc<RefCell<Option<Box<dyn Fn(String, PathBuf)>>>> =
             Rc::new(RefCell::new(None));
         let on_file_opened: Rc<RefCell<Option<Box<dyn Fn(PathBuf, String)>>>> =
@@ -513,6 +515,7 @@ impl EditorPane {
             on_modified_changed,
             on_file_dirty,
             on_image_drop,
+            on_delete_file,
             on_page_switch,
             on_file_opened,
             on_completion_needed,
@@ -1056,6 +1059,10 @@ impl EditorPane {
         *self.on_image_drop.borrow_mut() = Some(Box::new(f));
     }
 
+    pub fn set_on_delete_file(&self, f: impl Fn(PathBuf) + 'static) {
+        *self.on_delete_file.borrow_mut() = Some(Box::new(f));
+    }
+
     pub fn set_on_page_switch(&self, f: impl Fn(String, PathBuf) + 'static) {
         *self.on_page_switch.borrow_mut() = Some(Box::new(f));
     }
@@ -1419,6 +1426,97 @@ impl EditorPane {
                 st_mc.borrow_mut().tabs.remove(&p_mc);
             });
             tab_box.add_controller(mc);
+        }
+
+        // Right-click context menu on tab: close tab, delete file
+        {
+            let nb_rc = self.notebook.clone();
+            let sc_rc = scroll.clone();
+            let st_rc = self.state.clone();
+            let path_rc = path.clone();
+            let del_cb = self.on_delete_file.clone();
+            let filename_rc = display_name.clone();
+
+            let popover = Popover::new();
+            popover.set_has_arrow(false);
+            let menu_box = GtkBox::new(Orientation::Vertical, 2);
+            menu_box.set_margin_top(4);
+            menu_box.set_margin_bottom(4);
+            menu_box.set_margin_start(4);
+            menu_box.set_margin_end(4);
+
+            let close_item = Button::with_label("Close tab");
+            close_item.add_css_class("flat");
+            let del_item = Button::with_label("Delete file…");
+            del_item.add_css_class("flat");
+            del_item.add_css_class("destructive-action");
+            menu_box.append(&close_item);
+            menu_box.append(&del_item);
+            popover.set_child(Some(&menu_box));
+            popover.set_parent(&tab_box);
+
+            // Close tab
+            let nb_ci = nb_rc.clone();
+            let sc_ci = sc_rc.clone();
+            let st_ci = st_rc.clone();
+            let path_ci = path_rc.clone();
+            let pop_ci = popover.clone();
+            close_item.connect_clicked(move |_| {
+                pop_ci.popdown();
+                if let Some(n) = nb_ci.page_num(&sc_ci) {
+                    nb_ci.remove_page(Some(n));
+                }
+                st_ci.borrow_mut().tabs.remove(&path_ci);
+            });
+
+            // Delete file
+            let nb_di = nb_rc.clone();
+            let sc_di = sc_rc.clone();
+            let st_di = st_rc.clone();
+            let path_di = path_rc.clone();
+            let name_di = filename_rc.clone();
+            let pop_di = popover.clone();
+            del_item.connect_clicked(move |_| {
+                pop_di.popdown();
+                let alert = AlertDialog::builder()
+                    .modal(true)
+                    .message("Delete this file?")
+                    .detail(&format!("'{}' will be permanently deleted.", name_di))
+                    .buttons(["Cancel", "Delete"])
+                    .cancel_button(0)
+                    .default_button(0)
+                    .build();
+                let path_confirm = path_di.clone();
+                let nb_confirm = nb_di.clone();
+                let sc_confirm = sc_di.clone();
+                let st_confirm = st_di.clone();
+                let cb_confirm = del_cb.clone();
+                alert.choose(
+                    None::<&gtk4::Window>,
+                    None::<&gtk4::gio::Cancellable>,
+                    move |result| {
+                        if result == Ok(1) {
+                            let _ = std::fs::remove_file(&path_confirm);
+                            if let Some(n) = nb_confirm.page_num(&sc_confirm) {
+                                nb_confirm.remove_page(Some(n));
+                            }
+                            st_confirm.borrow_mut().tabs.remove(&path_confirm);
+                            if let Some(f) = cb_confirm.borrow().as_ref() {
+                                f(path_confirm.clone());
+                            }
+                        }
+                    },
+                );
+            });
+
+            let rc_for_gesture = GestureClick::new();
+            rc_for_gesture.set_button(3);
+            let pop_for_rc = popover.clone();
+            rc_for_gesture.connect_pressed(move |_, _, x, y| {
+                pop_for_rc.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+                pop_for_rc.popup();
+            });
+            tab_box.add_controller(rc_for_gesture);
         }
 
         // ── Modified flag + word count ────────────────────────────────────────
