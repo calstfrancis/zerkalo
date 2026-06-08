@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.12.34-rc3] — 2026-06-08
+
+### Fixed
+
+- DOCX/LaTeX import: strip ALL pandoc-generated `#set`, `#show`, and `#let` preamble blocks (previously only a subset was stripped, leaving `#let conf(...)` and `#show terms:` in the body and causing compile errors)
+- Multi-line `#let` blocks now tracked with full delimiter depth (parens, brackets, braces) so large template functions are consumed correctly
+
+---
+
 ## [0.12.34-rc2] — 2026-06-08
 
 ### Fixed
