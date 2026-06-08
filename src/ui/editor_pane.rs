@@ -212,8 +212,10 @@ pub struct EditorPane {
     root_chip_btn: Button,
     root_chip_lbl: Label,
     root_list_box: ListBox,
+    root_popover: Popover,
     root_candidates: Rc<RefCell<Vec<PathBuf>>>,
     on_root_switch: Rc<RefCell<Option<Box<dyn Fn(PathBuf)>>>>,
+    on_root_clear: Rc<RefCell<Option<Box<dyn Fn()>>>>,
     on_project_settings: Rc<RefCell<Option<Box<dyn Fn()>>>>,
 }
 
@@ -314,6 +316,7 @@ impl EditorPane {
 
         let root_candidates: Rc<RefCell<Vec<PathBuf>>> = Rc::new(RefCell::new(Vec::new()));
         let on_root_switch: Rc<RefCell<Option<Box<dyn Fn(PathBuf)>>>> = Rc::new(RefCell::new(None));
+        let on_root_clear: Rc<RefCell<Option<Box<dyn Fn()>>>> = Rc::new(RefCell::new(None));
         let on_project_settings: Rc<RefCell<Option<Box<dyn Fn()>>>> = Rc::new(RefCell::new(None));
 
         let undo_btn = Button::from_icon_name("edit-undo-symbolic");
@@ -585,8 +588,10 @@ impl EditorPane {
             root_chip_btn,
             root_chip_lbl,
             root_list_box,
+            root_popover: root_popover.clone(),
             root_candidates,
             on_root_switch,
+            on_root_clear,
             on_project_settings,
         };
 
@@ -1223,46 +1228,59 @@ impl EditorPane {
             row.set_child(Some(&lbl));
             let path_c = path.clone();
             let cb = self.on_root_switch.clone();
-            let pop = self.root_list_box.clone();
+            let pop = self.root_popover.clone();
             row.connect_activate(move |_| {
-                // Walk up to the popover and close it
-                if let Some(parent) = pop.parent().and_then(|p| p.downcast::<Popover>().ok()) {
-                    parent.popdown();
-                }
+                pop.popdown();
                 if let Some(f) = cb.borrow().as_ref() {
                     f(path_c.clone());
                 }
             });
             self.root_list_box.append(&row);
         }
-        if self.on_project_settings.borrow().is_some() {
-            let sep = gtk4::Separator::new(gtk4::Orientation::Horizontal);
-            let sep_row = ListBoxRow::new();
-            sep_row.set_child(Some(&sep));
-            sep_row.set_selectable(false);
-            sep_row.set_activatable(false);
-            self.root_list_box.append(&sep_row);
 
+        // "Clear root file" — always shown so the user can escape project mode
+        let clear_lbl = Label::new(Some("Clear root file"));
+        clear_lbl.set_halign(gtk4::Align::Start);
+        clear_lbl.add_css_class("dim-label");
+        clear_lbl.set_margin_start(8);
+        clear_lbl.set_margin_end(8);
+        clear_lbl.set_margin_top(4);
+        clear_lbl.set_margin_bottom(4);
+        let clear_row = ListBoxRow::new();
+        clear_row.set_child(Some(&clear_lbl));
+        let cb_clear = self.on_root_clear.clone();
+        let pop_clear = self.root_popover.clone();
+        clear_row.connect_activate(move |_| {
+            pop_clear.popdown();
+            if let Some(f) = cb_clear.borrow().as_ref() {
+                f();
+            }
+        });
+        self.root_list_box.append(&clear_row);
+
+        if self.on_project_settings.borrow().is_some() {
             let settings_lbl = Label::new(Some("Project Settings…"));
             settings_lbl.set_halign(gtk4::Align::Start);
             settings_lbl.set_margin_start(8);
             settings_lbl.set_margin_end(8);
-            settings_lbl.set_margin_top(4);
+            settings_lbl.set_margin_top(8);
             settings_lbl.set_margin_bottom(4);
             let settings_row = ListBoxRow::new();
             settings_row.set_child(Some(&settings_lbl));
             let cb = self.on_project_settings.clone();
-            let pop = self.root_list_box.clone();
+            let pop = self.root_popover.clone();
             settings_row.connect_activate(move |_| {
-                if let Some(parent) = pop.parent().and_then(|p| p.downcast::<Popover>().ok()) {
-                    parent.popdown();
-                }
+                pop.popdown();
                 if let Some(f) = cb.borrow().as_ref() {
                     f();
                 }
             });
             self.root_list_box.append(&settings_row);
         }
+    }
+
+    pub fn set_on_root_clear(&self, f: impl Fn() + 'static) {
+        *self.on_root_clear.borrow_mut() = Some(Box::new(f));
     }
 
     pub fn set_lsp_status(&self, status: &str) {

@@ -247,6 +247,10 @@ impl PreviewPane {
         *self.root_file.borrow_mut() = Some(path);
     }
 
+    pub fn clear_root_file(&self) {
+        *self.root_file.borrow_mut() = None;
+    }
+
     pub fn set_buffer_snapshot(&self, path: PathBuf, text: String) {
         self.buffer_snapshot.borrow_mut().insert(path, text);
     }
