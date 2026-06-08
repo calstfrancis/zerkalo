@@ -15,8 +15,9 @@ impl SetupWizard {
             .title("Setup & Onboarding")
             .transient_for(parent)
             .modal(true)
-            .default_width(520)
-            .default_height(640)
+            .default_width(500)
+            .default_height(560)
+            .resizable(false)
             .build();
 
         let header = adw::HeaderBar::new();
@@ -621,8 +622,16 @@ fn set_git_remote(work_dir: &Path, url: &str) -> Result<(), String> {
 }
 
 fn check_command(cmd: &str) -> bool {
-    std::process::Command::new(cmd)
+    // tinymist may be bundled at a fixed path inside or outside the flatpak
+    if cmd == "tinymist" {
+        let bundled = ["/app/lib/zerkalo/tinymist", "/usr/lib/zerkalo/tinymist"];
+        if bundled.iter().any(|p| std::path::Path::new(p).exists()) {
+            return true;
+        }
+    }
+    crate::git_sync::host_command(cmd)
         .arg("--version")
         .output()
-        .is_ok()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
 }

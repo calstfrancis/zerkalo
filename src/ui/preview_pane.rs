@@ -121,22 +121,30 @@ impl PreviewPane {
         let zoom_draw: Rc<RefCell<f64>> = Rc::new(RefCell::new(1.0));
         let zoom_draw2 = zoom_draw.clone();
 
-        drawing_area.set_draw_func(move |_area, ctx, _w, _h| {
+        drawing_area.set_draw_func(move |_area, ctx, w, _h| {
             let z = *zoom_draw.borrow();
             let pbs = pixbufs_draw.borrow();
+            const PAGE_GAP: f64 = 20.0;
 
-            // White background
-            ctx.set_source_rgb(1.0, 1.0, 1.0);
+            // Light gray canvas background (visible between pages)
+            ctx.set_source_rgb(0.82, 0.82, 0.82);
             ctx.paint().ok();
 
             let mut y = 0.0f64;
             for pb in pbs.iter() {
+                let pw = pb.width() as f64 * z;
+                let ph = pb.height() as f64 * z;
+                // White page background
+                ctx.set_source_rgb(1.0, 1.0, 1.0);
+                ctx.rectangle(0.0, y, pw.max(w as f64), ph);
+                ctx.fill().ok();
+                // Page content
                 ctx.save().ok();
                 ctx.scale(z, z);
                 ctx.set_source_pixbuf(pb, 0.0, y / z);
                 ctx.paint().ok();
                 ctx.restore().ok();
-                y += pb.height() as f64 * z + 8.0;
+                y += ph + PAGE_GAP;
             }
         });
 
@@ -165,10 +173,10 @@ impl PreviewPane {
                 let mut clicked_page = pbs.len().saturating_sub(1);
                 let mut clicked_rel_y = 1.0f64;
                 for (i, pb) in pbs.iter().enumerate() {
-                    let page_h = pb.height() as f64 * zoom + 8.0;
+                    let raw_h = pb.height() as f64 * zoom;
+                    let page_h = raw_h + 20.0;
                     if doc_y < cum_y + page_h {
                         clicked_page = i;
-                        let raw_h = pb.height() as f64 * zoom;
                         clicked_rel_y = if raw_h > 0.0 { ((doc_y - cum_y) / raw_h).clamp(0.0, 1.0) } else { 0.0 };
                         break;
                     }
@@ -367,7 +375,7 @@ impl PreviewPane {
         let pbs = self.page_pixbufs.borrow();
         let mut y = 0.0f64;
         for (i, pb) in pbs.iter().enumerate() {
-            let page_h = pb.height() as f64 * z + 8.0;
+            let page_h = pb.height() as f64 * z + 20.0;
             if mid_y < y + page_h {
                 return i;
             }
@@ -382,7 +390,7 @@ impl PreviewPane {
         let mut y = 0.0f64;
         for (i, pb) in pbs.iter().enumerate() {
             if i == idx { break; }
-            y += pb.height() as f64 * z + 8.0;
+            y += pb.height() as f64 * z + 20.0;
         }
         drop(pbs);
         self.img_scroll.vadjustment().set_value(y);
@@ -589,7 +597,7 @@ impl PreviewPane {
             let w = (pb.width() as f64 * z).round() as i32;
             let h = (pb.height() as f64 * z).round() as i32;
             max_w = max_w.max(w);
-            total_h += h + 8;
+            total_h += h + 20;
         }
         drop(pbs);
         self.drawing_area.set_content_width(max_w.max(1));

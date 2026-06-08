@@ -5,6 +5,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.12.29] — 2026-06-08
+
+### Changed / Fixed
+- **Status bar layout** — autocorrect and GOST Type B toggles moved to left side of status bar; Style dropdown and Draft/Final toggle moved from header bar to right side of status bar (Draft shown bold)
+- **Preview: page gaps** — pages now separated by a visible 20px gray gap so page boundaries are clear
+- **Session restore** — app now opens the last-edited file on startup
+- **Snapshot diff** — replaced positional line diff with LCS-based diff; only truly changed lines shown as red/green, context lines shown around each change
+- **Setup wizard sizing** — capped at 500×560, non-resizable to prevent oversized dialog
+- **Setup wizard tool check** — `git`, `pandoc`, `tinymist` now correctly verified inside flatpak sandbox via `flatpak-spawn --host`; bundled tinymist at `/app/lib/zerkalo/tinymist` detected directly
+- **Popout preview: maximize button** — added maximize button to the popout window header
+- CLAUDE.md: added rule that GitHub pushes and flatpak publishes only happen on explicit release instruction
+
+---
+
 ## [0.12.28] — 2026-06-08
 
 ### Fixed / Improved
