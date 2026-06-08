@@ -46,6 +46,11 @@
   </developer>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.12.34-rc2" date="2026-06-08">
+      <description>
+        <p>Fix LaTeX and DOCX import inside flatpak (pandoc now routed via flatpak-spawn --host). Error panel shows "Line N" for each error.</p>
+      </description>
+    </release>
     <release version="0.12.34-rc1" date="2026-06-08">
       <description>
         <p>Export for Web: converts the active Typst file to an HTML fragment via pandoc; footnotes become hover tooltips that respond to light/dark mode.</p>
