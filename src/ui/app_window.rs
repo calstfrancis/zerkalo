@@ -2532,7 +2532,7 @@ impl AppWindow {
             print_btn.set_tooltip_text(Some("Open PDF for printing"));
             let print_dir = secondary.output_dir();
             print_btn.connect_clicked(move |_| {
-                std::process::Command::new("xdg-open")
+                crate::git_sync::host_command("xdg-open")
                     .arg(print_dir.join("preview.pdf"))
                     .spawn()
                     .ok();
@@ -2702,6 +2702,41 @@ impl AppWindow {
                 preview.trigger_compile();
                 ft.set_root_file(Some(path.clone()));
                 ep.set_root_chip(Some(&path));
+            });
+        }
+        {
+            let win_ps2 = window.clone();
+            let root_ps2 = project_root.clone();
+            let ep_ps2 = editor_pane.clone();
+            let preview_ps2 = preview_pane.clone();
+            let ft_ps2 = file_tree.clone();
+            editor_pane.set_on_project_settings(move || {
+                let dlg = super::project_settings_dialog::ProjectSettingsDialog::new(
+                    &win_ps2,
+                    root_ps2.clone(),
+                    {
+                        let root = root_ps2.clone();
+                        let ep = ep_ps2.clone();
+                        let preview = preview_ps2.clone();
+                        let ft = ft_ps2.clone();
+                        move |new_cfg| {
+                            if let Some(ref rf) = new_cfg.root_file {
+                                let abs = root.join(rf);
+                                preview.set_root_file(abs.clone());
+                                preview.trigger_compile();
+                                ft.set_root_file(Some(abs.clone()));
+                                ep.set_root_chip(Some(&abs));
+                            }
+                            if let Some(ref bp) = new_cfg.bib_path {
+                                let abs_bib = if bp.is_absolute() { bp.clone() } else { root.join(bp) };
+                                if let Ok(content) = std::fs::read_to_string(&abs_bib) {
+                                    ep.set_bib_entries(crate::bibliography::parse_bib(&content));
+                                }
+                            }
+                        }
+                    },
+                );
+                dlg.present();
             });
         }
 

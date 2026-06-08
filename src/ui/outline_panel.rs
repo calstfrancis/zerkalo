@@ -320,14 +320,9 @@ impl OutlinePanel {
                 row_box.append(&label);
                 row_box.append(&count_lbl);
 
-                // In multi-file mode show which file each heading belongs to.
+                // In multi-file mode show file name as tooltip instead of inline label.
                 if multi_file {
-                    let file_lbl = gtk4::Label::new(Some(&file_name));
-                    file_lbl.add_css_class("dim-label");
-                    file_lbl.add_css_class("caption");
-                    file_lbl.set_margin_end(8);
-                    file_lbl.set_valign(gtk4::Align::Center);
-                    row_box.append(&file_lbl);
+                    row.set_tooltip_text(Some(&file_name));
                 }
 
                 row.set_child(Some(&row_box));

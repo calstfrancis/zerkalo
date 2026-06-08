@@ -214,6 +214,7 @@ pub struct EditorPane {
     root_list_box: ListBox,
     root_candidates: Rc<RefCell<Vec<PathBuf>>>,
     on_root_switch: Rc<RefCell<Option<Box<dyn Fn(PathBuf)>>>>,
+    on_project_settings: Rc<RefCell<Option<Box<dyn Fn()>>>>,
 }
 
 fn set_autocorrect_label(label: &Label, enabled: bool) {
@@ -313,6 +314,7 @@ impl EditorPane {
 
         let root_candidates: Rc<RefCell<Vec<PathBuf>>> = Rc::new(RefCell::new(Vec::new()));
         let on_root_switch: Rc<RefCell<Option<Box<dyn Fn(PathBuf)>>>> = Rc::new(RefCell::new(None));
+        let on_project_settings: Rc<RefCell<Option<Box<dyn Fn()>>>> = Rc::new(RefCell::new(None));
 
         let undo_btn = Button::from_icon_name("edit-undo-symbolic");
         undo_btn.add_css_class("flat");
@@ -585,6 +587,7 @@ impl EditorPane {
             root_list_box,
             root_candidates,
             on_root_switch,
+            on_project_settings,
         };
 
         {
@@ -1199,6 +1202,11 @@ impl EditorPane {
         self.rebuild_root_popover();
     }
 
+    pub fn set_on_project_settings(&self, f: impl Fn() + 'static) {
+        *self.on_project_settings.borrow_mut() = Some(Box::new(f));
+        self.rebuild_root_popover();
+    }
+
     fn rebuild_root_popover(&self) {
         while let Some(row) = self.root_list_box.row_at_index(0) {
             self.root_list_box.remove(&row);
@@ -1226,6 +1234,34 @@ impl EditorPane {
                 }
             });
             self.root_list_box.append(&row);
+        }
+        if self.on_project_settings.borrow().is_some() {
+            let sep = gtk4::Separator::new(gtk4::Orientation::Horizontal);
+            let sep_row = ListBoxRow::new();
+            sep_row.set_child(Some(&sep));
+            sep_row.set_selectable(false);
+            sep_row.set_activatable(false);
+            self.root_list_box.append(&sep_row);
+
+            let settings_lbl = Label::new(Some("Project Settings…"));
+            settings_lbl.set_halign(gtk4::Align::Start);
+            settings_lbl.set_margin_start(8);
+            settings_lbl.set_margin_end(8);
+            settings_lbl.set_margin_top(4);
+            settings_lbl.set_margin_bottom(4);
+            let settings_row = ListBoxRow::new();
+            settings_row.set_child(Some(&settings_lbl));
+            let cb = self.on_project_settings.clone();
+            let pop = self.root_list_box.clone();
+            settings_row.connect_activate(move |_| {
+                if let Some(parent) = pop.parent().and_then(|p| p.downcast::<Popover>().ok()) {
+                    parent.popdown();
+                }
+                if let Some(f) = cb.borrow().as_ref() {
+                    f();
+                }
+            });
+            self.root_list_box.append(&settings_row);
         }
     }
 

@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.12.23] — 2026-06-08
+
+### Fixed
+- **Root chip now shows "Project Settings…"**: clicking the compilation root chip in the status bar opens a popover that lists candidate root files and includes a "Project Settings…" row at the bottom, so users can change or clear the root file without going through the hamburger menu
+- **Outline filenames as tooltip**: in multi-file projects the file name is now shown on hover instead of inline, making the section title fully readable
+
+---
+
 ## [0.12.22] — 2026-06-08
 
 ### Fixed

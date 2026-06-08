@@ -46,6 +46,11 @@
   </developer>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.12.23" date="2026-06-08">
+      <description>
+        <p>Root chip now shows "Project Settings…": clicking the compilation root chip opens a popover with candidate root files and a Project Settings row at the bottom. Outline filenames moved to hover tooltip so section names are fully readable.</p>
+      </description>
+    </release>
     <release version="0.12.22" date="2026-06-08">
       <description>
         <p>Fix live preview not updating while typing in a multi-file project: the debounced change handler was overriding the compilation root with the active tab on every keystroke. Also bumps flatpak runtime to GNOME Platform 50.</p>
