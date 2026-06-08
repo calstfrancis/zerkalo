@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.12.24] — 2026-06-08
+
+### Fixed
+- **Crash on outline click in project**: `jump_to_line` was called synchronously inside `open_file`'s callback chain, causing reentrancy. Now deferred to idle so all page-switch callbacks complete before scrolling
+- **Compile ignores changes in project mode**: `is_project_mode` was checking `EditorPane.project_root` (always set to `work_dir`, never None) instead of whether the user created an explicit project. Now uses a proper `is_project_mode` flag (true when `.zerkalo/config.toml` has `root_file`). In single-file mode, tab switch/save/keystroke all update the compilation root correctly
+- **Ctrl+S reset project root**: saving any file was unconditionally calling `preview.set_root_file(path)`, clobbering the project root
+- **Root chip "Project Settings…" did nothing**: `list_box.parent()` is GTK's internal `PopoverContent` wrapper, not a `Popover`, so the popdown before presenting the dialog never fired. Now stores `root_popover` directly in `EditorPane` and calls `popdown()` on it
+- **Weird grey area in root chip popover**: removed separator `ListBoxRow` and replaced with top margin on the settings row
+- **No way to leave project mode**: added "Clear root file" row to the root chip popover; clears the compilation root and returns to single-file mode (root follows active tab)
+
+---
+
 ## [0.12.23] — 2026-06-08
 
 ### Fixed
