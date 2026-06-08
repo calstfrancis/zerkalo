@@ -1081,7 +1081,7 @@ impl AppWindow {
                     if let Some(input_path) = file.path() {
                         let stem = input_path.file_stem().and_then(|s| s.to_str()).unwrap_or("output").to_string();
                         let out_path = input_path.with_file_name(format!("{stem}.typ"));
-                        let output = std::process::Command::new("pandoc")
+                        let output = crate::git_sync::host_command("pandoc")
                             .arg(&input_path)
                             .arg("-f").arg("latex")
                             .arg("-t").arg("typst")
@@ -1143,7 +1143,7 @@ impl AppWindow {
                     if let Some(input_path) = file.path() {
                         let stem = input_path.file_stem().and_then(|s| s.to_str()).unwrap_or("output").to_string();
                         let out_path = input_path.with_file_name(format!("{stem}.typ"));
-                        let output = std::process::Command::new("pandoc")
+                        let output = crate::git_sync::host_command("pandoc")
                             .arg(&input_path)
                             .arg("-f").arg("docx")
                             .arg("-t").arg("typst")
@@ -1929,7 +1929,7 @@ impl AppWindow {
             };
             let hunspell_ok = std::process::Command::new("hunspell")
                 .arg("--version").output().is_ok();
-            let pandoc_ok = std::process::Command::new("pandoc")
+            let pandoc_ok = crate::git_sync::host_command("pandoc")
                 .arg("--version").output().is_ok();
             let tinymist_ok = ["/app/lib/zerkalo/tinymist", "/usr/lib/zerkalo/tinymist"]
                 .iter()
