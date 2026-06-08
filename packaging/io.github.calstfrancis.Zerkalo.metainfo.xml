@@ -46,6 +46,11 @@
   </developer>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.12.29" date="2026-06-08">
+      <description>
+        <p>Status bar: autocorrect and GOST toggles moved left; Style dropdown and Draft/Final toggle moved to status bar right (Draft is bold). Preview: 20px gray page gaps for clear page boundaries. Session restore: opens last file on startup. Snapshot diff: proper LCS diff instead of positional comparison. Setup wizard: fixed size, flatpak tool detection fixed. Popout preview: maximize button added.</p>
+      </description>
+    </release>
     <release version="0.12.28" date="2026-06-08">
       <description>
         <p>Color-coded diff views: removed lines red, added lines green, git hunk headers blue. Fix history panel click not working (same connect_activate bug as snapshots). Document Statistics now uses proper adw::ActionRow layout instead of monospace text.</p>

@@ -275,6 +275,32 @@ impl EditorPane {
         let status_bar = GtkBox::new(Orientation::Horizontal, 0);
         status_bar.set_hexpand(true);
 
+        let gost_label = Label::new(Some("gost type b"));
+        gost_label.add_css_class("dim-label");
+        gost_label.add_css_class("caption");
+        gost_label.set_use_markup(true);
+        gost_label.set_margin_top(3);
+        gost_label.set_margin_bottom(3);
+
+        let gost_btn = Button::new();
+        gost_btn.set_child(Some(&gost_label));
+        gost_btn.add_css_class("flat");
+        gost_btn.set_tooltip_text(Some("Toggle GOST type B engineering font for the whole UI"));
+        gost_btn.set_margin_end(4);
+
+        let autocorrect_label = Label::new(Some("autocorrect"));
+        autocorrect_label.add_css_class("dim-label");
+        autocorrect_label.add_css_class("caption");
+        autocorrect_label.set_use_markup(true);
+        autocorrect_label.set_margin_top(3);
+        autocorrect_label.set_margin_bottom(3);
+
+        let autocorrect_btn = Button::new();
+        autocorrect_btn.set_child(Some(&autocorrect_label));
+        autocorrect_btn.add_css_class("flat");
+        autocorrect_btn.set_tooltip_text(Some("Toggle autocorrect (fixes spelling as you type)"));
+        autocorrect_btn.set_margin_end(4);
+
         let search_btn = Button::with_label("search");
         search_btn.add_css_class("flat");
         search_btn.add_css_class("dim-label");
@@ -282,6 +308,8 @@ impl EditorPane {
         search_btn.set_tooltip_text(Some("Find & Replace (Ctrl+F)"));
         search_btn.set_margin_start(4);
         search_btn.set_margin_end(4);
+        status_bar.append(&autocorrect_btn);
+        status_bar.append(&gost_btn);
         status_bar.append(&search_btn);
 
         let undo_btn = Button::from_icon_name("edit-undo-symbolic");
@@ -350,34 +378,6 @@ impl EditorPane {
         goal_bar.set_margin_end(8);
         goal_bar.set_tooltip_text(Some("Word count progress toward goal"));
         status_bar.append(&goal_bar);
-
-        let gost_label = Label::new(Some("gost type b"));
-        gost_label.add_css_class("dim-label");
-        gost_label.add_css_class("caption");
-        gost_label.set_use_markup(true);
-        gost_label.set_margin_top(3);
-        gost_label.set_margin_bottom(3);
-
-        let gost_btn = Button::new();
-        gost_btn.set_child(Some(&gost_label));
-        gost_btn.add_css_class("flat");
-        gost_btn.set_tooltip_text(Some("Toggle GOST type B engineering font for the whole UI"));
-        gost_btn.set_margin_end(4);
-        status_bar.append(&gost_btn);
-
-        let autocorrect_label = Label::new(Some("autocorrect"));
-        autocorrect_label.add_css_class("dim-label");
-        autocorrect_label.add_css_class("caption");
-        autocorrect_label.set_use_markup(true);
-        autocorrect_label.set_margin_top(3);
-        autocorrect_label.set_margin_bottom(3);
-
-        let autocorrect_btn = Button::new();
-        autocorrect_btn.set_child(Some(&autocorrect_label));
-        autocorrect_btn.add_css_class("flat");
-        autocorrect_btn.set_tooltip_text(Some("Toggle autocorrect (fixes spelling as you type)"));
-        autocorrect_btn.set_margin_end(4);
-        status_bar.append(&autocorrect_btn);
 
         let version_btn = Button::with_label(concat!("v", env!("CARGO_PKG_VERSION")));
         version_btn.add_css_class("flat");
@@ -718,6 +718,10 @@ impl EditorPane {
     /// The status bar widget — placed by app_window below the full-width inner_paned.
     pub fn status_bar_widget(&self) -> &GtkBox {
         &self.status_bar
+    }
+
+    pub fn status_bar_insert_after_goal(&self, w: &impl gtk4::prelude::IsA<gtk4::Widget>) {
+        self.status_bar.insert_child_after(w, Some(&self.goal_bar));
     }
 
     // ── Settings ──────────────────────────────────────────────────────────────

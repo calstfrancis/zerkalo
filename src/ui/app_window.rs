@@ -122,9 +122,9 @@ impl AppWindow {
         let style_btn = MenuButton::new();
         style_btn.set_label("Style");
         style_btn.add_css_class("flat");
+        style_btn.add_css_class("caption");
         style_btn.set_tooltip_text(Some("Apply a formatting style to the document"));
         style_btn.set_popover(Some(&style_popover));
-        header.pack_start(&style_btn);
         for name in &style_names {
             let row = Button::new();
             row.set_label(name);
@@ -142,27 +142,13 @@ impl AppWindow {
         todo_btn.set_active(false);
         todo_btn.update_property(&[gtk4::accessible::Property::Label("Toggle plan panel")]);
 
-        // ── Compilation profile dropdown ─────────────────────────────────────
-        let profile_box = GtkBox::new(Orientation::Vertical, 0);
-        profile_box.set_margin_top(4);
-        profile_box.set_margin_bottom(4);
-        let profile_popover = Popover::new();
-        profile_popover.set_child(Some(&profile_box));
-        let profile_btn = MenuButton::new();
-        profile_btn.add_css_class("flat");
-        profile_btn.set_tooltip_text(Some("Compilation profile: Final (full quality) or Draft (fast preview)"));
-        profile_btn.set_popover(Some(&profile_popover));
-
-        let profile_final_btn = Button::with_label("Final");
-        profile_final_btn.add_css_class("flat");
-        profile_final_btn.set_halign(Align::Start);
-        profile_final_btn.set_size_request(100, -1);
-        let profile_draft_btn = Button::with_label("Draft");
-        profile_draft_btn.add_css_class("flat");
-        profile_draft_btn.set_halign(Align::Start);
-        profile_draft_btn.set_size_request(100, -1);
-        profile_box.append(&profile_final_btn);
-        profile_box.append(&profile_draft_btn);
+        // ── Compilation profile toggle (status bar) ──────────────────────────
+        let draft_label = gtk4::Label::new(Some("Final"));
+        draft_label.add_css_class("caption");
+        let draft_toggle = ToggleButton::new();
+        draft_toggle.set_child(Some(&draft_label));
+        draft_toggle.add_css_class("flat");
+        draft_toggle.set_tooltip_text(Some("Toggle Draft (fast preview) / Final (full quality)"));
 
         // ── Primary header buttons (packed together at end of section) ────────
         let compile_btn = Button::with_label("Preview");
@@ -246,7 +232,6 @@ impl AppWindow {
         // In GTK4 pack_end the last-packed widget is leftmost in the end section.
         header.pack_end(&menu_btn);
         header.pack_end(&compile_btn);
-        header.pack_end(&profile_btn);
         header.pack_end(&todo_btn);
         header.pack_end(&sync_btn);
 
@@ -566,38 +551,28 @@ impl AppWindow {
         {
             let initial_draft = config.active_profile == CompileProfile::Draft;
             preview_pane.set_draft_mode(initial_draft);
-            if initial_draft {
-                profile_btn.set_label("Draft");
-            } else {
-                profile_btn.set_label("Final");
-            }
+            draft_toggle.set_active(initial_draft);
+            update_draft_toggle_label(&draft_toggle, initial_draft);
         }
         {
             let pp = preview_pane.clone();
-            let btn = profile_btn.clone();
-            let pop = profile_popover.clone();
             let cfg = current_config.clone();
-            profile_final_btn.connect_clicked(move |_| {
-                pp.set_draft_mode(false);
-                btn.set_label("Final");
-                cfg.borrow_mut().active_profile = CompileProfile::Final;
+            draft_toggle.connect_toggled(move |btn| {
+                let is_draft = btn.is_active();
+                pp.set_draft_mode(is_draft);
+                update_draft_toggle_label(btn, is_draft);
+                cfg.borrow_mut().active_profile = if is_draft {
+                    CompileProfile::Draft
+                } else {
+                    CompileProfile::Final
+                };
                 let _ = cfg.borrow().save();
-                pop.popdown();
             });
         }
-        {
-            let pp = preview_pane.clone();
-            let btn = profile_btn.clone();
-            let pop = profile_popover.clone();
-            let cfg = current_config.clone();
-            profile_draft_btn.connect_clicked(move |_| {
-                pp.set_draft_mode(true);
-                btn.set_label("Draft");
-                cfg.borrow_mut().active_profile = CompileProfile::Draft;
-                let _ = cfg.borrow().save();
-                pop.popdown();
-            });
-        }
+
+        // Insert style_btn and draft_toggle into status bar after goal bar
+        editor_pane.status_bar_insert_after_goal(&style_btn);
+        editor_pane.status_bar_widget().insert_child_after(&draft_toggle, Some(&style_btn));
 
         apply_theme(&config.theme);
         if config.high_contrast {
@@ -1933,6 +1908,16 @@ impl AppWindow {
             glib::ControlFlow::Break
         });
 
+        // ── Restore last open file ───────────────────────────────────────────
+        {
+            let last = config.recent_files.iter().find(|p| p.exists()).cloned();
+            if let Some(path) = last {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    editor_pane.open_file(path, &content);
+                }
+            }
+        }
+
         // ── LSP: initialise 500 ms after startup ────────────────────────────
 
         let lsp_init = lsp_client.clone();
@@ -2370,6 +2355,13 @@ impl AppWindow {
             win_po.set_default_height(950);
             win_po.set_transient_for(Some(&window_for_popout));
             win_po.set_content(Some(&tv_po));
+
+            let maximize_btn = Button::from_icon_name("window-maximize-symbolic");
+            maximize_btn.add_css_class("flat");
+            maximize_btn.set_tooltip_text(Some("Maximize window"));
+            let win_for_max = win_po.clone();
+            maximize_btn.connect_clicked(move |_| win_for_max.maximize());
+            header_po.pack_end(&maximize_btn);
 
             let win_rc = popout_win_for_btn.clone();
             let pane_rc = popout_pane_for_btn.clone();
@@ -4424,6 +4416,16 @@ fn show_changelog(parent: &impl IsA<gtk4::Window>) {
     toolbar.set_content(Some(&scroll));
     win.set_content(Some(&toolbar));
     win.present();
+}
+
+fn update_draft_toggle_label(btn: &gtk4::ToggleButton, is_draft: bool) {
+    if let Some(lbl) = btn.child().and_downcast::<gtk4::Label>() {
+        if is_draft {
+            lbl.set_markup("<b>Draft</b>");
+        } else {
+            lbl.set_markup("Final");
+        }
+    }
 }
 
 #[cfg(test)]

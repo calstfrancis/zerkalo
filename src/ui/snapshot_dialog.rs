@@ -66,19 +66,68 @@ fn list_snapshots(dir: &Path) -> Vec<PathBuf> {
 fn simple_diff(old: &str, new: &str) -> String {
     let old_lines: Vec<&str> = old.lines().collect();
     let new_lines: Vec<&str> = new.lines().collect();
-    let mut out = String::new();
-    // Very simple line-by-line diff: show lines added/removed in first 200 lines
-    let max = old_lines.len().max(new_lines.len()).min(200);
-    for i in 0..max {
-        let ol = old_lines.get(i).copied().unwrap_or("");
-        let nl = new_lines.get(i).copied().unwrap_or("");
-        if ol != nl {
-            if !ol.is_empty() { out.push_str(&format!("- {ol}\n")); }
-            if !nl.is_empty() { out.push_str(&format!("+ {nl}\n")); }
+    let m = old_lines.len().min(600);
+    let n = new_lines.len().min(600);
+    let old_lines = &old_lines[..m];
+    let new_lines = &new_lines[..n];
+
+    // LCS DP table
+    let mut dp = vec![vec![0u16; n + 1]; m + 1];
+    for i in 1..=m {
+        for j in 1..=n {
+            dp[i][j] = if old_lines[i - 1] == new_lines[j - 1] {
+                dp[i - 1][j - 1] + 1
+            } else {
+                dp[i - 1][j].max(dp[i][j - 1])
+            };
         }
     }
-    if out.is_empty() { out = "(no differences)".to_string(); }
-    out
+
+    // Backtrack
+    let mut diff: Vec<(char, &str)> = Vec::new();
+    let (mut i, mut j) = (m, n);
+    while i > 0 || j > 0 {
+        if i > 0 && j > 0 && old_lines[i - 1] == new_lines[j - 1] {
+            diff.push((' ', old_lines[i - 1]));
+            i -= 1;
+            j -= 1;
+        } else if j > 0 && (i == 0 || dp[i][j - 1] >= dp[i - 1][j]) {
+            diff.push(('+', new_lines[j - 1]));
+            j -= 1;
+        } else {
+            diff.push(('-', old_lines[i - 1]));
+            i -= 1;
+        }
+    }
+    diff.reverse();
+
+    // Render with 2-line context around changes
+    let changed: Vec<bool> = diff.iter().map(|(c, _)| *c != ' ').collect();
+    let mut show = vec![false; diff.len()];
+    for k in 0..diff.len() {
+        if changed[k] {
+            let s = k.saturating_sub(2);
+            let e = (k + 3).min(diff.len());
+            for idx in s..e { show[idx] = true; }
+        }
+    }
+
+    let mut out = String::new();
+    let mut gap = false;
+    for (idx, (ch, line)) in diff.iter().enumerate() {
+        if !show[idx] {
+            gap = true;
+            continue;
+        }
+        if gap { out.push_str("...\n"); gap = false; }
+        match ch {
+            '-' => out.push_str(&format!("- {line}\n")),
+            '+' => out.push_str(&format!("+ {line}\n")),
+            _ => out.push_str(&format!("  {line}\n")),
+        }
+    }
+
+    if out.is_empty() { "(no differences)".to_string() } else { out }
 }
 
 // ── SnapshotDialog ────────────────────────────────────────────────────────────
