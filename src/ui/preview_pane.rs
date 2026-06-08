@@ -319,6 +319,13 @@ impl PreviewPane {
             *self.zoom.borrow_mut() = z;
             self.refit_drawing_area_centered(None);
             if let Some(f) = self.on_zoom_changed.borrow().as_ref() { f(z); }
+        } else if pb_w > 0.0 {
+            // Widget not yet allocated (idle ran before GTK layout pass).
+            // Retry after GTK has finished laying out the newly-visible scroll pane.
+            let pane = self.clone();
+            glib::timeout_add_local_once(Duration::from_millis(50), move || {
+                pane.fit_width();
+            });
         }
     }
 
