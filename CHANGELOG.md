@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.12.20] — 2026-06-08
+
+### Fixed
+- Startup git warning: use `flatpak-spawn --host git` inside the flatpak sandbox so the check passes correctly
+- Welcome window "What's New" now lists the 0.12 features (multi-file projects, template build system, New Chapter, Project Settings, cross-file outline) instead of 0.11 era items
+- GOST Type B font ships in all three flatpaks (Kopilka, Rubric, Zerkalo) at `/app/share/fonts/gosttypeb.ttf` so fontconfig inside the sandbox finds it
+
+---
+
 ## [0.12.19] — 2026-06-08
 
 ### Added

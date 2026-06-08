@@ -46,6 +46,11 @@
   </developer>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.12.20" date="2026-06-08">
+      <description>
+        <p>Fix startup git warning in the flatpak (now checks via flatpak-spawn --host). Welcome window updated with current 0.12 features. GOST Type B font bundled in Kopilka, Rubric, and Zerkalo flatpaks so it is available to Typst documents and the UI font toggle inside the sandbox.</p>
+      </description>
+    </release>
     <release version="0.12.19" date="2026-06-08">
       <description>
         <p>Template build system: templates are now real .typ files editable without touching Rust; user templates auto-load from ~/.config/zerkalo/templates/. New Chapter button creates a file and inserts #include in main.typ. Project Settings dialog for per-project root and bibliography. Cross-file outline shows headings from all project files.</p>

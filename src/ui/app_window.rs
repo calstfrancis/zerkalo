@@ -2015,8 +2015,13 @@ impl AppWindow {
         let win_for_check = window.clone();
         glib::timeout_add_local(Duration::from_millis(900), move || {
             // typst is no longer checked — compilation is built in
-            let git_ok = std::process::Command::new("git")
-                .arg("--version").output().is_ok();
+            let in_flatpak = std::path::Path::new("/.flatpak-info").exists();
+            let git_ok = if in_flatpak {
+                std::process::Command::new("flatpak-spawn")
+                    .args(["--host", "git", "--version"]).output().is_ok()
+            } else {
+                std::process::Command::new("git").arg("--version").output().is_ok()
+            };
             let hunspell_ok = std::process::Command::new("hunspell")
                 .arg("--version").output().is_ok();
             let pandoc_ok = std::process::Command::new("pandoc")
