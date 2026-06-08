@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.12.27] — 2026-06-08
+
+### Fixed
+- **Browse Snapshots: clicking a snapshot did nothing** — row handler was `connect_activate` (fires only on Enter/double-click); replaced with `list_box.connect_row_selected` so single clicks update the diff view and enable Restore
+
+---
+
 ## [0.12.26] — 2026-06-08
 
 ### Fixed
