@@ -21,7 +21,7 @@ Primary use case driving this work: a theological journal with a `main.typ` that
 
 ## Items
 
-### 1. New Project Wizard + Folder Creation
+### ✅ 1. New Project Wizard + Folder Creation — DONE
 
 Create a "New Project" dialog (accessible from the header/menu). The wizard:
 - Asks for a project name and template choice
@@ -30,22 +30,54 @@ Create a "New Project" dialog (accessible from the header/menu). The wizard:
 - Writes a minimal `.zerkalo/config.toml` into the new folder with `root_file` set
 - Opens the new project in Zerkalo (sets `project_root` to the new folder)
 
-Files to touch: `ui/app_window.rs`, new `ui/new_project_dialog.rs`,
-`project_model.rs`, `config.rs`.
+Files touched: `ui/app_window.rs`, `ui/new_project_dialog.rs` (new),
+`templates.rs` (new), `config.rs`.
 
 ---
 
-### 2. Root File Indicator + Right-Click "Set as Compilation Root"
+### 2. Root File Indicator + Right-Click "Set as Compilation Root" ← NEXT
 
 The file tree currently has no indication of which file is being compiled.
 
-- Add a ★ (or bold/accent styling) to the file tree row that matches the current
-  compilation root
-- Right-click context menu on any file row: add "Set as Compilation Root"
-- Selecting it writes `root_file` to the project's `.zerkalo/config.toml` and
-  triggers a recompile
+**Desired behaviour:**
+- The row for the current compilation root shows a ★ icon (accent-coloured) at
+  the right edge of the row
+- Right-clicking any file row shows a popover with two actions:
+  - **Set as Compilation Root** (top)
+  - **Delete** (destructive, as today)
+- Choosing "Set as Compilation Root":
+  1. Writes `root_file` to `.zerkalo/config.toml` via `ProjectConfig::save`
+  2. Calls `preview.set_root_file(path)` on the preview pane
+  3. Triggers an immediate recompile (post idle or use the existing compile channel)
+  4. Calls `file_tree.set_root_file(path)` + `refresh()` so the ★ moves
 
-Files to touch: `ui/file_tree.rs`, `config.rs`, wiring in `ui/app_window.rs`.
+**Implementation notes:**
+
+`src/ui/file_tree.rs`:
+- Add field `root_file: Rc<RefCell<Option<PathBuf>>>` to `FileTree`
+- Add `pub fn set_root_file(&self, path: Option<PathBuf>)` method
+- Add callback `on_set_root: Callback<PathBuf>` (same pattern as `on_delete`)
+- Add `pub fn set_on_set_root(&self, f: impl Fn(PathBuf) + 'static)`
+- In `refresh()`, inside the per-file loop, after building `row_box`, check
+  `self.root_file.borrow().as_ref() == Some(file_path)`:
+  - If true, append an `Image::from_icon_name("starred-symbolic")` with
+    `add_css_class("accent")` and `pixel_size(14)` to `row_box`
+- Convert `attach_delete_gesture` → `attach_context_menu`:
+  - Rename; add a "Set as Compilation Root" `Button` above the delete button
+  - Button fires `on_set_root` callback then `popdown()`s
+  - Keep the existing AlertDialog confirm flow for delete
+
+`src/ui/app_window.rs`:
+- Expose the `FileTree` (already stored as `file_tree` field) so you can call
+  `set_root_file` and `set_on_set_root` during init
+- In `set_on_set_root` handler:
+  1. `proj_cfg.root_file = Some(rel_path); proj_cfg.save(&project_root)`
+  2. `preview.set_root_file(path.clone())`
+  3. Trigger recompile (call `preview.compile()` or post an idle compile)
+  4. `file_tree.set_root_file(Some(path)); file_tree.refresh()`
+
+**No changes needed** in `config.rs` or `project_model.rs` — `root_file` field
+and `save()` already exist.
 
 ---
 
