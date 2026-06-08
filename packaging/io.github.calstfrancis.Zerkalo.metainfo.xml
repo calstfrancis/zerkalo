@@ -46,6 +46,11 @@
   </developer>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.12.32" date="2026-06-08">
+      <description>
+        <p>Right-click any editor tab to close it or delete the file (with confirmation). Fix: app no longer re-creates old project folder on launch. Author/affiliation lock compile fix.</p>
+      </description>
+    </release>
     <release version="0.12.31" date="2026-06-08">
       <description>
         <p>Start maximized. Setup wizard is resizable again. tinymist and pandoc shown as bundled (always verified); only git and hunspell show install instructions.</p>

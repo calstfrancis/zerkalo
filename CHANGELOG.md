@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.12.32] — 2026-06-08
+
+### Added / Fixed
+
+- Right-click on any editor tab shows a context menu with "Close tab" and "Delete file…" (with confirmation dialog)
+- Fix: app was re-creating old project folder on every launch (removed unconditional `create_dir_all` of work_dir at startup)
+- Author/affiliation lock: fixed compile error (missing fields in settings dialog Config initializer)
+
+---
+
 ## [0.12.31] — 2026-06-08
 
 ### Fixed / Changed

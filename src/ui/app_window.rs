@@ -1189,7 +1189,20 @@ impl AppWindow {
         menu_new_template_item.connect_clicked(move |_| {
             menu_popover_for_template.popdown();
             let dlg = TemplateDialog::new(&window_for_template, &project_root_for_template);
-            dlg.set_bib_path(cfg_for_template.borrow().bib_path.clone());
+            {
+                let cfg = cfg_for_template.borrow();
+                dlg.set_bib_path(cfg.bib_path.clone());
+                dlg.preselect_locked_identity(&cfg.locked_author.clone(), &cfg.locked_affiliation.clone());
+            }
+            {
+                let cfg = cfg_for_template.clone();
+                dlg.set_on_lock_identity(move |author, affiliation| {
+                    let mut c = cfg.borrow_mut();
+                    c.locked_author = author;
+                    c.locked_affiliation = affiliation;
+                    let _ = c.save();
+                });
+            }
             let ep = editor_for_template.clone();
             dlg.set_on_create(move |path| {
                 if let Ok(content) = std::fs::read_to_string(&path) {
@@ -1211,7 +1224,20 @@ impl AppWindow {
             let Some(current_path) = editor_for_reapply.get_active_path() else { return };
             let current_content = editor_for_reapply.get_active_content().unwrap_or_default();
             let dlg = TemplateDialog::new(&window_for_reapply, &project_root_for_reapply);
-            dlg.set_bib_path(cfg_for_reapply.borrow().bib_path.clone());
+            {
+                let cfg = cfg_for_reapply.borrow();
+                dlg.set_bib_path(cfg.bib_path.clone());
+                dlg.preselect_locked_identity(&cfg.locked_author.clone(), &cfg.locked_affiliation.clone());
+            }
+            {
+                let cfg = cfg_for_reapply.clone();
+                dlg.set_on_lock_identity(move |author, affiliation| {
+                    let mut c = cfg.borrow_mut();
+                    c.locked_author = author;
+                    c.locked_affiliation = affiliation;
+                    let _ = c.save();
+                });
+            }
 
             if let Some(sidecar) = super::template_dialog::load_sidecar(&current_path) {
                 dlg.preselect_from_sidecar(&sidecar);
@@ -2475,6 +2501,14 @@ impl AppWindow {
             let ft = file_tree.clone();
             editor_pane.set_on_file_dirty(move |path, dirty| {
                 ft.set_file_modified(&path, dirty);
+            });
+        }
+
+        // ── Delete file from tab context menu ───────────────────────────────────
+        {
+            let ft = file_tree.clone();
+            editor_pane.set_on_delete_file(move |_path| {
+                ft.refresh();
             });
         }
 

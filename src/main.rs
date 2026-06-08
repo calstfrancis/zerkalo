@@ -104,7 +104,6 @@ fn main() -> ExitCode {
     let sw_activate = shared_window.clone();
     app.connect_activate(move |app| {
         let config = Config::load().unwrap_or_default();
-        let _ = std::fs::create_dir_all(&config.work_dir);
         let window = AppWindow::new(app, config);
         window.setup_keybindings();
         window.open_initial_file(initial_file.clone());
