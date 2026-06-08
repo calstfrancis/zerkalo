@@ -4129,7 +4129,7 @@ fn post_process_latex_import(content: &str, bib_path: Option<&std::path::Path>) 
             Scan::CollectLet(d) => {
                 let_buf.push('\n');
                 let_buf.push_str(line);
-                let d = d + bracket_depth(t);
+                let d = d + total_depth(t);
                 if d <= 0 {
                     macro_defs.push(std::mem::take(&mut let_buf));
                     Scan::Body
@@ -4140,25 +4140,23 @@ fn post_process_latex_import(content: &str, bib_path: Option<&std::path::Path>) 
 
             // ── Normal body scan ─────────────────────────────────────────────────
             Scan::Body => {
-                if t.starts_with("#set page(")
-                    || t.starts_with("#set text(")
-                    || t.starts_with("#set par(")
-                {
-                    // Discard; track depth for multi-line blocks
+                if t.starts_with("#set ") {
+                    // Strip all #set rules pandoc generates (page, text, par, heading,
+                    // list, table, math.equation, etc.); track depth for multi-line blocks.
                     let d = paren_depth(t);
                     if d > 0 { Scan::SkipSet(d) } else { Scan::Body }
-                } else if t.starts_with("#set heading(") {
-                    // Always single-line in practice; discard silently
-                    Scan::Body
-                } else if t.starts_with("#show heading") {
-                    // Must use total_depth: block(...)[\n] opens with `(` before `[`
+                } else if t.starts_with("#show") {
+                    // Strip all #show rules (#show heading:, #show:, #show terms:, etc.).
+                    // Uses total_depth because show rules mix (), [], {} delimiters.
                     let d = total_depth(t);
                     if d > 0 { Scan::SkipShow(d) } else { Scan::Body }
                 } else if t.starts_with("#import ") {
                     macro_defs.push(line.to_string());
                     Scan::Body
                 } else if t.starts_with("#let ") {
-                    let d = bracket_depth(t);
+                    // Use total_depth: pandoc's #let conf(...) = {...} uses () for
+                    // function params before {} for the body.
+                    let d = total_depth(t);
                     let_buf = line.to_string();
                     if d > 0 {
                         Scan::CollectLet(d)
