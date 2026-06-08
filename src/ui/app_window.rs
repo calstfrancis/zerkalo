@@ -12,12 +12,11 @@ use libadwaita as adw;
 use adw::prelude::*;
 
 use crate::bibliography;
-use crate::config::{CompileProfile, Config, ProjectConfig, Theme};
+use crate::config::{CompileProfile, Config, Theme};
 use crate::writing_log::{WritingLog, count_words, new_file_start_words, FileStartWords};
 use crate::git_sync;
 use crate::keybindings::{matches_binding, Keybindings};
 use crate::lsp::{DiagSeverity, LspClient};
-use crate::project_model::ProjectModel;
 use crate::session::Session;
 use super::command_palette::{CommandPalette, default_commands, heading_items};
 use super::dep_graph::DepGraph;
@@ -49,8 +48,6 @@ pub struct AppWindow {
     #[allow(dead_code)]
     outline_panel: OutlinePanel,
     project_root: PathBuf,
-    #[allow(dead_code)]
-    project_model: ProjectModel,
     sync_btn: Button,
     search_panel: super::search_panel::SearchPanel,
     #[allow(dead_code)]
@@ -63,7 +60,6 @@ pub struct AppWindow {
     compile_on_save: Rc<RefCell<bool>>,
     #[allow(dead_code)]
     manual_compile_only: Rc<RefCell<bool>>,
-    is_project_mode: Rc<RefCell<bool>>,
     #[allow(dead_code)]
     file_watcher: Option<notify::RecommendedWatcher>,
 }
@@ -82,13 +78,10 @@ impl AppWindow {
 
         // ── Per-project config ──────────────────────────────────────────────
 
-        let proj_cfg = ProjectConfig::load(&project_root).unwrap_or_default();
+        let proj_cfg = crate::config::ProjectConfig::load(&project_root).unwrap_or_default();
         let effective_bib = proj_cfg.bib_path.clone().or_else(|| config.bib_path.clone());
         let effective_output_dir = proj_cfg.output_dir.clone();
         let extra_compiler_args = proj_cfg.compiler_args.clone();
-        // True only when the user created an explicit project (wizard sets root_file in config).
-        // In single-file mode this is false and compile/tab-switch updates the preview root.
-        let is_project_mode: Rc<RefCell<bool>> = Rc::new(RefCell::new(proj_cfg.root_file.is_some()));
 
         // ── Runtime-configurable values ─────────────────────────────────────
 
@@ -188,11 +181,9 @@ impl AppWindow {
             menu_reapply_template_item,
             menu_repair_markers_item,
             menu_new_item,
-            menu_new_project_item,
             menu_open_item,
             menu_open_project_item,
             menu_recent_projects_item,
-            menu_project_settings_item,
             menu_save_item,
             menu_save_as_item,
             menu_snapshots_item,
@@ -221,12 +212,10 @@ impl AppWindow {
         menu_popover_box.append(&menu_new_template_item);
         menu_popover_box.append(&menu_repair_markers_item);
         menu_popover_box.append(&menu_new_item);
-        menu_popover_box.append(&menu_new_project_item);
         menu_popover_box.append(&Separator::new(Orientation::Horizontal));
         menu_popover_box.append(&menu_open_item);
         menu_popover_box.append(&menu_open_project_item);
         menu_popover_box.append(&menu_recent_projects_item);
-        menu_popover_box.append(&menu_project_settings_item);
         menu_popover_box.append(&Separator::new(Orientation::Horizontal));
         // Save
         menu_popover_box.append(&menu_save_item);
@@ -304,7 +293,6 @@ impl AppWindow {
         // ── Panels ──────────────────────────────────────────────────────────
 
         let editor_pane = EditorPane::new();
-        let project_model = ProjectModel::scan(project_root.clone());
         let outline_panel = OutlinePanel::new();
         let citation_panel = CitationPanel::new();
         let ref_manager = RefManager::new();
@@ -526,18 +514,8 @@ impl AppWindow {
             });
         }
 
-        if let Some(f) = &project_model.root_file {
-            tracing::info!("Detected root file: {}", f.display());
-        }
-
-        let initial_root = if let Some(rel) = &proj_cfg.root_file {
-            let abs = project_root.join(rel);
-            if abs.exists() { Some(abs) } else { project_model.root_file.clone() }
-        } else {
-            project_model.root_file.clone()
-        };
         let preview_pane = PreviewPane::new(
-            initial_root,
+            None,
             effective_output_dir,
             extra_compiler_args,
         );
@@ -770,15 +748,12 @@ impl AppWindow {
 
         let preview_for_btn = preview_pane.clone();
         let editor_for_btn = editor_pane.clone();
-        let is_project_mode_for_btn = is_project_mode.clone();
         compile_btn.connect_clicked(move |_| {
             if let Some(path) = editor_for_btn.get_active_path() {
                 if let Some(content) = editor_for_btn.get_active_content() {
                     preview_for_btn.set_buffer_snapshot(path.clone(), content);
                 }
-                if !*is_project_mode_for_btn.borrow() {
-                    preview_for_btn.set_root_file(path);
-                }
+                preview_for_btn.set_root_file(path);
             }
             preview_for_btn.trigger_compile();
         });
@@ -908,36 +883,6 @@ impl AppWindow {
                     }
                 },
             );
-        });
-
-        // ── Menu: New Project ───────────────────────────────────────────────
-
-        let window_for_new_proj = window.clone();
-        let cfg_for_new_proj = current_config.clone();
-        let menu_popover_for_new_proj = menu_popover.clone();
-        menu_new_project_item.connect_clicked(move |_| {
-            menu_popover_for_new_proj.popdown();
-            let work_dir = cfg_for_new_proj.borrow().work_dir.clone();
-            let cfg_c = cfg_for_new_proj.clone();
-            let dlg = super::new_project_dialog::NewProjectDialog::new(
-                &window_for_new_proj,
-                work_dir,
-                crate::templates::all_templates(),
-                move |new_folder| {
-                    let mut cfg = cfg_c.borrow_mut();
-                    cfg.push_recent_project(new_folder.clone());
-                    cfg.work_dir = new_folder.clone();
-                    let _ = cfg.save();
-                    if let Ok(exe) = std::env::current_exe() {
-                        // Pass main.typ so open_initial_file skips session restore
-                        // and opens the new project's root directly.
-                        let root = new_folder.join("main.typ");
-                        let _ = std::process::Command::new(exe).arg(&root).spawn();
-                    }
-                    std::process::exit(0);
-                },
-            );
-            dlg.present();
         });
 
         // ── Menu: Recent Projects ───────────────────────────────────────────
@@ -1706,7 +1651,6 @@ impl AppWindow {
         let refs_for_change = ref_manager.clone();
         let lsp_for_change = lsp_client.clone();
         let last_edit_for_change = last_edit_instant.clone();
-        let is_project_mode_for_change = is_project_mode.clone();
         let gen: Rc<RefCell<u64>> = Rc::new(RefCell::new(0));
         let gen2 = gen.clone();
         let editor_pane_for_delta = editor_pane.clone();
@@ -1724,14 +1668,11 @@ impl AppWindow {
             let notes = notes_for_change.clone();
             let refs = refs_for_change.clone();
             let lsp = lsp_for_change.clone();
-            let ipm = is_project_mode_for_change.clone();
             let delay = Duration::from_millis(*debounce_for_change.borrow());
             let delta = editor_pane_for_delta.get_active_session_delta();
             editor_pane_for_delta.set_session_delta(delta);
             glib::timeout_add_local(delay, move || {
                 if *gen3.borrow() == my_gen {
-                    // Compile on every keystroke only when auto-compile is on AND
-                    // neither compile_on_save nor manual_compile_only is active.
                     let should_compile = *auto.borrow()
                         && !*cos.borrow()
                         && !*mco.borrow();
@@ -1740,37 +1681,17 @@ impl AppWindow {
                             if let Some(content) = editor.get_active_content() {
                                 preview.set_buffer_snapshot(path.clone(), content);
                             }
-                            if !*ipm.borrow() {
-                                preview.set_root_file(path);
-                            }
+                            preview.set_root_file(path);
                         }
                         preview.trigger_compile();
                     }
-                    // Outline + notes + ref manager update
                     if let Some(path) = editor.get_active_path() {
                         if let Some(content) = editor.get_active_content() {
-                            // Multi-file outline: merge in-memory tabs with on-disk project files
-                            let tab_map: std::collections::HashMap<_, _> =
-                                editor.all_tab_texts().into_iter().collect();
-                            if let Some(root) = editor.project_root() {
-                                let mut project_files = crate::project::collect_typ_files(&root);
-                                project_files.retain(|p| p != &path);
-                                let mut outline_files: Vec<(std::path::PathBuf, String)> =
-                                    vec![(path.clone(), content.clone())];
-                                for p in project_files {
-                                    let text = tab_map.get(&p).cloned()
-                                        .unwrap_or_else(|| std::fs::read_to_string(&p).unwrap_or_default());
-                                    outline_files.push((p, text));
-                                }
-                                outline.update_project(outline_files);
-                            } else {
-                                outline.update(&content, &path);
-                            }
+                            outline.update(&content, &path);
                             notes.update(&content, &path);
                             refs.update_used_keys(&content);
                         }
                     }
-                    // LSP didChange
                     if let Some(client) = lsp.borrow_mut().as_mut() {
                         if let (Some(path), Some(content)) =
                             (editor.get_active_path(), editor.get_active_content())
@@ -1798,37 +1719,15 @@ impl AppWindow {
         let notes_panel_for_switch = notes_panel.clone();
         let style_btn_for_switch = style_btn.clone();
         let editor_pane_for_switch_delta = editor_pane.clone();
-        let editor_pane_for_switch_outline = editor_pane.clone();
-        let is_project_mode_for_switch = is_project_mode.clone();
         editor_pane.set_on_page_switch(move |content, path| {
             let delta = editor_pane_for_switch_delta.get_active_session_delta();
             editor_pane_for_switch_delta.set_session_delta(delta);
-            // Multi-file outline on tab switch
-            if *is_project_mode_for_switch.borrow() {
-                if let Some(root) = editor_pane_for_switch_outline.project_root() {
-                    let tab_map: std::collections::HashMap<_, _> =
-                        editor_pane_for_switch_outline.all_tab_texts().into_iter().collect();
-                    let mut project_files = crate::project::collect_typ_files(&root);
-                    project_files.retain(|p| p != &path);
-                    let mut outline_files: Vec<(std::path::PathBuf, String)> =
-                        vec![(path.clone(), content.clone())];
-                    for p in project_files {
-                        let text = tab_map.get(&p).cloned()
-                            .unwrap_or_else(|| std::fs::read_to_string(&p).unwrap_or_default());
-                        outline_files.push((p, text));
-                    }
-                    outline_for_switch.update_project(outline_files);
-                }
-            } else {
-                outline_for_switch.update(&content, &path);
-            }
+            outline_for_switch.update(&content, &path);
             notes_panel_for_switch.update(&content, &path);
             refs_for_switch.update_used_keys(&content);
             dep_graph_for_switch.refresh(Some(&path));
             preview_for_switch.set_buffer_snapshot(path.clone(), content.clone());
-            if !*is_project_mode_for_switch.borrow() {
-                preview_for_switch.set_root_file(path.clone());
-            }
+            preview_for_switch.set_root_file(path.clone());
             preview_for_switch.trigger_compile();
             todo_panel_for_switch.set_current_file(Some(&path));
             if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
@@ -1960,8 +1859,7 @@ impl AppWindow {
         let lsp_diags_for_compile = lsp_has_diags.clone();
         let error_banner_for_compile = error_banner_scroll.clone();
         let error_banner_lbl_for_compile = error_banner.clone();
-        let file_tree_holder_for_compile = file_tree_holder.clone();
-        let root_file_for_compile = project_model.root_file.clone();
+        let _file_tree_holder_for_compile = file_tree_holder.clone();
         let toast_for_compile = toast_overlay.clone();
         let has_errors_for_compile = has_compile_errors.clone();
         preview_pane.set_on_compile_done(move |result| {
@@ -1974,11 +1872,6 @@ impl AppWindow {
                     editor_for_diag.set_diag_summary(0, 0);
                     error_banner_for_compile.set_visible(false);
                     error_banner_lbl_for_compile.set_visible(false);
-                    if let Some(ref p) = root_file_for_compile {
-                        if let Some(ft) = file_tree_holder_for_compile.borrow().as_ref() {
-                            ft.set_file_error(p.as_path(), false);
-                        }
-                    }
                     let t = adw::Toast::new("Compiled successfully");
                     t.set_timeout(2);
                     toast_for_compile.add_toast(t);
@@ -1989,11 +1882,6 @@ impl AppWindow {
                     error_banner_lbl_for_compile.set_text(&first_line);
                     error_banner_lbl_for_compile.set_visible(true);
                     error_banner_for_compile.set_visible(true);
-                    if let Some(ref p) = root_file_for_compile {
-                        if let Some(ft) = file_tree_holder_for_compile.borrow().as_ref() {
-                            ft.set_file_error(p.as_path(), true);
-                        }
-                    }
                     let t = adw::Toast::new("Compile error — see panel");
                     t.set_timeout(3);
                     toast_for_compile.add_toast(t);
@@ -2686,152 +2574,6 @@ impl AppWindow {
                 ep.insert_at_cursor(&format!("#import \"{rel}\": {stem}\n"));
             });
         }
-        {
-            let root = project_root.clone();
-            let ft = file_tree.clone();
-            let ep = editor_pane.clone();
-            let preview = preview_pane.clone();
-            file_tree.set_on_set_root(move |path| {
-                let rel = path.strip_prefix(&root).unwrap_or(&path).to_path_buf();
-                let mut proj_cfg = crate::config::ProjectConfig::load(&root).unwrap_or_default();
-                proj_cfg.root_file = Some(rel);
-                let _ = proj_cfg.save(&root);
-                preview.set_root_file(path.clone());
-                preview.trigger_compile();
-                ft.set_root_file(Some(path.clone()));
-                ep.set_root_chip(Some(&path));
-            });
-        }
-        {
-            let root = project_root.clone();
-            let ft = file_tree.clone();
-            let ep = editor_pane.clone();
-            let preview = preview_pane.clone();
-            let ipm = is_project_mode.clone();
-            editor_pane.set_on_root_switch(move |path| {
-                let rel = path.strip_prefix(&root).unwrap_or(&path).to_path_buf();
-                let mut proj_cfg = crate::config::ProjectConfig::load(&root).unwrap_or_default();
-                proj_cfg.root_file = Some(rel);
-                let _ = proj_cfg.save(&root);
-                *ipm.borrow_mut() = true;
-                preview.set_root_file(path.clone());
-                preview.trigger_compile();
-                ft.set_root_file(Some(path.clone()));
-                ep.set_root_chip(Some(&path));
-            });
-        }
-        {
-            let root = project_root.clone();
-            let ep = editor_pane.clone();
-            let preview = preview_pane.clone();
-            let ft = file_tree.clone();
-            let ipm = is_project_mode.clone();
-            editor_pane.set_on_root_clear(move || {
-                // Remove root_file from the project config so we return to single-file mode
-                let mut proj_cfg = crate::config::ProjectConfig::load(&root).unwrap_or_default();
-                proj_cfg.root_file = None;
-                let _ = proj_cfg.save(&root);
-                *ipm.borrow_mut() = false;
-                preview.clear_root_file();
-                ft.set_root_file(None);
-                ep.set_root_chip(None);
-                // Immediately compile using whatever file is active
-                if let Some(path) = ep.get_active_path() {
-                    if let Some(content) = ep.get_active_content() {
-                        preview.set_buffer_snapshot(path.clone(), content);
-                    }
-                    preview.set_root_file(path);
-                }
-                preview.trigger_compile();
-            });
-        }
-        {
-            let win_ps2 = window.clone();
-            let root_ps2 = project_root.clone();
-            let ep_ps2 = editor_pane.clone();
-            let preview_ps2 = preview_pane.clone();
-            let ft_ps2 = file_tree.clone();
-            let ipm_ps2 = is_project_mode.clone();
-            editor_pane.set_on_project_settings(move || {
-                let dlg = super::project_settings_dialog::ProjectSettingsDialog::new(
-                    &win_ps2,
-                    root_ps2.clone(),
-                    {
-                        let root = root_ps2.clone();
-                        let ep = ep_ps2.clone();
-                        let preview = preview_ps2.clone();
-                        let ft = ft_ps2.clone();
-                        let ipm = ipm_ps2.clone();
-                        move |new_cfg| {
-                            if let Some(ref rf) = new_cfg.root_file {
-                                let abs = root.join(rf);
-                                *ipm.borrow_mut() = true;
-                                preview.set_root_file(abs.clone());
-                                preview.trigger_compile();
-                                ft.set_root_file(Some(abs.clone()));
-                                ep.set_root_chip(Some(&abs));
-                            }
-                            if let Some(ref bp) = new_cfg.bib_path {
-                                let abs_bib = if bp.is_absolute() { bp.clone() } else { root.join(bp) };
-                                if let Ok(content) = std::fs::read_to_string(&abs_bib) {
-                                    ep.set_bib_entries(crate::bibliography::parse_bib(&content));
-                                }
-                            }
-                        }
-                    },
-                );
-                dlg.present();
-            });
-        }
-
-        // ── Menu: Project Settings ──────────────────────────────────────────
-        {
-            let win_ps = window.clone();
-            let root_ps = project_root.clone();
-            let pop_ps = menu_popover.clone();
-            let ep_ps = editor_pane.clone();
-            let preview_ps = preview_pane.clone();
-            let ft_ps = file_tree.clone();
-            let ipm_ps = is_project_mode.clone();
-            menu_project_settings_item.connect_clicked(move |_| {
-                pop_ps.popdown();
-                let dlg = super::project_settings_dialog::ProjectSettingsDialog::new(
-                    &win_ps,
-                    root_ps.clone(),
-                    {
-                        let root = root_ps.clone();
-                        let ep = ep_ps.clone();
-                        let preview = preview_ps.clone();
-                        let ft = ft_ps.clone();
-                        let ipm = ipm_ps.clone();
-                        move |new_cfg| {
-                            if let Some(ref rf) = new_cfg.root_file {
-                                let abs = root.join(rf);
-                                *ipm.borrow_mut() = true;
-                                preview.set_root_file(abs.clone());
-                                preview.trigger_compile();
-                                ft.set_root_file(Some(abs.clone()));
-                                ep.set_root_chip(Some(&abs));
-                            }
-                            if let Some(ref bp) = new_cfg.bib_path {
-                                let abs_bib = if bp.is_absolute() { bp.clone() } else { root.join(bp) };
-                                if let Ok(content) = std::fs::read_to_string(&abs_bib) {
-                                    ep.set_bib_entries(crate::bibliography::parse_bib(&content));
-                                }
-                            }
-                        }
-                    },
-                );
-                dlg.present();
-            });
-        }
-
-        // Set initial root indicator on the file tree and status bar chip
-        let initial_root_path = preview_pane.root_file_path();
-        file_tree.set_root_file(initial_root_path.clone());
-        editor_pane.set_root_chip(initial_root_path.as_deref());
-        editor_pane.set_root_candidates(project_model.candidate_roots());
-
         // Wire file_tree into the compile-done holder
         *file_tree_holder.borrow_mut() = Some(file_tree.clone());
 
@@ -3217,7 +2959,6 @@ impl AppWindow {
             error_panel,
             outline_panel,
             project_root,
-            project_model,
             sync_btn,
             search_panel,
             toast_overlay: toast_for_sync_btn,
@@ -3227,7 +2968,6 @@ impl AppWindow {
             session_start,
             compile_on_save,
             manual_compile_only,
-            is_project_mode,
             file_watcher,
         }
     }
@@ -3250,7 +2990,6 @@ impl AppWindow {
         let search = self.search_panel.clone();
         let file_tree = self.file_tree.clone();
         let kb_manual_only = self.manual_compile_only.clone();
-        let kb_is_project_mode = self.is_project_mode.clone();
         let snapshot_root = self.project_root.clone();
         let controller = gtk4::EventControllerKey::new();
 
@@ -3337,9 +3076,7 @@ impl AppWindow {
                             save_snapshot(&snapshot_root, &path, &content);
                             if !*kb_manual_only.borrow() {
                                 preview.set_buffer_snapshot(path.clone(), content);
-                                if !*kb_is_project_mode.borrow() {
-                                    preview.set_root_file(path);
-                                }
+                                preview.set_root_file(path);
                                 preview.trigger_compile();
                             }
                         }
@@ -4603,11 +4340,9 @@ struct HamburgerItems {
     menu_reapply_template_item: Button,
     menu_repair_markers_item: Button,
     menu_new_item: Button,
-    menu_new_project_item: Button,
     menu_open_item: Button,
     menu_open_project_item: Button,
     menu_recent_projects_item: Button,
-    menu_project_settings_item: Button,
     menu_save_item: Button,
     menu_save_as_item: Button,
     menu_snapshots_item: Button,
@@ -4632,11 +4367,9 @@ fn build_hamburger_menu_items() -> HamburgerItems {
         menu_reapply_template_item: make_menu_item("Update Template Settings…", None),
         menu_repair_markers_item:  make_menu_item("Repair Template Markers…",   None),
         menu_new_item:             make_menu_item("New Blank Document…",         None),
-        menu_new_project_item:     make_menu_item("New Project…",               None),
         menu_open_item:            make_menu_item("Open File…",                  None),
         menu_open_project_item:    make_menu_item("Open Project Folder…",        None),
         menu_recent_projects_item:    make_menu_item("Recent Projects…",          None),
-        menu_project_settings_item:  make_menu_item("Project Settings…",         None),
         menu_save_item:              make_menu_item("Save",                      Some("Ctrl+S")),
         menu_save_as_item:         make_menu_item("Save As…",                    None),
         menu_snapshots_item:       make_menu_item("Browse Snapshots…",           None),

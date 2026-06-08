@@ -22,8 +22,6 @@ pub mod template_dialog;
 pub mod notes_panel;
 pub mod plan_panel;
 pub mod search_panel;
-pub mod new_project_dialog;
-pub mod project_settings_dialog;
 pub mod setup_wizard;
 pub mod snapshot_dialog;
 pub mod welcome_window;
