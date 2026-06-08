@@ -5,7 +5,7 @@ use std::cell::RefCell;
 use gtk4::prelude::*;
 use gtk4::{
     Box as GtkBox, Button, Label, ListBox, ListBoxRow, Orientation,
-    ScrolledWindow, SelectionMode, Separator, TextView, WrapMode,
+    ScrolledWindow, SelectionMode, Separator, TextView, TextTag, WrapMode,
 };
 use libadwaita as adw;
 use adw::prelude::*;
@@ -148,7 +148,16 @@ impl SnapshotDialog {
 
         let diff_scroll = ScrolledWindow::new();
         diff_scroll.set_vexpand(true);
-        let diff_view = TextView::new();
+        let diff_buf = gtk4::TextBuffer::new(None);
+        let tag_removed = TextTag::new(Some("removed"));
+        tag_removed.set_property("background", "#5c1f1f");
+        tag_removed.set_property("foreground", "#ff9999");
+        let tag_added = TextTag::new(Some("added"));
+        tag_added.set_property("background", "#1a3a1a");
+        tag_added.set_property("foreground", "#99dd99");
+        diff_buf.tag_table().add(&tag_removed);
+        diff_buf.tag_table().add(&tag_added);
+        let diff_view = TextView::with_buffer(&diff_buf);
         diff_view.set_editable(false);
         diff_view.set_monospace(true);
         diff_view.set_wrap_mode(WrapMode::None);
@@ -220,7 +229,7 @@ impl SnapshotDialog {
         {
             let paths = snapshot_paths.clone();
             let current_clone = current_text.clone();
-            let diff_buf = diff_view.buffer();
+            let buf = diff_buf.clone();
             let sel = selected_content.clone();
             let restore_btn_c = restore_btn.clone();
             let info_c = restore_info.clone();
@@ -230,7 +239,27 @@ impl SnapshotDialog {
                 let Some(snap_path) = paths.get(idx) else { return };
                 let Ok(snap_text) = std::fs::read_to_string(snap_path) else { return };
                 let diff = simple_diff(&snap_text, &current_clone);
-                diff_buf.set_text(&diff);
+                buf.set_text("");
+                let mut iter = buf.start_iter();
+                for line in diff.lines() {
+                    let tag_name = if line.starts_with("- ") {
+                        Some("removed")
+                    } else if line.starts_with("+ ") {
+                        Some("added")
+                    } else {
+                        None
+                    };
+                    let line_with_nl = format!("{line}\n");
+                    if let Some(name) = tag_name {
+                        if let Some(tag) = buf.tag_table().lookup(name) {
+                            buf.insert_with_tags(&mut iter, &line_with_nl, &[&tag]);
+                        } else {
+                            buf.insert(&mut iter, &line_with_nl);
+                        }
+                    } else {
+                        buf.insert(&mut iter, &line_with_nl);
+                    }
+                }
                 *sel.borrow_mut() = Some(snap_text.clone());
                 restore_btn_c.set_sensitive(true);
                 let wc = snap_text.split_whitespace().count();

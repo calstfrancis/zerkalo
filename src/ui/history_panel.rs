@@ -5,7 +5,7 @@ use std::rc::Rc;
 use gtk4::prelude::*;
 use gtk4::{
     Box as GtkBox, Label, ListBox, ListBoxRow, Orientation,
-    ScrolledWindow, SelectionMode, Separator, TextView, WrapMode,
+    ScrolledWindow, SelectionMode, Separator, TextTag, TextView, WrapMode,
 };
 
 #[derive(Clone)]
@@ -13,6 +13,7 @@ pub struct HistoryPanel {
     widget: GtkBox,
     list_box: ListBox,
     diff_view: TextView,
+    diff_commits: Rc<RefCell<Vec<String>>>,
     project_root: Rc<PathBuf>,
     current_file: Rc<RefCell<Option<PathBuf>>>,
 }
@@ -48,10 +49,23 @@ impl HistoryPanel {
 
         widget.append(&Separator::new(Orientation::Horizontal));
 
-        // Diff view (lower portion)
+        // Diff view with color tags
+        let diff_buf = gtk4::TextBuffer::new(None);
+        let tag_removed = TextTag::new(Some("removed"));
+        tag_removed.set_property("background", "#5c1f1f");
+        tag_removed.set_property("foreground", "#ff9999");
+        let tag_added = TextTag::new(Some("added"));
+        tag_added.set_property("background", "#1a3a1a");
+        tag_added.set_property("foreground", "#99dd99");
+        let tag_hunk = TextTag::new(Some("hunk"));
+        tag_hunk.set_property("foreground", "#7aa8d6");
+        diff_buf.tag_table().add(&tag_removed);
+        diff_buf.tag_table().add(&tag_added);
+        diff_buf.tag_table().add(&tag_hunk);
+
         let diff_scroll = ScrolledWindow::new();
         diff_scroll.set_vexpand(true);
-        let diff_view = TextView::new();
+        let diff_view = TextView::with_buffer(&diff_buf);
         diff_view.set_editable(false);
         diff_view.set_monospace(true);
         diff_view.set_wrap_mode(WrapMode::None);
@@ -63,11 +77,29 @@ impl HistoryPanel {
         widget.append(&diff_scroll);
 
         let current_file: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
+        let diff_commits: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
+
+        // Wire selection → colored diff
+        {
+            let commits = diff_commits.clone();
+            let root = Rc::new(project_root.clone());
+            let file_ref = current_file.clone();
+            list_box.connect_row_selected(move |_, row| {
+                let Some(row) = row else { return };
+                let idx = row.index() as usize;
+                let oids = commits.borrow();
+                let Some(oid) = oids.get(idx) else { return };
+                let Some(ref fp) = *file_ref.borrow() else { return };
+                let diff = git_diff_for_commit(&root, fp, oid);
+                apply_colored_diff(&diff_buf, &diff);
+            });
+        }
 
         Self {
             widget,
             list_box,
             diff_view,
+            diff_commits,
             project_root: Rc::new(project_root),
             current_file,
         }
@@ -84,6 +116,7 @@ impl HistoryPanel {
             self.list_box.remove(&child);
         }
         self.diff_view.buffer().set_text("");
+        self.diff_commits.borrow_mut().clear();
 
         let commits = git_log_for_file(&self.project_root, file_path);
 
@@ -103,7 +136,6 @@ impl HistoryPanel {
 
         for (oid, summary, date) in commits {
             let row = ListBoxRow::new();
-            row.set_activatable(true);
 
             let row_box = GtkBox::new(Orientation::Vertical, 2);
             row_box.set_margin_start(8);
@@ -125,15 +157,7 @@ impl HistoryPanel {
             row_box.append(&meta_lbl);
             row.set_child(Some(&row_box));
 
-            let diff_buf = self.diff_view.buffer();
-            let root = (*self.project_root).clone();
-            let fp = file_path.clone();
-            let oid_owned = oid.clone();
-            row.connect_activate(move |_| {
-                let diff = git_diff_for_commit(&root, &fp, &oid_owned);
-                diff_buf.set_text(&diff);
-            });
-
+            self.diff_commits.borrow_mut().push(oid);
             self.list_box.append(&row);
         }
     }
@@ -143,6 +167,32 @@ impl HistoryPanel {
         if let Some(path) = self.current_file.borrow().clone() {
             self.load_file_history(&path);
         }
+    }
+}
+
+fn apply_colored_diff(buf: &gtk4::TextBuffer, diff: &str) {
+    buf.set_text("");
+    let mut iter = buf.start_iter();
+    for line in diff.lines() {
+        let tag_name = if line.starts_with("---") || line.starts_with("+++") {
+            None
+        } else if line.starts_with('-') {
+            Some("removed")
+        } else if line.starts_with('+') {
+            Some("added")
+        } else if line.starts_with("@@") {
+            Some("hunk")
+        } else {
+            None
+        };
+        let line_with_nl = format!("{line}\n");
+        if let Some(name) = tag_name {
+            if let Some(tag) = buf.tag_table().lookup(name) {
+                buf.insert_with_tags(&mut iter, &line_with_nl, &[&tag]);
+                continue;
+            }
+        }
+        buf.insert(&mut iter, &line_with_nl);
     }
 }
 

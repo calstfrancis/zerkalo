@@ -4331,7 +4331,7 @@ fn show_doc_stats(
     parent: &impl IsA<gtk4::Window>,
     text: &str,
     session_start: u32,
-    project_root: Option<&std::path::Path>,
+    _project_root: Option<&std::path::Path>,
 ) {
     let words = text.split_whitespace().count();
     let chars = text.chars().filter(|c| !c.is_whitespace()).count();
@@ -4350,46 +4350,42 @@ fn show_doc_stats(
         "±0".to_string()
     };
 
-    let mut body = format!(
-        "Words            {words}  ({session_delta} this session)\n\
-         Characters       {chars}  ({chars_with_spaces} with spaces)\n\
-         Paragraphs       {paragraphs}\n\
-         Sentences        {sentences}\n\
-         Reading time     {reading_mins} min",
-    );
-
-    if let Some(root) = project_root {
-        let total: u32 = crate::project::collect_typ_files(root)
-            .iter()
-            .filter_map(|p| std::fs::read_to_string(p).ok())
-            .map(|c| c.split_whitespace().count() as u32)
-            .sum();
-        body.push_str(&format!("\n\nProject total    {total} words"));
-    }
-
     let win = adw::Window::new();
     win.set_title(Some("Document Statistics"));
-    win.set_default_width(340);
-    win.set_default_height(-1);
+    win.set_default_width(360);
+    win.set_resizable(false);
     win.set_transient_for(Some(parent));
     win.set_modal(false);
 
-    let buf = gtk4::TextBuffer::new(None);
-    buf.set_text(&body);
+    let make_row = |title: &str, value: &str| {
+        let row = adw::ActionRow::new();
+        row.set_title(title);
+        let lbl = gtk4::Label::new(Some(value));
+        lbl.add_css_class("dim-label");
+        lbl.set_valign(gtk4::Align::Center);
+        row.add_suffix(&lbl);
+        row
+    };
 
-    let view = gtk4::TextView::with_buffer(&buf);
-    view.set_editable(false);
-    view.set_cursor_visible(false);
-    view.set_monospace(true);
-    view.set_left_margin(16);
-    view.set_right_margin(16);
-    view.set_top_margin(12);
-    view.set_bottom_margin(12);
+    let group = adw::PreferencesGroup::new();
+    group.set_margin_start(12);
+    group.set_margin_end(12);
+    group.set_margin_top(12);
+    group.set_margin_bottom(12);
+    group.add(&make_row("Words", &format!("{words}  ({session_delta} this session)")));
+    group.add(&make_row("Characters", &format!("{chars}  ({chars_with_spaces} with spaces)")));
+    group.add(&make_row("Paragraphs", &paragraphs.to_string()));
+    group.add(&make_row("Sentences", &sentences.to_string()));
+    group.add(&make_row("Reading time", &format!("{reading_mins} min")));
+
+    let scroll = gtk4::ScrolledWindow::new();
+    scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Never);
+    scroll.set_child(Some(&group));
 
     let header = adw::HeaderBar::new();
     let toolbar = adw::ToolbarView::new();
     toolbar.add_top_bar(&header);
-    toolbar.set_content(Some(&view));
+    toolbar.set_content(Some(&scroll));
     win.set_content(Some(&toolbar));
     win.present();
 }
