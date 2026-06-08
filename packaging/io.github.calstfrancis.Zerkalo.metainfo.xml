@@ -46,6 +46,11 @@
   </developer>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.12.33-rc1" date="2026-06-08">
+      <description>
+        <p>Changelog window renders release notes with proper formatting. Lock buttons on Author/Affiliation in template dialog. Flatpak now sources locally — no push needed for test builds. RC versioning scheme introduced. Setup wizard widened.</p>
+      </description>
+    </release>
     <release version="0.12.32" date="2026-06-08">
       <description>
         <p>Right-click any editor tab to close it or delete the file (with confirmation). Fix: app no longer re-creates old project folder on launch. Author/affiliation lock compile fix.</p>

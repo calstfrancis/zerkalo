@@ -15,8 +15,8 @@ impl SetupWizard {
             .title("Setup & Onboarding")
             .transient_for(parent)
             .modal(true)
-            .default_width(500)
-            .default_height(600)
+            .default_width(640)
+            .default_height(620)
             .build();
 
         let header = adw::HeaderBar::new();

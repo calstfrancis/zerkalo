@@ -5,6 +5,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.12.33-rc1] — 2026-06-08
+
+### Added / Changed
+
+- Changelog window now renders release notes with proper GTK formatting — version headers, category sub-heads, and formatted bullets instead of raw monospace text
+- Template dialog: lock (padlock) buttons on Author and Affiliation fields to save them as defaults for new documents
+- Template dialog: date field now shows a tooltip noting it defaults to today if left blank
+- Flatpak manifest: sourced from local directory instead of GitHub — test builds no longer require a push
+- RC versioning scheme introduced: builds are numbered `X.Y.Z-rcN`; the suffix is removed on release
+
+### Fixed
+
+- Setup wizard widened to 640×620 for better readability
+- What's New window updated to reflect 0.12.32 features
+
+---
+
 ## [0.12.32] — 2026-06-08
 
 ### Added / Fixed

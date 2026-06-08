@@ -1,9 +1,29 @@
 # Zerkalo — Claude Instructions
 
 ## Version Management
-- After any functional change, increment the patch version in `Cargo.toml` (e.g. 0.7.1 → 0.7.2)
-- Update `CHANGELOG.md` with a brief entry for each version bump
-- Commit message for releases should be just the version: `v0.7.2`
+
+### Release candidate numbering
+- Builds get the **next** release version number with an `-rcN` suffix: `0.12.33-rc1`, `0.12.33-rc2`, …
+- When Cal says "release", strip the `-rcN` suffix → `0.12.33`; push, tag, and publish flatpak
+- After a release, the next build starts at `<next>-rc1` again (e.g. `0.12.34-rc1`)
+- Never bump to a plain release version during a build — only on explicit release instruction
+
+### On every build
+1. Update `Cargo.toml` version to the next rc number
+2. Update `CHANGELOG.md` — add entry at top for the new rc version
+3. Update `packaging/io.github.calstfrancis.Zerkalo.metainfo.xml` — add release entry
+4. Update What's New in `src/ui/welcome_window.rs` to reflect current features
+5. Push to GitHub (needed so the source is current for collaborators and CI)
+6. Run `flatpak-builder --force-clean --user --install build-flatpak packaging/io.github.calstfrancis.Zerkalo.yml`
+
+### Flatpak build
+- The flatpak manifest sources from the **local directory** (`type: dir`) — no push needed before building
+- Still push to GitHub as part of the build flow so the repo stays current
+- On release: switch manifest source back to `type: git` for the published build, then switch back to `type: dir` after
+
+### Commit message
+- Builds: `v0.12.33-rc1 — short description`
+- Releases: `v0.12.33 — short description`
 
 ## Documentation
 - Keep `README.md` in sync with any new features or changed CLI flags

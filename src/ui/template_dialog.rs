@@ -333,7 +333,7 @@ impl TemplateDialog {
 
         let author_row = adw::EntryRow::new();
         author_row.set_title("Author");
-        let author_pin = Button::from_icon_name("view-pin-symbolic");
+        let author_pin = Button::from_icon_name("changes-prevent-symbolic");
         author_pin.add_css_class("flat");
         author_pin.set_tooltip_text(Some("Save as default for new documents"));
         author_row.add_suffix(&author_pin);
@@ -341,7 +341,7 @@ impl TemplateDialog {
 
         let affil_row = adw::EntryRow::new();
         affil_row.set_title("Affiliation");
-        let affil_pin = Button::from_icon_name("view-pin-symbolic");
+        let affil_pin = Button::from_icon_name("changes-prevent-symbolic");
         affil_pin.add_css_class("flat");
         affil_pin.set_tooltip_text(Some("Save as default for new documents"));
         affil_row.add_suffix(&affil_pin);
