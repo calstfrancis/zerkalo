@@ -48,11 +48,12 @@ impl WelcomeWindow {
         body.append(&section_label(&format!("What's New in {VERSION}")));
         for item in [
             "Export for Web — converts the active Typst file to an embeddable HTML fragment with hover footnote tooltips (light and dark mode aware)",
+            "Import DOCX and LaTeX now work inside the flatpak — pandoc is reached via the host",
+            "DOCX/LaTeX import cleans up pandoc's template code so imported files compile cleanly",
+            "Error panel shows \"Line N\" for each compile error",
             "Delete files from the open dropdown — trash icon beside each file, with confirmation",
-            "Author and affiliation fields in the template dialog have a lock button — save your name and institution so they appear automatically in new documents",
+            "Author and affiliation fields in the template dialog have a lock button",
             "Changelog window now renders release notes with proper formatting",
-            "Setup & Onboarding wizard is wider and easier to read",
-            "App no longer recreates old project folders on startup",
         ] {
             body.append(&bullet_row(item));
         }

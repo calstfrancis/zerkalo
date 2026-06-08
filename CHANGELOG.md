@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.12.34-rc3] — 2026-06-08
+## [0.12.34] — 2026-06-08
 
 ### Fixed
 
