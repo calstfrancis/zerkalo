@@ -16,6 +16,7 @@ mod project_model;
 mod session;
 mod spellcheck;
 mod styles;
+mod templates;
 mod ui;
 
 use std::cell::RefCell;

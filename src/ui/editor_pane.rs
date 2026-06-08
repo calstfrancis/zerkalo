@@ -1,13 +1,13 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Duration;
 
 use gtk4::prelude::*;
 use gtk4::{
     Box as GtkBox, Button, CssProvider, DropTarget, EventControllerKey, EventControllerMotion,
-    GestureClick, Label,
+    GestureClick, Label, ListBox, ListBoxRow, SelectionMode,
     Notebook, Orientation, Popover, ProgressBar, PropagationPhase, ScrolledWindow, Separator,
     TextSearchFlags, TextTag, TextWindowType, ToggleButton,
 };
@@ -209,6 +209,11 @@ pub struct EditorPane {
     gost_label: Label,
     on_gost_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
     on_version_click: Rc<RefCell<Option<Box<dyn Fn()>>>>,
+    root_chip_btn: Button,
+    root_chip_lbl: Label,
+    root_list_box: ListBox,
+    root_candidates: Rc<RefCell<Vec<PathBuf>>>,
+    on_root_switch: Rc<RefCell<Option<Box<dyn Fn(PathBuf)>>>>,
 }
 
 fn set_autocorrect_label(label: &Label, enabled: bool) {
@@ -283,6 +288,31 @@ impl EditorPane {
         search_btn.set_margin_start(4);
         search_btn.set_margin_end(4);
         status_bar.append(&search_btn);
+
+        let root_chip_lbl = Label::new(None);
+        root_chip_lbl.add_css_class("dim-label");
+        root_chip_lbl.add_css_class("caption");
+        root_chip_lbl.set_margin_top(3);
+        root_chip_lbl.set_margin_bottom(3);
+        let root_chip_btn = Button::new();
+        root_chip_btn.set_child(Some(&root_chip_lbl));
+        root_chip_btn.add_css_class("flat");
+        root_chip_btn.set_tooltip_text(Some("Compilation root — click to switch"));
+        root_chip_btn.set_margin_start(4);
+        root_chip_btn.set_margin_end(4);
+        root_chip_btn.set_visible(false);
+        status_bar.append(&root_chip_btn);
+
+        let root_list_box = ListBox::new();
+        root_list_box.set_selection_mode(SelectionMode::None);
+        root_list_box.add_css_class("navigation-sidebar");
+        let root_popover = Popover::new();
+        root_popover.set_has_arrow(false);
+        root_popover.set_child(Some(&root_list_box));
+        root_popover.set_parent(&root_chip_btn);
+
+        let root_candidates: Rc<RefCell<Vec<PathBuf>>> = Rc::new(RefCell::new(Vec::new()));
+        let on_root_switch: Rc<RefCell<Option<Box<dyn Fn(PathBuf)>>>> = Rc::new(RefCell::new(None));
 
         let undo_btn = Button::from_icon_name("edit-undo-symbolic");
         undo_btn.add_css_class("flat");
@@ -538,8 +568,19 @@ impl EditorPane {
             on_gost_toggle,
             on_version_click,
             on_word_count_click,
+            root_chip_btn,
+            root_chip_lbl,
+            root_list_box,
+            root_candidates,
+            on_root_switch,
         };
 
+        {
+            let pop = root_popover.clone();
+            ep.root_chip_btn.connect_clicked(move |_| {
+                pop.popup();
+            });
+        }
         {
             let cb = ep.on_version_click.clone();
             version_btn.connect_clicked(move |_| {
@@ -1123,6 +1164,57 @@ impl EditorPane {
             }
         }
         0
+    }
+
+    pub fn set_root_chip(&self, path: Option<&Path>) {
+        match path {
+            Some(p) => {
+                let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("?");
+                self.root_chip_lbl.set_text(&format!("Root: {name}"));
+                self.root_chip_btn.set_visible(true);
+            }
+            None => self.root_chip_btn.set_visible(false),
+        }
+    }
+
+    pub fn set_root_candidates(&self, candidates: Vec<PathBuf>) {
+        *self.root_candidates.borrow_mut() = candidates;
+        self.rebuild_root_popover();
+    }
+
+    pub fn set_on_root_switch(&self, f: impl Fn(PathBuf) + 'static) {
+        *self.on_root_switch.borrow_mut() = Some(Box::new(f));
+        self.rebuild_root_popover();
+    }
+
+    fn rebuild_root_popover(&self) {
+        while let Some(row) = self.root_list_box.row_at_index(0) {
+            self.root_list_box.remove(&row);
+        }
+        for path in self.root_candidates.borrow().iter() {
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("?").to_string();
+            let lbl = Label::new(Some(&name));
+            lbl.set_halign(gtk4::Align::Start);
+            lbl.set_margin_start(8);
+            lbl.set_margin_end(8);
+            lbl.set_margin_top(4);
+            lbl.set_margin_bottom(4);
+            let row = ListBoxRow::new();
+            row.set_child(Some(&lbl));
+            let path_c = path.clone();
+            let cb = self.on_root_switch.clone();
+            let pop = self.root_list_box.clone();
+            row.connect_activate(move |_| {
+                // Walk up to the popover and close it
+                if let Some(parent) = pop.parent().and_then(|p| p.downcast::<Popover>().ok()) {
+                    parent.popdown();
+                }
+                if let Some(f) = cb.borrow().as_ref() {
+                    f(path_c.clone());
+                }
+            });
+            self.root_list_box.append(&row);
+        }
     }
 
     pub fn set_lsp_status(&self, status: &str) {
