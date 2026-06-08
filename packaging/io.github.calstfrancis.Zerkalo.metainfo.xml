@@ -46,6 +46,11 @@
   </developer>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.12.28" date="2026-06-08">
+      <description>
+        <p>Color-coded diff views: removed lines red, added lines green, git hunk headers blue. Fix history panel click not working (same connect_activate bug as snapshots). Document Statistics now uses proper adw::ActionRow layout instead of monospace text.</p>
+      </description>
+    </release>
     <release version="0.12.27" date="2026-06-08">
       <description>
         <p>Fix Browse Snapshots: clicking a snapshot now updates the diff view and enables the Restore button (was using connect_activate which only fires on Enter, not single click).</p>

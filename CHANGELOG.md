@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.12.28] — 2026-06-08
+
+### Fixed / Improved
+- **Snapshot diff: color coding** — removed lines shown with red background/text, added lines green; hunk headers blue in git history
+- **Snapshot diff: history panel click** — `connect_activate` → `connect_row_selected` (same fix as snapshot list; Single-mode ListBox rows weren't firing activate on single click)
+- **Document Statistics popup** — replaced monospace text layout with `adw::PreferencesGroup` / `adw::ActionRow`; removed stale "Project total" row
+- **Audit** — no other `connect_activate`-on-Single-mode bugs found in remaining panels
+
+---
+
 ## [0.12.27] — 2026-06-08
 
 ### Fixed
