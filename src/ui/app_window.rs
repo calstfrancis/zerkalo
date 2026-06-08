@@ -2568,6 +2568,7 @@ impl AppWindow {
         {
             let root = project_root.clone();
             let ft = file_tree.clone();
+            let ep = editor_pane.clone();
             let preview = preview_pane.clone();
             file_tree.set_on_set_root(move |path| {
                 let rel = path.strip_prefix(&root).unwrap_or(&path).to_path_buf();
@@ -2576,12 +2577,32 @@ impl AppWindow {
                 let _ = proj_cfg.save(&root);
                 preview.set_root_file(path.clone());
                 preview.trigger_compile();
-                ft.set_root_file(Some(path));
+                ft.set_root_file(Some(path.clone()));
+                ep.set_root_chip(Some(&path));
+            });
+        }
+        {
+            let root = project_root.clone();
+            let ft = file_tree.clone();
+            let ep = editor_pane.clone();
+            let preview = preview_pane.clone();
+            editor_pane.set_on_root_switch(move |path| {
+                let rel = path.strip_prefix(&root).unwrap_or(&path).to_path_buf();
+                let mut proj_cfg = crate::config::ProjectConfig::load(&root).unwrap_or_default();
+                proj_cfg.root_file = Some(rel);
+                let _ = proj_cfg.save(&root);
+                preview.set_root_file(path.clone());
+                preview.trigger_compile();
+                ft.set_root_file(Some(path.clone()));
+                ep.set_root_chip(Some(&path));
             });
         }
 
-        // Set initial root indicator on the file tree
-        file_tree.set_root_file(preview_pane.root_file_path());
+        // Set initial root indicator on the file tree and status bar chip
+        let initial_root_path = preview_pane.root_file_path();
+        file_tree.set_root_file(initial_root_path.clone());
+        editor_pane.set_root_chip(initial_root_path.as_deref());
+        editor_pane.set_root_candidates(project_model.candidate_roots());
 
         // Wire file_tree into the compile-done holder
         *file_tree_holder.borrow_mut() = Some(file_tree.clone());

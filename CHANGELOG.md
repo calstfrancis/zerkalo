@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.12.13] — 2026-06-08
+
+### Added
+- Status bar: "Root: filename.typ" chip button; clicking it opens a popover listing all candidate root files so you can switch the compilation root without touching the file tree
+- `ProjectModel::candidate_roots()` — returns files not imported by any other
+
+---
+
 ## [0.12.12] — 2026-06-08
 
 ### Added
