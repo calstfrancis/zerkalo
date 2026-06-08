@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.12.34-rc2] — 2026-06-08
+
+### Fixed
+
+- Import LaTeX and Import DOCX now route pandoc through `flatpak-spawn --host` so they work inside the flatpak sandbox
+- Error panel rows now show "Line N · filename:col" instead of "filename:line:col" for quicker scanning
+
+---
+
 ## [0.12.34-rc1] — 2026-06-08
 
 ### Added
