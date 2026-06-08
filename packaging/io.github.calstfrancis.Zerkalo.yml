@@ -1,0 +1,53 @@
+app-id: io.github.calstfrancis.Zerkalo
+runtime: org.gnome.Platform
+runtime-version: '48'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: zerkalo
+
+finish-args:
+  - --share=ipc
+  - --socket=fallback-x11
+  - --socket=wayland
+  - --device=dri
+  - --filesystem=home
+  - --filesystem=xdg-documents
+  - --share=network
+  - --talk-name=org.freedesktop.portal.Desktop
+
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  env:
+    CARGO_HOME: /run/build/zerkalo/cargo
+    RUST_BACKTRACE: '1'
+
+modules:
+  - name: zerkalo
+    buildsystem: simple
+    build-options:
+      env:
+        CARGO_NET_OFFLINE: 'true'
+    sources:
+      - type: git
+        url: https://github.com/calstfrancis/zerkalo.git
+        branch: main
+      - cargo-sources.json
+      - type: archive
+        url: https://github.com/Myriad-Dreamin/tinymist/releases/download/v0.14.18/tinymist-x86_64-unknown-linux-gnu.tar.gz
+        sha256: 8033383d691165d567c5ccd83888dca2b629fcc1054da6eef8c81e1715df8ca9
+        dest: tinymist-bin
+      - type: file
+        path: io.github.calstfrancis.Zerkalo.metainfo.xml
+    build-commands:
+      - mkdir -p cargo/registry
+      - cargo --offline fetch --manifest-path Cargo.toml
+      - cargo --offline build --release --manifest-path Cargo.toml
+      - install -Dm755 target/release/zerkalo /app/bin/zerkalo
+      - strip /app/bin/zerkalo
+      - install -Dm755 tinymist-bin/tinymist /app/lib/zerkalo/tinymist
+      - strip /app/lib/zerkalo/tinymist
+      - sed -i 's/^Icon=zerkalo/Icon=io.github.calstfrancis.Zerkalo/' packaging/io.github.calstfrancis.Zerkalo.desktop
+      - install -Dm644 packaging/io.github.calstfrancis.Zerkalo.desktop /app/share/applications/io.github.calstfrancis.Zerkalo.desktop
+      - install -Dm644 packaging/zerkalo.svg /app/share/icons/hicolor/scalable/apps/io.github.calstfrancis.Zerkalo.svg
+      - install -Dm644 io.github.calstfrancis.Zerkalo.metainfo.xml /app/share/metainfo/io.github.calstfrancis.Zerkalo.metainfo.xml
