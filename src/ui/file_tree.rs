@@ -21,8 +21,11 @@ pub struct FileTree {
     on_open: Callback<PathBuf>,
     on_new_file: Callback<String>,
     on_delete: Callback<PathBuf>,
+    on_set_root: Callback<PathBuf>,
     file_errors: Rc<RefCell<HashSet<PathBuf>>>,
     modified_files: Rc<RefCell<HashSet<PathBuf>>>,
+    /// Current compilation root, used to render the ★ indicator.
+    root_file: Rc<RefCell<Option<PathBuf>>>,
     /// User-defined display order: full paths in preferred display order.
     custom_order: Rc<RefCell<Vec<PathBuf>>>,
     /// Path of the row being dragged (set on drag-begin).
@@ -95,6 +98,7 @@ impl FileTree {
         let on_open: Callback<PathBuf> = Rc::new(RefCell::new(None));
         let on_new_file: Callback<String> = Rc::new(RefCell::new(None));
         let on_delete: Callback<PathBuf> = Rc::new(RefCell::new(None));
+        let on_set_root: Callback<PathBuf> = Rc::new(RefCell::new(None));
 
         // Wire new-file entry: Enter creates the file
         let pop_for_entry = nf_popover.clone();
@@ -121,8 +125,10 @@ impl FileTree {
             on_open,
             on_new_file,
             on_delete,
+            on_set_root,
             file_errors: Rc::new(RefCell::new(HashSet::new())),
             modified_files: Rc::new(RefCell::new(HashSet::new())),
+            root_file: Rc::new(RefCell::new(None)),
             custom_order: Rc::new(RefCell::new(saved_order)),
             drag_source_path: Rc::new(RefCell::new(None)),
         };
@@ -145,6 +151,15 @@ impl FileTree {
 
     pub fn set_on_delete(&self, f: impl Fn(PathBuf) + 'static) {
         *self.on_delete.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn set_on_set_root(&self, f: impl Fn(PathBuf) + 'static) {
+        *self.on_set_root.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn set_root_file(&self, path: Option<PathBuf>) {
+        *self.root_file.borrow_mut() = path;
+        self.refresh();
     }
 
     pub fn set_file_error(&self, path: &Path, has_error: bool) {
@@ -232,6 +247,7 @@ impl FileTree {
                     .to_string();
                 let has_error = self.file_errors.borrow().contains(file_path.as_path());
                 let is_modified = self.modified_files.borrow().contains(file_path.as_path());
+                let is_root = self.root_file.borrow().as_ref() == Some(file_path);
 
                 let row = ListBoxRow::new();
                 // Drag handle icon to signal reorderability
@@ -263,6 +279,14 @@ impl FileTree {
                     err_icon.set_margin_end(6);
                     row_box.append(&err_icon);
                 }
+                if is_root {
+                    let star = gtk4::Image::from_icon_name("starred-symbolic");
+                    star.set_pixel_size(14);
+                    star.add_css_class("accent");
+                    star.set_margin_end(6);
+                    star.set_tooltip_text(Some("Compilation root"));
+                    row_box.append(&star);
+                }
                 row.set_child(Some(&row_box));
 
                 // Left-click: open the file
@@ -274,8 +298,8 @@ impl FileTree {
                     }
                 });
 
-                // Right-click: delete context popover
-                self.attach_delete_gesture(&row, file_path, &filename);
+                // Right-click: context menu (set-as-root + delete)
+                self.attach_context_menu(&row, file_path, &filename);
 
                 // Drag-and-drop: reorder within the list
                 self.attach_dnd(&row, file_path);
@@ -354,24 +378,24 @@ impl FileTree {
         let project_root_after = self.project_root.clone();
         let file_errors_after = self.file_errors.clone();
         let modified_after = self.modified_files.clone();
+        let root_file_after = self.root_file.clone();
         let list_box_after = self.list_box.clone();
         let on_open_after = self.on_open.clone();
         let on_delete_after = self.on_delete.clone();
+        let on_set_root_after = self.on_set_root.clone();
         let drag_src_after = self.drag_source_path.clone();
         drop_tgt.connect_drop(move |_, _, _, _| {
-            // Clone a minimal FileTree to call refresh — rebuild via a second DnD handler
-            // We can't call self.refresh() here because we can't capture self in Fn.
-            // Instead post an idle refresh via glib.
             let order_c = order_after.clone();
             let root_c = project_root_after.clone();
             let errors_c = file_errors_after.clone();
             let modified_c = modified_after.clone();
+            let root_file_c = root_file_after.clone();
             let lb_c = list_box_after.clone();
             let open_c = on_open_after.clone();
             let del_c = on_delete_after.clone();
+            let set_root_c = on_set_root_after.clone();
             let drag_c = drag_src_after.clone();
             glib::idle_add_local_once(move || {
-                // Rebuild the list box in place (minimal re-render)
                 let ft = FileTree {
                     root_widget: GtkBox::new(Orientation::Horizontal, 0), // unused
                     list_box: lb_c.clone(),
@@ -379,8 +403,10 @@ impl FileTree {
                     on_open: open_c,
                     on_new_file: Rc::new(RefCell::new(None)),
                     on_delete: del_c,
+                    on_set_root: set_root_c,
                     file_errors: errors_c,
                     modified_files: modified_c,
+                    root_file: root_file_c,
                     custom_order: order_c,
                     drag_source_path: drag_c,
                 };
@@ -391,24 +417,31 @@ impl FileTree {
         row.add_controller(drop_tgt);
     }
 
-    /// Attach a right-click gesture to `row` that shows a delete popover.
-    fn attach_delete_gesture(&self, row: &ListBoxRow, file_path: &PathBuf, filename: &str) {
-        let del_popover = Popover::new();
-        del_popover.set_has_arrow(false);
+    /// Attach a right-click gesture that shows a context menu with "Set as Compilation Root"
+    /// and "Delete".
+    fn attach_context_menu(&self, row: &ListBoxRow, file_path: &PathBuf, filename: &str) {
+        let popover = Popover::new();
+        popover.set_has_arrow(false);
 
-        let del_btn = Button::with_label("Delete");
-        del_btn.add_css_class("destructive-action");
-        let btn_box = GtkBox::new(Orientation::Vertical, 0);
+        let btn_box = GtkBox::new(Orientation::Vertical, 2);
         btn_box.set_margin_top(4);
         btn_box.set_margin_bottom(4);
         btn_box.set_margin_start(4);
         btn_box.set_margin_end(4);
+
+        let root_btn = Button::with_label("Set as Compilation Root");
+        root_btn.add_css_class("flat");
+
+        let del_btn = Button::with_label("Delete");
+        del_btn.add_css_class("destructive-action");
+
+        btn_box.append(&root_btn);
         btn_box.append(&del_btn);
-        del_popover.set_child(Some(&btn_box));
-        del_popover.set_parent(row);
+        popover.set_child(Some(&btn_box));
+        popover.set_parent(row);
 
         // Show popover on right-click
-        let pop_for_gesture = del_popover.clone();
+        let pop_for_gesture = popover.clone();
         let gesture = GestureClick::new();
         gesture.set_button(3);
         gesture.connect_pressed(move |_, _, x, y| {
@@ -417,8 +450,19 @@ impl FileTree {
         });
         row.add_controller(gesture);
 
-        // Delete button: confirm then fire callback
-        let pop_for_del = del_popover.clone();
+        // "Set as Compilation Root" button
+        let pop_for_root = popover.clone();
+        let path_root = file_path.clone();
+        let set_root_cb = self.on_set_root.clone();
+        root_btn.connect_clicked(move |_| {
+            pop_for_root.popdown();
+            if let Some(f) = set_root_cb.borrow().as_ref() {
+                f(path_root.clone());
+            }
+        });
+
+        // "Delete" button: confirm then fire callback
+        let pop_for_del = popover.clone();
         let path_del = file_path.clone();
         let name_del = filename.to_owned();
         let del_cb = self.on_delete.clone();

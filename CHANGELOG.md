@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.12.12] — 2026-06-08
+
+### Added
+- File tree: ★ indicator on the current compilation root row
+- File tree: right-click context menu now has "Set as Compilation Root" above "Delete"; selecting it writes `root_file` to `.zerkalo/config.toml`, updates the preview, and triggers a recompile
+
+---
+
 ## [0.12.11] — 2026-06-08
 
 ### Changed

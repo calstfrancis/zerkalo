@@ -2565,6 +2565,23 @@ impl AppWindow {
                 ft.refresh();
             });
         }
+        {
+            let root = project_root.clone();
+            let ft = file_tree.clone();
+            let preview = preview_pane.clone();
+            file_tree.set_on_set_root(move |path| {
+                let rel = path.strip_prefix(&root).unwrap_or(&path).to_path_buf();
+                let mut proj_cfg = crate::config::ProjectConfig::load(&root).unwrap_or_default();
+                proj_cfg.root_file = Some(rel);
+                let _ = proj_cfg.save(&root);
+                preview.set_root_file(path.clone());
+                preview.trigger_compile();
+                ft.set_root_file(Some(path));
+            });
+        }
+
+        // Set initial root indicator on the file tree
+        file_tree.set_root_file(preview_pane.root_file_path());
 
         // Wire file_tree into the compile-done holder
         *file_tree_holder.borrow_mut() = Some(file_tree.clone());
