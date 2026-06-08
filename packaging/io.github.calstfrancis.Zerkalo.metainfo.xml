@@ -46,6 +46,11 @@
   </developer>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.12.33-rc2" date="2026-06-08">
+      <description>
+        <p>Delete button (trash icon) beside every file in the open dropdown — confirmation dialog, closes tab if open, removes from list.</p>
+      </description>
+    </release>
     <release version="0.12.33-rc1" date="2026-06-08">
       <description>
         <p>Changelog window renders release notes with proper formatting. Lock buttons on Author/Affiliation in template dialog. Flatpak now sources locally — no push needed for test builds. RC versioning scheme introduced. Setup wizard widened.</p>

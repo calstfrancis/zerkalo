@@ -2799,6 +2799,12 @@ impl EditorPane {
     }
 
     #[allow(dead_code)]
+    pub fn close_file_if_open(&self, path: &PathBuf) {
+        if self.state.borrow().tabs.contains_key(path) {
+            self.close_file(path);
+        }
+    }
+
     pub fn close_file(&self, path: &PathBuf) {
         // Extract page number and drop the borrow before remove_page, which fires
         // switch_page → connect_switch_page tries state.borrow() → double-borrow panic.
