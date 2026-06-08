@@ -184,6 +184,7 @@ impl AppWindow {
             menu_reapply_template_item,
             menu_repair_markers_item,
             menu_new_item,
+            menu_new_project_item,
             menu_open_item,
             menu_open_project_item,
             menu_recent_projects_item,
@@ -215,6 +216,7 @@ impl AppWindow {
         menu_popover_box.append(&menu_new_template_item);
         menu_popover_box.append(&menu_repair_markers_item);
         menu_popover_box.append(&menu_new_item);
+        menu_popover_box.append(&menu_new_project_item);
         menu_popover_box.append(&Separator::new(Orientation::Horizontal));
         menu_popover_box.append(&menu_open_item);
         menu_popover_box.append(&menu_open_project_item);
@@ -891,6 +893,32 @@ impl AppWindow {
                     }
                 },
             );
+        });
+
+        // ── Menu: New Project ───────────────────────────────────────────────
+
+        let window_for_new_proj = window.clone();
+        let cfg_for_new_proj = current_config.clone();
+        let menu_popover_for_new_proj = menu_popover.clone();
+        menu_new_project_item.connect_clicked(move |_| {
+            menu_popover_for_new_proj.popdown();
+            let work_dir = cfg_for_new_proj.borrow().work_dir.clone();
+            let cfg_c = cfg_for_new_proj.clone();
+            let dlg = super::new_project_dialog::NewProjectDialog::new(
+                &window_for_new_proj,
+                work_dir,
+                move |new_folder| {
+                    let mut cfg = cfg_c.borrow_mut();
+                    cfg.push_recent_project(new_folder.clone());
+                    cfg.work_dir = new_folder;
+                    let _ = cfg.save();
+                    if let Ok(exe) = std::env::current_exe() {
+                        let _ = std::process::Command::new(exe).spawn();
+                    }
+                    std::process::exit(0);
+                },
+            );
+            dlg.present();
         });
 
         // ── Menu: Recent Projects ───────────────────────────────────────────
@@ -4283,6 +4311,7 @@ struct HamburgerItems {
     menu_reapply_template_item: Button,
     menu_repair_markers_item: Button,
     menu_new_item: Button,
+    menu_new_project_item: Button,
     menu_open_item: Button,
     menu_open_project_item: Button,
     menu_recent_projects_item: Button,
@@ -4310,6 +4339,7 @@ fn build_hamburger_menu_items() -> HamburgerItems {
         menu_reapply_template_item: make_menu_item("Update Template Settings…", None),
         menu_repair_markers_item:  make_menu_item("Repair Template Markers…",   None),
         menu_new_item:             make_menu_item("New Blank Document…",         None),
+        menu_new_project_item:     make_menu_item("New Project…",               None),
         menu_open_item:            make_menu_item("Open File…",                  None),
         menu_open_project_item:    make_menu_item("Open Project Folder…",        None),
         menu_recent_projects_item: make_menu_item("Recent Projects…",            None),
