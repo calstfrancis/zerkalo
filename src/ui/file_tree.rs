@@ -21,15 +21,12 @@ pub struct FileTree {
     on_open: Callback<PathBuf>,
     on_new_file: Callback<String>,
     on_delete: Callback<PathBuf>,
-    on_set_root: Callback<PathBuf>,
     on_new_folder: Callback<String>,
     on_new_chapter: Callback<String>,
     on_insert_include: Callback<PathBuf>,
     on_insert_import: Callback<PathBuf>,
     file_errors: Rc<RefCell<HashSet<PathBuf>>>,
     modified_files: Rc<RefCell<HashSet<PathBuf>>>,
-    /// Current compilation root, used to render the ★ indicator.
-    root_file: Rc<RefCell<Option<PathBuf>>>,
     /// Directories (relative to project_root) that are currently collapsed.
     collapsed_dirs: Rc<RefCell<HashSet<PathBuf>>>,
     /// User-defined display order: full paths in preferred display order.
@@ -167,7 +164,6 @@ impl FileTree {
         let on_open: Callback<PathBuf> = Rc::new(RefCell::new(None));
         let on_new_file: Callback<String> = Rc::new(RefCell::new(None));
         let on_delete: Callback<PathBuf> = Rc::new(RefCell::new(None));
-        let on_set_root: Callback<PathBuf> = Rc::new(RefCell::new(None));
         let on_new_folder: Callback<String> = Rc::new(RefCell::new(None));
         let on_new_chapter: Callback<String> = Rc::new(RefCell::new(None));
         let on_insert_include: Callback<PathBuf> = Rc::new(RefCell::new(None));
@@ -224,14 +220,12 @@ impl FileTree {
             on_open,
             on_new_file,
             on_delete,
-            on_set_root,
             on_new_folder,
             on_new_chapter,
             on_insert_include,
             on_insert_import,
             file_errors: Rc::new(RefCell::new(HashSet::new())),
             modified_files: Rc::new(RefCell::new(HashSet::new())),
-            root_file: Rc::new(RefCell::new(None)),
             collapsed_dirs: Rc::new(RefCell::new(HashSet::new())),
             custom_order: Rc::new(RefCell::new(saved_order)),
             drag_source_path: Rc::new(RefCell::new(None)),
@@ -257,10 +251,6 @@ impl FileTree {
         *self.on_delete.borrow_mut() = Some(Box::new(f));
     }
 
-    pub fn set_on_set_root(&self, f: impl Fn(PathBuf) + 'static) {
-        *self.on_set_root.borrow_mut() = Some(Box::new(f));
-    }
-
     pub fn set_on_new_chapter(&self, f: impl Fn(String) + 'static) {
         *self.on_new_chapter.borrow_mut() = Some(Box::new(f));
     }
@@ -275,11 +265,6 @@ impl FileTree {
 
     pub fn set_on_insert_import(&self, f: impl Fn(PathBuf) + 'static) {
         *self.on_insert_import.borrow_mut() = Some(Box::new(f));
-    }
-
-    pub fn set_root_file(&self, path: Option<PathBuf>) {
-        *self.root_file.borrow_mut() = path;
-        self.refresh();
     }
 
     pub fn set_file_error(&self, path: &Path, has_error: bool) {
@@ -394,7 +379,6 @@ impl FileTree {
                     .to_string();
                 let has_error = self.file_errors.borrow().contains(file_path.as_path());
                 let is_modified = self.modified_files.borrow().contains(file_path.as_path());
-                let is_root = self.root_file.borrow().as_ref() == Some(file_path);
 
                 let row = ListBoxRow::new();
                 // Drag handle icon to signal reorderability
@@ -425,14 +409,6 @@ impl FileTree {
                     err_icon.add_css_class("error");
                     err_icon.set_margin_end(6);
                     row_box.append(&err_icon);
-                }
-                if is_root {
-                    let star = gtk4::Image::from_icon_name("starred-symbolic");
-                    star.set_pixel_size(14);
-                    star.add_css_class("accent");
-                    star.set_margin_end(6);
-                    star.set_tooltip_text(Some("Compilation root"));
-                    row_box.append(&star);
                 }
                 row.set_child(Some(&row_box));
 
@@ -542,9 +518,6 @@ impl FileTree {
         btn_box.set_margin_start(4);
         btn_box.set_margin_end(4);
 
-        let root_btn = Button::with_label("Set as Compilation Root");
-        root_btn.add_css_class("flat");
-
         let include_btn = Button::with_label("Insert #include");
         include_btn.add_css_class("flat");
 
@@ -554,7 +527,6 @@ impl FileTree {
         let del_btn = Button::with_label("Delete");
         del_btn.add_css_class("destructive-action");
 
-        btn_box.append(&root_btn);
         btn_box.append(&include_btn);
         btn_box.append(&import_btn);
         btn_box.append(&del_btn);
@@ -570,17 +542,6 @@ impl FileTree {
             pop_for_gesture.popup();
         });
         row.add_controller(gesture);
-
-        // "Set as Compilation Root" button
-        let pop_for_root = popover.clone();
-        let path_root = file_path.clone();
-        let set_root_cb = self.on_set_root.clone();
-        root_btn.connect_clicked(move |_| {
-            pop_for_root.popdown();
-            if let Some(f) = set_root_cb.borrow().as_ref() {
-                f(path_root.clone());
-            }
-        });
 
         // "Insert #include" button
         let pop_for_include = popover.clone();

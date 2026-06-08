@@ -46,6 +46,11 @@
   </developer>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.12.25" date="2026-06-08">
+      <description>
+        <p>Single-file workspace: removed project mode entirely. The active tab is always the compilation root — no root chip, no "Set as Compilation Root", no project config root_file. Removes ProjectModel, is_project_mode flag, New Project wizard, and Project Settings dialog.</p>
+      </description>
+    </release>
     <release version="0.12.24" date="2026-06-08">
       <description>
         <p>Fix crash when clicking headings in multi-file project outline (jump deferred to idle to avoid reentrancy). Fix compile ignoring changes in project mode (is_project_mode flag now correctly detects explicit project vs. single-file). Fix Ctrl+S resetting project root. Fix "Project Settings…" chip row doing nothing (popover now dismissed correctly before showing dialog). Add "Clear root file" to the chip popover so users can exit project mode.</p>

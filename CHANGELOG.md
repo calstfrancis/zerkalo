@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.12.25] — 2026-06-08
+
+### Changed
+- **Single-file workspace**: removed project mode entirely. The active tab is always the compilation root — no root chip, no "Set as Compilation Root", no project config `root_file`. Removes `ProjectModel`, `is_project_mode` flag, New Project wizard, Project Settings dialog, and all related UI
+
+---
+
 ## [0.12.24] — 2026-06-08
 
 ### Fixed
