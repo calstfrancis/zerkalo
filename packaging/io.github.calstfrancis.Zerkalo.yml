@@ -13,8 +13,10 @@ finish-args:
   - --device=dri
   - --filesystem=home
   - --filesystem=xdg-documents
+  - --filesystem=~/.cache/typst
   - --share=network
   - --talk-name=org.freedesktop.portal.Desktop
+  - --talk-name=org.freedesktop.Flatpak
 
 build-options:
   append-path: /usr/lib/sdk/rust-stable/bin
