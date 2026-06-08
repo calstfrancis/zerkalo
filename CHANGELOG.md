@@ -5,6 +5,61 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.12.18] — 2026-06-08
+
+### Fixed
+- New Project: after creation, the spawned process now receives `main.typ` as a CLI argument so session restore is skipped and the new project opens directly instead of restoring the previous project's documents
+- Session restore: only files inside the current work_dir are restored; files from a previous project no longer leak in when the work_dir has changed
+
+### Added
+- Flatpak: `--socket=ssh-auth` added to finish-args so SSH git remotes work inside the sandbox
+
+---
+
+## [0.12.17] — 2026-06-08
+
+### Added
+- Help window: new "Projects" tab covering the full multi-file workflow (wizard, root, file tree, #include helper, project config, worked example)
+- Help window: Overview tab now mentions multi-file projects with a pointer to the Projects tab
+- Help window: five new FAQ entries (create a project, root concept, ★ indicator, add a chapter, missing root chip)
+- README: Multi-file projects feature table; updated file tree row description
+
+---
+
+## [0.12.16] — 2026-06-08
+
+### Added
+- File tree: right-click menu now has "Insert #include" and "Insert #import"; inserts at the cursor with a path relative to the compilation root's directory
+- `#import` snippet also adds the file stem as the imported identifier (`#import "ch01.typ": ch01`)
+
+---
+
+## [0.12.15] — 2026-06-08
+
+### Added
+- File tree: subdirectory rows are now collapsible — click the folder header to toggle; arrow icon shows expand/collapse state
+- File tree: "New Folder" button (folder-new-symbolic) in the panel header creates a subfolder in the project root
+- DnD idle-rebuild simplified to use `FileTree::clone()` instead of manual field reconstruction
+
+---
+
+## [0.12.14] — 2026-06-08
+
+### Added
+- Status bar: "Root: filename.typ" chip button; clicking it opens a popover listing all candidate root files so you can switch the compilation root without touching the file tree
+- `ProjectModel::candidate_roots()` — returns files not imported by any other
+
+---
+
+## [0.12.13] — 2026-06-08
+
+### Added
+- File tree: ★ indicator on the current compilation root row
+- File tree: right-click context menu now has "Set as Compilation Root" above "Delete"; selecting it writes `root_file` to `.zerkalo/config.toml`, updates the preview, and triggers a recompile
+- New Project wizard: four templates (Blank, Essay, Journal/Thesis, Theological Journal); creates project folder, generates starter .typ files, opens the new project directly
+
+---
+
 ## [0.12.12] — 2026-06-08
 
 ### Fixed

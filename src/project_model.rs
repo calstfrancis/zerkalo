@@ -22,6 +22,20 @@ pub struct ProjectModel {
 }
 
 impl ProjectModel {
+    /// Files that are not imported by any other file — valid compilation roots.
+    pub fn candidate_roots(&self) -> Vec<PathBuf> {
+        let imported: std::collections::HashSet<&PathBuf> =
+            self.imports.values().flatten().collect();
+        let mut candidates: Vec<PathBuf> = self
+            .imports
+            .keys()
+            .filter(|f| !imported.contains(f))
+            .cloned()
+            .collect();
+        candidates.sort();
+        candidates
+    }
+
     pub fn scan(root: PathBuf) -> Self {
         let files = crate::project::collect_typ_files(&root);
         let imports = build_import_graph(&files);

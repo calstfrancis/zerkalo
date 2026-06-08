@@ -184,6 +184,7 @@ impl AppWindow {
             menu_reapply_template_item,
             menu_repair_markers_item,
             menu_new_item,
+            menu_new_project_item,
             menu_open_item,
             menu_open_project_item,
             menu_recent_projects_item,
@@ -215,6 +216,7 @@ impl AppWindow {
         menu_popover_box.append(&menu_new_template_item);
         menu_popover_box.append(&menu_repair_markers_item);
         menu_popover_box.append(&menu_new_item);
+        menu_popover_box.append(&menu_new_project_item);
         menu_popover_box.append(&Separator::new(Orientation::Horizontal));
         menu_popover_box.append(&menu_open_item);
         menu_popover_box.append(&menu_open_project_item);
@@ -891,6 +893,35 @@ impl AppWindow {
                     }
                 },
             );
+        });
+
+        // ── Menu: New Project ───────────────────────────────────────────────
+
+        let window_for_new_proj = window.clone();
+        let cfg_for_new_proj = current_config.clone();
+        let menu_popover_for_new_proj = menu_popover.clone();
+        menu_new_project_item.connect_clicked(move |_| {
+            menu_popover_for_new_proj.popdown();
+            let work_dir = cfg_for_new_proj.borrow().work_dir.clone();
+            let cfg_c = cfg_for_new_proj.clone();
+            let dlg = super::new_project_dialog::NewProjectDialog::new(
+                &window_for_new_proj,
+                work_dir,
+                move |new_folder| {
+                    let mut cfg = cfg_c.borrow_mut();
+                    cfg.push_recent_project(new_folder.clone());
+                    cfg.work_dir = new_folder.clone();
+                    let _ = cfg.save();
+                    if let Ok(exe) = std::env::current_exe() {
+                        // Pass main.typ so open_initial_file skips session restore
+                        // and opens the new project's root directly.
+                        let root = new_folder.join("main.typ");
+                        let _ = std::process::Command::new(exe).arg(&root).spawn();
+                    }
+                    std::process::exit(0);
+                },
+            );
+            dlg.present();
         });
 
         // ── Menu: Recent Projects ───────────────────────────────────────────
@@ -2537,6 +2568,71 @@ impl AppWindow {
                 ft.refresh();
             });
         }
+        {
+            let root = project_root.clone();
+            let ft = file_tree.clone();
+            file_tree.set_on_new_folder(move |name| {
+                let _ = std::fs::create_dir_all(root.join(&name));
+                ft.refresh();
+            });
+        }
+        {
+            let ep = editor_pane.clone();
+            let preview = preview_pane.clone();
+            file_tree.set_on_insert_include(move |abs_path| {
+                let rel = compute_include_path(&preview, &abs_path);
+                ep.insert_at_cursor(&format!("#include \"{rel}\"\n"));
+            });
+        }
+        {
+            let ep = editor_pane.clone();
+            let preview = preview_pane.clone();
+            file_tree.set_on_insert_import(move |abs_path| {
+                let rel = compute_include_path(&preview, &abs_path);
+                let stem = abs_path.file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("*");
+                ep.insert_at_cursor(&format!("#import \"{rel}\": {stem}\n"));
+            });
+        }
+        {
+            let root = project_root.clone();
+            let ft = file_tree.clone();
+            let ep = editor_pane.clone();
+            let preview = preview_pane.clone();
+            file_tree.set_on_set_root(move |path| {
+                let rel = path.strip_prefix(&root).unwrap_or(&path).to_path_buf();
+                let mut proj_cfg = crate::config::ProjectConfig::load(&root).unwrap_or_default();
+                proj_cfg.root_file = Some(rel);
+                let _ = proj_cfg.save(&root);
+                preview.set_root_file(path.clone());
+                preview.trigger_compile();
+                ft.set_root_file(Some(path.clone()));
+                ep.set_root_chip(Some(&path));
+            });
+        }
+        {
+            let root = project_root.clone();
+            let ft = file_tree.clone();
+            let ep = editor_pane.clone();
+            let preview = preview_pane.clone();
+            editor_pane.set_on_root_switch(move |path| {
+                let rel = path.strip_prefix(&root).unwrap_or(&path).to_path_buf();
+                let mut proj_cfg = crate::config::ProjectConfig::load(&root).unwrap_or_default();
+                proj_cfg.root_file = Some(rel);
+                let _ = proj_cfg.save(&root);
+                preview.set_root_file(path.clone());
+                preview.trigger_compile();
+                ft.set_root_file(Some(path.clone()));
+                ep.set_root_chip(Some(&path));
+            });
+        }
+
+        // Set initial root indicator on the file tree and status bar chip
+        let initial_root_path = preview_pane.root_file_path();
+        file_tree.set_root_file(initial_root_path.clone());
+        editor_pane.set_root_chip(initial_root_path.as_deref());
+        editor_pane.set_root_candidates(project_model.candidate_roots());
 
         // Wire file_tree into the compile-done holder
         *file_tree_holder.borrow_mut() = Some(file_tree.clone());
@@ -3158,10 +3254,16 @@ impl AppWindow {
 
         let session = Session::load();
 
-        if !session.open_files.is_empty() {
-            for path in &session.open_files {
+        // Only restore files that belong to the current project root — prevents
+        // old-project files leaking in when the work_dir has changed.
+        let session_files: Vec<&PathBuf> = session.open_files.iter()
+            .filter(|p| p.starts_with(&self.project_root))
+            .collect();
+
+        if !session_files.is_empty() {
+            for path in &session_files {
                 if let Ok(content) = std::fs::read_to_string(path) {
-                    self.editor_pane.open_file(path.clone(), &content);
+                    self.editor_pane.open_file((*path).clone(), &content);
                 }
             }
             // Switch to the previously active file
@@ -3914,6 +4016,22 @@ fn format_file_mtime(mtime: std::time::SystemTime) -> String {
 ///   2. Insert `#pagebreak()` before the `#bibliography(...)` call.
 ///   3. Fix the bibliography path to the configured `.bib` file if supplied;
 ///      add a commented-out bibliography stub if none exists.
+/// Compute a path string for `#include`/`#import` relative to the compilation root's directory.
+/// Falls back to the filename if no root is set or paths don't share a prefix.
+fn compute_include_path(preview: &super::preview_pane::PreviewPane, abs_path: &std::path::Path) -> String {
+    if let Some(root) = preview.root_file_path() {
+        if let Some(root_dir) = root.parent() {
+            if let Ok(rel) = abs_path.strip_prefix(root_dir) {
+                return rel.to_string_lossy().replace('\\', "/");
+            }
+        }
+    }
+    abs_path.file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("file.typ")
+        .to_string()
+}
+
 /// Strip pandoc's generated `#set` preamble from a standalone Typst output so we can
 /// replace it with a Zerkalo template section.
 #[cfg_attr(not(test), allow(dead_code))]
@@ -4283,6 +4401,7 @@ struct HamburgerItems {
     menu_reapply_template_item: Button,
     menu_repair_markers_item: Button,
     menu_new_item: Button,
+    menu_new_project_item: Button,
     menu_open_item: Button,
     menu_open_project_item: Button,
     menu_recent_projects_item: Button,
@@ -4310,6 +4429,7 @@ fn build_hamburger_menu_items() -> HamburgerItems {
         menu_reapply_template_item: make_menu_item("Update Template Settings…", None),
         menu_repair_markers_item:  make_menu_item("Repair Template Markers…",   None),
         menu_new_item:             make_menu_item("New Blank Document…",         None),
+        menu_new_project_item:     make_menu_item("New Project…",               None),
         menu_open_item:            make_menu_item("Open File…",                  None),
         menu_open_project_item:    make_menu_item("Open Project Folder…",        None),
         menu_recent_projects_item: make_menu_item("Recent Projects…",            None),

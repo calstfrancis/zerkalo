@@ -38,9 +38,20 @@ Live preview · Academic styles · LSP completions · Git sync · Adwaita design
 |---|---|
 | **Document outline** | Heading tree with cursor-tracking highlight; click to centre and select the heading in the editor |
 | **Symbol insert** | One-click insertion of Cyrillic, Greek, Hebrew, and Sanskrit characters |
-| **File tree** | Project `.typ` files; click to open, buttons to create/delete |
+| **File tree** | Project `.typ` files; collapsible subdirectory headers; click to open; `+` / folder buttons to create files or folders; drag to reorder; right-click for Set as Root, Insert `#include`/`#import`, Delete |
 | **Citation panel** | Searchable list of all BibTeX entries; double-click or Enter inserts the `@key` at the cursor |
 | **Plan panel** | Freeform scratchpad saved as a `.plan` sidecar alongside the open `.typ` file; falls back to `project.plan` in the work folder when no file is open |
+
+### Multi-file projects
+
+| Feature | Detail |
+|---|---|
+| **New Project wizard** | ≡ → New Project… — names, slugifies, and creates a project folder with starter files; templates: Blank, Essay, Journal / Thesis, Theological Journal |
+| **Compilation root** | One file is the Typst entry point; Zerkalo auto-detects it from the import graph or reads `.zerkalo/config.toml`; marked with ★ in the file tree |
+| **Root indicator** | ★ icon on the root file's row in the file tree; "Root: filename.typ" chip in the status bar |
+| **Root switcher** | Click the status bar chip → popover lists all candidate roots; or right-click any file → Set as Compilation Root; writes `root_file` to `.zerkalo/config.toml` and recompiles |
+| **#include / #import helper** | Right-click a file in the tree → Insert `#include` or Insert `#import`; path is automatically relative to the root's directory |
+| **Project config** | `.zerkalo/config.toml` inside the project folder — overrides `root_file`, `bib_path`, `file_order` for that project |
 
 ### Document workflow
 | Feature | Detail |
