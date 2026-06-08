@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.12.31] — 2026-06-08
+
+### Fixed / Changed
+- **Start maximized** — main window now opens maximized
+- **Setup wizard: resizable** — removed non-resizable constraint; window is scrollable and resizable again
+- **Setup wizard: bundled tools** — tinymist and pandoc shown as bundled (always ✓); only git and hunspell show install instructions
+
+---
+
 ## [0.12.30] — 2026-06-08
 
 ### Changed

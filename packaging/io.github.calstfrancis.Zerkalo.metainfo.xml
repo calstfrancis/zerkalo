@@ -46,6 +46,11 @@
   </developer>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.12.31" date="2026-06-08">
+      <description>
+        <p>Start maximized. Setup wizard is resizable again. tinymist and pandoc shown as bundled (always verified); only git and hunspell show install instructions.</p>
+      </description>
+    </release>
     <release version="0.12.30" date="2026-06-08">
       <description>
         <p>Update What's New window to reflect 0.12.29 features: single-file workspace, status bar layout changes, page gaps in preview, session restore, accurate LCS snapshot diffs, and popout maximize button.</p>

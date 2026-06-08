@@ -16,8 +16,7 @@ impl SetupWizard {
             .transient_for(parent)
             .modal(true)
             .default_width(500)
-            .default_height(560)
-            .resizable(false)
+            .default_height(600)
             .build();
 
         let header = adw::HeaderBar::new();
@@ -391,27 +390,20 @@ fn backup_remote_group(work_dir: &Path) -> adw::PreferencesGroup {
 
 fn optional_tools_group() -> adw::PreferencesGroup {
     let group = adw::PreferencesGroup::new();
-    group.set_title("Required & Optional Tools");
+    group.set_title("Tools");
     group.set_description(Some(
-        "Tools Zerkalo needs or can use. Install missing ones, then click Verify.",
+        "tinymist and pandoc are bundled with Zerkalo. git is required for sync.",
     ));
 
     let distro = detect_distro();
 
-    // Required
-    group.add(&tool_row("git", "git", "Version control (required for sync)", &distro, ToolKind::Package {
+    group.add(&tool_row("tinymist", "tinymist", "LSP completions — bundled", &distro, ToolKind::Bundled));
+    group.add(&tool_row("pandoc", "pandoc", "Export/import — bundled", &distro, ToolKind::Bundled));
+    group.add(&tool_row("git", "git", "Version control — required for sync", &distro, ToolKind::Package {
         apt: "git", dnf: "git", pacman: "git", zypper: "git",
     }));
-
-    // Optional
-    group.add(&tool_row("pandoc", "pandoc", "Export to DOCX / import LaTeX (optional)", &distro, ToolKind::Package {
-        apt: "pandoc", dnf: "pandoc", pacman: "pandoc", zypper: "pandoc",
-    }));
-    group.add(&tool_row("hunspell", "hunspell", "Spellcheck (optional)", &distro, ToolKind::Package {
+    group.add(&tool_row("hunspell", "hunspell", "Spellcheck — optional", &distro, ToolKind::Package {
         apt: "hunspell", dnf: "hunspell", pacman: "hunspell", zypper: "hunspell",
-    }));
-    group.add(&tool_row("tinymist", "tinymist", "LSP autocomplete (optional)", &distro, ToolKind::Cargo {
-        crate_name: "tinymist",
     }));
 
     group
@@ -465,6 +457,7 @@ fn detect_distro() -> Distro {
 enum ToolKind<'a> {
     Package { apt: &'a str, dnf: &'a str, pacman: &'a str, zypper: &'a str },
     Cargo { crate_name: &'a str },
+    Bundled,
 }
 
 fn install_hint(distro: &Distro, kind: &ToolKind) -> String {
@@ -483,6 +476,7 @@ fn install_hint(distro: &Distro, kind: &ToolKind) -> String {
                 format!("Install Rust first (rustup.rs), then: cargo install {crate_name}")
             }
         }
+        ToolKind::Bundled => String::new(),
     }
 }
 
@@ -493,8 +487,9 @@ fn tool_row(
     distro: &Distro,
     kind: ToolKind,
 ) -> adw::ActionRow {
+    let is_bundled = matches!(kind, ToolKind::Bundled);
     let hint = install_hint(distro, &kind);
-    let ok = check_command(cmd);
+    let ok = is_bundled || check_command(cmd);
     let cmd = cmd.to_string();
 
     let row = adw::ActionRow::new();

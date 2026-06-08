@@ -72,6 +72,7 @@ impl AppWindow {
         window.set_title(Some("Zerkalo"));
         window.set_default_width(1600);
         window.set_default_height(1000);
+        window.maximize();
 
         // ── Application-wide accent CSS ─────────────────────────────────────
         load_app_css();
