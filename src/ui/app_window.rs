@@ -2574,6 +2574,25 @@ impl AppWindow {
             });
         }
         {
+            let ep = editor_pane.clone();
+            let preview = preview_pane.clone();
+            file_tree.set_on_insert_include(move |abs_path| {
+                let rel = compute_include_path(&preview, &abs_path);
+                ep.insert_at_cursor(&format!("#include \"{rel}\"\n"));
+            });
+        }
+        {
+            let ep = editor_pane.clone();
+            let preview = preview_pane.clone();
+            file_tree.set_on_insert_import(move |abs_path| {
+                let rel = compute_include_path(&preview, &abs_path);
+                let stem = abs_path.file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("*");
+                ep.insert_at_cursor(&format!("#import \"{rel}\": {stem}\n"));
+            });
+        }
+        {
             let root = project_root.clone();
             let ft = file_tree.clone();
             let ep = editor_pane.clone();
@@ -3988,6 +4007,22 @@ fn format_file_mtime(mtime: std::time::SystemTime) -> String {
 ///   2. Insert `#pagebreak()` before the `#bibliography(...)` call.
 ///   3. Fix the bibliography path to the configured `.bib` file if supplied;
 ///      add a commented-out bibliography stub if none exists.
+/// Compute a path string for `#include`/`#import` relative to the compilation root's directory.
+/// Falls back to the filename if no root is set or paths don't share a prefix.
+fn compute_include_path(preview: &super::preview_pane::PreviewPane, abs_path: &std::path::Path) -> String {
+    if let Some(root) = preview.root_file_path() {
+        if let Some(root_dir) = root.parent() {
+            if let Ok(rel) = abs_path.strip_prefix(root_dir) {
+                return rel.to_string_lossy().replace('\\', "/");
+            }
+        }
+    }
+    abs_path.file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("file.typ")
+        .to_string()
+}
+
 /// Strip pandoc's generated `#set` preamble from a standalone Typst output so we can
 /// replace it with a Zerkalo template section.
 #[cfg_attr(not(test), allow(dead_code))]

@@ -23,6 +23,8 @@ pub struct FileTree {
     on_delete: Callback<PathBuf>,
     on_set_root: Callback<PathBuf>,
     on_new_folder: Callback<String>,
+    on_insert_include: Callback<PathBuf>,
+    on_insert_import: Callback<PathBuf>,
     file_errors: Rc<RefCell<HashSet<PathBuf>>>,
     modified_files: Rc<RefCell<HashSet<PathBuf>>>,
     /// Current compilation root, used to render the ★ indicator.
@@ -132,6 +134,8 @@ impl FileTree {
         let on_delete: Callback<PathBuf> = Rc::new(RefCell::new(None));
         let on_set_root: Callback<PathBuf> = Rc::new(RefCell::new(None));
         let on_new_folder: Callback<String> = Rc::new(RefCell::new(None));
+        let on_insert_include: Callback<PathBuf> = Rc::new(RefCell::new(None));
+        let on_insert_import: Callback<PathBuf> = Rc::new(RefCell::new(None));
 
         // Wire new-file entry: Enter creates the file
         let pop_for_entry = nf_popover.clone();
@@ -173,6 +177,8 @@ impl FileTree {
             on_delete,
             on_set_root,
             on_new_folder,
+            on_insert_include,
+            on_insert_import,
             file_errors: Rc::new(RefCell::new(HashSet::new())),
             modified_files: Rc::new(RefCell::new(HashSet::new())),
             root_file: Rc::new(RefCell::new(None)),
@@ -207,6 +213,14 @@ impl FileTree {
 
     pub fn set_on_new_folder(&self, f: impl Fn(String) + 'static) {
         *self.on_new_folder.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn set_on_insert_include(&self, f: impl Fn(PathBuf) + 'static) {
+        *self.on_insert_include.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn set_on_insert_import(&self, f: impl Fn(PathBuf) + 'static) {
+        *self.on_insert_import.borrow_mut() = Some(Box::new(f));
     }
 
     pub fn set_root_file(&self, path: Option<PathBuf>) {
@@ -477,10 +491,18 @@ impl FileTree {
         let root_btn = Button::with_label("Set as Compilation Root");
         root_btn.add_css_class("flat");
 
+        let include_btn = Button::with_label("Insert #include");
+        include_btn.add_css_class("flat");
+
+        let import_btn = Button::with_label("Insert #import");
+        import_btn.add_css_class("flat");
+
         let del_btn = Button::with_label("Delete");
         del_btn.add_css_class("destructive-action");
 
         btn_box.append(&root_btn);
+        btn_box.append(&include_btn);
+        btn_box.append(&import_btn);
         btn_box.append(&del_btn);
         popover.set_child(Some(&btn_box));
         popover.set_parent(row);
@@ -503,6 +525,28 @@ impl FileTree {
             pop_for_root.popdown();
             if let Some(f) = set_root_cb.borrow().as_ref() {
                 f(path_root.clone());
+            }
+        });
+
+        // "Insert #include" button
+        let pop_for_include = popover.clone();
+        let path_include = file_path.clone();
+        let include_cb = self.on_insert_include.clone();
+        include_btn.connect_clicked(move |_| {
+            pop_for_include.popdown();
+            if let Some(f) = include_cb.borrow().as_ref() {
+                f(path_include.clone());
+            }
+        });
+
+        // "Insert #import" button
+        let pop_for_import = popover.clone();
+        let path_import = file_path.clone();
+        let import_cb = self.on_insert_import.clone();
+        import_btn.connect_clicked(move |_| {
+            pop_for_import.popdown();
+            if let Some(f) = import_cb.borrow().as_ref() {
+                f(path_import.clone());
             }
         });
 

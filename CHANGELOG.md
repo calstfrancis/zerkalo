@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.12.15] — 2026-06-08
+
+### Added
+- File tree: right-click menu now has "Insert #include" and "Insert #import"; inserts at the cursor with a path relative to the compilation root's directory
+- `#import` snippet also adds the file stem as the imported identifier (`#import "ch01.typ": ch01`)
+
+---
+
 ## [0.12.14] — 2026-06-08
 
 ### Added
