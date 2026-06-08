@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.12.35-rc1] — 2026-06-08
+
+### Fixed
+
+- Preview pane: scroll now works immediately after the first compile, without needing to resize the pane first
+
+---
+
 ## [0.12.34] — 2026-06-08
 
 ### Fixed
