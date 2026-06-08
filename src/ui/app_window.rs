@@ -4421,36 +4421,141 @@ fn show_changelog(parent: &impl IsA<gtk4::Window>) {
     const CHANGELOG: &str = include_str!("../../CHANGELOG.md");
 
     let win = adw::Window::new();
-    win.set_title(Some("Changelog — Zerkalo"));
-    win.set_default_width(640);
-    win.set_default_height(520);
+    win.set_title(Some("Release Notes — Zerkalo"));
+    win.set_default_width(660);
+    win.set_default_height(600);
     win.set_transient_for(Some(parent));
     win.set_modal(false);
 
-    let buf = gtk4::TextBuffer::new(None);
-    buf.set_text(CHANGELOG);
+    let header = adw::HeaderBar::new();
 
-    let view = gtk4::TextView::with_buffer(&buf);
-    view.set_editable(false);
-    view.set_cursor_visible(false);
-    view.set_wrap_mode(gtk4::WrapMode::Word);
-    view.set_monospace(true);
-    view.set_left_margin(16);
-    view.set_right_margin(16);
-    view.set_top_margin(12);
-    view.set_bottom_margin(12);
+    let body = gtk4::Box::new(Orientation::Vertical, 4);
+    body.set_margin_start(24);
+    body.set_margin_end(24);
+    body.set_margin_top(16);
+    body.set_margin_bottom(24);
+
+    for line in CHANGELOG.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("## [") {
+            // "## [0.12.32] — 2026-06-08"
+            let inner = trimmed.trim_start_matches("## [").replace(']', "");
+            let lbl = gtk4::Label::new(Some(&inner));
+            lbl.add_css_class("title-3");
+            lbl.set_xalign(0.0);
+            lbl.set_margin_top(16);
+            lbl.set_margin_bottom(2);
+            body.append(&lbl);
+        } else if trimmed.starts_with("### ") {
+            let text = trimmed.trim_start_matches("### ");
+            let lbl = gtk4::Label::new(Some(text));
+            lbl.add_css_class("heading");
+            lbl.set_xalign(0.0);
+            lbl.set_margin_top(6);
+            lbl.set_margin_start(4);
+            body.append(&lbl);
+        } else if trimmed.starts_with("- ") {
+            let content = trimmed.trim_start_matches("- ");
+            body.append(&changelog_bullet(content));
+        } else if trimmed == "---" {
+            let sep = gtk4::Separator::new(Orientation::Horizontal);
+            sep.set_margin_top(8);
+            sep.set_margin_bottom(4);
+            body.append(&sep);
+        }
+    }
 
     let scroll = gtk4::ScrolledWindow::new();
-    scroll.set_child(Some(&view));
-    scroll.set_hexpand(true);
     scroll.set_vexpand(true);
+    scroll.set_hexpand(true);
+    let clamp = adw::Clamp::new();
+    clamp.set_maximum_size(640);
+    clamp.set_child(Some(&body));
+    scroll.set_child(Some(&clamp));
 
-    let header = adw::HeaderBar::new();
     let toolbar = adw::ToolbarView::new();
     toolbar.add_top_bar(&header);
     toolbar.set_content(Some(&scroll));
     win.set_content(Some(&toolbar));
     win.present();
+}
+
+fn changelog_bullet(text: &str) -> gtk4::Box {
+    let row = gtk4::Box::new(Orientation::Horizontal, 8);
+    row.set_margin_start(8);
+    let dot = gtk4::Label::new(Some("•"));
+    dot.set_valign(gtk4::Align::Start);
+    dot.add_css_class("dim-label");
+    dot.set_margin_top(1);
+
+    let markup = md_inline_to_pango(text);
+    let lbl = gtk4::Label::new(None);
+    lbl.set_markup(&markup);
+    lbl.set_xalign(0.0);
+    lbl.set_wrap(true);
+    lbl.set_hexpand(true);
+
+    row.append(&dot);
+    row.append(&lbl);
+    row
+}
+
+fn md_inline_to_pango(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 16);
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '*' if chars.peek() == Some(&'*') => {
+                chars.next();
+                out.push_str("<b>");
+                let mut inner = String::new();
+                loop {
+                    match chars.next() {
+                        Some('*') if chars.peek() == Some(&'*') => { chars.next(); break; }
+                        Some(ch) => inner.push(ch),
+                        None => break,
+                    }
+                }
+                out.push_str(&glib::markup_escape_text(&inner));
+                out.push_str("</b>");
+            }
+            '`' => {
+                out.push_str("<tt>");
+                let mut inner = String::new();
+                loop {
+                    match chars.next() {
+                        Some('`') => break,
+                        Some(ch) => inner.push(ch),
+                        None => break,
+                    }
+                }
+                out.push_str(&glib::markup_escape_text(&inner));
+                out.push_str("</tt>");
+            }
+            '[' => {
+                // [text](url) → just text
+                let mut link_text = String::new();
+                loop {
+                    match chars.next() {
+                        Some(']') => break,
+                        Some(ch) => link_text.push(ch),
+                        None => break,
+                    }
+                }
+                if chars.peek() == Some(&'(') {
+                    // consume (url)
+                    chars.next();
+                    loop { match chars.next() { Some(')') | None => break, _ => {} } }
+                }
+                out.push_str(&glib::markup_escape_text(&link_text));
+            }
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            other => out.push(other),
+        }
+    }
+    out
 }
 
 fn update_draft_toggle_label(btn: &gtk4::ToggleButton, is_draft: bool) {

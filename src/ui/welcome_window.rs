@@ -45,17 +45,15 @@ impl WelcomeWindow {
         body.append(&sub_lbl);
         body.append(&Separator::new(Orientation::Horizontal));
 
-        body.append(&section_label("What's New in 0.12.29"));
+        body.append(&section_label(&format!("What's New in {VERSION}")));
         for item in [
-            "Single-file workspace: the active tab is always the compilation root — no project mode",
-            "Status bar: autocorrect and GOST Type B toggles on the left; Style dropdown and Draft/Final toggle on the right",
-            "Draft mode toggle in the status bar — bold when active, switches between fast preview and full quality",
-            "Preview: pages separated by a visible gray gap so page boundaries are clear",
-            "Opens the last file you had open when the app starts",
-            "Snapshot diff now uses a real LCS diff — only changed lines are shown in red/green",
-            "Git history and snapshot panels: single-click now works correctly",
-            "Color-coded diffs: removed lines red, added lines green, hunk headers blue",
-            "Popout preview window has a maximize button",
+            "Right-click any editor tab to close it or permanently delete the file",
+            "Author and affiliation fields in the template dialog have a lock button — save your name and institution so they appear automatically in new documents",
+            "Date field in the template dialog notes that it defaults to today if left blank",
+            "If a bibliography file is set in Settings, new documents use it automatically",
+            "Changelog window now renders release notes with proper formatting",
+            "Setup & Onboarding wizard is wider and easier to read",
+            "App no longer recreates old project folders on startup",
         ] {
             body.append(&bullet_row(item));
         }
