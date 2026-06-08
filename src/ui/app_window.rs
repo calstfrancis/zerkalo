@@ -2568,6 +2568,14 @@ impl AppWindow {
         {
             let root = project_root.clone();
             let ft = file_tree.clone();
+            file_tree.set_on_new_folder(move |name| {
+                let _ = std::fs::create_dir_all(root.join(&name));
+                ft.refresh();
+            });
+        }
+        {
+            let root = project_root.clone();
+            let ft = file_tree.clone();
             let ep = editor_pane.clone();
             let preview = preview_pane.clone();
             file_tree.set_on_set_root(move |path| {

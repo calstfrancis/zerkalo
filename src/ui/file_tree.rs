@@ -22,10 +22,13 @@ pub struct FileTree {
     on_new_file: Callback<String>,
     on_delete: Callback<PathBuf>,
     on_set_root: Callback<PathBuf>,
+    on_new_folder: Callback<String>,
     file_errors: Rc<RefCell<HashSet<PathBuf>>>,
     modified_files: Rc<RefCell<HashSet<PathBuf>>>,
     /// Current compilation root, used to render the ★ indicator.
     root_file: Rc<RefCell<Option<PathBuf>>>,
+    /// Directories (relative to project_root) that are currently collapsed.
+    collapsed_dirs: Rc<RefCell<HashSet<PathBuf>>>,
     /// User-defined display order: full paths in preferred display order.
     custom_order: Rc<RefCell<Vec<PathBuf>>>,
     /// Path of the row being dragged (set on drag-begin).
@@ -56,6 +59,11 @@ impl FileTree {
         new_btn.set_tooltip_text(Some("New file"));
         header_row.append(&new_btn);
 
+        let new_folder_btn = Button::from_icon_name("folder-new-symbolic");
+        new_folder_btn.add_css_class("flat");
+        new_folder_btn.set_tooltip_text(Some("New folder"));
+        header_row.append(&new_folder_btn);
+
         root_widget.append(&header_row);
         root_widget.append(&Separator::new(Orientation::Horizontal));
 
@@ -83,6 +91,30 @@ impl FileTree {
             pop_for_btn.popup();
         });
 
+        // ── New-folder popover ──────────────────────────────────────────────
+        let nd_popover = Popover::new();
+        let nd_box = GtkBox::new(Orientation::Vertical, 6);
+        nd_box.set_margin_top(10);
+        nd_box.set_margin_bottom(10);
+        nd_box.set_margin_start(10);
+        nd_box.set_margin_end(10);
+        let nd_lbl = Label::new(Some("New folder name"));
+        nd_lbl.set_halign(Align::Start);
+        let nd_entry = Entry::new();
+        nd_entry.set_placeholder_text(Some("folder-name"));
+        nd_entry.set_width_chars(18);
+        nd_box.append(&nd_lbl);
+        nd_box.append(&nd_entry);
+        nd_popover.set_child(Some(&nd_box));
+        nd_popover.set_parent(&new_folder_btn);
+
+        let pop_for_folder_btn = nd_popover.clone();
+        let entry_for_folder_btn = nd_entry.clone();
+        new_folder_btn.connect_clicked(move |_| {
+            entry_for_folder_btn.set_text("");
+            pop_for_folder_btn.popup();
+        });
+
         // ── File list ───────────────────────────────────────────────────────
         let list_box = ListBox::new();
         list_box.set_selection_mode(SelectionMode::Single);
@@ -99,6 +131,7 @@ impl FileTree {
         let on_new_file: Callback<String> = Rc::new(RefCell::new(None));
         let on_delete: Callback<PathBuf> = Rc::new(RefCell::new(None));
         let on_set_root: Callback<PathBuf> = Rc::new(RefCell::new(None));
+        let on_new_folder: Callback<String> = Rc::new(RefCell::new(None));
 
         // Wire new-file entry: Enter creates the file
         let pop_for_entry = nf_popover.clone();
@@ -110,6 +143,19 @@ impl FileTree {
                     f(name);
                 }
                 pop_for_entry.popdown();
+            }
+        });
+
+        // Wire new-folder entry: Enter creates the folder
+        let pop_for_folder_entry = nd_popover.clone();
+        let cb_new_folder = on_new_folder.clone();
+        nd_entry.connect_activate(move |entry| {
+            let name = entry.text().trim().to_string();
+            if !name.is_empty() {
+                if let Some(f) = cb_new_folder.borrow().as_ref() {
+                    f(name);
+                }
+                pop_for_folder_entry.popdown();
             }
         });
 
@@ -126,9 +172,11 @@ impl FileTree {
             on_new_file,
             on_delete,
             on_set_root,
+            on_new_folder,
             file_errors: Rc::new(RefCell::new(HashSet::new())),
             modified_files: Rc::new(RefCell::new(HashSet::new())),
             root_file: Rc::new(RefCell::new(None)),
+            collapsed_dirs: Rc::new(RefCell::new(HashSet::new())),
             custom_order: Rc::new(RefCell::new(saved_order)),
             drag_source_path: Rc::new(RefCell::new(None)),
         };
@@ -155,6 +203,10 @@ impl FileTree {
 
     pub fn set_on_set_root(&self, f: impl Fn(PathBuf) + 'static) {
         *self.on_set_root.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn set_on_new_folder(&self, f: impl Fn(String) + 'static) {
+        *self.on_new_folder.borrow_mut() = Some(Box::new(f));
     }
 
     pub fn set_root_file(&self, path: Option<PathBuf>) {
@@ -222,19 +274,46 @@ impl FileTree {
         }
 
         for (dir, dir_files) in &by_dir {
-            // Dim subdirectory header
+            // Collapsible subdirectory header
             if dir != Path::new("") {
+                let is_collapsed = self.collapsed_dirs.borrow().contains(dir);
                 let row = ListBoxRow::new();
                 row.set_selectable(false);
-                row.set_activatable(false);
+                row.set_activatable(true);
+                let hbox = GtkBox::new(Orientation::Horizontal, 4);
+                let arrow = gtk4::Image::from_icon_name(
+                    if is_collapsed { "pan-end-symbolic" } else { "pan-down-symbolic" },
+                );
+                arrow.set_pixel_size(12);
+                arrow.add_css_class("dim-label");
+                arrow.set_margin_start(8);
+                hbox.append(&arrow);
                 let lbl = Label::new(Some(&format!("{}/", dir.to_string_lossy())));
                 lbl.add_css_class("dim-label");
                 lbl.set_halign(Align::Start);
-                lbl.set_margin_start(8);
-                lbl.set_margin_top(8);
+                lbl.set_margin_top(6);
                 lbl.set_margin_bottom(2);
-                row.set_child(Some(&lbl));
+                hbox.append(&lbl);
+                row.set_child(Some(&hbox));
+
+                let collapsed = self.collapsed_dirs.clone();
+                let dir_owned = dir.clone();
+                let ft = self.clone();
+                row.connect_activate(move |_| {
+                    let mut dirs = collapsed.borrow_mut();
+                    if dirs.contains(&dir_owned) {
+                        dirs.remove(&dir_owned);
+                    } else {
+                        dirs.insert(dir_owned.clone());
+                    }
+                    drop(dirs);
+                    ft.refresh();
+                });
                 self.list_box.append(&row);
+
+                if is_collapsed {
+                    continue;
+                }
             }
 
             let indent: i32 = if dir == Path::new("") { 10 } else { 22 };
@@ -374,44 +453,10 @@ impl FileTree {
             true
         });
         // Refresh display after drop completes
-        let order_after = self.custom_order.clone();
-        let project_root_after = self.project_root.clone();
-        let file_errors_after = self.file_errors.clone();
-        let modified_after = self.modified_files.clone();
-        let root_file_after = self.root_file.clone();
-        let list_box_after = self.list_box.clone();
-        let on_open_after = self.on_open.clone();
-        let on_delete_after = self.on_delete.clone();
-        let on_set_root_after = self.on_set_root.clone();
-        let drag_src_after = self.drag_source_path.clone();
+        let ft_for_dnd = self.clone();
         drop_tgt.connect_drop(move |_, _, _, _| {
-            let order_c = order_after.clone();
-            let root_c = project_root_after.clone();
-            let errors_c = file_errors_after.clone();
-            let modified_c = modified_after.clone();
-            let root_file_c = root_file_after.clone();
-            let lb_c = list_box_after.clone();
-            let open_c = on_open_after.clone();
-            let del_c = on_delete_after.clone();
-            let set_root_c = on_set_root_after.clone();
-            let drag_c = drag_src_after.clone();
-            glib::idle_add_local_once(move || {
-                let ft = FileTree {
-                    root_widget: GtkBox::new(Orientation::Horizontal, 0), // unused
-                    list_box: lb_c.clone(),
-                    project_root: Rc::new((*root_c).clone()),
-                    on_open: open_c,
-                    on_new_file: Rc::new(RefCell::new(None)),
-                    on_delete: del_c,
-                    on_set_root: set_root_c,
-                    file_errors: errors_c,
-                    modified_files: modified_c,
-                    root_file: root_file_c,
-                    custom_order: order_c,
-                    drag_source_path: drag_c,
-                };
-                ft.refresh();
-            });
+            let ft = ft_for_dnd.clone();
+            glib::idle_add_local_once(move || ft.refresh());
             false
         });
         row.add_controller(drop_tgt);

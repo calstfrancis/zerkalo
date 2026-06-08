@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.12.14] — 2026-06-08
+
+### Added
+- File tree: subdirectory rows are now collapsible — click the folder header to toggle; arrow icon shows expand/collapse state
+- File tree: "New Folder" button (folder-new-symbolic) in the panel header creates a subfolder in the project root
+- DnD idle-rebuild simplified to use `FileTree::clone()` instead of manual field reconstruction
+
+---
+
 ## [0.12.13] — 2026-06-08
 
 ### Added
