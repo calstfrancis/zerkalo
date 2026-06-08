@@ -506,18 +506,30 @@ impl EditorPane {
             let ub = undo_btn.clone();
             let rb = redo_btn.clone();
             notebook.connect_switch_page(move |nb, _, page_num| {
-                let bstate = state2.borrow();
-                for (path, tab) in &bstate.tabs {
-                    if nb.page_num(&tab.scroll_window) == Some(page_num) {
-                        let (s, e) = tab.buffer.bounds();
-                        let content = tab.buffer.text(&s, &e, false).to_string();
-                        wc.set_text(&wc_str_with_delta(&content, tab.session_start_words));
-                        ub.set_sensitive(tab.buffer.can_undo());
-                        rb.set_sensitive(tab.buffer.can_redo());
-                        if let Some(f) = ps.borrow().as_ref() {
-                            f(content, path.clone());
+                // Extract content/path and release the state borrow before calling the
+                // page-switch callback, which may call all_tab_texts() → double-borrow panic.
+                let page_data = {
+                    let bstate = state2.borrow();
+                    let mut found = None;
+                    for (path, tab) in &bstate.tabs {
+                        if nb.page_num(&tab.scroll_window) == Some(page_num) {
+                            let (s, e) = tab.buffer.bounds();
+                            let content = tab.buffer.text(&s, &e, false).to_string();
+                            let can_undo = tab.buffer.can_undo();
+                            let can_redo = tab.buffer.can_redo();
+                            let session_start = tab.session_start_words;
+                            found = Some((path.clone(), content, can_undo, can_redo, session_start));
+                            break;
                         }
-                        break;
+                    }
+                    found
+                };
+                if let Some((path, content, can_undo, can_redo, session_start)) = page_data {
+                    wc.set_text(&wc_str_with_delta(&content, session_start));
+                    ub.set_sensitive(can_undo);
+                    rb.set_sensitive(can_redo);
+                    if let Some(f) = ps.borrow().as_ref() {
+                        f(content, path);
                     }
                 }
             });

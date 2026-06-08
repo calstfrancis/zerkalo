@@ -147,7 +147,7 @@ impl HistoryPanel {
 }
 
 fn git_log_for_file(root: &PathBuf, file: &PathBuf) -> Vec<(String, String, String)> {
-    let out = std::process::Command::new("git")
+    let out = crate::git_sync::host_command("git")
         .args(["log", "--follow", "--format=%H|%s|%cd", "--date=short", "--"])
         .arg(file)
         .current_dir(root)
@@ -169,7 +169,7 @@ fn git_log_for_file(root: &PathBuf, file: &PathBuf) -> Vec<(String, String, Stri
 }
 
 fn git_diff_for_commit(root: &PathBuf, file: &PathBuf, oid: &str) -> String {
-    let out = std::process::Command::new("git")
+    let out = crate::git_sync::host_command("git")
         .args(["show", "--stat", "--patch", oid, "--"])
         .arg(file)
         .current_dir(root)

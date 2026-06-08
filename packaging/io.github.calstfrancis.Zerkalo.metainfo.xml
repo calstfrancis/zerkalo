@@ -46,6 +46,11 @@
   </developer>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.12.21" date="2026-06-08">
+      <description>
+        <p>Fix crash when clicking files in a multi-file project (double-borrow panic in tab-switch handler). Fix compile button resetting the project compilation root on every tab switch. Fix tinymist, pandoc, git history, and pdftotext inside the flatpak sandbox.</p>
+      </description>
+    </release>
     <release version="0.12.20" date="2026-06-08">
       <description>
         <p>Fix startup git warning in the flatpak (now checks via flatpak-spawn --host). Welcome window updated with current 0.12 features. GOST Type B font bundled in Kopilka, Rubric, and Zerkalo flatpaks so it is available to Typst documents and the UI font toggle inside the sandbox.</p>

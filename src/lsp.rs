@@ -41,12 +41,13 @@ pub struct LspClient {
 }
 
 fn tinymist_command() -> Command {
-    let bundled = std::path::Path::new("/usr/lib/zerkalo/tinymist");
-    if bundled.exists() {
-        Command::new(bundled)
-    } else {
-        Command::new("tinymist")
+    for candidate in &["/app/lib/zerkalo/tinymist", "/usr/lib/zerkalo/tinymist"] {
+        let p = std::path::Path::new(candidate);
+        if p.exists() {
+            return Command::new(p);
+        }
     }
+    Command::new("tinymist")
 }
 
 impl LspClient {

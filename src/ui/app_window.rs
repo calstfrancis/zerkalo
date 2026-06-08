@@ -765,7 +765,10 @@ impl AppWindow {
                 if let Some(content) = editor_for_btn.get_active_content() {
                     preview_for_btn.set_buffer_snapshot(path.clone(), content);
                 }
-                preview_for_btn.set_root_file(path);
+                // In project mode the root is already set; don't override it with the active tab.
+                if editor_for_btn.project_root().is_none() {
+                    preview_for_btn.set_root_file(path);
+                }
             }
             preview_for_btn.trigger_compile();
         });
@@ -1319,7 +1322,7 @@ impl AppWindow {
                     if let Some(input_path) = file.path() {
                         let stem = input_path.file_stem().and_then(|s| s.to_str()).unwrap_or("output").to_string();
                         let out_path = input_path.with_file_name(format!("{stem}.typ"));
-                        let output = std::process::Command::new("pdftotext")
+                        let output = crate::git_sync::host_command("pdftotext")
                             .arg("-layout")
                             .arg(&input_path)
                             .arg("-")
@@ -1806,7 +1809,10 @@ impl AppWindow {
             refs_for_switch.update_used_keys(&content);
             dep_graph_for_switch.refresh(Some(&path));
             preview_for_switch.set_buffer_snapshot(path.clone(), content.clone());
-            preview_for_switch.set_root_file(path.clone());
+            // In project mode the compilation root is already set; don't override it.
+            if editor_pane_for_switch_outline.project_root().is_none() {
+                preview_for_switch.set_root_file(path.clone());
+            }
             preview_for_switch.trigger_compile();
             todo_panel_for_switch.set_current_file(Some(&path));
             if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
@@ -2026,14 +2032,11 @@ impl AppWindow {
                 .arg("--version").output().is_ok();
             let pandoc_ok = std::process::Command::new("pandoc")
                 .arg("--version").output().is_ok();
-            let bundled_tinymist = std::path::Path::new("/usr/lib/zerkalo/tinymist");
-            let tinymist_bin = if bundled_tinymist.exists() {
-                std::ffi::OsString::from(bundled_tinymist)
-            } else {
-                std::ffi::OsString::from("tinymist")
-            };
-            let tinymist_ok = std::process::Command::new(&tinymist_bin)
-                .arg("--version").output().is_ok();
+            let tinymist_ok = ["/app/lib/zerkalo/tinymist", "/usr/lib/zerkalo/tinymist"]
+                .iter()
+                .find(|p| std::path::Path::new(p).exists())
+                .map(|p| std::process::Command::new(p).arg("--version").output().is_ok())
+                .unwrap_or_else(|| std::process::Command::new("tinymist").arg("--version").output().is_ok());
 
             if !git_ok {
                 tracing::warn!("git not found in PATH");

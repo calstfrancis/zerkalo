@@ -208,7 +208,7 @@ impl ExportDialog {
                             1 => {
                                 // HTML via typst CLI
                                 run_command_logged(
-                                    "typst",
+                                    crate::git_sync::host_command("typst"),
                                     &[
                                         "compile",
                                         "--format", "html",
@@ -229,7 +229,7 @@ impl ExportDialog {
                                     _ => "docx",
                                 };
                                 run_command_logged(
-                                    "pandoc",
+                                    crate::git_sync::host_command("pandoc"),
                                     &[
                                         "-f", "typst",
                                         input_owned.to_str().unwrap_or(""),
@@ -324,7 +324,7 @@ fn append_log(buf: &gtk4::TextBuffer, text: &str) {
 }
 
 fn run_command_logged(
-    cmd: &str,
+    mut cmd: std::process::Command,
     args: &[&str],
     tx: &mpsc::SyncSender<ExportMsg>,
     not_found_msg: &str,
@@ -332,7 +332,7 @@ fn run_command_logged(
     // Filter out empty args (used as placeholders for conditional flags)
     let args: Vec<&str> = args.iter().copied().filter(|a| !a.is_empty()).collect();
 
-    let mut child = match std::process::Command::new(cmd)
+    let mut child = match cmd
         .args(&args)
         .stderr(Stdio::piped())
         .stdout(Stdio::piped())
@@ -342,7 +342,7 @@ fn run_command_logged(
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             return Err(not_found_msg.to_string());
         }
-        Err(e) => return Err(format!("Failed to start {cmd}: {e}")),
+        Err(e) => return Err(format!("Failed to start command: {e}")),
     };
 
     // Read stderr in the same thread (we're already in a worker thread)
