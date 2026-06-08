@@ -182,8 +182,6 @@ impl AppWindow {
             menu_repair_markers_item,
             menu_new_item,
             menu_open_item,
-            menu_open_project_item,
-            menu_recent_projects_item,
             menu_save_item,
             menu_save_as_item,
             menu_snapshots_item,
@@ -214,8 +212,6 @@ impl AppWindow {
         menu_popover_box.append(&menu_new_item);
         menu_popover_box.append(&Separator::new(Orientation::Horizontal));
         menu_popover_box.append(&menu_open_item);
-        menu_popover_box.append(&menu_open_project_item);
-        menu_popover_box.append(&menu_recent_projects_item);
         menu_popover_box.append(&Separator::new(Orientation::Horizontal));
         // Save
         menu_popover_box.append(&menu_save_item);
@@ -853,105 +849,6 @@ impl AppWindow {
             HelpWindow::new(&window_for_help).present();
         });
 
-        // ── Menu: Open Project Folder ───────────────────────────────────────
-
-        let window_for_open_proj = window.clone();
-        let cfg_for_open_proj = current_config.clone();
-        let menu_popover_for_open_proj = menu_popover.clone();
-        menu_open_project_item.connect_clicked(move |_| {
-            menu_popover_for_open_proj.popdown();
-            let dlg = gtk4::FileDialog::builder()
-                .title("Open Project Folder")
-                .modal(true)
-                .build();
-            let cfg_c = cfg_for_open_proj.clone();
-            dlg.select_folder(
-                Some(&window_for_open_proj),
-                None::<&gtk4::gio::Cancellable>,
-                move |result| {
-                    if let Ok(gfile) = result {
-                        if let Some(folder) = gfile.path() {
-                            let mut cfg = cfg_c.borrow_mut();
-                            cfg.push_recent_project(folder.clone());
-                            cfg.work_dir = folder;
-                            let _ = cfg.save();
-                            if let Ok(exe) = std::env::current_exe() {
-                                let _ = std::process::Command::new(exe).spawn();
-                            }
-                            std::process::exit(0);
-                        }
-                    }
-                },
-            );
-        });
-
-        // ── Menu: Recent Projects ───────────────────────────────────────────
-
-        let window_for_recent_proj = window.clone();
-        let cfg_for_recent_proj = current_config.clone();
-        let menu_popover_for_recent_proj = menu_popover.clone();
-        menu_recent_projects_item.connect_clicked(move |_| {
-            menu_popover_for_recent_proj.popdown();
-            let projects = cfg_for_recent_proj.borrow().recent_projects.clone();
-            if projects.is_empty() {
-                let dlg = adw::MessageDialog::new(
-                    Some(&window_for_recent_proj),
-                    Some("No recent projects"),
-                    Some("Open a project folder to add it to this list."),
-                );
-                dlg.add_response("ok", "OK");
-                dlg.present();
-                return;
-            }
-            let dialog = adw::Window::builder()
-                .title("Recent Projects")
-                .transient_for(&window_for_recent_proj)
-                .modal(true)
-                .default_width(420)
-                .default_height(320)
-                .build();
-            let header = adw::HeaderBar::new();
-            let list = gtk4::ListBox::new();
-            list.add_css_class("boxed-list");
-            list.set_margin_start(12);
-            list.set_margin_end(12);
-            list.set_margin_top(12);
-            list.set_margin_bottom(12);
-            for proj in &projects {
-                let row = adw::ActionRow::new();
-                let name = proj.file_name().and_then(|n| n.to_str()).unwrap_or("?");
-                row.set_title(name);
-                row.set_subtitle(&proj.to_string_lossy());
-                row.set_activatable(true);
-                row.set_widget_name(&proj.to_string_lossy());
-                list.append(&row);
-            }
-            let scroll = gtk4::ScrolledWindow::new();
-            scroll.set_vexpand(true);
-            scroll.set_child(Some(&list));
-            let body = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
-            body.append(&scroll);
-            let tv = adw::ToolbarView::new();
-            tv.add_top_bar(&header);
-            tv.set_content(Some(&body));
-            dialog.set_content(Some(&tv));
-            let cfg_c2 = cfg_for_recent_proj.clone();
-            let win_c = dialog.clone();
-            list.connect_row_activated(move |_, row| {
-                let path = std::path::PathBuf::from(row.widget_name().to_string());
-                let mut cfg = cfg_c2.borrow_mut();
-                cfg.push_recent_project(path.clone());
-                cfg.work_dir = path;
-                let _ = cfg.save();
-                win_c.close();
-                if let Ok(exe) = std::env::current_exe() {
-                    let _ = std::process::Command::new(exe).spawn();
-                }
-                std::process::exit(0);
-            });
-            dialog.present();
-        });
-
         // ── Menu: Setup & Onboarding ────────────────────────────────────────
 
         let window_for_setup = window.clone();
@@ -1584,7 +1481,6 @@ impl AppWindow {
 
         // ── Sync button ─────────────────────────────────────────────────────
 
-        let project_root_for_sync = project_root.clone();
         let window_for_sync = window.clone();
         let sync_btn_ref = sync_btn.clone();
         let editor_for_sync = editor_pane.clone();
@@ -1592,9 +1488,13 @@ impl AppWindow {
         let toast_for_sync_btn = toast_overlay.clone();
         let toast_for_sync_closure = toast_overlay.clone();
         let config_for_sync = current_config.clone();
+        let project_root_for_sync_fallback = project_root.clone();
         sync_btn.connect_clicked(move |_| {
             editor_for_sync.save_all_modified();
-            let root = project_root_for_sync.clone();
+            let root = editor_for_sync.get_active_path()
+                .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+                .and_then(|dir| git_sync::git_repo_root(&dir))
+                .unwrap_or_else(|| project_root_for_sync_fallback.clone());
             let win = window_for_sync.clone();
             let btn = sync_btn_ref.clone();
             let toasts = toast_for_sync_closure.clone();
@@ -2879,10 +2779,18 @@ impl AppWindow {
         outer_paned.set_end_child(Some(&content_paned));
 
         // ── Persist pane positions (debounced, 400 ms after last drag) ────────
+        // Use a flag so we ignore position-notify during initial GTK layout.
         {
             let cfg = current_config.clone();
+            let ready = Rc::new(std::cell::Cell::new(false));
+            let ready2 = ready.clone();
+            outer_paned.connect_realize(move |_| {
+                let r = ready2.clone();
+                glib::idle_add_local_once(move || { r.set(true); });
+            });
             let pending: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
             outer_paned.connect_position_notify(move |p| {
+                if !ready.get() { return; }
                 let pos = p.position();
                 let cfg2 = cfg.clone();
                 let pending_for_cb = pending.clone();
@@ -2901,8 +2809,15 @@ impl AppWindow {
         }
         {
             let cfg = current_config.clone();
+            let ready = Rc::new(std::cell::Cell::new(false));
+            let ready2 = ready.clone();
+            inner_paned.connect_realize(move |_| {
+                let r = ready2.clone();
+                glib::idle_add_local_once(move || { r.set(true); });
+            });
             let pending: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
             inner_paned.connect_position_notify(move |p| {
+                if !ready.get() { return; }
                 let pos = p.position();
                 let cfg2 = cfg.clone();
                 let pending_for_cb = pending.clone();
@@ -4341,8 +4256,6 @@ struct HamburgerItems {
     menu_repair_markers_item: Button,
     menu_new_item: Button,
     menu_open_item: Button,
-    menu_open_project_item: Button,
-    menu_recent_projects_item: Button,
     menu_save_item: Button,
     menu_save_as_item: Button,
     menu_snapshots_item: Button,
@@ -4368,8 +4281,6 @@ fn build_hamburger_menu_items() -> HamburgerItems {
         menu_repair_markers_item:  make_menu_item("Repair Template Markers…",   None),
         menu_new_item:             make_menu_item("New Blank Document…",         None),
         menu_open_item:            make_menu_item("Open File…",                  None),
-        menu_open_project_item:    make_menu_item("Open Project Folder…",        None),
-        menu_recent_projects_item:    make_menu_item("Recent Projects…",          None),
         menu_save_item:              make_menu_item("Save",                      Some("Ctrl+S")),
         menu_save_as_item:         make_menu_item("Save As…",                    None),
         menu_snapshots_item:       make_menu_item("Browse Snapshots…",           None),
