@@ -17,6 +17,7 @@ mod session;
 mod spellcheck;
 mod styles;
 mod templates;
+mod web_export;
 mod ui;
 
 use std::cell::RefCell;

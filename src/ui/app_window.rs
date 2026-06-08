@@ -173,6 +173,7 @@ impl AppWindow {
             menu_save_as_item,
             menu_snapshots_item,
             menu_export_item,
+            menu_export_web_item,
             menu_import_item,
             menu_docs_item,
             menu_fonts_item,
@@ -207,6 +208,7 @@ impl AppWindow {
         menu_popover_box.append(&Separator::new(Orientation::Horizontal));
         // Convert / share
         menu_popover_box.append(&menu_export_item);
+        menu_popover_box.append(&menu_export_web_item);
         menu_popover_box.append(&menu_import_item);
         menu_popover_box.append(&Separator::new(Orientation::Horizontal));
         // View
@@ -1540,6 +1542,46 @@ impl AppWindow {
         let toast_overlay = adw::ToastOverlay::new();
         let toast_for_sync_btn = toast_overlay.clone();
         let toast_for_sync_closure = toast_overlay.clone();
+
+        // ── Menu: Export for Web ────────────────────────────────────────────
+        {
+            let ep = editor_pane.clone();
+            let win = window.clone();
+            let pop = menu_popover.clone();
+            let toast = toast_for_sync_btn.clone();
+            menu_export_web_item.connect_clicked(move |_| {
+                pop.popdown();
+                let Some(input_path) = ep.get_active_path() else { return };
+                let dialog = gtk4::FileDialog::builder()
+                    .title("Export for Web")
+                    .modal(true)
+                    .initial_name(
+                        input_path.with_extension("html")
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("output.html"),
+                    )
+                    .build();
+                let win_c = win.clone();
+                let toast_c = toast.clone();
+                dialog.save(Some(&win_c), None::<&gtk4::gio::Cancellable>, move |result| {
+                    let Ok(gfile) = result else { return };
+                    let Some(out_path) = gfile.path() else { return };
+                    match crate::web_export::export_for_web(&input_path, &out_path) {
+                        Ok(()) => {
+                            let t = adw::Toast::new("Exported for web");
+                            t.set_timeout(3);
+                            toast_c.add_toast(t);
+                        }
+                        Err(e) => {
+                            let t = adw::Toast::new(&format!("Export failed: {e}"));
+                            t.set_timeout(6);
+                            toast_c.add_toast(t);
+                        }
+                    }
+                });
+            });
+        }
         let config_for_sync = current_config.clone();
         let project_root_for_sync_fallback = project_root.clone();
         sync_btn.connect_clicked(move |_| {
@@ -4338,6 +4380,7 @@ struct HamburgerItems {
     menu_save_as_item: Button,
     menu_snapshots_item: Button,
     menu_export_item: Button,
+    menu_export_web_item: Button,
     menu_import_item: Button,
     menu_docs_item: Button,
     menu_fonts_item: Button,
@@ -4363,6 +4406,7 @@ fn build_hamburger_menu_items() -> HamburgerItems {
         menu_save_as_item:         make_menu_item("Save As…",                    None),
         menu_snapshots_item:       make_menu_item("Browse Snapshots…",           None),
         menu_export_item:          make_menu_item("Export…",                     None),
+        menu_export_web_item:      make_menu_item("Export for Web…",             None),
         menu_import_item:          make_menu_item("Import…",                     None),
         menu_docs_item:            make_menu_item("Browse Documents…",           None),
         menu_fonts_item:           make_menu_item("Font Management…",            None),

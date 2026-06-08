@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.12.34-rc1] — 2026-06-08
+
+### Added
+
+- Export for Web — converts the active Typst file to an HTML fragment via pandoc; footnotes become hover tooltips that respond to light/dark mode toggles (`data-theme`, `.dark`/`.light` classes, and `prefers-color-scheme`)
+
+---
+
 ## [0.12.33] — 2026-06-08
 
 ### Added
