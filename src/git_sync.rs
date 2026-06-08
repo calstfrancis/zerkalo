@@ -3,6 +3,20 @@ use std::process::Command;
 
 use chrono::Local;
 
+/// Returns a `Command` pre-loaded with `git -C <repo>`, using
+/// `flatpak-spawn --host git` when running inside a flatpak sandbox.
+fn git_cmd(repo_path: &Path) -> Command {
+    if std::path::Path::new("/.flatpak-info").exists() {
+        let mut cmd = Command::new("flatpak-spawn");
+        cmd.args(["--host", "git", "-C", path_str(repo_path)]);
+        cmd
+    } else {
+        let mut cmd = Command::new("git");
+        cmd.args(["-C", path_str(repo_path)]);
+        cmd
+    }
+}
+
 // ── Public types ─────────────────────────────────────────────────────────────
 
 pub struct SyncResult {
@@ -22,8 +36,8 @@ pub struct SyncResult {
 
 /// Returns true if the repo has at least one remote configured.
 pub fn has_remote(repo_path: &Path) -> bool {
-    Command::new("git")
-        .args(["-C", path_str(repo_path), "remote"])
+    git_cmd(repo_path)
+        .arg("remote")
         .output()
         .map(|out| !out.stdout.trim_ascii().is_empty())
         .unwrap_or(false)
@@ -31,8 +45,8 @@ pub fn has_remote(repo_path: &Path) -> bool {
 
 /// Returns the names of all configured remotes.
 pub fn list_remotes(repo_path: &Path) -> Vec<String> {
-    Command::new("git")
-        .args(["-C", path_str(repo_path), "remote"])
+    git_cmd(repo_path)
+        .arg("remote")
         .output()
         .map(|out| {
             String::from_utf8_lossy(&out.stdout)
@@ -46,8 +60,8 @@ pub fn list_remotes(repo_path: &Path) -> Vec<String> {
 
 /// Returns the push URL for a named remote.
 pub fn get_remote_url(repo_path: &Path, name: &str) -> Option<String> {
-    let out = Command::new("git")
-        .args(["-C", path_str(repo_path), "remote", "get-url", name])
+    let out = git_cmd(repo_path)
+        .args(["remote", "get-url", name])
         .output()
         .ok()?;
     if out.status.success() {
@@ -115,8 +129,8 @@ fn ensure_bare_repo(path: &Path) -> Result<(), String> {
 
 /// Returns the name of the current branch (falls back to "main").
 pub fn current_branch(repo_path: &Path) -> String {
-    Command::new("git")
-        .args(["-C", path_str(repo_path), "rev-parse", "--abbrev-ref", "HEAD"])
+    git_cmd(repo_path)
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
         .output()
         .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
         .unwrap_or_else(|_| "main".to_string())
@@ -124,8 +138,8 @@ pub fn current_branch(repo_path: &Path) -> String {
 
 /// Returns display names of files changed since the last commit.
 pub fn changed_files(repo_path: &Path) -> Vec<String> {
-    let Ok(out) = Command::new("git")
-        .args(["-C", path_str(repo_path), "status", "--porcelain"])
+    let Ok(out) = git_cmd(repo_path)
+        .args(["status", "--porcelain"])
         .output()
     else {
         return Vec::new();
@@ -196,8 +210,8 @@ pub fn sync(repo_path: &Path, github_token: Option<&str>) -> SyncResult {
         };
     }
 
-    let committed = match Command::new("git")
-        .args(["-C", path_str(repo_path), "commit", "-m", &msg])
+    let committed = match git_cmd(repo_path)
+        .args(["commit", "-m", &msg])
         .output()
     {
         Err(e) => return SyncResult {
@@ -229,21 +243,15 @@ pub fn sync(repo_path: &Path, github_token: Option<&str>) -> SyncResult {
             .and_then(|url| inject_token_into_url(&url, github_token.unwrap_or("")));
 
         // Pull --rebase before push so diverged histories are handled.
-        let pull_args: Vec<&str> = if let Some(ref url) = authed_url {
-            vec!["-C", path_str(repo_path), "pull", "--rebase", url, &branch]
-        } else {
-            vec!["-C", path_str(repo_path), "pull", "--rebase", remote, &branch]
-        };
-        // Ignore pull failures (no upstream yet, or empty repo).
-        let _ = Command::new("git").args(&pull_args).output();
+        let pull_remote = authed_url.as_deref().unwrap_or(remote.as_str());
+        let _ = git_cmd(repo_path)
+            .args(["pull", "--rebase", pull_remote, &branch])
+            .output();
 
-        let push_args: Vec<&str> = if let Some(ref url) = authed_url {
-            vec!["-C", path_str(repo_path), "push", "-u", url, &branch]
-        } else {
-            vec!["-C", path_str(repo_path), "push", "-u", remote, &branch]
-        };
-
-        match Command::new("git").args(&push_args).output() {
+        let push_remote = authed_url.as_deref().unwrap_or(remote.as_str());
+        match git_cmd(repo_path)
+            .args(["push", "-u", push_remote, &branch])
+            .output() {
             Err(e) => push_errors.push(format!("({remote}) {e}")),
             Ok(o) if !o.status.success() => {
                 let msg = lossy_combined(&o);
@@ -288,10 +296,8 @@ fn path_str(p: &Path) -> &str {
 }
 
 fn run_git(repo_path: &Path, args: &[&str]) -> Result<(), String> {
-    let mut cmd_args = vec!["-C", path_str(repo_path)];
-    cmd_args.extend_from_slice(args);
-    let out = Command::new("git")
-        .args(&cmd_args)
+    let out = git_cmd(repo_path)
+        .args(args)
         .output()
         .map_err(|e| e.to_string())?;
     if out.status.success() {

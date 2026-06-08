@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.12.12] — 2026-06-08
+
+### Fixed
+- **Flatpak: git sync now works** — all `git` calls delegate to the host system via `flatpak-spawn --host git`; added `--talk-name=org.freedesktop.Flatpak` to finish-args
+- **Flatpak: Typst package cache accessible** — added `--filesystem=~/.cache/typst` so packages installed on the host are found inside the sandbox
+
+---
+
 ## [0.12.11] — 2026-06-08
 
 ### Changed
