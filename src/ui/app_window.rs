@@ -5,7 +5,7 @@ use std::time::{Duration, SystemTime};
 
 use gtk4::prelude::*;
 use gtk4::{
-    Align, Box as GtkBox, Button, Entry, Label, MenuButton,
+    AlertDialog, Align, Box as GtkBox, Button, Entry, Label, MenuButton,
     Notebook, Orientation, Paned, Popover, ScrolledWindow, Separator, Stack, ToggleButton,
 };
 use libadwaita as adw;
@@ -449,12 +449,17 @@ impl AppWindow {
                         last_group = group;
                     }
                     let date_str = format_file_mtime(mtime);
+
+                    // Row: open button (left, expands) + trash button (right)
+                    let outer_row = GtkBox::new(Orientation::Horizontal, 0);
+                    outer_row.set_hexpand(true);
+
                     let btn = Button::new();
                     btn.add_css_class("flat");
                     btn.set_hexpand(true);
                     let row_box = GtkBox::new(Orientation::Vertical, 2);
                     row_box.set_margin_start(10);
-                    row_box.set_margin_end(10);
+                    row_box.set_margin_end(4);
                     row_box.set_margin_top(5);
                     row_box.set_margin_bottom(5);
                     let name_lbl = Label::new(Some(&name));
@@ -478,7 +483,53 @@ impl AppWindow {
                         }
                         pop.popdown();
                     });
-                    open_list_rc.append(&btn);
+
+                    let del_btn = Button::from_icon_name("user-trash-symbolic");
+                    del_btn.add_css_class("flat");
+                    del_btn.set_valign(gtk4::Align::Center);
+                    del_btn.set_margin_end(4);
+                    del_btn.set_tooltip_text(Some("Delete file"));
+
+                    let path_del = path.clone();
+                    let name_del = name.clone();
+                    let outer_for_del = outer_row.clone();
+                    let cfg_del = config_for_open.clone();
+                    let ep_del = editor_for_open.clone();
+                    del_btn.connect_clicked(move |_| {
+                        let alert = AlertDialog::builder()
+                            .modal(true)
+                            .message("Delete this file?")
+                            .detail(&format!("'{}' will be permanently deleted.", name_del))
+                            .buttons(["Cancel", "Delete"])
+                            .cancel_button(0)
+                            .default_button(0)
+                            .build();
+                        let path_c = path_del.clone();
+                        let outer_c = outer_for_del.clone();
+                        let cfg_c = cfg_del.clone();
+                        let ep_c = ep_del.clone();
+                        alert.choose(
+                            None::<&gtk4::Window>,
+                            None::<&gtk4::gio::Cancellable>,
+                            move |result| {
+                                if result == Ok(1) {
+                                    let _ = std::fs::remove_file(&path_c);
+                                    cfg_c.borrow_mut().recent_files.retain(|p| p != &path_c);
+                                    let _ = cfg_c.borrow().save();
+                                    ep_c.close_file_if_open(&path_c);
+                                    if let Some(parent) = outer_c.parent() {
+                                        if let Ok(p) = parent.downcast::<GtkBox>() {
+                                            p.remove(&outer_c);
+                                        }
+                                    }
+                                }
+                            },
+                        );
+                    });
+
+                    outer_row.append(&btn);
+                    outer_row.append(&del_btn);
+                    open_list_rc.append(&outer_row);
                 }
             });
 

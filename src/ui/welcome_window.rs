@@ -47,7 +47,7 @@ impl WelcomeWindow {
 
         body.append(&section_label(&format!("What's New in {VERSION}")));
         for item in [
-            "Right-click any editor tab to close it or permanently delete the file",
+            "Delete files from the open dropdown — trash icon beside each file, with confirmation",
             "Author and affiliation fields in the template dialog have a lock button — save your name and institution so they appear automatically in new documents",
             "Date field in the template dialog notes that it defaults to today if left blank",
             "If a bibliography file is set in Settings, new documents use it automatically",

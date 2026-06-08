@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.12.33-rc2] — 2026-06-08
+
+### Added
+
+- Delete button (trash icon) beside every file in the open dropdown — asks for confirmation, removes from disk, closes the tab if open, and removes the row from the list
+
+---
+
 ## [0.12.33-rc1] — 2026-06-08
 
 ### Added / Changed
