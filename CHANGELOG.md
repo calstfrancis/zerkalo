@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.12.16] — 2026-06-08
+
+### Added
+- Help window: new "Projects" tab covering the full multi-file workflow (wizard, root, file tree, #include helper, project config, worked example)
+- Help window: Overview tab now mentions multi-file projects with a pointer to the Projects tab
+- Help window: five new FAQ entries (create a project, root concept, ★ indicator, add a chapter, missing root chip)
+- README: Multi-file projects feature table; updated file tree row description
+
+---
+
 ## [0.12.15] — 2026-06-08
 
 ### Added
