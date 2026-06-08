@@ -46,6 +46,11 @@
   </developer>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.12.19" date="2026-06-08">
+      <description>
+        <p>Template build system: templates are now real .typ files editable without touching Rust; user templates auto-load from ~/.config/zerkalo/templates/. New Chapter button creates a file and inserts #include in main.typ. Project Settings dialog for per-project root and bibliography. Cross-file outline shows headings from all project files.</p>
+      </description>
+    </release>
     <release version="0.12.18" date="2026-06-08">
       <description>
         <p>Multi-file project system: New Project wizard with four templates (Blank, Essay, Journal/Thesis, Theological Journal), compilation root indicator (★) in the file tree, status bar root chip with quick-switch popover, collapsible directory rows, #include and #import insert helpers, and session-restore fixes for newly created projects.</p>
