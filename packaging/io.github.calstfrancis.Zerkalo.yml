@@ -54,3 +54,4 @@ modules:
       - install -Dm644 packaging/io.github.calstfrancis.Zerkalo.desktop /app/share/applications/io.github.calstfrancis.Zerkalo.desktop
       - install -Dm644 packaging/zerkalo.svg /app/share/icons/hicolor/scalable/apps/io.github.calstfrancis.Zerkalo.svg
       - install -Dm644 io.github.calstfrancis.Zerkalo.metainfo.xml /app/share/metainfo/io.github.calstfrancis.Zerkalo.metainfo.xml
+      - install -Dm644 packaging/gosttypeb.ttf /app/share/fonts/gosttypeb.ttf

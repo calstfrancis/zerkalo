@@ -45,16 +45,16 @@ impl WelcomeWindow {
         body.append(&sub_lbl);
         body.append(&Separator::new(Orientation::Horizontal));
 
-        body.append(&section_label("What's New"));
+        body.append(&section_label("What's New in 0.12"));
         for item in [
-            "Live Typst preview with fit-width, fit-page, and zoom controls",
-            "Searchable document browser scans your work directory",
-            "Git commit-and-push sync from the toolbar",
-            "Symbol insert panel — Greek, Cyrillic, Hebrew, Devanagari",
-            "GOST Type B engineering font toggle in the sidebar",
-            "Citation autocomplete via .bib file (type @ in the editor)",
-            "Export to PDF, HTML (typst), and DOCX (pandoc)",
-            "Pop-out preview window for dual-monitor setups",
+            "Multi-file projects: New Project wizard with four built-in templates",
+            "Template build system: edit built-in templates as real .typ files; add custom templates to ~/.config/zerkalo/templates/",
+            "New Chapter button in the file tree — creates a chapter file and wires up #include automatically",
+            "Project Settings dialog: change the compilation root and bibliography per project",
+            "Cross-file outline: headings from all project files, with file labels and jump-to-line",
+            "Command palette (Ctrl+K) — fuzzy search over commands and headings",
+            "Breadcrumb bar shows heading path as the cursor moves",
+            "Configurable keybindings via keybindings.toml",
         ] {
             body.append(&bullet_row(item));
         }
