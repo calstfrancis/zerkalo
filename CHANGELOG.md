@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.4-rc4] — 2026-06-09
+
+### Fixed
+
+- Citation popup: when appearing above the cursor, the bottom of the popup now lands at the cursor line's top edge — the cursor line is fully visible.
+
+---
+
 ## [0.13.4-rc3] — 2026-06-09
 
 ### Fixed

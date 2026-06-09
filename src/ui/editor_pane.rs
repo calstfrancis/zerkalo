@@ -1823,9 +1823,12 @@ impl EditorPane {
             let (_, wy_top) = view_ac.buffer_to_window_coords(
                 TextWindowType::Widget, loc.x(), loc.y());
             let view_h = view_ac.allocated_height() as i32;
-            let wy = if wy_bottom > view_h / 2 { wy_top } else { wy_bottom };
+            // above=true: popup uses PositionType::Top, its bottom lands at wy_top (cursor top)
+            // above=false: popup uses PositionType::Bottom, its top lands at wy_bottom (cursor bottom)
+            let above = wy_bottom > view_h / 2;
+            let wy = if above { wy_top } else { wy_bottom };
             *bib_active_ac.borrow_mut() = true;
-            popup_ac.show_filtered(query, wx, wy);
+            popup_ac.show_filtered(query, wx, wy, above);
         });
 
         // ── #-function LSP autocomplete ───────────────────────────────────────
