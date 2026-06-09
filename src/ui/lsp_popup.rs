@@ -55,7 +55,21 @@ impl LspPopup {
         let on_complete: Rc<RefCell<Option<Box<dyn Fn(CompletionItem)>>>> =
             Rc::new(RefCell::new(None));
 
-        Self { popover, list_box, items, on_complete }
+        let p = Self { popover, list_box, items, on_complete };
+
+        // Double-click (or Enter key on the list) triggers completion
+        {
+            let items2 = p.items.clone();
+            let cb2 = p.on_complete.clone();
+            p.list_box.connect_row_activated(move |_, row| {
+                let idx = row.index() as usize;
+                if let Some(item) = items2.borrow().get(idx).cloned() {
+                    if let Some(f) = cb2.borrow().as_ref() { f(item); }
+                }
+            });
+        }
+
+        p
     }
 
     pub fn set_on_complete(&self, f: impl Fn(CompletionItem) + 'static) {
@@ -64,7 +78,7 @@ impl LspPopup {
 
     /// Replace the popup contents with new items and show at position (x, y)
     /// relative to the parent widget.
-    pub fn show_items(&self, new_items: Vec<CompletionItem>, x: i32, y: i32) {
+    pub fn show_items(&self, mut new_items: Vec<CompletionItem>, x: i32, y: i32) {
         self.clear_rows();
 
         if new_items.is_empty() {
@@ -74,6 +88,8 @@ impl LspPopup {
             *self.items.borrow_mut() = Vec::new();
             return;
         }
+
+        new_items.sort_by(|a, b| a.label.to_lowercase().cmp(&b.label.to_lowercase()));
 
         for item in &new_items {
             self.append_row(item);

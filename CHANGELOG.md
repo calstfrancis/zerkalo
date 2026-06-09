@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.3] — 2026-06-09
+
+### Changed
+
+- LSP status indicator: running dot (●) is now green, error (✗) is red.
+- LSP completion popup: items are now sorted alphabetically.
+- LSP completion popup: double-click on a row inserts the completion (Tab and Enter already worked).
+
+---
+
 ## [0.13.2] — 2026-06-09
 
 ### Fixed
