@@ -46,7 +46,7 @@
   </developer>
   <content_rating type="oars-1.1"/>
   <releases>
-    <release version="0.13.1-rc1" date="2026-06-08">
+    <release version="0.13.1" date="2026-06-08">
       <description>
         <p>Simple Mode toggle in status bar: hides Typst front-matter above the document body. Style dropdown moved to the toolbar. Open-tabs button removed.</p>
       </description>
