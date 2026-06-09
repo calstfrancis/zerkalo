@@ -507,7 +507,7 @@ impl EditorPane {
                     for (path, tab) in &bstate.tabs {
                         if nb.page_num(&tab.scroll_window) == Some(page_num) {
                             let (s, e) = tab.buffer.bounds();
-                            let content = tab.buffer.text(&s, &e, false).to_string();
+                            let content = tab.buffer.text(&s, &e, true).to_string();
                             let can_undo = tab.buffer.can_undo();
                             let can_redo = tab.buffer.can_redo();
                             let session_start = tab.session_start_words;
@@ -1111,6 +1111,7 @@ impl EditorPane {
             };
             if let Some(buffer) = buffer_opt {
                 buffer.set_text(&new_content);
+                apply_simple_mode_tag(&buffer, *self.simple_mode.borrow());
             }
         }
     }
@@ -1218,7 +1219,7 @@ impl EditorPane {
         let state = self.state.borrow();
         for tab in state.tabs.values() {
             let (s, e) = tab.buffer.bounds();
-            let text = tab.buffer.text(&s, &e, false).to_string();
+            let text = tab.buffer.text(&s, &e, true).to_string();
             let buffer = tab.buffer.clone();
             let langs = languages.clone();
             let ig = ignored.clone();
@@ -1263,6 +1264,7 @@ impl EditorPane {
         };
         if let Some((buffer, scroll)) = existing {
             buffer.set_text(content);
+            apply_simple_mode_tag(&buffer, *self.simple_mode.borrow());
             if let Some(n) = self.notebook.page_num(&scroll) {
                 self.notebook.set_current_page(Some(n));
             }
@@ -2359,7 +2361,7 @@ impl EditorPane {
                         return glib::ControlFlow::Break;
                     }
                     let (s, e) = buf2.bounds();
-                    let text = buf2.text(&s, &e, false).to_string();
+                    let text = buf2.text(&s, &e, true).to_string();
                     let words = crate::spellcheck::extract_words(&text);
                     let unique: Vec<&str> = {
                         let mut seen = HashSet::new();
@@ -2713,7 +2715,7 @@ impl EditorPane {
                         let pop_fix = popover.clone();
                         fix_btn.connect_clicked(move |_| {
                             let (s, e) = buf_fix.bounds();
-                            let text = buf_fix.text(&s, &e, false).to_string();
+                            let text = buf_fix.text(&s, &e, true).to_string();
                             if let Some(patched) = fix_fn(&text, line_fix) {
                                 buf_fix.begin_user_action();
                                 let mut start = buf_fix.start_iter();
@@ -2845,7 +2847,7 @@ impl EditorPane {
             if let Some(n) = self.notebook.page_num(&tab.scroll_window) {
                 if n == current {
                     let (start, end) = tab.buffer.bounds();
-                    return Some(tab.buffer.text(&start, &end, false).to_string());
+                    return Some(tab.buffer.text(&start, &end, true).to_string());
                 }
             }
         }
@@ -2866,6 +2868,7 @@ impl EditorPane {
         };
         if let Some(buffer) = buf {
             buffer.set_text(text);
+            apply_simple_mode_tag(&buffer, *self.simple_mode.borrow());
         }
     }
 
@@ -2877,6 +2880,7 @@ impl EditorPane {
         let buf = self.state.borrow().tabs.get(path).map(|t| t.buffer.clone());
         if let Some(buffer) = buf {
             buffer.set_text(text);
+            apply_simple_mode_tag(&buffer, *self.simple_mode.borrow());
         }
     }
 
@@ -2953,7 +2957,7 @@ impl EditorPane {
             .filter(|(_, tab)| tab.modified)
             .map(|(path, tab)| {
                 let (s, e) = tab.buffer.bounds();
-                (path.clone(), tab.buffer.text(&s, &e, false).to_string())
+                (path.clone(), tab.buffer.text(&s, &e, true).to_string())
             })
             .collect()
     }
@@ -2965,7 +2969,7 @@ impl EditorPane {
                 continue;
             }
             let (start, end) = tab.buffer.bounds();
-            let content = tab.buffer.text(&start, &end, false);
+            let content = tab.buffer.text(&start, &end, true);
             if std::fs::write(path, content.as_bytes()).is_ok() {
                 tab.modified = false;
                 tab.dot_label.set_visible(false);
@@ -3034,7 +3038,7 @@ impl EditorPane {
     pub fn active_text(&self) -> Option<String> {
         let (_, buf) = self.active_view_buffer()?;
         let (s, e) = buf.bounds();
-        Some(buf.text(&s, &e, false).to_string())
+        Some(buf.text(&s, &e, true).to_string())
     }
 
     /// Returns the in-memory content of every open tab as (path, text) pairs.
@@ -3042,7 +3046,7 @@ impl EditorPane {
         self.state.borrow().tabs.iter()
             .map(|(path, tab)| {
                 let (s, e) = tab.buffer.bounds();
-                let text = tab.buffer.text(&s, &e, false).to_string();
+                let text = tab.buffer.text(&s, &e, true).to_string();
                 (path.clone(), text)
             })
             .collect()

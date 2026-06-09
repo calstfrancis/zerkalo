@@ -47,7 +47,7 @@ impl WelcomeWindow {
 
         body.append(&section_label(&format!("What's New in {VERSION}")));
         for item in [
-            "Simple Mode (SIMPLE in the status bar): hides Typst front-matter so you see only your document body — edit template settings via Update Template",
+            "Simple Mode (SIMPLE in the status bar): hides Typst front-matter so you see only your document body — stays on after Update Template or Style changes",
             "Style dropdown moved to the toolbar (breadcrumb bar, next to word-wrap and undo/redo)",
             "Preview scrolls immediately after the first compile — no longer requires a pane resize",
             "Export for Web — converts the active Typst file to an embeddable HTML fragment with hover footnote tooltips (light and dark mode aware)",
