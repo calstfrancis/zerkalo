@@ -4,8 +4,8 @@ use std::rc::Rc;
 use gtk4::gdk::Rectangle;
 use gtk4::prelude::*;
 use gtk4::{
-    Align, Box as GtkBox, Label, ListBox, ListBoxRow, Orientation, Popover, ScrolledWindow,
-    SelectionMode, Separator,
+    Align, Box as GtkBox, Label, ListBox, ListBoxRow, Orientation, Popover, PositionType,
+    ScrolledWindow, SelectionMode, Separator,
 };
 
 use crate::lsp::CompletionItem;
@@ -23,7 +23,7 @@ impl LspPopup {
     pub fn new(parent: &impl IsA<gtk4::Widget>) -> Self {
         let popover = Popover::new();
         popover.set_has_arrow(false);
-        popover.set_autohide(true);
+        popover.set_autohide(false);
         popover.set_parent(parent);
 
         let list_box = ListBox::new();
@@ -97,8 +97,9 @@ impl LspPopup {
     }
 
     /// Replace the popup contents with a new master item list and show at (x, y).
+    /// `above`: true = popup sits above the cursor (PositionType::Top), false = below.
     /// Resets any active filter. Call `apply_filter` afterwards to filter the new list.
-    pub fn show_items(&self, mut new_items: Vec<CompletionItem>, x: i32, y: i32) {
+    pub fn show_items(&self, mut new_items: Vec<CompletionItem>, x: i32, y: i32, above: bool) {
         self.clear_rows();
         *self.filter_prefix.borrow_mut() = String::new();
 
@@ -123,6 +124,7 @@ impl LspPopup {
             self.list_box.select_row(Some(&row));
         }
 
+        self.popover.set_position(if above { PositionType::Top } else { PositionType::Bottom });
         self.popover.set_pointing_to(Some(&Rectangle::new(x, y, 1, 1)));
         if !self.popover.is_visible() {
             self.popover.popup();
@@ -154,6 +156,43 @@ impl LspPopup {
         }
     }
 
+    /// Merge additional items into the existing master list (dedup by label, re-sort, re-filter).
+    /// Used when LSP results arrive after the popup was already shown with local snippets.
+    pub fn merge_items(&self, new_items: Vec<CompletionItem>) {
+        let any_new = {
+            let existing = self.items.borrow();
+            new_items.iter().any(|ni| !existing.iter().any(|ei| ei.label == ni.label))
+        };
+        if !any_new { return; }
+
+        let mut all = self.items.borrow().clone();
+        for item in new_items {
+            if !all.iter().any(|ei| ei.label == item.label) {
+                all.push(item);
+            }
+        }
+        all.sort_by(|a, b| a.label.to_lowercase().cmp(&b.label.to_lowercase()));
+
+        self.clear_rows();
+        for item in &all {
+            self.append_row(item);
+        }
+        *self.items.borrow_mut() = all;
+
+        let prefix = self.filter_prefix.borrow().clone();
+        self.list_box.invalidate_filter();
+        let first_idx = {
+            let items = self.items.borrow();
+            if prefix.is_empty() { Some(0usize) }
+            else { items.iter().position(|item| item.label.to_lowercase().starts_with(&prefix)) }
+        };
+        if let Some(idx) = first_idx {
+            if let Some(row) = self.list_box.row_at_index(idx as i32) {
+                self.list_box.select_row(Some(&row));
+            }
+        }
+    }
+
     pub fn hide(&self) {
         if self.popover.is_visible() {
             self.popover.popdown();
@@ -175,13 +214,20 @@ impl LspPopup {
     }
 
     pub fn move_selection(&self, delta: i32) {
-        let current = self
-            .list_box
-            .selected_row()
-            .map(|r| r.index())
-            .unwrap_or(0);
-        let next = (current + delta).max(0);
-        if let Some(row) = self.list_box.row_at_index(next) {
+        // Collect only the visible row indices (filter may hide some)
+        let mut visible: Vec<i32> = Vec::new();
+        let mut i = 0i32;
+        while let Some(row) = self.list_box.row_at_index(i) {
+            if row.is_visible() {
+                visible.push(i);
+            }
+            i += 1;
+        }
+        if visible.is_empty() { return; }
+        let current_idx = self.list_box.selected_row().map(|r| r.index()).unwrap_or(-1);
+        let pos = visible.iter().position(|&idx| idx == current_idx).unwrap_or(0) as i32;
+        let next_pos = (pos + delta).clamp(0, visible.len() as i32 - 1) as usize;
+        if let Some(row) = self.list_box.row_at_index(visible[next_pos]) {
             self.list_box.select_row(Some(&row));
         }
     }

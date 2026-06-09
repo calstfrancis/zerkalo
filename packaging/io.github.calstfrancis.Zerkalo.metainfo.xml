@@ -57,6 +57,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.13.5-rc3" date="2026-06-09">
+      <description>
+        <p>Completion popup fixes: no longer steals focus or blocks typing; no longer covers the cursor; appears immediately on # with built-in snippets then merges LSP results; arrow keys skip filtered-out rows; Escape deletes the typed #word.</p>
+      </description>
+    </release>
     <release version="0.13.5-rc2" date="2026-06-09">
       <description>
         <p>Completion popup client-side filter (shows all completions, narrows as you type); numbering format selector (Decimal / IEEE Roman / Alpha); Preview Code button in template dialog; IEEE/GOST/Vancouver numbering now user-controlled; heading numbers now actually render in all styles; Outline/Symbols panel buttons use symbolic icons.</p>

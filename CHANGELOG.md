@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.5-rc3] — 2026-06-09
+
+### Fixed
+
+- **Completion popup arrow-key navigation** now skips hidden (filtered-out) rows correctly.
+- **Escape in completion popup** now deletes the typed `#word` back to before the `#`, matching standard editor behaviour.
+- **Completion popup appears immediately** when `#` is typed using built-in snippets; LSP results are merged in when they arrive (~150 ms later).
+- **Completion popup no longer steals focus or blocks typing** (`autohide: false`; focus stays in the editor).
+- **Completion popup no longer covers the cursor** (above/below logic, same as citation popup).
+
 ## [0.13.5-rc2] — 2026-06-09
 
 ### Added

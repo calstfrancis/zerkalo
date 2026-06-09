@@ -47,12 +47,12 @@ impl WelcomeWindow {
 
         body.append(&section_label(&format!("What's New in {VERSION}")));
         for item in [
-            "Completion popup now shows all snippets when # is typed and filters as you type — no more missing completions",
-            "Template dialog: \"Numbering Format\" row lets you choose Decimal (1.1.1.), IEEE Roman (I.A.1.), or Alpha (a.a.a.)",
-            "Template dialog: \"Preview Code…\" button shows the generated Typst preamble before you apply it",
-            "Heading numbers now render correctly — fixed for all styles (GOST, Vancouver, IEEE)",
-            "IEEE / GOST / Vancouver numbering is now user-controlled: the Numbered Headings toggle turns it on or off",
-            "Outline and Symbols panel buttons now use symbolic icons instead of text labels",
+            "Completion popup appears instantly when # is typed; LSP results merge in ~150 ms later",
+            "Completion popup stays out of the way: no focus steal, no cursor cover, arrow keys skip filtered rows, Esc removes the typed word",
+            "Template dialog: \"Numbering Format\" row (Decimal / IEEE Roman / Alpha) and \"Preview Code…\" button",
+            "Heading numbers now render correctly for all styles (GOST, Vancouver, IEEE)",
+            "IEEE / GOST / Vancouver numbered headings are now togglable via the Numbered Headings switch",
+            "Outline and Symbols panel buttons now use symbolic icons",
         ] {
             body.append(&bullet_row(item));
         }
