@@ -46,6 +46,16 @@
   </developer>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.13.4-rc7" date="2026-06-09">
+      <description>
+        <p>Ctrl+B/I for bold/italic; section word count in status bar; compile progress stripe in header. Preview pages now have drop shadows; status bar has group separators; modified-dot uses accent color.</p>
+      </description>
+    </release>
+    <release version="0.13.4-rc6" date="2026-06-09">
+      <description>
+        <p>Ctrl+Shift+E exports PDF directly to the document folder. Window title shows the document title field or first heading instead of filename. Citation sidebar now inserts on single click.</p>
+      </description>
+    </release>
     <release version="0.13.4-rc5" date="2026-06-09">
       <description>
         <p>Fix: auto-compile no longer dies after typing @. Fix: GOST style now uses correct bundled style name gost-r-705-2008-numeric.</p>

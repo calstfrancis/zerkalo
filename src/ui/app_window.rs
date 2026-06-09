@@ -1749,10 +1749,11 @@ impl AppWindow {
             preview_for_switch.set_root_file(path.clone());
             preview_for_switch.trigger_compile();
             todo_panel_for_switch.set_current_file(Some(&path));
-            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                let display = name.strip_suffix(".typ").unwrap_or(name);
-                title_widget_for_switch.set_title(display);
-            }
+            let title = extract_doc_title(&content).or_else(|| {
+                path.file_name().and_then(|n| n.to_str())
+                    .map(|n| n.strip_suffix(".typ").unwrap_or(n).to_string())
+            }).unwrap_or_default();
+            title_widget_for_switch.set_title(&title);
             let style_name = super::template_dialog::parse_style_key(&content)
                 .and_then(|key| super::template_dialog::style_name_for_key(&key))
                 .unwrap_or("Style");
@@ -1785,6 +1786,7 @@ impl AppWindow {
         let window_for_recovery = window.clone();
         let style_btn_for_open = style_btn.clone();
         let file_start_words_for_open = file_start_words.clone();
+        let title_widget_for_open = file_title_widget.clone();
         editor_pane.set_on_file_opened(move |path, content| {
             // Track initial word count for this file (first open only)
             let mut starts = file_start_words_for_open.borrow_mut();
@@ -1801,6 +1803,11 @@ impl AppWindow {
                 .and_then(|key| super::template_dialog::style_name_for_key(&key))
                 .unwrap_or("Style");
             style_btn_for_open.set_label(style_name);
+            let title = extract_doc_title(&content).or_else(|| {
+                path.file_name().and_then(|n| n.to_str())
+                    .map(|n| n.strip_suffix(".typ").unwrap_or(n).to_string())
+            }).unwrap_or_default();
+            title_widget_for_open.set_title(&title);
             let mut cfg = current_config_for_open.borrow_mut();
             cfg.push_recent(path.clone());
             let _ = cfg.save();
@@ -1870,6 +1877,15 @@ impl AppWindow {
         // LSP dedup: when LSP has live diagnostics, suppress compile-stderr errors
         let lsp_has_diags: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
 
+        let compile_progress = gtk4::ProgressBar::new();
+        compile_progress.add_css_class("compile-progress");
+        compile_progress.set_pulse_step(0.08);
+        let compile_rev = gtk4::Revealer::new();
+        compile_rev.set_transition_type(gtk4::RevealerTransitionType::SlideDown);
+        compile_rev.set_transition_duration(120);
+        compile_rev.set_child(Some(&compile_progress));
+        compile_rev.set_reveal_child(false);
+
         let error_panel_for_compile = error_panel.clone();
         let editor_for_diag = editor_pane.clone();
         let root_for_compile = project_root.clone();
@@ -1881,7 +1897,26 @@ impl AppWindow {
         let _file_tree_holder_for_compile = file_tree_holder.clone();
         let toast_for_compile = toast_overlay.clone();
         let has_errors_for_compile = has_compile_errors.clone();
+
+        let compile_rev_for_start = compile_rev.clone();
+        let compile_bar_for_start = compile_progress.clone();
+        preview_pane.set_on_compile_start(move || {
+            compile_rev_for_start.set_reveal_child(true);
+            let bar = compile_bar_for_start.clone();
+            let rev = compile_rev_for_start.clone();
+            glib::timeout_add_local(Duration::from_millis(80), move || {
+                if rev.reveals_child() {
+                    bar.pulse();
+                    glib::ControlFlow::Continue
+                } else {
+                    glib::ControlFlow::Break
+                }
+            });
+        });
+
+        let compile_rev_for_done = compile_rev.clone();
         preview_pane.set_on_compile_done(move |result| {
+            compile_rev_for_done.set_reveal_child(false);
             match &result {
                 None => {
                     *has_errors_for_compile.borrow_mut() = false;
@@ -3019,6 +3054,7 @@ impl AppWindow {
 
         let toolbar_view = adw::ToolbarView::new();
         toolbar_view.add_top_bar(&header);
+        toolbar_view.add_bottom_bar(&compile_rev);
         toolbar_view.set_content(Some(&toast_for_sync_btn));
 
         window.set_content(Some(&toolbar_view));
@@ -3081,6 +3117,7 @@ impl AppWindow {
         let file_tree = self.file_tree.clone();
         let kb_manual_only = self.manual_compile_only.clone();
         let snapshot_root = self.project_root.clone();
+        let toast_for_key = self.toast_overlay.clone();
         let controller = gtk4::EventControllerKey::new();
 
         // ── Command palette (Ctrl+P) ────────────────────────────────────────
@@ -3257,6 +3294,58 @@ impl AppWindow {
                             }
                         }
                     }
+                }
+            }
+
+            // Ctrl+Shift+E — export PDF to document directory (no dialog)
+            {
+                use gtk4::gdk::Key;
+                if ctrl && shift && key == Key::e {
+                    editor.save_all_modified();
+                    if let Some(root_path) = preview.root_file_path() {
+                        let dest = root_path.with_extension("pdf");
+                        let t = adw::Toast::new("Exporting PDF…");
+                        t.set_timeout(2);
+                        toast_for_key.add_toast(t);
+                        let (tx, rx) = std::sync::mpsc::sync_channel::<Result<Vec<u8>, String>>(1);
+                        let root_for_thread = root_path.clone();
+                        std::thread::spawn(move || {
+                            let result = crate::compiler::compile_to_pdf_bytes(
+                                &root_for_thread,
+                                &std::collections::HashMap::new(),
+                                &std::collections::HashMap::new(),
+                            ).map_err(|e| e.to_string());
+                            let _ = tx.send(result);
+                        });
+                        let toast_ref = toast_for_key.clone();
+                        glib::timeout_add_local(Duration::from_millis(100), move || {
+                            use std::sync::mpsc::TryRecvError;
+                            match rx.try_recv() {
+                                Ok(Ok(bytes)) => {
+                                    let msg = match std::fs::write(&dest, &bytes) {
+                                        Ok(_) => format!(
+                                            "Exported {}",
+                                            dest.file_name().and_then(|n| n.to_str()).unwrap_or("PDF")
+                                        ),
+                                        Err(e) => format!("Write failed: {e}"),
+                                    };
+                                    let t = adw::Toast::new(&msg);
+                                    t.set_timeout(4);
+                                    toast_ref.add_toast(t);
+                                    glib::ControlFlow::Break
+                                }
+                                Ok(Err(e)) => {
+                                    let t = adw::Toast::new(&format!("Export failed: {e}"));
+                                    t.set_timeout(4);
+                                    toast_ref.add_toast(t);
+                                    glib::ControlFlow::Break
+                                }
+                                Err(TryRecvError::Empty) => glib::ControlFlow::Continue,
+                                Err(_) => glib::ControlFlow::Break,
+                            }
+                        });
+                    }
+                    return glib::Propagation::Stop;
                 }
             }
 
@@ -3962,7 +4051,8 @@ fn show_dynamic_shortcuts_window(
          Find in Files       Ctrl+Shift+F\n\n\
          Compile & Preview\n\
          \u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\n\
-         Compile             {compile}\n\n\
+         Compile             {compile}\n\
+         Export PDF          Ctrl+Shift+E\n\n\
          Git & App\n\
          \u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\n\
          Git Sync            {git_sync}\n\
@@ -4059,6 +4149,51 @@ fn compute_include_path(preview: &super::preview_pane::PreviewPane, abs_path: &s
         .and_then(|n| n.to_str())
         .unwrap_or("file.typ")
         .to_string()
+}
+
+fn extract_doc_title(content: &str) -> Option<String> {
+    // 1. TOML/YAML front-matter: ---\ntitle = "..." or title: ...\n---
+    if content.starts_with("---\n") {
+        let rest = &content[4..];
+        let end = rest.find("\n---\n").or_else(|| rest.find("\n---"));
+        if let Some(end) = end {
+            for line in rest[..end].lines() {
+                if let Some(val) = line.strip_prefix("title = ").or_else(|| line.strip_prefix("title: ")) {
+                    let title = val.trim().trim_matches('"').to_string();
+                    if !title.is_empty() {
+                        return Some(title);
+                    }
+                }
+            }
+        }
+    }
+    // 2. #set document(title: "...")
+    for line in content.lines() {
+        let t = line.trim();
+        if t.starts_with("#set document(") {
+            if let Some(pos) = t.find("title:") {
+                let after = t[pos + "title:".len()..].trim();
+                if after.starts_with('"') {
+                    if let Some(end) = after[1..].find('"') {
+                        let title = after[1..end + 1].to_string();
+                        if !title.is_empty() {
+                            return Some(title);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // 3. First = Heading
+    for line in content.lines() {
+        if let Some(h) = line.strip_prefix("= ") {
+            let title = h.trim().to_string();
+            if !title.is_empty() {
+                return Some(title);
+            }
+        }
+    }
+    None
 }
 
 /// Strip pandoc's generated `#set` preamble from a standalone Typst output so we can
@@ -4412,6 +4547,18 @@ fn load_app_css() {
             min-width: 20px; \
             min-height: 20px; \
             padding: 2px; \
+        } \
+        .modified-dot { \
+            color: @accent_color; \
+            font-size: 8px; \
+        } \
+        .statusbar-sep { \
+            opacity: 0.25; \
+        } \
+        .compile-progress { \
+            min-height: 3px; \
+            padding: 0; \
+            border-radius: 0; \
         }",
     );
     if let Some(display) = gtk4::gdk::Display::default() {

@@ -38,6 +38,7 @@ pub struct PreviewPane {
     auto_fit: Rc<RefCell<bool>>,
     on_compile_done: Rc<RefCell<Option<Box<dyn Fn(Option<String>)>>>>,
     on_compile_time: Rc<RefCell<Option<Box<dyn Fn(u64)>>>>,
+    on_compile_start: Rc<RefCell<Option<Box<dyn Fn()>>>>,
     on_zoom_changed: Rc<RefCell<Option<Box<dyn Fn(f64)>>>>,
     on_page_changed: Rc<RefCell<Option<Box<dyn Fn(usize, usize)>>>>,
     on_click_jump: Rc<RefCell<Option<Box<dyn Fn(usize, f64)>>>>,
@@ -135,6 +136,16 @@ impl PreviewPane {
             for pb in pbs.iter() {
                 let pw = pb.width() as f64 * z;
                 let ph = pb.height() as f64 * z;
+                // Soft drop shadow (stacked translucent rects, darkest innermost)
+                ctx.set_source_rgba(0.0, 0.0, 0.0, 0.14);
+                ctx.rectangle(2.0, y + 3.0, pw.max(w as f64), ph);
+                ctx.fill().ok();
+                ctx.set_source_rgba(0.0, 0.0, 0.0, 0.07);
+                ctx.rectangle(3.5, y + 5.0, pw.max(w as f64) + 1.0, ph + 1.0);
+                ctx.fill().ok();
+                ctx.set_source_rgba(0.0, 0.0, 0.0, 0.03);
+                ctx.rectangle(5.0, y + 7.0, pw.max(w as f64) + 2.0, ph + 2.0);
+                ctx.fill().ok();
                 // White page background
                 ctx.set_source_rgb(1.0, 1.0, 1.0);
                 ctx.rectangle(0.0, y, pw.max(w as f64), ph);
@@ -208,6 +219,7 @@ impl PreviewPane {
             auto_fit: Rc::new(RefCell::new(true)),
             on_compile_done: Rc::new(RefCell::new(None)),
             on_compile_time: Rc::new(RefCell::new(None)),
+            on_compile_start: Rc::new(RefCell::new(None)),
             on_zoom_changed: Rc::new(RefCell::new(None)),
             on_page_changed: Rc::new(RefCell::new(None)),
             on_click_jump,
@@ -347,6 +359,10 @@ impl PreviewPane {
         *self.on_compile_time.borrow_mut() = Some(Box::new(f));
     }
 
+    pub fn set_on_compile_start(&self, f: impl Fn() + 'static) {
+        *self.on_compile_start.borrow_mut() = Some(Box::new(f));
+    }
+
     pub fn set_on_zoom_changed(&self, f: impl Fn(f64) + 'static) {
         *self.on_zoom_changed.borrow_mut() = Some(Box::new(f));
     }
@@ -477,6 +493,7 @@ impl PreviewPane {
         let my_gen = *self.compile_gen.borrow();
         let gen_rc = self.compile_gen.clone();
 
+        if let Some(f) = self.on_compile_start.borrow().as_ref() { f(); }
         self.spinner.set_spinning(true);
         self.cancel_btn.set_visible(false);
         self.stack.set_visible_child_name("compiling");

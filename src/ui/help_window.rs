@@ -141,7 +141,7 @@ fn shortcuts_blocks() -> Vec<Block<'static>> {
         Block::Code("Ctrl+S              Save current file\nCtrl+F              Find & Replace\nCtrl+Tab            Next tab\nCtrl+Shift+Tab      Previous tab\nCtrl+Left/Right     Word jump (Typst-aware: treats #keyword and @cite as units)\nCtrl+Shift+Up/Down  Jump to previous / next heading in the document\nCtrl+D              Duplicate line or selection\nCtrl+/              Toggle line comment\nCtrl+Enter          Insert page break\nMiddle-click tab    Close tab"),
         Block::Gap,
         Block::H2("Compiling & Preview"),
-        Block::Code("Ctrl+Shift+P        Compile and refresh preview\nAuto-compile        Fires automatically after each change"),
+        Block::Code("Ctrl+Shift+P        Compile and refresh preview\nCtrl+Shift+E        Export PDF to document folder (no dialog)\nAuto-compile        Fires automatically after each change"),
         Block::Gap,
         Block::H2("Navigation"),
         Block::Code("Ctrl+K              Command palette (commands + headings)\nCtrl+G              Command palette pre-filtered to headings only\nCtrl+Shift+F        Find in Files (project-wide search)"),
