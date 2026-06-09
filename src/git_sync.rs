@@ -274,9 +274,18 @@ pub fn sync(repo_path: &Path, github_token: Option<&str>) -> SyncResult {
 
         // Pull --rebase before push so diverged histories are handled.
         let pull_remote = authed_url.as_deref().unwrap_or(remote.as_str());
-        let _ = git_cmd(repo_path)
+        if let Ok(pull_out) = git_cmd(repo_path)
             .args(["pull", "--rebase", pull_remote, &branch])
-            .output();
+            .output()
+        {
+            if !pull_out.status.success() {
+                // Abort the rebase so the repo is left in a clean state.
+                let _ = git_cmd(repo_path).args(["rebase", "--abort"]).output();
+                let msg = lossy_combined(&pull_out);
+                push_errors.push(format!("({remote}) Pull failed: {msg}"));
+                continue;
+            }
+        }
 
         let push_remote = authed_url.as_deref().unwrap_or(remote.as_str());
         match git_cmd(repo_path)

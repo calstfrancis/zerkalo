@@ -1,3 +1,6 @@
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use gtk4::prelude::*;
 use gtk4::{Align, Box as GtkBox, Button, Label, Orientation, ScrolledWindow, Separator};
 use libadwaita as adw;
@@ -7,16 +10,19 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub struct WelcomeWindow {
     window: adw::Window,
+    on_dismissed: Rc<RefCell<Option<Box<dyn Fn()>>>>,
 }
 
 impl WelcomeWindow {
     pub fn new(parent: &impl IsA<gtk4::Window>) -> Self {
+        let on_dismissed: Rc<RefCell<Option<Box<dyn Fn()>>>> = Rc::new(RefCell::new(None));
+
         let window = adw::Window::builder()
             .title("Welcome to Zerkalo")
             .transient_for(parent)
             .modal(true)
             .default_width(500)
-            .default_height(600)
+            .default_height(640)
             .build();
 
         let header = adw::HeaderBar::new();
@@ -47,12 +53,12 @@ impl WelcomeWindow {
 
         body.append(&section_label(&format!("What's New in {VERSION}")));
         for item in [
-            "Completion popup appears instantly when # is typed; LSP results merge in ~150 ms later",
-            "Completion popup stays out of the way: no focus steal, no cursor cover, arrow keys skip filtered rows, Esc removes the typed word",
-            "Template dialog: \"Numbering Format\" row (Decimal / IEEE Roman / Alpha) and \"Preview Code…\" button",
-            "Heading numbers now render correctly for all styles (GOST, Vancouver, IEEE)",
-            "IEEE / GOST / Vancouver numbered headings are now togglable via the Numbered Headings switch",
-            "Outline and Symbols panel buttons now use symbolic icons",
+            "Non-ASCII file paths (Cyrillic, spaces) no longer silently corrupt on open",
+            "File deletes in the open dropdown and file tree now move to system trash with a confirmation prompt",
+            "Simple Mode explanation moved here — no more first-run modal interrupting your flow",
+            "Writing streak survives until midnight before your first write of the day",
+            "LSP diagnostic flicker on keystrokes eliminated; Save As pre-fills untitled.typ",
+            "Multiple missing-tool alerts are now shown as one combined dialog",
         ] {
             body.append(&bullet_row(item));
         }
@@ -61,13 +67,23 @@ impl WelcomeWindow {
         body.append(&section_label("Quick Start"));
         for item in [
             "Open or create a .typ file from the title-bar dropdown",
-            "Edit your document — the preview updates as you type",
-            "Press Ctrl+Shift+P to compile manually at any time",
+            "Press Ctrl+S to save and compile — the preview updates immediately",
+            "Press Ctrl+Shift+P to compile without saving at any time",
             "Type # for Typst function completions (requires tinymist LSP)",
             "Type @ for citation completions (configure .bib in Settings ≡)",
             "Click ⟳ in the toolbar to commit and push to Git",
             "The Outline panel shows headings; click one to jump there",
             "Toggle GOST Type B font and autocorrect in the status bar",
+        ] {
+            body.append(&bullet_row(item));
+        }
+
+        body.append(&Separator::new(Orientation::Horizontal));
+        body.append(&section_label("Simple Mode"));
+        for item in [
+            "Zerkalo hides the Typst front-matter above your document body so you can focus on writing",
+            "To change title, author, style, or other template settings use Update Template Settings in the ≡ menu",
+            "Turn Simple Mode off at any time with the SIMPLE button in the status bar",
         ] {
             body.append(&bullet_row(item));
         }
@@ -109,9 +125,18 @@ impl WelcomeWindow {
         window.set_content(Some(&toolbar_view));
 
         let win_c = window.clone();
-        ok_btn.connect_clicked(move |_| win_c.close());
+        let cb = on_dismissed.clone();
+        ok_btn.connect_clicked(move |_| {
+            win_c.close();
+            if let Some(f) = cb.borrow().as_ref() { f(); }
+        });
 
-        Self { window }
+        Self { window, on_dismissed }
+    }
+
+    /// Called after "Get Started" is clicked (after the window closes).
+    pub fn set_on_dismissed(&self, f: impl Fn() + 'static) {
+        *self.on_dismissed.borrow_mut() = Some(Box::new(f));
     }
 
     pub fn present(&self) {

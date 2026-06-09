@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
 
 use serde::{Deserialize, Serialize};
 
@@ -21,12 +22,18 @@ impl CompileStats {
     }
 }
 
+static CACHE: OnceLock<Mutex<CompileStats>> = OnceLock::new();
+
+fn cache() -> &'static Mutex<CompileStats> {
+    CACHE.get_or_init(|| Mutex::new(load_from_disk()))
+}
+
 fn stats_path() -> PathBuf {
     let base = shellexpand::tilde("~/.cache/zerkalo").into_owned();
     PathBuf::from(base).join("compile_stats.json")
 }
 
-pub fn load() -> CompileStats {
+fn load_from_disk() -> CompileStats {
     let path = stats_path();
     if let Ok(text) = std::fs::read_to_string(&path) {
         if let Ok(s) = serde_json::from_str(&text) {
@@ -36,19 +43,32 @@ pub fn load() -> CompileStats {
     CompileStats::default()
 }
 
+pub fn load() -> CompileStats {
+    cache().lock().unwrap().clone()
+}
+
 pub fn record(ms: u64) {
-    let mut stats = load();
+    let mut stats = cache().lock().unwrap();
     stats.total_compiles += 1;
     stats.total_ms += ms;
     stats.last_ms = ms;
     if ms >= 3000 {
         stats.slow_count += 1;
     }
+    // Flush to disk every 10 compiles to amortise I/O.
+    if stats.total_compiles % 10 == 0 {
+        let snap = stats.clone();
+        drop(stats);
+        flush_to_disk(&snap);
+    }
+}
+
+fn flush_to_disk(stats: &CompileStats) {
     let path = stats_path();
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    if let Ok(json) = serde_json::to_string(&stats) {
+    if let Ok(json) = serde_json::to_string(stats) {
         let _ = std::fs::write(path, json);
     }
 }
