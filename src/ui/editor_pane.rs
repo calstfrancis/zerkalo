@@ -195,6 +195,7 @@ pub struct EditorPane {
     diag_label: Label,
     last_diagnostics: Rc<RefCell<Vec<(PathBuf, u32, bool)>>>,
     cursor_label: Label,
+    section_wc_label: Label,
     breadcrumb_label: Label,
     breadcrumb_bar: GtkBox,
     word_wrap_btn: ToggleButton,
@@ -317,6 +318,14 @@ impl EditorPane {
         status_bar.append(&gost_btn);
         status_bar.append(&search_btn);
 
+        let sb_sep1 = gtk4::Separator::new(Orientation::Vertical);
+        sb_sep1.add_css_class("statusbar-sep");
+        sb_sep1.set_margin_start(6);
+        sb_sep1.set_margin_end(6);
+        sb_sep1.set_margin_top(6);
+        sb_sep1.set_margin_bottom(6);
+        status_bar.append(&sb_sep1);
+
         let undo_btn = Button::from_icon_name("edit-undo-symbolic");
         undo_btn.add_css_class("flat");
         undo_btn.set_tooltip_text(Some("Undo (Ctrl+Z)"));
@@ -371,6 +380,22 @@ impl EditorPane {
             "Simple Mode: hides Typst front-matter above the document body.\nEdit it via the Update Template button.",
         ));
         status_bar.append(&simple_mode_btn);
+
+        let section_wc_label = Label::new(None);
+        section_wc_label.add_css_class("dim-label");
+        section_wc_label.add_css_class("caption");
+        section_wc_label.set_margin_end(8);
+        section_wc_label.set_margin_top(3);
+        section_wc_label.set_margin_bottom(3);
+
+        let sb_sep2 = gtk4::Separator::new(Orientation::Vertical);
+        sb_sep2.add_css_class("statusbar-sep");
+        sb_sep2.set_margin_start(6);
+        sb_sep2.set_margin_end(6);
+        sb_sep2.set_margin_top(6);
+        sb_sep2.set_margin_bottom(6);
+        status_bar.append(&sb_sep2);
+        status_bar.append(&section_wc_label);
 
         let word_count_label = Label::new(Some(""));
         word_count_label.add_css_class("dim-label");
@@ -560,6 +585,7 @@ impl EditorPane {
             diag_label,
             last_diagnostics: Rc::new(RefCell::new(Vec::new())),
             cursor_label,
+            section_wc_label,
             breadcrumb_label,
             breadcrumb_bar,
             word_wrap_btn,
@@ -1405,6 +1431,7 @@ impl EditorPane {
         diag_dot.add_css_class("error");
         diag_dot.set_visible(false);
         let dot_label = Label::new(Some("●"));
+        dot_label.add_css_class("modified-dot");
         dot_label.set_visible(false);
         let close_btn = Button::from_icon_name("window-close-symbolic");
         close_btn.add_css_class("flat");
@@ -1587,6 +1614,8 @@ impl EditorPane {
         // ── Cursor position tracking + heading detection ──────────────────────
 
         let cursor_lbl = self.cursor_label.clone();
+        let section_wc_lbl = self.section_wc_label.clone();
+        let last_section_line: Rc<std::cell::Cell<i32>> = Rc::new(std::cell::Cell::new(-1));
         let wc_lbl_for_sel = self.word_count_label.clone();
         let last_wc_for_mark = self.last_wc_text.clone();
         let breadcrumb_lbl = self.breadcrumb_label.clone();
@@ -1614,6 +1643,18 @@ impl EditorPane {
                 let col = cursor.line_offset() + 1;
                 cursor_lbl.set_text(&format!("L{line}:C{col}"));
                 cursor_lbl.set_tooltip_text(Some(&format!("Line {line}, Column {col}")));
+
+                // Section word count — only recompute when the line changes
+                let cur_line = cursor.line();
+                if cur_line != last_section_line.get() {
+                    last_section_line.set(cur_line);
+                    if let Some(wc) = section_word_count_for_line(buf, cur_line) {
+                        section_wc_lbl.set_text(&format!("§ {wc}"));
+                        section_wc_lbl.set_tooltip_text(Some("Words in this section"));
+                    } else {
+                        section_wc_lbl.set_text("");
+                    }
+                }
 
                 // Selection word/sentence stats — use cached wc to avoid reading entire buffer
                 if let Some((sel_s, sel_e)) = buf.selection_bounds() {
@@ -2194,6 +2235,66 @@ impl EditorPane {
                 glib::Propagation::Stop
             });
             view.add_controller(cmt_ctrl);
+        }
+
+        // ── Bold (Ctrl+B) / Italic (Ctrl+I) ─────────────────────────────────
+        {
+            let buf_bi = buffer.clone();
+            let bi_ctrl = EventControllerKey::new();
+            bi_ctrl.set_propagation_phase(PropagationPhase::Capture);
+            bi_ctrl.connect_key_pressed(move |_, key, _, mods| {
+                use gtk4::gdk::Key;
+                let ctrl = mods.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
+                let shift = mods.contains(gtk4::gdk::ModifierType::SHIFT_MASK);
+                if !ctrl || shift { return glib::Propagation::Proceed; }
+                let marker = match key {
+                    Key::b => "*",
+                    Key::i => "_",
+                    _ => return glib::Propagation::Proceed,
+                };
+                let mlen = marker.len() as i32;
+                if let Some((sel_s, sel_e)) = buf_bi.selection_bounds() {
+                    let start_off = sel_s.offset();
+                    let end_off = sel_e.offset();
+                    let text = buf_bi.text(&sel_s, &sel_e, false).to_string();
+                    buf_bi.begin_user_action();
+                    if text.starts_with(marker) && text.ends_with(marker)
+                        && text.len() > 2 * marker.len()
+                    {
+                        let inner = text[marker.len()..text.len() - marker.len()].to_string();
+                        let inner_len = inner.len() as i32;
+                        let mut s = buf_bi.iter_at_offset(start_off);
+                        let mut e = buf_bi.iter_at_offset(end_off);
+                        buf_bi.delete(&mut s, &mut e);
+                        let mut ins = buf_bi.iter_at_offset(start_off);
+                        buf_bi.insert(&mut ins, &inner);
+                        let ns = buf_bi.iter_at_offset(start_off);
+                        let ne = buf_bi.iter_at_offset(start_off + inner_len);
+                        buf_bi.select_range(&ns, &ne);
+                    } else {
+                        let tlen = text.len() as i32;
+                        let mut s = buf_bi.iter_at_offset(start_off);
+                        let mut e = buf_bi.iter_at_offset(end_off);
+                        buf_bi.delete(&mut s, &mut e);
+                        let mut ins = buf_bi.iter_at_offset(start_off);
+                        buf_bi.insert(&mut ins, &format!("{marker}{text}{marker}"));
+                        let ns = buf_bi.iter_at_offset(start_off + mlen);
+                        let ne = buf_bi.iter_at_offset(start_off + mlen + tlen);
+                        buf_bi.select_range(&ns, &ne);
+                    }
+                    buf_bi.end_user_action();
+                } else {
+                    buf_bi.begin_user_action();
+                    let pos = buf_bi.cursor_position();
+                    let mut ins = buf_bi.iter_at_offset(pos);
+                    buf_bi.insert(&mut ins, &format!("{marker}{marker}"));
+                    let cursor = buf_bi.iter_at_offset(pos + mlen);
+                    buf_bi.place_cursor(&cursor);
+                    buf_bi.end_user_action();
+                }
+                glib::Propagation::Stop
+            });
+            view.add_controller(bi_ctrl);
         }
 
         // ── Duplicate line / selection (Ctrl+D) ──────────────────────────────
@@ -3656,4 +3757,47 @@ fn do_lsp_complete(
     popup.hide();
     view.grab_focus();
     *completing.borrow_mut() = false;
+}
+
+fn section_heading_level(text: &str) -> Option<usize> {
+    let trimmed = text.trim_start();
+    let lvl = trimmed.chars().take_while(|c| *c == '=').count();
+    if lvl > 0 && trimmed[lvl..].starts_with(' ') { Some(lvl) } else { None }
+}
+
+fn section_word_count_for_line(buf: &sourceview5::Buffer, cursor_line: i32) -> Option<u32> {
+    let total = buf.line_count();
+    let mut sec_start = -1i32;
+    let mut sec_level = 0usize;
+    for ln in (0..=cursor_line).rev() {
+        let start = buf.iter_at_line(ln)?;
+        let mut end = start.clone();
+        if !end.ends_line() { end.forward_to_line_end(); }
+        let text = buf.text(&start, &end, false).to_string();
+        if let Some(lvl) = section_heading_level(&text) {
+            sec_start = ln;
+            sec_level = lvl;
+            break;
+        }
+    }
+    if sec_start < 0 { return None; }
+    let mut sec_end = total;
+    for ln in (sec_start + 1)..total {
+        let start = buf.iter_at_line(ln)?;
+        let mut end = start.clone();
+        if !end.ends_line() { end.forward_to_line_end(); }
+        let text = buf.text(&start, &end, false).to_string();
+        if let Some(lvl) = section_heading_level(&text) {
+            if lvl <= sec_level { sec_end = ln; break; }
+        }
+    }
+    let mut words = 0u32;
+    for ln in sec_start..sec_end {
+        let start = buf.iter_at_line(ln)?;
+        let mut end = start.clone();
+        if !end.ends_line() { end.forward_to_line_end(); }
+        let text = buf.text(&start, &end, false).to_string();
+        words += text.split_whitespace().count() as u32;
+    }
+    Some(words)
 }

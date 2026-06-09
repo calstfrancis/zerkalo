@@ -5,6 +5,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.4-rc7] — 2026-06-09
+
+### Added
+
+- **Ctrl+B / Ctrl+I**: wrap selection in `*bold*` / `_italic_` Typst markup; pressing again on an already-wrapped selection strips the markers.
+- **Section word count**: status bar shows `§ N` word count for the heading section under the cursor; updates only when the cursor crosses a line boundary.
+- **Compile progress stripe**: thin pulsing bar appears at the bottom of the header bar when a compile is running; disappears on completion.
+
+### Improved
+
+- **Preview page shadows**: each page now has a soft three-layer drop shadow against the gray canvas background.
+- **Status bar separators**: thin vertical separators group the left controls from the right word-count block.
+- **Modified-dot color**: the tab modified indicator (`●`) now renders in the accent color instead of the default foreground.
+
+---
+
+## [0.13.4-rc6] — 2026-06-09
+
+### Added
+
+- **Ctrl+Shift+E**: exports PDF directly to the document's own directory, no dialog. Shows "Exporting PDF…" toast while compiling, then success/error toast.
+- **Window title from document**: header title now shows the Typst `title:` metadata field, falling back to the first `= Heading`, then the filename.
+- **Citation panel single-click insert**: clicking once in the Citations sidebar now inserts `@key` at the cursor (was double-click).
+
+---
+
 ## [0.13.4-rc5] — 2026-06-09
 
 ### Fixed

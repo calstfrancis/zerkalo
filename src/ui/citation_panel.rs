@@ -53,7 +53,7 @@ impl CitationPanel {
         scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
         let list = ListBox::new();
         list.set_selection_mode(SelectionMode::Single);
-        list.set_activate_on_single_click(false);
+        list.set_activate_on_single_click(true);
         list.add_css_class("navigation-sidebar");
         scroll.set_child(Some(&list));
         widget.append(&scroll);
