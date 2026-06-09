@@ -52,12 +52,12 @@
   <content_rating type="oars-1.1"/>
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/calstfrancis/zerkalo/main/packaging/zerkalo-screenshot.png</image>
+      <image>https://raw.githubusercontent.com/calstfrancis/zerkalo/main/packaging/zerkalo.png</image>
       <caption>Zerkalo editing a Typst document with live preview</caption>
     </screenshot>
   </screenshots>
   <releases>
-    <release version="0.13.5-rc4" date="2026-06-09">
+    <release version="0.13.5" date="2026-06-09">
       <description>
         <p>Bug-fix and polish release.</p>
         <ul>
