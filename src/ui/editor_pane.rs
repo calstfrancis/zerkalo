@@ -994,17 +994,6 @@ impl EditorPane {
         for tab in state.tabs.values() {
             if self.notebook.page_num(&tab.scroll_window) == Some(current) {
                 let prefix = lsp_hash_prefix(&tab.buffer);
-                let mut all_items: Vec<CompletionItem> = ACADEMIC_SNIPPETS
-                    .iter()
-                    .filter(|(key, _, _, _)| prefix.is_empty() || key.starts_with(prefix.as_str()))
-                    .map(|(_, label, desc, body)| CompletionItem {
-                        label: label.to_string(),
-                        kind: 15,
-                        detail: Some(desc.to_string()),
-                        insert_text: Some(body.to_string()),
-                    })
-                    .collect();
-                all_items.extend(items);
 
                 let cursor = tab.buffer.iter_at_offset(tab.buffer.cursor_position());
                 let loc = tab.view.iter_location(&cursor);
@@ -1013,10 +1002,27 @@ impl EditorPane {
                     loc.x(),
                     loc.y() + loc.height(),
                 );
-                // Anchor at left margin rather than the cursor so the popup
-                // doesn't obscure the word being typed.
                 let wx = tab.view.left_margin();
-                tab.lsp_popup.show_items(all_items, wx, wy);
+
+                if !tab.lsp_popup.is_visible() {
+                    // First show: store ALL snippets as the master list so the user can
+                    // see everything and then narrow down by typing. Client-side filter
+                    // (apply_filter below) handles the narrowing without re-fetching.
+                    let mut all_items: Vec<CompletionItem> = ACADEMIC_SNIPPETS
+                        .iter()
+                        .map(|(_, label, desc, body)| CompletionItem {
+                            label: label.to_string(),
+                            kind: 15,
+                            detail: Some(desc.to_string()),
+                            insert_text: Some(body.to_string()),
+                        })
+                        .collect();
+                    all_items.extend(items);
+                    tab.lsp_popup.show_items(all_items, wx, wy);
+                }
+                // Always update the client-side filter to match the current typed prefix.
+                // This refocuses the selection to the top of the filtered list on each keystroke.
+                tab.lsp_popup.apply_filter(&prefix);
                 break;
             }
         }

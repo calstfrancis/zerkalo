@@ -5,6 +5,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.5-rc2] — 2026-06-09
+
+### Added
+
+- **Completion popup client-side filter**: popup now shows all completions when `#` is typed; as you type further letters the list filters and refocuses to the first match — no more replacing the whole list on each keystroke.
+- **Numbering format selector**: Sections tab gains a "Numbering Format" ComboRow (Decimal 1.1.1., IEEE Roman I.A.1., Alpha a.a.a.) that appears when "Numbered Headings" is on.
+- **Preview Code button**: header bar of the template dialog now has "Preview Code…" — shows the generated Typst preamble in a read-only window before applying.
+
+### Changed
+
+- **IEEE/GOST/Vancouver numbering now user-controlled**: the `#set heading(numbering:)` directive is no longer hardcoded inside the heading style strings; the "Numbered Headings" toggle (which defaults to ON for IEEE, GOST, Vancouver) drives it, so users can now disable IEEE's Roman-numeral numbering via the toggle.
+- **Heading numbers now actually render**: custom `#show heading` rules now include `#if it.numbering != none [#context counter(heading).display(it.numbering)#h(0.3em)]` before the body, so turning on numbering actually shows numbers. Fixes GOST and Vancouver too.
+- **Outline panel icons**: "Outline" and "Symbols" segmented buttons now use 20 px symbolic icons (`view-list-symbolic` / `input-keyboard-symbolic`) instead of text labels.
+
 ## [0.13.5-rc1] — 2026-06-09
 
 ### Added

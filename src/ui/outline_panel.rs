@@ -4,8 +4,8 @@ use std::rc::Rc;
 
 use gtk4::prelude::*;
 use gtk4::{
-    Box as GtkBox, FlowBox, Label, ListBox, ListBoxRow, Notebook, Orientation, ScrolledWindow,
-    SelectionMode, Separator, Stack, ToggleButton,
+    Box as GtkBox, FlowBox, Image, Label, ListBox, ListBoxRow, Notebook, Orientation,
+    ScrolledWindow, SelectionMode, Separator, Stack, ToggleButton,
 };
 
 type JumpCb = Rc<RefCell<Option<Box<dyn Fn(PathBuf, u32)>>>>;
@@ -40,11 +40,23 @@ impl OutlinePanel {
         seg_box.set_margin_top(8);
         seg_box.set_margin_bottom(8);
 
-        let outline_btn = ToggleButton::with_label("Outline");
+        let outline_btn = ToggleButton::new();
+        {
+            let img = Image::from_icon_name("view-list-symbolic");
+            img.set_pixel_size(20);
+            outline_btn.set_child(Some(&img));
+        }
+        outline_btn.set_tooltip_text(Some("Document outline"));
         outline_btn.set_hexpand(true);
         outline_btn.set_active(true);
 
-        let symbols_btn = ToggleButton::with_label("Symbols");
+        let symbols_btn = ToggleButton::new();
+        {
+            let img = Image::from_icon_name("input-keyboard-symbolic");
+            img.set_pixel_size(20);
+            symbols_btn.set_child(Some(&img));
+        }
+        symbols_btn.set_tooltip_text(Some("Insert symbols"));
         symbols_btn.set_hexpand(true);
         symbols_btn.set_group(Some(&outline_btn));
 

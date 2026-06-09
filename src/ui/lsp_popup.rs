@@ -15,6 +15,7 @@ pub struct LspPopup {
     popover: Popover,
     list_box: ListBox,
     items: Rc<RefCell<Vec<CompletionItem>>>,
+    filter_prefix: Rc<RefCell<String>>,
     on_complete: Rc<RefCell<Option<Box<dyn Fn(CompletionItem)>>>>,
 }
 
@@ -52,10 +53,29 @@ impl LspPopup {
         popover.set_child(Some(&outer));
 
         let items: Rc<RefCell<Vec<CompletionItem>>> = Rc::new(RefCell::new(Vec::new()));
+        let filter_prefix: Rc<RefCell<String>> = Rc::new(RefCell::new(String::new()));
         let on_complete: Rc<RefCell<Option<Box<dyn Fn(CompletionItem)>>>> =
             Rc::new(RefCell::new(None));
 
-        let p = Self { popover, list_box, items, on_complete };
+        // Client-side filter: hide rows whose label doesn't start with the current prefix.
+        {
+            let items_f = items.clone();
+            let prefix_f = filter_prefix.clone();
+            list_box.set_filter_func(move |row| {
+                let prefix = prefix_f.borrow();
+                if prefix.is_empty() {
+                    return true;
+                }
+                let idx = row.index() as usize;
+                items_f
+                    .borrow()
+                    .get(idx)
+                    .map(|item| item.label.to_lowercase().starts_with(prefix.as_str()))
+                    .unwrap_or(false)
+            });
+        }
+
+        let p = Self { popover, list_box, items, filter_prefix, on_complete };
 
         // Double-click (or Enter key on the list) triggers completion
         {
@@ -76,10 +96,11 @@ impl LspPopup {
         *self.on_complete.borrow_mut() = Some(Box::new(f));
     }
 
-    /// Replace the popup contents with new items and show at position (x, y)
-    /// relative to the parent widget.
+    /// Replace the popup contents with a new master item list and show at (x, y).
+    /// Resets any active filter. Call `apply_filter` afterwards to filter the new list.
     pub fn show_items(&self, mut new_items: Vec<CompletionItem>, x: i32, y: i32) {
         self.clear_rows();
+        *self.filter_prefix.borrow_mut() = String::new();
 
         if new_items.is_empty() {
             if self.popover.is_visible() {
@@ -96,7 +117,8 @@ impl LspPopup {
         }
         *self.items.borrow_mut() = new_items;
 
-        // Select the first row
+        self.list_box.invalidate_filter();
+
         if let Some(row) = self.list_box.row_at_index(0) {
             self.list_box.select_row(Some(&row));
         }
@@ -104,6 +126,31 @@ impl LspPopup {
         self.popover.set_pointing_to(Some(&Rectangle::new(x, y, 1, 1)));
         if !self.popover.is_visible() {
             self.popover.popup();
+        }
+    }
+
+    /// Update the client-side filter prefix and scroll to the first matching row.
+    /// Safe to call while the popup is visible; does not rebuild the row list.
+    pub fn apply_filter(&self, prefix: &str) {
+        let lprefix = prefix.to_lowercase();
+        *self.filter_prefix.borrow_mut() = lprefix.clone();
+        self.list_box.invalidate_filter();
+
+        // Select the first item that passes the filter
+        let first_idx = {
+            let items = self.items.borrow();
+            if lprefix.is_empty() {
+                Some(0usize)
+            } else {
+                items
+                    .iter()
+                    .position(|item| item.label.to_lowercase().starts_with(&lprefix))
+            }
+        };
+        if let Some(idx) = first_idx {
+            if let Some(row) = self.list_box.row_at_index(idx as i32) {
+                self.list_box.select_row(Some(&row));
+            }
         }
     }
 

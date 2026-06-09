@@ -61,6 +61,13 @@ const SPACING_OPTIONS: &[(&str, &str)] = &[
     ("Double", "1.2em"),
 ];
 
+// (display label, Typst numbering pattern)
+const NUMBERING_FORMATS: &[(&str, &str)] = &[
+    ("Decimal  1.  1.1.  1.1.1.", "1."),
+    ("IEEE Roman  I.  I.A.  I.A.1.", "I.A.1."),
+    ("Alpha  a.  a.a.  a.a.a.", "a."),
+];
+
 const ACADEMIC_FONTS: &[&str] = &[
     "Times New Roman",
     "Libertinus Serif",
@@ -221,6 +228,7 @@ pub(crate) struct TemplateSettings {
     include_keywords: bool,
     keywords: String,
     heading_numbering: bool,
+    numbering_format: String,
     languages: Vec<String>,
     packages: Vec<String>,
     body_kind: BodyKind,
@@ -251,6 +259,7 @@ pub struct SidecarSettings {
     pub keywords_enabled:   bool,
     pub keywords_text:      String,
     pub heading_numbering:  bool,
+    pub numbering_format:   String,
     pub languages:          Vec<String>,
     pub packages:           Vec<String>,
     pub bib_path:           Option<String>,
@@ -279,6 +288,7 @@ pub struct TemplateDialog {
     keywords_row: adw::SwitchRow,
     keywords_text_row: adw::EntryRow,
     heading_numbering_row: adw::SwitchRow,
+    heading_format_row: adw::ComboRow,
     font_size_row: adw::ComboRow,
     // metadata fields
     title_row: adw::EntryRow,
@@ -311,6 +321,10 @@ impl TemplateDialog {
         let cancel_btn = Button::with_label("Cancel");
         cancel_btn.add_css_class("flat");
         header.pack_start(&cancel_btn);
+        let preview_code_btn = Button::with_label("Preview Code…");
+        preview_code_btn.add_css_class("flat");
+        preview_code_btn.set_tooltip_text(Some("Preview the Typst preamble that will be generated"));
+        header.pack_start(&preview_code_btn);
         let create_btn = Button::with_label("Create Document");
         create_btn.add_css_class("suggested-action");
         create_btn.add_css_class("pill");
@@ -508,6 +522,22 @@ impl TemplateDialog {
         heading_numbering_row.set_subtitle("e.g. 1. Introduction, 1.1 Background");
         heading_numbering_row.set_active(false);
         sec_group.add(&heading_numbering_row);
+
+        let heading_format_row = adw::ComboRow::new();
+        heading_format_row.set_title("Numbering Format");
+        heading_format_row.set_model(Some(&gtk4::StringList::new(
+            &NUMBERING_FORMATS.iter().map(|(n, _)| *n).collect::<Vec<_>>(),
+        )));
+        heading_format_row.set_visible(false);
+        sec_group.add(&heading_format_row);
+
+        // Show/hide format row when numbering is toggled
+        {
+            let hfr = heading_format_row.clone();
+            heading_numbering_row.connect_active_notify(move |sw| {
+                hfr.set_visible(sw.is_active());
+            });
+        }
 
         let tab3_box = pref_tab_box();
         tab3_box.append(&sec_group);
@@ -749,6 +779,7 @@ impl TemplateDialog {
         let w_keywords = keywords_row.clone();
         let w_keywords_text = keywords_text_row.clone();
         let w_heading_num = heading_numbering_row.clone();
+        let w_heading_fmt = heading_format_row.clone();
         let w_langs = lang_switches.clone();
         let w_pkgs = pkg_switches.clone();
         let w_body_kind = body_kind_state.clone();
@@ -798,6 +829,10 @@ impl TemplateDialog {
                 include_keywords: w_keywords.is_active(),
                 keywords: w_keywords_text.text().to_string(),
                 heading_numbering: w_heading_num.is_active(),
+                numbering_format: NUMBERING_FORMATS
+                    .get(w_heading_fmt.selected() as usize)
+                    .map(|(_, p)| p.to_string())
+                    .unwrap_or_else(|| "1.".to_string()),
                 languages: w_langs
                     .iter()
                     .filter(|(_, sw)| sw.is_active())
@@ -866,6 +901,7 @@ impl TemplateDialog {
         let a_keywords = keywords_row.clone();
         let a_keywords_text = keywords_text_row.clone();
         let a_heading_num = heading_numbering_row.clone();
+        let a_heading_fmt = heading_format_row.clone();
         let a_langs = lang_switches.clone();
         let a_pkgs = pkg_switches.clone();
         let a_body_kind = body_kind_state.clone();
@@ -907,6 +943,10 @@ impl TemplateDialog {
                 include_keywords: a_keywords.is_active(),
                 keywords: a_keywords_text.text().to_string(),
                 heading_numbering: a_heading_num.is_active(),
+                numbering_format: NUMBERING_FORMATS
+                    .get(a_heading_fmt.selected() as usize)
+                    .map(|(_, p)| p.to_string())
+                    .unwrap_or_else(|| "1.".to_string()),
                 languages: a_langs.iter()
                     .filter(|(_, sw)| sw.is_active())
                     .map(|(k, _)| k.clone())
@@ -948,11 +988,130 @@ impl TemplateDialog {
             });
         }
 
+        // ── Preview Code button — generates the preamble and shows it read-only ─
+        {
+            let p_title = title_row.clone();
+            let p_subtitle = subtitle_row.clone();
+            let p_author = author_row.clone();
+            let p_affil = affil_row.clone();
+            let p_course = course_row.clone();
+            let p_date = date_row.clone();
+            let p_style = style_row.clone();
+            let p_paper = paper_row.clone();
+            let p_margin = margin_row.clone();
+            let p_font = font_row.clone();
+            let p_custom_font = custom_font_row.clone();
+            let p_font_size = font_size_row.clone();
+            let p_spacing = spacing_row.clone();
+            let p_pnum = pnum_row.clone();
+            let p_toc = toc_row.clone();
+            let p_toc_depth = toc_depth_row.clone();
+            let p_abstract = abstract_row.clone();
+            let p_abstract_text = abstract_text_row.clone();
+            let p_keywords = keywords_row.clone();
+            let p_keywords_text = keywords_text_row.clone();
+            let p_heading_num = heading_numbering_row.clone();
+            let p_heading_fmt = heading_format_row.clone();
+            let p_langs = lang_switches.clone();
+            let p_pkgs = pkg_switches.clone();
+            let p_body_kind = body_kind_state.clone();
+            let p_bib_path = bib_path.clone();
+            let p_win = window.clone();
+            preview_code_btn.connect_clicked(move |_| {
+                let font_idx = p_font.selected() as usize;
+                let available_fonts_inner = build_font_list();
+                let font = if font_idx >= available_fonts_inner.len().saturating_sub(1) {
+                    let s = p_custom_font.text().to_string();
+                    if s.is_empty() { "Times New Roman".to_string() } else { s }
+                } else {
+                    available_fonts_inner.get(font_idx).cloned().unwrap_or_else(|| "Times New Roman".to_string())
+                };
+                let font_size = match p_font_size.selected() {
+                    0 => "10pt", 1 => "11pt", 3 => "14pt", _ => "12pt",
+                }.to_string();
+                let toc_depth = match p_toc_depth.selected() { 0 => 1u32, 2 => 3, _ => 2 };
+                let settings = TemplateSettings {
+                    title: p_title.text().to_string(),
+                    subtitle: p_subtitle.text().to_string(),
+                    author: p_author.text().to_string(),
+                    affiliation: p_affil.text().to_string(),
+                    course: p_course.text().to_string(),
+                    date: p_date.text().to_string(),
+                    style_idx: p_style.selected() as usize,
+                    paper_idx: p_paper.selected() as usize,
+                    margin_idx: p_margin.selected() as usize,
+                    font,
+                    font_size,
+                    spacing: SPACING_OPTIONS
+                        .get(p_spacing.selected() as usize)
+                        .map(|(_, v)| v.to_string())
+                        .unwrap_or_else(|| "1.5em".to_string()),
+                    page_num_pos: p_pnum.selected(),
+                    include_toc: p_toc.is_active(),
+                    toc_depth,
+                    include_abstract: p_abstract.is_active(),
+                    abstract_text: p_abstract_text.text().to_string(),
+                    include_keywords: p_keywords.is_active(),
+                    keywords: p_keywords_text.text().to_string(),
+                    heading_numbering: p_heading_num.is_active(),
+                    numbering_format: NUMBERING_FORMATS
+                        .get(p_heading_fmt.selected() as usize)
+                        .map(|(_, pat)| pat.to_string())
+                        .unwrap_or_else(|| "1.".to_string()),
+                    languages: p_langs.iter()
+                        .filter(|(_, sw)| sw.is_active())
+                        .map(|(k, _)| k.clone())
+                        .collect(),
+                    packages: p_pkgs.iter()
+                        .filter(|(_, sw)| sw.is_active())
+                        .map(|(k, _)| k.clone())
+                        .collect(),
+                    body_kind: *p_body_kind.borrow(),
+                    bib_path: p_bib_path.borrow().clone(),
+                };
+                let code = generate_typst_template(&settings);
+
+                // Show in a read-only window
+                let pwin = adw::Window::new();
+                pwin.set_title(Some("Generated Typst Code"));
+                pwin.set_default_size(680, 560);
+                pwin.set_transient_for(Some(&p_win));
+                pwin.set_modal(false);
+
+                let pheader = adw::HeaderBar::new();
+                let close_btn = Button::with_label("Close");
+                close_btn.add_css_class("flat");
+                let pwin2 = pwin.clone();
+                close_btn.connect_clicked(move |_| pwin2.close());
+                pheader.pack_start(&close_btn);
+
+                let tv = gtk4::TextView::new();
+                tv.set_editable(false);
+                tv.set_monospace(true);
+                tv.set_left_margin(12);
+                tv.set_right_margin(12);
+                tv.set_top_margin(8);
+                tv.set_bottom_margin(8);
+                tv.buffer().set_text(&code);
+
+                let scroll = ScrolledWindow::new();
+                scroll.set_vexpand(true);
+                scroll.set_hexpand(true);
+                scroll.set_child(Some(&tv));
+
+                let toolbar_view = adw::ToolbarView::new();
+                toolbar_view.add_top_bar(&pheader);
+                toolbar_view.set_content(Some(&scroll));
+                pwin.set_content(Some(&toolbar_view));
+                pwin.present();
+            });
+        }
+
         Self {
             window, on_create, on_apply, on_lock_identity, apply_btn,
             style_row, font_row, font_size_row, paper_row, margin_row, spacing_row,
             toc_row, toc_depth_row, abstract_row, abstract_text_row,
-            keywords_row, keywords_text_row, heading_numbering_row,
+            keywords_row, keywords_text_row, heading_numbering_row, heading_format_row,
             title_row, subtitle_row, author_row, affil_row, course_row, date_row,
             bib_path, pnum_row, lang_switches, pkg_switches,
         }
@@ -976,12 +1135,24 @@ impl TemplateDialog {
     }
 
     /// Pre-select a citation style by its internal key (e.g. "sbl", "apa").
+    /// Also sets style-appropriate heading numbering defaults (overridable by sidecar).
     pub fn preselect_style(&self, style_key: &str) {
         for (i, (_, key)) in CITATION_STYLES.iter().enumerate() {
             if *key == style_key {
                 self.style_row.set_selected(i as u32);
-                return;
+                break;
             }
+        }
+        match style_key {
+            "ieee" => {
+                self.preselect_heading_numbering(true);
+                self.preselect_heading_format("I.A.1.");
+            }
+            "gost-r-705" | "vancouver" => {
+                self.preselect_heading_numbering(true);
+                self.preselect_heading_format("1.");
+            }
+            _ => {}
         }
     }
 
@@ -1088,6 +1259,16 @@ impl TemplateDialog {
 
     pub fn preselect_heading_numbering(&self, active: bool) {
         self.heading_numbering_row.set_active(active);
+        self.heading_format_row.set_visible(active);
+    }
+
+    pub fn preselect_heading_format(&self, format: &str) {
+        for (i, (_, pat)) in NUMBERING_FORMATS.iter().enumerate() {
+            if *pat == format {
+                self.heading_format_row.set_selected(i as u32);
+                return;
+            }
+        }
     }
 
     pub fn preselect_keywords(&self, active: bool, text: &str) {
@@ -1131,6 +1312,9 @@ impl TemplateDialog {
         self.preselect_abstract(s.abstract_enabled, &s.abstract_text);
         self.preselect_keywords(s.keywords_enabled, &s.keywords_text);
         self.preselect_heading_numbering(s.heading_numbering);
+        if !s.numbering_format.is_empty() {
+            self.preselect_heading_format(&s.numbering_format);
+        }
         self.preselect_languages(&s.languages);
         self.preselect_packages(&s.packages);
         if let Some(ref p) = s.bib_path {
@@ -1193,6 +1377,7 @@ pub fn build_sidecar(t: &TemplateSettings) -> SidecarSettings {
         keywords_enabled:  t.include_keywords,
         keywords_text:     t.keywords.clone(),
         heading_numbering: t.heading_numbering,
+        numbering_format:  t.numbering_format.clone(),
         languages:         t.languages.clone(),
         packages:          t.packages.clone(),
         bib_path:          t.bib_path.as_ref().map(|p| p.to_string_lossy().into_owned()),
@@ -1232,6 +1417,7 @@ pub fn sidecar_to_settings(sc: &SidecarSettings) -> TemplateSettings {
         include_keywords: sc.keywords_enabled,
         keywords: sc.keywords_text.clone(),
         heading_numbering: sc.heading_numbering,
+        numbering_format: sc.numbering_format.clone(),
         languages: sc.languages.clone(),
         packages: sc.packages.clone(),
         body_kind: if sc.body_kind == "book" { BodyKind::Book } else { BodyKind::Academic },
@@ -1475,14 +1661,15 @@ fn generate_typst_template(s: &TemplateSettings) -> String {
     let _ = writeln!(out, "#set par(leading: {}, spacing: 1.2em, first-line-indent: 1em, justify: true)", s.spacing);
     let _ = writeln!(out);
 
-    // Heading styles
-    let _ = writeln!(out, "{}", heading_styles(style_key).trim_start_matches('\n'));
+    // Heading styles (with counter display injected so #set heading(numbering:) shows numbers)
+    let heading_code = inject_heading_numbering(heading_styles(style_key).trim_start_matches('\n'));
+    let _ = writeln!(out, "{heading_code}");
     let _ = writeln!(out);
 
-    // Heading numbering (only for styles that don't already include it)
-    let style_has_numbering = matches!(style_key, "ieee" | "gost-r-705");
-    if s.heading_numbering && !style_has_numbering {
-        let _ = writeln!(out, "#set heading(numbering: \"1.\")");
+    // Heading numbering — user-controlled for all styles (IEEE, GOST, Vancouver default to on)
+    if s.heading_numbering {
+        let fmt = if s.numbering_format.is_empty() { "1." } else { s.numbering_format.as_str() };
+        let _ = writeln!(out, "#set heading(numbering: \"{fmt}\")");
         let _ = writeln!(out);
     }
 
@@ -1700,7 +1887,7 @@ pub fn rebuild_title_page_for_style(content: &str, new_style_key: &str) -> Strin
         include_toc: false, toc_depth: 2,
         include_abstract: false, abstract_text: String::new(),
         include_keywords: false, keywords: String::new(),
-        heading_numbering: false,
+        heading_numbering: false, numbering_format: String::new(),
         languages: vec![], packages: vec![],
         body_kind: BodyKind::Academic,
         bib_path: None,
@@ -1944,7 +2131,6 @@ pub fn heading_styles(style_key: &str) -> &'static str {
             // H2 flush-left bold italic with capital-letter numbering; H3 run-in italic.
             r#"
 // IEEE heading styles
-#set heading(numbering: "I.A.1.")
 #show heading.where(level: 1): it => block(width: 100%, above: 1em, below: 0.5em)[
   #set par(first-line-indent: 0pt)
   #align(center)[#text(weight: "bold")[#upper(it.body)]]
@@ -1963,7 +2149,6 @@ pub fn heading_styles(style_key: &str) -> &'static str {
             // H2 flush-left bold; H3 flush-left bold italic.
             r#"
 // GOST R 7.0-5 heading styles
-#set heading(numbering: "1.")
 #show heading.where(level: 1): it => block(width: 100%, above: 1em, below: 0.5em)[
   #set par(first-line-indent: 0pt)
   #align(center)[#text(weight: "bold")[#upper(it.body)]]
@@ -1981,7 +2166,6 @@ pub fn heading_styles(style_key: &str) -> &'static str {
             // Vancouver (ICMJE): numbered headings; H1 bold; H2 bold italic; H3 italic run-in
             r#"
 // Vancouver heading styles
-#set heading(numbering: "1.")
 #show heading.where(level: 1): it => block(width: 100%, above: 1em, below: 0.5em)[
   #set par(first-line-indent: 0pt)
   #text(weight: "bold")[#it.body]
@@ -2026,6 +2210,17 @@ pub fn heading_styles(style_key: &str) -> &'static str {
 ]"#
         }
     }
+}
+
+// Injects conditional counter display before each heading body reference so that
+// #set heading(numbering: ...) actually shows numbers in custom show rules.
+fn inject_heading_numbering(rules: &str) -> String {
+    const PREFIX: &str =
+        "#if it.numbering != none [#context counter(heading).display(it.numbering)#h(0.3em)]";
+    rules
+        .replace("#upper(it.body)", &format!("{PREFIX}#upper(it.body)"))
+        .replace("#text(it.body)", &format!("{PREFIX}#text(it.body)"))
+        .replace("#it.body", &format!("{PREFIX}#it.body"))
 }
 
 // ── Preview helper ────────────────────────────────────────────────────────────
@@ -2099,6 +2294,7 @@ fn generate_preset_preview(idx: usize) -> Result<Vec<u8>, String> {
         include_keywords: false,
         keywords: String::new(),
         heading_numbering: false,
+        numbering_format: String::new(),
         languages: Vec::new(),
         packages: Vec::new(),
         body_kind: p.body_kind,
@@ -2389,6 +2585,7 @@ pub fn default_import_preamble() -> String {
         include_keywords: false,
         keywords: String::new(),
         heading_numbering: false,
+        numbering_format: String::new(),
         languages: vec![],
         packages: vec![],
         body_kind: BodyKind::default(),
@@ -2576,7 +2773,9 @@ fn replace_margin_line(block: &str, new_margin: &str) -> String {
 }
 
 fn update_template_block_headings(block: &str, new_style_key: &str) -> String {
-    let new_heading_code = heading_styles(new_style_key).trim();
+    let raw = inject_heading_numbering(heading_styles(new_style_key).trim_start_matches('\n'));
+    let new_heading_code = raw.trim().to_string();
+    let new_heading_code = new_heading_code.as_str();
     let style_name = CITATION_STYLES.iter()
         .find(|(_, k)| *k == new_style_key)
         .map(|(n, _)| *n)
