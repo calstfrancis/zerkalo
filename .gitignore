@@ -17,6 +17,9 @@ assets/icons/
 # Typst build artefacts
 *.pdf
 *.png
+# But track the app screenshot
+!packaging/zerkalo-screenshot.png
+!zerkalo.png
 
 # Reference style guide PDFs/EPUBs (local only)
 Reference Documents/
@@ -35,3 +38,4 @@ session.json
 zerkalo.log
 font-preferences.toml
 keybindings.toml
+plan.md

@@ -22,7 +22,7 @@ impl LspPopup {
     pub fn new(parent: &impl IsA<gtk4::Widget>) -> Self {
         let popover = Popover::new();
         popover.set_has_arrow(false);
-        popover.set_autohide(false);
+        popover.set_autohide(true);
         popover.set_parent(parent);
 
         let list_box = ListBox::new();

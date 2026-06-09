@@ -29,7 +29,8 @@ const CITATION_STYLES: &[(&str, &str)] = &[
     ("Turabian", "turabian"),
     ("Harvard", "harvard"),
     ("IEEE", "ieee"),
-    ("GOST 7.32", "gost-7-32"),
+    ("GOST R 7.0-5 (numeric)", "gost-r-705"),
+    ("Vancouver", "vancouver"),
 ];
 
 const PAPER_SIZES: &[(&str, &str)] = &[
@@ -135,9 +136,9 @@ const TEMPLATE_PRESETS: &[TemplatePreset] = &[
         body_kind: BodyKind::Academic,
     },
     TemplatePreset {
-        name: "GOST 7.32 Technical Report",
+        name: "GOST R 7.0-5 Technical Report",
         description: "A4 · GOST margins · 1.5-line · ToC included",
-        style_idx: 9,   // GOST 7.32
+        style_idx: 9,   // GOST R 7.0-5
         paper_idx: 1,   // A4
         margin_idx: 0,
         spacing_idx: 1, // 1.5em
@@ -210,6 +211,7 @@ pub(crate) struct TemplateSettings {
     paper_idx: usize,
     margin_idx: usize,
     font: String,
+    font_size: String,
     spacing: String,
     page_num_pos: u32,
     include_toc: bool,
@@ -218,6 +220,7 @@ pub(crate) struct TemplateSettings {
     abstract_text: String,
     include_keywords: bool,
     keywords: String,
+    heading_numbering: bool,
     languages: Vec<String>,
     packages: Vec<String>,
     body_kind: BodyKind,
@@ -228,28 +231,30 @@ pub(crate) struct TemplateSettings {
 /// This is the single source of truth for "Update Template Settings" pre-fill.
 #[derive(serde::Serialize, serde::Deserialize, Default, Clone)]
 pub struct SidecarSettings {
-    pub title:            String,
-    pub subtitle:         String,
-    pub author:           String,
-    pub affiliation:      String,
-    pub course:           String,
-    pub date:             String,
-    pub style:            String,
-    pub font:             String,
-    pub paper:            String,
-    pub margin:           u32,
-    pub spacing:          String,
-    pub page_numbers:     u32,
-    pub toc:              bool,
-    pub toc_depth:        u32,
-    pub abstract_enabled: bool,
-    pub abstract_text:    String,
-    pub keywords_enabled: bool,
-    pub keywords_text:    String,
-    pub languages:        Vec<String>,
-    pub packages:         Vec<String>,
-    pub bib_path:         Option<String>,
-    pub body_kind:        String,
+    pub title:              String,
+    pub subtitle:           String,
+    pub author:             String,
+    pub affiliation:        String,
+    pub course:             String,
+    pub date:               String,
+    pub style:              String,
+    pub font:               String,
+    pub font_size:          String,
+    pub paper:              String,
+    pub margin:             u32,
+    pub spacing:            String,
+    pub page_numbers:       u32,
+    pub toc:                bool,
+    pub toc_depth:          u32,
+    pub abstract_enabled:   bool,
+    pub abstract_text:      String,
+    pub keywords_enabled:   bool,
+    pub keywords_text:      String,
+    pub heading_numbering:  bool,
+    pub languages:          Vec<String>,
+    pub packages:           Vec<String>,
+    pub bib_path:           Option<String>,
+    pub body_kind:          String,
 }
 
 // ── Dialog ────────────────────────────────────────────────────────────────────
@@ -273,6 +278,8 @@ pub struct TemplateDialog {
     abstract_text_row: adw::EntryRow,
     keywords_row: adw::SwitchRow,
     keywords_text_row: adw::EntryRow,
+    heading_numbering_row: adw::SwitchRow,
+    font_size_row: adw::ComboRow,
     // metadata fields
     title_row: adw::EntryRow,
     subtitle_row: adw::EntryRow,
@@ -424,6 +431,13 @@ impl TemplateDialog {
         let other_idx = (font_count - 1) as u32;
         font_row_c.connect_selected_notify(move |r| cfr.set_visible(r.selected() == other_idx));
 
+        let font_size_model = gtk4::StringList::new(&["10 pt", "11 pt", "12 pt", "14 pt"]);
+        let font_size_row = adw::ComboRow::new();
+        font_size_row.set_title("Font Size");
+        font_size_row.set_model(Some(&font_size_model));
+        font_size_row.set_selected(2); // 12pt default
+        typo_group.add(&font_size_row);
+
         let spacing_labels: Vec<&str> = SPACING_OPTIONS.iter().map(|(n, _)| *n).collect();
         let spacing_model = gtk4::StringList::new(&spacing_labels);
         let spacing_row = adw::ComboRow::new();
@@ -488,6 +502,12 @@ impl TemplateDialog {
             let ktr = keywords_text_row.clone();
             keywords_row.connect_active_notify(move |r| ktr.set_visible(r.is_active()));
         }
+
+        let heading_numbering_row = adw::SwitchRow::new();
+        heading_numbering_row.set_title("Numbered Headings");
+        heading_numbering_row.set_subtitle("e.g. 1. Introduction, 1.1 Background");
+        heading_numbering_row.set_active(false);
+        sec_group.add(&heading_numbering_row);
 
         let tab3_box = pref_tab_box();
         tab3_box.append(&sec_group);
@@ -719,6 +739,7 @@ impl TemplateDialog {
         let w_margin = margin_row.clone();
         let w_font = font_row.clone();
         let w_custom_font = custom_font_row.clone();
+        let w_font_size = font_size_row.clone();
         let w_spacing = spacing_row.clone();
         let w_pnum = pnum_row.clone();
         let w_toc = toc_row.clone();
@@ -727,6 +748,7 @@ impl TemplateDialog {
         let w_abstract_text = abstract_text_row.clone();
         let w_keywords = keywords_row.clone();
         let w_keywords_text = keywords_text_row.clone();
+        let w_heading_num = heading_numbering_row.clone();
         let w_langs = lang_switches.clone();
         let w_pkgs = pkg_switches.clone();
         let w_body_kind = body_kind_state.clone();
@@ -741,6 +763,10 @@ impl TemplateDialog {
             } else {
                 available_fonts_inner.get(font_idx).cloned().unwrap_or_else(|| "Times New Roman".to_string())
             };
+
+            let font_size = match w_font_size.selected() {
+                0 => "10pt", 1 => "11pt", 3 => "14pt", _ => "12pt",
+            }.to_string();
 
             let toc_depth = match w_toc_depth.selected() {
                 0 => 1u32,
@@ -759,6 +785,7 @@ impl TemplateDialog {
                 paper_idx: w_paper.selected() as usize,
                 margin_idx: w_margin.selected() as usize,
                 font,
+                font_size,
                 spacing: SPACING_OPTIONS
                     .get(w_spacing.selected() as usize)
                     .map(|(_, v)| v.to_string())
@@ -770,6 +797,7 @@ impl TemplateDialog {
                 abstract_text: w_abstract_text.text().to_string(),
                 include_keywords: w_keywords.is_active(),
                 keywords: w_keywords_text.text().to_string(),
+                heading_numbering: w_heading_num.is_active(),
                 languages: w_langs
                     .iter()
                     .filter(|(_, sw)| sw.is_active())
@@ -828,6 +856,7 @@ impl TemplateDialog {
         let a_margin = margin_row.clone();
         let a_font = font_row.clone();
         let a_custom_font = custom_font_row.clone();
+        let a_font_size = font_size_row.clone();
         let a_spacing = spacing_row.clone();
         let a_pnum = pnum_row.clone();
         let a_toc = toc_row.clone();
@@ -836,6 +865,7 @@ impl TemplateDialog {
         let a_abstract_text = abstract_text_row.clone();
         let a_keywords = keywords_row.clone();
         let a_keywords_text = keywords_text_row.clone();
+        let a_heading_num = heading_numbering_row.clone();
         let a_langs = lang_switches.clone();
         let a_pkgs = pkg_switches.clone();
         let a_body_kind = body_kind_state.clone();
@@ -849,6 +879,9 @@ impl TemplateDialog {
             } else {
                 available_fonts_inner.get(font_idx).cloned().unwrap_or_else(|| "Times New Roman".to_string())
             };
+            let font_size = match a_font_size.selected() {
+                0 => "10pt", 1 => "11pt", 3 => "14pt", _ => "12pt",
+            }.to_string();
             let toc_depth = match a_toc_depth.selected() { 0 => 1u32, 2 => 3, _ => 2 };
             let settings = TemplateSettings {
                 title: a_title.text().to_string(),
@@ -861,6 +894,7 @@ impl TemplateDialog {
                 paper_idx: a_paper.selected() as usize,
                 margin_idx: a_margin.selected() as usize,
                 font,
+                font_size,
                 spacing: SPACING_OPTIONS
                     .get(a_spacing.selected() as usize)
                     .map(|(_, v)| v.to_string())
@@ -872,6 +906,7 @@ impl TemplateDialog {
                 abstract_text: a_abstract_text.text().to_string(),
                 include_keywords: a_keywords.is_active(),
                 keywords: a_keywords_text.text().to_string(),
+                heading_numbering: a_heading_num.is_active(),
                 languages: a_langs.iter()
                     .filter(|(_, sw)| sw.is_active())
                     .map(|(k, _)| k.clone())
@@ -915,9 +950,9 @@ impl TemplateDialog {
 
         Self {
             window, on_create, on_apply, on_lock_identity, apply_btn,
-            style_row, font_row, paper_row, margin_row, spacing_row,
+            style_row, font_row, font_size_row, paper_row, margin_row, spacing_row,
             toc_row, toc_depth_row, abstract_row, abstract_text_row,
-            keywords_row, keywords_text_row,
+            keywords_row, keywords_text_row, heading_numbering_row,
             title_row, subtitle_row, author_row, affil_row, course_row, date_row,
             bib_path, pnum_row, lang_switches, pkg_switches,
         }
@@ -1036,6 +1071,25 @@ impl TemplateDialog {
         self.abstract_text_row.set_visible(active);
     }
 
+    /// Pre-fill abstract text, overriding whatever the sidecar has. Used to
+    /// populate the dialog from the text found directly in the .typ file.
+    pub fn override_abstract_text(&self, text: &str) {
+        if !text.is_empty() {
+            self.abstract_text_row.set_text(text);
+            self.abstract_row.set_active(true);
+            self.abstract_text_row.set_visible(true);
+        }
+    }
+
+    pub fn preselect_font_size(&self, size: &str) {
+        let idx = match size { "10pt" => 0u32, "11pt" => 1, "14pt" => 3, _ => 2 };
+        self.font_size_row.set_selected(idx);
+    }
+
+    pub fn preselect_heading_numbering(&self, active: bool) {
+        self.heading_numbering_row.set_active(active);
+    }
+
     pub fn preselect_keywords(&self, active: bool, text: &str) {
         self.keywords_row.set_active(active);
         if active && !text.is_empty() {
@@ -1066,15 +1120,17 @@ impl TemplateDialog {
     /// "Update Template Settings" for a document that has a sidecar file.
     pub fn preselect_from_sidecar(&self, s: &SidecarSettings) {
         self.preselect_style(&s.style);
-        if !s.font.is_empty()    { self.preselect_font(&s.font); }
-        if !s.paper.is_empty()   { self.preselect_paper(&s.paper); }
-        if !s.spacing.is_empty() { self.preselect_spacing(&s.spacing); }
+        if !s.font.is_empty()      { self.preselect_font(&s.font); }
+        if !s.font_size.is_empty() { self.preselect_font_size(&s.font_size); }
+        if !s.paper.is_empty()     { self.preselect_paper(&s.paper); }
+        if !s.spacing.is_empty()   { self.preselect_spacing(&s.spacing); }
         self.preselect_margin(s.margin as usize);
         self.preselect_page_numbers(s.page_numbers);
         self.preselect_metadata(&s.title, &s.subtitle, &s.author, &s.affiliation, &s.course, &s.date);
         self.preselect_toc(s.toc, s.toc_depth);
         self.preselect_abstract(s.abstract_enabled, &s.abstract_text);
         self.preselect_keywords(s.keywords_enabled, &s.keywords_text);
+        self.preselect_heading_numbering(s.heading_numbering);
         self.preselect_languages(&s.languages);
         self.preselect_packages(&s.packages);
         if let Some(ref p) = s.bib_path {
@@ -1117,28 +1173,30 @@ pub fn load_sidecar(typ_path: &std::path::Path) -> Option<SidecarSettings> {
 
 pub fn build_sidecar(t: &TemplateSettings) -> SidecarSettings {
     SidecarSettings {
-        title:            t.title.clone(),
-        subtitle:         t.subtitle.clone(),
-        author:           t.author.clone(),
-        affiliation:      t.affiliation.clone(),
-        course:           t.course.clone(),
-        date:             t.date.clone(),
-        style:            CITATION_STYLES.get(t.style_idx).map(|(_, k)| k.to_string()).unwrap_or_default(),
-        font:             t.font.clone(),
-        paper:            PAPER_SIZES.get(t.paper_idx).map(|(_, k)| k.to_string()).unwrap_or_default(),
-        margin:           t.margin_idx as u32,
-        spacing:          t.spacing.clone(),
-        page_numbers:     t.page_num_pos,
-        toc:              t.include_toc,
-        toc_depth:        t.toc_depth,
-        abstract_enabled: t.include_abstract,
-        abstract_text:    t.abstract_text.clone(),
-        keywords_enabled: t.include_keywords,
-        keywords_text:    t.keywords.clone(),
-        languages:        t.languages.clone(),
-        packages:         t.packages.clone(),
-        bib_path:         t.bib_path.as_ref().map(|p| p.to_string_lossy().into_owned()),
-        body_kind:        match t.body_kind { BodyKind::Book => "book".into(), BodyKind::Academic => "academic".into() },
+        title:             t.title.clone(),
+        subtitle:          t.subtitle.clone(),
+        author:            t.author.clone(),
+        affiliation:       t.affiliation.clone(),
+        course:            t.course.clone(),
+        date:              t.date.clone(),
+        style:             CITATION_STYLES.get(t.style_idx).map(|(_, k)| k.to_string()).unwrap_or_default(),
+        font:              t.font.clone(),
+        font_size:         t.font_size.clone(),
+        paper:             PAPER_SIZES.get(t.paper_idx).map(|(_, k)| k.to_string()).unwrap_or_default(),
+        margin:            t.margin_idx as u32,
+        spacing:           t.spacing.clone(),
+        page_numbers:      t.page_num_pos,
+        toc:               t.include_toc,
+        toc_depth:         t.toc_depth,
+        abstract_enabled:  t.include_abstract,
+        abstract_text:     t.abstract_text.clone(),
+        keywords_enabled:  t.include_keywords,
+        keywords_text:     t.keywords.clone(),
+        heading_numbering: t.heading_numbering,
+        languages:         t.languages.clone(),
+        packages:          t.packages.clone(),
+        bib_path:          t.bib_path.as_ref().map(|p| p.to_string_lossy().into_owned()),
+        body_kind:         match t.body_kind { BodyKind::Book => "book".into(), BodyKind::Academic => "academic".into() },
     }
 }
 
@@ -1164,6 +1222,7 @@ pub fn sidecar_to_settings(sc: &SidecarSettings) -> TemplateSettings {
         paper_idx,
         margin_idx: sc.margin as usize,
         font: sc.font.clone(),
+        font_size: sc.font_size.clone(),
         spacing: sc.spacing.clone(),
         page_num_pos: sc.page_numbers,
         include_toc: sc.toc,
@@ -1172,11 +1231,46 @@ pub fn sidecar_to_settings(sc: &SidecarSettings) -> TemplateSettings {
         abstract_text: sc.abstract_text.clone(),
         include_keywords: sc.keywords_enabled,
         keywords: sc.keywords_text.clone(),
+        heading_numbering: sc.heading_numbering,
         languages: sc.languages.clone(),
         packages: sc.packages.clone(),
         body_kind: if sc.body_kind == "book" { BodyKind::Book } else { BodyKind::Academic },
         bib_path: sc.bib_path.as_ref().map(|s| std::path::PathBuf::from(s)),
     }
+}
+
+/// Parse the abstract text that the user wrote directly in a .typ file.
+/// Looks for the `#block(inset: (x: 1in))[` block that follows `#align(center)[*Abstract*]`.
+pub fn parse_abstract_from_doc(content: &str) -> Option<String> {
+    let lines: Vec<&str> = content.lines().collect();
+    let mut found_abstract_header = false;
+    for (i, line) in lines.iter().enumerate() {
+        let t = line.trim();
+        if t == "#align(center)[*Abstract*]" {
+            found_abstract_header = true;
+            continue;
+        }
+        if found_abstract_header {
+            if t.is_empty() { continue; }
+            // The block form: #block(inset: (x: 1in))[ ... ]
+            if t.starts_with("#block(") && t.ends_with('[') {
+                let next = i + 1;
+                if next < lines.len() {
+                    let text = lines[next].trim().to_string();
+                    if !text.is_empty() && text != "]" {
+                        return Some(text);
+                    }
+                }
+                return None;
+            }
+            // Inline form: text directly after the header
+            if !t.starts_with('#') {
+                return Some(t.to_string());
+            }
+            break;
+        }
+    }
+    None
 }
 
 /// Re-inserts the `// ── Document body` marker into a file that is missing it.
@@ -1266,7 +1360,7 @@ fn bib_title_for_style(style_key: &str) -> &'static str {
     match style_key {
         "mla"                 => "Works Cited",
         "chicago-author-date" => "References",
-        "apa" | "asa" | "ieee" | "harvard" => "References",
+        "apa" | "asa" | "ieee" | "harvard" | "vancouver" => "References",
         _                     => "",
     }
 }
@@ -1337,12 +1431,14 @@ fn generate_typst_template(s: &TemplateSettings) -> String {
     });
 
     // GOST 7.32 mandates A4, specific margins, and 14 pt body text regardless of form selection.
-    let (paper, mt, mb, ml, mr, font_size) = if style_key == "gost-7-32" {
-        ("a4", "20mm", "20mm", "30mm", "15mm", "14pt")
+    let (paper, mt, mb, ml, mr, font_size) = if style_key == "gost-r-705" {
+        let size = if s.font_size.is_empty() { "14pt" } else { &s.font_size };
+        ("a4", "20mm", "20mm", "30mm", "15mm", size)
     } else {
         let p = PAPER_SIZES.get(s.paper_idx).map(|(_, k)| *k).unwrap_or("us-letter");
         let (mt, mb, ml, mr) = margin_values(s.margin_idx);
-        (p, mt, mb, ml, mr, "12pt")
+        let size = if s.font_size.is_empty() { "12pt" } else { &s.font_size };
+        (p, mt, mb, ml, mr, size)
     };
 
     let mut out = String::new();
@@ -1382,6 +1478,13 @@ fn generate_typst_template(s: &TemplateSettings) -> String {
     // Heading styles
     let _ = writeln!(out, "{}", heading_styles(style_key).trim_start_matches('\n'));
     let _ = writeln!(out);
+
+    // Heading numbering (only for styles that don't already include it)
+    let style_has_numbering = matches!(style_key, "ieee" | "gost-r-705");
+    if s.heading_numbering && !style_has_numbering {
+        let _ = writeln!(out, "#set heading(numbering: \"1.\")");
+        let _ = writeln!(out);
+    }
 
     // Style-specific extras
     if style_key == "ieee" {
@@ -1537,8 +1640,8 @@ fn generate_title_page(style_key: &str, s: &TemplateSettings) -> String {
             let _ = writeln!(out, "#pagebreak()");
             let _ = writeln!(out);
         }
-        // GOST 7.32: structured cover page
-        "gost-7-32" => {
+        // GOST R 7.0-5: structured cover page
+        "gost-r-705" => {
             let _ = writeln!(out, "#page(header: none, footer: none, numbering: none)[");
             let _ = writeln!(out, "  #set align(center)");
             let _ = writeln!(out, "  #if doc-affil != \"\" [#text(size: 14pt)[#upper[#doc-affil]] #v(1em)]");
@@ -1593,10 +1696,11 @@ pub fn rebuild_title_page_for_style(content: &str, new_style_key: &str) -> Strin
         date: parse_meta(content, "date"),
         // Remaining fields are not used by generate_title_page
         style_idx: 0, paper_idx: 0, margin_idx: 0,
-        font: String::new(), spacing: String::new(), page_num_pos: 0,
+        font: String::new(), font_size: String::new(), spacing: String::new(), page_num_pos: 0,
         include_toc: false, toc_depth: 2,
         include_abstract: false, abstract_text: String::new(),
         include_keywords: false, keywords: String::new(),
+        heading_numbering: false,
         languages: vec![], packages: vec![],
         body_kind: BodyKind::Academic,
         bib_path: None,
@@ -1635,7 +1739,8 @@ pub fn bib_style(style_key: &str) -> &'static str {
         "mla" => "mla",
         "apa" | "asa" => "apa",
         "ieee" => "ieee",
-        "gost-7-32" => "apa",  // No built-in GOST CSL; use APA as fallback
+        "gost-r-705" => "gost-r-705-2008-numeric",
+        "vancouver" => "vancouver",
         _ => "apa",
     }
 }
@@ -1644,12 +1749,12 @@ fn package_import(key: &str) -> Option<&'static str> {
     match key {
         "pkg_droplet" => Some("#import \"@preview/droplet:0.3.1\": dropcap"),
         "pkg_codly" => {
-            Some("#import \"@preview/codly:1.0.0\": *\n#show: codly-init.with()")
+            Some("#import \"@preview/codly:1.3.0\": *\n#show: codly-init.with()")
         }
-        "pkg_showybox" => Some("#import \"@preview/showybox:2.0.1\": showybox"),
-        "pkg_gentle" => Some("#import \"@preview/gentle-clues:1.0.0\": *"),
+        "pkg_showybox" => Some("#import \"@preview/showybox:2.0.4\": showybox"),
+        "pkg_gentle" => Some("#import \"@preview/gentle-clues:1.2.0\": *"),
         "pkg_tablex" => Some("#import \"@preview/tablex:0.0.9\": tablex, cellx"),
-        "pkg_drafting" => Some("#import \"@preview/drafting:0.2.0\": *"),
+        "pkg_drafting" => Some("#import \"@preview/drafting:0.2.2\": *"),
         _ => None,
     }
 }
@@ -1853,11 +1958,11 @@ pub fn heading_styles(style_key: &str) -> &'static str {
   #text(style: "italic")[#it.body]
 ]"#
         }
-        "gost-7-32" => {
-            // GOST 7.32-2017: numbered decimal headings; H1 centred bold upper;
+        "gost-r-705" => {
+            // GOST R 7.0-5: numbered decimal headings; H1 centred bold upper;
             // H2 flush-left bold; H3 flush-left bold italic.
             r#"
-// GOST 7.32 heading styles
+// GOST R 7.0-5 heading styles
 #set heading(numbering: "1.")
 #show heading.where(level: 1): it => block(width: 100%, above: 1em, below: 0.5em)[
   #set par(first-line-indent: 0pt)
@@ -1870,6 +1975,24 @@ pub fn heading_styles(style_key: &str) -> &'static str {
 #show heading.where(level: 3): it => block(width: 100%, above: 0.6em, below: 0.2em)[
   #set par(first-line-indent: 0pt)
   #text(weight: "bold", style: "italic")[#it.body]
+]"#
+        }
+        "vancouver" => {
+            // Vancouver (ICMJE): numbered headings; H1 bold; H2 bold italic; H3 italic run-in
+            r#"
+// Vancouver heading styles
+#set heading(numbering: "1.")
+#show heading.where(level: 1): it => block(width: 100%, above: 1em, below: 0.5em)[
+  #set par(first-line-indent: 0pt)
+  #text(weight: "bold")[#it.body]
+]
+#show heading.where(level: 2): it => block(width: 100%, above: 0.8em, below: 0.4em)[
+  #set par(first-line-indent: 0pt)
+  #text(weight: "bold", style: "italic")[#it.body]
+]
+#show heading.where(level: 3): it => block(width: 100%, above: 0.4em, below: 0em)[
+  #set par(first-line-indent: 0pt)
+  #text(style: "italic")[#it.body]
 ]"#
         }
         "asa" => {
@@ -1964,6 +2087,7 @@ fn generate_preset_preview(idx: usize) -> Result<Vec<u8>, String> {
         paper_idx: p.paper_idx as usize,
         margin_idx: p.margin_idx as usize,
         font: "Times New Roman".to_string(),
+        font_size: "12pt".to_string(),
         spacing,
         page_num_pos: p.page_num_pos,
         include_toc: false,
@@ -1974,6 +2098,7 @@ fn generate_preset_preview(idx: usize) -> Result<Vec<u8>, String> {
             .to_string(),
         include_keywords: false,
         keywords: String::new(),
+        heading_numbering: false,
         languages: Vec::new(),
         packages: Vec::new(),
         body_kind: p.body_kind,
@@ -2254,6 +2379,7 @@ pub fn default_import_preamble() -> String {
         paper_idx: 0,    // US Letter
         margin_idx: 0,   // Normal (1" / 1.25")
         font: "Times New Roman".to_string(),
+        font_size: "12pt".to_string(),
         spacing: "0.9em".to_string(),
         page_num_pos: 0, // Bottom center
         include_toc: false,
@@ -2262,6 +2388,7 @@ pub fn default_import_preamble() -> String {
         abstract_text: String::new(),
         include_keywords: false,
         keywords: String::new(),
+        heading_numbering: false,
         languages: vec![],
         packages: vec![],
         body_kind: BodyKind::default(),
@@ -2389,7 +2516,7 @@ pub fn replace_heading_styles_in_template(content: &str, style_key: &str) -> Str
 /// Other style transitions keep the current margin.
 fn update_page_settings_for_style(block: &str, new_style_key: &str) -> String {
     let is_currently_gost = block.contains("left: 30mm");
-    if new_style_key == "gost-7-32" {
+    if new_style_key == "gost-r-705" {
         // Force GOST mandatory page settings.
         let b = replace_in_line(block, "paper:", "paper: \"a4\",");
         replace_margin_line(&b, "top: 20mm, bottom: 20mm, left: 30mm, right: 15mm")

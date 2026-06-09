@@ -1340,6 +1340,9 @@ impl AppWindow {
                     &super::template_dialog::parse_keywords_text(&current_content),
                 );
             }
+            if let Some(doc_abstract) = super::template_dialog::parse_abstract_from_doc(&current_content) {
+                dlg.override_abstract_text(&doc_abstract);
+            }
             // Always read metadata from the document — the user may have edited the
             // #let doc-* variables directly, and the sidecar won't reflect those changes.
             dlg.preselect_metadata(
@@ -2807,6 +2810,11 @@ impl AppWindow {
                         &super::template_dialog::parse_keywords_text(&current_content),
                     );
                 }
+                // If the user edited the abstract directly in the .typ file, that wins
+                // over what the sidecar recorded last time. Override with doc's text.
+                if let Some(doc_abstract) = super::template_dialog::parse_abstract_from_doc(&current_content) {
+                    dlg.override_abstract_text(&doc_abstract);
+                }
                 // Always read metadata from the document — the user may have edited the
                 // #let doc-* variables directly, and the sidecar won't reflect those changes.
                 dlg.preselect_metadata(
@@ -4167,7 +4175,17 @@ fn extract_doc_title(content: &str) -> Option<String> {
             }
         }
     }
-    // 2. #set document(title: "...")
+    // 2. Zerkalo template variable: #let doc-title = "..."
+    for line in content.lines() {
+        let t = line.trim();
+        if let Some(rest) = t.strip_prefix("#let doc-title = ") {
+            let title = rest.trim().trim_matches('"').to_string();
+            if !title.is_empty() && title != "Untitled" {
+                return Some(title);
+            }
+        }
+    }
+    // 3. #set document(title: "...")
     for line in content.lines() {
         let t = line.trim();
         if t.starts_with("#set document(") {
@@ -4184,7 +4202,7 @@ fn extract_doc_title(content: &str) -> Option<String> {
             }
         }
     }
-    // 3. First = Heading
+    // 4. First = Heading
     for line in content.lines() {
         if let Some(h) = line.strip_prefix("= ") {
             let title = h.trim().to_string();
