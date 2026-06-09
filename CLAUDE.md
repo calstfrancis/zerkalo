@@ -1,5 +1,10 @@
 # Zerkalo — Claude Instructions
 
+## Build and release rules
+
+- **Never build or release unless Cal explicitly says to.** Code changes alone do not trigger a build.
+- Saying "build a rc" triggers a build. Saying "release" triggers a release. Nothing else does.
+
 ## Version Management
 
 ### Release candidate numbering
@@ -28,6 +33,7 @@
 ## Documentation
 - Keep `README.md` in sync with any new features or changed CLI flags
 - Update the help text in `src/ui/help_window.rs` when user-facing behavior changes
+- With each release, update `packaging/io.github.calstfrancis.Zerkalo.metainfo.xml` — the `<description>` block must reflect the current feature set accurately (not just the latest release notes). Review the full feature list and fix any that are stale or missing.
 
 ## Code Style
 - No comments unless the WHY is non-obvious

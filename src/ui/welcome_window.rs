@@ -47,12 +47,12 @@ impl WelcomeWindow {
 
         body.append(&section_label(&format!("What's New in {VERSION}")));
         for item in [
-            "Simple Mode (SIMPLE in the status bar): hides Typst front-matter so you see only your document body — stays on after Update Template or Style changes",
-            "Style dropdown moved to the toolbar (breadcrumb bar, next to word-wrap and undo/redo)",
-            "Preview scrolls immediately after the first compile — no longer requires a pane resize",
-            "Export for Web — converts the active Typst file to an embeddable HTML fragment with hover footnote tooltips (light and dark mode aware)",
-            "Import DOCX and LaTeX now work inside the flatpak — pandoc is reached via the host",
-            "Error panel shows \"Line N\" for each compile error",
+            "Simple Mode (SIMPLE in the status bar): hides Typst front-matter so you see only your document body",
+            "Style dropdown moved to the toolbar; arrow indicator removed",
+            "Preview scroll position is preserved across recompiles — no more jumping",
+            "LSP status dot is green when running, red on error; completion popup is alphabetically sorted; double-click inserts",
+            "Export for Web — converts the active Typst file to an embeddable HTML fragment with hover footnote tooltips",
+            "Settings: \"Developer mode\" renamed to \"Experimental mode\"",
         ] {
             body.append(&bullet_row(item));
         }
