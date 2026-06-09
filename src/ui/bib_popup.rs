@@ -5,7 +5,7 @@ use gtk4::gdk::Rectangle;
 use gtk4::prelude::*;
 use gtk4::{
     Align, Box as GtkBox, EventControllerKey, Label, ListBox, ListBoxRow, Orientation, Popover,
-    ScrolledWindow, SelectionMode,
+    PositionType, ScrolledWindow, SelectionMode,
 };
 
 use crate::bibliography::BibEntry;
@@ -109,7 +109,7 @@ impl BibPopup {
         *self.on_complete.borrow_mut() = Some(Box::new(f));
     }
 
-    pub fn show_filtered(&self, query: &str, x: i32, y: i32) {
+    pub fn show_filtered(&self, query: &str, x: i32, y: i32, above: bool) {
         self.clear_rows();
         self.filtered_keys.borrow_mut().clear();
 
@@ -146,6 +146,7 @@ impl BibPopup {
             self.list_box.select_row(Some(&row));
         }
 
+        self.popover.set_position(if above { PositionType::Top } else { PositionType::Bottom });
         self.popover.set_pointing_to(Some(&Rectangle::new(x, y, 1, 1)));
 
         if !self.popover.is_visible() {
