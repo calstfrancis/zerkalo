@@ -5,6 +5,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.4-rc3] — 2026-06-09
+
+### Fixed
+
+- Citation popup: no longer steals keyboard focus — keystrokes always register in the editor.
+- Citation popup: smart above/below placement — anchors below cursor when in the upper half of the view, above when in the lower half, so it never lands on the line being typed.
+- Citation popup: compile and LSP diagnostics are suppressed while the popup is open, preventing error spam from partial `@keys`.
+- GOST 7.32: bibliography style changed to `gost-r-7-0-5` — numeric citations with GOST-format entries using `//` article separators.
+
+---
+
 ## [0.13.4-rc2] — 2026-06-09
 
 ### Changed

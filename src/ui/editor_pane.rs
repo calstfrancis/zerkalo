@@ -213,6 +213,7 @@ pub struct EditorPane {
     gost_label: Label,
     on_gost_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
     on_version_click: Rc<RefCell<Option<Box<dyn Fn()>>>>,
+    bib_active: Rc<RefCell<bool>>,
 }
 
 fn set_autocorrect_label(label: &Label, enabled: bool) {
@@ -578,6 +579,7 @@ impl EditorPane {
             on_gost_toggle,
             on_version_click,
             on_word_count_click,
+            bib_active: Rc::new(RefCell::new(false)),
         };
 
         {
@@ -1048,6 +1050,10 @@ impl EditorPane {
             tab.buffer.remove_source_marks(&start, &end, Some("zerkalo-warning"));
             tab.diag_dot.set_visible(false);
         }
+    }
+
+    pub fn is_bib_active(&self) -> bool {
+        *self.bib_active.borrow()
     }
 
     // ── Callbacks ─────────────────────────────────────────────────────────────
@@ -1724,6 +1730,7 @@ impl EditorPane {
         let bib_popup = BibPopup::new(&view, self.bib_entries.clone());
         let ac_mark: Rc<RefCell<Option<gtk4::TextMark>>> = Rc::new(RefCell::new(None));
         let completing: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
+        let bib_active_for_open = self.bib_active.clone();
 
         let buf_complete = buffer.clone();
         let view_complete = view.clone();
@@ -1752,6 +1759,7 @@ impl EditorPane {
         let popup_ac = bib_popup.clone();
         let mark_ac = ac_mark.clone();
         let completing_ac = completing.clone();
+        let bib_active_ac = bib_active_for_open.clone();
         buffer.connect_changed(move |buf| {
             if *completing_ac.borrow() {
                 return;
@@ -1776,6 +1784,9 @@ impl EditorPane {
                 }
             }
             if !found_at {
+                if popup_ac.is_visible() {
+                    *bib_active_ac.borrow_mut() = false;
+                }
                 dismiss_popup(buf, &popup_ac, &mark_ac);
                 return;
             }
@@ -1789,6 +1800,9 @@ impl EditorPane {
                 }
             };
             if prev_is_word {
+                if popup_ac.is_visible() {
+                    *bib_active_ac.borrow_mut() = false;
+                }
                 dismiss_popup(buf, &popup_ac, &mark_ac);
                 return;
             }
@@ -1801,12 +1815,16 @@ impl EditorPane {
                     None => *mark_ref = Some(buf.create_mark(None::<&str>, &at_iter, true)),
                 }
             }
+            // Position popup below cursor when in upper half of view,
+            // above cursor when in lower half — so it never lands on the cursor line.
             let loc = view_ac.iter_location(&cursor_iter);
-            let (wx, wy) = view_ac.buffer_to_window_coords(
-                TextWindowType::Widget,
-                loc.x(),
-                loc.y() + loc.height(),
-            );
+            let (wx, wy_bottom) = view_ac.buffer_to_window_coords(
+                TextWindowType::Widget, loc.x(), loc.y() + loc.height());
+            let (_, wy_top) = view_ac.buffer_to_window_coords(
+                TextWindowType::Widget, loc.x(), loc.y());
+            let view_h = view_ac.allocated_height() as i32;
+            let wy = if wy_bottom > view_h / 2 { wy_top } else { wy_bottom };
+            *bib_active_ac.borrow_mut() = true;
             popup_ac.show_filtered(query, wx, wy);
         });
 
@@ -1936,6 +1954,7 @@ impl EditorPane {
         let completing_key = completing.clone();
         let lsp_completing_key = lsp_completing.clone();
         let view_key = view.clone();
+        let bib_active_key = bib_active_for_open.clone();
 
         let key_ctrl = EventControllerKey::new();
         key_ctrl.set_propagation_phase(PropagationPhase::Capture);
@@ -2001,6 +2020,7 @@ impl EditorPane {
             }
             match key {
                 Key::Escape => {
+                    *bib_active_key.borrow_mut() = false;
                     dismiss_popup_only(&bib_popup_key, &buf_key, &mark_key);
                     glib::Propagation::Stop
                 }
@@ -2009,6 +2029,7 @@ impl EditorPane {
                         .selected_key()
                         .or_else(|| bib_popup_key.first_filtered_key());
                     if let Some(k) = chosen {
+                        *bib_active_key.borrow_mut() = false;
                         do_bib_complete(
                             &buf_key, &mark_key, &completing_key, &bib_popup_key, &view_key, &k,
                         );
@@ -2017,6 +2038,7 @@ impl EditorPane {
                 }
                 Key::Return => {
                     if let Some(k) = bib_popup_key.selected_key() {
+                        *bib_active_key.borrow_mut() = false;
                         do_bib_complete(
                             &buf_key, &mark_key, &completing_key, &bib_popup_key, &view_key, &k,
                         );

@@ -211,7 +211,7 @@ pub const STYLES: &[(&str, &str, &str, &str, &str)] = &[
   #set par(first-line-indent: 0pt)
   #text(weight: "bold", style: "italic")[#it.body]
 ]"#,
-        "chicago-notes",
+        "gost-r-7-0-5",
         "",
         "gost-7-32",
     ),
