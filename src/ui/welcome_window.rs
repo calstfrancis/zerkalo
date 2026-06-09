@@ -47,12 +47,12 @@ impl WelcomeWindow {
 
         body.append(&section_label(&format!("What's New in {VERSION}")));
         for item in [
-            "Simple Mode (SIMPLE in the status bar): hides Typst front-matter so you see only your document body",
-            "Style button: no dropdown arrow; citation popup appears beside cursor instead of on top of it; full bib list shown",
-            "Preview scroll position is preserved across recompiles — no more jumping",
-            "LSP status dot is green when running, red on error; completion popup is alphabetically sorted; double-click inserts",
-            "Export for Web — converts the active Typst file to an embeddable HTML fragment with hover footnote tooltips",
-            "Settings: \"Developer mode\" renamed to \"Experimental mode\"",
+            "Completion popup now shows all snippets when # is typed and filters as you type — no more missing completions",
+            "Template dialog: \"Numbering Format\" row lets you choose Decimal (1.1.1.), IEEE Roman (I.A.1.), or Alpha (a.a.a.)",
+            "Template dialog: \"Preview Code…\" button shows the generated Typst preamble before you apply it",
+            "Heading numbers now render correctly — fixed for all styles (GOST, Vancouver, IEEE)",
+            "IEEE / GOST / Vancouver numbering is now user-controlled: the Numbered Headings toggle turns it on or off",
+            "Outline and Symbols panel buttons now use symbolic icons instead of text labels",
         ] {
             body.append(&bullet_row(item));
         }
