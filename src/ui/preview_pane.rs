@@ -319,13 +319,6 @@ impl PreviewPane {
             *self.zoom.borrow_mut() = z;
             self.refit_drawing_area_centered(None);
             if let Some(f) = self.on_zoom_changed.borrow().as_ref() { f(z); }
-        } else if pb_w > 0.0 {
-            // Widget not yet allocated (idle ran before GTK layout pass).
-            // Retry after GTK has finished laying out the newly-visible scroll pane.
-            let pane = self.clone();
-            glib::timeout_add_local_once(Duration::from_millis(50), move || {
-                pane.fit_width();
-            });
         }
     }
 
@@ -577,11 +570,14 @@ impl PreviewPane {
             }
         }
         *self.page_pixbufs.borrow_mut() = pixbufs;
+        // Set content dimensions synchronously so vadjustment.upper is valid
+        // before GTK finishes its first layout pass — otherwise the scroll pane
+        // has no scrollable range until the next resize event.
+        self.refit_drawing_area();
         if *self.auto_fit.borrow() {
+            // Correct the zoom to fit width once the viewport is allocated.
             let pane = self.clone();
             glib::idle_add_local_once(move || { pane.fit_width(); });
-        } else {
-            self.refit_drawing_area();
         }
         // Wire scroll adjustment to fire page-changed (only wire once per load)
         let pane = self.clone();
