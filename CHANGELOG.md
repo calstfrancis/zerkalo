@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.4-rc5] — 2026-06-09
+
+### Fixed
+
+- Auto-compile no longer dies after typing `@`: `bib_active` flag is now cleared unconditionally on dismiss, and set only if the popup actually shows (previously stayed `true` when no bib matches were found, permanently suppressing compile).
+- GOST 7.32: corrected bibliography style name to `gost-r-705-2008-numeric` (Typst's actual bundled identifier).
+
+---
+
 ## [0.13.4-rc4] — 2026-06-09
 
 ### Fixed
