@@ -46,6 +46,7 @@ pub struct PreviewPane {
     compile_gen: Rc<RefCell<u64>>,
     buffer_snapshot: Rc<RefCell<HashMap<PathBuf, String>>>,
     draft_mode: Rc<RefCell<bool>>,
+    first_load: Rc<RefCell<bool>>,
 }
 
 impl PreviewPane {
@@ -215,6 +216,7 @@ impl PreviewPane {
             compile_gen: Rc::new(RefCell::new(0)),
             buffer_snapshot: Rc::new(RefCell::new(HashMap::new())),
             draft_mode: Rc::new(RefCell::new(false)),
+            first_load: Rc::new(RefCell::new(true)),
         };
 
         // Refit to width whenever the scroll viewport width changes (window resize).
@@ -253,6 +255,7 @@ impl PreviewPane {
 
     pub fn set_root_file(&self, path: PathBuf) {
         *self.root_file.borrow_mut() = Some(path);
+        *self.first_load.borrow_mut() = true;
     }
 
     pub fn set_buffer_snapshot(&self, path: PathBuf, text: String) {
@@ -560,6 +563,22 @@ impl PreviewPane {
     // ── Internal ──────────────────────────────────────────────────────────────
 
     fn load_pixbufs_from_bytes(&self, pages: &[Vec<u8>]) {
+        let is_first = *self.first_load.borrow();
+
+        // Capture vertical scroll fraction before replacing content (recompiles only).
+        let saved_v_frac: Option<f64> = if !is_first {
+            let adj = self.img_scroll.vadjustment();
+            let range = adj.upper() - adj.lower();
+            let page = adj.page_size();
+            if range > page {
+                Some((adj.value() + page / 2.0) / range)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         let mut pixbufs = Vec::new();
         for png_bytes in pages {
             let gbytes = glib::Bytes::from(png_bytes.as_slice());
@@ -570,15 +589,33 @@ impl PreviewPane {
             }
         }
         *self.page_pixbufs.borrow_mut() = pixbufs;
-        // Set content dimensions synchronously so vadjustment.upper is valid
-        // before GTK finishes its first layout pass — otherwise the scroll pane
-        // has no scrollable range until the next resize event.
-        self.refit_drawing_area();
-        if *self.auto_fit.borrow() {
-            // Correct the zoom to fit width once the viewport is allocated.
+
+        self.refit_drawing_area_centered(saved_v_frac);
+
+        if is_first {
+            *self.first_load.borrow_mut() = false;
+            if *self.auto_fit.borrow() {
+                let pane = self.clone();
+                glib::idle_add_local_once(move || { pane.fit_width(); });
+            }
+        } else if *self.auto_fit.borrow() {
+            // Re-fit width while preserving the user's vertical position.
             let pane = self.clone();
-            glib::idle_add_local_once(move || { pane.fit_width(); });
+            let v = saved_v_frac;
+            glib::idle_add_local_once(move || {
+                let scroll_w = pane.img_scroll.allocated_width() as f64;
+                let pb_w = pane.page_pixbufs.borrow().first()
+                    .map(|pb| pb.width() as f64)
+                    .unwrap_or(0.0);
+                if pb_w > 0.0 && scroll_w > 16.0 {
+                    let z = ((scroll_w - 16.0) / pb_w).clamp(0.25, 4.0);
+                    *pane.zoom.borrow_mut() = z;
+                    pane.refit_drawing_area_centered(v);
+                    if let Some(f) = pane.on_zoom_changed.borrow().as_ref() { f(z); }
+                }
+            });
         }
+
         // Wire scroll adjustment to fire page-changed (only wire once per load)
         let pane = self.clone();
         self.img_scroll.vadjustment().connect_value_changed(move |_| {
@@ -606,12 +643,9 @@ impl PreviewPane {
         self.drawing_area.set_content_width(max_w.max(1));
         self.drawing_area.set_content_height(total_h.max(1));
         self.drawing_area.queue_draw();
-        let scroll = self.img_scroll.clone();
-        glib::idle_add_local_once(move || {
-            // Always reset horizontal scroll (document is center-aligned).
-            scroll.hadjustment().set_value(0.0);
-            // Restore vertical centre if requested (after a zoom change).
-            if let Some(frac) = v_frac {
+        if let Some(frac) = v_frac {
+            let scroll = self.img_scroll.clone();
+            glib::idle_add_local_once(move || {
                 let adj = scroll.vadjustment();
                 let range = adj.upper() - adj.lower();
                 let page = adj.page_size();
@@ -620,8 +654,8 @@ impl PreviewPane {
                         .clamp(adj.lower(), adj.upper() - page);
                     adj.set_value(target);
                 }
-            }
-        });
+            });
+        }
     }
 }
 

@@ -382,7 +382,7 @@ impl SettingsDialog {
         let dev_group = adw::PreferencesGroup::new();
         dev_group.set_title("Advanced");
         let dev_mode_row = adw::SwitchRow::new();
-        dev_mode_row.set_title("Developer mode");
+        dev_mode_row.set_title("Experimental mode");
         dev_mode_row.set_subtitle("Show experimental features (Import…)");
         dev_mode_row.set_active(current.developer_mode);
         dev_group.add(&dev_mode_row);

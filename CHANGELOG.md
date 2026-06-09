@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.4-rc1] — 2026-06-09
+
+### Changed
+
+- Style dropdown: the dropdown triangle arrow is hidden (button still opens the menu).
+- Settings: "Developer mode" renamed to "Experimental mode".
+- Preview pane: scroll position is no longer reset after each compile — position is fully user-controlled (scroll, page buttons, arrow keys). Only the first compile auto-fits to width.
+
+---
+
 ## [0.13.3] — 2026-06-09
 
 ### Changed

@@ -125,6 +125,7 @@ impl AppWindow {
         style_btn.add_css_class("flat");
         style_btn.add_css_class("caption");
         style_btn.set_tooltip_text(Some("Apply a formatting style to the document"));
+        style_btn.set_always_show_arrow(false);
         style_btn.set_popover(Some(&style_popover));
         for name in &style_names {
             let row = Button::new();
