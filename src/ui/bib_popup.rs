@@ -5,7 +5,7 @@ use gtk4::gdk::Rectangle;
 use gtk4::prelude::*;
 use gtk4::{
     Align, Box as GtkBox, EventControllerKey, Label, ListBox, ListBoxRow, Orientation, Popover,
-    ScrolledWindow, SelectionMode,
+    PositionType, ScrolledWindow, SelectionMode,
 };
 
 use crate::bibliography::BibEntry;
@@ -24,6 +24,7 @@ impl BibPopup {
         let popover = Popover::new();
         popover.set_has_arrow(false);
         popover.set_autohide(false);
+        popover.set_position(PositionType::Right);
         popover.set_parent(parent);
 
         let list_box = ListBox::new();
@@ -128,7 +129,7 @@ impl BibPopup {
             if e.key.to_lowercase().starts_with(&q) { 0u8 } else { 1u8 }
         });
 
-        let shown: Vec<&BibEntry> = matched.into_iter().take(15).collect();
+        let shown: Vec<&BibEntry> = matched;
 
         if shown.is_empty() {
             if self.popover.is_visible() {
