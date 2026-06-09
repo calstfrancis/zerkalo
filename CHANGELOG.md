@@ -5,6 +5,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.4] — 2026-06-09
+
+### Added
+
+- **Ctrl+B / Ctrl+I**: wrap selection in `*bold*` / `_italic_` Typst markup; pressing again strips the markers.
+- **Ctrl+Shift+E**: export PDF directly to the document folder with no dialog. Shows a toast on completion.
+- **Section word count**: breadcrumb bar shows `§ N` word count for the heading section under the cursor.
+- **Compile progress stripe**: thin pulsing bar at the bottom of the header bar while a compile runs.
+- **Citation panel single-click**: clicking a reference in the sidebar inserts `@key` immediately (was double-click).
+- **Window title from document**: header shows the Typst `title:` metadata, falling back to first `= Heading`, then filename.
+
+### Improved
+
+- Preview scroll position preserved across recompiles — no more jumping to the top on every compile.
+- Preview page shadows: soft drop shadow behind each page on the gray canvas.
+- Status bar separators: thin vertical dividers between control groups.
+- Modified-dot indicator on tabs now renders in the accent color.
+- Citation popup: no longer steals focus while typing a key; positions above/below cursor correctly; suppresses compile errors while the popup is open; shows full bibliography list.
+- GOST bibliography style corrected to `gost-r-705-2008-numeric` (the actual bundled identifier).
+- Breadcrumb separator changed from `›` to `/`.
+- Style button no longer shows a dropdown arrow.
+- "Developer mode" renamed to "Experimental mode" in settings.
+- Auto-compile no longer halts after typing `@` when no bib matches are found.
+
+---
+
 ## [0.13.4-rc8] — 2026-06-09
 
 ### Improved

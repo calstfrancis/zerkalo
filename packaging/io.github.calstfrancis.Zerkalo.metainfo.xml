@@ -15,27 +15,32 @@
     <ul>
       <li>Multi-file tabs with modified indicator and inline compile-error dots</li>
       <li>Syntax highlighting, find and replace, auto-pair brackets</li>
+      <li>Ctrl+B / Ctrl+I bold and italic formatting with toggle-off support</li>
       <li>LSP completions via bundled tinymist — type # for a popup</li>
-      <li>Citation autocomplete — type @ for fuzzy BibTeX key search</li>
-      <li>Spell check with suggestions, Ignore All, and language selector</li>
-      <li>Word count, reading time, word-count goal, and session delta in the status bar</li>
+      <li>Citation autocomplete — type @ for fuzzy BibTeX key search with smart popup positioning</li>
+      <li>Spell check with suggestions, Ignore All, and language selector; typewriter scrolling option</li>
+      <li>Word count, reading time, word-count goal, session delta, and section word count</li>
       <li>Command palette (Ctrl+K) — fuzzy search over commands and headings</li>
-      <li>Breadcrumb bar showing your heading path as the cursor moves</li>
+      <li>Breadcrumb bar with heading path, section word count, and word-wrap toggle</li>
+      <li>Simple Mode — hides Typst front-matter so the document body is always visible</li>
       <li>Configurable keybindings via keybindings.toml</li>
     </ul>
     <p>Document workflow:</p>
     <ul>
       <li>New from Template — dialog generates a complete Typst preamble</li>
       <li>Import from LaTeX, DOCX, or PDF via pandoc</li>
-      <li>Export to PDF, HTML, DOCX, ODT, or LaTeX</li>
-      <li>Citation style switcher with GOST 7.32 support</li>
+      <li>Export to PDF, HTML, DOCX, ODT, or LaTeX; Ctrl+Shift+E for instant PDF export</li>
+      <li>Citation style switcher — APA, Chicago, GOST 7.32, and more</li>
+      <li>Compile on save with live preview; scroll position preserved across recompiles</li>
+      <li>Auto-save to recovery file on idle; periodic save every 30 seconds</li>
       <li>Git sync — commit and push to all remotes in one click</li>
     </ul>
     <p>Sidebar:</p>
     <ul>
       <li>Document outline with cursor-tracking highlight</li>
-      <li>File tree, citation panel, plan scratchpad, and section notes</li>
+      <li>File tree, citation panel (single-click insert), plan scratchpad, and section notes</li>
       <li>Symbol insert panel for Cyrillic, Greek, Hebrew, and Sanskrit</li>
+      <li>Snapshot history with diff view and restore</li>
     </ul>
   </description>
   <launchable type="desktop-id">io.github.calstfrancis.Zerkalo.desktop</launchable>
@@ -46,6 +51,11 @@
   </developer>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.13.4" date="2026-06-09">
+      <description>
+        <p>Ctrl+B/I bold/italic; Ctrl+Shift+E instant PDF export; section word count in breadcrumb bar; compile progress stripe. Citation popup fixed: no focus steal, correct positioning, full list. Preview scroll preserved. GOST style corrected. Page shadows, accent modified-dot, status bar separators.</p>
+      </description>
+    </release>
     <release version="0.13.4-rc8" date="2026-06-09">
       <description>
         <p>Section word count moved to the breadcrumb bar, between the heading path and the word-wrap button.</p>
