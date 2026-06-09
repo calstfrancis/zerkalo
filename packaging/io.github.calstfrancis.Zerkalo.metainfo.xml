@@ -50,6 +50,12 @@
     <name>Cal St Francis</name>
   </developer>
   <content_rating type="oars-1.1"/>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/calstfrancis/zerkalo/main/packaging/zerkalo-screenshot.png</image>
+      <caption>Zerkalo editing a Typst document with live preview</caption>
+    </screenshot>
+  </screenshots>
   <releases>
     <release version="0.13.4" date="2026-06-09">
       <description>

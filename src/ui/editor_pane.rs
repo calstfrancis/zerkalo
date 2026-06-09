@@ -1734,13 +1734,15 @@ impl EditorPane {
                 let heading_path = build_heading_path(buf, cursor.line());
                 breadcrumb_lbl.set_text(&heading_path);
 
-                // Scan backward from cursor line for a heading
-                if let Some(cb) = on_heading_cb.borrow().as_ref() {
-                    let heading_line = find_heading_line_for(buf, cursor.line());
-                    if heading_line != *last_heading_line.borrow() {
-                        *last_heading_line.borrow_mut() = heading_line;
-                        if heading_line != u32::MAX {
-                            cb(path_for_heading.clone(), heading_line);
+                // Scan backward for a heading; only scroll preview on keyboard nav (not mouse click).
+                if was_typing {
+                    if let Some(cb) = on_heading_cb.borrow().as_ref() {
+                        let heading_line = find_heading_line_for(buf, cursor.line());
+                        if heading_line != *last_heading_line.borrow() {
+                            *last_heading_line.borrow_mut() = heading_line;
+                            if heading_line != u32::MAX {
+                                cb(path_for_heading.clone(), heading_line);
+                            }
                         }
                     }
                 }
@@ -3758,6 +3760,31 @@ fn section_heading_level(text: &str) -> Option<usize> {
     if lvl > 0 && trimmed[lvl..].starts_with(' ') { Some(lvl) } else { None }
 }
 
+/// Count words in a line of Typst text, treating `#lorem(N)` as N words.
+fn count_words_typst(text: &str) -> u32 {
+    let mut count = 0u32;
+    let mut remaining = text;
+    while !remaining.is_empty() {
+        if let Some(pos) = remaining.find("#lorem(") {
+            // Count words before #lorem
+            count += remaining[..pos].split_whitespace().count() as u32;
+            let after = &remaining[pos + 7..];
+            if let Some(end) = after.find(')') {
+                if let Ok(n) = after[..end].trim().parse::<u32>() {
+                    count += n;
+                }
+                remaining = &after[end + 1..];
+            } else {
+                break;
+            }
+        } else {
+            count += remaining.split_whitespace().count() as u32;
+            break;
+        }
+    }
+    count
+}
+
 fn section_word_count_for_line(buf: &sourceview5::Buffer, cursor_line: i32) -> Option<u32> {
     let total = buf.line_count();
     let mut sec_start = -1i32;
@@ -3790,7 +3817,7 @@ fn section_word_count_for_line(buf: &sourceview5::Buffer, cursor_line: i32) -> O
         let mut end = start.clone();
         if !end.ends_line() { end.forward_to_line_end(); }
         let text = buf.text(&start, &end, false).to_string();
-        words += text.split_whitespace().count() as u32;
+        words += count_words_typst(&text);
     }
     Some(words)
 }

@@ -286,10 +286,10 @@ impl OutlinePanel {
 
             for (h_idx, (line_idx, level, text)) in headings.iter().enumerate() {
                 let next_line_idx = headings.get(h_idx + 1).map(|(li, _, _)| *li).unwrap_or(n);
-                let word_count: usize = all_lines[line_idx + 1..next_line_idx]
+                let word_count: u32 = all_lines[line_idx + 1..next_line_idx]
                     .iter()
-                    .flat_map(|l| l.split_whitespace())
-                    .count();
+                    .map(|l| count_words_typst(l))
+                    .sum();
 
                 let ln = (line_idx + 1) as u32;
                 positions_vec.push((path.clone(), ln));
@@ -460,4 +460,27 @@ fn symbol_tabs() -> Vec<(&'static str, Vec<(&'static str, &'static str)>)> {
             ("।","danda"), ("॥","double danda"), ("ॐ","Om"),
         ]),
     ]
+}
+
+fn count_words_typst(text: &str) -> u32 {
+    let mut count = 0u32;
+    let mut remaining = text;
+    while !remaining.is_empty() {
+        if let Some(pos) = remaining.find("#lorem(") {
+            count += remaining[..pos].split_whitespace().count() as u32;
+            let after = &remaining[pos + 7..];
+            if let Some(end) = after.find(')') {
+                if let Ok(n) = after[..end].trim().parse::<u32>() {
+                    count += n;
+                }
+                remaining = &after[end + 1..];
+            } else {
+                break;
+            }
+        } else {
+            count += remaining.split_whitespace().count() as u32;
+            break;
+        }
+    }
+    count
 }
