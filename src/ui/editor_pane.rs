@@ -1784,9 +1784,7 @@ impl EditorPane {
                 }
             }
             if !found_at {
-                if popup_ac.is_visible() {
-                    *bib_active_ac.borrow_mut() = false;
-                }
+                *bib_active_ac.borrow_mut() = false;
                 dismiss_popup(buf, &popup_ac, &mark_ac);
                 return;
             }
@@ -1800,9 +1798,7 @@ impl EditorPane {
                 }
             };
             if prev_is_word {
-                if popup_ac.is_visible() {
-                    *bib_active_ac.borrow_mut() = false;
-                }
+                *bib_active_ac.borrow_mut() = false;
                 dismiss_popup(buf, &popup_ac, &mark_ac);
                 return;
             }
@@ -1827,8 +1823,8 @@ impl EditorPane {
             // above=false: popup uses PositionType::Bottom, its top lands at wy_bottom (cursor bottom)
             let above = wy_bottom > view_h / 2;
             let wy = if above { wy_top } else { wy_bottom };
-            *bib_active_ac.borrow_mut() = true;
             popup_ac.show_filtered(query, wx, wy, above);
+            *bib_active_ac.borrow_mut() = popup_ac.is_visible();
         });
 
         // ── #-function LSP autocomplete ───────────────────────────────────────
