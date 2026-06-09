@@ -997,17 +997,22 @@ impl EditorPane {
 
                 let cursor = tab.buffer.iter_at_offset(tab.buffer.cursor_position());
                 let loc = tab.view.iter_location(&cursor);
-                let (_, wy) = tab.view.buffer_to_window_coords(
+                let (wx, wy_bottom) = tab.view.buffer_to_window_coords(
                     TextWindowType::Widget,
                     loc.x(),
                     loc.y() + loc.height(),
                 );
-                let wx = tab.view.left_margin();
+                let (_, wy_top) = tab.view.buffer_to_window_coords(
+                    TextWindowType::Widget,
+                    loc.x(),
+                    loc.y(),
+                );
+                let view_h = tab.view.allocated_height() as i32;
+                let above = wy_bottom > view_h / 2;
+                let wy = if above { wy_top } else { wy_bottom };
 
                 if !tab.lsp_popup.is_visible() {
-                    // First show: store ALL snippets as the master list so the user can
-                    // see everything and then narrow down by typing. Client-side filter
-                    // (apply_filter below) handles the narrowing without re-fetching.
+                    // Popup wasn't shown yet (e.g. LSP responded before connect_changed fired)
                     let mut all_items: Vec<CompletionItem> = ACADEMIC_SNIPPETS
                         .iter()
                         .map(|(_, label, desc, body)| CompletionItem {
@@ -1018,10 +1023,11 @@ impl EditorPane {
                         })
                         .collect();
                     all_items.extend(items);
-                    tab.lsp_popup.show_items(all_items, wx, wy);
+                    tab.lsp_popup.show_items(all_items, wx, wy, above);
+                } else {
+                    // Popup already showing snippets — merge in LSP results
+                    tab.lsp_popup.merge_items(items);
                 }
-                // Always update the client-side filter to match the current typed prefix.
-                // This refocuses the selection to the top of the filtered list on each keystroke.
                 tab.lsp_popup.apply_filter(&prefix);
                 break;
             }
@@ -1920,6 +1926,7 @@ impl EditorPane {
             let lsp_gen3 = lsp_comp_gen.clone();
             let on_comp_cb = self.on_completion_needed.clone();
             let path_for_lsp = path.clone();
+            let view_lsp = view.clone();
             buffer.connect_changed(move |buf| {
                 if *lsp_completing3.borrow() {
                     return;
@@ -1956,6 +1963,29 @@ impl EditorPane {
                                     Some(buf.create_mark(None::<&str>, &hash_iter, true))
                             }
                         }
+                    }
+
+                    // Show built-in snippets immediately without waiting for LSP
+                    if !lsp_popup3.is_visible() {
+                        let loc = view_lsp.iter_location(&cursor_iter);
+                        let (wx, wy_bottom) = view_lsp.buffer_to_window_coords(
+                            TextWindowType::Widget, loc.x(), loc.y() + loc.height());
+                        let (_, wy_top) = view_lsp.buffer_to_window_coords(
+                            TextWindowType::Widget, loc.x(), loc.y());
+                        let view_h = view_lsp.allocated_height() as i32;
+                        let above = wy_bottom > view_h / 2;
+                        let wy = if above { wy_top } else { wy_bottom };
+                        let snippets: Vec<CompletionItem> = ACADEMIC_SNIPPETS
+                            .iter()
+                            .map(|(_, label, desc, body)| CompletionItem {
+                                label: label.to_string(),
+                                kind: 15,
+                                detail: Some(desc.to_string()),
+                                insert_text: Some(body.to_string()),
+                            })
+                            .collect();
+                        lsp_popup3.show_items(snippets, wx, wy, above);
+                        lsp_popup3.apply_filter(&lsp_hash_prefix(buf));
                     }
 
                     let line = cursor_iter.line() as u32 + 1;
@@ -2006,7 +2036,13 @@ impl EditorPane {
             if lsp_popup_key.is_visible() {
                 return match key {
                     Key::Escape => {
-                        if let Some(m) = lsp_mark_key.borrow_mut().take() {
+                        let mark_opt = lsp_mark_key.borrow_mut().take();
+                        if let Some(m) = mark_opt {
+                            let mut start = buf_key.iter_at_mark(&m);
+                            let mut end = buf_key.iter_at_offset(buf_key.cursor_position());
+                            buf_key.begin_user_action();
+                            buf_key.delete(&mut start, &mut end);
+                            buf_key.end_user_action();
                             buf_key.delete_mark(&m);
                         }
                         lsp_popup_key.hide();
