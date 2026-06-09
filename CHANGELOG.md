@@ -5,6 +5,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.5-rc1] — 2026-06-09
+
+### Added
+
+- **Vancouver citation style**: new style option with numbered headings and Vancouver bib output.
+- **Font size selector**: template dialog now has a 10/11/12/14 pt selector in the Typography section.
+- **Numbered headings toggle**: Sections tab now has a "Numbered Headings" switch (1. 1.1 …).
+- **#lorem() word count**: `#lorem(N)` is now counted as N words in section WC (breadcrumb) and outline panel word counts.
+- **App screenshot**: added screenshot for GNOME Software / Discover.
+
+### Changed
+
+- **GOST style renamed**: "GOST 7.32" → "GOST R 7.0-5 (numeric)" throughout; bib style correctly uses `gost-r-705-2008-numeric` (was incorrectly falling back to APA).
+- **Abstract preservation**: Update Template dialog now reads the abstract the user has typed directly in the `.typ` file; that text wins over the sidecar.
+- **Codly package version**: bumped to 1.3.0; showybox to 2.0.4; gentle-clues to 1.2.0; drafting to 0.2.2.
+- **Window title priority**: `#let doc-title = "..."` template variable is now checked before the first `= Heading` when setting the window title.
+
+### Fixed
+
+- **Preview no longer scrolls on mouse click**: clicking in the editor no longer jumps the preview; only keyboard navigation (typing) triggers the scroll-to-section.
+- **LSP completion popup closes on click-away**: clicking outside the popup now dismisses it (autohide re-enabled).
+
+---
+
 ## [0.13.4] — 2026-06-09
 
 ### Added

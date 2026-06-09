@@ -57,6 +57,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.13.5-rc1" date="2026-06-09">
+      <description>
+        <p>Vancouver citation style; font size and numbered-heading toggle in template dialog; #lorem() counted in word counts; abstract preserved on Update Template; GOST style correctly named and wired; preview no longer scrolls on mouse click; LSP popup closes on click-away; app screenshot added for Discover.</p>
+      </description>
+    </release>
     <release version="0.13.4" date="2026-06-09">
       <description>
         <p>Ctrl+B/I bold/italic; Ctrl+Shift+E instant PDF export; section word count in breadcrumb bar; compile progress stripe. Citation popup fixed: no focus steal, correct positioning, full list. Preview scroll preserved. GOST style corrected. Page shadows, accent modified-dot, status bar separators.</p>
