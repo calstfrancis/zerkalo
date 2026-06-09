@@ -338,6 +338,7 @@ impl EditorPane {
         let lsp_status_label = Label::new(None);
         lsp_status_label.add_css_class("dim-label");
         lsp_status_label.add_css_class("caption");
+        lsp_status_label.set_use_markup(true);
         lsp_status_label.set_margin_start(8);
         lsp_status_label.set_margin_top(3);
         lsp_status_label.set_margin_bottom(3);
@@ -1154,7 +1155,10 @@ impl EditorPane {
     }
 
     pub fn set_lsp_status(&self, status: &str) {
-        self.lsp_status_label.set_text(status);
+        let markup = status
+            .replace('●', "<span color=\"#57e389\">●</span>")
+            .replace('✗', "<span color=\"#ff7b63\">✗</span>");
+        self.lsp_status_label.set_markup(&markup);
     }
 
     pub fn set_diag_summary(&self, errors: u32, warnings: u32) {
