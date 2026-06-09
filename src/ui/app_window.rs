@@ -120,13 +120,18 @@ impl AppWindow {
         style_box.set_margin_bottom(4);
         let style_popover = Popover::new();
         style_popover.set_child(Some(&style_box));
-        let style_btn = MenuButton::new();
-        style_btn.set_label("Style");
+        let style_btn = Button::with_label("Style");
         style_btn.add_css_class("flat");
         style_btn.add_css_class("caption");
         style_btn.set_tooltip_text(Some("Apply a formatting style to the document"));
-        style_btn.set_always_show_arrow(false);
-        style_btn.set_popover(Some(&style_popover));
+        {
+            let sp = style_popover.clone();
+            let sb = style_btn.clone();
+            style_btn.connect_clicked(move |_| {
+                sp.set_parent(&sb);
+                if sp.is_visible() { sp.popdown(); } else { sp.popup(); }
+            });
+        }
         for name in &style_names {
             let row = Button::new();
             row.set_label(name);

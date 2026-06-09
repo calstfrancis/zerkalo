@@ -3481,7 +3481,7 @@ fn build_heading_path(buf: &sourceview5::Buffer, line_idx: i32) -> String {
         check -= 1;
     }
     path.reverse();
-    path.into_iter().map(|(_, t)| t).collect::<Vec<_>>().join(" › ")
+    path.into_iter().map(|(_, t)| t).collect::<Vec<_>>().join(" / ")
 }
 
 // Returns the 1-based line number of the nearest heading at or above `line_idx`,

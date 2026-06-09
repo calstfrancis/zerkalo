@@ -46,6 +46,11 @@
   </developer>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.13.4-rc2" date="2026-06-09">
+      <description>
+        <p>Citation popup repositioned to avoid blocking the cursor; full bibliography shown. GOST style now uses footnote citations. Breadcrumb separator changed to /. Style button has no dropdown arrow.</p>
+      </description>
+    </release>
     <release version="0.13.4-rc1" date="2026-06-09">
       <description>
         <p>Style button arrow hidden; "Experimental mode" renamed from "Developer mode"; preview scroll position preserved across recompiles.</p>

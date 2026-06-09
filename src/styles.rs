@@ -211,7 +211,7 @@ pub const STYLES: &[(&str, &str, &str, &str, &str)] = &[
   #set par(first-line-indent: 0pt)
   #text(weight: "bold", style: "italic")[#it.body]
 ]"#,
-        "apa",  // No built-in GOST CSL; substitute APA until a GOST CSL file is provided
+        "chicago-notes",
         "",
         "gost-7-32",
     ),

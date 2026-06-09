@@ -48,7 +48,7 @@ impl WelcomeWindow {
         body.append(&section_label(&format!("What's New in {VERSION}")));
         for item in [
             "Simple Mode (SIMPLE in the status bar): hides Typst front-matter so you see only your document body",
-            "Style dropdown moved to the toolbar; arrow indicator removed",
+            "Style button: no dropdown arrow; citation popup appears beside cursor instead of on top of it; full bib list shown",
             "Preview scroll position is preserved across recompiles — no more jumping",
             "LSP status dot is green when running, red on error; completion popup is alphabetically sorted; double-click inserts",
             "Export for Web — converts the active Typst file to an embeddable HTML fragment with hover footnote tooltips",

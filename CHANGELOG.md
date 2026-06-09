@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.4-rc2] — 2026-06-09
+
+### Changed
+
+- Citation popup: positioned to the right of the cursor so it never overlaps the text being typed.
+- Citation popup: shows the full bibliography list instead of capping at 15 entries.
+- GOST 7.32 citation style: switched from author-date (APA) to footnote-based (Chicago Notes).
+- Breadcrumb heading path: separator changed from `›` to `/`.
+- Style button: plain button with no dropdown arrow (popover still works on click).
+
+---
+
 ## [0.13.4-rc1] — 2026-06-09
 
 ### Changed
