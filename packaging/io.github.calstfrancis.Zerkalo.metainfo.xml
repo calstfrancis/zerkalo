@@ -46,6 +46,11 @@
   </developer>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.13.4-rc8" date="2026-06-09">
+      <description>
+        <p>Section word count moved to the breadcrumb bar, between the heading path and the word-wrap button.</p>
+      </description>
+    </release>
     <release version="0.13.4-rc7" date="2026-06-09">
       <description>
         <p>Ctrl+B/I for bold/italic; section word count in status bar; compile progress stripe in header. Preview pages now have drop shadows; status bar has group separators; modified-dot uses accent color.</p>
