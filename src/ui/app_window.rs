@@ -1667,7 +1667,13 @@ impl AppWindow {
         let gen: Rc<RefCell<u64>> = Rc::new(RefCell::new(0));
         let gen2 = gen.clone();
         let editor_pane_for_delta = editor_pane.clone();
+        let editor_pane_for_bib = editor_pane.clone();
         editor_pane.set_on_change(move || {
+            // While the citation popup is open, suppress compile and LSP updates —
+            // partial @keys cause spurious errors and make typing difficult.
+            if editor_pane_for_bib.is_bib_active() {
+                return;
+            }
             *last_edit_for_change.borrow_mut() = Some(std::time::Instant::now());
             *gen2.borrow_mut() += 1;
             let my_gen = *gen2.borrow();

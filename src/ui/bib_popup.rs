@@ -5,7 +5,7 @@ use gtk4::gdk::Rectangle;
 use gtk4::prelude::*;
 use gtk4::{
     Align, Box as GtkBox, EventControllerKey, Label, ListBox, ListBoxRow, Orientation, Popover,
-    PositionType, ScrolledWindow, SelectionMode,
+    ScrolledWindow, SelectionMode,
 };
 
 use crate::bibliography::BibEntry;
@@ -24,7 +24,6 @@ impl BibPopup {
         let popover = Popover::new();
         popover.set_has_arrow(false);
         popover.set_autohide(false);
-        popover.set_position(PositionType::Right);
         popover.set_parent(parent);
 
         let list_box = ListBox::new();
@@ -152,10 +151,6 @@ impl BibPopup {
         if !self.popover.is_visible() {
             self.popover.popup();
         }
-
-        // Grab focus so keyboard Tab/Return go to the list
-        let lb = self.list_box.clone();
-        glib::idle_add_local_once(move || { lb.grab_focus(); });
     }
 
     pub fn hide(&self) {
