@@ -74,17 +74,17 @@
         </ul>
       </description>
     </release>
-    <release version="0.13.5-rc3" date="2026-06-09">
+    <release type="development" version="0.13.5-rc3" date="2026-06-09">
       <description>
         <p>Completion popup fixes: no longer steals focus or blocks typing; no longer covers the cursor; appears immediately on # with built-in snippets then merges LSP results; arrow keys skip filtered-out rows; Escape deletes the typed #word.</p>
       </description>
     </release>
-    <release version="0.13.5-rc2" date="2026-06-09">
+    <release type="development" version="0.13.5-rc2" date="2026-06-09">
       <description>
         <p>Completion popup client-side filter (shows all completions, narrows as you type); numbering format selector (Decimal / IEEE Roman / Alpha); Preview Code button in template dialog; IEEE/GOST/Vancouver numbering now user-controlled; heading numbers now actually render in all styles; Outline/Symbols panel buttons use symbolic icons.</p>
       </description>
     </release>
-    <release version="0.13.5-rc1" date="2026-06-09">
+    <release type="development" version="0.13.5-rc1" date="2026-06-09">
       <description>
         <p>Vancouver citation style; font size and numbered-heading toggle in template dialog; #lorem() counted in word counts; abstract preserved on Update Template; GOST style correctly named and wired; preview no longer scrolls on mouse click; LSP popup closes on click-away; app screenshot added for Discover.</p>
       </description>
@@ -94,42 +94,42 @@
         <p>Ctrl+B/I bold/italic; Ctrl+Shift+E instant PDF export; section word count in breadcrumb bar; compile progress stripe. Citation popup fixed: no focus steal, correct positioning, full list. Preview scroll preserved. GOST style corrected. Page shadows, accent modified-dot, status bar separators.</p>
       </description>
     </release>
-    <release version="0.13.4-rc8" date="2026-06-09">
+    <release type="development" version="0.13.4-rc8" date="2026-06-09">
       <description>
         <p>Section word count moved to the breadcrumb bar, between the heading path and the word-wrap button.</p>
       </description>
     </release>
-    <release version="0.13.4-rc7" date="2026-06-09">
+    <release type="development" version="0.13.4-rc7" date="2026-06-09">
       <description>
         <p>Ctrl+B/I for bold/italic; section word count in status bar; compile progress stripe in header. Preview pages now have drop shadows; status bar has group separators; modified-dot uses accent color.</p>
       </description>
     </release>
-    <release version="0.13.4-rc6" date="2026-06-09">
+    <release type="development" version="0.13.4-rc6" date="2026-06-09">
       <description>
         <p>Ctrl+Shift+E exports PDF directly to the document folder. Window title shows the document title field or first heading instead of filename. Citation sidebar now inserts on single click.</p>
       </description>
     </release>
-    <release version="0.13.4-rc5" date="2026-06-09">
+    <release type="development" version="0.13.4-rc5" date="2026-06-09">
       <description>
         <p>Fix: auto-compile no longer dies after typing @. Fix: GOST style now uses correct bundled style name gost-r-705-2008-numeric.</p>
       </description>
     </release>
-    <release version="0.13.4-rc4" date="2026-06-09">
+    <release type="development" version="0.13.4-rc4" date="2026-06-09">
       <description>
         <p>Citation popup: bottom edge now clears the cursor line when appearing above it.</p>
       </description>
     </release>
-    <release version="0.13.4-rc3" date="2026-06-09">
+    <release type="development" version="0.13.4-rc3" date="2026-06-09">
       <description>
         <p>Citation popup: no longer steals focus; smart position above/below cursor; errors suppressed while typing citation key. GOST bibliography uses gost-r-7-0-5 with // separators.</p>
       </description>
     </release>
-    <release version="0.13.4-rc2" date="2026-06-09">
+    <release type="development" version="0.13.4-rc2" date="2026-06-09">
       <description>
         <p>Citation popup repositioned to avoid blocking the cursor; full bibliography shown. GOST style now uses footnote citations. Breadcrumb separator changed to /. Style button has no dropdown arrow.</p>
       </description>
     </release>
-    <release version="0.13.4-rc1" date="2026-06-09">
+    <release type="development" version="0.13.4-rc1" date="2026-06-09">
       <description>
         <p>Style button arrow hidden; "Experimental mode" renamed from "Developer mode"; preview scroll position preserved across recompiles.</p>
       </description>
@@ -159,12 +159,12 @@
         <p>Fix DOCX/LaTeX import: all pandoc preamble blocks (#set, #show, #let conf) now stripped correctly so imported files compile cleanly.</p>
       </description>
     </release>
-    <release version="0.12.34-rc2" date="2026-06-08">
+    <release type="development" version="0.12.34-rc2" date="2026-06-08">
       <description>
         <p>Fix LaTeX and DOCX import inside flatpak (pandoc now routed via flatpak-spawn --host). Error panel shows "Line N" for each error.</p>
       </description>
     </release>
-    <release version="0.12.34-rc1" date="2026-06-08">
+    <release type="development" version="0.12.34-rc1" date="2026-06-08">
       <description>
         <p>Export for Web: converts the active Typst file to an HTML fragment via pandoc; footnotes become hover tooltips that respond to light/dark mode.</p>
       </description>
@@ -174,7 +174,7 @@
         <p>Delete button (trash icon) beside every file in the open dropdown — confirmation dialog, closes tab if open, removes from list.</p>
       </description>
     </release>
-    <release version="0.12.33-rc1" date="2026-06-08">
+    <release type="development" version="0.12.33-rc1" date="2026-06-08">
       <description>
         <p>Changelog window renders release notes with proper formatting. Lock buttons on Author/Affiliation in template dialog. Flatpak now sources locally — no push needed for test builds. RC versioning scheme introduced. Setup wizard widened.</p>
       </description>
