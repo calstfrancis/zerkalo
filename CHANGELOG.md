@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.2] — 2026-06-09
+
+### Fixed
+
+- Simple Mode: preamble stays hidden after Update Template or Style dropdown — `buffer.set_text` was clearing all text tags; simple mode tag is now reapplied after every content replacement.
+- Simple Mode: hidden preamble text is no longer silently dropped during compilation, saving, style changes, or spell-check — all content-retrieval calls now use `include_hidden_chars = true` so the invisible front-matter is always preserved.
+
+---
+
 ## [0.13.1] — 2026-06-08
 
 ### Added
