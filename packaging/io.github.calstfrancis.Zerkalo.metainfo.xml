@@ -57,6 +57,23 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.13.5-rc4" date="2026-06-09">
+      <description>
+        <p>Bug-fix and polish release.</p>
+        <ul>
+          <li>Non-ASCII file paths (Cyrillic, spaces) no longer silently corrupt on open.</li>
+          <li>Writing streak survives until midnight before the first write of the day.</li>
+          <li>File deletes (open dropdown and file tree) now move to system trash with confirmation.</li>
+          <li>Simple Mode explanation merged into the Welcome window; first-run modal removed.</li>
+          <li>Welcome window and Setup Wizard now chain correctly instead of racing on independent timers.</li>
+          <li>Multiple missing-tool alerts consolidated into one dialog.</li>
+          <li>LSP diagnostic flicker on keystrokes eliminated.</li>
+          <li>Progress bar timer leak on rapid recompile fixed.</li>
+          <li>Tab switch no longer recompiles unchanged content.</li>
+          <li>Save As pre-fills untitled.typ and auto-appends .typ extension.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.13.5-rc3" date="2026-06-09">
       <description>
         <p>Completion popup fixes: no longer steals focus or blocks typing; no longer covers the cursor; appears immediately on # with built-in snippets then merges LSP results; arrow keys skip filtered-out rows; Escape deletes the typed #word.</p>

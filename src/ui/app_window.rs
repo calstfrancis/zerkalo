@@ -506,9 +506,9 @@ impl AppWindow {
                     del_btn.connect_clicked(move |_| {
                         let alert = AlertDialog::builder()
                             .modal(true)
-                            .message("Delete this file?")
-                            .detail(&format!("'{}' will be permanently deleted.", name_del))
-                            .buttons(["Cancel", "Delete"])
+                            .message("Move to trash?")
+                            .detail(&format!("'{}' will be moved to the system trash.", name_del))
+                            .buttons(["Cancel", "Move to Trash"])
                             .cancel_button(0)
                             .default_button(0)
                             .build();
@@ -521,7 +521,8 @@ impl AppWindow {
                             None::<&gtk4::gio::Cancellable>,
                             move |result| {
                                 if result == Ok(1) {
-                                    let _ = std::fs::remove_file(&path_c);
+                                    let _ = gtk4::gio::File::for_path(&path_c)
+                                        .trash(None::<&gtk4::gio::Cancellable>);
                                     cfg_c.borrow_mut().recent_files.retain(|p| p != &path_c);
                                     let _ = cfg_c.borrow().save();
                                     ep_c.close_file_if_open(&path_c);
@@ -1292,7 +1293,13 @@ impl AppWindow {
         let cfg_for_reapply = current_config.clone();
         menu_reapply_template_item.connect_clicked(move |_| {
             menu_popover_for_reapply.popdown();
-            let Some(current_path) = editor_for_reapply.get_active_path() else { return };
+            let Some(current_path) = editor_for_reapply.get_active_path() else {
+                let t = adw::Toast::new("Open a document first");
+                t.set_timeout(3);
+                // toast_overlay captured below; use a window dialog as fallback
+                show_alert(&window_for_reapply, "No document open", "Open a .typ file first, then use Update Template Settings.");
+                return;
+            };
             let current_content = editor_for_reapply.get_active_content().unwrap_or_default();
             let dlg = TemplateDialog::new(&window_for_reapply, &project_root_for_reapply);
             {
@@ -1455,7 +1462,7 @@ impl AppWindow {
                 if let Ok(file) = result {
                     if let Some(path) = file.path() {
                         if !path.exists() {
-                            let _ = std::fs::write(&path, "// New document\n\n");
+                            let _ = std::fs::write(&path, "= Title\n\n");
                         }
                         if let Ok(content) = std::fs::read_to_string(&path) {
                             ep_c.open_file(path, &content);
@@ -1520,12 +1527,22 @@ impl AppWindow {
             let Some(content) = editor_for_save_as.get_active_content() else { return };
             let dialog = gtk4::FileDialog::new();
             dialog.set_title("Save As");
+            let filter = gtk4::FileFilter::new();
+            filter.set_name(Some("Typst files (*.typ)"));
+            filter.add_pattern("*.typ");
+            let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
+            filters.append(&filter);
+            dialog.set_filters(Some(&filters));
+            dialog.set_initial_name(Some("untitled.typ"));
             let win_c = window_for_save_as.clone();
             let ep_c = editor_for_save_as.clone();
             let pv_c = preview_for_save_as.clone();
             dialog.save(Some(&win_c), None::<&gtk4::gio::Cancellable>, move |result| {
                 if let Ok(file) = result {
-                    if let Some(path) = file.path() {
+                    if let Some(mut path) = file.path() {
+                        if path.extension().is_none() {
+                            path.set_extension("typ");
+                        }
                         if std::fs::write(&path, content.as_bytes()).is_ok() {
                             ep_c.open_file(path.clone(), &content);
                             pv_c.set_root_file(path);
@@ -1741,6 +1758,9 @@ impl AppWindow {
         let notes_panel_for_switch = notes_panel.clone();
         let style_btn_for_switch = style_btn.clone();
         let editor_pane_for_switch_delta = editor_pane.clone();
+        // Track per-file content hashes so tab switches don't recompile unchanged files.
+        let switch_hash_map: Rc<RefCell<std::collections::HashMap<std::path::PathBuf, u64>>> =
+            Rc::new(RefCell::new(std::collections::HashMap::new()));
         editor_pane.set_on_page_switch(move |content, path| {
             let delta = editor_pane_for_switch_delta.get_active_session_delta();
             editor_pane_for_switch_delta.set_session_delta(delta);
@@ -1748,9 +1768,21 @@ impl AppWindow {
             notes_panel_for_switch.update(&content, &path);
             refs_for_switch.update_used_keys(&content);
             dep_graph_for_switch.refresh(Some(&path));
+            // Only recompile if the content has changed since the last compile for this file.
+            let content_hash = {
+                use std::hash::{Hash, Hasher};
+                let mut h = std::collections::hash_map::DefaultHasher::new();
+                content.hash(&mut h);
+                h.finish()
+            };
+            let prev_hash = switch_hash_map.borrow().get(&path).copied();
+            let needs_compile = prev_hash != Some(content_hash);
+            switch_hash_map.borrow_mut().insert(path.clone(), content_hash);
             preview_for_switch.set_buffer_snapshot(path.clone(), content.clone());
             preview_for_switch.set_root_file(path.clone());
-            preview_for_switch.trigger_compile();
+            if needs_compile {
+                preview_for_switch.trigger_compile();
+            }
             todo_panel_for_switch.set_current_file(Some(&path));
             let title = extract_doc_title(&content).or_else(|| {
                 path.file_name().and_then(|n| n.to_str())
@@ -1903,18 +1935,25 @@ impl AppWindow {
 
         let compile_rev_for_start = compile_rev.clone();
         let compile_bar_for_start = compile_progress.clone();
+        // Holds the active pulse timer so we can cancel it before starting a new one.
+        let pulse_timer: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
         preview_pane.set_on_compile_start(move || {
             compile_rev_for_start.set_reveal_child(true);
             let bar = compile_bar_for_start.clone();
             let rev = compile_rev_for_start.clone();
-            glib::timeout_add_local(Duration::from_millis(80), move || {
+            let timer_slot = pulse_timer.clone();
+            // Cancel any previous pulse timer before spawning a new one.
+            if let Some(id) = pulse_timer.borrow_mut().take() { id.remove(); }
+            let id = glib::timeout_add_local(Duration::from_millis(80), move || {
                 if rev.reveals_child() {
                     bar.pulse();
                     glib::ControlFlow::Continue
                 } else {
+                    *timer_slot.borrow_mut() = None;
                     glib::ControlFlow::Break
                 }
             });
+            *pulse_timer.borrow_mut() = Some(id);
         });
 
         let compile_rev_for_done = compile_rev.clone();
@@ -1979,9 +2018,9 @@ impl AppWindow {
 
         // ── Startup: warn if required tools are missing ──────────────────────
 
+        // ── Startup: combined missing-tool check (single alert, not stacked) ───
         let win_for_check = window.clone();
         glib::timeout_add_local(Duration::from_millis(900), move || {
-            // typst is no longer checked — compilation is built in
             let in_flatpak = std::path::Path::new("/.flatpak-info").exists();
             let git_ok = if in_flatpak {
                 std::process::Command::new("flatpak-spawn")
@@ -1999,28 +2038,21 @@ impl AppWindow {
                 .map(|p| std::process::Command::new(p).arg("--version").output().is_ok())
                 .unwrap_or_else(|| std::process::Command::new("tinymist").arg("--version").output().is_ok());
 
+            let mut missing: Vec<String> = Vec::new();
             if !git_ok {
                 tracing::warn!("git not found in PATH");
-                show_alert(
-                    &win_for_check,
-                    "Missing: git",
-                    "git was not found. Install it to enable git sync:\n\
-                     \n  zypper install git\
-                     \n  apt   install git\
-                     \n  brew  install git\
-                     \n  dnf   install git"
+                missing.push(
+                    "git — required for Git sync\n\
+                     \n  zypper install git  |  apt install git  |  dnf install git".to_string()
                 );
             }
             if !hunspell_ok {
                 tracing::warn!("hunspell not found in PATH — spell check disabled");
-                show_alert(
-                    &win_for_check,
-                    "Missing: hunspell",
-                    "hunspell was not found. Install it to enable spell checking:\n\
+                missing.push(
+                    "hunspell — required for spell checking\n\
                      \n  zypper install hunspell hunspell-en\
-                     \n  apt   install hunspell hunspell-en-us\
-                     \n  brew  install hunspell\
-                     \n  dnf   install hunspell hunspell-en"
+                     \n  apt install hunspell hunspell-en-us\
+                     \n  dnf install hunspell hunspell-en".to_string()
                 );
             }
             if !pandoc_ok {
@@ -2028,55 +2060,44 @@ impl AppWindow {
             }
             if !tinymist_ok {
                 tracing::info!("tinymist not found — LSP completions disabled");
-                show_alert(
-                    &win_for_check,
-                    "Optional: tinymist",
-                    "tinymist was not found. Install it to enable LSP completions and diagnostics:\n\
-                     \n  cargo install tinymist\
-                     \n  # or download from: https://github.com/Myriad-Dreamin/tinymist/releases"
+                missing.push(
+                    "tinymist (optional) — enables LSP completions and diagnostics\n\
+                     \n  cargo install tinymist  |  https://github.com/Myriad-Dreamin/tinymist/releases".to_string()
                 );
+            }
+            if !missing.is_empty() {
+                let body = missing.join("\n\n");
+                show_alert(&win_for_check, "Some tools are missing", &body);
             }
             glib::ControlFlow::Break
         });
 
-        // ── Simple Mode first-run popup ─────────────────────────────────────
-
+        // ── Welcome window + chained setup wizard ────────────────────────────
+        // Simple-mode intro is now part of the welcome window, so we no longer
+        // need a separate dialog for it. Mark shown_simple_intro if not already set.
         if !config.shown_simple_intro {
             let cfg_for_intro = current_config.clone();
-            let win_for_intro = window.clone();
-            glib::timeout_add_local(Duration::from_millis(800), move || {
-                let dialog = adw::MessageDialog::new(
-                    Some(&win_for_intro),
-                    Some("Simple Mode is on"),
-                    Some(
-                        "Zerkalo hides the Typst front-matter above your document body \
-                        so you can focus on writing.\n\n\
-                        To change title, author, style, or other template settings, use \
-                        the Update Template button in the toolbar.\n\n\
-                        You can turn Simple Mode off at any time with the SIMPLE button \
-                        in the status bar."
-                    ),
-                );
-                dialog.add_response("ok", "Got it");
-                dialog.set_default_response(Some("ok"));
-                dialog.set_close_response("ok");
-                let cfg = cfg_for_intro.clone();
-                dialog.connect_response(None, move |_, _| {
-                    cfg.borrow_mut().shown_simple_intro = true;
-                    let _ = cfg.borrow().save();
-                });
-                dialog.present();
-                glib::ControlFlow::Break
-            });
+            cfg_for_intro.borrow_mut().shown_simple_intro = true;
+            let _ = cfg_for_intro.borrow().save();
         }
 
-        // ── Welcome window (shows on install or version upgrade) ─────────────
-
         let win_for_welcome = window.clone();
+        let root_for_welcome = project_root.clone();
         glib::timeout_add_local(Duration::from_millis(1200), move || {
             if super::welcome_window::WelcomeWindow::should_show() {
                 super::welcome_window::WelcomeWindow::mark_shown();
-                super::welcome_window::WelcomeWindow::new(&win_for_welcome).present();
+                let ww = super::welcome_window::WelcomeWindow::new(&win_for_welcome);
+                // Chain: after "Get Started", check if setup wizard is needed.
+                let win_chain = win_for_welcome.clone();
+                let root_chain = root_for_welcome.clone();
+                ww.set_on_dismissed(move || {
+                    if super::setup_wizard::SetupWizard::should_show(&root_chain) {
+                        super::setup_wizard::SetupWizard::new(&win_chain, &root_chain).present();
+                    }
+                });
+                ww.present();
+            } else if super::setup_wizard::SetupWizard::should_show(&root_for_welcome) {
+                super::setup_wizard::SetupWizard::new(&win_for_welcome, &root_for_welcome).present();
             }
             glib::ControlFlow::Break
         });
@@ -2087,14 +2108,15 @@ impl AppWindow {
         let toast_for_autosave = toast_overlay.clone();
         let last_edit_for_autosave = last_edit_instant.clone();
         let idle_ms_for_autosave = auto_save_idle_ms.clone();
-        let has_errors_for_autosave = has_compile_errors.clone();
         glib::timeout_add_local(Duration::from_secs(5), move || {
             let idle_threshold = *idle_ms_for_autosave.borrow();
             let elapsed = last_edit_for_autosave
                 .borrow()
                 .map(|t| t.elapsed().as_millis() as u64);
             if let Some(ms) = elapsed {
-                if ms >= idle_threshold && !*has_errors_for_autosave.borrow() {
+                // Autosave even when there are compile errors — the recovery
+                // dialog lets the user choose whether to restore.
+                if ms >= idle_threshold {
                     let buffers: Vec<_> = editor_for_autosave.modified_buffers();
                     if !buffers.is_empty() {
                         for (path, content) in &buffers {
@@ -2108,17 +2130,6 @@ impl AppWindow {
                 }
             }
             glib::ControlFlow::Continue
-        });
-
-        // ── Setup wizard (shows when git identity or remote is missing) ──────
-
-        let win_for_setup2 = window.clone();
-        let root_for_setup2 = project_root.clone();
-        glib::timeout_add_local(Duration::from_millis(1800), move || {
-            if super::setup_wizard::SetupWizard::should_show(&root_for_setup2) {
-                super::setup_wizard::SetupWizard::new(&win_for_setup2, &root_for_setup2).present();
-            }
-            glib::ControlFlow::Break
         });
 
         // ── Restore last open file ───────────────────────────────────────────
@@ -2157,6 +2168,10 @@ impl AppWindow {
         let editor_for_lsp_status = editor_pane.clone();
         let last_req_poll = last_completion_request.clone();
         let lsp_diags_for_poll = lsp_has_diags.clone();
+        // Grace-period counter: only clear lsp_has_diags after 3 consecutive
+        // empty polls (~1.2 s), preventing flicker between a did_change and the
+        // LSP's next diagnostic response.
+        let lsp_empty_polls: Rc<RefCell<u8>> = Rc::new(RefCell::new(0));
         glib::timeout_add_local(Duration::from_millis(400), move || {
             // Auto-restart if tinymist crashed
             {
@@ -2178,6 +2193,7 @@ impl AppWindow {
             if let Some(client) = lsp_poll.borrow().as_ref() {
                 let diags = client.poll();
                 if !diags.is_empty() {
+                    *lsp_empty_polls.borrow_mut() = 0;
                     *lsp_diags_for_poll.borrow_mut() = true;
                     let errors: Vec<CompileError> = diags
                         .into_iter()
@@ -2203,7 +2219,14 @@ impl AppWindow {
                     error_panel_for_lsp.widget().set_visible(true);
                     editor_for_lsp_diag.set_diag_summary(err_count, warn_count);
                 } else {
-                    *lsp_diags_for_poll.borrow_mut() = false;
+                    let count = {
+                        let mut c = lsp_empty_polls.borrow_mut();
+                        *c = c.saturating_add(1);
+                        *c
+                    };
+                    if count >= 3 {
+                        *lsp_diags_for_poll.borrow_mut() = false;
+                    }
                 }
                 if let Some((id, items)) = client.poll_completion() {
                     if *last_req_poll.borrow() == Some(id) {
@@ -2616,9 +2639,32 @@ impl AppWindow {
         }
         {
             let ft = file_tree.clone();
+            let win_for_ft_del = window.clone();
             file_tree.set_on_delete(move |path| {
-                let _ = std::fs::remove_file(&path);
-                ft.refresh();
+                let name = path.file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("this file")
+                    .to_string();
+                let alert = AlertDialog::builder()
+                    .modal(true)
+                    .message("Move to trash?")
+                    .detail(&format!("'{}' will be moved to the system trash.", name))
+                    .buttons(["Cancel", "Move to Trash"])
+                    .cancel_button(0)
+                    .default_button(0)
+                    .build();
+                let ft2 = ft.clone();
+                alert.choose(
+                    Some(&win_for_ft_del),
+                    None::<&gtk4::gio::Cancellable>,
+                    move |result| {
+                        if result == Ok(1) {
+                            let _ = gtk4::gio::File::for_path(&path)
+                                .trash(None::<&gtk4::gio::Cancellable>);
+                            ft2.refresh();
+                        }
+                    },
+                );
             });
         }
         {

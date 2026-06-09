@@ -136,17 +136,20 @@ impl PreviewPane {
             for pb in pbs.iter() {
                 let pw = pb.width() as f64 * z;
                 let ph = pb.height() as f64 * z;
-                // Soft drop shadow (stacked translucent rects, darkest innermost)
+                // Soft drop shadow (stacked translucent rects, darkest innermost).
+                // Use pw (page width) for shadows so they don't bleed outside the
+                // page when the viewport is wider than the rendered content.
                 ctx.set_source_rgba(0.0, 0.0, 0.0, 0.14);
-                ctx.rectangle(2.0, y + 3.0, pw.max(w as f64), ph);
+                ctx.rectangle(2.0, y + 3.0, pw, ph);
                 ctx.fill().ok();
                 ctx.set_source_rgba(0.0, 0.0, 0.0, 0.07);
-                ctx.rectangle(3.5, y + 5.0, pw.max(w as f64) + 1.0, ph + 1.0);
+                ctx.rectangle(3.5, y + 5.0, pw + 1.0, ph + 1.0);
                 ctx.fill().ok();
                 ctx.set_source_rgba(0.0, 0.0, 0.0, 0.03);
-                ctx.rectangle(5.0, y + 7.0, pw.max(w as f64) + 2.0, ph + 2.0);
+                ctx.rectangle(5.0, y + 7.0, pw + 2.0, ph + 2.0);
                 ctx.fill().ok();
-                // White page background
+                // White page background fills the full viewport width so the
+                // gray canvas is visible only in the gutter around pages.
                 ctx.set_source_rgb(1.0, 1.0, 1.0);
                 ctx.rectangle(0.0, y, pw.max(w as f64), ph);
                 ctx.fill().ok();

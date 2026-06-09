@@ -4386,7 +4386,7 @@ dependencies = [
 
 [[package]]
 name = "zerkalo"
-version = "0.13.5-rc2"
+version = "0.13.5-rc3"
 dependencies = [
  "chrono",
  "git2",

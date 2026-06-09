@@ -1,5 +1,3 @@
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
@@ -8,9 +6,14 @@ fn autosave_dir() -> PathBuf {
 }
 
 fn path_key(path: &Path) -> String {
-    let mut h = DefaultHasher::new();
-    path.hash(&mut h);
-    format!("{:016x}", h.finish())
+    // FNV-1a 64-bit: stable across Rust versions (unlike DefaultHasher).
+    let s = path.to_string_lossy();
+    let mut hash: u64 = 14695981039346656037u64;
+    for byte in s.as_bytes() {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(1099511628211);
+    }
+    format!("{hash:016x}")
 }
 
 pub fn save(original_path: &Path, content: &str) {

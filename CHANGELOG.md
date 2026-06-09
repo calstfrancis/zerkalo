@@ -5,6 +5,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.5-rc4] — 2026-06-09
+
+### Fixed
+
+- **Percent-decode URI**: non-ASCII paths (Cyrillic, spaces, etc.) were silently corrupted when opening files from the file manager — bytes were now collected correctly as `Vec<u8>` before UTF-8 conversion.
+- **Autosave key stability**: `path_key` in `auto_save.rs` now uses FNV-1a 64-bit hash instead of `DefaultHasher`, so recovery files survive Rust version upgrades.
+- **Compile-stats cache**: stats are now kept in an in-memory `OnceLock<Mutex<>>` and flushed to disk only every 10 compiles, eliminating per-compile file I/O.
+- **Writing streak**: streak no longer resets to 0 before the first write of the day — if today has no entries yet the count starts from yesterday, surviving until midnight.
+- **Git pull --rebase failure**: if `pull --rebase` fails, `git rebase --abort` is now called to restore a clean state and the remote is skipped instead of pushing a diverged commit.
+- **Preview drop shadow**: shadow rectangles were expanding past the page edge on wide viewports — shadow drawing now uses the rendered page width, not `max(page, canvas)`.
+- **Progress bar timer leak**: rapid recompiles no longer stack up multiple pulse timers; the previous `SourceId` is cancelled before spawning a new one.
+- **Tab switch spurious recompile**: switching back to an already-compiled tab no longer re-triggers compilation when the content hasn't changed (per-file content hash).
+- **Idle autosave blocked by errors**: autosave was silently skipped when the last compile produced errors; that guard is removed — autosave always runs on idle.
+- **LSP diagnostic flicker**: clearing diagnostics on `did_change` was causing a one-frame flicker; panel now waits for 3 consecutive empty polls (~1.2 s) before hiding the indicator.
+- **Multiple startup tool alerts**: missing `tinymist`/`pandoc`/`git` alerts were stacked as separate dialogs — they now appear as one combined alert.
+- **Open-dropdown delete**: files are now moved to system trash via `gio::File::trash()` instead of permanently deleted with `std::fs::remove_file`.
+- **New document default**: new file placeholder is now `= Title\n\n` (valid Typst heading) instead of `// New document\n\n`.
+- **Save As**: dialog now pre-fills `untitled.typ`, restricts the file filter to `.typ`, and auto-appends the extension if the user omits it.
+- **Update Template Settings no-op**: menu item now shows an alert when no file is open instead of silently doing nothing.
+- **File tree delete**: now asks for confirmation before trashing a file (matching the open-dropdown behaviour).
+
+### Changed
+
+- **Simple Mode first-run dialog removed**: the modal alert explaining Simple Mode is gone; the same information is now in the Welcome window under a "Simple Mode" section, so it's readable at any time without interrupting the writing flow.
+- **Welcome → Setup Wizard chaining**: the two startup dialogs no longer run on independent timeouts (which could race). The Setup Wizard now opens only after the Welcome window is dismissed via its "Get Started" button.
+- **Welcome window Quick Start text**: corrected "the preview updates as you type" to "Press Ctrl+S to save and compile — the preview updates immediately" (accurate for the default `compile_on_save = true` behaviour).
+
 ## [0.13.5-rc3] — 2026-06-09
 
 ### Fixed

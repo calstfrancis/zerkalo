@@ -68,16 +68,19 @@ impl WritingLog {
             .map(|s| s.date.clone())
             .collect();
 
-        let mut streak = 0u32;
         let mut day = chrono::Local::now().date_naive();
+        let today = day.format("%Y-%m-%d").to_string();
+        // If nothing written yet today, let the streak survive until midnight
+        // by starting the count from yesterday instead of breaking immediately.
+        if !active_days.contains(&today) {
+            day = match day.pred_opt() { Some(d) => d, None => return 0 };
+        }
+        let mut streak = 0u32;
         loop {
             let ds = day.format("%Y-%m-%d").to_string();
             if active_days.contains(&ds) {
                 streak += 1;
-                day = match day.pred_opt() {
-                    Some(d) => d,
-                    None => break,
-                };
+                day = match day.pred_opt() { Some(d) => d, None => break };
             } else {
                 break;
             }

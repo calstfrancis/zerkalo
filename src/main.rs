@@ -132,24 +132,27 @@ fn main() -> ExitCode {
 }
 
 fn percent_decode_uri(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
+    // Decode into raw bytes first so multi-byte UTF-8 sequences (non-ASCII
+    // filenames) are reassembled correctly before converting to String.
     let bytes = s.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(s.len());
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let (Ok(hex), true) = (
-                std::str::from_utf8(&bytes[i + 1..i + 3]),
-                bytes[i + 1].is_ascii_hexdigit() && bytes[i + 2].is_ascii_hexdigit(),
-            ) {
+        if bytes[i] == b'%'
+            && i + 2 < bytes.len()
+            && bytes[i + 1].is_ascii_hexdigit()
+            && bytes[i + 2].is_ascii_hexdigit()
+        {
+            if let Ok(hex) = std::str::from_utf8(&bytes[i + 1..i + 3]) {
                 if let Ok(byte) = u8::from_str_radix(hex, 16) {
-                    out.push(byte as char);
+                    out.push(byte);
                     i += 3;
                     continue;
                 }
             }
         }
-        out.push(bytes[i] as char);
+        out.push(bytes[i]);
         i += 1;
     }
-    out
+    String::from_utf8_lossy(&out).into_owned()
 }
