@@ -624,9 +624,21 @@ impl AppWindow {
             });
         }
 
-        // Insert style_btn and draft_toggle into status bar after goal bar
-        editor_pane.status_bar_insert_after_goal(&style_btn);
-        editor_pane.status_bar_widget().insert_child_after(&draft_toggle, Some(&style_btn));
+        // Style dropdown goes in the breadcrumb/toolbar bar on the right side
+        editor_pane.breadcrumb_bar_append(&style_btn);
+        // Draft toggle stays in status bar, after the goal bar
+        editor_pane.status_bar_insert_after_goal(&draft_toggle);
+
+        // ── Simple mode wiring ──────────────────────────────────────────────
+        {
+            let cfg = current_config.clone();
+            let initial_simple = config.simple_mode;
+            editor_pane.apply_simple_mode(initial_simple);
+            editor_pane.set_on_simple_mode_toggle(move |on| {
+                cfg.borrow_mut().simple_mode = on;
+                let _ = cfg.borrow().save();
+            });
+        }
 
         apply_theme(&config.theme);
         if config.high_contrast {
@@ -1976,6 +1988,37 @@ impl AppWindow {
             }
             glib::ControlFlow::Break
         });
+
+        // ── Simple Mode first-run popup ─────────────────────────────────────
+
+        if !config.shown_simple_intro {
+            let cfg_for_intro = current_config.clone();
+            let win_for_intro = window.clone();
+            glib::timeout_add_local(Duration::from_millis(800), move || {
+                let dialog = adw::MessageDialog::new(
+                    Some(&win_for_intro),
+                    Some("Simple Mode is on"),
+                    Some(
+                        "Zerkalo hides the Typst front-matter above your document body \
+                        so you can focus on writing.\n\n\
+                        To change title, author, style, or other template settings, use \
+                        the Update Template button in the toolbar.\n\n\
+                        You can turn Simple Mode off at any time with the SIMPLE button \
+                        in the status bar."
+                    ),
+                );
+                dialog.add_response("ok", "Got it");
+                dialog.set_default_response(Some("ok"));
+                dialog.set_close_response("ok");
+                let cfg = cfg_for_intro.clone();
+                dialog.connect_response(None, move |_, _| {
+                    cfg.borrow_mut().shown_simple_intro = true;
+                    let _ = cfg.borrow().save();
+                });
+                dialog.present();
+                glib::ControlFlow::Break
+            });
+        }
 
         // ── Welcome window (shows on install or version upgrade) ─────────────
 

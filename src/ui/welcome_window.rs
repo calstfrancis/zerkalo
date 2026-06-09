@@ -47,13 +47,12 @@ impl WelcomeWindow {
 
         body.append(&section_label(&format!("What's New in {VERSION}")));
         for item in [
+            "Simple Mode (SIMPLE in the status bar): hides Typst front-matter so you see only your document body — edit template settings via Update Template",
+            "Style dropdown moved to the toolbar (breadcrumb bar, next to word-wrap and undo/redo)",
             "Preview scrolls immediately after the first compile — no longer requires a pane resize",
             "Export for Web — converts the active Typst file to an embeddable HTML fragment with hover footnote tooltips (light and dark mode aware)",
             "Import DOCX and LaTeX now work inside the flatpak — pandoc is reached via the host",
-            "DOCX and LaTeX import strips all pandoc template code so imported files compile cleanly",
             "Error panel shows \"Line N\" for each compile error",
-            "Delete files from the open dropdown — trash icon beside each file, with confirmation",
-            "Author and affiliation fields in the template dialog have a lock button",
         ] {
             body.append(&bullet_row(item));
         }
