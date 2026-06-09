@@ -46,7 +46,7 @@
   </developer>
   <content_rating type="oars-1.1"/>
   <releases>
-    <release version="0.12.35-rc2" date="2026-06-08">
+    <release version="0.13.0" date="2026-06-08">
       <description>
         <p>Fix: preview pane scroll works immediately after first compile, without needing to resize the pane.</p>
       </description>
