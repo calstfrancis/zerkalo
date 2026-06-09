@@ -46,6 +46,11 @@
   </developer>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.13.1-rc1" date="2026-06-08">
+      <description>
+        <p>Simple Mode toggle in status bar: hides Typst front-matter above the document body. Style dropdown moved to the toolbar. Open-tabs button removed.</p>
+      </description>
+    </release>
     <release version="0.13.0" date="2026-06-08">
       <description>
         <p>Fix: preview pane scroll works immediately after first compile, without needing to resize the pane.</p>

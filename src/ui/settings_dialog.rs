@@ -466,6 +466,8 @@ impl SettingsDialog {
             let active_profile_cur = current.active_profile.clone();
             let locked_author_cur = current.locked_author.clone();
             let locked_affiliation_cur = current.locked_affiliation.clone();
+            let simple_mode_cur = current.simple_mode;
+            let shown_simple_intro_cur = current.shown_simple_intro;
             move || {
                 let work_dir_text = work_dir_row.text().trim().to_string();
                 let work_dir = if work_dir_text.is_empty() {
@@ -546,6 +548,8 @@ impl SettingsDialog {
                     github_token,
                     locked_author: locked_author_cur.clone(),
                     locked_affiliation: locked_affiliation_cur.clone(),
+                    simple_mode: simple_mode_cur,
+                    shown_simple_intro: shown_simple_intro_cur,
                 }
             }
         };

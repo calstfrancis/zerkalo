@@ -196,8 +196,11 @@ pub struct EditorPane {
     last_diagnostics: Rc<RefCell<Vec<(PathBuf, u32, bool)>>>,
     cursor_label: Label,
     breadcrumb_label: Label,
-    tab_dropdown_btn: Button,
+    breadcrumb_bar: GtkBox,
     word_wrap_btn: ToggleButton,
+    simple_mode: Rc<RefCell<bool>>,
+    simple_mode_label: Label,
+    on_simple_mode_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
     spell_checker: Rc<RefCell<crate::spellcheck::SpellChecker>>,
     line_spacing: Rc<RefCell<u32>>,
     typewriter_scroll: Rc<RefCell<bool>>,
@@ -348,6 +351,25 @@ impl EditorPane {
         diag_label.set_margin_bottom(3);
         status_bar.append(&diag_label);
 
+        // Left spacer so SIMPLE is centered
+        let left_spacer = GtkBox::new(Orientation::Horizontal, 0);
+        left_spacer.set_hexpand(true);
+        status_bar.append(&left_spacer);
+
+        let simple_mode_label = Label::new(None);
+        simple_mode_label.add_css_class("caption");
+        simple_mode_label.set_use_markup(true);
+        simple_mode_label.set_margin_top(3);
+        simple_mode_label.set_margin_bottom(3);
+
+        let simple_mode_btn = Button::new();
+        simple_mode_btn.set_child(Some(&simple_mode_label));
+        simple_mode_btn.add_css_class("flat");
+        simple_mode_btn.set_tooltip_text(Some(
+            "Simple Mode: hides Typst front-matter above the document body.\nEdit it via the Update Template button.",
+        ));
+        status_bar.append(&simple_mode_btn);
+
         let word_count_label = Label::new(Some(""));
         word_count_label.add_css_class("dim-label");
         word_count_label.add_css_class("caption");
@@ -356,7 +378,6 @@ impl EditorPane {
         let wc_btn = Button::new();
         wc_btn.set_child(Some(&word_count_label));
         wc_btn.add_css_class("flat");
-        wc_btn.set_hexpand(true);
         wc_btn.set_margin_end(4);
         wc_btn.set_margin_top(1);
         wc_btn.set_margin_bottom(1);
@@ -422,7 +443,6 @@ impl EditorPane {
         sep.set_margin_end(2);
         breadcrumb_bar.append(&sep);
         breadcrumb_bar.append(&breadcrumb_label);
-        breadcrumb_bar.append(&tab_dropdown_btn);
         breadcrumb_bar.append(&word_wrap_btn);
 
         let editor_row = GtkBox::new(Orientation::Horizontal, 0);
@@ -459,6 +479,7 @@ impl EditorPane {
             Rc::new(RefCell::new(None));
         let on_version_click: Rc<RefCell<Option<Box<dyn Fn()>>>> = Rc::new(RefCell::new(None));
         let on_word_count_click: Rc<RefCell<Option<Box<dyn Fn()>>>> = Rc::new(RefCell::new(None));
+        let on_simple_mode_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>> = Rc::new(RefCell::new(None));
 
         let font_size: Rc<RefCell<u32>> = Rc::new(RefCell::new(13));
         let font_family: Rc<RefCell<String>> = Rc::new(RefCell::new("Monospace".to_string()));
@@ -538,8 +559,11 @@ impl EditorPane {
             last_diagnostics: Rc::new(RefCell::new(Vec::new())),
             cursor_label,
             breadcrumb_label,
-            tab_dropdown_btn,
+            breadcrumb_bar,
             word_wrap_btn,
+            simple_mode: Rc::new(RefCell::new(true)),
+            simple_mode_label: simple_mode_label.clone(),
+            on_simple_mode_toggle,
             spell_checker: Rc::new(RefCell::new(crate::spellcheck::SpellChecker::new(vec!["en_US".to_string()]))),
             line_spacing,
             typewriter_scroll,
@@ -655,59 +679,13 @@ impl EditorPane {
             });
         }
 
-        // Tab dropdown: show popover listing all open tabs
+        // SIMPLE mode button
         {
             let ep2 = ep.clone();
-            let btn = ep.tab_dropdown_btn.clone();
-            btn.connect_clicked(move |b| {
-                let popover = Popover::new();
-                popover.set_parent(b);
-                let vbox = GtkBox::new(Orientation::Vertical, 0);
-                vbox.set_margin_top(4);
-                vbox.set_margin_bottom(4);
-
-                // Collect page data and drop the borrow before any GTK UI calls.
-                let pages: Vec<(u32, String)> = {
-                    let state = ep2.state.borrow();
-                    let mut v: Vec<(u32, String)> = state.tabs.iter()
-                        .filter_map(|(path, tab)| {
-                            ep2.notebook.page_num(&tab.scroll_window).map(|n| {
-                                let name = path.file_name()
-                                    .and_then(|f| f.to_str())
-                                    .unwrap_or("untitled")
-                                    .to_string();
-                                (n, name)
-                            })
-                        })
-                        .collect();
-                    v.sort_by_key(|(n, _)| *n);
-                    v
-                };
-
-                for (n, name) in pages {
-                    let row_btn = Button::with_label(&name);
-                    row_btn.add_css_class("flat");
-                    let nb = ep2.notebook.clone();
-                    let pop = popover.clone();
-                    row_btn.connect_clicked(move |_| {
-                        nb.set_current_page(Some(n));
-                        pop.popdown();
-                    });
-                    vbox.append(&row_btn);
-                }
-
-                if vbox.first_child().is_none() {
-                    let lbl = Label::new(Some("No open files"));
-                    lbl.add_css_class("dim-label");
-                    lbl.set_margin_start(8);
-                    lbl.set_margin_end(8);
-                    vbox.append(&lbl);
-                }
-
-                popover.set_child(Some(&vbox));
-                let pop_close = popover.clone();
-                popover.connect_closed(move |_| pop_close.unparent());
-                popover.popup();
+            simple_mode_btn.connect_clicked(move |_| {
+                let new_val = !*ep2.simple_mode.borrow();
+                ep2.apply_simple_mode(new_val);
+                if let Some(f) = ep2.on_simple_mode_toggle.borrow().as_ref() { f(new_val); }
             });
         }
 
@@ -771,6 +749,32 @@ impl EditorPane {
     #[allow(dead_code)]
     pub fn set_word_wrap_btn_visible(&self, v: bool) {
         self.word_wrap_btn.set_visible(v);
+    }
+
+    pub fn get_simple_mode(&self) -> bool {
+        *self.simple_mode.borrow()
+    }
+
+    /// Apply simple mode to the current active buffer and update button label.
+    pub fn apply_simple_mode(&self, on: bool) {
+        *self.simple_mode.borrow_mut() = on;
+        set_toggle_label(&self.simple_mode_label, "SIMPLE", on);
+        self.apply_simple_mode_to_buffer(on);
+    }
+
+    fn apply_simple_mode_to_buffer(&self, on: bool) {
+        let state = self.state.borrow();
+        for tab in state.tabs.values() {
+            apply_simple_mode_tag(&tab.buffer, on);
+        }
+    }
+
+    pub fn set_on_simple_mode_toggle(&self, f: impl Fn(bool) + 'static) {
+        *self.on_simple_mode_toggle.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn breadcrumb_bar_append(&self, w: &impl gtk4::prelude::IsA<gtk4::Widget>) {
+        self.breadcrumb_bar.append(w);
     }
 
     #[allow(dead_code)]
@@ -1304,6 +1308,7 @@ impl EditorPane {
 
         buffer.set_text(content);
         apply_comment_highlights(&buffer);
+        apply_simple_mode_tag(&buffer, *self.simple_mode.borrow());
 
         let view = View::with_buffer(&buffer);
         view.set_show_line_numbers(true);
@@ -3071,6 +3076,44 @@ impl EditorPane {
 }
 
 // ── Free helpers ──────────────────────────────────────────────────────────────
+
+const SIMPLE_TAG: &str = "zk-simple-hidden";
+const BODY_SEPARATOR: &str = "// ── Document body";
+
+fn apply_simple_mode_tag(buffer: &Buffer, on: bool) {
+    let table = buffer.tag_table();
+    let tag = match table.lookup(SIMPLE_TAG) {
+        Some(t) => t,
+        None => {
+            let t = TextTag::new(Some(SIMPLE_TAG));
+            t.set_invisible(on);
+            table.add(&t);
+            t
+        }
+    };
+    tag.set_invisible(on);
+
+    // Always clear any existing span first.
+    let (start, end) = buffer.bounds();
+    buffer.remove_tag(&tag, &start, &end);
+
+    if !on {
+        return;
+    }
+
+    // Find the "// ── Document body" separator line.
+    let text = buffer.text(&start, &end, false);
+    let body_line = text.lines().position(|l| l.starts_with(BODY_SEPARATOR));
+    let Some(body_line_idx) = body_line else { return };
+
+    // Hide from buffer start up to (but not including) the body separator line.
+    if body_line_idx == 0 {
+        return;
+    }
+    let hide_end = buffer.iter_at_line(body_line_idx as i32);
+    let Some(hide_end) = hide_end else { return };
+    buffer.apply_tag(&tag, &start, &hide_end);
+}
 
 /// Apply a background fill to all comment lines (// runs and /* */ blocks).
 /// Adjacent // lines are merged into one contiguous tag span for a "box" look.

@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.1-rc1] — 2026-06-08
+
+### Added
+
+- **Simple Mode** toggle in the status bar (SIMPLE — bold when on, plain when off): hides the Typst front-matter above `// ── Document body` so you see only your document content. Line numbers are unchanged. Edit front-matter via the Update Template button. Defaults to on for new installs with a first-run explainer popup.
+- Style dropdown moved from the status bar to the toolbar (breadcrumb bar, right side), next to word-wrap and undo/redo.
+- Removed the open-tabs pan-down button from the toolbar (the file dropdown in the title bar handles this).
+
+---
+
 ## [0.13.0] — 2026-06-08
 
 ### Fixed

@@ -95,6 +95,10 @@ pub struct Config {
     pub locked_author: String,
     #[serde(default)]
     pub locked_affiliation: String,
+    #[serde(default = "default_true")]
+    pub simple_mode: bool,
+    #[serde(default)]
+    pub shown_simple_intro: bool,
 }
 
 fn default_work_dir() -> PathBuf {
@@ -152,6 +156,8 @@ impl Default for Config {
             github_token: None,
             locked_author: String::new(),
             locked_affiliation: String::new(),
+            simple_mode: true,
+            shown_simple_intro: false,
         }
     }
 }
