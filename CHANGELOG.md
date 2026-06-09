@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.4-rc8] — 2026-06-09
+
+### Improved
+
+- Section word count (`§ N`) moved from status bar to breadcrumb bar, appearing between the heading path and the word-wrap button.
+
+---
+
 ## [0.13.4-rc7] — 2026-06-09
 
 ### Added

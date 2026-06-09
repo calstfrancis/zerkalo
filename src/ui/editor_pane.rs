@@ -384,18 +384,10 @@ impl EditorPane {
         let section_wc_label = Label::new(None);
         section_wc_label.add_css_class("dim-label");
         section_wc_label.add_css_class("caption");
-        section_wc_label.set_margin_end(8);
+        section_wc_label.set_margin_start(8);
+        section_wc_label.set_margin_end(4);
         section_wc_label.set_margin_top(3);
         section_wc_label.set_margin_bottom(3);
-
-        let sb_sep2 = gtk4::Separator::new(Orientation::Vertical);
-        sb_sep2.add_css_class("statusbar-sep");
-        sb_sep2.set_margin_start(6);
-        sb_sep2.set_margin_end(6);
-        sb_sep2.set_margin_top(6);
-        sb_sep2.set_margin_bottom(6);
-        status_bar.append(&sb_sep2);
-        status_bar.append(&section_wc_label);
 
         let word_count_label = Label::new(Some(""));
         word_count_label.add_css_class("dim-label");
@@ -470,6 +462,7 @@ impl EditorPane {
         sep.set_margin_end(2);
         breadcrumb_bar.append(&sep);
         breadcrumb_bar.append(&breadcrumb_label);
+        breadcrumb_bar.append(&section_wc_label);
         breadcrumb_bar.append(&word_wrap_btn);
 
         let editor_row = GtkBox::new(Orientation::Horizontal, 0);
