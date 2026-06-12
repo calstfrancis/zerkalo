@@ -114,15 +114,15 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
-                "Error panel shows 'Compile Errors — N errors, M warnings' with collapsible list",
-                "Copy button on each error row copies message and location to clipboard",
-                "Jump-to-error icon button makes navigation explicit; rows are keyboard-navigable",
-                "Try-Fix button for 'unexpected end of file' — appends missing closers (undoable)",
-                "Window title shows error count while compile errors are present",
-                "Compile errors and LSP diagnostics appear under separate section headers",
-                "'Stuck?' indicator appears after 3 consecutive identical error sets",
-                "Success toast now only shown when recovering from a previous error (quieter workflow)",
-                "Format toolbar, accessibility labels, and preview keyboard navigation (see rc3–rc5)",
+                "Error panel search filter — type to narrow errors in real time",
+                "Source context line shown in each error row (monospace, dim)",
+                "File group headers when errors span multiple included files",
+                "'Last clean compile: HH:MM' appears when errors clear",
+                "Save error log button in panel header (Ctrl+E focuses first error row)",
+                "Error deduplication — identical errors from repeated includes shown once",
+                "Error panel shows breakdown (N errors, M warnings), collapsible list, copy/jump buttons",
+                "Compile errors and LSP diagnostics use distinct section labels",
+                "Window title shows error count; success toast only on error recovery",
             ] {
                 body.append(&bullet_row(item));
             }

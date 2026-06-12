@@ -5,6 +5,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.6-rc7] — Error panel improvements 2
+
+### Added
+
+- **Error panel search filter** — a filter entry above the error list narrows rows in real time by matching against the error message text.
+- **Error deduplication** — identical errors (same file, line, and first message line) are collapsed to a single row, eliminating noise from repeated includes.
+- **Source context snippet** — each error row shows the offending source line in a monospace dim label so the problem is visible without switching to the editor.
+- **File group headers** — when errors span multiple files, a dim filename label separates each file's group, making multi-file projects easier to navigate.
+- **Last clean compile timestamp** — when errors clear, a dim "Last clean compile: HH:MM" note appears at the bottom of the panel so the user knows how long they were broken.
+- **Save error log button** — a save icon in the panel header writes the current error log to `~/.local/share/zerkalo/error_log.txt` and confirms with a toast.
+- **Ctrl+E shortcut** — focuses the first visible error row in the panel and selects it; makes keyboard-only navigation to errors practical.
+- **Export-done callback** — app_window shows a toast with the exact saved path after the error log is exported.
+
+### Changed
+
+- **Search bar above the list** — replaces the previous header-only layout; the filter applies immediately as you type.
+
+---
+
 ## [0.13.6-rc6] — Error panel improvements
 
 ### Added

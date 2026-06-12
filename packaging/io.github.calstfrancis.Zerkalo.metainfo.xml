@@ -57,6 +57,19 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release type="development" version="0.13.6-rc7" date="2026-06-12">
+      <description>
+        <p>Error panel improvements 2.</p>
+        <ul>
+          <li>Filter entry above the error list narrows rows in real time.</li>
+          <li>Identical errors are deduplicated; source context snippet shown per row.</li>
+          <li>File group headers when errors span multiple files.</li>
+          <li>"Last clean compile: HH:MM" appears when errors clear.</li>
+          <li>Save error log button writes to ~/.local/share/zerkalo/error_log.txt.</li>
+          <li>Ctrl+E focuses the first error row for keyboard-only navigation.</li>
+        </ul>
+      </description>
+    </release>
     <release type="development" version="0.13.6-rc6" date="2026-06-12">
       <description>
         <p>Error panel improvements.</p>
