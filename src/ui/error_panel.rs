@@ -174,8 +174,6 @@ pub struct ErrorPanel {
     stuck_label: Label,
     last_clean_label: Label,
     live_label: Label,
-    search_entry: gtk4::SearchEntry,
-    search_text: Rc<RefCell<String>>,
     collapsed: Rc<Cell<bool>>,
     on_jump: Rc<RefCell<Option<Box<dyn Fn(PathBuf, u32)>>>>,
     on_try_fix: Rc<RefCell<Option<Box<dyn Fn(PathBuf, u32)>>>>,
@@ -371,8 +369,6 @@ impl ErrorPanel {
             stuck_label,
             last_clean_label,
             live_label,
-            search_entry,
-            search_text,
             collapsed,
             on_jump: Rc::new(RefCell::new(None)),
             on_try_fix: Rc::new(RefCell::new(None)),
@@ -492,43 +488,16 @@ impl ErrorPanel {
             }
         }
 
-        // Group errors by file and insert file headers
-        let mut groups: Vec<(PathBuf, Vec<usize>)> = Vec::new();
-        for (i, err) in errors.iter().enumerate() {
-            if let Some(g) = groups.iter_mut().find(|(f, _)| f == &err.file) {
-                g.1.push(i);
-            } else {
-                groups.push((err.file.clone(), vec![i]));
+        // Single pass: insert a file header whenever the current file changes
+        let multiple_files = {
+            let mut files: Vec<&PathBuf> = Vec::new();
+            for e in &errors {
+                if !files.contains(&&e.file) {
+                    files.push(&e.file);
+                }
             }
-        }
-
-        let multiple_files = groups.len() > 1;
-        for (file, indices) in &groups {
-            if multiple_files {
-                self.append_file_header(file);
-            }
-            for &i in indices {
-                // errors is moved into groups logic — need to borrow by index
-                // We'll reconstruct using a parallel vec
-            }
-        }
-
-        // Simpler: append all rows in order; show file header when file changes
-        let mut last_file: Option<&PathBuf> = None;
-        for err in &errors {
-            if multiple_files && last_file != Some(&err.file) {
-                self.append_file_header(&err.file);
-                last_file = Some(&err.file);
-            }
-            // append_row takes ownership — defer to a separate loop using indices
-        }
-        // Re-do this properly by consuming errors:
-        // We need to work around the borrow issue by doing a single pass
-
-        // Reset: clear what we just added (the file headers)
-        self.clear_rows();
-
-        // Single pass: track current file, insert header on change
+            files.len() > 1
+        };
         let mut last_file_path: Option<PathBuf> = None;
         for err in errors {
             if multiple_files {
