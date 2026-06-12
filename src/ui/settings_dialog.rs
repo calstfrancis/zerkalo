@@ -468,6 +468,7 @@ impl SettingsDialog {
             let locked_affiliation_cur = current.locked_affiliation.clone();
             let simple_mode_cur = current.simple_mode;
             let shown_simple_intro_cur = current.shown_simple_intro;
+            let format_bar_visible_cur = current.format_bar_visible;
             move || {
                 let work_dir_text = work_dir_row.text().trim().to_string();
                 let work_dir = if work_dir_text.is_empty() {
@@ -550,6 +551,7 @@ impl SettingsDialog {
                     locked_affiliation: locked_affiliation_cur.clone(),
                     simple_mode: simple_mode_cur,
                     shown_simple_intro: shown_simple_intro_cur,
+                    format_bar_visible: format_bar_visible_cur,
                 }
             }
         };

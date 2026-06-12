@@ -5,6 +5,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.6-rc1] — New-user UX pass
+
+### Added
+
+- **Formatting toolbar** — Bold, Italic, H1, H2, H3, and page-break buttons appear above the editor. The toolbar can be hidden with the new "format bar" toggle in the status bar (default on); the setting persists across sessions.
+- **First-run welcome screen** — new installs see a layout diagram and getting-started guide instead of the "What's New" list; returning users see What's New as before.
+- **Auto-detect bibliography** — when no `.bib` file is configured, Zerkalo scans the project folder and loads the first `.bib` it finds automatically, showing a toast notification.
+- **Template gallery auto-preview** — the first preset is previewed immediately when the gallery opens, so users see what the dialog does without having to click.
+
+### Changed
+
+- **Citation popup** — rows now lead with a bold "Smith et al., 2019" label so authors can scan by name, with title and `@key` below as secondary context.
+- **Citation search** — the `@` popup now matches against author name and title in addition to the BibTeX key.
+
+---
+
 ## [0.13.5] — 2026-06-09
 
 ### Fixed

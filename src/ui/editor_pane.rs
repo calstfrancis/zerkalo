@@ -215,6 +215,9 @@ pub struct EditorPane {
     on_gost_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
     on_version_click: Rc<RefCell<Option<Box<dyn Fn()>>>>,
     bib_active: Rc<RefCell<bool>>,
+    format_bar_container: GtkBox,
+    format_bar_label: Label,
+    on_format_bar_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
 }
 
 fn set_autocorrect_label(label: &Label, enabled: bool) {
@@ -314,6 +317,21 @@ impl EditorPane {
         search_btn.set_tooltip_text(Some("Find & Replace (Ctrl+F)"));
         search_btn.set_margin_start(4);
         search_btn.set_margin_end(4);
+        let format_bar_label = Label::new(Some("format bar"));
+        format_bar_label.add_css_class("dim-label");
+        format_bar_label.add_css_class("caption");
+        format_bar_label.set_use_markup(true);
+        format_bar_label.set_margin_top(3);
+        format_bar_label.set_margin_bottom(3);
+        set_toggle_label(&format_bar_label, "format bar", true);
+
+        let format_bar_toggle_btn = Button::new();
+        format_bar_toggle_btn.set_child(Some(&format_bar_label));
+        format_bar_toggle_btn.add_css_class("flat");
+        format_bar_toggle_btn.set_tooltip_text(Some("Toggle the formatting toolbar"));
+        format_bar_toggle_btn.set_margin_end(4);
+
+        status_bar.append(&format_bar_toggle_btn);
         status_bar.append(&autocorrect_btn);
         status_bar.append(&gost_btn);
         status_bar.append(&search_btn);
@@ -470,11 +488,66 @@ impl EditorPane {
         editor_row.set_vexpand(true);
         editor_row.append(&notebook);
 
+        // ── Formatting toolbar ────────────────────────────────────────────────
+        let format_bar = GtkBox::new(Orientation::Horizontal, 0);
+        format_bar.set_hexpand(true);
+        format_bar.set_margin_start(4);
+        format_bar.set_margin_end(4);
+        format_bar.set_margin_top(1);
+        format_bar.set_margin_bottom(1);
+
+        let bold_btn = Button::from_icon_name("format-text-bold-symbolic");
+        bold_btn.add_css_class("flat");
+        bold_btn.set_tooltip_text(Some("Bold — wraps selection in *…*  (Ctrl+B)"));
+        bold_btn.update_property(&[gtk4::accessible::Property::Label("Bold")]);
+
+        let italic_btn = Button::from_icon_name("format-text-italic-symbolic");
+        italic_btn.add_css_class("flat");
+        italic_btn.set_tooltip_text(Some("Italic — wraps selection in _…_  (Ctrl+I)"));
+        italic_btn.update_property(&[gtk4::accessible::Property::Label("Italic")]);
+
+        format_bar.append(&bold_btn);
+        format_bar.append(&italic_btn);
+
+        let fb_sep1 = Separator::new(Orientation::Vertical);
+        fb_sep1.set_margin_top(6); fb_sep1.set_margin_bottom(6);
+        fb_sep1.set_margin_start(4); fb_sep1.set_margin_end(4);
+        format_bar.append(&fb_sep1);
+
+        let h1_btn = Button::with_label("H1");
+        h1_btn.add_css_class("flat"); h1_btn.add_css_class("caption");
+        h1_btn.set_tooltip_text(Some("Heading 1  (= Heading text)"));
+        let h2_btn = Button::with_label("H2");
+        h2_btn.add_css_class("flat"); h2_btn.add_css_class("caption");
+        h2_btn.set_tooltip_text(Some("Heading 2  (== Heading text)"));
+        let h3_btn = Button::with_label("H3");
+        h3_btn.add_css_class("flat"); h3_btn.add_css_class("caption");
+        h3_btn.set_tooltip_text(Some("Heading 3  (=== Heading text)"));
+
+        format_bar.append(&h1_btn);
+        format_bar.append(&h2_btn);
+        format_bar.append(&h3_btn);
+
+        let fb_sep2 = Separator::new(Orientation::Vertical);
+        fb_sep2.set_margin_top(6); fb_sep2.set_margin_bottom(6);
+        fb_sep2.set_margin_start(4); fb_sep2.set_margin_end(4);
+        format_bar.append(&fb_sep2);
+
+        let pb_btn = Button::with_label("¶");
+        pb_btn.add_css_class("flat"); pb_btn.add_css_class("caption");
+        pb_btn.set_tooltip_text(Some("Insert page break  (#pagebreak())"));
+        format_bar.append(&pb_btn);
+
+        let format_bar_container = GtkBox::new(Orientation::Vertical, 0);
+        format_bar_container.append(&format_bar);
+        format_bar_container.append(&Separator::new(Orientation::Horizontal));
+
         let outer = GtkBox::new(Orientation::Vertical, 0);
         outer.set_hexpand(true);
         outer.set_vexpand(true);
         outer.append(&breadcrumb_bar);
         outer.append(&Separator::new(Orientation::Horizontal));
+        outer.append(&format_bar_container);
         outer.append(&editor_row);
         outer.append(find_bar.widget());
         // Note: status_bar is intentionally NOT appended here.
@@ -599,6 +672,9 @@ impl EditorPane {
             on_version_click,
             on_word_count_click,
             bib_active: Rc::new(RefCell::new(false)),
+            format_bar_container,
+            format_bar_label,
+            on_format_bar_toggle: Rc::new(RefCell::new(None)),
         };
 
         {
@@ -641,6 +717,16 @@ impl EditorPane {
             });
         }
         {
+            let ep_fb = ep.clone();
+            let fb_visible: Rc<RefCell<bool>> = Rc::new(RefCell::new(true));
+            format_bar_toggle_btn.connect_clicked(move |_| {
+                let new_val = !*fb_visible.borrow();
+                *fb_visible.borrow_mut() = new_val;
+                ep_fb.set_format_bar_visible(new_val);
+                if let Some(f) = ep_fb.on_format_bar_toggle.borrow().as_ref() { f(new_val); }
+            });
+        }
+        {
             let sc_ac = ep.spell_checker.clone();
             let lbl_ac = ep.autocorrect_label.clone();
             let cb_ac = ep.on_autocorrect_toggle.clone();
@@ -649,6 +735,35 @@ impl EditorPane {
                 sc_ac.borrow_mut().autocorrect = new_val;
                 set_autocorrect_label(&lbl_ac, new_val);
                 if let Some(f) = cb_ac.borrow().as_ref() { f(new_val); }
+            });
+        }
+
+        {
+            let ep_b = ep.clone();
+            bold_btn.connect_clicked(move |_| { ep_b.toggle_active_markup("*"); });
+        }
+        {
+            let ep_i = ep.clone();
+            italic_btn.connect_clicked(move |_| { ep_i.toggle_active_markup("_"); });
+        }
+        {
+            let ep_h1 = ep.clone();
+            h1_btn.connect_clicked(move |_| { ep_h1.set_active_heading(1); });
+        }
+        {
+            let ep_h2 = ep.clone();
+            h2_btn.connect_clicked(move |_| { ep_h2.set_active_heading(2); });
+        }
+        {
+            let ep_h3 = ep.clone();
+            h3_btn.connect_clicked(move |_| { ep_h3.set_active_heading(3); });
+        }
+        {
+            let ep_pb = ep.clone();
+            pb_btn.connect_clicked(move |_| {
+                if let Some((_v, buf)) = ep_pb.active_view_buffer() {
+                    buf.insert_at_cursor("\n#pagebreak()\n");
+                }
             });
         }
 
@@ -1235,6 +1350,19 @@ impl EditorPane {
 
     pub fn set_on_gost_toggle(&self, f: impl Fn(bool) + 'static) {
         *self.on_gost_toggle.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn set_on_format_bar_toggle(&self, f: impl Fn(bool) + 'static) {
+        *self.on_format_bar_toggle.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn set_format_bar_visible(&self, visible: bool) {
+        self.format_bar_container.set_visible(visible);
+        set_toggle_label(&self.format_bar_label, "format bar", visible);
+    }
+
+    pub fn format_bar_visible(&self) -> bool {
+        self.format_bar_container.is_visible()
     }
 
     pub fn set_on_version_click(&self, f: impl Fn() + 'static) {
@@ -3228,6 +3356,79 @@ impl EditorPane {
             }
         }
         0
+    }
+
+    fn toggle_active_markup(&self, marker: &str) {
+        let Some((_view, buffer)) = self.active_view_buffer() else { return };
+        if buffer.has_selection() {
+            let (start, end) = buffer.selection_bounds().unwrap();
+            let text = buffer.text(&start, &end, false);
+            let s = text.as_str();
+            if s.starts_with(marker) && s.ends_with(marker) && s.len() > 2 * marker.len() {
+                let inner = &s[marker.len()..s.len() - marker.len()];
+                buffer.begin_user_action();
+                buffer.delete(&mut buffer.selection_bounds().unwrap().0.clone(),
+                              &mut buffer.selection_bounds().unwrap().1.clone());
+                buffer.insert_at_cursor(inner);
+                buffer.end_user_action();
+            } else {
+                let wrapped = format!("{marker}{s}{marker}");
+                buffer.begin_user_action();
+                let mut s2 = start.clone();
+                let mut e2 = end.clone();
+                buffer.delete(&mut s2, &mut e2);
+                buffer.insert_at_cursor(&wrapped);
+                buffer.end_user_action();
+            }
+        } else {
+            let cursor = buffer.iter_at_mark(&buffer.get_insert());
+            let line = cursor.line();
+            let line_start = buffer.iter_at_line(line).unwrap_or(cursor.clone());
+            let line_end = {
+                let mut it = line_start.clone();
+                it.forward_to_line_end();
+                it
+            };
+            let line_text = buffer.text(&line_start, &line_end, false);
+            let s = line_text.as_str();
+            buffer.begin_user_action();
+            if s.starts_with(marker) && s.ends_with(marker) && s.len() > 2 * marker.len() {
+                let inner = s[marker.len()..s.len() - marker.len()].to_string();
+                let mut ls = line_start.clone();
+                let mut le = line_end.clone();
+                buffer.delete(&mut ls, &mut le);
+                let pos = buffer.iter_at_line(line).unwrap_or(buffer.end_iter());
+                buffer.insert(&mut pos.clone(), &inner);
+            } else {
+                let wrapped = format!("{marker}{s}{marker}");
+                let mut ls = line_start.clone();
+                let mut le = line_end.clone();
+                buffer.delete(&mut ls, &mut le);
+                let pos = buffer.iter_at_line(line).unwrap_or(buffer.end_iter());
+                buffer.insert(&mut pos.clone(), &wrapped);
+            }
+            buffer.end_user_action();
+        }
+    }
+
+    fn set_active_heading(&self, level: usize) {
+        let Some((_view, buffer)) = self.active_view_buffer() else { return };
+        let cursor = buffer.iter_at_mark(&buffer.get_insert());
+        let line = cursor.line();
+        let line_start = buffer.iter_at_line(line).unwrap_or(cursor.clone());
+        let mut line_end = line_start.clone();
+        line_end.forward_to_line_end();
+        let line_text = buffer.text(&line_start, &line_end, false);
+        let s = line_text.as_str().trim_start_matches('=').trim_start();
+        let prefix = "=".repeat(level);
+        let new_line = format!("{prefix} {s}");
+        buffer.begin_user_action();
+        let mut ls = line_start.clone();
+        let mut le = line_end.clone();
+        buffer.delete(&mut ls, &mut le);
+        let pos = buffer.iter_at_line(line).unwrap_or(buffer.end_iter());
+        buffer.insert(&mut pos.clone(), &new_line);
+        buffer.end_user_action();
     }
 
     fn active_view_buffer(&self) -> Option<(View, Buffer)> {

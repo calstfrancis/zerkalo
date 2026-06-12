@@ -14,11 +14,17 @@ pub struct WelcomeWindow {
 }
 
 impl WelcomeWindow {
-    pub fn new(parent: &impl IsA<gtk4::Window>) -> Self {
+    /// True when no marker exists — the very first launch.
+    pub fn is_first_run() -> bool {
+        !glib::user_data_dir().join("zerkalo/.welcome_version").exists()
+    }
+
+    pub fn new(parent: &impl IsA<gtk4::Window>, is_first_run: bool) -> Self {
         let on_dismissed: Rc<RefCell<Option<Box<dyn Fn()>>>> = Rc::new(RefCell::new(None));
 
+        let title = if is_first_run { "Welcome to Zerkalo" } else { "What's New" };
         let window = adw::Window::builder()
-            .title("Welcome to Zerkalo")
+            .title(title)
             .transient_for(parent)
             .modal(true)
             .default_width(500)
@@ -51,41 +57,71 @@ impl WelcomeWindow {
         body.append(&sub_lbl);
         body.append(&Separator::new(Orientation::Horizontal));
 
-        body.append(&section_label(&format!("What's New in {VERSION}")));
-        for item in [
-            "Non-ASCII file paths (Cyrillic, spaces) no longer silently corrupt on open",
-            "File deletes in the open dropdown and file tree now move to system trash with a confirmation prompt",
-            "Simple Mode explanation moved here — no more first-run modal interrupting your flow",
-            "Writing streak survives until midnight before your first write of the day",
-            "LSP diagnostic flicker on keystrokes eliminated; Save As pre-fills untitled.typ",
-            "Multiple missing-tool alerts are now shown as one combined dialog",
-        ] {
-            body.append(&bullet_row(item));
-        }
+        if is_first_run {
+            body.append(&section_label("How Zerkalo Works"));
+            let intro = Label::new(Some(
+                "Zerkalo is a Typst editor with a live preview pane. You write in Typst markup \
+                 on the left and see the formatted PDF on the right. Your document is saved and \
+                 compiled automatically as you type."
+            ));
+            intro.set_wrap(true);
+            intro.set_xalign(0.0);
+            body.append(&intro);
 
-        body.append(&Separator::new(Orientation::Horizontal));
-        body.append(&section_label("Quick Start"));
-        for item in [
-            "Open or create a .typ file from the title-bar dropdown",
-            "Press Ctrl+S to save and compile — the preview updates immediately",
-            "Press Ctrl+Shift+P to compile without saving at any time",
-            "Type # for Typst function completions (requires tinymist LSP)",
-            "Type @ for citation completions (configure .bib in Settings ≡)",
-            "Click ⟳ in the toolbar to commit and push to Git",
-            "The Outline panel shows headings; click one to jump there",
-            "Toggle GOST Type B font and autocorrect in the status bar",
-        ] {
-            body.append(&bullet_row(item));
-        }
+            // ASCII layout diagram
+            let diagram = Label::new(Some(
+                "┌─────────────────┬──────────────────┐\n\
+                 │  File tree  ≡   │  Live preview    │\n\
+                 ├─────────────────┤                  │\n\
+                 │                 │  ┌────────────┐  │\n\
+                 │   Editor        │  │  PDF page  │  │\n\
+                 │   (Typst text)  │  │            │  │\n\
+                 │                 │  └────────────┘  │\n\
+                 ├─────────────────┴──────────────────┤\n\
+                 │  Status bar  (word count, cursor)   │\n\
+                 └────────────────────────────────────┘"
+            ));
+            diagram.add_css_class("monospace");
+            diagram.add_css_class("dim-label");
+            diagram.set_xalign(0.0);
+            diagram.set_margin_top(4);
+            diagram.set_margin_bottom(4);
+            body.append(&diagram);
 
-        body.append(&Separator::new(Orientation::Horizontal));
-        body.append(&section_label("Simple Mode"));
-        for item in [
-            "Zerkalo hides the Typst front-matter above your document body so you can focus on writing",
-            "To change title, author, style, or other template settings use Update Template Settings in the ≡ menu",
-            "Turn Simple Mode off at any time with the SIMPLE button in the status bar",
-        ] {
-            body.append(&bullet_row(item));
+            body.append(&Separator::new(Orientation::Horizontal));
+            body.append(&section_label("Getting Started"));
+            for item in [
+                "Open or create a .typ file from the title-bar dropdown",
+                "Press Ctrl+S to save — the preview on the right updates immediately",
+                "Use the formatting bar above the editor for Bold, Italic, and Headings",
+                "Type @ to insert a citation (configure your .bib file in Settings ≡)",
+                "Type # for Typst function completions — e.g. #figure(), #bibliography()",
+                "Use Update Template Settings in the ≡ menu to change title, author, and style",
+                "The Outline panel on the left shows your document structure — click to navigate",
+            ] {
+                body.append(&bullet_row(item));
+            }
+
+            body.append(&Separator::new(Orientation::Horizontal));
+            body.append(&section_label("Simple Mode"));
+            for item in [
+                "Zerkalo hides the Typst front-matter so you can focus on writing prose",
+                "To change template settings use Update Template Settings in the ≡ menu",
+                "Turn Simple Mode off with the SIMPLE button in the status bar",
+            ] {
+                body.append(&bullet_row(item));
+            }
+        } else {
+            body.append(&section_label(&format!("What's New in {VERSION}")));
+            for item in [
+                "Formatting toolbar: Bold, Italic, H1–H3, and page break buttons above the editor",
+                "Format bar can be hidden with the 'format bar' toggle in the status bar",
+                "Auto-detects .bib files in your project folder — citations work without configuration",
+                "Template gallery now previews the first preset automatically on open",
+                "Citation popup now searches by author name and shows 'Smith et al., 2019' labels",
+            ] {
+                body.append(&bullet_row(item));
+            }
         }
 
         body.append(&Separator::new(Orientation::Horizontal));
@@ -113,7 +149,8 @@ impl WelcomeWindow {
         let spacer = GtkBox::new(Orientation::Horizontal, 0);
         spacer.set_hexpand(true);
         footer.append(&spacer);
-        let ok_btn = Button::with_label("Get Started");
+        let btn_label = if is_first_run { "Get Started" } else { "Close" };
+        let ok_btn = Button::with_label(btn_label);
         ok_btn.add_css_class("suggested-action");
         ok_btn.add_css_class("pill");
         footer.append(&ok_btn);
