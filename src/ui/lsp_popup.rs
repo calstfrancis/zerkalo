@@ -28,6 +28,7 @@ impl LspPopup {
 
         let list_box = ListBox::new();
         list_box.set_selection_mode(SelectionMode::Browse);
+        list_box.set_activate_on_single_click(false);
 
         let scroll = ScrolledWindow::new();
         scroll.set_child(Some(&list_box));
@@ -36,7 +37,7 @@ impl LspPopup {
         scroll.set_max_content_height(380);
         scroll.set_propagate_natural_height(true);
 
-        let hint = Label::new(Some("↑ ↓ navigate · Tab / ↵ insert · Esc dismiss"));
+        let hint = Label::new(Some("↑ ↓ navigate · double-click or ↵ insert · Esc dismiss"));
         hint.add_css_class("dim-label");
         hint.set_margin_top(4);
         hint.set_margin_bottom(4);
@@ -279,15 +280,6 @@ impl LspPopup {
 
         row_box.append(&text_col);
         row.set_child(Some(&row_box));
-
-        let on_complete = self.on_complete.clone();
-        let item_clone = item.clone();
-        row.connect_activate(move |_| {
-            if let Some(f) = on_complete.borrow().as_ref() {
-                f(item_clone.clone());
-            }
-        });
-
         self.list_box.append(&row);
     }
 }

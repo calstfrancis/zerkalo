@@ -28,6 +28,7 @@ impl BibPopup {
 
         let list_box = ListBox::new();
         list_box.set_selection_mode(SelectionMode::Browse);
+        list_box.set_activate_on_single_click(false);
         list_box.set_focusable(true);
 
         let scroll = ScrolledWindow::new();
@@ -94,6 +95,21 @@ impl BibPopup {
                 }
             });
             list_box.add_controller(kc);
+        }
+
+        // Double-click (or Enter when list has focus) triggers insertion
+        {
+            let filtered_ra = filtered_keys.clone();
+            let on_complete_ra = on_complete.clone();
+            let popover_ra = popover.clone();
+            list_box.connect_row_activated(move |_, row| {
+                let idx = row.index() as usize;
+                let k = filtered_ra.borrow().get(idx).cloned();
+                if let Some(k) = k {
+                    popover_ra.popdown();
+                    if let Some(f) = on_complete_ra.borrow().as_ref() { f(k); }
+                }
+            });
         }
 
         Self {
@@ -231,17 +247,6 @@ impl BibPopup {
         row_box.append(&key_lbl);
 
         row.set_child(Some(&row_box));
-
-        let on_complete = self.on_complete.clone();
-        let key = entry.key.clone();
-        let popover = self.popover.clone();
-        row.connect_activate(move |_| {
-            popover.popdown();
-            if let Some(f) = on_complete.borrow().as_ref() {
-                f(key.clone());
-            }
-        });
-
         self.list_box.append(&row);
     }
 }
