@@ -57,6 +57,18 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release type="development" version="0.13.6-rc2" date="2026-06-12">
+      <description>
+        <p>Popup and format bar fixes.</p>
+        <ul>
+          <li>Double-click and Enter now correctly insert in citation and LSP completion popups.</li>
+          <li>Bold/Italic toolbar buttons now match Ctrl+B/I behaviour exactly.</li>
+          <li>Heading buttons toggle off when clicked on a line that already has that heading level.</li>
+          <li>Format bar toggle reads live widget state, fixing incorrect behaviour when loading config with format_bar_visible=false.</li>
+          <li>Ghost text placeholder shown in empty editor buffers.</li>
+        </ul>
+      </description>
+    </release>
     <release type="development" version="0.13.6-rc1" date="2026-06-12">
       <description>
         <p>New-user UX pass.</p>
