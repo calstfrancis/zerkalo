@@ -57,6 +57,19 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release type="development" version="0.13.6-rc3" date="2026-06-12">
+      <description>
+        <p>Format bar power features and header cleanup.</p>
+        <ul>
+          <li>Font and font size dropdowns in the format bar change document settings via the sidecar.</li>
+          <li>Insert Table button: hover an 8×8 grid to pick size, click to insert a Typst table block.</li>
+          <li>Insert Image button: file dialog inserts a #figure(image(...)) snippet.</li>
+          <li>Focus mode moved from header icon to status bar toggle.</li>
+          <li>Preview button is now a flat toggle — bold when preview is visible, regular when hidden.</li>
+          <li>"Structure" label above the outline panel removed.</li>
+        </ul>
+      </description>
+    </release>
     <release type="development" version="0.13.6-rc2" date="2026-06-12">
       <description>
         <p>Popup and format bar fixes.</p>

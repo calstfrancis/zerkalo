@@ -1646,7 +1646,7 @@ fn typst_str(s: &str) -> String {
 
 // ── Template generator ────────────────────────────────────────────────────────
 
-fn generate_typst_template(s: &TemplateSettings) -> String {
+pub fn generate_typst_template(s: &TemplateSettings) -> String {
     let style_key = CITATION_STYLES.get(s.style_idx).map(|(_, k)| *k).unwrap_or("chicago-notes");
     let style_name = CITATION_STYLES.get(s.style_idx).map(|(n, _)| *n).unwrap_or("Chicago");
     let bib = bib_style(style_key);

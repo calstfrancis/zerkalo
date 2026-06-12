@@ -5,6 +5,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.6-rc3] — Format bar power features and header cleanup
+
+### Added
+
+- **Format bar: font and size dropdowns** — right-aligned dropdowns change the document body font and font size via the sidecar, regenerating the template immediately.
+- **Format bar: Insert Table** — hover an 8×8 grid to pick dimensions, click to insert a Typst `#figure(table(...))` block.
+- **Format bar: Insert Image** — opens a file dialog; inserts `#figure(image(...))` with width and caption placeholder.
+- **Focus toggle** — moved from the header bar to the status bar (same bold/regular toggle formatting as other status bar controls).
+
+### Changed
+
+- **Preview button** — replaced the "suggested-action pill" compile button with a flat "Preview" label that is bold when the preview pane is visible and regular when hidden. Clicking it toggles the pane and triggers compile on show.
+- **Sidebar: Structure label removed** — the "Structure" heading above the outline panel has been removed.
+
+### Fixed
+
+- `set_filters` API: wrapped `&filters` in `Some(...)` for gtk4 0.7 compatibility.
+- Deprecated `style_context()` call in table grid replaced with `queue_draw()`.
+
+---
+
 ## [0.13.6-rc2] — Popup and format bar fixes
 
 ### Fixed

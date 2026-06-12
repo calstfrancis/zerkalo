@@ -218,6 +218,12 @@ pub struct EditorPane {
     format_bar_container: GtkBox,
     format_bar_label: Label,
     on_format_bar_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
+    focus_label: Label,
+    on_focus_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
+    on_doc_font: Rc<RefCell<Option<Box<dyn Fn(String)>>>>,
+    on_doc_font_size: Rc<RefCell<Option<Box<dyn Fn(String)>>>>,
+    font_bar_label: Label,
+    size_bar_label: Label,
 }
 
 fn set_autocorrect_label(label: &Label, enabled: bool) {
@@ -317,6 +323,19 @@ impl EditorPane {
         search_btn.set_tooltip_text(Some("Find & Replace (Ctrl+F)"));
         search_btn.set_margin_start(4);
         search_btn.set_margin_end(4);
+        let focus_label = Label::new(Some("focus"));
+        focus_label.add_css_class("dim-label");
+        focus_label.add_css_class("caption");
+        focus_label.set_use_markup(true);
+        focus_label.set_margin_top(3);
+        focus_label.set_margin_bottom(3);
+
+        let focus_toggle_btn = Button::new();
+        focus_toggle_btn.set_child(Some(&focus_label));
+        focus_toggle_btn.add_css_class("flat");
+        focus_toggle_btn.set_tooltip_text(Some("Focus mode — hide sidebar and preview"));
+        focus_toggle_btn.set_margin_end(4);
+
         let format_bar_label = Label::new(Some("format bar"));
         format_bar_label.add_css_class("dim-label");
         format_bar_label.add_css_class("caption");
@@ -331,6 +350,7 @@ impl EditorPane {
         format_bar_toggle_btn.set_tooltip_text(Some("Toggle the formatting toolbar"));
         format_bar_toggle_btn.set_margin_end(4);
 
+        status_bar.append(&focus_toggle_btn);
         status_bar.append(&format_bar_toggle_btn);
         status_bar.append(&autocorrect_btn);
         status_bar.append(&gost_btn);
@@ -538,6 +558,174 @@ impl EditorPane {
         pb_btn.set_tooltip_text(Some("Insert page break  (#pagebreak())"));
         format_bar.append(&pb_btn);
 
+        let fb_sep3 = Separator::new(Orientation::Vertical);
+        fb_sep3.set_margin_top(6); fb_sep3.set_margin_bottom(6);
+        fb_sep3.set_margin_start(4); fb_sep3.set_margin_end(4);
+        format_bar.append(&fb_sep3);
+
+        // ── Insert table (grid picker) ──────────────────────────────────────
+        let table_popover = Popover::new();
+        let table_grid_box = GtkBox::new(Orientation::Vertical, 2);
+        table_grid_box.set_margin_top(6);
+        table_grid_box.set_margin_bottom(6);
+        table_grid_box.set_margin_start(6);
+        table_grid_box.set_margin_end(6);
+        let table_size_lbl = Label::new(Some("Insert table"));
+        table_size_lbl.add_css_class("caption");
+        table_size_lbl.add_css_class("dim-label");
+        table_grid_box.append(&table_size_lbl);
+
+        // 8×8 grid of cells; hover to highlight, click to insert
+        const GRID_MAX: i32 = 8;
+        let selected_rows: Rc<std::cell::Cell<i32>> = Rc::new(std::cell::Cell::new(0));
+        let selected_cols: Rc<std::cell::Cell<i32>> = Rc::new(std::cell::Cell::new(0));
+        let mut grid_btns: Vec<Vec<Button>> = Vec::new();
+        for r in 0..GRID_MAX {
+            let row_box = GtkBox::new(Orientation::Horizontal, 2);
+            let mut row_btns: Vec<Button> = Vec::new();
+            for c in 0..GRID_MAX {
+                let cell = Button::new();
+                cell.set_size_request(20, 18);
+                cell.add_css_class("flat");
+                cell.add_css_class("caption");
+                row_btns.push(cell.clone());
+                row_box.append(&cell);
+                // Hover motion controller
+                let sr = selected_rows.clone();
+                let sc = selected_cols.clone();
+                let r = r; let c = c;
+                let mc = EventControllerMotion::new();
+                let lbl = table_size_lbl.clone();
+                let cell_c = cell.clone();
+                mc.connect_enter(move |_, _, _| {
+                    sr.set(r + 1);
+                    sc.set(c + 1);
+                    lbl.set_text(&format!("{}×{} table", r + 1, c + 1));
+                    cell_c.queue_draw();
+                });
+                cell.add_controller(mc);
+            }
+            grid_btns.push(row_btns);
+            table_grid_box.append(&row_box);
+        }
+        table_popover.set_child(Some(&table_grid_box));
+
+        let table_btn = Button::new();
+        table_btn.set_icon_name("x-office-spreadsheet-symbolic");
+        table_btn.add_css_class("flat");
+        table_btn.set_tooltip_text(Some("Insert table"));
+        {
+            let tp = table_popover.clone();
+            let tb = table_btn.clone();
+            table_btn.connect_clicked(move |_| {
+                tp.set_parent(&tb);
+                if tp.is_visible() { tp.popdown(); } else { tp.popup(); }
+            });
+        }
+        format_bar.append(&table_btn);
+
+        // Wire grid cell clicks to insert a table
+        for (ri, row_btns) in grid_btns.iter().enumerate() {
+            for (ci, cell) in row_btns.iter().enumerate() {
+                let tp = table_popover.clone();
+                let sr = selected_rows.clone();
+                let sc = selected_cols.clone();
+                cell.connect_clicked(move |_| {
+                    tp.popdown();
+                    let rows = if sr.get() > 0 { sr.get() } else { (ri + 1) as i32 };
+                    let cols = if sc.get() > 0 { sc.get() } else { (ci + 1) as i32 };
+                    let _ = (rows, cols); // used via closure capture
+                });
+            }
+        }
+
+        // ── Insert figure (file dialog) ──────────────────────────────────────
+        let figure_btn = Button::new();
+        figure_btn.set_icon_name("insert-image-symbolic");
+        figure_btn.add_css_class("flat");
+        figure_btn.set_tooltip_text(Some("Insert figure / image"));
+        format_bar.append(&figure_btn);
+
+        // ── Spacer ────────────────────────────────────────────────────────────
+        let fb_spacer = GtkBox::new(Orientation::Horizontal, 0);
+        fb_spacer.set_hexpand(true);
+        format_bar.append(&fb_spacer);
+
+        // ── Font dropdown (right-aligned) ────────────────────────────────────
+        const DOC_FONTS: &[&str] = &[
+            "Times New Roman", "Libertinus Serif", "EB Garamond",
+            "Palatino", "Linux Libertine O", "Linux Biolinum O",
+            "Noto Serif", "Noto Sans", "Source Serif Pro", "Lato",
+        ];
+        let font_popover = Popover::new();
+        let font_popover_box = GtkBox::new(Orientation::Vertical, 2);
+        font_popover_box.set_margin_top(4); font_popover_box.set_margin_bottom(4);
+        font_popover_box.set_margin_start(4); font_popover_box.set_margin_end(4);
+        let mut font_buttons: Vec<(String, Button)> = Vec::new();
+        for font_name in DOC_FONTS {
+            let row = Button::with_label(font_name);
+            row.add_css_class("flat");
+            row.set_halign(gtk4::Align::Start);
+            row.set_size_request(200, -1);
+            font_popover_box.append(&row);
+            font_buttons.push((font_name.to_string(), row));
+        }
+        font_popover.set_child(Some(&font_popover_box));
+
+        let font_bar_label = Label::new(Some("font"));
+        font_bar_label.add_css_class("dim-label");
+        font_bar_label.add_css_class("caption");
+        let font_bar_btn = Button::new();
+        font_bar_btn.set_child(Some(&font_bar_label));
+        font_bar_btn.add_css_class("flat");
+        font_bar_btn.set_tooltip_text(Some("Document body font"));
+        font_bar_btn.set_margin_start(4);
+        {
+            let fp = font_popover.clone();
+            let fb = font_bar_btn.clone();
+            font_bar_btn.connect_clicked(move |_| {
+                fp.set_parent(&fb);
+                if fp.is_visible() { fp.popdown(); } else { fp.popup(); }
+            });
+        }
+        format_bar.append(&font_bar_btn);
+
+        // ── Font size dropdown (right-aligned) ────────────────────────────────
+        const DOC_SIZES: &[&str] = &["10pt", "11pt", "12pt", "14pt", "16pt"];
+        let size_popover = Popover::new();
+        let size_popover_box = GtkBox::new(Orientation::Vertical, 2);
+        size_popover_box.set_margin_top(4); size_popover_box.set_margin_bottom(4);
+        size_popover_box.set_margin_start(4); size_popover_box.set_margin_end(4);
+        let mut size_buttons: Vec<(String, Button)> = Vec::new();
+        for size_name in DOC_SIZES {
+            let row = Button::with_label(size_name);
+            row.add_css_class("flat");
+            row.add_css_class("caption");
+            row.set_halign(gtk4::Align::Start);
+            row.set_size_request(80, -1);
+            size_popover_box.append(&row);
+            size_buttons.push((size_name.to_string(), row));
+        }
+        size_popover.set_child(Some(&size_popover_box));
+
+        let size_bar_label = Label::new(Some("size"));
+        size_bar_label.add_css_class("dim-label");
+        size_bar_label.add_css_class("caption");
+        let size_bar_btn = Button::new();
+        size_bar_btn.set_child(Some(&size_bar_label));
+        size_bar_btn.add_css_class("flat");
+        size_bar_btn.set_tooltip_text(Some("Document font size"));
+        size_bar_btn.set_margin_start(2);
+        {
+            let sp = size_popover.clone();
+            let sb = size_bar_btn.clone();
+            size_bar_btn.connect_clicked(move |_| {
+                sp.set_parent(&sb);
+                if sp.is_visible() { sp.popdown(); } else { sp.popup(); }
+            });
+        }
+        format_bar.append(&size_bar_btn);
+
         let format_bar_container = GtkBox::new(Orientation::Vertical, 0);
         format_bar_container.append(&format_bar);
         format_bar_container.append(&Separator::new(Orientation::Horizontal));
@@ -675,6 +863,12 @@ impl EditorPane {
             format_bar_container,
             format_bar_label,
             on_format_bar_toggle: Rc::new(RefCell::new(None)),
+            focus_label,
+            on_focus_toggle: Rc::new(RefCell::new(None)),
+            on_doc_font: Rc::new(RefCell::new(None)),
+            on_doc_font_size: Rc::new(RefCell::new(None)),
+            font_bar_label,
+            size_bar_label,
         };
 
         {
@@ -722,6 +916,100 @@ impl EditorPane {
                 let new_val = !ep_fb.format_bar_visible();
                 ep_fb.set_format_bar_visible(new_val);
                 if let Some(f) = ep_fb.on_format_bar_toggle.borrow().as_ref() { f(new_val); }
+            });
+        }
+        {
+            let ep_focus = ep.clone();
+            let focus_active: Rc<std::cell::Cell<bool>> = Rc::new(std::cell::Cell::new(false));
+            focus_toggle_btn.connect_clicked(move |_| {
+                let new_val = !focus_active.get();
+                focus_active.set(new_val);
+                set_toggle_label(&ep_focus.focus_label, "focus", new_val);
+                if let Some(f) = ep_focus.on_focus_toggle.borrow().as_ref() { f(new_val); }
+            });
+        }
+
+        // Wire font dropdown rows
+        for (font_name, btn) in &font_buttons {
+            let fn2 = font_name.clone();
+            let ep_f = ep.clone();
+            let fp = font_popover.clone();
+            let fbl = ep.font_bar_label.clone();
+            btn.connect_clicked(move |_| {
+                fp.popdown();
+                fbl.set_text(&fn2);
+                if let Some(f) = ep_f.on_doc_font.borrow().as_ref() { f(fn2.clone()); }
+            });
+        }
+        // Wire size dropdown rows
+        for (size_name, btn) in &size_buttons {
+            let sn2 = size_name.clone();
+            let ep_s = ep.clone();
+            let sp = size_popover.clone();
+            let sbl = ep.size_bar_label.clone();
+            btn.connect_clicked(move |_| {
+                sp.popdown();
+                sbl.set_text(&sn2);
+                if let Some(f) = ep_s.on_doc_font_size.borrow().as_ref() { f(sn2.clone()); }
+            });
+        }
+        // Wire table grid cell clicks (insert Typst table)
+        for (ri, row_btns) in grid_btns.iter().enumerate() {
+            for (ci, cell) in row_btns.iter().enumerate() {
+                let ep_t = ep.clone();
+                let rows = ri + 1;
+                let cols = ci + 1;
+                let tp2 = table_popover.clone();
+                let sr2 = selected_rows.clone();
+                let sc2 = selected_cols.clone();
+                cell.connect_clicked(move |_| {
+                    tp2.popdown();
+                    let r = if sr2.get() > 0 { sr2.get() as usize } else { rows };
+                    let c = if sc2.get() > 0 { sc2.get() as usize } else { cols };
+                    sr2.set(0); sc2.set(0);
+                    if let Some((_, buf)) = ep_t.active_view_buffer() {
+                        let header_cols: String = (1..=c).map(|j| format!("[*Col {j}*]")).collect::<Vec<_>>().join(", ");
+                        let data_cols: String = (1..=c).map(|_| "[ ]".to_string()).collect::<Vec<_>>().join(", ");
+                        let data_rows: String = (1..=r).map(|_| format!("    {data_cols},")).collect::<Vec<_>>().join("\n");
+                        let snippet = format!(
+                            "#figure(\n  table(\n    columns: {c},\n    table.header({header_cols}),\n{data_rows}\n  ),\n  caption: [Caption],\n) <tab:label>\n"
+                        );
+                        buf.insert_at_cursor(&snippet);
+                    }
+                });
+            }
+        }
+        // Wire figure/image button (file dialog)
+        {
+            let ep_img = ep.clone();
+            figure_btn.connect_clicked(move |_| {
+                let dialog = gtk4::FileDialog::new();
+                let filter = gtk4::FileFilter::new();
+                filter.set_name(Some("Images"));
+                filter.add_pattern("*.png");
+                filter.add_pattern("*.jpg");
+                filter.add_pattern("*.jpeg");
+                filter.add_pattern("*.svg");
+                filter.add_pattern("*.webp");
+                let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
+                filters.append(&filter);
+                dialog.set_filters(Some(&filters));
+                let ep2 = ep_img.clone();
+                dialog.open(gtk4::Window::NONE, gtk4::gio::Cancellable::NONE, move |result| {
+                    if let Ok(file) = result {
+                        if let Some(path) = file.path() {
+                            if let Some((_, buf)) = ep2.active_view_buffer() {
+                                let name = path.file_name()
+                                    .and_then(|n| n.to_str())
+                                    .unwrap_or("image.png");
+                                let snippet = format!(
+                                    "#figure(\n  image(\"{name}\", width: 80%),\n  caption: [Caption],\n) <fig:label>\n"
+                                );
+                                buf.insert_at_cursor(&snippet);
+                            }
+                        }
+                    }
+                });
             });
         }
         {
@@ -1361,6 +1649,30 @@ impl EditorPane {
 
     pub fn format_bar_visible(&self) -> bool {
         self.format_bar_container.is_visible()
+    }
+
+    pub fn set_on_focus_toggle(&self, f: impl Fn(bool) + 'static) {
+        *self.on_focus_toggle.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn set_focus_active(&self, active: bool) {
+        set_toggle_label(&self.focus_label, "focus", active);
+    }
+
+    pub fn set_on_doc_font(&self, f: impl Fn(String) + 'static) {
+        *self.on_doc_font.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn set_on_doc_font_size(&self, f: impl Fn(String) + 'static) {
+        *self.on_doc_font_size.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn set_doc_font_label(&self, name: &str) {
+        self.font_bar_label.set_text(name);
+    }
+
+    pub fn set_doc_size_label(&self, size: &str) {
+        self.size_bar_label.set_text(size);
     }
 
     pub fn set_on_version_click(&self, f: impl Fn() + 'static) {

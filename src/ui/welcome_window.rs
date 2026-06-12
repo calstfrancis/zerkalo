@@ -114,11 +114,12 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
-                "Formatting toolbar: Bold, Italic, H1–H3, and page break buttons above the editor",
-                "Format bar can be hidden with the 'format bar' toggle in the status bar",
+                "Formatting toolbar: Bold, Italic, H1–H3, page break, Insert Table, and Insert Image",
+                "Font and font size dropdowns in the format bar update your document template instantly",
+                "Preview button in the header toggles the preview pane — bold when visible",
+                "Focus mode moved to the status bar (same toggle style as other controls)",
                 "Auto-detects .bib files in your project folder — citations work without configuration",
-                "Template gallery now previews the first preset automatically on open",
-                "Citation popup now searches by author name and shows 'Smith et al., 2019' labels",
+                "Citation popup searches by author name and shows 'Smith et al., 2019' labels",
             ] {
                 body.append(&bullet_row(item));
             }
