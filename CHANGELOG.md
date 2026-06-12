@@ -5,6 +5,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.6-rc4] — Accessibility pass 1
+
+### Added
+
+- **Screen reader labels** — all icon-only buttons (Bold, Italic, table, figure, undo, redo, format bar toggle, focus toggle, autocorrect, simple mode) now have `aria-label` equivalents via `update_property(Property::Label(...))`.
+- **Table grid cell labels** — each cell in the 8×8 table picker announces its size (e.g. "3×4 table"); label updates as the user hovers so AT tracks the selection.
+- **Preview keyboard navigation** — the preview pane now accepts keyboard focus. `+`/`=` zoom in, `-` zoom out, `0` fit-to-width, `Space`/`Shift+Space` scroll a page down/up.
+- **Error live region** — the error panel includes a visually-hidden `AccessibleRole::Status` label. When compile errors appear, it announces the count and first error message to screen readers without requiring focus to move.
+
+### Changed
+
+- **Status bar toggle contrast** — inactive status bar toggles now render at 70 % opacity (up from `dim-label`'s ~40 %) and reach full opacity on hover or focus, improving readability and meeting WCAG AA contrast for interactive controls.
+
+### Fixed
+
+- **Duplicate table grid handler** — removed the redundant pre-ep stub `connect_clicked` on each grid cell that closed the popover but discarded its row/col values. Only the real insertion handler (which uses `ep.active_view_buffer()`) now fires.
+
+---
+
 ## [0.13.6-rc3] — Format bar power features and header cleanup
 
 ### Added

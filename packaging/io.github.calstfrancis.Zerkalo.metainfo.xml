@@ -57,6 +57,19 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release type="development" version="0.13.6-rc4" date="2026-06-12">
+      <description>
+        <p>Accessibility pass 1.</p>
+        <ul>
+          <li>All icon-only buttons now have accessible labels for screen readers.</li>
+          <li>Table grid cells announce their size as the user hovers.</li>
+          <li>Preview pane accepts keyboard focus: +/- zoom, 0 fit-width, Space/Shift+Space scroll.</li>
+          <li>Error panel announces compile errors via a live region without requiring focus to move.</li>
+          <li>Status bar toggles now render at higher contrast (70% opacity inactive, 100% on focus/hover).</li>
+          <li>Fixed: duplicate table grid click handler removed.</li>
+        </ul>
+      </description>
+    </release>
     <release type="development" version="0.13.6-rc3" date="2026-06-12">
       <description>
         <p>Format bar power features and header cleanup.</p>

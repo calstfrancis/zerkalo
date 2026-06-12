@@ -187,6 +187,7 @@ pub struct ErrorPanel {
     revealer: Revealer,
     list_box: ListBox,
     header_label: Label,
+    live_label: Label,
     on_jump: Rc<RefCell<Option<Box<dyn Fn(PathBuf, u32)>>>>,
 }
 
@@ -236,11 +237,19 @@ impl ErrorPanel {
         revealer.set_child(Some(&inner));
         root_widget.append(&revealer);
 
+        // Visually-hidden live region: AT implementations announce text changes
+        // on widgets with AccessibleRole::Status (ARIA role="status", polite live region).
+        let live_label = Label::new(None);
+        live_label.set_accessible_role(gtk4::AccessibleRole::Status);
+        live_label.set_visible(false);
+        root_widget.append(&live_label);
+
         Self {
             root_widget,
             revealer,
             list_box,
             header_label,
+            live_label,
             on_jump: Rc::new(RefCell::new(None)),
         }
     }
@@ -259,6 +268,7 @@ impl ErrorPanel {
         let count = errors.len();
         if count == 0 {
             self.revealer.set_reveal_child(false);
+            self.live_label.set_text("");
             return;
         }
 
@@ -268,6 +278,14 @@ impl ErrorPanel {
             format!("{count} Errors")
         };
         self.header_label.set_label(&label);
+
+        let first_msg = errors.first().map(|e| e.message.as_str()).unwrap_or("");
+        let announcement = if count == 1 {
+            format!("Compile error: {first_msg}")
+        } else {
+            format!("{count} compile errors. First: {first_msg}")
+        };
+        self.live_label.set_text(&announcement);
 
         for err in errors {
             self.append_row(err);
@@ -279,6 +297,7 @@ impl ErrorPanel {
     pub fn clear(&self) {
         self.clear_rows();
         self.revealer.set_reveal_child(false);
+        self.live_label.set_text("");
     }
 
     fn clear_rows(&self) {

@@ -7,10 +7,11 @@ use std::time::Duration;
 
 use gtk4::gdk::prelude::GdkCairoContextExt;
 use gtk4::gdk_pixbuf::Pixbuf;
+use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{
-    Align, Box as GtkBox, Button, DrawingArea, GestureClick, Label, Orientation, ScrolledWindow,
-    Spinner, Stack,
+    Align, Box as GtkBox, Button, DrawingArea, EventControllerKey, GestureClick, Label,
+    Orientation, ScrolledWindow, Spinner, Stack,
 };
 
 // ── Result sent from compile thread ──────────────────────────────────────────
@@ -242,6 +243,48 @@ impl PreviewPane {
                     pane_r.fit_width();
                 }
             });
+        }
+
+        // ── Keyboard navigation for the preview pane ─────────────────────────
+        // +/=  zoom in,  -  zoom out,  0  fit-to-width,  Space/Shift+Space scroll page
+        {
+            let pane_k = pane.clone();
+            let key_ctrl = EventControllerKey::new();
+            key_ctrl.connect_key_pressed(move |_, key, _, modifier| {
+                use gtk4::gdk::{Key, ModifierType};
+                let shift = modifier.contains(ModifierType::SHIFT_MASK);
+                match key {
+                    Key::plus | Key::equal => {
+                        let z = (pane_k.zoom() * 1.15).min(4.0);
+                        pane_k.set_zoom(z);
+                        return glib::Propagation::Stop;
+                    }
+                    Key::minus => {
+                        let z = (pane_k.zoom() / 1.15).max(0.25);
+                        pane_k.set_zoom(z);
+                        return glib::Propagation::Stop;
+                    }
+                    Key::_0 => {
+                        pane_k.fit_width();
+                        return glib::Propagation::Stop;
+                    }
+                    Key::space => {
+                        let adj = pane_k.img_scroll.vadjustment();
+                        let step = adj.page_size() * 0.9;
+                        let new_val = if shift {
+                            (adj.value() - step).max(adj.lower())
+                        } else {
+                            (adj.value() + step).min(adj.upper() - adj.page_size())
+                        };
+                        adj.set_value(new_val);
+                        return glib::Propagation::Stop;
+                    }
+                    _ => {}
+                }
+                glib::Propagation::Proceed
+            });
+            pane.img_scroll.set_focusable(true);
+            pane.img_scroll.add_controller(key_ctrl);
         }
 
         // Wire cancel button once
