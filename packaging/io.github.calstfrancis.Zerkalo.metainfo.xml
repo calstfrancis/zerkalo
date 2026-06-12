@@ -57,6 +57,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release type="development" version="0.13.6-rc8" date="2026-06-12">
+      <description>
+        <p>Warning cleanup — no user-facing changes.</p>
+      </description>
+    </release>
     <release type="development" version="0.13.6-rc7" date="2026-06-12">
       <description>
         <p>Error panel improvements 2.</p>

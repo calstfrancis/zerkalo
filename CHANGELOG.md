@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.6-rc8] — Warning cleanup
+
+### Fixed
+
+- Removed unused `bracket_depth` closure left over from an earlier version of the template body-splice function.
+- Removed dead grouping loop (`groups`, `last_file`) from the error panel that was superseded by the single-pass file-header approach.
+- Dropped redundant `search_entry` and `search_text` struct fields from `ErrorPanel`; the values are kept alive by the GTK widget hierarchy and closure captures respectively.
+
+---
+
 ## [0.13.6-rc7] — Error panel improvements 2
 
 ### Added
