@@ -1537,8 +1537,32 @@ impl EditorPane {
             view.add_controller(drop);
         }
 
+        // Ghost-text placeholder — shown when the buffer is empty.
+        let placeholder_lbl = Label::new(Some(
+            "Start writing. Use = Heading for headings, *word* for bold, _word_ for italic, @key to cite."
+        ));
+        placeholder_lbl.add_css_class("dim-label");
+        placeholder_lbl.set_halign(gtk4::Align::Start);
+        placeholder_lbl.set_valign(gtk4::Align::Start);
+        placeholder_lbl.set_margin_top(8);
+        placeholder_lbl.set_margin_start(48); // aligns with view left-margin + gutter
+        placeholder_lbl.set_wrap(true);
+        placeholder_lbl.set_sensitive(false);
+        placeholder_lbl.set_visible(buffer.char_count() == 0);
+
+        let view_overlay = gtk4::Overlay::new();
+        view_overlay.set_child(Some(&view));
+        view_overlay.add_overlay(&placeholder_lbl);
+        view_overlay.set_hexpand(true);
+        view_overlay.set_vexpand(true);
+
+        let ph_lbl_for_buf = placeholder_lbl.clone();
+        buffer.connect_changed(move |buf| {
+            ph_lbl_for_buf.set_visible(buf.char_count() == 0);
+        });
+
         let scroll = ScrolledWindow::new();
-        scroll.set_child(Some(&view));
+        scroll.set_child(Some(&view_overlay));
         scroll.set_hexpand(true);
         scroll.set_vexpand(true);
         // Horizontal scroll is permanently disabled — all wrapping is done in the
