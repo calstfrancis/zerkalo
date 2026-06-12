@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.6-rc2] — Popup and format bar fixes
+
+### Fixed
+
+- **Citation and LSP completion popups** — double-click and Enter now correctly insert the selected item. Single-click now selects without inserting (natural autocomplete UX). Previously, single-click activated and double-click had no distinct handler.
+- **Format bar toggle** — state is now read from the widget, so toggling works correctly when `format_bar_visible = false` is loaded from config.
+- **Bold/Italic toolbar buttons** — rewritten to match Ctrl+B/I exactly: restores selection on inner text after unwrapping, places cursor between paired markers when inserting with no selection.
+- **Heading buttons** — clicking the same heading level a second time removes the heading (toggle off).
+- **Ghost text placeholder** — empty buffers now show a dim hint label (via GTK Overlay) that disappears on the first keystroke.
+
+---
+
 ## [0.13.6-rc1] — New-user UX pass
 
 ### Added
