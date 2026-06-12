@@ -316,15 +316,17 @@ impl ErrorPanel {
         row_box.set_margin_start(10);
         row_box.set_margin_end(10);
 
-        // Severity icon
+        // Severity icon — visible glyph plus accessible label for screen readers
         let icon_lbl = match err.severity {
             Severity::Error => {
                 let l = Label::new(Some("✗"));
                 l.add_css_class("error");
+                l.update_property(&[gtk4::accessible::Property::Label("Compile error")]);
                 l
             }
             Severity::Warning => {
                 let l = Label::new(Some("⚠"));
+                l.update_property(&[gtk4::accessible::Property::Label("Compile warning")]);
                 l.add_css_class("warning");
                 l
             }

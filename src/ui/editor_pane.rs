@@ -153,6 +153,8 @@ struct EditorTab {
     modified: bool,
     dot_label: Label,
     diag_dot: Label,
+    tab_box: GtkBox,
+    display_name: String,
     lsp_popup: LspPopup,
     session_start_words: u32,
 }
@@ -217,6 +219,7 @@ pub struct EditorPane {
     bib_active: Rc<RefCell<bool>>,
     format_bar_container: GtkBox,
     format_bar_label: Label,
+    format_bar_toggle_btn: Button,
     on_format_bar_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
     focus_label: Label,
     on_focus_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
@@ -240,6 +243,16 @@ fn set_toggle_label(label: &Label, text: &str, enabled: bool) {
     } else {
         label.set_text(text);
     }
+}
+
+fn set_status_toggle(btn: &Button, label: &Label, text: &str, active: bool) {
+    set_toggle_label(label, text, active);
+    let pressed = if active {
+        gtk4::AccessibleTristate::True
+    } else {
+        gtk4::AccessibleTristate::False
+    };
+    btn.update_state(&[gtk4::accessible::State::Pressed(pressed)]);
 }
 
 
@@ -634,12 +647,13 @@ impl EditorPane {
         table_btn.add_css_class("flat");
         table_btn.set_tooltip_text(Some("Insert table"));
         table_btn.update_property(&[gtk4::accessible::Property::Label("Insert table")]);
+        table_popover.set_autohide(true);
         {
             let tp = table_popover.clone();
             let tb = table_btn.clone();
             table_btn.connect_clicked(move |_| {
                 tp.set_parent(&tb);
-                if tp.is_visible() { tp.popdown(); } else { tp.popup(); }
+                if tp.is_visible() { tp.popdown(); } else { tp.popup(); tp.grab_focus(); }
             });
         }
         format_bar.append(&table_btn);
@@ -677,6 +691,7 @@ impl EditorPane {
             font_buttons.push((font_name.to_string(), row));
         }
         font_popover.set_child(Some(&font_popover_box));
+        font_popover.set_autohide(true);
 
         let font_bar_label = Label::new(Some("font"));
         font_bar_label.add_css_class("dim-label");
@@ -691,7 +706,7 @@ impl EditorPane {
             let fb = font_bar_btn.clone();
             font_bar_btn.connect_clicked(move |_| {
                 fp.set_parent(&fb);
-                if fp.is_visible() { fp.popdown(); } else { fp.popup(); }
+                if fp.is_visible() { fp.popdown(); } else { fp.popup(); fp.grab_focus(); }
             });
         }
         format_bar.append(&font_bar_btn);
@@ -713,6 +728,7 @@ impl EditorPane {
             size_buttons.push((size_name.to_string(), row));
         }
         size_popover.set_child(Some(&size_popover_box));
+        size_popover.set_autohide(true);
 
         let size_bar_label = Label::new(Some("size"));
         size_bar_label.add_css_class("dim-label");
@@ -727,7 +743,7 @@ impl EditorPane {
             let sb = size_bar_btn.clone();
             size_bar_btn.connect_clicked(move |_| {
                 sp.set_parent(&sb);
-                if sp.is_visible() { sp.popdown(); } else { sp.popup(); }
+                if sp.is_visible() { sp.popdown(); } else { sp.popup(); sp.grab_focus(); }
             });
         }
         format_bar.append(&size_bar_btn);
@@ -868,6 +884,7 @@ impl EditorPane {
             bib_active: Rc::new(RefCell::new(false)),
             format_bar_container,
             format_bar_label,
+            format_bar_toggle_btn: format_bar_toggle_btn.clone(),
             on_format_bar_toggle: Rc::new(RefCell::new(None)),
             focus_label,
             on_focus_toggle: Rc::new(RefCell::new(None)),
@@ -927,12 +944,19 @@ impl EditorPane {
         {
             let ep_focus = ep.clone();
             let focus_active: Rc<std::cell::Cell<bool>> = Rc::new(std::cell::Cell::new(false));
+            let ftb = focus_toggle_btn.clone();
             focus_toggle_btn.connect_clicked(move |_| {
                 let new_val = !focus_active.get();
                 focus_active.set(new_val);
-                set_toggle_label(&ep_focus.focus_label, "focus", new_val);
+                set_status_toggle(&ftb, &ep_focus.focus_label, "focus", new_val);
                 if let Some(f) = ep_focus.on_focus_toggle.borrow().as_ref() { f(new_val); }
             });
+        }
+
+        // Restore focus to editor when format bar popovers close (item 2)
+        for pop in [&table_popover, &font_popover, &size_popover] {
+            let ep_fc = ep.clone();
+            pop.connect_closed(move |_| { ep_fc.grab_focus(); });
         }
 
         // Wire font dropdown rows
@@ -1650,7 +1674,7 @@ impl EditorPane {
 
     pub fn set_format_bar_visible(&self, visible: bool) {
         self.format_bar_container.set_visible(visible);
-        set_toggle_label(&self.format_bar_label, "format bar", visible);
+        set_status_toggle(&self.format_bar_toggle_btn, &self.format_bar_label, "format bar", visible);
     }
 
     pub fn format_bar_visible(&self) -> bool {
@@ -1663,6 +1687,7 @@ impl EditorPane {
 
     pub fn set_focus_active(&self, active: bool) {
         set_toggle_label(&self.focus_label, "focus", active);
+        // aria-pressed for focus button updated in the click handler directly
     }
 
     pub fn set_on_doc_font(&self, f: impl Fn(String) + 'static) {
@@ -1798,6 +1823,10 @@ impl EditorPane {
         apply_simple_mode_tag(&buffer, *self.simple_mode.borrow());
 
         let view = View::with_buffer(&buffer);
+        view.update_property(&[
+            gtk4::accessible::Property::Label("Document editor"),
+            gtk4::accessible::Property::MultiLine(true),
+        ]);
         view.set_show_line_numbers(true);
         // Soft right-margin guide at 90 characters — useful even with word wrap
         // as a visual rhythm reference for longer code lines.
@@ -2041,6 +2070,8 @@ impl EditorPane {
         let state_for_change = self.state.clone();
         let path_for_change = path.clone();
         let dot_for_change = dot_label.clone();
+        let tab_box_for_change = tab_box.clone();
+        let tab_name_for_change = display_name.clone();
         let on_change_cb = self.on_change.clone();
         let on_modified_cb = self.on_modified_changed.clone();
         let on_file_dirty_cb = self.on_file_dirty.clone();
@@ -2057,6 +2088,9 @@ impl EditorPane {
                     if !tab.modified {
                         tab.modified = true;
                         dot_for_change.set_visible(true);
+                        tab_box_for_change.update_property(&[gtk4::accessible::Property::Label(
+                            &format!("{} — unsaved", tab_name_for_change)
+                        )]);
                         true
                     } else { false }
                 } else { false }
@@ -2960,6 +2994,97 @@ impl EditorPane {
             view.add_controller(nav_ctrl);
         }
 
+        // ── Alt+Enter: open spell suggestions for word under cursor ─────────────
+        {
+            let spell_ae = self.spell_checker.clone();
+            let buf_ae   = buffer.clone();
+            let view_ae  = view.clone();
+            let ae_ctrl  = EventControllerKey::new();
+            ae_ctrl.connect_key_pressed(move |_, key, _, mods| {
+                use gtk4::gdk::{Key, ModifierType};
+                if key != Key::Return && key != Key::KP_Enter { return glib::Propagation::Proceed; }
+                if !mods.contains(ModifierType::ALT_MASK) { return glib::Propagation::Proceed; }
+
+                let sc = spell_ae.borrow();
+                if !sc.enabled { return glib::Propagation::Proceed; }
+
+                let buf = &buf_ae;
+                let pos = buf.cursor_position();
+                let iter = buf.iter_at_offset(pos);
+                let table = buf.tag_table();
+                let Some(tag) = table.lookup("zerkalo-spell") else { return glib::Propagation::Proceed; };
+                if !iter.has_tag(&tag) { return glib::Propagation::Proceed; }
+
+                let mut word_start = iter.clone();
+                loop {
+                    let mut prev = word_start.clone();
+                    if !prev.backward_char() { break; }
+                    if !prev.char().is_alphabetic() { break; }
+                    word_start = prev;
+                }
+                let mut word_end = iter.clone();
+                while word_end.char().is_alphabetic() {
+                    if !word_end.forward_char() { break; }
+                }
+                let word = buf.text(&word_start, &word_end, false).to_string();
+                if word.is_empty() { return glib::Propagation::Proceed; }
+
+                let suggestions = sc.suggestions_for(&word);
+                drop(sc);
+
+                // Position popover at cursor
+                let (cx, cy) = {
+                    let iter2 = buf.iter_at_offset(pos);
+                    let rect = view_ae.iter_location(&iter2);
+                    (rect.x() + rect.width() / 2, rect.y() + rect.height())
+                };
+                let popover = Popover::new();
+                popover.set_parent(&view_ae);
+                popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(cx, cy, 1, 1)));
+                popover.set_has_arrow(true);
+                popover.set_autohide(true);
+
+                let vbox = GtkBox::new(Orientation::Vertical, 2);
+                vbox.set_margin_top(6); vbox.set_margin_bottom(6);
+                vbox.set_margin_start(4); vbox.set_margin_end(4);
+
+                if suggestions.is_empty() {
+                    let lbl = Label::new(Some("No suggestions"));
+                    lbl.add_css_class("dim-label");
+                    lbl.set_margin_top(4); lbl.set_margin_bottom(4);
+                    vbox.append(&lbl);
+                } else {
+                    for sugg in suggestions.iter().take(6) {
+                        let btn = Button::with_label(sugg);
+                        btn.add_css_class("flat");
+                        let buf2 = buf_ae.clone();
+                        let ws = word_start.clone();
+                        let we = word_end.clone();
+                        let s = sugg.clone();
+                        let pop2 = popover.clone();
+                        btn.connect_clicked(move |_| {
+                            let mut a = ws.clone();
+                            let mut b = we.clone();
+                            buf2.begin_user_action();
+                            buf2.delete(&mut a, &mut b);
+                            buf2.insert(&mut a, &s);
+                            buf2.end_user_action();
+                            pop2.popdown();
+                        });
+                        vbox.append(&btn);
+                    }
+                }
+
+                let pop_close = popover.clone();
+                popover.connect_closed(move |_| { pop_close.unparent(); });
+                popover.set_child(Some(&vbox));
+                popover.popup();
+                popover.grab_focus();
+                glib::Propagation::Stop
+            });
+            view.add_controller(ae_ctrl);
+        }
+
         // ── Spell check: debounced buffer check ───────────────────────────────
 
         {
@@ -3411,6 +3536,8 @@ impl EditorPane {
                 modified: false,
                 dot_label,
                 diag_dot,
+                tab_box,
+                display_name: display_name.clone(),
                 lsp_popup,
                 session_start_words,
             },
@@ -3529,6 +3656,7 @@ impl EditorPane {
         if let Some(tab) = state.tabs.get_mut(path) {
             tab.modified = false;
             tab.dot_label.set_visible(false);
+            tab.tab_box.update_property(&[gtk4::accessible::Property::Label(&tab.display_name)]);
         }
         drop(state);
         if let Some(f) = self.on_modified_changed.borrow().as_ref() { f(false); }
@@ -3604,6 +3732,7 @@ impl EditorPane {
             if std::fs::write(path, content.as_bytes()).is_ok() {
                 tab.modified = false;
                 tab.dot_label.set_visible(false);
+                tab.tab_box.update_property(&[gtk4::accessible::Property::Label(&tab.display_name)]);
             }
         }
     }

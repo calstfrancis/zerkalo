@@ -119,8 +119,10 @@ impl WelcomeWindow {
                 "Preview button in the header toggles the preview pane — bold when visible",
                 "Focus mode moved to the status bar (same toggle style as other controls)",
                 "Preview pane: keyboard navigation — +/- zoom, 0 fit, Space/Shift+Space scroll",
-                "All icon-only buttons now have accessible labels for screen readers",
-                "Compile errors are announced to screen readers automatically via a live region",
+                "All buttons now have accessible labels; status bar toggles report on/off state to AT",
+                "Alt+Enter opens spell suggestions for the word under the cursor",
+                "Compile errors announced to screen readers via a live region",
+                "Respects GNOME 'Reduce Animations' — transitions disabled when enabled",
             ] {
                 body.append(&bullet_row(item));
             }

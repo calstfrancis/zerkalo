@@ -5,6 +5,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.6-rc5] — Accessibility pass 2
+
+### Added
+
+- **Focus trap in format bar popovers** — table, font, and size popovers now call `grab_focus()` on open so keyboard users land inside the popup immediately. All three also set `autohide(true)` so Escape dismisses them without a mouse click.
+- **Restore focus on popover close** — when any format bar popover closes, focus returns to the editor text view automatically.
+- **`aria-pressed` on status bar toggles** — focus, format bar, autocorrect, and simple mode toggles now update `AccessibleState::Pressed` (true/false) so screen readers announce the button's on/off state.
+- **Editor `aria-label` and `multiline` role** — each editor view now declares itself as "Document editor" with `Property::MultiLine(true)`, giving AT enough context to describe it as a multi-line editing area.
+- **Error row severity labels** — the ✗ and ⚠ severity icons in each error row now carry `Property::Label("Compile error")` / `"Compile warning"` so screen readers pronounce the severity in plain language.
+- **Alt+Enter spell suggestions** — pressing Alt+Enter while the cursor is on a misspelled word opens the spell-suggestion popover with focus already inside it, providing a keyboard equivalent to right-click for spell correction.
+- **Reduced-motion support** — on startup, Zerkalo checks `gtk_enable_animations()`. When GNOME "Reduce Animations" is enabled, all CSS transitions and animations are suppressed via an application-priority override.
+- **Tab accessible label tracks unsaved state** — when a tab becomes modified, its accessible label changes to "filename — unsaved"; on save, it reverts to the bare filename, so screen reader users know about unsaved files without relying on the coloured dot.
+
+---
+
 ## [0.13.6-rc4] — Accessibility pass 1
 
 ### Added

@@ -4724,6 +4724,26 @@ fn load_app_css() {
             gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
         );
     }
+
+    // If GNOME "Reduce Animations" is enabled, strip transitions so vestibular
+    // disorder users aren't affected by the error revealer slide and sidebar fade.
+    let animations_enabled = gtk4::Settings::default()
+        .map(|s| s.is_gtk_enable_animations())
+        .unwrap_or(true);
+    if !animations_enabled {
+        let reduced = gtk4::CssProvider::new();
+        reduced.load_from_data(
+            "* { transition: none !important; animation: none !important; } \
+             revealer > * { transition: none !important; }",
+        );
+        if let Some(display) = gtk4::gdk::Display::default() {
+            gtk4::style_context_add_provider_for_display(
+                &display,
+                &reduced,
+                gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION + 1,
+            );
+        }
+    }
 }
 
 struct HamburgerItems {
