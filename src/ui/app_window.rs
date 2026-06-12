@@ -4745,7 +4745,7 @@ fn load_app_css() {
             caret-color: @accent_color; \
         } \
         textview text .current-line { \
-            background-color: alpha(@accent_color, 0.06); \
+            background-color: alpha(@accent_color, 0.10); \
         } \
         notebook tab button.circular { \
             min-width: 20px; \
@@ -4770,6 +4770,22 @@ fn load_app_css() {
             min-height: 3px; \
             padding: 0; \
             border-radius: 0; \
+        } \
+        .table-grid-cell { \
+            min-width: 0; \
+            min-height: 0; \
+            padding: 1px; \
+            border-radius: 2px; \
+            border: 1px solid alpha(@borders, 0.6); \
+            background-color: alpha(@card_bg_color, 0.5); \
+        } \
+        .table-grid-cell:hover { \
+            background-color: alpha(@accent_color, 0.15); \
+            border-color: alpha(@accent_color, 0.4); \
+        } \
+        .table-grid-cell-selected { \
+            background-color: alpha(@accent_color, 0.25); \
+            border-color: @accent_color; \
         }",
     );
     if let Some(display) = gtk4::gdk::Display::default() {

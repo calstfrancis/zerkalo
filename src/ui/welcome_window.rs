@@ -114,15 +114,14 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
-                "Error panel search filter — type to narrow errors in real time",
-                "Source context line shown in each error row (monospace, dim)",
-                "File group headers when errors span multiple included files",
-                "'Last clean compile: HH:MM' appears when errors clear",
-                "Save error log button in panel header (Ctrl+E focuses first error row)",
-                "Error deduplication — identical errors from repeated includes shown once",
-                "Error panel shows breakdown (N errors, M warnings), collapsible list, copy/jump buttons",
-                "Compile errors and LSP diagnostics use distinct section labels",
-                "Window title shows error count; success toast only on error recovery",
+                "Font dropdown shows only your enabled fonts (Font Management)",
+                "18pt, 20pt, 24pt added to size dropdown",
+                "Table picker cells are now visible; hover highlights the full range",
+                "Custom rows × cols entry added to table picker",
+                "Manual compile is now the default — snappier editing",
+                "Word count and comment highlights debounced for faster keystrokes",
+                "LSP status dots adapt to light/dark mode; comment highlight uses accent colour",
+                "Current-line highlight brighter (alpha 0.10); kate/monokai tried first for syntax schemes",
             ] {
                 body.append(&bullet_row(item));
             }

@@ -5,6 +5,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.6-rc9] — Performance, format bar, and colour polish
+
+### Added
+
+- **Font dropdown uses Font Management list** — the format bar font popover now shows only the fonts enabled in the Font Management dialog, wrapped in a scrollable list.
+- **More font sizes** — 18pt, 20pt, and 24pt added to the size dropdown.
+- **Table grid cells now visible** — cells in the insert-table picker have a border and background; hovering highlights the full selected range in accent colour.
+- **Custom table size input** — a rows × cols entry with Insert button below the grid allows inserting tables of any size.
+
+### Changed
+
+- **Manual compile default** — `manual_compile_only` now defaults to `true`; auto-compile is disabled out of the box for a snappier editing experience.
+- **Word count debounced** — word count label updates at 300 ms after the last keystroke instead of on every change; project word count tooltip updates at 5 s (it was reading all project files from disk on every keystroke).
+- **Comment highlights debounced** — full-buffer comment scan runs 500 ms after the last change instead of every idle frame.
+- **LSP status dot colours theme-aware** — green/red dots adapt to light vs. dark mode instead of using fixed dark-mode hex codes.
+- **Comment highlight colour follows accent** — comment paragraph background uses the user's chosen accent colour instead of a hardcoded blue.
+- **Current-line highlight** — alpha raised from 0.06 → 0.10 for better visibility.
+- **Syntax highlighting scheme** — `kate` (light) and `monokai-extended` (dark) are tried first before Tango/Adwaita, giving better keyword contrast in most themes.
+- **Typst citation/label markup colour** — `@citations` and `<labels>` now map to `def:preprocessor` for a more distinctive colour in GtkSourceView themes.
+
+---
+
 ## [0.13.6-rc8] — Warning cleanup
 
 ### Fixed

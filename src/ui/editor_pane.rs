@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use gtk4::prelude::*;
 use gtk4::{
-    AlertDialog, Box as GtkBox, Button, CssProvider, DropTarget, EventControllerKey,
+    AlertDialog, Box as GtkBox, Button, CssProvider, DropTarget, Entry, EventControllerKey,
     EventControllerMotion, GestureClick, Label,
     Notebook, Orientation, Popover, ProgressBar, PropagationPhase, ScrolledWindow, Separator,
     TextSearchFlags, TextTag, TextWindowType, ToggleButton,
@@ -18,6 +18,7 @@ use sourceview5::{Buffer, LanguageManager, MarkAttributes, StyleSchemeManager, V
 use crate::bibliography::BibEntry;
 use crate::lsp::CompletionItem;
 use super::bib_popup::BibPopup;
+use super::font_manager::FontManager;
 use super::find_bar::FindBar;
 use super::lsp_popup::LspPopup;
 
@@ -47,7 +48,7 @@ const TYPST_LANG: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
     <style id="keyword"  name="Keyword"  map-to="def:keyword"/>
     <style id="function" name="Function" map-to="def:identifier"/>
     <style id="heading"  name="Heading"  map-to="def:type"/>
-    <style id="markup"   name="Markup"   map-to="def:special-char"/>
+    <style id="markup"   name="Markup"   map-to="def:preprocessor"/>
     <style id="math"     name="Math"     map-to="def:number"/>
   </styles>
   <definitions>
@@ -603,43 +604,103 @@ impl EditorPane {
         table_grid_box.append(&table_size_lbl);
 
         // 8×8 grid of cells; hover to highlight, click to insert
-        const GRID_MAX: i32 = 8;
+        const GRID_MAX: usize = 8;
         let selected_rows: Rc<std::cell::Cell<i32>> = Rc::new(std::cell::Cell::new(0));
         let selected_cols: Rc<std::cell::Cell<i32>> = Rc::new(std::cell::Cell::new(0));
         let mut grid_btns: Vec<Vec<Button>> = Vec::new();
         for r in 0..GRID_MAX {
-            let row_box = GtkBox::new(Orientation::Horizontal, 2);
+            let row_box = GtkBox::new(Orientation::Horizontal, 1);
             let mut row_btns: Vec<Button> = Vec::new();
             for c in 0..GRID_MAX {
                 let cell = Button::new();
-                cell.set_size_request(20, 18);
-                cell.add_css_class("flat");
-                cell.add_css_class("caption");
+                cell.set_size_request(22, 20);
+                cell.add_css_class("table-grid-cell");
                 cell.update_property(&[gtk4::accessible::Property::Label(
                     &format!("{}×{} table", r + 1, c + 1)
                 )]);
                 row_btns.push(cell.clone());
                 row_box.append(&cell);
-                // Hover motion controller
-                let sr = selected_rows.clone();
-                let sc = selected_cols.clone();
-                let r = r; let c = c;
-                let mc = EventControllerMotion::new();
-                let lbl = table_size_lbl.clone();
-                let cell_c = cell.clone();
-                mc.connect_enter(move |_, _, _| {
-                    sr.set(r + 1);
-                    sc.set(c + 1);
-                    let size_str = format!("{}×{} table", r + 1, c + 1);
-                    lbl.set_text(&size_str);
-                    cell_c.update_property(&[gtk4::accessible::Property::Label(&size_str)]);
-                    cell_c.queue_draw();
-                });
-                cell.add_controller(mc);
             }
             grid_btns.push(row_btns);
             table_grid_box.append(&row_box);
         }
+        // Wrap grid_btns in Rc so hover handlers can update all cells
+        let grid_rc: Rc<Vec<Vec<Button>>> = Rc::new(
+            grid_btns.iter().map(|row| row.clone()).collect()
+        );
+        // Wire hover handlers (separate pass so all cells are available)
+        for r in 0..GRID_MAX {
+            for c in 0..GRID_MAX {
+                let cell = grid_btns[r][c].clone();
+                let sr = selected_rows.clone();
+                let sc = selected_cols.clone();
+                let lbl = table_size_lbl.clone();
+                let gc = grid_rc.clone();
+                let mc = EventControllerMotion::new();
+                mc.connect_enter(move |_, _, _| {
+                    sr.set(r as i32 + 1);
+                    sc.set(c as i32 + 1);
+                    lbl.set_text(&format!("{}×{} table", r + 1, c + 1));
+                    for (ri, row) in gc.iter().enumerate() {
+                        for (ci, btn) in row.iter().enumerate() {
+                            if ri <= r && ci <= c {
+                                btn.add_css_class("table-grid-cell-selected");
+                            } else {
+                                btn.remove_css_class("table-grid-cell-selected");
+                            }
+                        }
+                    }
+                });
+                cell.add_controller(mc);
+            }
+        }
+        // Clear highlights when pointer leaves the grid
+        {
+            let gc = grid_rc.clone();
+            let lbl = table_size_lbl.clone();
+            let mc_leave = EventControllerMotion::new();
+            mc_leave.connect_leave(move |_| {
+                lbl.set_text("Insert table");
+                for row in gc.iter() {
+                    for btn in row.iter() {
+                        btn.remove_css_class("table-grid-cell-selected");
+                    }
+                }
+            });
+            table_grid_box.add_controller(mc_leave);
+        }
+        // Custom rows × cols entry below the grid
+        let custom_sep = Separator::new(Orientation::Horizontal);
+        custom_sep.set_margin_top(4);
+        custom_sep.set_margin_bottom(2);
+        table_grid_box.append(&custom_sep);
+
+        let custom_row_box = GtkBox::new(Orientation::Horizontal, 4);
+        custom_row_box.set_margin_top(2);
+
+        let table_rows_entry = Entry::new();
+        table_rows_entry.set_placeholder_text(Some("Rows"));
+        table_rows_entry.set_input_purpose(gtk4::InputPurpose::Digits);
+        table_rows_entry.set_width_chars(4);
+        table_rows_entry.set_max_length(2);
+
+        let table_x_lbl = Label::new(Some("×"));
+        table_x_lbl.add_css_class("dim-label");
+
+        let table_cols_entry = Entry::new();
+        table_cols_entry.set_placeholder_text(Some("Cols"));
+        table_cols_entry.set_input_purpose(gtk4::InputPurpose::Digits);
+        table_cols_entry.set_width_chars(4);
+        table_cols_entry.set_max_length(2);
+
+        let table_custom_insert_btn = Button::with_label("Insert");
+        table_custom_insert_btn.add_css_class("suggested-action");
+
+        custom_row_box.append(&table_rows_entry);
+        custom_row_box.append(&table_x_lbl);
+        custom_row_box.append(&table_cols_entry);
+        custom_row_box.append(&table_custom_insert_btn);
+        table_grid_box.append(&custom_row_box);
         table_popover.set_child(Some(&table_grid_box));
 
         let table_btn = Button::new();
@@ -672,25 +733,25 @@ impl EditorPane {
         format_bar.append(&fb_spacer);
 
         // ── Font dropdown (right-aligned) ────────────────────────────────────
-        const DOC_FONTS: &[&str] = &[
-            "Times New Roman", "Libertinus Serif", "EB Garamond",
-            "Palatino", "Linux Libertine O", "Linux Biolinum O",
-            "Noto Serif", "Noto Sans", "Source Serif Pro", "Lato",
-        ];
+        let enabled_fonts = FontManager::enabled_fonts();
         let font_popover = Popover::new();
         let font_popover_box = GtkBox::new(Orientation::Vertical, 2);
         font_popover_box.set_margin_top(4); font_popover_box.set_margin_bottom(4);
         font_popover_box.set_margin_start(4); font_popover_box.set_margin_end(4);
         let mut font_buttons: Vec<(String, Button)> = Vec::new();
-        for font_name in DOC_FONTS {
+        for font_name in &enabled_fonts {
             let row = Button::with_label(font_name);
             row.add_css_class("flat");
             row.set_halign(gtk4::Align::Start);
-            row.set_size_request(200, -1);
+            row.set_size_request(220, -1);
             font_popover_box.append(&row);
-            font_buttons.push((font_name.to_string(), row));
+            font_buttons.push((font_name.clone(), row));
         }
-        font_popover.set_child(Some(&font_popover_box));
+        let font_scroll = ScrolledWindow::new();
+        font_scroll.set_child(Some(&font_popover_box));
+        font_scroll.set_max_content_height(320);
+        font_scroll.set_propagate_natural_height(true);
+        font_popover.set_child(Some(&font_scroll));
         font_popover.set_autohide(true);
 
         let font_bar_label = Label::new(Some("font"));
@@ -712,7 +773,7 @@ impl EditorPane {
         format_bar.append(&font_bar_btn);
 
         // ── Font size dropdown (right-aligned) ────────────────────────────────
-        const DOC_SIZES: &[&str] = &["10pt", "11pt", "12pt", "14pt", "16pt"];
+        const DOC_SIZES: &[&str] = &["10pt", "11pt", "12pt", "14pt", "16pt", "18pt", "20pt", "24pt"];
         let size_popover = Popover::new();
         let size_popover_box = GtkBox::new(Orientation::Vertical, 2);
         size_popover_box.set_margin_top(4); size_popover_box.set_margin_bottom(4);
@@ -1008,6 +1069,28 @@ impl EditorPane {
                     }
                 });
             }
+        }
+        // Wire custom table size insert button
+        {
+            let ep_ci = ep.clone();
+            let tp_ci = table_popover.clone();
+            let re = table_rows_entry.clone();
+            let ce = table_cols_entry.clone();
+            table_custom_insert_btn.connect_clicked(move |_| {
+                let r: usize = re.text().parse().unwrap_or(0);
+                let c: usize = ce.text().parse().unwrap_or(0);
+                if r == 0 || c == 0 { return; }
+                tp_ci.popdown();
+                if let Some((_, buf)) = ep_ci.active_view_buffer() {
+                    let header_cols: String = (1..=c).map(|j| format!("[*Col {j}*]")).collect::<Vec<_>>().join(", ");
+                    let data_cols: String = (1..=c).map(|_| "[ ]".to_string()).collect::<Vec<_>>().join(", ");
+                    let data_rows: String = (1..=r).map(|_| format!("    {data_cols},")).collect::<Vec<_>>().join("\n");
+                    let snippet = format!(
+                        "#figure(\n  table(\n    columns: {c},\n    table.header({header_cols}),\n{data_rows}\n  ),\n  caption: [Caption],\n) <tab:label>\n"
+                    );
+                    buf.insert_at_cursor(&snippet);
+                }
+            });
         }
         // Wire figure/image button (file dialog)
         {
@@ -1307,9 +1390,9 @@ impl EditorPane {
 
     pub fn apply_style_scheme(&self, is_dark: bool) {
         let candidates: &[&str] = if is_dark {
-            &["solarized-dark", "oblivion", "Adwaita-dark", "classic-dark"]
+            &["monokai-extended", "solarized-dark", "oblivion", "Adwaita-dark", "classic-dark"]
         } else {
-            &["tango", "Adwaita", "classic"]
+            &["kate", "tango", "Adwaita", "classic"]
         };
         let mgr = StyleSchemeManager::default();
         let scheme = candidates.iter().find_map(|id| mgr.scheme(id));
@@ -1623,9 +1706,12 @@ impl EditorPane {
     }
 
     pub fn set_lsp_status(&self, status: &str) {
+        let is_dark = adw::StyleManager::default().is_dark();
+        let green = if is_dark { "#57e389" } else { "#26a269" };
+        let red   = if is_dark { "#ff7b63" } else { "#c01c28" };
         let markup = status
-            .replace('●', "<span color=\"#57e389\">●</span>")
-            .replace('✗', "<span color=\"#ff7b63\">✗</span>");
+            .replace('●', &format!("<span color=\"{green}\">●</span>"))
+            .replace('✗', &format!("<span color=\"{red}\">✗</span>"));
         self.lsp_status_label.set_markup(&markup);
     }
 
@@ -2081,6 +2167,10 @@ impl EditorPane {
         let last_wc_for_change = self.last_wc_text.clone();
         let project_root_for_wc = self.project_root.clone();
         let session_start_for_change: Rc<std::cell::Cell<u32>> = Rc::new(std::cell::Cell::new(count_words(content)));
+        // Generation counters for debounced per-keystroke work
+        let wc_gen: Rc<std::cell::Cell<u64>> = Rc::new(std::cell::Cell::new(0));
+        let comment_gen: Rc<std::cell::Cell<u64>> = Rc::new(std::cell::Cell::new(0));
+        let proj_wc_gen: Rc<std::cell::Cell<u64>> = Rc::new(std::cell::Cell::new(0));
         buffer.connect_changed(move |buf| {
             let newly_modified = {
                 let mut state = state_for_change.borrow_mut();
@@ -2099,23 +2189,55 @@ impl EditorPane {
                 if let Some(f) = on_modified_cb.borrow().as_ref() { f(true); }
                 if let Some(f) = on_file_dirty_cb.borrow().as_ref() { f(path_for_change.clone(), true); }
             }
-            let (s, e) = buf.bounds();
-            let text = buf.text(&s, &e, false);
-            let goal = *goal_val_for_change.borrow();
-            if goal > 0 {
-                update_goal_bar(&goal_for_change, &text, goal);
-            }
-            let wc_str = wc_str_with_delta(&text, session_start_for_change.get());
-            *last_wc_for_change.borrow_mut() = wc_str.clone();
-            wc_for_change.set_text(&wc_str);
-            if let Some(root) = project_root_for_wc.borrow().as_ref() {
-                let total = count_project_words(root);
-                wc_for_change.set_tooltip_text(Some(&format!("Project total: {total} words")));
-            }
             if let Some(f) = on_change_cb.borrow().as_ref() { f(); }
-            // Defer comment highlight to next idle frame
-            let buf_c = buf.clone();
-            glib::idle_add_local_once(move || apply_comment_highlights(&buf_c));
+
+            // ── Debounced word count (300 ms) ─────────────────────────────────
+            wc_gen.set(wc_gen.get().wrapping_add(1));
+            let my_wc = wc_gen.get();
+            let wc2 = wc_for_change.clone();
+            let goal2 = goal_for_change.clone();
+            let goal_val2 = goal_val_for_change.clone();
+            let last_wc2 = last_wc_for_change.clone();
+            let ss2 = session_start_for_change.clone();
+            let gen2 = wc_gen.clone();
+            let buf2 = buf.clone();
+            glib::timeout_add_local(Duration::from_millis(300), move || {
+                if gen2.get() != my_wc { return glib::ControlFlow::Break; }
+                let (s, e) = buf2.bounds();
+                let text = buf2.text(&s, &e, false);
+                let goal = *goal_val2.borrow();
+                if goal > 0 { update_goal_bar(&goal2, &text, goal); }
+                let wc_str = wc_str_with_delta(&text, ss2.get());
+                *last_wc2.borrow_mut() = wc_str.clone();
+                wc2.set_text(&wc_str);
+                glib::ControlFlow::Break
+            });
+
+            // ── Debounced project word count tooltip (5 s) ────────────────────
+            proj_wc_gen.set(proj_wc_gen.get().wrapping_add(1));
+            let my_proj = proj_wc_gen.get();
+            let gen_proj = proj_wc_gen.clone();
+            let wc_lbl_proj = wc_for_change.clone();
+            let root_proj = project_root_for_wc.clone();
+            glib::timeout_add_local(Duration::from_millis(5000), move || {
+                if gen_proj.get() != my_proj { return glib::ControlFlow::Break; }
+                if let Some(root) = root_proj.borrow().as_ref() {
+                    let total = count_project_words(root);
+                    wc_lbl_proj.set_tooltip_text(Some(&format!("Project total: {total} words")));
+                }
+                glib::ControlFlow::Break
+            });
+
+            // ── Debounced comment highlights (500 ms) ─────────────────────────
+            comment_gen.set(comment_gen.get().wrapping_add(1));
+            let my_comment = comment_gen.get();
+            let gen_comment = comment_gen.clone();
+            let buf_comment = buf.clone();
+            glib::timeout_add_local(Duration::from_millis(500), move || {
+                if gen_comment.get() != my_comment { return glib::ControlFlow::Break; }
+                apply_comment_highlights(&buf_comment);
+                glib::ControlFlow::Break
+            });
         });
 
         // ── Cursor position tracking + heading detection ──────────────────────
@@ -3988,13 +4110,15 @@ fn apply_comment_highlights(buffer: &Buffer) {
             t
         }
     };
-    // Update colour every call so theme switches are reflected on next keystroke
+    // Update colour every call so theme switches are reflected on next keystroke.
+    // Use the user's accent colour rather than a hardcoded blue.
     let is_dark = adw::StyleManager::default().is_dark();
-    let color = if is_dark {
-        gtk4::gdk::RGBA::new(0.3, 0.5, 1.0, 0.10)
-    } else {
-        gtk4::gdk::RGBA::new(0.2, 0.35, 0.8, 0.08)
-    };
+    let alpha = if is_dark { 0.10_f32 } else { 0.08_f32 };
+    let dummy = gtk4::Label::new(None);
+    let base = dummy.style_context()
+        .lookup_color("accent_color")
+        .unwrap_or(gtk4::gdk::RGBA::new(0.2, 0.4, 0.9, 1.0));
+    let color = gtk4::gdk::RGBA::new(base.red(), base.green(), base.blue(), alpha);
     tag.set_paragraph_background_rgba(Some(&color));
 
     // Remove old highlights
