@@ -2099,6 +2099,16 @@ impl AppWindow {
             editor_for_jump.jump_to_line(&path, line);
         });
 
+        // Export log: toast with saved path
+        {
+            let toast_for_export = toast_overlay.clone();
+            error_panel.set_on_export_done(move |path| {
+                let t = adw::Toast::new(&format!("Error log saved to {path}"));
+                t.set_timeout(4);
+                toast_for_export.add_toast(t);
+            });
+        }
+
         // Try-Fix: read current source, close unmatched delimiters, apply via buffer user-action
         {
             let editor_for_fix = editor_pane.clone();
@@ -3371,6 +3381,7 @@ impl AppWindow {
         }
         let palette_for_key = palette.clone();
         let editor_for_palette_key = editor.clone();
+        let error_panel_for_key = self.error_panel.clone();
 
         controller.connect_key_pressed(move |_, key, _, modifier| {
             use gtk4::gdk::ModifierType;
@@ -3397,6 +3408,16 @@ impl AppWindow {
             if matches_binding(&kb.compile, ctrl, shift, alt, key) {
                 compile_btn_for_key.emit_clicked();
                 return glib::Propagation::Stop;
+            }
+            // Ctrl+E — focus first error row (shows the panel if hidden)
+            {
+                use gtk4::gdk::Key;
+                if ctrl && !shift && !alt && key == Key::e {
+                    error_panel_for_key.widget().set_visible(true);
+                    if error_panel_for_key.grab_first_focus() {
+                        return glib::Propagation::Stop;
+                    }
+                }
             }
             if matches_binding(&kb.find, ctrl, shift, alt, key) {
                 editor.toggle_find();
