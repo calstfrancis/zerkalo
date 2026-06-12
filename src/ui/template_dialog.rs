@@ -737,6 +737,44 @@ impl TemplateDialog {
                 gallery_group.add(&row);
             }
 
+            // Auto-preview the first preset when the gallery opens
+            if !TEMPLATE_PRESETS.is_empty() {
+                let p = &TEMPLATE_PRESETS[0];
+                *body_kind_state.borrow_mut() = p.body_kind;
+                g_style.set_selected(p.style_idx);
+                g_paper.set_selected(p.paper_idx);
+                g_margin.set_selected(p.margin_idx);
+                g_spacing.set_selected(p.spacing_idx);
+                g_pnum.set_selected(p.page_num_pos);
+                g_toc.set_active(p.include_toc);
+                g_abstract.set_active(p.include_abstract);
+                g_keywords.set_active(p.include_keywords);
+                hint_label.set_visible(false);
+                preview_spinner.set_visible(true);
+                preview_spinner.start();
+                let pic = preview_picture.clone();
+                let spin = preview_spinner.clone();
+                let (tx, rx) = std::sync::mpsc::sync_channel::<Result<Vec<u8>, String>>(1);
+                std::thread::spawn(move || { tx.send(generate_preset_preview(0)).ok(); });
+                let rx = std::rc::Rc::new(rx);
+                glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
+                    use std::sync::mpsc::TryRecvError;
+                    match rx.try_recv() {
+                        Ok(Ok(png_bytes)) => {
+                            spin.stop(); spin.set_visible(false);
+                            let bytes = glib::Bytes::from_owned(png_bytes);
+                            if let Ok(tex) = gtk4::gdk::Texture::from_bytes(&bytes) {
+                                pic.set_paintable(Some(tex.upcast_ref::<gtk4::gdk::Paintable>()));
+                            }
+                            glib::ControlFlow::Break
+                        }
+                        Ok(Err(_)) => { spin.stop(); spin.set_visible(false); glib::ControlFlow::Break }
+                        Err(TryRecvError::Empty) => glib::ControlFlow::Continue,
+                        Err(TryRecvError::Disconnected) => { spin.stop(); glib::ControlFlow::Break }
+                    }
+                });
+            }
+
             notebook.prepend_page(&gallery_outer, Some(&tab_label("Templates")));
         }
 
@@ -3199,6 +3237,7 @@ mod tests {
             include_abstract: false, abstract_text: String::new(),
             include_keywords: false, keywords: String::new(),
             languages: vec![], packages: vec![], body_kind: BodyKind::Academic,
+            font_size: "12pt".into(), heading_numbering: false, numbering_format: String::new(),
             bib_path: None,
         };
         let doc = generate_typst_template(&settings);
@@ -3223,6 +3262,7 @@ mod tests {
             include_abstract: false, abstract_text: String::new(),
             include_keywords: false, keywords: String::new(),
             languages: vec![], packages: vec![], body_kind: BodyKind::Academic,
+            font_size: "12pt".into(), heading_numbering: false, numbering_format: String::new(),
             bib_path: None,
         };
         let doc = generate_typst_template(&settings);
@@ -3347,6 +3387,7 @@ Body text.\n";
             languages: vec![],
             packages: vec![],
             body_kind: BodyKind::Academic,
+            font_size: "12pt".into(), heading_numbering: false, numbering_format: String::new(),
             bib_path: None,
         };
         let old_doc = generate_typst_template(&settings);
@@ -3398,6 +3439,7 @@ Body text.\n";
             languages: vec!["lang_ru".to_string(), "lang_he".to_string()],
             packages: vec!["pkg_codly".to_string()],
             body_kind: BodyKind::Academic,
+            font_size: "12pt".into(), heading_numbering: false, numbering_format: String::new(),
             bib_path: Some(std::path::PathBuf::from("/home/user/refs.bib")),
         };
 
@@ -3526,6 +3568,7 @@ Body text.\n";
             languages: vec![],
             packages: vec![],
             body_kind: BodyKind::Academic,
+            font_size: "12pt".into(), heading_numbering: false, numbering_format: String::new(),
             bib_path: None,
         };
         let original = generate_typst_template(&settings);
@@ -3577,6 +3620,7 @@ Body text.\n";
             include_abstract: false, abstract_text: String::new(),
             include_keywords: false, keywords: String::new(),
             languages: vec![], packages: vec![], body_kind: BodyKind::Academic,
+            font_size: "12pt".into(), heading_numbering: false, numbering_format: String::new(),
             bib_path: Some(std::path::PathBuf::from("refs.bib")),
         };
         let existing = generate_typst_template(&settings);
@@ -3604,6 +3648,7 @@ Body text.\n";
             include_abstract: false, abstract_text: String::new(),
             include_keywords: false, keywords: String::new(),
             languages: vec![], packages: vec![], body_kind: BodyKind::Academic,
+            font_size: "12pt".into(), heading_numbering: false, numbering_format: String::new(),
             bib_path: None,
         };
         let fresh = generate_typst_template(&fresh_settings);

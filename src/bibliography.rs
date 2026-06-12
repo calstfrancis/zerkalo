@@ -25,6 +25,35 @@ pub fn load_bib(path: &Path) -> Vec<BibEntry> {
     }
 }
 
+/// Returns "Last 2019" or "Last et al. 2019" — used as the primary label in the
+/// citation popup so authors can search by name rather than by key.
+pub fn format_author_year(entry: &BibEntry) -> String {
+    let last = first_last_name(&entry.author);
+    match (last.is_empty(), entry.year.is_empty()) {
+        (false, false) => format!("{last}, {}", entry.year),
+        (false, true) => last,
+        (true, false) => entry.year.clone(),
+        (true, true) => entry.key.clone(),
+    }
+}
+
+fn first_last_name(author: &str) -> String {
+    if author.is_empty() {
+        return String::new();
+    }
+    let first_author = author.split(" and ").next().unwrap_or(author).trim();
+    let last_name = if first_author.contains(',') {
+        first_author.split(',').next().unwrap_or(first_author).trim().to_string()
+    } else {
+        first_author.split_whitespace().last().unwrap_or(first_author).to_string()
+    };
+    if author.contains(" and ") {
+        format!("{last_name} et al.")
+    } else {
+        last_name
+    }
+}
+
 pub fn parse_bib(content: &str) -> Vec<BibEntry> {
     let mut entries = Vec::new();
 
@@ -270,5 +299,65 @@ mod tests {
     fn load_bib_returns_empty_for_nonexistent_file() {
         let entries = load_bib(std::path::Path::new("/nonexistent/path/refs.bib"));
         assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn format_author_year_single_author_first_last() {
+        let e = BibEntry {
+            key: "smith2020".into(),
+            entry_type: "article".into(),
+            author: "John Smith".into(),
+            title: "A Paper".into(),
+            year: "2020".into(),
+        };
+        assert_eq!(format_author_year(&e), "Smith, 2020");
+    }
+
+    #[test]
+    fn format_author_year_last_first_format() {
+        let e = BibEntry {
+            key: "doe2019".into(),
+            entry_type: "book".into(),
+            author: "Doe, Jane".into(),
+            title: "A Book".into(),
+            year: "2019".into(),
+        };
+        assert_eq!(format_author_year(&e), "Doe, 2019");
+    }
+
+    #[test]
+    fn format_author_year_multiple_authors() {
+        let e = BibEntry {
+            key: "multi".into(),
+            entry_type: "article".into(),
+            author: "Alice Brown and Bob Green and Carol White".into(),
+            title: "Collaborative Work".into(),
+            year: "2021".into(),
+        };
+        assert_eq!(format_author_year(&e), "Brown et al., 2021");
+    }
+
+    #[test]
+    fn format_author_year_no_year_falls_back_to_name() {
+        let e = BibEntry {
+            key: "anon".into(),
+            entry_type: "misc".into(),
+            author: "Ivan Petrov".into(),
+            title: String::new(),
+            year: String::new(),
+        };
+        assert_eq!(format_author_year(&e), "Petrov");
+    }
+
+    #[test]
+    fn format_author_year_no_author_no_year_falls_back_to_key() {
+        let e = BibEntry {
+            key: "nodata".into(),
+            entry_type: "misc".into(),
+            author: String::new(),
+            title: String::new(),
+            year: String::new(),
+        };
+        assert_eq!(format_author_year(&e), "nodata");
     }
 }

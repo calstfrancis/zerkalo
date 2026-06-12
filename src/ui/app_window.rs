@@ -589,6 +589,14 @@ impl AppWindow {
                 let _ = cfg.borrow().save();
             });
         }
+        editor_pane.set_format_bar_visible(config.format_bar_visible);
+        {
+            let cfg = current_config.clone();
+            editor_pane.set_on_format_bar_toggle(move |visible| {
+                cfg.borrow_mut().format_bar_visible = visible;
+                let _ = cfg.borrow().save();
+            });
+        }
         {
             let win = window.clone();
             editor_pane.set_on_version_click(move || {
@@ -696,6 +704,27 @@ impl AppWindow {
                 }
                 glib::ControlFlow::Continue
             });
+        }
+
+        // ── Auto-detect .bib when no bib is configured ─────────────────────────
+        let auto_detected_bib: Rc<RefCell<Option<std::path::PathBuf>>> = Rc::new(RefCell::new(None));
+        if effective_bib.is_none() {
+            if let Ok(mut entries) = std::fs::read_dir(&project_root) {
+                let found = entries.find_map(|e| {
+                    let path = e.ok()?.path();
+                    if path.extension().and_then(|x| x.to_str()) == Some("bib") {
+                        Some(path)
+                    } else {
+                        None
+                    }
+                });
+                if let Some(bib_path) = found {
+                    let entries = bibliography::load_bib(&bib_path);
+                    editor_pane.set_bib_entries(entries.clone());
+                    citation_panel.load_bib(entries);
+                    *auto_detected_bib.borrow_mut() = Some(bib_path);
+                }
+            }
         }
 
         // ── Citation panel: insert @key at cursor ─────────────────────────────
@@ -1581,6 +1610,16 @@ impl AppWindow {
         let toast_for_sync_btn = toast_overlay.clone();
         let toast_for_sync_closure = toast_overlay.clone();
 
+        if let Some(ref bib_path) = *auto_detected_bib.borrow() {
+            let name = bib_path.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("refs.bib")
+                .to_string();
+            let t = adw::Toast::new(&format!("Loaded bibliography: {name}"));
+            t.set_timeout(4);
+            toast_overlay.add_toast(t);
+        }
+
         // ── Menu: Export for Web ────────────────────────────────────────────
         {
             let ep = editor_pane.clone();
@@ -2085,8 +2124,9 @@ impl AppWindow {
         let root_for_welcome = project_root.clone();
         glib::timeout_add_local(Duration::from_millis(1200), move || {
             if super::welcome_window::WelcomeWindow::should_show() {
+                let is_first_run = super::welcome_window::WelcomeWindow::is_first_run();
                 super::welcome_window::WelcomeWindow::mark_shown();
-                let ww = super::welcome_window::WelcomeWindow::new(&win_for_welcome);
+                let ww = super::welcome_window::WelcomeWindow::new(&win_for_welcome, is_first_run);
                 // Chain: after "Get Started", check if setup wizard is needed.
                 let win_chain = win_for_welcome.clone();
                 let root_chain = root_for_welcome.clone();

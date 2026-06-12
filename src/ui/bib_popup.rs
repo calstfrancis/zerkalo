@@ -8,7 +8,7 @@ use gtk4::{
     PositionType, ScrolledWindow, SelectionMode,
 };
 
-use crate::bibliography::BibEntry;
+use crate::bibliography::{format_author_year, BibEntry};
 
 #[derive(Clone)]
 pub struct BibPopup {
@@ -119,13 +119,18 @@ impl BibPopup {
         let mut matched: Vec<&BibEntry> = entries
             .iter()
             .filter(|e| {
-                let k = e.key.to_lowercase();
-                q.is_empty() || k.contains(&q)
+                if q.is_empty() {
+                    return true;
+                }
+                let haystack = format!("{} {} {}", e.key, e.author, e.title).to_lowercase();
+                haystack.contains(&q)
             })
             .collect();
 
         matched.sort_by_key(|e| {
-            if e.key.to_lowercase().starts_with(&q) { 0u8 } else { 1u8 }
+            let k = e.key.to_lowercase();
+            let a = e.author.to_lowercase();
+            if k.starts_with(&q) || a.starts_with(&q) { 0u8 } else { 1u8 }
         });
 
         let shown: Vec<&BibEntry> = matched;
@@ -198,37 +203,32 @@ impl BibPopup {
         row_box.set_margin_start(10);
         row_box.set_margin_end(10);
 
-        let key_lbl = Label::new(Some(&format!("@{}", entry.key)));
-        key_lbl.set_halign(Align::Start);
-        key_lbl.set_xalign(0.0);
-        key_lbl.add_css_class("caption");
-        key_lbl.add_css_class("dim-label");
-        row_box.append(&key_lbl);
+        // Primary label: "Smith et al., 2019" — what academics search by
+        let citation_lbl = Label::new(None);
+        citation_lbl.set_markup(&format!(
+            "<b>{}</b>",
+            glib::markup_escape_text(&format_author_year(entry))
+        ));
+        citation_lbl.set_halign(Align::Start);
+        citation_lbl.set_xalign(0.0);
+        row_box.append(&citation_lbl);
 
         if !entry.title.is_empty() {
             let title_lbl = Label::new(Some(&truncate(&entry.title, 50)));
             title_lbl.set_halign(Align::Start);
             title_lbl.set_xalign(0.0);
             title_lbl.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+            title_lbl.add_css_class("dim-label");
+            title_lbl.add_css_class("caption");
             row_box.append(&title_lbl);
         }
 
-        let author_year = match (entry.author.is_empty(), entry.year.is_empty()) {
-            (false, false) => format!("{} ({})", truncate(&entry.author, 30), entry.year),
-            (false, true) => truncate(&entry.author, 40),
-            (true, false) => entry.year.clone(),
-            (true, true) if entry.title.is_empty() => entry.entry_type.clone(),
-            _ => String::new(),
-        };
-
-        if !author_year.is_empty() {
-            let detail_lbl = Label::new(Some(&author_year));
-            detail_lbl.set_halign(Align::Start);
-            detail_lbl.set_xalign(0.0);
-            detail_lbl.add_css_class("dim-label");
-            detail_lbl.add_css_class("caption");
-            row_box.append(&detail_lbl);
-        }
+        let key_lbl = Label::new(Some(&format!("@{}", entry.key)));
+        key_lbl.set_halign(Align::Start);
+        key_lbl.set_xalign(0.0);
+        key_lbl.add_css_class("caption");
+        key_lbl.add_css_class("dim-label");
+        row_box.append(&key_lbl);
 
         row.set_child(Some(&row_box));
 

@@ -57,6 +57,18 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release type="development" version="0.13.6-rc1" date="2026-06-12">
+      <description>
+        <p>New-user UX pass.</p>
+        <ul>
+          <li>Formatting toolbar with Bold, Italic, H1–H3, and page-break buttons; hideable via status bar toggle.</li>
+          <li>First-run welcome screen shows a layout diagram and getting-started guide for new installs.</li>
+          <li>Auto-detects .bib files in the project folder when no bibliography is configured.</li>
+          <li>Template gallery previews the first preset automatically on open.</li>
+          <li>Citation popup now shows "Smith et al., 2019" labels and searches by author name.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.13.5" date="2026-06-09">
       <description>
         <p>Bug-fix and polish release.</p>

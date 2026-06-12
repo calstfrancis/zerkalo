@@ -99,6 +99,8 @@ pub struct Config {
     pub simple_mode: bool,
     #[serde(default)]
     pub shown_simple_intro: bool,
+    #[serde(default = "default_true")]
+    pub format_bar_visible: bool,
 }
 
 fn default_work_dir() -> PathBuf {
@@ -158,6 +160,7 @@ impl Default for Config {
             locked_affiliation: String::new(),
             simple_mode: true,
             shown_simple_intro: false,
+            format_bar_visible: true,
         }
     }
 }
