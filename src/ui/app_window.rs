@@ -4502,15 +4502,6 @@ fn post_process_latex_import(content: &str, bib_path: Option<&std::path::Path>) 
             _ => d,
         })
     };
-    // For #let definitions which use content/code blocks
-    let bracket_depth = |s: &str| -> i32 {
-        s.chars().fold(0i32, |d, c| match c {
-            '[' | '{' => d + 1,
-            ']' | '}' => d - 1,
-            _ => d,
-        })
-    };
-
     for &line in &lines {
         let t = line.trim();
         scan = match scan {
