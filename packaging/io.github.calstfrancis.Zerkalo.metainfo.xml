@@ -57,6 +57,21 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release type="development" version="0.13.6-rc5" date="2026-06-12">
+      <description>
+        <p>Accessibility pass 2.</p>
+        <ul>
+          <li>Format bar popovers trap focus on open and return focus to editor on close.</li>
+          <li>All three format bar popovers close on Escape (autohide).</li>
+          <li>Status bar toggles (focus, format bar, autocorrect, simple mode) now report aria-pressed state.</li>
+          <li>Editor view is labelled "Document editor" with multiline role for screen readers.</li>
+          <li>Error panel severity icons carry accessible labels ("Compile error"/"Compile warning").</li>
+          <li>Alt+Enter opens spell suggestions for the word under the cursor.</li>
+          <li>CSS transitions and animations are suppressed when GNOME "Reduce Animations" is enabled.</li>
+          <li>Tab accessible label reflects unsaved state ("filename — unsaved").</li>
+        </ul>
+      </description>
+    </release>
     <release type="development" version="0.13.6-rc4" date="2026-06-12">
       <description>
         <p>Accessibility pass 1.</p>
