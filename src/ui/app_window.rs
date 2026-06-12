@@ -62,6 +62,7 @@ pub struct AppWindow {
     manual_compile_only: Rc<RefCell<bool>>,
     #[allow(dead_code)]
     file_watcher: Option<notify::RecommendedWatcher>,
+    compile_btn: Button,
 }
 
 impl AppWindow {
@@ -105,13 +106,6 @@ impl AppWindow {
         sidebar_btn.add_css_class("flat");
         sidebar_btn.update_property(&[gtk4::accessible::Property::Label("Toggle sidebar")]);
         header.pack_start(&sidebar_btn);
-
-        let focus_btn = ToggleButton::new();
-        focus_btn.set_icon_name("view-fullscreen-symbolic");
-        focus_btn.set_tooltip_text(Some("Focus mode — hide sidebar and preview"));
-        focus_btn.add_css_class("flat");
-        focus_btn.update_property(&[gtk4::accessible::Property::Label("Toggle focus mode")]);
-        header.pack_start(&focus_btn);
 
         // Style switcher dropdown — placed in header start, beside the title
         let style_names = crate::styles::STYLES.iter().map(|(n, _, _, _, _)| *n).collect::<Vec<_>>();
@@ -158,10 +152,12 @@ impl AppWindow {
         draft_toggle.set_tooltip_text(Some("Toggle Draft (fast preview) / Final (full quality)"));
 
         // ── Primary header buttons (packed together at end of section) ────────
-        let compile_btn = Button::with_label("Preview");
-        compile_btn.set_tooltip_text(Some("Compile & Preview (Ctrl+Shift+P)"));
-        compile_btn.add_css_class("suggested-action");
-        compile_btn.add_css_class("pill");
+        let preview_label = Label::new(Some("Preview"));
+        preview_label.set_use_markup(true);
+        let compile_btn = Button::new();
+        compile_btn.set_child(Some(&preview_label));
+        compile_btn.set_tooltip_text(Some("Toggle Preview (Ctrl+Shift+P)"));
+        compile_btn.add_css_class("flat");
 
         let sync_btn = Button::from_icon_name("vcs-push-symbolic");
         sync_btn.set_tooltip_text(Some("Commit & Push to Git (Ctrl+Shift+G)"));
@@ -597,6 +593,51 @@ impl AppWindow {
                 let _ = cfg.borrow().save();
             });
         }
+        // ── Doc font/size callbacks — update sidecar and regenerate template ──
+        {
+            let ep = editor_pane.clone();
+            let preview_for_font = preview_pane.clone();
+            editor_pane.set_on_doc_font(move |font_name| {
+                let Some(path) = ep.get_active_path() else { return };
+                let mut sc = super::template_dialog::load_sidecar(&path)
+                    .unwrap_or_default();
+                sc.font = font_name;
+                super::template_dialog::save_sidecar(&path, &sc);
+                let settings = super::template_dialog::sidecar_to_settings(&sc);
+                let fresh = super::template_dialog::generate_typst_template(&settings);
+                if let Some(content) = ep.get_active_content() {
+                    let updated = super::template_dialog::apply_body_splice(&content, &fresh);
+                    if let Err(e) = std::fs::write(&path, &updated) {
+                        tracing::error!("Failed to write font change: {e}");
+                    } else {
+                        ep.reload_file(path.clone(), &updated);
+                        preview_for_font.trigger_compile();
+                    }
+                }
+            });
+        }
+        {
+            let ep = editor_pane.clone();
+            let preview_for_size = preview_pane.clone();
+            editor_pane.set_on_doc_font_size(move |size| {
+                let Some(path) = ep.get_active_path() else { return };
+                let mut sc = super::template_dialog::load_sidecar(&path)
+                    .unwrap_or_default();
+                sc.font_size = size;
+                super::template_dialog::save_sidecar(&path, &sc);
+                let settings = super::template_dialog::sidecar_to_settings(&sc);
+                let fresh = super::template_dialog::generate_typst_template(&settings);
+                if let Some(content) = ep.get_active_content() {
+                    let updated = super::template_dialog::apply_body_splice(&content, &fresh);
+                    if let Err(e) = std::fs::write(&path, &updated) {
+                        tracing::error!("Failed to write size change: {e}");
+                    } else {
+                        ep.reload_file(path.clone(), &updated);
+                        preview_for_size.trigger_compile();
+                    }
+                }
+            });
+        }
         {
             let win = window.clone();
             editor_pane.set_on_version_click(move || {
@@ -774,31 +815,30 @@ impl AppWindow {
             }
         });
 
-        // ── Focus mode toggle — dims sidebar, hides preview ────────────────
-        let focus_active_c = focus_active.clone();
-        let preview_vis_for_focus = preview_vis_holder.clone();
-        let rsh_for_focus = right_sidebar_holder.clone();
-        let todo_btn_for_focus = todo_btn.clone();
-        let window_for_focus = window.clone();
-        let editor_for_focus = editor_pane.clone();
-        focus_btn.connect_toggled(move |btn| {
-            let focused = btn.is_active();
-            *focus_active_c.borrow_mut() = focused;
-            // Toggle CSS class to dim the sidebar (opacity via CSS)
-            if focused {
-                window_for_focus.add_css_class("zen-writing");
-            } else {
-                window_for_focus.remove_css_class("zen-writing");
-            }
-            // Constrain editor to a comfortable reading width in zen mode
-            editor_for_focus.set_zen_width(focused);
-            if let Some(pc) = preview_vis_for_focus.borrow().as_ref() {
-                pc.set_visible(!focused);
-            }
-            if let Some(rs) = rsh_for_focus.borrow().as_ref() {
-                rs.set_visible(!focused && todo_btn_for_focus.is_active());
-            }
-        });
+        // ── Focus mode toggle — status bar button, dims sidebar, hides preview
+        {
+            let focus_active_c = focus_active.clone();
+            let preview_vis_for_focus = preview_vis_holder.clone();
+            let rsh_for_focus = right_sidebar_holder.clone();
+            let todo_btn_for_focus = todo_btn.clone();
+            let window_for_focus = window.clone();
+            let editor_for_focus = editor_pane.clone();
+            editor_pane.set_on_focus_toggle(move |focused| {
+                *focus_active_c.borrow_mut() = focused;
+                if focused {
+                    window_for_focus.add_css_class("zen-writing");
+                } else {
+                    window_for_focus.remove_css_class("zen-writing");
+                }
+                editor_for_focus.set_zen_width(focused);
+                if let Some(pc) = preview_vis_for_focus.borrow().as_ref() {
+                    pc.set_visible(!focused);
+                }
+                if let Some(rs) = rsh_for_focus.borrow().as_ref() {
+                    rs.set_visible(!focused && todo_btn_for_focus.is_active());
+                }
+            });
+        }
 
         // ── Menu: Browse Documents ──────────────────────────────────────────
         let window_for_docs = window.clone();
@@ -817,19 +857,8 @@ impl AppWindow {
             browser.present();
         });
 
-        // ── Compile button ──────────────────────────────────────────────────
-
-        let preview_for_btn = preview_pane.clone();
-        let editor_for_btn = editor_pane.clone();
-        compile_btn.connect_clicked(move |_| {
-            if let Some(path) = editor_for_btn.get_active_path() {
-                if let Some(content) = editor_for_btn.get_active_content() {
-                    preview_for_btn.set_buffer_snapshot(path.clone(), content);
-                }
-                preview_for_btn.set_root_file(path);
-            }
-            preview_for_btn.trigger_compile();
-        });
+        // ── Compile/Preview toggle button ───────────────────────────────────
+        // Wired after preview_outer is created (see below, search "preview_vis_holder.borrow_mut")
 
         // ── Menu: Settings ──────────────────────────────────────────────────
 
@@ -2546,6 +2575,30 @@ impl AppWindow {
 
         *preview_vis_holder.borrow_mut() = Some(preview_outer.clone());
 
+        // ── Preview toggle button wiring (needs preview_outer) ───────────────
+        {
+            let preview_label_c = preview_label.clone();
+            let preview_outer_c = preview_outer.clone();
+            let preview_for_btn = preview_pane.clone();
+            let editor_for_btn = editor_pane.clone();
+            compile_btn.connect_clicked(move |_| {
+                let now_visible = !preview_outer_c.is_visible();
+                preview_outer_c.set_visible(now_visible);
+                if now_visible {
+                    preview_label_c.set_markup("<b>Preview</b>");
+                    if let Some(path) = editor_for_btn.get_active_path() {
+                        if let Some(content) = editor_for_btn.get_active_content() {
+                            preview_for_btn.set_buffer_snapshot(path.clone(), content);
+                        }
+                        preview_for_btn.set_root_file(path);
+                    }
+                    preview_for_btn.trigger_compile();
+                } else {
+                    preview_label_c.set_text("Preview");
+                }
+            });
+        }
+
         // Pop-out button wiring
         let preview_for_popout = preview_pane.clone();
         let popout_win_for_btn = popout_window.clone();
@@ -2960,14 +3013,6 @@ impl AppWindow {
             });
         }
 
-        let structure_header = Label::new(Some("Structure"));
-        structure_header.add_css_class("dim-label");
-        structure_header.add_css_class("caption");
-        structure_header.set_halign(Align::Start);
-        structure_header.set_margin_start(12);
-        structure_header.set_margin_top(8);
-        structure_header.set_margin_bottom(2);
-
         let left_box = GtkBox::new(Orientation::Vertical, 0);
         left_box.set_hexpand(false);
         left_box.set_vexpand(true);
@@ -2975,7 +3020,6 @@ impl AppWindow {
         left_box.add_css_class("zerkalo-sidebar");
         left_box.append(&sidebar_toolbar);
         left_box.append(&Separator::new(Orientation::Horizontal));
-        left_box.append(&structure_header);
         left_box.append(outline_panel.widget());
         left_box.append(&Separator::new(Orientation::Horizontal));
         left_box.append(citation_panel.widget());
@@ -3189,6 +3233,7 @@ impl AppWindow {
             compile_on_save,
             manual_compile_only,
             file_watcher,
+            compile_btn,
         }
     }
 
@@ -3212,6 +3257,7 @@ impl AppWindow {
         let kb_manual_only = self.manual_compile_only.clone();
         let snapshot_root = self.project_root.clone();
         let toast_for_key = self.toast_overlay.clone();
+        let compile_btn_for_key = self.compile_btn.clone();
         let controller = gtk4::EventControllerKey::new();
 
         // ── Command palette (Ctrl+P) ────────────────────────────────────────
@@ -3306,8 +3352,7 @@ impl AppWindow {
                 return glib::Propagation::Stop;
             }
             if matches_binding(&kb.compile, ctrl, shift, alt, key) {
-                editor.save_all_modified();
-                preview.trigger_compile();
+                compile_btn_for_key.emit_clicked();
                 return glib::Propagation::Stop;
             }
             if matches_binding(&kb.find, ctrl, shift, alt, key) {
