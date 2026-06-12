@@ -4704,6 +4704,13 @@ fn load_app_css() {
         .statusbar-sep { \
             opacity: 0.25; \
         } \
+        .status-toggle label { \
+            opacity: 0.7; \
+        } \
+        .status-toggle:focus label, \
+        .status-toggle:hover label { \
+            opacity: 1.0; \
+        } \
         .compile-progress { \
             min-height: 3px; \
             padding: 0; \

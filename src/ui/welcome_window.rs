@@ -118,8 +118,9 @@ impl WelcomeWindow {
                 "Font and font size dropdowns in the format bar update your document template instantly",
                 "Preview button in the header toggles the preview pane — bold when visible",
                 "Focus mode moved to the status bar (same toggle style as other controls)",
-                "Auto-detects .bib files in your project folder — citations work without configuration",
-                "Citation popup searches by author name and shows 'Smith et al., 2019' labels",
+                "Preview pane: keyboard navigation — +/- zoom, 0 fit, Space/Shift+Space scroll",
+                "All icon-only buttons now have accessible labels for screen readers",
+                "Compile errors are announced to screen readers automatically via a live region",
             ] {
                 body.append(&bullet_row(item));
             }

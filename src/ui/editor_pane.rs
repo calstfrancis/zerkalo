@@ -313,8 +313,10 @@ impl EditorPane {
         let autocorrect_btn = Button::new();
         autocorrect_btn.set_child(Some(&autocorrect_label));
         autocorrect_btn.add_css_class("flat");
+        autocorrect_btn.add_css_class("status-toggle");
         autocorrect_btn.set_tooltip_text(Some("Toggle autocorrect (fixes spelling as you type)"));
         autocorrect_btn.set_margin_end(4);
+        autocorrect_btn.update_property(&[gtk4::accessible::Property::Label("Toggle autocorrect")]);
 
         let search_btn = Button::with_label("search");
         search_btn.add_css_class("flat");
@@ -333,8 +335,10 @@ impl EditorPane {
         let focus_toggle_btn = Button::new();
         focus_toggle_btn.set_child(Some(&focus_label));
         focus_toggle_btn.add_css_class("flat");
+        focus_toggle_btn.add_css_class("status-toggle");
         focus_toggle_btn.set_tooltip_text(Some("Focus mode — hide sidebar and preview"));
         focus_toggle_btn.set_margin_end(4);
+        focus_toggle_btn.update_property(&[gtk4::accessible::Property::Label("Toggle focus mode")]);
 
         let format_bar_label = Label::new(Some("format bar"));
         format_bar_label.add_css_class("dim-label");
@@ -347,8 +351,10 @@ impl EditorPane {
         let format_bar_toggle_btn = Button::new();
         format_bar_toggle_btn.set_child(Some(&format_bar_label));
         format_bar_toggle_btn.add_css_class("flat");
+        format_bar_toggle_btn.add_css_class("status-toggle");
         format_bar_toggle_btn.set_tooltip_text(Some("Toggle the formatting toolbar"));
         format_bar_toggle_btn.set_margin_end(4);
+        format_bar_toggle_btn.update_property(&[gtk4::accessible::Property::Label("Toggle format bar")]);
 
         status_bar.append(&focus_toggle_btn);
         status_bar.append(&format_bar_toggle_btn);
@@ -368,11 +374,13 @@ impl EditorPane {
         undo_btn.add_css_class("flat");
         undo_btn.set_tooltip_text(Some("Undo (Ctrl+Z)"));
         undo_btn.set_sensitive(false);
+        undo_btn.update_property(&[gtk4::accessible::Property::Label("Undo")]);
 
         let redo_btn = Button::from_icon_name("edit-redo-symbolic");
         redo_btn.add_css_class("flat");
         redo_btn.set_tooltip_text(Some("Redo (Ctrl+Shift+Z)"));
         redo_btn.set_sensitive(false);
+        redo_btn.update_property(&[gtk4::accessible::Property::Label("Redo")]);
 
         let cursor_label = Label::new(Some("L1:C1"));
         cursor_label.add_css_class("dim-label");
@@ -414,9 +422,11 @@ impl EditorPane {
         let simple_mode_btn = Button::new();
         simple_mode_btn.set_child(Some(&simple_mode_label));
         simple_mode_btn.add_css_class("flat");
+        simple_mode_btn.add_css_class("status-toggle");
         simple_mode_btn.set_tooltip_text(Some(
             "Simple Mode: hides Typst front-matter above the document body.\nEdit it via the Update Template button.",
         ));
+        simple_mode_btn.update_property(&[gtk4::accessible::Property::Label("Toggle simple mode")]);
         status_bar.append(&simple_mode_btn);
 
         let section_wc_label = Label::new(None);
@@ -537,12 +547,15 @@ impl EditorPane {
         let h1_btn = Button::with_label("H1");
         h1_btn.add_css_class("flat"); h1_btn.add_css_class("caption");
         h1_btn.set_tooltip_text(Some("Heading 1  (= Heading text)"));
+        h1_btn.update_property(&[gtk4::accessible::Property::Label("Heading 1")]);
         let h2_btn = Button::with_label("H2");
         h2_btn.add_css_class("flat"); h2_btn.add_css_class("caption");
         h2_btn.set_tooltip_text(Some("Heading 2  (== Heading text)"));
+        h2_btn.update_property(&[gtk4::accessible::Property::Label("Heading 2")]);
         let h3_btn = Button::with_label("H3");
         h3_btn.add_css_class("flat"); h3_btn.add_css_class("caption");
         h3_btn.set_tooltip_text(Some("Heading 3  (=== Heading text)"));
+        h3_btn.update_property(&[gtk4::accessible::Property::Label("Heading 3")]);
 
         format_bar.append(&h1_btn);
         format_bar.append(&h2_btn);
@@ -556,6 +569,7 @@ impl EditorPane {
         let pb_btn = Button::with_label("¶");
         pb_btn.add_css_class("flat"); pb_btn.add_css_class("caption");
         pb_btn.set_tooltip_text(Some("Insert page break  (#pagebreak())"));
+        pb_btn.update_property(&[gtk4::accessible::Property::Label("Insert page break")]);
         format_bar.append(&pb_btn);
 
         let fb_sep3 = Separator::new(Orientation::Vertical);
@@ -588,6 +602,9 @@ impl EditorPane {
                 cell.set_size_request(20, 18);
                 cell.add_css_class("flat");
                 cell.add_css_class("caption");
+                cell.update_property(&[gtk4::accessible::Property::Label(
+                    &format!("{}×{} table", r + 1, c + 1)
+                )]);
                 row_btns.push(cell.clone());
                 row_box.append(&cell);
                 // Hover motion controller
@@ -600,7 +617,9 @@ impl EditorPane {
                 mc.connect_enter(move |_, _, _| {
                     sr.set(r + 1);
                     sc.set(c + 1);
-                    lbl.set_text(&format!("{}×{} table", r + 1, c + 1));
+                    let size_str = format!("{}×{} table", r + 1, c + 1);
+                    lbl.set_text(&size_str);
+                    cell_c.update_property(&[gtk4::accessible::Property::Label(&size_str)]);
                     cell_c.queue_draw();
                 });
                 cell.add_controller(mc);
@@ -614,6 +633,7 @@ impl EditorPane {
         table_btn.set_icon_name("x-office-spreadsheet-symbolic");
         table_btn.add_css_class("flat");
         table_btn.set_tooltip_text(Some("Insert table"));
+        table_btn.update_property(&[gtk4::accessible::Property::Label("Insert table")]);
         {
             let tp = table_popover.clone();
             let tb = table_btn.clone();
@@ -624,26 +644,12 @@ impl EditorPane {
         }
         format_bar.append(&table_btn);
 
-        // Wire grid cell clicks to insert a table
-        for (ri, row_btns) in grid_btns.iter().enumerate() {
-            for (ci, cell) in row_btns.iter().enumerate() {
-                let tp = table_popover.clone();
-                let sr = selected_rows.clone();
-                let sc = selected_cols.clone();
-                cell.connect_clicked(move |_| {
-                    tp.popdown();
-                    let rows = if sr.get() > 0 { sr.get() } else { (ri + 1) as i32 };
-                    let cols = if sc.get() > 0 { sc.get() } else { (ci + 1) as i32 };
-                    let _ = (rows, cols); // used via closure capture
-                });
-            }
-        }
-
         // ── Insert figure (file dialog) ──────────────────────────────────────
         let figure_btn = Button::new();
         figure_btn.set_icon_name("insert-image-symbolic");
         figure_btn.add_css_class("flat");
         figure_btn.set_tooltip_text(Some("Insert figure / image"));
+        figure_btn.update_property(&[gtk4::accessible::Property::Label("Insert figure or image")]);
         format_bar.append(&figure_btn);
 
         // ── Spacer ────────────────────────────────────────────────────────────
