@@ -114,15 +114,15 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
-                "Formatting toolbar: Bold, Italic, H1–H3, page break, Insert Table, and Insert Image",
-                "Font and font size dropdowns in the format bar update your document template instantly",
-                "Preview button in the header toggles the preview pane — bold when visible",
-                "Focus mode moved to the status bar (same toggle style as other controls)",
-                "Preview pane: keyboard navigation — +/- zoom, 0 fit, Space/Shift+Space scroll",
-                "All buttons now have accessible labels; status bar toggles report on/off state to AT",
-                "Alt+Enter opens spell suggestions for the word under the cursor",
-                "Compile errors announced to screen readers via a live region",
-                "Respects GNOME 'Reduce Animations' — transitions disabled when enabled",
+                "Error panel shows 'Compile Errors — N errors, M warnings' with collapsible list",
+                "Copy button on each error row copies message and location to clipboard",
+                "Jump-to-error icon button makes navigation explicit; rows are keyboard-navigable",
+                "Try-Fix button for 'unexpected end of file' — appends missing closers (undoable)",
+                "Window title shows error count while compile errors are present",
+                "Compile errors and LSP diagnostics appear under separate section headers",
+                "'Stuck?' indicator appears after 3 consecutive identical error sets",
+                "Success toast now only shown when recovering from a previous error (quieter workflow)",
+                "Format toolbar, accessibility labels, and preview keyboard navigation (see rc3–rc5)",
             ] {
                 body.append(&bullet_row(item));
             }

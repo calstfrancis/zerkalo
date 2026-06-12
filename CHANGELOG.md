@@ -5,6 +5,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.6-rc6] — Error panel improvements
+
+### Added
+
+- **Error breakdown in header** — the error panel header now reads "Compile Errors — 2 errors, 1 warning" instead of a bare count, separating compile from LSP diagnostic sections.
+- **Collapsible error list** — a chevron button in the error panel header collapses the list while keeping the header and count visible; expands automatically when new errors arrive.
+- **Copy button per error row** — each error row has a clipboard icon that copies the full message and location text to the clipboard.
+- **Jump-to-error button per row** — a go-to icon button makes the jump action explicit and discoverable alongside the existing row-activation shortcut (Enter key).
+- **Keyboard navigation in error list** — selection mode changed to Browse so rows receive keyboard focus and can be activated with the Enter key.
+- **Try-Fix button for syntax errors** — "unexpected end of file" errors show a "Fix" button that counts unmatched brackets/braces and appends the missing closers as a single undoable edit.
+- **"Stuck?" trend indicator** — after three consecutive compiles with the same error, the header shows "Stuck?" with a tooltip of common remediation steps.
+- **Error count in window title** — the application window title shows "(N errors, M warnings)" while compile errors are present; clears on successful compile.
+- **Compile vs LSP section labels** — compile errors use the header "Compile Errors"; LSP diagnostics use "Diagnostics", so the two are never conflated.
+
+### Changed
+
+- **Success toast on error recovery only** — the "Compiled successfully" toast is now suppressed for routine clean compiles; it appears only when recovering from a previous error state, reducing notification noise.
+- **Enrichment hints shown inline** — the first line of an enriched error is the title; additional hint lines appear below it in a smaller dim style, replacing the previous single-label approach.
+
+---
+
 ## [0.13.6-rc5] — Accessibility pass 2
 
 ### Added

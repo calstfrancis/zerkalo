@@ -57,6 +57,23 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release type="development" version="0.13.6-rc6" date="2026-06-12">
+      <description>
+        <p>Error panel improvements.</p>
+        <ul>
+          <li>Error panel header shows "Compile Errors — N errors, M warnings" breakdown.</li>
+          <li>Error list collapses/expands via a chevron button; auto-expands on new errors.</li>
+          <li>Copy button on each row copies message and location to clipboard.</li>
+          <li>Jump-to-error button on each row makes navigation explicit.</li>
+          <li>Error rows are keyboard-navigable (Browse selection mode, Enter activates).</li>
+          <li>Try-Fix button for "unexpected end of file" appends missing closing delimiters (undoable).</li>
+          <li>Stuck indicator appears after 3 consecutive identical error sets.</li>
+          <li>Window title shows error count while compile errors are present.</li>
+          <li>Compile errors and LSP diagnostics have distinct section labels.</li>
+          <li>Success toast only shown when recovering from a previous error state.</li>
+        </ul>
+      </description>
+    </release>
     <release type="development" version="0.13.6-rc5" date="2026-06-12">
       <description>
         <p>Accessibility pass 2.</p>

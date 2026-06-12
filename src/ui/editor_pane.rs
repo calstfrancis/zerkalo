@@ -3630,6 +3630,28 @@ impl EditorPane {
         }
     }
 
+    /// Replace the active buffer's entire content as a single undoable user action.
+    pub fn set_active_content_undoable(&self, text: &str) {
+        let current = match self.notebook.current_page() {
+            Some(p) => p,
+            None => return,
+        };
+        let buf = {
+            let state = self.state.borrow();
+            state.tabs.values()
+                .find(|t| self.notebook.page_num(&t.scroll_window) == Some(current))
+                .map(|t| t.buffer.clone())
+        };
+        if let Some(buffer) = buf {
+            buffer.begin_user_action();
+            let (start, end) = buffer.bounds();
+            buffer.delete(&mut start.clone(), &mut end.clone());
+            buffer.insert(&mut buffer.end_iter(), text);
+            buffer.end_user_action();
+            apply_simple_mode_tag(&buffer, *self.simple_mode.borrow());
+        }
+    }
+
     pub fn state_has_file(&self, path: &std::path::Path) -> bool {
         self.state.borrow().tabs.contains_key(path)
     }

@@ -2000,6 +2000,7 @@ impl AppWindow {
         let _file_tree_holder_for_compile = file_tree_holder.clone();
         let toast_for_compile = toast_overlay.clone();
         let has_errors_for_compile = has_compile_errors.clone();
+        let window_for_compile = window.clone();
 
         let compile_rev_for_start = compile_rev.clone();
         let compile_bar_for_start = compile_progress.clone();
@@ -2029,6 +2030,7 @@ impl AppWindow {
             compile_rev_for_done.set_reveal_child(false);
             match &result {
                 None => {
+                    let had_errors = *has_errors_for_compile.borrow();
                     *has_errors_for_compile.borrow_mut() = false;
                     error_panel_for_compile.clear();
                     error_panel_for_compile.widget().set_visible(false);
@@ -2036,9 +2038,13 @@ impl AppWindow {
                     editor_for_diag.set_diag_summary(0, 0);
                     error_banner_for_compile.set_visible(false);
                     error_banner_lbl_for_compile.set_visible(false);
-                    let t = adw::Toast::new("Compiled successfully");
-                    t.set_timeout(2);
-                    toast_for_compile.add_toast(t);
+                    window_for_compile.set_title(Some("Zerkalo"));
+                    // Only show success toast when recovering from errors
+                    if had_errors {
+                        let t = adw::Toast::new("Compiled successfully");
+                        t.set_timeout(2);
+                        toast_for_compile.add_toast(t);
+                    }
                 }
                 Some(stderr) => {
                     *has_errors_for_compile.borrow_mut() = true;
@@ -2058,16 +2064,25 @@ impl AppWindow {
                         return;
                     }
                     let errors = parse_typst_errors(stderr, &root_for_compile);
+                    let err_count = errors.iter().filter(|e| matches!(e.severity, Severity::Error)).count();
+                    let warn_count = errors.len() - err_count;
                     let diags: Vec<(std::path::PathBuf, u32, bool)> = errors
                         .iter()
                         .map(|e| (e.file.clone(), e.line, matches!(e.severity, Severity::Error)))
                         .collect();
-                    let err_count = diags.iter().filter(|(_, _, is_err)| *is_err).count() as u32;
-                    let warn_count = diags.iter().filter(|(_, _, is_err)| !*is_err).count() as u32;
                     editor_for_diag.mark_diagnostics(&diags);
-                    error_panel_for_compile.show_errors(errors);
+                    editor_for_diag.set_diag_summary(err_count as u32, warn_count as u32);
+                    // Update window title with error count
+                    let title = match (err_count, warn_count) {
+                        (e, 0) => format!("Zerkalo ({e} error{})", if e == 1 { "" } else { "s" }),
+                        (0, w) => format!("Zerkalo ({w} warning{})", if w == 1 { "" } else { "s" }),
+                        (e, w) => format!("Zerkalo ({e} error{}, {w} warning{})",
+                            if e == 1 { "" } else { "s" },
+                            if w == 1 { "" } else { "s" }),
+                    };
+                    window_for_compile.set_title(Some(&title));
+                    error_panel_for_compile.show_compile_errors(errors);
                     error_panel_for_compile.widget().set_visible(true);
-                    editor_for_diag.set_diag_summary(err_count, warn_count);
                 }
             }
             dep_graph_for_compile.refresh(None);
@@ -2083,6 +2098,34 @@ impl AppWindow {
             }
             editor_for_jump.jump_to_line(&path, line);
         });
+
+        // Try-Fix: read current source, close unmatched delimiters, apply via buffer user-action
+        {
+            let editor_for_fix = editor_pane.clone();
+            error_panel.set_on_try_fix(move |path, _line| {
+                let Some(content) = editor_for_fix.get_active_content() else { return };
+                let mut depth_brace = 0i32;
+                let mut depth_paren = 0i32;
+                let mut depth_bracket = 0i32;
+                for ch in content.chars() {
+                    match ch {
+                        '{' => depth_brace += 1, '}' => depth_brace -= 1,
+                        '(' => depth_paren += 1, ')' => depth_paren -= 1,
+                        '[' => depth_bracket += 1, ']' => depth_bracket -= 1,
+                        _ => {}
+                    }
+                }
+                let mut suffix = String::new();
+                for _ in 0..depth_brace.max(0) { suffix.push('}'); }
+                for _ in 0..depth_paren.max(0) { suffix.push(')'); }
+                for _ in 0..depth_bracket.max(0) { suffix.push(']'); }
+                if !suffix.is_empty() {
+                    let fixed = format!("{content}\n{suffix}");
+                    editor_for_fix.set_active_content_undoable(&fixed);
+                }
+                let _ = path;
+            });
+        }
 
         // ── Startup: warn if required tools are missing ──────────────────────
 
