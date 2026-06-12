@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.13.6-rc10] — Search toggle, font dropdown, preview stability
+## [0.13.6] — Search toggle, font dropdown, preview stability
 
 ### Added
 

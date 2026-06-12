@@ -57,7 +57,7 @@
     </screenshot>
   </screenshots>
   <releases>
-    <release type="development" version="0.13.6-rc10" date="2026-06-12">
+    <release version="0.13.6" date="2026-06-12">
       <description>
         <p>Search toggle, font dropdown, preview stability.</p>
         <ul>
