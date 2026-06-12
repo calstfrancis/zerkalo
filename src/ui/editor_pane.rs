@@ -332,10 +332,14 @@ impl EditorPane {
         autocorrect_btn.set_margin_end(4);
         autocorrect_btn.update_property(&[gtk4::accessible::Property::Label("Toggle autocorrect")]);
 
-        let search_btn = Button::with_label("search");
+        let search_label = Label::new(Some("search"));
+        search_label.add_css_class("dim-label");
+        search_label.add_css_class("caption");
+        search_label.set_use_markup(true);
+        let search_btn = Button::new();
+        search_btn.set_child(Some(&search_label));
         search_btn.add_css_class("flat");
-        search_btn.add_css_class("dim-label");
-        search_btn.add_css_class("caption");
+        search_btn.add_css_class("status-toggle");
         search_btn.set_tooltip_text(Some("Find & Replace (Ctrl+F)"));
         search_btn.set_margin_start(4);
         search_btn.set_margin_end(4);
@@ -743,14 +747,16 @@ impl EditorPane {
             let row = Button::with_label(font_name);
             row.add_css_class("flat");
             row.set_halign(gtk4::Align::Start);
-            row.set_size_request(220, -1);
+            row.set_size_request(260, -1);
             font_popover_box.append(&row);
             font_buttons.push((font_name.clone(), row));
         }
         let font_scroll = ScrolledWindow::new();
         font_scroll.set_child(Some(&font_popover_box));
+        font_scroll.set_min_content_width(260);
         font_scroll.set_max_content_height(320);
         font_scroll.set_propagate_natural_height(true);
+        font_scroll.set_propagate_natural_width(true);
         font_popover.set_child(Some(&font_scroll));
         font_popover.set_autohide(true);
 
@@ -974,13 +980,9 @@ impl EditorPane {
             });
         }
         {
-            let sb = search_btn.clone();
+            let sl = search_label.clone();
             ep.find_bar.set_on_reveal_changed(move |revealed| {
-                if revealed {
-                    sb.add_css_class("suggested-action");
-                } else {
-                    sb.remove_css_class("suggested-action");
-                }
+                set_toggle_label(&sl, "search", revealed);
             });
         }
         {
@@ -1287,6 +1289,7 @@ impl EditorPane {
         self.word_wrap_btn.set_visible(v);
     }
 
+    #[allow(dead_code)]
     pub fn get_simple_mode(&self) -> bool {
         *self.simple_mode.borrow()
     }
@@ -1771,6 +1774,7 @@ impl EditorPane {
         *self.on_focus_toggle.borrow_mut() = Some(Box::new(f));
     }
 
+    #[allow(dead_code)]
     pub fn set_focus_active(&self, active: bool) {
         set_toggle_label(&self.focus_label, "focus", active);
         // aria-pressed for focus button updated in the click handler directly
@@ -1784,10 +1788,12 @@ impl EditorPane {
         *self.on_doc_font_size.borrow_mut() = Some(Box::new(f));
     }
 
+    #[allow(dead_code)]
     pub fn set_doc_font_label(&self, name: &str) {
         self.font_bar_label.set_text(name);
     }
 
+    #[allow(dead_code)]
     pub fn set_doc_size_label(&self, size: &str) {
         self.size_bar_label.set_text(size);
     }
@@ -3945,7 +3951,7 @@ impl EditorPane {
         Some(buf.text(&s, &e, true).to_string())
     }
 
-    /// Returns the in-memory content of every open tab as (path, text) pairs.
+    #[allow(dead_code)]
     pub fn all_tab_texts(&self) -> Vec<(PathBuf, String)> {
         self.state.borrow().tabs.iter()
             .map(|(path, tab)| {
@@ -4115,6 +4121,7 @@ fn apply_comment_highlights(buffer: &Buffer) {
     let is_dark = adw::StyleManager::default().is_dark();
     let alpha = if is_dark { 0.10_f32 } else { 0.08_f32 };
     let dummy = gtk4::Label::new(None);
+    #[allow(deprecated)]
     let base = dummy.style_context()
         .lookup_color("accent_color")
         .unwrap_or(gtk4::gdk::RGBA::new(0.2, 0.4, 0.9, 1.0));

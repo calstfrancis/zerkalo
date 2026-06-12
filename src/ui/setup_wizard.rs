@@ -456,6 +456,7 @@ fn detect_distro() -> Distro {
 
 enum ToolKind<'a> {
     Package { apt: &'a str, dnf: &'a str, pacman: &'a str, zypper: &'a str },
+    #[allow(dead_code)]
     Cargo { crate_name: &'a str },
     Bundled,
 }

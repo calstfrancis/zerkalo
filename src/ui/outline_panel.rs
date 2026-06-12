@@ -257,6 +257,7 @@ impl OutlinePanel {
 
     /// Update outline from all project files (multi-file mode).
     /// Files should be in document order (root first, then included files).
+    #[allow(dead_code)]
     pub fn update_project(&self, files: Vec<(PathBuf, String)>) {
         *self.cached_files.borrow_mut() = files.clone();
         self.repopulate(&files);

@@ -653,16 +653,18 @@ impl PreviewPane {
         }
         *self.page_pixbufs.borrow_mut() = pixbufs;
 
-        self.refit_drawing_area_centered(saved_v_frac);
-
         if is_first {
+            self.refit_drawing_area_centered(saved_v_frac);
             *self.first_load.borrow_mut() = false;
             if *self.auto_fit.borrow() {
                 let pane = self.clone();
                 glib::idle_add_local_once(move || { pane.fit_width(); });
             }
         } else if *self.auto_fit.borrow() {
-            // Re-fit width while preserving the user's vertical position.
+            // Update drawing area size immediately (no scroll restore), then
+            // do a single idle that recomputes zoom AND restores scroll position.
+            // Avoids a double-restore race that caused the preview to jump.
+            self.refit_drawing_area_centered(None);
             let pane = self.clone();
             let v = saved_v_frac;
             glib::idle_add_local_once(move || {
@@ -673,10 +675,12 @@ impl PreviewPane {
                 if pb_w > 0.0 && scroll_w > 16.0 {
                     let z = ((scroll_w - 16.0) / pb_w).clamp(0.25, 4.0);
                     *pane.zoom.borrow_mut() = z;
-                    pane.refit_drawing_area_centered(v);
                     if let Some(f) = pane.on_zoom_changed.borrow().as_ref() { f(z); }
                 }
+                pane.refit_drawing_area_centered(v);
             });
+        } else {
+            self.refit_drawing_area_centered(saved_v_frac);
         }
 
         // Wire scroll adjustment to fire page-changed (only wire once per load)
@@ -687,6 +691,7 @@ impl PreviewPane {
         self.fire_page_changed();
     }
 
+    #[allow(dead_code)]
     fn refit_drawing_area(&self) {
         self.refit_drawing_area_centered(None);
     }

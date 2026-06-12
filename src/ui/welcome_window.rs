@@ -114,14 +114,14 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
+                "Compile button added in the header — triggers a compile without toggling the preview",
+                "Auto compile is now the default for new installs",
+                "Search toggle is bold when the find bar is open",
+                "Font dropdown is wider so names are never truncated",
+                "Preview no longer jumps after recompile in auto-fit mode",
                 "Font dropdown shows only your enabled fonts (Font Management)",
                 "18pt, 20pt, 24pt added to size dropdown",
-                "Table picker cells are now visible; hover highlights the full range",
-                "Custom rows × cols entry added to table picker",
-                "Manual compile is now the default — snappier editing",
-                "Word count and comment highlights debounced for faster keystrokes",
-                "LSP status dots adapt to light/dark mode; comment highlight uses accent colour",
-                "Current-line highlight brighter (alpha 0.10); kate/monokai tried first for syntax schemes",
+                "Table picker cells visible; custom rows × cols entry added",
             ] {
                 body.append(&bullet_row(item));
             }

@@ -57,6 +57,19 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release type="development" version="0.13.6-rc10" date="2026-06-12">
+      <description>
+        <p>Search toggle, font dropdown, preview stability.</p>
+        <ul>
+          <li>Compile button added in header beside the Preview toggle.</li>
+          <li>Auto compile is now the default for new installs.</li>
+          <li>Search toggle is bold when active, visible when inactive.</li>
+          <li>Font dropdown minimum width increased to 260 px.</li>
+          <li>Fixed preview scroll jumping after recompile in auto-fit mode.</li>
+          <li>Resolved all 31 compiler warnings.</li>
+        </ul>
+      </description>
+    </release>
     <release type="development" version="0.13.6-rc9" date="2026-06-12">
       <description>
         <p>Performance, format bar, and colour polish.</p>
