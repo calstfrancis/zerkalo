@@ -718,10 +718,8 @@ impl EditorPane {
         }
         {
             let ep_fb = ep.clone();
-            let fb_visible: Rc<RefCell<bool>> = Rc::new(RefCell::new(true));
             format_bar_toggle_btn.connect_clicked(move |_| {
-                let new_val = !*fb_visible.borrow();
-                *fb_visible.borrow_mut() = new_val;
+                let new_val = !ep_fb.format_bar_visible();
                 ep_fb.set_format_bar_visible(new_val);
                 if let Some(f) = ep_fb.on_format_bar_toggle.borrow().as_ref() { f(new_val); }
             });
@@ -3383,76 +3381,77 @@ impl EditorPane {
     }
 
     fn toggle_active_markup(&self, marker: &str) {
-        let Some((_view, buffer)) = self.active_view_buffer() else { return };
-        if buffer.has_selection() {
-            let (start, end) = buffer.selection_bounds().unwrap();
-            let text = buffer.text(&start, &end, false);
-            let s = text.as_str();
-            if s.starts_with(marker) && s.ends_with(marker) && s.len() > 2 * marker.len() {
-                let inner = &s[marker.len()..s.len() - marker.len()];
-                buffer.begin_user_action();
-                buffer.delete(&mut buffer.selection_bounds().unwrap().0.clone(),
-                              &mut buffer.selection_bounds().unwrap().1.clone());
-                buffer.insert_at_cursor(inner);
-                buffer.end_user_action();
+        let Some((_view, buf)) = self.active_view_buffer() else { return };
+        let mlen = marker.len() as i32;
+        buf.begin_user_action();
+        if let Some((sel_s, sel_e)) = buf.selection_bounds() {
+            let start_off = sel_s.offset();
+            let end_off = sel_e.offset();
+            let text = buf.text(&sel_s, &sel_e, false).to_string();
+            if text.starts_with(marker) && text.ends_with(marker)
+                && text.len() > 2 * marker.len()
+            {
+                // strip markers, keep inner text selected
+                let inner = text[marker.len()..text.len() - marker.len()].to_string();
+                let inner_len = inner.len() as i32;
+                let mut s = buf.iter_at_offset(start_off);
+                let mut e = buf.iter_at_offset(end_off);
+                buf.delete(&mut s, &mut e);
+                let mut ins = buf.iter_at_offset(start_off);
+                buf.insert(&mut ins, &inner);
+                buf.select_range(
+                    &buf.iter_at_offset(start_off),
+                    &buf.iter_at_offset(start_off + inner_len),
+                );
             } else {
-                let wrapped = format!("{marker}{s}{marker}");
-                buffer.begin_user_action();
-                let mut s2 = start.clone();
-                let mut e2 = end.clone();
-                buffer.delete(&mut s2, &mut e2);
-                buffer.insert_at_cursor(&wrapped);
-                buffer.end_user_action();
+                // wrap selection, keep inner text selected
+                let tlen = text.len() as i32;
+                let mut s = buf.iter_at_offset(start_off);
+                let mut e = buf.iter_at_offset(end_off);
+                buf.delete(&mut s, &mut e);
+                let mut ins = buf.iter_at_offset(start_off);
+                buf.insert(&mut ins, &format!("{marker}{text}{marker}"));
+                buf.select_range(
+                    &buf.iter_at_offset(start_off + mlen),
+                    &buf.iter_at_offset(start_off + mlen + tlen),
+                );
             }
         } else {
-            let cursor = buffer.iter_at_mark(&buffer.get_insert());
-            let line = cursor.line();
-            let line_start = buffer.iter_at_line(line).unwrap_or(cursor.clone());
-            let line_end = {
-                let mut it = line_start.clone();
-                it.forward_to_line_end();
-                it
-            };
-            let line_text = buffer.text(&line_start, &line_end, false);
-            let s = line_text.as_str();
-            buffer.begin_user_action();
-            if s.starts_with(marker) && s.ends_with(marker) && s.len() > 2 * marker.len() {
-                let inner = s[marker.len()..s.len() - marker.len()].to_string();
-                let mut ls = line_start.clone();
-                let mut le = line_end.clone();
-                buffer.delete(&mut ls, &mut le);
-                let pos = buffer.iter_at_line(line).unwrap_or(buffer.end_iter());
-                buffer.insert(&mut pos.clone(), &inner);
-            } else {
-                let wrapped = format!("{marker}{s}{marker}");
-                let mut ls = line_start.clone();
-                let mut le = line_end.clone();
-                buffer.delete(&mut ls, &mut le);
-                let pos = buffer.iter_at_line(line).unwrap_or(buffer.end_iter());
-                buffer.insert(&mut pos.clone(), &wrapped);
-            }
-            buffer.end_user_action();
+            // no selection: insert paired markers, place cursor between them
+            let pos = buf.cursor_position();
+            let mut ins = buf.iter_at_offset(pos);
+            buf.insert(&mut ins, &format!("{marker}{marker}"));
+            buf.place_cursor(&buf.iter_at_offset(pos + mlen));
         }
+        buf.end_user_action();
     }
 
     fn set_active_heading(&self, level: usize) {
-        let Some((_view, buffer)) = self.active_view_buffer() else { return };
-        let cursor = buffer.iter_at_mark(&buffer.get_insert());
+        let Some((_view, buf)) = self.active_view_buffer() else { return };
+        let cursor = buf.iter_at_mark(&buf.get_insert());
         let line = cursor.line();
-        let line_start = buffer.iter_at_line(line).unwrap_or(cursor.clone());
+        let line_start = buf.iter_at_line(line).unwrap_or(cursor.clone());
         let mut line_end = line_start.clone();
         line_end.forward_to_line_end();
-        let line_text = buffer.text(&line_start, &line_end, false);
-        let s = line_text.as_str().trim_start_matches('=').trim_start();
-        let prefix = "=".repeat(level);
-        let new_line = format!("{prefix} {s}");
-        buffer.begin_user_action();
-        let mut ls = line_start.clone();
-        let mut le = line_end.clone();
-        buffer.delete(&mut ls, &mut le);
-        let pos = buffer.iter_at_line(line).unwrap_or(buffer.end_iter());
-        buffer.insert(&mut pos.clone(), &new_line);
-        buffer.end_user_action();
+        let line_text = buf.text(&line_start, &line_end, false).to_string();
+        let raw = line_text.as_str();
+        let current_level = raw.chars().take_while(|c| *c == '=').count();
+        let body = raw.trim_start_matches('=').trim_start();
+        let new_line = if current_level == level {
+            // same level → remove heading (toggle off)
+            body.to_string()
+        } else {
+            format!("{} {body}", "=".repeat(level))
+        };
+        let start_off = line_start.offset();
+        let end_off = line_end.offset();
+        buf.begin_user_action();
+        let mut ls = buf.iter_at_offset(start_off);
+        let mut le = buf.iter_at_offset(end_off);
+        buf.delete(&mut ls, &mut le);
+        let mut ins = buf.iter_at_offset(start_off);
+        buf.insert(&mut ins, &new_line);
+        buf.end_user_action();
     }
 
     fn active_view_buffer(&self) -> Option<(View, Buffer)> {
