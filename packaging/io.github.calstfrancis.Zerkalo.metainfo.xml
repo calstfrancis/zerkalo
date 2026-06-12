@@ -57,6 +57,20 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release type="development" version="0.13.6-rc9" date="2026-06-12">
+      <description>
+        <p>Performance, format bar, and colour polish.</p>
+        <ul>
+          <li>Font dropdown now shows fonts enabled in Font Management, scrollable.</li>
+          <li>Added 18pt, 20pt, 24pt to size dropdown.</li>
+          <li>Table grid cells are now visible; hovering highlights the selected range.</li>
+          <li>Custom rows × cols input added to the table picker.</li>
+          <li>Manual compile defaults to on; word count and comment highlights debounced.</li>
+          <li>LSP status colours adapt to light/dark; comment highlight follows accent colour.</li>
+          <li>Syntax scheme tries kate/monokai-extended first for better contrast.</li>
+        </ul>
+      </description>
+    </release>
     <release type="development" version="0.13.6-rc8" date="2026-06-12">
       <description>
         <p>Warning cleanup — no user-facing changes.</p>
