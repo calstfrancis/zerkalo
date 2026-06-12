@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 /// Project template definitions. Built-in templates are embedded via include_str!
 /// from templates/ at the project root. User templates are loaded at runtime from
 /// ~/.config/zerkalo/templates/<name>/manifest.toml.

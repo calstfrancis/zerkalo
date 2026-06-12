@@ -151,7 +151,7 @@ impl Default for Config {
             developer_mode: false,
             last_export_format: 0,
             compile_on_save: false,
-            manual_compile_only: true,
+            manual_compile_only: false,
             recent_searches: Vec::new(),
             active_profile: CompileProfile::default(),
             auto_save_idle_ms: default_auto_save_idle_ms(),
@@ -184,6 +184,7 @@ impl Config {
         }
     }
 
+    #[allow(dead_code)]
     pub fn push_recent_project(&mut self, path: PathBuf) {
         self.recent_projects.retain(|p| p != &path);
         self.recent_projects.insert(0, path);

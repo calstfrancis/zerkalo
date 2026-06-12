@@ -43,6 +43,7 @@ fn load_from_disk() -> CompileStats {
     CompileStats::default()
 }
 
+#[allow(dead_code)]
 pub fn load() -> CompileStats {
     cache().lock().unwrap().clone()
 }

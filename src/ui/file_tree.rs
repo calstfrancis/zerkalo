@@ -267,6 +267,7 @@ impl FileTree {
         *self.on_insert_import.borrow_mut() = Some(Box::new(f));
     }
 
+    #[allow(dead_code)]
     pub fn set_file_error(&self, path: &Path, has_error: bool) {
         let mut errors = self.file_errors.borrow_mut();
         if has_error {

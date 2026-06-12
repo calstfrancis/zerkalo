@@ -5,6 +5,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.6-rc10] — Search toggle, font dropdown, preview stability
+
+### Added
+
+- **Compile button in header** — new refresh icon button beside the Preview toggle triggers an immediate compile without toggling preview visibility.
+
+### Changed
+
+- **Auto compile is now the default** — new installs start in Auto mode (reverted from manual-only introduced in rc9).
+- **Search toggle now bold when active** — the "search" button in the status bar uses bold text when the find bar is open, matching the other toggle buttons; no longer invisible when off.
+- **Font dropdown wider** — minimum width increased to 260 px with natural-width propagation so font names are never truncated.
+
+### Fixed
+
+- **Preview scroll jumping** — eliminated a double-scroll-restore race in auto-fit mode that caused the preview to jump to a different position after each recompile.
+- **31 compiler warnings resolved** — `#[allow(dead_code)]` / `#[allow(deprecated)]` attributes placed on scaffolded APIs and the GTK 4.10 colour lookup call.
+
+---
+
 ## [0.13.6-rc9] — Performance, format bar, and colour polish
 
 ### Added

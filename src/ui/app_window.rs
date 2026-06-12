@@ -159,6 +159,11 @@ impl AppWindow {
         compile_btn.set_tooltip_text(Some("Toggle Preview (Ctrl+Shift+P)"));
         compile_btn.add_css_class("flat");
 
+        let recompile_header_btn = Button::from_icon_name("view-refresh-symbolic");
+        recompile_header_btn.set_tooltip_text(Some("Compile now (Ctrl+Shift+P)"));
+        recompile_header_btn.add_css_class("flat");
+        recompile_header_btn.update_property(&[gtk4::accessible::Property::Label("Compile now")]);
+
         let sync_btn = Button::from_icon_name("vcs-push-symbolic");
         sync_btn.set_tooltip_text(Some("Commit & Push to Git (Ctrl+Shift+G)"));
         sync_btn.add_css_class("flat");
@@ -237,6 +242,7 @@ impl AppWindow {
         // In GTK4 pack_end the last-packed widget is leftmost in the end section.
         header.pack_end(&menu_btn);
         header.pack_end(&compile_btn);
+        header.pack_end(&recompile_header_btn);
         header.pack_end(&todo_btn);
         header.pack_end(&sync_btn);
 
@@ -2649,6 +2655,21 @@ impl AppWindow {
                 } else {
                     preview_label_c.set_text("Preview");
                 }
+            });
+        }
+
+        // Compile button wiring
+        {
+            let pv = preview_pane.clone();
+            let editor_for_compile = editor_pane.clone();
+            recompile_header_btn.connect_clicked(move |_| {
+                if let Some(path) = editor_for_compile.get_active_path() {
+                    if let Some(content) = editor_for_compile.get_active_content() {
+                        pv.set_buffer_snapshot(path.clone(), content);
+                    }
+                    pv.set_root_file(path);
+                }
+                pv.trigger_compile();
             });
         }
 

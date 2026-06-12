@@ -12,6 +12,7 @@ fn entry_re() -> &'static Regex {
 #[derive(Clone, Debug, Default)]
 pub struct BibEntry {
     pub key: String,
+    #[allow(dead_code)]
     pub entry_type: String,
     pub author: String,
     pub title: String,
