@@ -21,8 +21,8 @@
       <li>Spell check with suggestions, Ignore All, and language selector; typewriter scrolling option</li>
       <li>Word count, reading time, word-count goal, session delta, and section word count</li>
       <li>Command palette (Ctrl+K) — fuzzy search over commands and headings</li>
-      <li>Breadcrumb bar with heading path, section word count, and word-wrap toggle</li>
-      <li>Simple Mode — hides Typst front-matter so the document body is always visible</li>
+      <li>Breadcrumb bar with heading path and section word count</li>
+      <li>Simple Mode — hides Typst front-matter, shows format bar, and hides line numbers for a clean writing view</li>
       <li>Configurable keybindings via keybindings.toml</li>
     </ul>
     <p>Document workflow:</p>
@@ -57,6 +57,17 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.13.7-rc1" date="2026-06-13">
+      <description>
+        <p>Simple mode polish.</p>
+        <ul>
+          <li>Line numbers hidden when Simple Mode is active.</li>
+          <li>Word wrap button removed from toolbar (still available in Settings).</li>
+          <li>Format bar auto-shows when Simple Mode is turned on.</li>
+          <li>Fixed right-click context menu resetting scroll to top of document.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.13.6" date="2026-06-12">
       <description>
         <p>Search toggle, font dropdown, preview stability.</p>
