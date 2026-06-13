@@ -5,6 +5,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.7-rc1] — Simple mode polish
+
+### Changed
+
+- **Line numbers hidden in Simple Mode** — the line number gutter is no longer shown when Simple Mode is active; it restores when Simple Mode is turned off.
+- **Word wrap button removed from toolbar** — the word-wrap toggle has been removed from the breadcrumb bar; word wrap is still configurable from Settings.
+- **Format bar auto-enables with Simple Mode** — activating Simple Mode now automatically shows the format bar if it was hidden.
+
+### Fixed
+
+- **Right-click no longer jumps to top** — opening the spell-check context menu no longer resets the scroll position to the top of the document.
+
+---
+
 ## [0.13.6] — Search toggle, font dropdown, preview stability
 
 ### Added

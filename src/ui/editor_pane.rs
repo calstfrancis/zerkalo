@@ -529,7 +529,7 @@ impl EditorPane {
         breadcrumb_bar.append(&sep);
         breadcrumb_bar.append(&breadcrumb_label);
         breadcrumb_bar.append(&section_wc_label);
-        breadcrumb_bar.append(&word_wrap_btn);
+        let _ = &word_wrap_btn; // kept for settings sync; not shown in toolbar
 
         let editor_row = GtkBox::new(Orientation::Horizontal, 0);
         editor_row.set_hexpand(true);
@@ -1299,12 +1299,17 @@ impl EditorPane {
         *self.simple_mode.borrow_mut() = on;
         set_toggle_label(&self.simple_mode_label, "SIMPLE", on);
         self.apply_simple_mode_to_buffer(on);
+        if on && !self.format_bar_visible() {
+            self.set_format_bar_visible(true);
+            if let Some(f) = self.on_format_bar_toggle.borrow().as_ref() { f(true); }
+        }
     }
 
     fn apply_simple_mode_to_buffer(&self, on: bool) {
         let state = self.state.borrow();
         for tab in state.tabs.values() {
             apply_simple_mode_tag(&tab.buffer, on);
+            tab.view.set_show_line_numbers(!on);
         }
     }
 
@@ -1919,7 +1924,7 @@ impl EditorPane {
             gtk4::accessible::Property::Label("Document editor"),
             gtk4::accessible::Property::MultiLine(true),
         ]);
-        view.set_show_line_numbers(true);
+        view.set_show_line_numbers(!*self.simple_mode.borrow());
         // Soft right-margin guide at 90 characters — useful even with word wrap
         // as a visual rhythm reference for longer code lines.
         view.set_show_right_margin(true);
@@ -3334,6 +3339,7 @@ impl EditorPane {
             let spell_rc = self.spell_checker.clone();
             let buf_rc = buffer.clone();
             let view_rc = view.clone();
+            let scroll_rc = scroll.clone();
 
             let gesture = GestureClick::new();
             gesture.set_button(3); // right button
@@ -3371,6 +3377,7 @@ impl EditorPane {
                 drop(sc);
 
                 // Build and show popover
+                let saved_scroll = scroll_rc.vadjustment().value();
                 let popover = Popover::new();
                 popover.set_parent(&view_rc);
                 let rect = gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1);
@@ -3518,11 +3525,20 @@ impl EditorPane {
                 popover.set_child(Some(&vbox));
 
                 let pop_close = popover.clone();
+                let scroll_close = scroll_rc.clone();
+                let saved_close = saved_scroll;
                 popover.connect_closed(move |_| {
                     pop_close.unparent();
+                    scroll_close.vadjustment().set_value(saved_close);
                 });
 
                 popover.popup();
+                // Parenting the popover can trigger a layout pass that resets the
+                // scroll position — restore it after the event is fully processed.
+                let sc = scroll_rc.clone();
+                glib::idle_add_local_once(move || {
+                    sc.vadjustment().set_value(saved_scroll);
+                });
             });
             view.add_controller(gesture);
         }
