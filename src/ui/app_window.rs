@@ -181,6 +181,7 @@ impl AppWindow {
             menu_snapshots_item,
             menu_export_item,
             menu_export_web_item,
+            menu_print_item,
             menu_import_item,
             menu_docs_item,
             menu_fonts_item,
@@ -216,6 +217,7 @@ impl AppWindow {
         // Convert / share
         menu_popover_box.append(&menu_export_item);
         menu_popover_box.append(&menu_export_web_item);
+        menu_popover_box.append(&menu_print_item);
         menu_popover_box.append(&menu_import_item);
         menu_popover_box.append(&Separator::new(Orientation::Horizontal));
         // View
@@ -366,6 +368,20 @@ impl AppWindow {
                             * page_count as f64) as usize;
                         let page_idx = page_idx.min(page_count - 1);
                         pp.scroll_to_page(page_idx);
+                    }
+                }
+            });
+        }
+
+        // Reverse sync: cursor moves → scroll preview proportionally (item 10).
+        let preview_pane_for_moved: Rc<RefCell<Option<PreviewPane>>> =
+            Rc::new(RefCell::new(None));
+        {
+            let pp_ref = preview_pane_for_moved.clone();
+            editor_pane.set_on_cursor_moved(move |_path, line, total| {
+                if let Some(ref pp) = *pp_ref.borrow() {
+                    if total > 0 {
+                        pp.scroll_to_fraction(line as f64 / total as f64);
                     }
                 }
             });
@@ -564,6 +580,7 @@ impl AppWindow {
             extra_compiler_args,
         );
         *preview_pane_for_heading.borrow_mut() = Some(preview_pane.clone());
+        *preview_pane_for_moved.borrow_mut() = Some(preview_pane.clone());
         let error_panel = ErrorPanel::new();
         error_panel.widget().set_visible(false);
 
@@ -616,7 +633,7 @@ impl AppWindow {
                     if let Err(e) = std::fs::write(&path, &updated) {
                         tracing::error!("Failed to write font change: {e}");
                     } else {
-                        ep.reload_file(path.clone(), &updated);
+                        ep.splice_preamble(path.clone(), &updated);
                         preview_for_font.trigger_compile();
                     }
                 }
@@ -638,7 +655,7 @@ impl AppWindow {
                     if let Err(e) = std::fs::write(&path, &updated) {
                         tracing::error!("Failed to write size change: {e}");
                     } else {
-                        ep.reload_file(path.clone(), &updated);
+                        ep.splice_preamble(path.clone(), &updated);
                         preview_for_size.trigger_compile();
                     }
                 }
@@ -1054,6 +1071,17 @@ impl AppWindow {
             .present();
         });
 
+        // ── Menu: Print PDF ─────────────────────────────────────────────────
+
+        {
+            let preview_for_print = preview_pane.clone();
+            let menu_popover_for_print = menu_popover.clone();
+            menu_print_item.connect_clicked(move |_| {
+                menu_popover_for_print.popdown();
+                print_pdf_from_preview(&preview_for_print);
+            });
+        }
+
         // ── Menu: Font Management ───────────────────────────────────────────
 
         let window_for_fonts = window.clone();
@@ -1324,11 +1352,20 @@ impl AppWindow {
         let cfg_for_template = current_config.clone();
         menu_new_template_item.connect_clicked(move |_| {
             menu_popover_for_template.popdown();
-            let dlg = TemplateDialog::new(&window_for_template, &project_root_for_template);
+            let last_advanced = cfg_for_template.borrow().last_used_advanced;
+            let dlg = TemplateDialog::new(&window_for_template, &project_root_for_template, last_advanced);
             {
                 let cfg = cfg_for_template.borrow();
                 dlg.set_bib_path(cfg.bib_path.clone());
                 dlg.preselect_locked_identity(&cfg.locked_author.clone(), &cfg.locked_affiliation.clone());
+            }
+            {
+                let cfg2 = cfg_for_template.clone();
+                dlg.set_on_advanced_toggle(move |expanded| {
+                    let mut c = cfg2.borrow_mut();
+                    c.last_used_advanced = expanded;
+                    let _ = c.save();
+                });
             }
             {
                 let cfg = cfg_for_template.clone();
@@ -1365,7 +1402,16 @@ impl AppWindow {
                 return;
             };
             let current_content = editor_for_reapply.get_active_content().unwrap_or_default();
-            let dlg = TemplateDialog::new(&window_for_reapply, &project_root_for_reapply);
+            let last_advanced_reapply = cfg_for_reapply.borrow().last_used_advanced;
+            let dlg = TemplateDialog::new(&window_for_reapply, &project_root_for_reapply, last_advanced_reapply);
+            {
+                let cfg_adv = cfg_for_reapply.clone();
+                dlg.set_on_advanced_toggle(move |expanded| {
+                    let mut c = cfg_adv.borrow_mut();
+                    c.last_used_advanced = expanded;
+                    let _ = c.save();
+                });
+            }
             {
                 let cfg = cfg_for_reapply.borrow();
                 dlg.set_bib_path(cfg.bib_path.clone());
@@ -1440,7 +1486,7 @@ impl AppWindow {
                         if let Err(e) = std::fs::write(&path, &updated) {
                             tracing::error!("Failed to write updated template: {e}");
                         } else {
-                            ep2.reload_file(path.clone(), &updated);
+                            ep2.splice_preamble(path.clone(), &updated);
                         }
                     }
                 };
@@ -1821,6 +1867,11 @@ impl AppWindow {
             });
         });
 
+        // ── Multi-file root: configured root persists across tab switches ─────
+        let configured_root: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(
+            proj_cfg.root_file.as_ref().map(|r| project_root.join(r))
+        ));
+
         // ── Outline + title: update on tab switch ──────────────────────────
 
         let outline_for_switch = outline_panel.clone();
@@ -1832,6 +1883,7 @@ impl AppWindow {
         let notes_panel_for_switch = notes_panel.clone();
         let style_btn_for_switch = style_btn.clone();
         let editor_pane_for_switch_delta = editor_pane.clone();
+        let configured_root_for_switch = configured_root.clone();
         // Track per-file content hashes so tab switches don't recompile unchanged files.
         let switch_hash_map: Rc<RefCell<std::collections::HashMap<std::path::PathBuf, u64>>> =
             Rc::new(RefCell::new(std::collections::HashMap::new()));
@@ -1853,7 +1905,9 @@ impl AppWindow {
             let needs_compile = prev_hash != Some(content_hash);
             switch_hash_map.borrow_mut().insert(path.clone(), content_hash);
             preview_for_switch.set_buffer_snapshot(path.clone(), content.clone());
-            preview_for_switch.set_root_file(path.clone());
+            // Use configured root if set; otherwise compile the active file
+            let root_for_compile = configured_root_for_switch.borrow().clone().unwrap_or_else(|| path.clone());
+            preview_for_switch.set_root_file(root_for_compile.clone());
             if needs_compile {
                 preview_for_switch.trigger_compile();
             }
@@ -1863,6 +1917,18 @@ impl AppWindow {
                     .map(|n| n.strip_suffix(".typ").unwrap_or(n).to_string())
             }).unwrap_or_default();
             title_widget_for_switch.set_title(&title);
+            // Show root breadcrumb in subtitle when root differs from active file
+            if let Some(ref root_path) = *configured_root_for_switch.borrow() {
+                if root_path != &path {
+                    let root_name = root_path.file_name().and_then(|n| n.to_str()).unwrap_or("root");
+                    let active_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("file");
+                    title_widget_for_switch.set_subtitle(&format!("{root_name} › {active_name}"));
+                } else {
+                    title_widget_for_switch.set_subtitle("");
+                }
+            } else {
+                title_widget_for_switch.set_subtitle("");
+            }
             let style_name = super::template_dialog::parse_style_key(&content)
                 .and_then(|key| super::template_dialog::style_name_for_key(&key))
                 .unwrap_or("Style");
@@ -2088,6 +2154,7 @@ impl AppWindow {
                     };
                     window_for_compile.set_title(Some(&title));
                     error_panel_for_compile.show_compile_errors(errors);
+                    error_panel_for_compile.set_build_log(stderr);
                     error_panel_for_compile.widget().set_visible(true);
                 }
             }
@@ -2472,10 +2539,14 @@ impl AppWindow {
         // Compile time display
         {
             let lbl = compile_time_label.clone();
-            preview_pane.set_on_compile_time(move |ms| {
+            preview_pane.set_on_compile_time(move |ms, pages| {
                 crate::compile_stats::record(ms);
                 let secs = ms as f64 / 1000.0;
-                lbl.set_text(&format!("Compiled in {secs:.1}s"));
+                if let Some(n) = pages {
+                    lbl.set_text(&format!("✓ {n} page{} · {secs:.1}s", if n == 1 { "" } else { "s" }));
+                } else {
+                    lbl.set_text(&format!("✗ {secs:.1}s"));
+                }
                 if ms >= 3000 {
                     lbl.add_css_class("warning");
                     lbl.set_tooltip_text(Some(
@@ -2632,6 +2703,42 @@ impl AppWindow {
             });
         }
 
+        // ── main.typ heuristic banner ────────────────────────────────────────
+        {
+            let main_path = project_root.join("main.typ");
+            let no_root_configured = configured_root.borrow().is_none();
+            if no_root_configured && main_path.exists() {
+                let banner = adw::Banner::new("main.typ detected — set it as root?");
+                banner.set_button_label(Some("Set as Root"));
+                banner.set_revealed(true);
+                let preview_for_banner = preview_pane.clone();
+                let root_ref_banner = configured_root.clone();
+                let root_dir_banner = project_root.clone();
+                let title_w_banner = file_title_widget.clone();
+                let ep_for_banner = editor_pane.clone();
+                banner.connect_button_clicked(move |b| {
+                    b.set_revealed(false);
+                    preview_for_banner.set_root_file(main_path.clone());
+                    *root_ref_banner.borrow_mut() = Some(main_path.clone());
+                    // Update subtitle if active file differs from root
+                    if let Some(active) = ep_for_banner.get_active_path() {
+                        if main_path != active {
+                            let root_name = main_path.file_name().and_then(|n| n.to_str()).unwrap_or("root");
+                            let active_name = active.file_name().and_then(|n| n.to_str()).unwrap_or("file");
+                            title_w_banner.set_subtitle(&format!("{root_name} › {active_name}"));
+                        }
+                    }
+                    // Save to project config
+                    let rel = main_path.strip_prefix(&root_dir_banner).unwrap_or(&main_path).to_path_buf();
+                    let mut pcfg = crate::config::ProjectConfig::load(&root_dir_banner).unwrap_or_default();
+                    pcfg.root_file = Some(rel);
+                    let _ = pcfg.save(&root_dir_banner);
+                    preview_for_banner.trigger_compile();
+                });
+                preview_outer.prepend(&banner);
+            }
+        }
+
         *preview_vis_holder.borrow_mut() = Some(preview_outer.clone());
 
         // ── Preview toggle button wiring (needs preview_outer) ───────────────
@@ -2719,13 +2826,10 @@ impl AppWindow {
 
             let print_btn = Button::from_icon_name("printer-symbolic");
             print_btn.add_css_class("flat");
-            print_btn.set_tooltip_text(Some("Open PDF for printing"));
-            let print_dir = secondary.output_dir();
+            print_btn.set_tooltip_text(Some("Print PDF"));
+            let print_pane = secondary.clone();
             print_btn.connect_clicked(move |_| {
-                crate::git_sync::host_command("xdg-open")
-                    .arg(print_dir.join("preview.pdf"))
-                    .spawn()
-                    .ok();
+                print_pdf_from_preview(&print_pane);
             });
 
             let lbl_po_out = po_zoom_label.clone();
@@ -2892,6 +2996,50 @@ impl AppWindow {
                 ep.insert_at_cursor(&format!("#import \"{rel}\": {stem}\n"));
             });
         }
+        // ── Set / Clear root file via context menu ────────────────────────────
+        {
+            let preview = preview_pane.clone();
+            let root_ref = configured_root.clone();
+            let root_dir = project_root.clone();
+            let title_w = file_title_widget.clone();
+            let ep_for_root = editor_pane.clone();
+            file_tree.set_on_set_root(move |path| {
+                preview.set_root_file(path.clone());
+                *root_ref.borrow_mut() = Some(path.clone());
+                // Update breadcrumb if there's an active file
+                if let Some(active) = ep_for_root.get_active_path() {
+                    if path != active {
+                        let root_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("root");
+                        let active_name = active.file_name().and_then(|n| n.to_str()).unwrap_or("file");
+                        title_w.set_subtitle(&format!("{root_name} › {active_name}"));
+                    } else {
+                        title_w.set_subtitle("");
+                    }
+                }
+                // Save to project config
+                let rel = path.strip_prefix(&root_dir).unwrap_or(&path).to_path_buf();
+                let mut pcfg = crate::config::ProjectConfig::load(&root_dir).unwrap_or_default();
+                pcfg.root_file = Some(rel);
+                let _ = pcfg.save(&root_dir);
+                preview.trigger_compile();
+            });
+        }
+        {
+            let preview = preview_pane.clone();
+            let root_ref = configured_root.clone();
+            let root_dir = project_root.clone();
+            let title_w = file_title_widget.clone();
+            file_tree.set_on_clear_root(move |()| {
+                preview.clear_root_file();
+                *root_ref.borrow_mut() = None;
+                title_w.set_subtitle("");
+                // Save to project config
+                let mut pcfg = crate::config::ProjectConfig::load(&root_dir).unwrap_or_default();
+                pcfg.root_file = None;
+                let _ = pcfg.save(&root_dir);
+            });
+        }
+
         // Wire file_tree into the compile-done holder
         *file_tree_holder.borrow_mut() = Some(file_tree.clone());
 
@@ -2991,7 +3139,7 @@ impl AppWindow {
             update_template_btn.connect_clicked(move |_| {
                 let Some(current_path) = ep_ut.get_active_path() else { return };
                 let current_content = ep_ut.get_active_content().unwrap_or_default();
-                let dlg = TemplateDialog::new(&win_ut, &root_ut);
+                let dlg = TemplateDialog::new(&win_ut, &root_ut, false);
 
                 if let Some(sidecar) = super::template_dialog::load_sidecar(&current_path) {
                     dlg.preselect_from_sidecar(&sidecar);
@@ -3052,7 +3200,7 @@ impl AppWindow {
                             let updated = super::template_dialog::apply_body_splice(&cc, &nc);
                             super::template_dialog::save_sidecar(&path, &sc);
                             if std::fs::write(&path, &updated).is_ok() {
-                                ep3.reload_file(path.clone(), &updated);
+                                ep3.splice_preamble(path.clone(), &updated);
                             }
                         }
                     };
@@ -3521,6 +3669,15 @@ impl AppWindow {
                 }
             }
 
+            // Ctrl+P — print (compile PDF and open in viewer)
+            {
+                use gtk4::gdk::Key;
+                if ctrl && !shift && !alt && key == Key::p {
+                    print_pdf_from_preview(&preview);
+                    return glib::Propagation::Stop;
+                }
+            }
+
             // Ctrl+Shift+E — export PDF to document directory (no dialog)
             {
                 use gtk4::gdk::Key;
@@ -3632,6 +3789,9 @@ impl AppWindow {
                 }
             };
             self.editor_pane.open_file(path, &content);
+            // Kick off an initial compile so the preview isn't blank on first launch.
+            let pv = self.preview_pane.clone();
+            glib::idle_add_local_once(move || { pv.trigger_compile(); });
         }
     }
 
@@ -4849,6 +5009,7 @@ struct HamburgerItems {
     menu_snapshots_item: Button,
     menu_export_item: Button,
     menu_export_web_item: Button,
+    menu_print_item: Button,
     menu_import_item: Button,
     menu_docs_item: Button,
     menu_fonts_item: Button,
@@ -4875,6 +5036,7 @@ fn build_hamburger_menu_items() -> HamburgerItems {
         menu_snapshots_item:       make_menu_item("Browse Snapshots…",           None),
         menu_export_item:          make_menu_item("Export…",                     None),
         menu_export_web_item:      make_menu_item("Export for Web…",             None),
+        menu_print_item:           make_menu_item("Print PDF",                   Some("Ctrl+P")),
         menu_import_item:          make_menu_item("Import…",                     None),
         menu_docs_item:            make_menu_item("Browse Documents…",           None),
         menu_fonts_item:           make_menu_item("Font Management…",            None),
@@ -5119,6 +5281,41 @@ fn md_inline_to_pango(s: &str) -> String {
         }
     }
     out
+}
+
+/// Compile the current root file to PDF and open it with xdg-open for printing.
+/// Writes to a path in ~/.cache/zerkalo/ so the file is always accessible from
+/// the host even when running inside a flatpak sandbox.
+fn print_pdf_from_preview(preview: &super::preview_pane::PreviewPane) {
+    let Some(root) = preview.root_file_path() else { return };
+    let stem = root
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("document")
+        .to_string();
+
+    let cache_dir = PathBuf::from(shellexpand::tilde("~/.cache/zerkalo").as_ref());
+    let _ = std::fs::create_dir_all(&cache_dir);
+    let out_path = cache_dir.join(format!("{stem}.pdf"));
+
+    std::thread::spawn(move || {
+        let result = crate::compiler::compile_to_pdf_bytes(
+            &root,
+            &std::collections::HashMap::new(),
+            &std::collections::HashMap::new(),
+        );
+        match result {
+            Ok(bytes) => {
+                if std::fs::write(&out_path, &bytes).is_ok() {
+                    crate::git_sync::host_command("xdg-open")
+                        .arg(&out_path)
+                        .spawn()
+                        .ok();
+                }
+            }
+            Err(_) => {}
+        }
+    });
 }
 
 fn update_draft_toggle_label(btn: &gtk4::ToggleButton, is_draft: bool) {

@@ -181,6 +181,8 @@ pub struct ErrorPanel {
     last_errors_key: Rc<RefCell<String>>,
     repeat_count: Rc<Cell<u32>>,
     log_lines: Rc<RefCell<Vec<String>>>,
+    build_log_revealer: Revealer,
+    build_log_label: Label,
 }
 
 impl ErrorPanel {
@@ -359,6 +361,73 @@ impl ErrorPanel {
             });
         }
 
+        // ── Build Log section (collapsible, shown on compile error) ─────────────
+        let build_log_outer = GtkBox::new(Orientation::Vertical, 0);
+        build_log_outer.append(&gtk4::Separator::new(Orientation::Horizontal));
+
+        let log_header = GtkBox::new(Orientation::Horizontal, 6);
+        log_header.set_margin_top(4);
+        log_header.set_margin_bottom(4);
+        log_header.set_margin_start(10);
+        log_header.set_margin_end(10);
+        let log_header_lbl = Label::new(Some("Build Log"));
+        log_header_lbl.set_halign(Align::Start);
+        log_header_lbl.set_hexpand(true);
+        log_header_lbl.add_css_class("heading");
+        log_header.append(&log_header_lbl);
+        let log_chevron = Button::from_icon_name("pan-end-symbolic");
+        log_chevron.add_css_class("flat");
+        log_chevron.add_css_class("circular");
+        log_chevron.set_tooltip_text(Some("Expand build log"));
+        log_header.append(&log_chevron);
+        build_log_outer.append(&log_header);
+
+        let build_log_label = Label::new(None);
+        build_log_label.set_halign(Align::Start);
+        build_log_label.set_wrap(true);
+        build_log_label.set_selectable(true);
+        build_log_label.set_xalign(0.0);
+        build_log_label.add_css_class("monospace");
+        build_log_label.add_css_class("caption");
+        build_log_label.set_margin_start(12);
+        build_log_label.set_margin_end(12);
+        build_log_label.set_margin_bottom(8);
+
+        let log_scroll = gtk4::ScrolledWindow::new();
+        log_scroll.set_max_content_height(160);
+        log_scroll.set_propagate_natural_height(true);
+        log_scroll.set_child(Some(&build_log_label));
+
+        let build_log_revealer = Revealer::new();
+        build_log_revealer.set_transition_type(RevealerTransitionType::SlideDown);
+        build_log_revealer.set_transition_duration(120);
+        build_log_revealer.set_reveal_child(false);
+        build_log_revealer.set_child(Some(&log_scroll));
+        build_log_outer.append(&build_log_revealer);
+
+        {
+            let rev = build_log_revealer.clone();
+            let btn = log_chevron.clone();
+            log_chevron.connect_clicked(move |_| {
+                let open = !rev.reveals_child();
+                rev.set_reveal_child(open);
+                if open {
+                    btn.set_icon_name("pan-down-symbolic");
+                    btn.set_tooltip_text(Some("Collapse build log"));
+                } else {
+                    btn.set_icon_name("pan-end-symbolic");
+                    btn.set_tooltip_text(Some("Expand build log"));
+                }
+            });
+        }
+
+        let build_log_revealer_outer = Revealer::new();
+        build_log_revealer_outer.set_transition_type(RevealerTransitionType::SlideDown);
+        build_log_revealer_outer.set_transition_duration(150);
+        build_log_revealer_outer.set_reveal_child(false);
+        build_log_revealer_outer.set_child(Some(&build_log_outer));
+        root_widget.append(&build_log_revealer_outer);
+
         Self {
             root_widget,
             revealer,
@@ -376,11 +445,18 @@ impl ErrorPanel {
             last_errors_key: Rc::new(RefCell::new(String::new())),
             repeat_count: Rc::new(Cell::new(0)),
             log_lines,
+            build_log_revealer: build_log_revealer_outer,
+            build_log_label,
         }
     }
 
     pub fn widget(&self) -> &GtkBox {
         &self.root_widget
+    }
+
+    pub fn set_build_log(&self, raw: &str) {
+        self.build_log_label.set_text(raw);
+        self.build_log_revealer.set_reveal_child(true);
     }
 
     pub fn set_on_jump(&self, f: impl Fn(PathBuf, u32) + 'static) {
@@ -531,6 +607,7 @@ impl ErrorPanel {
         self.repeat_count.set(0);
         *self.last_errors_key.borrow_mut() = String::new();
         self.log_lines.borrow_mut().clear();
+        self.build_log_revealer.set_reveal_child(false);
         // Show last-clean timestamp only when recovering from real errors
         if had_errors {
             self.last_clean_label.set_text(&format!("Last clean compile: {}", current_time_hhmm()));

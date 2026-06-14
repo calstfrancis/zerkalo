@@ -13,6 +13,7 @@ use gtk4::{
     Align, Box as GtkBox, Button, DrawingArea, EventControllerKey, GestureClick, Label,
     Orientation, ScrolledWindow, Spinner, Stack,
 };
+use std::time::Instant;
 
 // ── Result sent from compile thread ──────────────────────────────────────────
 
@@ -38,8 +39,10 @@ pub struct PreviewPane {
     zoom: Rc<RefCell<f64>>,
     auto_fit: Rc<RefCell<bool>>,
     on_compile_done: Rc<RefCell<Option<Box<dyn Fn(Option<String>)>>>>,
-    on_compile_time: Rc<RefCell<Option<Box<dyn Fn(u64)>>>>,
+    on_compile_time: Rc<RefCell<Option<Box<dyn Fn(u64, Option<usize>)>>>>,
     on_compile_start: Rc<RefCell<Option<Box<dyn Fn()>>>>,
+    spin_lbl: Label,
+    compile_start_instant: Rc<RefCell<Option<Instant>>>,
     on_zoom_changed: Rc<RefCell<Option<Box<dyn Fn(f64)>>>>,
     on_page_changed: Rc<RefCell<Option<Box<dyn Fn(usize, usize)>>>>,
     on_click_jump: Rc<RefCell<Option<Box<dyn Fn(usize, f64)>>>>,
@@ -79,6 +82,7 @@ impl PreviewPane {
         spinner.set_size_request(48, 48);
         let spin_lbl = Label::new(Some("Compiling\u{2026}"));
         spin_lbl.add_css_class("dim-label");
+        let spin_lbl_store = spin_lbl.clone();
         let cancel_btn = Button::with_label("Cancel");
         cancel_btn.add_css_class("flat");
         cancel_btn.set_visible(false);
@@ -224,6 +228,8 @@ impl PreviewPane {
             on_compile_done: Rc::new(RefCell::new(None)),
             on_compile_time: Rc::new(RefCell::new(None)),
             on_compile_start: Rc::new(RefCell::new(None)),
+            spin_lbl: spin_lbl_store,
+            compile_start_instant: Rc::new(RefCell::new(None)),
             on_zoom_changed: Rc::new(RefCell::new(None)),
             on_page_changed: Rc::new(RefCell::new(None)),
             on_click_jump,
@@ -316,6 +322,10 @@ impl PreviewPane {
         *self.first_load.borrow_mut() = true;
     }
 
+    pub fn clear_root_file(&self) {
+        *self.root_file.borrow_mut() = None;
+    }
+
     pub fn set_buffer_snapshot(&self, path: PathBuf, text: String) {
         self.buffer_snapshot.borrow_mut().insert(path, text);
     }
@@ -401,7 +411,7 @@ impl PreviewPane {
         *self.on_compile_done.borrow_mut() = Some(Box::new(f));
     }
 
-    pub fn set_on_compile_time(&self, f: impl Fn(u64) + 'static) {
+    pub fn set_on_compile_time(&self, f: impl Fn(u64, Option<usize>) + 'static) {
         *self.on_compile_time.borrow_mut() = Some(Box::new(f));
     }
 
@@ -447,6 +457,14 @@ impl PreviewPane {
             y += page_h;
         }
         pbs.len().saturating_sub(1)
+    }
+
+    pub fn scroll_to_fraction(&self, frac: f64) {
+        let adj = self.img_scroll.vadjustment();
+        let range = adj.upper() - adj.lower() - adj.page_size();
+        if range > 0.0 {
+            adj.set_value(frac.clamp(0.0, 1.0) * range + adj.lower());
+        }
     }
 
     pub fn scroll_to_page(&self, idx: usize) {
@@ -543,6 +561,24 @@ impl PreviewPane {
         self.spinner.set_spinning(true);
         self.cancel_btn.set_visible(false);
         self.stack.set_visible_child_name("compiling");
+        self.spin_lbl.set_text("Compiling\u{2026}");
+        *self.compile_start_instant.borrow_mut() = Some(Instant::now());
+        {
+            let lbl = self.spin_lbl.clone();
+            let start_rc = self.compile_start_instant.clone();
+            let gen_for_spin = self.compile_gen.clone();
+            let spin_gen = my_gen;
+            glib::timeout_add_local(Duration::from_millis(500), move || {
+                if *gen_for_spin.borrow() != spin_gen {
+                    return glib::ControlFlow::Break;
+                }
+                if let Some(t) = *start_rc.borrow() {
+                    let secs = t.elapsed().as_secs();
+                    lbl.set_text(&format!("Compiling\u{2026} {secs}s"));
+                }
+                glib::ControlFlow::Continue
+            });
+        }
 
         // Show cancel button after 2 seconds
         let cancel_c = self.cancel_btn.clone();
@@ -588,11 +624,12 @@ impl PreviewPane {
                         CompileResult::Success(pages, elapsed) => {
                             pane.load_pixbufs_from_bytes(&pages);
                             pane.stack.set_visible_child_name("ready");
+                            let page_count = pane.page_count();
                             if let Some(f) = pane.on_compile_done.borrow().as_ref() {
                                 f(None);
                             }
                             if let Some(f) = pane.on_compile_time.borrow().as_ref() {
-                                f(elapsed.as_millis() as u64);
+                                f(elapsed.as_millis() as u64, Some(page_count));
                             }
                         }
                         CompileResult::Error(msg, elapsed) => {
@@ -602,7 +639,7 @@ impl PreviewPane {
                                 f(Some(msg));
                             }
                             if let Some(f) = pane.on_compile_time.borrow().as_ref() {
-                                f(elapsed.as_millis() as u64);
+                                f(elapsed.as_millis() as u64, None);
                             }
                         }
                     }

@@ -180,6 +180,7 @@ pub struct EditorPane {
     on_file_opened: Rc<RefCell<Option<Box<dyn Fn(PathBuf, String)>>>>,
     on_completion_needed: Rc<RefCell<Option<Box<dyn Fn(PathBuf, u32, u32)>>>>,
     on_cursor_heading: Rc<RefCell<Option<Box<dyn Fn(PathBuf, u32)>>>>,
+    on_cursor_moved: Rc<RefCell<Option<Box<dyn Fn(PathBuf, u32, u32)>>>>,
     bib_entries: Rc<RefCell<Vec<BibEntry>>>,
     font_provider: Rc<CssProvider>,
     font_size: Rc<RefCell<u32>>,
@@ -222,6 +223,7 @@ pub struct EditorPane {
     format_bar_label: Label,
     format_bar_toggle_btn: Button,
     on_format_bar_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
+    user_dismissed_format_bar: Rc<RefCell<bool>>,
     focus_label: Label,
     on_focus_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
     on_doc_font: Rc<RefCell<Option<Box<dyn Fn(String)>>>>,
@@ -529,6 +531,7 @@ impl EditorPane {
         breadcrumb_bar.append(&sep);
         breadcrumb_bar.append(&breadcrumb_label);
         breadcrumb_bar.append(&section_wc_label);
+        breadcrumb_bar.append(&tab_dropdown_btn);
         let _ = &word_wrap_btn; // kept for settings sync; not shown in toolbar
 
         let editor_row = GtkBox::new(Orientation::Horizontal, 0);
@@ -843,6 +846,8 @@ impl EditorPane {
             Rc::new(RefCell::new(None));
         let on_cursor_heading: Rc<RefCell<Option<Box<dyn Fn(PathBuf, u32)>>>> =
             Rc::new(RefCell::new(None));
+        let on_cursor_moved: Rc<RefCell<Option<Box<dyn Fn(PathBuf, u32, u32)>>>> =
+            Rc::new(RefCell::new(None));
         let on_autocorrect_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>> =
             Rc::new(RefCell::new(None));
         let on_gost_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>> =
@@ -911,6 +916,7 @@ impl EditorPane {
             on_file_opened,
             on_completion_needed,
             on_cursor_heading,
+            on_cursor_moved,
             bib_entries: Rc::new(RefCell::new(Vec::new())),
             font_provider: Rc::new(font_provider),
             font_size,
@@ -953,6 +959,7 @@ impl EditorPane {
             format_bar_label,
             format_bar_toggle_btn: format_bar_toggle_btn.clone(),
             on_format_bar_toggle: Rc::new(RefCell::new(None)),
+            user_dismissed_format_bar: Rc::new(RefCell::new(false)),
             focus_label,
             on_focus_toggle: Rc::new(RefCell::new(None)),
             on_doc_font: Rc::new(RefCell::new(None)),
@@ -1001,7 +1008,68 @@ impl EditorPane {
             format_bar_toggle_btn.connect_clicked(move |_| {
                 let new_val = !ep_fb.format_bar_visible();
                 ep_fb.set_format_bar_visible(new_val);
+                *ep_fb.user_dismissed_format_bar.borrow_mut() = !new_val;
                 if let Some(f) = ep_fb.on_format_bar_toggle.borrow().as_ref() { f(new_val); }
+            });
+        }
+        {
+            // Tab switcher dropdown — shows all open tabs as clickable rows.
+            let ep_tabs = ep.clone();
+            tab_dropdown_btn.connect_clicked(move |btn| {
+                let popover = Popover::new();
+                popover.set_parent(btn);
+                popover.set_has_arrow(true);
+
+                let vbox = GtkBox::new(Orientation::Vertical, 0);
+                vbox.set_margin_top(4);
+                vbox.set_margin_bottom(4);
+
+                let state = ep_tabs.state.borrow();
+                let current = ep_tabs.notebook.current_page();
+
+                // Build ordered list: current tab first, then rest in notebook order.
+                let mut entries: Vec<(u32, String, PathBuf)> = state.tabs.iter()
+                    .filter_map(|(path, tab)| {
+                        let page = ep_tabs.notebook.page_num(&tab.scroll_window)?;
+                        let name = path.file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("untitled")
+                            .to_string();
+                        Some((page, name, path.clone()))
+                    })
+                    .collect();
+                entries.sort_by_key(|(page, _, _)| *page);
+                drop(state);
+
+                if entries.is_empty() {
+                    let lbl = Label::new(Some("No open files"));
+                    lbl.add_css_class("dim-label");
+                    lbl.set_margin_top(4);
+                    lbl.set_margin_bottom(4);
+                    lbl.set_margin_start(8);
+                    lbl.set_margin_end(8);
+                    vbox.append(&lbl);
+                } else {
+                    for (page, name, _path) in entries {
+                        let row = Button::with_label(&name);
+                        row.add_css_class("flat");
+                        if Some(page) == current {
+                            row.add_css_class("accent");
+                        }
+                        let nb = ep_tabs.notebook.clone();
+                        let pop = popover.clone();
+                        row.connect_clicked(move |_| {
+                            nb.set_current_page(Some(page));
+                            pop.popdown();
+                        });
+                        vbox.append(&row);
+                    }
+                }
+
+                popover.set_child(Some(&vbox));
+                let pop_close = popover.clone();
+                popover.connect_closed(move |_| pop_close.unparent());
+                popover.popup();
             });
         }
         {
@@ -1299,7 +1367,7 @@ impl EditorPane {
         *self.simple_mode.borrow_mut() = on;
         set_toggle_label(&self.simple_mode_label, "SIMPLE", on);
         self.apply_simple_mode_to_buffer(on);
-        if on && !self.format_bar_visible() {
+        if on && !self.format_bar_visible() && !*self.user_dismissed_format_bar.borrow() {
             self.set_format_bar_visible(true);
             if let Some(f) = self.on_format_bar_toggle.borrow().as_ref() { f(true); }
         }
@@ -1422,16 +1490,56 @@ impl EditorPane {
             return;
         }
         let Some((view, buffer)) = self.active_view_buffer() else { return };
-        let flags = TextSearchFlags::TEXT_ONLY | TextSearchFlags::CASE_INSENSITIVE;
+        let case_sensitive = self.find_bar.is_case_sensitive();
+        let whole_word = self.find_bar.is_whole_word();
+        let regex_mode = self.find_bar.is_regex_mode();
         let cursor_pos = buffer.cursor_position();
 
-        let mut matches: Vec<(i32, i32)> = Vec::new();
-        let mut it = buffer.start_iter();
-        while let Some((s, e)) = it.forward_search(text, flags, None) {
-            let advance = e.clone();
-            matches.push((s.offset(), e.offset()));
-            it = advance;
-        }
+        let matches: Vec<(i32, i32)> = if regex_mode || whole_word {
+            let full_text = buffer.text(&buffer.start_iter(), &buffer.end_iter(), false).to_string();
+            let pattern = if whole_word {
+                format!("\\b{}\\b", regex::escape(text))
+            } else {
+                text.to_string()
+            };
+            let re_result = if case_sensitive {
+                regex::Regex::new(&pattern)
+            } else {
+                regex::Regex::new(&format!("(?i){}", pattern))
+            };
+            match re_result {
+                Err(_) => {
+                    self.find_bar.set_entry_error(true);
+                    self.find_bar.set_result("Invalid regex");
+                    return;
+                }
+                Ok(re) => {
+                    self.find_bar.set_entry_error(false);
+                    re.find_iter(&full_text)
+                        .map(|m| {
+                            let char_start = full_text[..m.start()].chars().count() as i32;
+                            let char_end = full_text[..m.end()].chars().count() as i32;
+                            (char_start, char_end)
+                        })
+                        .collect()
+                }
+            }
+        } else {
+            let flags = if case_sensitive {
+                TextSearchFlags::TEXT_ONLY
+            } else {
+                TextSearchFlags::TEXT_ONLY | TextSearchFlags::CASE_INSENSITIVE
+            };
+            let mut v = Vec::new();
+            let mut it = buffer.start_iter();
+            while let Some((s, e)) = it.forward_search(text, flags, None) {
+                let advance = e.clone();
+                v.push((s.offset(), e.offset()));
+                it = advance;
+            }
+            self.find_bar.set_entry_error(false);
+            v
+        };
 
         if matches.is_empty() {
             self.find_bar.set_result("No results");
@@ -1461,9 +1569,15 @@ impl EditorPane {
             return;
         }
         let Some((_view, buffer)) = self.active_view_buffer() else { return };
+        let case_sensitive = self.find_bar.is_case_sensitive();
         if let Some((sel_start, sel_end)) = buffer.selection_bounds() {
             let selected = buffer.text(&sel_start, &sel_end, false).to_string();
-            if selected.to_lowercase() == find.to_lowercase() {
+            let matches = if case_sensitive {
+                selected == find
+            } else {
+                selected.to_lowercase() == find.to_lowercase()
+            };
+            if matches {
                 let offset = sel_start.offset();
                 let mut s = sel_start;
                 let mut e = sel_end;
@@ -1482,24 +1596,66 @@ impl EditorPane {
             return;
         }
         let Some((_view, buffer)) = self.active_view_buffer() else { return };
-        let flags = TextSearchFlags::TEXT_ONLY | TextSearchFlags::CASE_INSENSITIVE;
+        let case_sensitive = self.find_bar.is_case_sensitive();
+        let whole_word = self.find_bar.is_whole_word();
+        let regex_mode = self.find_bar.is_regex_mode();
         let mut count: usize = 0;
-        buffer.begin_user_action();
-        let mut iter = buffer.start_iter();
-        loop {
-            match iter.forward_search(find, flags, None) {
-                Some((mut start, mut end)) => {
-                    let offset = start.offset();
-                    buffer.delete(&mut start, &mut end);
-                    let mut ins = buffer.iter_at_offset(offset);
-                    buffer.insert(&mut ins, replace);
-                    iter = buffer.iter_at_offset(offset + replace.chars().count() as i32);
-                    count += 1;
+
+        if regex_mode || whole_word {
+            let full_text = buffer.text(&buffer.start_iter(), &buffer.end_iter(), false).to_string();
+            let pattern = if whole_word {
+                format!("\\b{}\\b", regex::escape(find))
+            } else {
+                find.to_string()
+            };
+            let re_result = if case_sensitive {
+                regex::Regex::new(&pattern)
+            } else {
+                regex::Regex::new(&format!("(?i){}", pattern))
+            };
+            match re_result {
+                Err(_) => {
+                    self.find_bar.set_entry_error(true);
+                    self.find_bar.set_result("Invalid regex");
+                    return;
                 }
-                None => break,
+                Ok(re) => {
+                    self.find_bar.set_entry_error(false);
+                    let new_text = re.replace_all(&full_text, replace);
+                    count = re.find_iter(&full_text).count();
+                    let mut start = buffer.start_iter();
+                    let mut end = buffer.end_iter();
+                    buffer.begin_user_action();
+                    buffer.delete(&mut start, &mut end);
+                    let mut ins = buffer.start_iter();
+                    buffer.insert(&mut ins, &new_text);
+                    buffer.end_user_action();
+                }
             }
+        } else {
+            let flags = if case_sensitive {
+                TextSearchFlags::TEXT_ONLY
+            } else {
+                TextSearchFlags::TEXT_ONLY | TextSearchFlags::CASE_INSENSITIVE
+            };
+            self.find_bar.set_entry_error(false);
+            buffer.begin_user_action();
+            let mut iter = buffer.start_iter();
+            loop {
+                match iter.forward_search(find, flags, None) {
+                    Some((mut start, mut end)) => {
+                        let offset = start.offset();
+                        buffer.delete(&mut start, &mut end);
+                        let mut ins = buffer.iter_at_offset(offset);
+                        buffer.insert(&mut ins, replace);
+                        iter = buffer.iter_at_offset(offset + replace.chars().count() as i32);
+                        count += 1;
+                    }
+                    None => break,
+                }
+            }
+            buffer.end_user_action();
         }
-        buffer.end_user_action();
         self.find_bar.set_result(&format!("Replaced {count}"));
     }
 
@@ -1641,6 +1797,10 @@ impl EditorPane {
 
     pub fn set_on_cursor_heading(&self, f: impl Fn(PathBuf, u32) + 'static) {
         *self.on_cursor_heading.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn set_on_cursor_moved(&self, f: impl Fn(PathBuf, u32, u32) + 'static) {
+        *self.on_cursor_moved.borrow_mut() = Some(Box::new(f));
     }
 
     pub fn apply_style(&self, style_code: &str, bib_style: &str, bib_title: &str, style_key: &str) {
@@ -1878,6 +2038,46 @@ impl EditorPane {
             return;
         }
         self.open_file(path, content);
+    }
+
+    /// Replace only the preamble region of an already-open file, preserving the
+    /// undo stack for everything below the body marker.
+    pub fn splice_preamble(&self, path: PathBuf, full_new_content: &str) {
+        const BODY_MARKERS: &[&str] = &["// \u{2500}\u{2500} Document body", "// \u{2500}\u{2500} Chapters"];
+        let existing = {
+            let state = self.state.borrow();
+            state.tabs.get(&path).map(|tab| (tab.buffer.clone(), tab.scroll_window.clone()))
+        };
+        let Some((buffer, scroll)) = existing else {
+            self.open_file(path, full_new_content);
+            return;
+        };
+        if let Some(n) = self.notebook.page_num(&scroll) {
+            self.notebook.set_current_page(Some(n));
+        }
+        let current_text = buffer.text(&buffer.start_iter(), &buffer.end_iter(), false).to_string();
+        let marker = BODY_MARKERS.iter().find(|m| current_text.contains(*m));
+        match marker {
+            Some(m) => {
+                let body_byte = current_text.find(m).unwrap();
+                let body_char = current_text[..body_byte].chars().count() as i32;
+                let new_preamble = full_new_content.find(m)
+                    .map(|pos| &full_new_content[..pos])
+                    .unwrap_or(full_new_content);
+                let mut preamble_end = buffer.iter_at_offset(body_char);
+                let mut preamble_start = buffer.start_iter();
+                buffer.begin_user_action();
+                buffer.delete(&mut preamble_start, &mut preamble_end);
+                let mut ins = buffer.start_iter();
+                buffer.insert(&mut ins, new_preamble);
+                buffer.end_user_action();
+                apply_simple_mode_tag(&buffer, *self.simple_mode.borrow());
+            }
+            None => {
+                buffer.set_text(full_new_content);
+                apply_simple_mode_tag(&buffer, *self.simple_mode.borrow());
+            }
+        }
     }
 
     pub fn open_file(&self, path: PathBuf, content: &str) {
@@ -2261,7 +2461,10 @@ impl EditorPane {
         let breadcrumb_lbl = self.breadcrumb_label.clone();
         let lsp_lbl_for_pkg = self.lsp_status_label.clone();
         let on_heading_cb = self.on_cursor_heading.clone();
+        let on_moved_cb = self.on_cursor_moved.clone();
+        let cursor_moved_timer: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
         let path_for_heading = path.clone();
+        let path_for_moved = path.clone();
         let last_heading_line: Rc<RefCell<u32>> = Rc::new(RefCell::new(u32::MAX));
         let typewriter_for_mark = self.typewriter_scroll.clone();
         let view_for_typewriter = view.clone();
@@ -2392,6 +2595,24 @@ impl EditorPane {
                             }
                         }
                     }
+                }
+
+                // Debounced reverse sync: notify app_window of cursor position 300ms after it settles.
+                {
+                    let line = cursor.line() as u32;
+                    let total = buf.line_count() as u32;
+                    if let Some(id) = cursor_moved_timer.borrow_mut().take() { id.remove(); }
+                    let cb = on_moved_cb.clone();
+                    let path_m = path_for_moved.clone();
+                    let id = glib::timeout_add_local_once(
+                        std::time::Duration::from_millis(300),
+                        move || {
+                            if let Some(f) = cb.borrow().as_ref() {
+                                f(path_m.clone(), line, total);
+                            }
+                        },
+                    );
+                    *cursor_moved_timer.borrow_mut() = Some(id);
                 }
             }
         });

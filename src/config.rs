@@ -101,6 +101,8 @@ pub struct Config {
     pub shown_simple_intro: bool,
     #[serde(default = "default_true")]
     pub format_bar_visible: bool,
+    #[serde(default)]
+    pub last_used_advanced: bool,
 }
 
 fn default_work_dir() -> PathBuf {
@@ -161,6 +163,7 @@ impl Default for Config {
             simple_mode: true,
             shown_simple_intro: false,
             format_bar_visible: true,
+            last_used_advanced: false,
         }
     }
 }
