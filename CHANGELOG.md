@@ -5,6 +5,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.7-rc2] — Phase 3 & 4: reverse sync, build log, compile timer
+
+### Added
+
+- **Reverse sync** — moving the cursor in the editor scrolls the preview proportionally to the cursor position (debounced 300 ms).
+- **Compile elapsed timer** — the spinner now shows "Compiling… Ns" updating every 500 ms while the compiler runs.
+- **Build Log panel** — a collapsible "Build Log" section appears below the error panel on compile failure, showing the raw Typst stderr output.
+- **Compile status label** — shows "✓ N pages · X.Xs" on success and "✗ X.Xs" on error (previously always said "Compiled in X.Xs").
+
+---
+
 ## [0.13.7-rc1] — Simple mode polish
 
 ### Changed

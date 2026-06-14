@@ -57,6 +57,17 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release type="development" version="0.13.7-rc2" date="2026-06-14">
+      <description>
+        <p>Phase 3 &amp; 4: reverse sync, build log, compile timer.</p>
+        <ul>
+          <li>Cursor movement in the editor scrolls the preview proportionally (debounced 300 ms).</li>
+          <li>Compile spinner shows elapsed seconds while compiling.</li>
+          <li>Collapsible Build Log panel shows raw Typst stderr on compile failure.</li>
+          <li>Compile status label shows page count and timing on success, error indicator on failure.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.13.7-rc1" date="2026-06-13">
       <description>
         <p>Simple mode polish.</p>

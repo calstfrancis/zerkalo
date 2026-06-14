@@ -114,14 +114,10 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
-                "Compile button added in the header — triggers a compile without toggling the preview",
-                "Auto compile is now the default for new installs",
-                "Search toggle is bold when the find bar is open",
-                "Font dropdown is wider so names are never truncated",
-                "Preview no longer jumps after recompile in auto-fit mode",
-                "Font dropdown shows only your enabled fonts (Font Management)",
-                "18pt, 20pt, 24pt added to size dropdown",
-                "Table picker cells visible; custom rows × cols entry added",
+                "Moving the cursor scrolls the preview to the matching position",
+                "Compile spinner shows elapsed seconds while the compiler runs",
+                "Build Log panel shows raw compiler output on error (collapsible)",
+                "Compile status shows page count and timing on success",
             ] {
                 body.append(&bullet_row(item));
             }

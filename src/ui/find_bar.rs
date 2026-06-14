@@ -4,7 +4,7 @@ use std::rc::Rc;
 use gtk4::prelude::*;
 use gtk4::{
     Box as GtkBox, Button, Entry, EventControllerKey, Label, Orientation, PropagationPhase,
-    Revealer, RevealerTransitionType, Separator,
+    Revealer, RevealerTransitionType, Separator, ToggleButton,
 };
 
 #[derive(Clone)]
@@ -16,6 +16,9 @@ pub struct FindBar {
     on_replace_one: Rc<RefCell<Option<Box<dyn Fn(&str, &str)>>>>,
     on_replace_all: Rc<RefCell<Option<Box<dyn Fn(&str, &str)>>>>,
     on_reveal_changed: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
+    case_btn: ToggleButton,
+    word_btn: ToggleButton,
+    regex_btn: ToggleButton,
 }
 
 impl FindBar {
@@ -37,6 +40,18 @@ impl FindBar {
         let find_entry = Entry::new();
         find_entry.set_placeholder_text(Some("Find…"));
         find_entry.set_hexpand(true);
+
+        let case_btn = ToggleButton::with_label("Aa");
+        case_btn.add_css_class("flat");
+        case_btn.set_tooltip_text(Some("Case sensitive"));
+
+        let word_btn = ToggleButton::with_label("\\b");
+        word_btn.add_css_class("flat");
+        word_btn.set_tooltip_text(Some("Whole word"));
+
+        let regex_btn = ToggleButton::with_label(".*");
+        regex_btn.add_css_class("flat");
+        regex_btn.set_tooltip_text(Some("Regular expression"));
 
         let prev_btn = Button::from_icon_name("go-up-symbolic");
         prev_btn.add_css_class("flat");
@@ -63,6 +78,9 @@ impl FindBar {
         replace_all_btn.set_tooltip_text(Some("Replace all occurrences"));
 
         bar.append(&find_entry);
+        bar.append(&case_btn);
+        bar.append(&word_btn);
+        bar.append(&regex_btn);
         bar.append(&prev_btn);
         bar.append(&next_btn);
         bar.append(&result_label);
@@ -146,6 +164,9 @@ impl FindBar {
             on_replace_one,
             on_replace_all,
             on_reveal_changed,
+            case_btn,
+            word_btn,
+            regex_btn,
         }
     }
 
@@ -180,5 +201,25 @@ impl FindBar {
 
     pub fn set_on_replace_all(&self, f: impl Fn(&str, &str) + 'static) {
         *self.on_replace_all.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn is_case_sensitive(&self) -> bool {
+        self.case_btn.is_active()
+    }
+
+    pub fn is_whole_word(&self) -> bool {
+        self.word_btn.is_active()
+    }
+
+    pub fn is_regex_mode(&self) -> bool {
+        self.regex_btn.is_active()
+    }
+
+    pub fn set_entry_error(&self, error: bool) {
+        if error {
+            self.find_entry.add_css_class("error");
+        } else {
+            self.find_entry.remove_css_class("error");
+        }
     }
 }
