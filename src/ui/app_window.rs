@@ -3080,6 +3080,167 @@ impl AppWindow {
             });
         }
 
+        // ── Project button in status bar ─────────────────────────────────────
+        //
+        // A MenuButton labelled "project" (bold when a root is set) that opens
+        // a small popover for root-file management.
+        {
+            let proj_menu_btn = MenuButton::new();
+            proj_menu_btn.add_css_class("flat");
+            proj_menu_btn.add_css_class("status-toggle");
+            proj_menu_btn.set_tooltip_text(Some("Project settings — root file"));
+            proj_menu_btn.update_property(&[gtk4::accessible::Property::Label("Project settings")]);
+
+            let proj_btn_label = Label::new(Some("project"));
+            proj_btn_label.set_use_markup(true);
+            proj_btn_label.add_css_class("caption");
+            proj_btn_label.set_margin_top(3);
+            proj_btn_label.set_margin_bottom(3);
+            proj_menu_btn.set_child(Some(&proj_btn_label));
+
+            // ── Popover contents ──────────────────────────────────────────────
+            let pop_box = GtkBox::new(Orientation::Vertical, 6);
+            pop_box.set_margin_top(10);
+            pop_box.set_margin_bottom(10);
+            pop_box.set_margin_start(12);
+            pop_box.set_margin_end(12);
+
+            let pop_heading = Label::new(Some("Root file"));
+            pop_heading.add_css_class("heading");
+            pop_heading.set_halign(Align::Start);
+            pop_box.append(&pop_heading);
+
+            let root_value_lbl = Label::new(Some("not set"));
+            root_value_lbl.add_css_class("dim-label");
+            root_value_lbl.set_halign(Align::Start);
+            root_value_lbl.set_ellipsize(gtk4::pango::EllipsizeMode::Middle);
+            root_value_lbl.set_max_width_chars(28);
+            pop_box.append(&root_value_lbl);
+
+            let btn_row = GtkBox::new(Orientation::Horizontal, 6);
+            btn_row.set_margin_top(4);
+            let set_root_btn = Button::with_label("Set Root File\u{2026}");
+            set_root_btn.add_css_class("suggested-action");
+            set_root_btn.add_css_class("pill");
+            set_root_btn.set_hexpand(true);
+            let clear_root_btn = Button::with_label("Clear");
+            clear_root_btn.add_css_class("destructive-action");
+            clear_root_btn.add_css_class("pill");
+            btn_row.append(&set_root_btn);
+            btn_row.append(&clear_root_btn);
+            pop_box.append(&btn_row);
+
+            let popover = Popover::new();
+            popover.set_child(Some(&pop_box));
+            proj_menu_btn.set_popover(Some(&popover));
+
+            // Initialise label from current root state
+            {
+                let root_name = configured_root.borrow().as_ref()
+                    .and_then(|p| p.file_name())
+                    .and_then(|n| n.to_str())
+                    .map(|s| s.to_string());
+                if let Some(name) = root_name {
+                    root_value_lbl.set_text(&name);
+                    proj_btn_label.set_markup("<b>project</b>");
+                    clear_root_btn.set_sensitive(true);
+                } else {
+                    clear_root_btn.set_sensitive(false);
+                }
+            }
+
+            // Shared helper: update both the popover label and the button label
+            let root_value_lbl_rc = Rc::new(root_value_lbl);
+            let proj_btn_label_rc = Rc::new(proj_btn_label);
+            let clear_root_btn_rc = Rc::new(clear_root_btn);
+
+            // "Set Root File…" button
+            {
+                let win_c = window.clone();
+                let root_dir_c = project_root.clone();
+                let root_ref_c = configured_root.clone();
+                let preview_c = preview_pane.clone();
+                let title_c = file_title_widget.clone();
+                let ep_c = editor_pane.clone();
+                let popover_c = popover.clone();
+                let rvl = root_value_lbl_rc.clone();
+                let bll = proj_btn_label_rc.clone();
+                let clr = clear_root_btn_rc.clone();
+                set_root_btn.connect_clicked(move |_| {
+                    popover_c.popdown();
+                    let dialog = gtk4::FileDialog::new();
+                    dialog.set_title("Set Root File");
+                    let filter = gtk4::FileFilter::new();
+                    filter.set_name(Some("Typst files (*.typ)"));
+                    filter.add_pattern("*.typ");
+                    let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
+                    filters.append(&filter);
+                    dialog.set_filters(Some(&filters));
+                    dialog.set_initial_folder(Some(&gtk4::gio::File::for_path(&root_dir_c)));
+                    let root_dir2 = root_dir_c.clone();
+                    let root_ref2 = root_ref_c.clone();
+                    let preview2 = preview_c.clone();
+                    let title2 = title_c.clone();
+                    let ep2 = ep_c.clone();
+                    let rvl2 = rvl.clone();
+                    let bll2 = bll.clone();
+                    let clr2 = clr.clone();
+                    dialog.open(Some(&win_c), None::<&gtk4::gio::Cancellable>, move |result| {
+                        if let Ok(file) = result {
+                            if let Some(path) = file.path() {
+                                preview2.set_root_file(path.clone());
+                                *root_ref2.borrow_mut() = Some(path.clone());
+                                if let Some(active) = ep2.get_active_path() {
+                                    if path != active {
+                                        let rn = path.file_name().and_then(|n| n.to_str()).unwrap_or("root");
+                                        let an = active.file_name().and_then(|n| n.to_str()).unwrap_or("file");
+                                        title2.set_subtitle(&format!("{rn} › {an}"));
+                                    } else {
+                                        title2.set_subtitle("");
+                                    }
+                                }
+                                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("?");
+                                rvl2.set_text(name);
+                                bll2.set_markup("<b>project</b>");
+                                clr2.set_sensitive(true);
+                                let rel = path.strip_prefix(&root_dir2).unwrap_or(&path).to_path_buf();
+                                let mut pcfg = crate::config::ProjectConfig::load(&root_dir2).unwrap_or_default();
+                                pcfg.root_file = Some(rel);
+                                let _ = pcfg.save(&root_dir2);
+                                preview2.trigger_compile();
+                            }
+                        }
+                    });
+                });
+            }
+
+            // "Clear" button
+            {
+                let root_ref_c = configured_root.clone();
+                let root_dir_c = project_root.clone();
+                let preview_c = preview_pane.clone();
+                let title_c = file_title_widget.clone();
+                let popover_c = popover.clone();
+                let rvl = root_value_lbl_rc.clone();
+                let bll = proj_btn_label_rc.clone();
+                let clr = clear_root_btn_rc.clone();
+                clear_root_btn_rc.connect_clicked(move |_| {
+                    popover_c.popdown();
+                    preview_c.clear_root_file();
+                    *root_ref_c.borrow_mut() = None;
+                    title_c.set_subtitle("");
+                    rvl.set_text("not set");
+                    bll.set_markup("project");
+                    clr.set_sensitive(false);
+                    let mut pcfg = crate::config::ProjectConfig::load(&root_dir_c).unwrap_or_default();
+                    pcfg.root_file = None;
+                    let _ = pcfg.save(&root_dir_c);
+                });
+            }
+
+            editor_pane.status_bar_insert_after_goal(&proj_menu_btn);
+        }
+
         // Wire file_tree into the compile-done holder
         *file_tree_holder.borrow_mut() = Some(file_tree.clone());
 

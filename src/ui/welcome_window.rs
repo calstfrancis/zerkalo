@@ -119,6 +119,7 @@ impl WelcomeWindow {
                 "Build Log panel shows raw compiler output on error (collapsible)",
                 "Compile status shows page count and timing on success",
                 "Citations sidebar: folder button to pick a .bib file; filename shown in header",
+                "Project button in status bar: set/clear root file without the file-tree menu",
             ] {
                 body.append(&bullet_row(item));
             }

@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.7-rc6] — Project button in status bar
+
+### Added
+
+- **Project button in status bar** — a "project" `MenuButton` in the status bar (beside the draft toggle) opens a popover for root-file management: shows the current root filename, a "Set Root File…" picker, and a "Clear" button. The label turns bold when a root file is active. The file-tree right-click menu is unchanged.
+
+---
+
 ## [0.13.7-rc5] — Simple mode left margin
 
 ### Changed
