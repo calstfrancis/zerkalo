@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.7-rc4] — Bib file picker in Citations sidebar
+
+### Added
+
+- **Bib file picker** — a folder-open button in the Citations sidebar header lets you select a `.bib` file directly without going through Settings. The filename of the active bibliography is shown in the header beside the "Citations" label. Selecting a file saves it to config.
+
+---
+
 ## [0.13.7-rc3] — Fix crash on cursor move after 300 ms debounce
 
 ### Fixed

@@ -57,6 +57,16 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release type="development" version="0.13.7-rc4" date="2026-06-17">
+      <description>
+        <p>Bib file picker in Citations sidebar.</p>
+        <ul>
+          <li>Folder-open button in the Citations header opens a file chooser for .bib files.</li>
+          <li>Active bibliography filename shown in the Citations header.</li>
+          <li>Selecting a file saves it to config and reloads the citation list immediately.</li>
+        </ul>
+      </description>
+    </release>
     <release type="development" version="0.13.7-rc3" date="2026-06-17">
       <description>
         <p>Fix crash on cursor move.</p>

@@ -3,13 +3,14 @@ use std::rc::Rc;
 
 use gtk4::prelude::*;
 use gtk4::{
-    Box as GtkBox, Label, ListBox, ListBoxRow, Orientation, ScrolledWindow,
+    Align, Box as GtkBox, Button, Label, ListBox, ListBoxRow, Orientation, ScrolledWindow,
     SearchEntry, SelectionMode, Separator,
 };
 
 use crate::bibliography::BibEntry;
 
 type InsertCb = Rc<RefCell<Option<Box<dyn Fn(String)>>>>;
+type ChooseBibCb = Rc<RefCell<Option<Box<dyn Fn()>>>>;
 
 #[derive(Clone)]
 pub struct CitationPanel {
@@ -18,22 +19,41 @@ pub struct CitationPanel {
     search: SearchEntry,
     entries: Rc<RefCell<Vec<BibEntry>>>,
     on_insert: InsertCb,
+    on_choose_bib: ChooseBibCb,
+    bib_name_label: Label,
 }
 
 impl CitationPanel {
     pub fn new() -> Self {
         let widget = GtkBox::new(Orientation::Vertical, 0);
 
-        let header_box = GtkBox::new(Orientation::Horizontal, 0);
+        let header_box = GtkBox::new(Orientation::Horizontal, 6);
         header_box.set_margin_start(10);
-        header_box.set_margin_end(10);
+        header_box.set_margin_end(6);
         header_box.set_margin_top(6);
         header_box.set_margin_bottom(6);
+
         let title = Label::new(Some("Citations"));
         title.set_xalign(0.0);
-        title.set_hexpand(true);
         title.add_css_class("heading");
         header_box.append(&title);
+
+        let bib_name_label = Label::new(None);
+        bib_name_label.add_css_class("dim-label");
+        bib_name_label.add_css_class("caption");
+        bib_name_label.set_hexpand(true);
+        bib_name_label.set_halign(Align::Start);
+        bib_name_label.set_ellipsize(gtk4::pango::EllipsizeMode::Middle);
+        bib_name_label.set_visible(false);
+        header_box.append(&bib_name_label);
+
+        let choose_btn = Button::from_icon_name("document-open-symbolic");
+        choose_btn.add_css_class("flat");
+        choose_btn.add_css_class("circular");
+        choose_btn.set_tooltip_text(Some("Choose bibliography file (.bib)"));
+        choose_btn.update_property(&[gtk4::accessible::Property::Label("Choose bibliography file")]);
+        header_box.append(&choose_btn);
+
         widget.append(&Separator::new(Orientation::Horizontal));
         widget.append(&header_box);
         widget.append(&Separator::new(Orientation::Horizontal));
@@ -59,6 +79,7 @@ impl CitationPanel {
         widget.append(&scroll);
 
         let on_insert: InsertCb = Rc::new(RefCell::new(None));
+        let on_choose_bib: ChooseBibCb = Rc::new(RefCell::new(None));
         let entries: Rc<RefCell<Vec<BibEntry>>> = Rc::new(RefCell::new(Vec::new()));
 
         // Wire activation once on the list — fires on double-click and Enter.
@@ -75,7 +96,14 @@ impl CitationPanel {
             });
         }
 
-        let panel = Self { widget, list, search, entries, on_insert };
+        {
+            let cb = on_choose_bib.clone();
+            choose_btn.connect_clicked(move |_| {
+                if let Some(f) = cb.borrow().as_ref() { f(); }
+            });
+        }
+
+        let panel = Self { widget, list, search, entries, on_insert, on_choose_bib, bib_name_label };
 
         {
             let p = panel.clone();
@@ -99,6 +127,22 @@ impl CitationPanel {
 
     pub fn set_on_insert(&self, f: impl Fn(String) + 'static) {
         *self.on_insert.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn set_on_choose_bib(&self, f: impl Fn() + 'static) {
+        *self.on_choose_bib.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn set_bib_filename(&self, name: Option<&str>) {
+        match name {
+            Some(n) => {
+                self.bib_name_label.set_text(n);
+                self.bib_name_label.set_visible(true);
+            }
+            None => {
+                self.bib_name_label.set_visible(false);
+            }
+        }
     }
 
     fn rebuild_list(&self, filter: &str) {
