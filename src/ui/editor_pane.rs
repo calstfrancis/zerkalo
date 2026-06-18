@@ -1374,10 +1374,12 @@ impl EditorPane {
     }
 
     fn apply_simple_mode_to_buffer(&self, on: bool) {
+        let left_margin = if on { 40 } else { 8 };
         let state = self.state.borrow();
         for tab in state.tabs.values() {
             apply_simple_mode_tag(&tab.buffer, on);
             tab.view.set_show_line_numbers(!on);
+            tab.view.set_left_margin(left_margin);
         }
     }
 
@@ -2151,8 +2153,10 @@ impl EditorPane {
         view.set_wrap_mode(wrap_mode);
         apply_space_drawer(&view, *self.show_whitespace.borrow());
         set_view_line_spacing(&view, *self.line_spacing.borrow());
-        // Comfortable content padding so the text never runs edge-to-edge.
-        view.set_left_margin(8);
+        // Comfortable content padding. In simple mode the gutter is hidden so
+        // add extra left padding to keep the text away from the window edge.
+        let left_margin = if *self.simple_mode.borrow() { 40 } else { 8 };
+        view.set_left_margin(left_margin);
         view.set_right_margin(8);
 
         // ── Image drag-and-drop ───────────────────────────────────────────────
