@@ -740,6 +740,7 @@ impl AppWindow {
             }
             editor_pane.set_bib_entries(entries.clone());
             citation_panel.load_bib(entries);
+            citation_panel.set_bib_filename(bp.file_name().and_then(|n| n.to_str()));
             ref_manager.load_bib(bp);
 
             let editor_for_bib = editor_pane.clone();
@@ -786,6 +787,7 @@ impl AppWindow {
                     let entries = bibliography::load_bib(&bib_path);
                     editor_pane.set_bib_entries(entries.clone());
                     citation_panel.load_bib(entries);
+                    citation_panel.set_bib_filename(bib_path.file_name().and_then(|n| n.to_str()));
                     *auto_detected_bib.borrow_mut() = Some(bib_path);
                 }
             }
@@ -796,6 +798,44 @@ impl AppWindow {
         {
             let ep = editor_pane.clone();
             citation_panel.set_on_insert(move |key| ep.insert_at_cursor(&format!("@{key}")));
+        }
+
+        // ── Citation panel: choose bib file button ────────────────────────────
+
+        {
+            let win_for_bib = window.clone();
+            let ep_for_bib = editor_pane.clone();
+            let cp_for_bib = citation_panel.clone();
+            let cfg_for_bib = current_config.clone();
+            let rm_for_bib = ref_manager.clone();
+            citation_panel.set_on_choose_bib(move || {
+                let dialog = gtk4::FileDialog::new();
+                dialog.set_title("Choose Bibliography File");
+                let filter = gtk4::FileFilter::new();
+                filter.set_name(Some("BibTeX files (*.bib)"));
+                filter.add_pattern("*.bib");
+                let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
+                filters.append(&filter);
+                dialog.set_filters(Some(&filters));
+                let win = win_for_bib.clone();
+                let ep = ep_for_bib.clone();
+                let cp = cp_for_bib.clone();
+                let cfg = cfg_for_bib.clone();
+                let rm = rm_for_bib.clone();
+                dialog.open(Some(&win), None::<&gtk4::gio::Cancellable>, move |result| {
+                    if let Ok(file) = result {
+                        if let Some(path) = file.path() {
+                            let entries = bibliography::load_bib(&path);
+                            ep.set_bib_entries(entries.clone());
+                            cp.load_bib(entries);
+                            cp.set_bib_filename(path.file_name().and_then(|n| n.to_str()));
+                            rm.load_bib(&path);
+                            cfg.borrow_mut().bib_path = Some(path);
+                            let _ = cfg.borrow().save();
+                        }
+                    }
+                });
+            });
         }
 
         // ── Reference manager: insert citation / jump to broken citation ──────
