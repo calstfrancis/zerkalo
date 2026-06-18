@@ -57,6 +57,16 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release type="development" version="0.13.7-rc6" date="2026-06-18">
+      <description>
+        <p>Project button in status bar.</p>
+        <ul>
+          <li>New "project" menu button in the status bar opens a popover for root-file management.</li>
+          <li>Shows the active root filename; bold label when a root is set.</li>
+          <li>Set Root File picker and Clear button available without the file-tree right-click menu.</li>
+        </ul>
+      </description>
+    </release>
     <release type="development" version="0.13.7-rc5" date="2026-06-17">
       <description>
         <p>Simple mode left margin.</p>
