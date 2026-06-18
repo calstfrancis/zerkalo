@@ -2462,7 +2462,7 @@ impl EditorPane {
         let lsp_lbl_for_pkg = self.lsp_status_label.clone();
         let on_heading_cb = self.on_cursor_heading.clone();
         let on_moved_cb = self.on_cursor_moved.clone();
-        let cursor_moved_timer: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
+        let cursor_moved_gen: Rc<std::cell::Cell<u64>> = Rc::new(std::cell::Cell::new(0));
         let path_for_heading = path.clone();
         let path_for_moved = path.clone();
         let last_heading_line: Rc<RefCell<u32>> = Rc::new(RefCell::new(u32::MAX));
@@ -2598,21 +2598,26 @@ impl EditorPane {
                 }
 
                 // Debounced reverse sync: notify app_window of cursor position 300ms after it settles.
+                // Uses a generation counter rather than SourceId::remove() — glib 0.18 panics when
+                // remove() is called on a source that timeout_add_local_once already auto-removed.
                 {
                     let line = cursor.line() as u32;
                     let total = buf.line_count() as u32;
-                    if let Some(id) = cursor_moved_timer.borrow_mut().take() { id.remove(); }
+                    let gen = cursor_moved_gen.get().wrapping_add(1);
+                    cursor_moved_gen.set(gen);
                     let cb = on_moved_cb.clone();
                     let path_m = path_for_moved.clone();
-                    let id = glib::timeout_add_local_once(
+                    let gen_rc = cursor_moved_gen.clone();
+                    glib::timeout_add_local_once(
                         std::time::Duration::from_millis(300),
                         move || {
-                            if let Some(f) = cb.borrow().as_ref() {
-                                f(path_m.clone(), line, total);
+                            if gen_rc.get() == gen {
+                                if let Some(f) = cb.borrow().as_ref() {
+                                    f(path_m.clone(), line, total);
+                                }
                             }
                         },
                     );
-                    *cursor_moved_timer.borrow_mut() = Some(id);
                 }
             }
         });

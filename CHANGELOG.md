@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.7-rc3] — Fix crash on cursor move after 300 ms debounce
+
+### Fixed
+
+- **Crash on cursor move** — `SourceId::remove()` in glib 0.18 panics when called on a source that `timeout_add_local_once` already auto-removed. The reverse-sync debounce now uses a generation counter instead of cancelling the source, eliminating the SIGABRT.
+
+---
+
 ## [0.13.7-rc2] — Phase 3 & 4: reverse sync, build log, compile timer
 
 ### Added
