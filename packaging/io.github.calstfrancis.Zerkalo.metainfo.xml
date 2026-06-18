@@ -57,6 +57,14 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release type="development" version="0.13.7-rc3" date="2026-06-17">
+      <description>
+        <p>Fix crash on cursor move.</p>
+        <ul>
+          <li>Fixed SIGABRT caused by calling SourceId::remove() on an already-expired glib source in the reverse-sync debounce timer.</li>
+        </ul>
+      </description>
+    </release>
     <release type="development" version="0.13.7-rc2" date="2026-06-14">
       <description>
         <p>Phase 3 &amp; 4: reverse sync, build log, compile timer.</p>
