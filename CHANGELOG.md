@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.7-rc5] — Simple mode left margin
+
+### Changed
+
+- **Simple mode left margin** — when Simple Mode hides the line-number gutter, the editor text is now indented 40 px from the left edge (up from 8 px) so the text isn't flush against the window border.
+
+---
+
 ## [0.13.7-rc4] — Bib file picker in Citations sidebar
 
 ### Added

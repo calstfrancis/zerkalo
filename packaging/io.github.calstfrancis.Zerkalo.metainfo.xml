@@ -57,6 +57,14 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release type="development" version="0.13.7-rc5" date="2026-06-17">
+      <description>
+        <p>Simple mode left margin.</p>
+        <ul>
+          <li>In Simple Mode the editor text is now indented 40 px from the left edge instead of flush at 8 px.</li>
+        </ul>
+      </description>
+    </release>
     <release type="development" version="0.13.7-rc4" date="2026-06-17">
       <description>
         <p>Bib file picker in Citations sidebar.</p>
