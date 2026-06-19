@@ -119,8 +119,8 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
+                "Preview always opens the same file as the editor on startup",
                 "Template dialog redesigned — tab sidebar runs the full window height; new Template tab shows the gallery; Quick Settings removed",
-                "Preview always shows the most recently opened file — project root only applies when the project toggle is ON",
                 "Project toggle in status bar — reveals root-file controls inline (left of SIMPLE)",
                 "Citations sidebar — folder button picks a .bib file; filename shown in header",
                 "Cursor movement scrolls the preview to the matching position",
@@ -232,14 +232,19 @@ fn bullet_row(text: &str) -> GtkBox {
 }
 
 fn shortcut_row(key: &str, desc: &str) -> GtkBox {
-    let row = GtkBox::new(Orientation::Horizontal, 0);
+    let row = GtkBox::new(Orientation::Horizontal, 8);
     row.set_margin_start(4);
+    row.set_hexpand(true);
     let key_lbl = Label::new(Some(key));
-    key_lbl.set_width_chars(22);
+    key_lbl.set_width_chars(16);
     key_lbl.set_xalign(0.0);
     key_lbl.add_css_class("monospace");
     let desc_lbl = Label::new(Some(desc));
     desc_lbl.set_xalign(0.0);
+    desc_lbl.set_hexpand(true);
+    desc_lbl.set_halign(Align::Fill);
+    desc_lbl.set_wrap(true);
+    desc_lbl.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
     desc_lbl.add_css_class("dim-label");
     row.append(&key_lbl);
     row.append(&desc_lbl);

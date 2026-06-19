@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.8-rc3] — Preview startup fix (definitive); release notes wrapping
+
+### Fixed
+
+- **Preview startup mismatch** — removed the conflicting `build()` restore path that was opening `recent_files[0]` separately from the session restore. `open_initial_file()` now handles the sole restore; after the event loop starts, an `idle_add_local_once` explicitly sets the preview root to whatever file the editor is showing and triggers compile. This fires last, after all `on_page_switch` compiles, guaranteeing the preview always matches the editor.
+- **Release notes text too wide** — shortcut key column reduced from 22 to 16 chars; description column now wraps with `WrapMode::WordChar` and fills the row width.
+
+---
+
 ## [0.13.8-rc2] — Template dialog redesign; preview startup fix; release notes width
 
 ### Fixed

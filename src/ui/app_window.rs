@@ -2381,22 +2381,6 @@ impl AppWindow {
             glib::ControlFlow::Continue
         });
 
-        // ── Restore last open file ───────────────────────────────────────────
-        {
-            let last = config.recent_files.iter().find(|p| p.exists()).cloned();
-            if let Some(path) = last {
-                if let Ok(content) = std::fs::read_to_string(&path) {
-                    editor_pane.open_file(path.clone(), &content);
-                    // on_page_switch (fired inside open_file) may compile configured_root
-                    // rather than the active file if a project root is set from a previous
-                    // session. Override here so the preview always matches the editor.
-                    preview_pane.set_buffer_snapshot(path.clone(), content);
-                    preview_pane.set_root_file(path);
-                    preview_pane.trigger_compile();
-                }
-            }
-        }
-
         // ── LSP: initialise 500 ms after startup ────────────────────────────
 
         let lsp_init = lsp_client.clone();
@@ -3991,10 +3975,20 @@ impl AppWindow {
             if let Some(ref active) = session.active_file {
                 self.editor_pane.switch_to_file(active);
             }
-            // Restore cursor positions after layout settles
+            // After the event loop starts, pin the preview to whichever file the
+            // editor is actually showing.  This runs last, after all the
+            // open_file / switch_to_file on_page_switch compiles, so it wins.
             let ep = self.editor_pane.clone();
+            let pv = self.preview_pane.clone();
             let positions = session.cursor_positions.clone();
             glib::idle_add_local_once(move || {
+                if let Some(path) = ep.get_active_path() {
+                    if let Some(content) = ep.get_active_content() {
+                        pv.set_buffer_snapshot(path.clone(), content);
+                    }
+                    pv.set_root_file(path);
+                    pv.trigger_compile();
+                }
                 for (path, offset) in &positions {
                     ep.restore_cursor(path, *offset);
                 }
@@ -4011,9 +4005,18 @@ impl AppWindow {
                 }
             };
             self.editor_pane.open_file(path, &content);
-            // Kick off an initial compile so the preview isn't blank on first launch.
+            // Pin preview to the active editor file after the event loop starts.
+            let ep = self.editor_pane.clone();
             let pv = self.preview_pane.clone();
-            glib::idle_add_local_once(move || { pv.trigger_compile(); });
+            glib::idle_add_local_once(move || {
+                if let Some(path) = ep.get_active_path() {
+                    if let Some(content) = ep.get_active_content() {
+                        pv.set_buffer_snapshot(path.clone(), content);
+                    }
+                    pv.set_root_file(path);
+                }
+                pv.trigger_compile();
+            });
         }
     }
 
