@@ -57,6 +57,18 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release type="development" version="0.13.7-rc8" date="2026-06-19">
+      <description>
+        <p>Project toggle layout polish and banner fix.</p>
+        <ul>
+          <li>Project toggle and inline controls now appear to the left of the SIMPLE button.</li>
+          <li>Inline controls appear left of the toggle when expanded.</li>
+          <li>Draft/Final toggle hidden from status bar.</li>
+          <li>Root-file suggestion banner only appears when project toggle is ON.</li>
+          <li>What's New window text now wraps correctly within the window width.</li>
+        </ul>
+      </description>
+    </release>
     <release type="development" version="0.13.7-rc7" date="2026-06-19">
       <description>
         <p>Simple mode, project toggle, and Help toggle polish.</p>

@@ -705,7 +705,8 @@ impl AppWindow {
 
         // Style dropdown goes in the breadcrumb/toolbar bar on the right side
         editor_pane.breadcrumb_bar_append(&style_btn);
-        // Draft toggle stays in status bar, after the goal bar
+        // Draft toggle hidden for now — functionality preserved but not shown
+        draft_toggle.set_visible(false);
         editor_pane.status_bar_insert_after_goal(&draft_toggle);
 
         // ── Simple mode wiring ──────────────────────────────────────────────
@@ -2743,13 +2744,15 @@ impl AppWindow {
         }
 
         // ── main.typ heuristic banner ────────────────────────────────────────
+        // Banner starts hidden; revealed only when the project toggle is ON.
+        let root_banner: Rc<RefCell<Option<adw::Banner>>> = Rc::new(RefCell::new(None));
         {
             let main_path = project_root.join("main.typ");
             let no_root_configured = configured_root.borrow().is_none();
             if no_root_configured && main_path.exists() {
                 let banner = adw::Banner::new("main.typ detected — set it as root?");
                 banner.set_button_label(Some("Set as Root"));
-                banner.set_revealed(true);
+                banner.set_revealed(false); // revealed by project toggle
                 let preview_for_banner = preview_pane.clone();
                 let root_ref_banner = configured_root.clone();
                 let root_dir_banner = project_root.clone();
@@ -2759,7 +2762,6 @@ impl AppWindow {
                     b.set_revealed(false);
                     preview_for_banner.set_root_file(main_path.clone());
                     *root_ref_banner.borrow_mut() = Some(main_path.clone());
-                    // Update subtitle if active file differs from root
                     if let Some(active) = ep_for_banner.get_active_path() {
                         if main_path != active {
                             let root_name = main_path.file_name().and_then(|n| n.to_str()).unwrap_or("root");
@@ -2767,7 +2769,6 @@ impl AppWindow {
                             title_w_banner.set_subtitle(&format!("{root_name} › {active_name}"));
                         }
                     }
-                    // Save to project config
                     let rel = main_path.strip_prefix(&root_dir_banner).unwrap_or(&main_path).to_path_buf();
                     let mut pcfg = crate::config::ProjectConfig::load(&root_dir_banner).unwrap_or_default();
                     pcfg.root_file = Some(rel);
@@ -2775,6 +2776,7 @@ impl AppWindow {
                     preview_for_banner.trigger_compile();
                 });
                 preview_outer.prepend(&banner);
+                *root_banner.borrow_mut() = Some(banner);
             }
         }
 
@@ -3136,11 +3138,16 @@ impl AppWindow {
                 }
             }
 
-            // Toggle → show/hide inline controls
+            // Toggle → show/hide inline controls and root banner
             {
                 let ctrls = proj_controls.clone();
+                let banner_rc = root_banner.clone();
                 proj_toggle.connect_toggled(move |btn| {
-                    ctrls.set_visible(btn.is_active());
+                    let on = btn.is_active();
+                    ctrls.set_visible(on);
+                    if let Some(b) = banner_rc.borrow().as_ref() {
+                        b.set_revealed(on);
+                    }
                 });
             }
 
@@ -3228,10 +3235,10 @@ impl AppWindow {
                 });
             }
 
-            // Insert controls first (they end up after goal_bar), then the
-            // toggle (inserts after goal_bar, pushing controls to the right).
-            editor_pane.status_bar_insert_after_goal(&proj_controls);
-            editor_pane.status_bar_insert_after_goal(&proj_toggle);
+            // Insert before SIMPLE: toggle first (ends up just left of SIMPLE),
+            // then controls (ends up just left of toggle, so: [controls | toggle | SIMPLE]).
+            editor_pane.status_bar_insert_before_simple(&proj_toggle);
+            editor_pane.status_bar_insert_before_simple(&proj_controls);
         }
 
         // Wire file_tree into the compile-done holder

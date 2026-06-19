@@ -213,6 +213,7 @@ pub struct EditorPane {
     last_wc_text: Rc<RefCell<String>>,
     project_root: Rc<RefCell<Option<PathBuf>>>,
     status_bar: GtkBox,
+    status_bar_left_spacer: GtkBox,
     autocorrect_label: Label,
     on_autocorrect_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
     gost_label: Label,
@@ -948,6 +949,7 @@ impl EditorPane {
             last_wc_text,
             project_root,
             status_bar,
+            status_bar_left_spacer: left_spacer.clone(),
             autocorrect_label,
             on_autocorrect_toggle,
             gost_label,
@@ -1309,6 +1311,12 @@ impl EditorPane {
 
     pub fn status_bar_insert_after_goal(&self, w: &impl gtk4::prelude::IsA<gtk4::Widget>) {
         self.status_bar.insert_child_after(w, Some(&self.goal_bar));
+    }
+
+    /// Insert a widget into the status bar just before the SIMPLE toggle
+    /// (i.e. between the hexpand spacer and SIMPLE).
+    pub fn status_bar_insert_before_simple(&self, w: &impl gtk4::prelude::IsA<gtk4::Widget>) {
+        self.status_bar.insert_child_after(w, Some(&self.status_bar_left_spacer));
     }
 
     // ── Settings ──────────────────────────────────────────────────────────────
