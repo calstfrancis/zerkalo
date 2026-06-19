@@ -5,17 +5,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.13.8-rc1] — Preview startup fix; template dialog vertical tabs; drafting package removed
+## [0.13.8-rc2] — Template dialog redesign; preview startup fix; release notes width
 
 ### Fixed
 
-- **Preview shows wrong file on startup** — on launch, the preview now always compiles the most recently opened file. Previously, if a project root was configured from a prior session, the preview would show that root's output even though the editor had opened a different file.
-- **Release notes text overflow** — `bullet_row` labels now use `WrapMode::WordChar` and fill their column correctly; the body box is marked `hexpand` so content wraps within the window width.
+- **Preview shows wrong file on startup** — project mode is now off by default; `on_page_switch` only uses the configured root file when the project toggle is actively ON. Previously the root from a prior session would cause the preview to show a stale file even though the editor opened a fresh one.
+- **Release notes text too wide** — welcome window reduced to 460 px; all body labels now wrap with `WrapMode::WordChar`; `hscrollbar_policy` is `Never`.
 
 ### Changed
 
-- **Template dialog: tabs always visible, now vertical** — the five settings tabs (Document, Layout, Sections, Languages, Packages) are no longer hidden inside an "Advanced settings" expander. They appear directly below Quick Settings with left-side (vertical) tab labels.
-- **Drafting package removed from Packages tab** — `@preview/drafting:0.2.2` exports conflicting names when imported with `*` in Typst 0.14, causing compile errors. Removed from the package list until a compatible version is available.
+- **Template dialog fully redesigned** — the tab sidebar now runs the full window height with no content above it. "Template" is the first tab and contains the starting-template gallery (preset list + live preview). Quick Settings panel removed. All five settings tabs (Document, Layout, Sections, Languages, Packages) remain.
+- **Drafting package removed from Packages tab** — `@preview/drafting:0.2.2` exports conflicting names in Typst 0.14. Removed until a compatible version is available.
 
 ---
 

@@ -5,7 +5,6 @@ use std::rc::Rc;
 
 use chrono::Local;
 
-use std::cell::Cell;
 
 use gtk4::prelude::*;
 use gtk4::{
@@ -782,142 +781,14 @@ impl TemplateDialog {
         };
 
         // ── Simple form group ────────────────────────────────────────────────
-        let simple_group = adw::PreferencesGroup::new();
-        simple_group.set_title("Quick Settings");
-        simple_group.set_margin_top(12);
-        simple_group.set_margin_bottom(12);
-        simple_group.set_margin_start(12);
-        simple_group.set_margin_end(12);
-
-        let simple_title = adw::EntryRow::new();
-        simple_title.set_title("Title");
-        simple_group.add(&simple_title);
-
-        let simple_author = adw::EntryRow::new();
-        simple_author.set_title("Author");
-        simple_group.add(&simple_author);
-
-        let simple_preset_labels: Vec<&str> = TEMPLATE_PRESETS.iter().map(|p| p.name).collect();
-        let simple_preset_model = gtk4::StringList::new(&simple_preset_labels);
-        let simple_preset = adw::ComboRow::new();
-        simple_preset.set_title("Style Preset");
-        simple_preset.set_model(Some(&simple_preset_model));
-        simple_preset.set_selected(0);
-        simple_group.add(&simple_preset);
-
-        let simple_paper_model = gtk4::StringList::new(&["US Letter", "A4", "A5"]);
-        let simple_paper = adw::ComboRow::new();
-        simple_paper.set_title("Paper Size");
-        simple_paper.set_model(Some(&simple_paper_model));
-        simple_paper.set_selected(0);
-        simple_group.add(&simple_paper);
-
-        // Sync simple_title ↔ title_row (avoid feedback loops with a flag)
-        let syncing_title: Rc<Cell<bool>> = Rc::new(Cell::new(false));
-        {
-            let tr = title_row.clone();
-            let flag = syncing_title.clone();
-            simple_title.connect_changed(move |e| {
-                if !flag.get() {
-                    flag.set(true);
-                    tr.set_text(&e.text());
-                    flag.set(false);
-                }
-            });
-        }
-        {
-            let st = simple_title.clone();
-            let flag = syncing_title.clone();
-            title_row.connect_changed(move |e| {
-                if !flag.get() {
-                    flag.set(true);
-                    st.set_text(&e.text());
-                    flag.set(false);
-                }
-            });
-        }
-
-        // Sync simple_author ↔ author_row
-        let syncing_author: Rc<Cell<bool>> = Rc::new(Cell::new(false));
-        {
-            let ar = author_row.clone();
-            let flag = syncing_author.clone();
-            simple_author.connect_changed(move |e| {
-                if !flag.get() {
-                    flag.set(true);
-                    ar.set_text(&e.text());
-                    flag.set(false);
-                }
-            });
-        }
-        {
-            let sa = simple_author.clone();
-            let flag = syncing_author.clone();
-            author_row.connect_changed(move |e| {
-                if !flag.get() {
-                    flag.set(true);
-                    sa.set_text(&e.text());
-                    flag.set(false);
-                }
-            });
-        }
-
-        // simple_preset → apply preset to advanced form (same logic as gallery card)
-        {
-            let g_style = style_row.clone();
-            let g_paper = paper_row.clone();
-            let g_margin = margin_row.clone();
-            let g_spacing = spacing_row.clone();
-            let g_pnum = pnum_row.clone();
-            let g_toc = toc_row.clone();
-            let g_abstract = abstract_row.clone();
-            let g_keywords = keywords_row.clone();
-            let bk_state_c = body_kind_state.clone();
-            let sp_paper = simple_paper.clone();
-            simple_preset.connect_selected_notify(move |r| {
-                let idx = r.selected() as usize;
-                if let Some(p) = TEMPLATE_PRESETS.get(idx) {
-                    *bk_state_c.borrow_mut() = p.body_kind;
-                    g_style.set_selected(p.style_idx);
-                    g_paper.set_selected(p.paper_idx);
-                    g_margin.set_selected(p.margin_idx);
-                    g_spacing.set_selected(p.spacing_idx);
-                    g_pnum.set_selected(p.page_num_pos);
-                    g_toc.set_active(p.include_toc);
-                    g_abstract.set_active(p.include_abstract);
-                    g_keywords.set_active(p.include_keywords);
-                    // Also sync simple_paper to match preset paper (A4=1, A5=2)
-                    let simple_idx = match p.paper_idx { 1 => 1u32, 2 => 2, _ => 0 };
-                    sp_paper.set_selected(simple_idx);
-                }
-            });
-        }
-
-        // simple_paper → update paper_row (US Letter=0, A4=1, A5=2 map to paper_row indices)
-        {
-            let pr = paper_row.clone();
-            simple_paper.connect_selected_notify(move |r| {
-                let paper_idx = r.selected(); // 0=US Letter, 1=A4, 2=A5 → same indices in PAPER_SIZES
-                pr.set_selected(paper_idx);
-            });
-        }
-
-        // ── Main scroll area ─────────────────────────────────────────────────
-        let main_vbox = GtkBox::new(Orientation::Vertical, 0);
-        main_vbox.append(&gallery_outer);
-        main_vbox.append(&simple_group);
-        main_vbox.append(&notebook);
-
-        let main_scroll = ScrolledWindow::new();
-        main_scroll.set_vexpand(true);
-        main_scroll.set_hexpand(true);
-        main_scroll.set_hscrollbar_policy(PolicyType::Never);
-        main_scroll.set_child(Some(&main_vbox));
+        // Gallery is Tab 0 — it fills the full window and has internal scrolling
+        notebook.prepend_page(&gallery_outer, Some(&tab_label("Template")));
+        notebook.set_hexpand(true);
 
         // ── Layout ───────────────────────────────────────────────────────────
         let toolbar_view = adw::ToolbarView::new();
         toolbar_view.add_top_bar(&header);
-        toolbar_view.set_content(Some(&main_scroll));
+        toolbar_view.set_content(Some(&notebook));
         window.set_content(Some(&toolbar_view));
 
         // ── Button wiring ─────────────────────────────────────────────────────

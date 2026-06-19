@@ -27,8 +27,8 @@ impl WelcomeWindow {
             .title(title)
             .transient_for(parent)
             .modal(true)
-            .default_width(500)
-            .default_height(640)
+            .default_width(460)
+            .default_height(580)
             .build();
 
         let header = adw::HeaderBar::new();
@@ -67,7 +67,10 @@ impl WelcomeWindow {
                  compiled automatically as you type."
             ));
             intro.set_wrap(true);
+            intro.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
             intro.set_xalign(0.0);
+            intro.set_hexpand(true);
+            intro.set_halign(Align::Fill);
             body.append(&intro);
 
             // ASCII layout diagram
@@ -116,14 +119,13 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
-                "Preview opens the most recently edited file on startup",
-                "Template settings tabs always visible with vertical side labels",
+                "Template dialog redesigned — tab sidebar runs the full window height; new Template tab shows the gallery; Quick Settings removed",
+                "Preview always shows the most recently opened file — project root only applies when the project toggle is ON",
                 "Project toggle in status bar — reveals root-file controls inline (left of SIMPLE)",
                 "Citations sidebar — folder button picks a .bib file; filename shown in header",
                 "Cursor movement scrolls the preview to the matching position",
                 "Build Log panel — collapsible raw compiler output on error",
                 "Simple Mode — hides line numbers, adds left margin, hides template marker comments",
-                "Fixed crash on cursor move (glib SourceId::remove panic)",
             ] {
                 body.append(&bullet_row(item));
             }
