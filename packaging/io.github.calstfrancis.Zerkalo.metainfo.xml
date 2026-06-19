@@ -57,6 +57,16 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release type="development" version="0.13.7-rc7" date="2026-06-19">
+      <description>
+        <p>Simple mode, project toggle, and Help toggle polish.</p>
+        <ul>
+          <li>Simple Mode now hides the body-separator comment lines ("DO NOT DELETE" warning and decorative rule) in addition to the preamble.</li>
+          <li>Project controls in the status bar are now behind a toggle (default OFF); clicking "project" reveals root-file controls inline.</li>
+          <li>The preview toolbar help button is now a labelled "Help" toggle instead of an icon-only "?" button.</li>
+        </ul>
+      </description>
+    </release>
     <release type="development" version="0.13.7-rc6" date="2026-06-18">
       <description>
         <p>Project button in status bar.</p>

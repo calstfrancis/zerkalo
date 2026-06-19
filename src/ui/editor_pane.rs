@@ -4340,12 +4340,21 @@ fn apply_simple_mode_tag(buffer: &Buffer, on: bool) {
     let body_line = text.lines().position(|l| l.starts_with(BODY_SEPARATOR));
     let Some(body_line_idx) = body_line else { return };
 
-    // Hide from buffer start up to (but not including) the body separator line.
-    if body_line_idx == 0 {
+    // Count consecutive separator lines (typically 2: the "DO NOT DELETE"
+    // warning and the decorative rule beneath it) so we hide those too.
+    let sep_count = text.lines()
+        .skip(body_line_idx)
+        .take_while(|l| l.starts_with(BODY_SEPARATOR))
+        .count();
+    let hide_to = body_line_idx + sep_count;
+
+    if hide_to == 0 {
         return;
     }
-    let hide_end = buffer.iter_at_line(body_line_idx as i32);
-    let Some(hide_end) = hide_end else { return };
+    let hide_end = match buffer.iter_at_line(hide_to as i32) {
+        Some(it) => it,
+        None => { let (_, e) = buffer.bounds(); e },
+    };
     buffer.apply_tag(&tag, &start, &hide_end);
 }
 
