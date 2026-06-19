@@ -31,6 +31,7 @@
 - Include the name in the CHANGELOG heading: `## [0.13.8] "Amber Tide" — short description`
 - Include the name in the metainfo `<release>` description: `<p>0.13.8 "Amber Tide" — short description</p>`
 - Include the name in the commit message: `v0.13.8 "Amber Tide" — short description`
+- Update `RELEASE_NAME` constant in `src/ui/welcome_window.rs` so the name appears in the version subtitle and "What's New" heading
 
 ### Commit message
 - Builds: `v0.12.33-rc1 — short description`
