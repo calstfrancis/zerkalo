@@ -5371,7 +5371,7 @@ fn show_changelog(parent: &impl IsA<gtk4::Window>) {
     const CHANGELOG: &str = include_str!("../../CHANGELOG.md");
 
     let win = adw::Window::new();
-    win.set_title(Some("Release Notes — Zerkalo"));
+    win.set_title(Some("Changelog — Zerkalo"));
     win.set_default_width(660);
     win.set_default_height(600);
     win.set_transient_for(Some(parent));

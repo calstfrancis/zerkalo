@@ -7,6 +7,7 @@ use libadwaita as adw;
 use adw::prelude::*;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+const RELEASE_NAME: &str = "Still Water";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -55,7 +56,7 @@ impl WelcomeWindow {
         app_title.add_css_class("title-1");
         app_title.set_halign(Align::Center);
 
-        let sub_lbl = Label::new(Some(&format!("Version {VERSION}")));
+        let sub_lbl = Label::new(Some(&format!("Version {VERSION} \"{RELEASE_NAME}\"")));
         sub_lbl.add_css_class("dim-label");
         sub_lbl.set_halign(Align::Center);
         sub_lbl.set_margin_bottom(4);
@@ -122,7 +123,7 @@ impl WelcomeWindow {
                 body.append(&bullet_row(item));
             }
         } else {
-            body.append(&section_label(&format!("What's New in {VERSION}")));
+            body.append(&section_label(&format!("What's New in {VERSION} \"{RELEASE_NAME}\"")));
             for item in [
                 "Preview always opens the same file as the editor on startup",
                 "Template dialog redesigned — tab sidebar runs the full window height; new Template tab shows the gallery; Quick Settings removed",
