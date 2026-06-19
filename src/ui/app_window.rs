@@ -2519,8 +2519,7 @@ impl AppWindow {
         popout_btn.update_property(&[gtk4::accessible::Property::Label("Pop out preview window")]);
         popout_btn.set_tooltip_text(Some("Pop out preview"));
 
-        let ref_toggle_btn = ToggleButton::new();
-        ref_toggle_btn.set_icon_name("help-contents-symbolic");
+        let ref_toggle_btn = ToggleButton::with_label("Help");
         ref_toggle_btn.add_css_class("flat");
         ref_toggle_btn.set_tooltip_text(Some("Toggle Cheatsheet & Help"));
         ref_toggle_btn.update_property(&[gtk4::accessible::Property::Label("Toggle cheatsheet and help panel")]);
@@ -3080,61 +3079,49 @@ impl AppWindow {
             });
         }
 
-        // ── Project button in status bar ─────────────────────────────────────
+        // ── Project toggle in status bar ─────────────────────────────────────
         //
-        // A MenuButton labelled "project" (bold when a root is set) that opens
-        // a small popover for root-file management.
+        // A ToggleButton labelled "project" (default OFF). When toggled ON,
+        // inline root-file controls become visible in the status bar.
         {
-            let proj_menu_btn = MenuButton::new();
-            proj_menu_btn.add_css_class("flat");
-            proj_menu_btn.add_css_class("status-toggle");
-            proj_menu_btn.set_tooltip_text(Some("Project settings — root file"));
-            proj_menu_btn.update_property(&[gtk4::accessible::Property::Label("Project settings")]);
+            let proj_toggle = ToggleButton::new();
+            proj_toggle.add_css_class("flat");
+            proj_toggle.add_css_class("status-toggle");
+            proj_toggle.set_tooltip_text(Some("Toggle project controls (root file)"));
+            proj_toggle.update_property(&[gtk4::accessible::Property::Label("Toggle project controls")]);
+            proj_toggle.set_active(false);
 
             let proj_btn_label = Label::new(Some("project"));
             proj_btn_label.set_use_markup(true);
             proj_btn_label.add_css_class("caption");
             proj_btn_label.set_margin_top(3);
             proj_btn_label.set_margin_bottom(3);
-            proj_menu_btn.set_child(Some(&proj_btn_label));
+            proj_toggle.set_child(Some(&proj_btn_label));
 
-            // ── Popover contents ──────────────────────────────────────────────
-            let pop_box = GtkBox::new(Orientation::Vertical, 6);
-            pop_box.set_margin_top(10);
-            pop_box.set_margin_bottom(10);
-            pop_box.set_margin_start(12);
-            pop_box.set_margin_end(12);
+            // ── Inline controls (hidden until toggle is ON) ───────────────────
+            let proj_controls = GtkBox::new(Orientation::Horizontal, 4);
+            proj_controls.set_visible(false);
+            proj_controls.set_margin_start(4);
 
-            let pop_heading = Label::new(Some("Root file"));
-            pop_heading.add_css_class("heading");
-            pop_heading.set_halign(Align::Start);
-            pop_box.append(&pop_heading);
-
-            let root_value_lbl = Label::new(Some("not set"));
+            let root_value_lbl = Label::new(Some("no root"));
+            root_value_lbl.add_css_class("caption");
             root_value_lbl.add_css_class("dim-label");
-            root_value_lbl.set_halign(Align::Start);
             root_value_lbl.set_ellipsize(gtk4::pango::EllipsizeMode::Middle);
-            root_value_lbl.set_max_width_chars(28);
-            pop_box.append(&root_value_lbl);
+            root_value_lbl.set_max_width_chars(22);
+            proj_controls.append(&root_value_lbl);
 
-            let btn_row = GtkBox::new(Orientation::Horizontal, 6);
-            btn_row.set_margin_top(4);
-            let set_root_btn = Button::with_label("Set Root File\u{2026}");
-            set_root_btn.add_css_class("suggested-action");
-            set_root_btn.add_css_class("pill");
-            set_root_btn.set_hexpand(true);
-            let clear_root_btn = Button::with_label("Clear");
-            clear_root_btn.add_css_class("destructive-action");
-            clear_root_btn.add_css_class("pill");
-            btn_row.append(&set_root_btn);
-            btn_row.append(&clear_root_btn);
-            pop_box.append(&btn_row);
+            let set_root_btn = Button::with_label("Set\u{2026}");
+            set_root_btn.add_css_class("flat");
+            set_root_btn.add_css_class("caption");
+            proj_controls.append(&set_root_btn);
 
-            let popover = Popover::new();
-            popover.set_child(Some(&pop_box));
-            proj_menu_btn.set_popover(Some(&popover));
+            let clear_root_btn = Button::with_label("\u{2715}");
+            clear_root_btn.add_css_class("flat");
+            clear_root_btn.add_css_class("caption");
+            clear_root_btn.set_tooltip_text(Some("Clear root file"));
+            proj_controls.append(&clear_root_btn);
 
-            // Initialise label from current root state
+            // Initialise from current root state
             {
                 let root_name = configured_root.borrow().as_ref()
                     .and_then(|p| p.file_name())
@@ -3149,12 +3136,19 @@ impl AppWindow {
                 }
             }
 
-            // Shared helper: update both the popover label and the button label
+            // Toggle → show/hide inline controls
+            {
+                let ctrls = proj_controls.clone();
+                proj_toggle.connect_toggled(move |btn| {
+                    ctrls.set_visible(btn.is_active());
+                });
+            }
+
             let root_value_lbl_rc = Rc::new(root_value_lbl);
             let proj_btn_label_rc = Rc::new(proj_btn_label);
             let clear_root_btn_rc = Rc::new(clear_root_btn);
 
-            // "Set Root File…" button
+            // "Set…" button
             {
                 let win_c = window.clone();
                 let root_dir_c = project_root.clone();
@@ -3162,12 +3156,10 @@ impl AppWindow {
                 let preview_c = preview_pane.clone();
                 let title_c = file_title_widget.clone();
                 let ep_c = editor_pane.clone();
-                let popover_c = popover.clone();
                 let rvl = root_value_lbl_rc.clone();
                 let bll = proj_btn_label_rc.clone();
                 let clr = clear_root_btn_rc.clone();
                 set_root_btn.connect_clicked(move |_| {
-                    popover_c.popdown();
                     let dialog = gtk4::FileDialog::new();
                     dialog.set_title("Set Root File");
                     let filter = gtk4::FileFilter::new();
@@ -3214,22 +3206,20 @@ impl AppWindow {
                 });
             }
 
-            // "Clear" button
+            // "✕" clear button
             {
                 let root_ref_c = configured_root.clone();
                 let root_dir_c = project_root.clone();
                 let preview_c = preview_pane.clone();
                 let title_c = file_title_widget.clone();
-                let popover_c = popover.clone();
                 let rvl = root_value_lbl_rc.clone();
                 let bll = proj_btn_label_rc.clone();
                 let clr = clear_root_btn_rc.clone();
                 clear_root_btn_rc.connect_clicked(move |_| {
-                    popover_c.popdown();
                     preview_c.clear_root_file();
                     *root_ref_c.borrow_mut() = None;
                     title_c.set_subtitle("");
-                    rvl.set_text("not set");
+                    rvl.set_text("no root");
                     bll.set_markup("project");
                     clr.set_sensitive(false);
                     let mut pcfg = crate::config::ProjectConfig::load(&root_dir_c).unwrap_or_default();
@@ -3238,7 +3228,10 @@ impl AppWindow {
                 });
             }
 
-            editor_pane.status_bar_insert_after_goal(&proj_menu_btn);
+            // Insert controls first (they end up after goal_bar), then the
+            // toggle (inserts after goal_bar, pushing controls to the right).
+            editor_pane.status_bar_insert_after_goal(&proj_controls);
+            editor_pane.status_bar_insert_after_goal(&proj_toggle);
         }
 
         // Wire file_tree into the compile-done holder

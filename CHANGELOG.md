@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.7-rc7] — Simple mode hides separator comments; project toggle; Help toggle
+
+### Added
+
+- **Project toggle in status bar** — replaces the rc6 MenuButton with a flat "project" `ToggleButton` (default OFF). When toggled ON, inline controls appear in the status bar: the current root filename, a compact "Set…" picker button, and an "✕" clear button. Toggling OFF hides them again.
+- **Help toggle in preview toolbar** — the icon-only `?` button in the preview toolbar is now a labelled "Help" `ToggleButton`, making its purpose immediately clear without a tooltip.
+
+### Changed
+
+- **Simple mode hides body-separator comments** — the two `// ── Document body` marker lines (the "DO NOT DELETE" warning and the decorative rule) are now included in the text hidden when Simple Mode is on. Previously only the preamble above them was hidden; the marker lines themselves remained visible.
+
+---
+
 ## [0.13.7-rc6] — Project button in status bar
 
 ### Added
