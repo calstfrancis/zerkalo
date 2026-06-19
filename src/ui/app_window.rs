@@ -2373,7 +2373,13 @@ impl AppWindow {
             let last = config.recent_files.iter().find(|p| p.exists()).cloned();
             if let Some(path) = last {
                 if let Ok(content) = std::fs::read_to_string(&path) {
-                    editor_pane.open_file(path, &content);
+                    editor_pane.open_file(path.clone(), &content);
+                    // on_page_switch (fired inside open_file) may compile configured_root
+                    // rather than the active file if a project root is set from a previous
+                    // session. Override here so the preview always matches the editor.
+                    preview_pane.set_buffer_snapshot(path.clone(), content);
+                    preview_pane.set_root_file(path);
+                    preview_pane.trigger_compile();
                 }
             }
         }

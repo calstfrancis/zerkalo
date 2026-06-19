@@ -9,7 +9,7 @@ use std::cell::Cell;
 
 use gtk4::prelude::*;
 use gtk4::{
-    Align, Box as GtkBox, Button, Expander, Label, Notebook, Orientation, Overlay, Picture, PolicyType,
+    Align, Box as GtkBox, Button, Label, Notebook, Orientation, Overlay, Picture, PolicyType,
     PositionType, ScrolledWindow, Separator, Spinner,
 };
 use gtk4::glib;
@@ -97,7 +97,6 @@ const EXTRA_PACKAGES: &[(&str, &str, &str)] = &[
     ("pkg_showybox", "Showybox", "Coloured callout and theorem boxes"),
     ("pkg_gentle", "Gentle Clues", "Admonition blocks: note, tip, warning, important"),
     ("pkg_tablex", "Tablex", "Advanced tables with merged cells and styling"),
-    ("pkg_drafting", "Drafting", "Margin notes and annotation tools"),
 ];
 
 // ── Template presets ──────────────────────────────────────────────────────────
@@ -308,7 +307,7 @@ pub struct TemplateDialog {
 }
 
 impl TemplateDialog {
-    pub fn new(parent: &impl IsA<gtk4::Window>, work_dir: &std::path::Path, last_used_advanced: bool) -> Self {
+    pub fn new(parent: &impl IsA<gtk4::Window>, work_dir: &std::path::Path, _last_used_advanced: bool) -> Self {
         let window = adw::Window::builder()
             .title("New from Template")
             .transient_for(parent)
@@ -341,9 +340,8 @@ impl TemplateDialog {
         header.pack_end(&apply_btn);
 
         let notebook = Notebook::new();
-        notebook.set_tab_pos(PositionType::Top);
+        notebook.set_tab_pos(PositionType::Left);
         notebook.set_vexpand(true);
-        notebook.add_css_class("tab-strip");
 
         // ── Tab 1: Document ──────────────────────────────────────────────────
         let meta_group = adw::PreferencesGroup::new();
@@ -904,20 +902,11 @@ impl TemplateDialog {
             });
         }
 
-        // ── Advanced expander ────────────────────────────────────────────────
-        let expander = Expander::new(Some("Advanced settings"));
-        expander.set_expanded(last_used_advanced);
-        expander.set_margin_top(4);
-        expander.set_margin_bottom(12);
-        expander.set_margin_start(12);
-        expander.set_margin_end(12);
-        expander.set_child(Some(&notebook));
-
         // ── Main scroll area ─────────────────────────────────────────────────
         let main_vbox = GtkBox::new(Orientation::Vertical, 0);
         main_vbox.append(&gallery_outer);
         main_vbox.append(&simple_group);
-        main_vbox.append(&expander);
+        main_vbox.append(&notebook);
 
         let main_scroll = ScrolledWindow::new();
         main_scroll.set_vexpand(true);
@@ -1289,16 +1278,6 @@ impl TemplateDialog {
                 toolbar_view.set_content(Some(&scroll));
                 pwin.set_content(Some(&toolbar_view));
                 pwin.present();
-            });
-        }
-
-        // Wire expander toggle → on_advanced_toggle callback
-        {
-            let cb = on_advanced_toggle.clone();
-            expander.connect_expanded_notify(move |e| {
-                if let Some(f) = cb.borrow().as_ref() {
-                    f(e.is_expanded());
-                }
             });
         }
 

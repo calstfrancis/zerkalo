@@ -57,6 +57,17 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release type="development" version="0.13.8-rc1" date="2026-06-19">
+      <description>
+        <p>Preview startup fix, vertical template tabs, drafting package removed.</p>
+        <ul>
+          <li>Preview now always shows the most recently opened file on startup, not a stale project root.</li>
+          <li>Template dialog settings tabs are always visible (no longer inside "Advanced settings") and use vertical left-side labels.</li>
+          <li>Removed Drafting package from Packages tab — caused compile errors with Typst 0.14.</li>
+          <li>Release notes text wraps correctly within the window.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.13.7" date="2026-06-19">
       <description>
         <p>Project controls, cursor sync, build log, and Simple Mode polish.</p>
