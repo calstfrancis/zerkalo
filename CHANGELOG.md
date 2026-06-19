@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.8-rc4] — Release notes width fixed with adw::Clamp
+
+### Fixed
+
+- **Release notes window too wide** — wrapped the body in `adw::Clamp` with `maximum_size = 460`. GTK4 labels with `set_wrap(true)` still request their full natural (unwrapped) width, which forces the window to expand; Clamp caps the natural-width request so labels wrap within the window rather than pushing it wider.
+
+---
+
 ## [0.13.8-rc3] — Preview startup fix (definitive); release notes wrapping
 
 ### Fixed

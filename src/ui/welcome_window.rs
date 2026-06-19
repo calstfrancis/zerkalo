@@ -44,7 +44,12 @@ impl WelcomeWindow {
         body.set_margin_end(24);
         body.set_margin_top(20);
         body.set_margin_bottom(20);
-        body.set_hexpand(true);
+
+        // Clamp caps the natural-width request so labels wrap within the window width
+        // rather than forcing the window to expand to fit unwrapped text.
+        let clamp = adw::Clamp::new();
+        clamp.set_maximum_size(460);
+        clamp.set_child(Some(&body));
 
         let app_title = Label::new(Some("Zerkalo"));
         app_title.add_css_class("title-1");
@@ -144,7 +149,7 @@ impl WelcomeWindow {
             body.append(&shortcut_row(key, desc));
         }
 
-        scroll.set_child(Some(&body));
+        scroll.set_child(Some(&clamp));
         outer.append(&scroll);
         outer.append(&Separator::new(Orientation::Horizontal));
 
