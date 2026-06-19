@@ -5,12 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.13.8-rc5] — Release notes width; template dialog wider
+## [0.13.8] — Template dialog redesign, preview startup fix, release notes
 
 ### Fixed
 
-- **Release notes window too wide** — title and heading labels now use `set_ellipsize(End)` so their minimum width is zero; `hscrollbar_policy` set to `Never`; bullet labels use `WrapMode::WordChar` and `Align::Fill`. Non-wrapping labels propagate their minimum width through `adw::Clamp` to the window; ellipsize prevents this.
-- **Template dialog width doubled** — `default_width` increased from 620 to 1240 px so the gallery and settings tabs have more room.
+- **Preview always matches the editor on startup** — removed the conflicting second restore path in `build()`; `open_initial_file()` now owns the full session restore, and a deferred `idle_add_local_once` pins the preview to the active editor file after the event loop starts.
+- **Release notes window too wide** — title/heading labels use `set_ellipsize(End)` (their minimum width was propagating through `adw::Clamp` and forcing the window wider); bullet labels use `WrapMode::WordChar` and `Align::Fill`; scroll has `hscrollbar_policy(Never)`.
+- **Drafting package compile errors** — `@preview/drafting:0.2.2` removed from Packages tab; conflicts with Typst 0.14 `*` imports.
+- **Project root used at startup when toggle was off** — `on_page_switch` now gates `configured_root` behind `proj_mode_active`; root from a previous session can no longer hijack the preview.
+
+### Changed
+
+- **Template dialog redesigned** — tab sidebar runs the full window height with no content above it; "Template" is the first tab and contains the starting-template gallery; Quick Settings removed; dialog default width doubled to 1240 px.
 
 ---
 
