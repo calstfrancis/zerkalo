@@ -57,15 +57,20 @@
     </screenshot>
   </screenshots>
   <releases>
-    <release type="development" version="0.13.7-rc8" date="2026-06-19">
+    <release version="0.13.7" date="2026-06-19">
       <description>
-        <p>Project toggle layout polish and banner fix.</p>
+        <p>Project controls, cursor sync, build log, and Simple Mode polish.</p>
         <ul>
-          <li>Project toggle and inline controls now appear to the left of the SIMPLE button.</li>
-          <li>Inline controls appear left of the toggle when expanded.</li>
-          <li>Draft/Final toggle hidden from status bar.</li>
-          <li>Root-file suggestion banner only appears when project toggle is ON.</li>
-          <li>What's New window text now wraps correctly within the window width.</li>
+          <li>New "project" toggle in the status bar reveals inline root-file controls (Set…, Clear, filename) — no file-tree right-click needed.</li>
+          <li>Root-file suggestion banner only shown when project toggle is ON.</li>
+          <li>Bib file picker button in the Citations sidebar header; active filename shown inline.</li>
+          <li>Cursor movement in the editor now scrolls the preview to the matching position.</li>
+          <li>Compile spinner shows elapsed seconds; status label shows page count and timing.</li>
+          <li>Build Log panel (collapsible) shows raw Typst stderr on compile failure.</li>
+          <li>Simple Mode hides line numbers, adds left margin, and hides template marker comments.</li>
+          <li>Preview toolbar "Help" toggle replaces the icon-only ? button.</li>
+          <li>Fixed crash (SIGABRT) on cursor move due to glib 0.18 SourceId::remove() panic.</li>
+          <li>Spell-check context menu no longer resets scroll position to top.</li>
         </ul>
       </description>
     </release>
