@@ -5395,6 +5395,9 @@ fn show_changelog(parent: &impl IsA<gtk4::Window>) {
             lbl.set_xalign(0.0);
             lbl.set_margin_top(16);
             lbl.set_margin_bottom(2);
+            // Ellipsize prevents long titles from setting a large minimum width
+            // that propagates through the Clamp and forces the window wider.
+            lbl.set_ellipsize(gtk4::pango::EllipsizeMode::End);
             body.append(&lbl);
         } else if trimmed.starts_with("### ") {
             let text = trimmed.trim_start_matches("### ");
@@ -5403,6 +5406,7 @@ fn show_changelog(parent: &impl IsA<gtk4::Window>) {
             lbl.set_xalign(0.0);
             lbl.set_margin_top(6);
             lbl.set_margin_start(4);
+            lbl.set_ellipsize(gtk4::pango::EllipsizeMode::End);
             body.append(&lbl);
         } else if trimmed.starts_with("- ") {
             let content = trimmed.trim_start_matches("- ");
@@ -5417,7 +5421,7 @@ fn show_changelog(parent: &impl IsA<gtk4::Window>) {
 
     let scroll = gtk4::ScrolledWindow::new();
     scroll.set_vexpand(true);
-    scroll.set_hexpand(true);
+    scroll.set_hscrollbar_policy(gtk4::PolicyType::Never);
     let clamp = adw::Clamp::new();
     clamp.set_maximum_size(640);
     clamp.set_child(Some(&body));
@@ -5443,7 +5447,9 @@ fn changelog_bullet(text: &str) -> gtk4::Box {
     lbl.set_markup(&markup);
     lbl.set_xalign(0.0);
     lbl.set_wrap(true);
+    lbl.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
     lbl.set_hexpand(true);
+    lbl.set_halign(gtk4::Align::Fill);
 
     row.append(&dot);
     row.append(&lbl);

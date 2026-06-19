@@ -5,7 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.13.8-rc4] — Release notes width fixed with adw::Clamp
+## [0.13.8-rc5] — Release notes width; template dialog wider
+
+### Fixed
+
+- **Release notes window too wide** — title and heading labels now use `set_ellipsize(End)` so their minimum width is zero; `hscrollbar_policy` set to `Never`; bullet labels use `WrapMode::WordChar` and `Align::Fill`. Non-wrapping labels propagate their minimum width through `adw::Clamp` to the window; ellipsize prevents this.
+- **Template dialog width doubled** — `default_width` increased from 620 to 1240 px so the gallery and settings tabs have more room.
+
+---
+
+## [0.13.8-rc4] — Release notes width (partial fix)
 
 ### Fixed
 

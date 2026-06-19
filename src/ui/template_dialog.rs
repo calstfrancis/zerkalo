@@ -311,7 +311,7 @@ impl TemplateDialog {
             .title("New from Template")
             .transient_for(parent)
             .modal(true)
-            .default_width(620)
+            .default_width(1240)
             .default_height(700)
             .build();
 
