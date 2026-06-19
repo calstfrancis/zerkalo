@@ -57,14 +57,15 @@
     </screenshot>
   </screenshots>
   <releases>
-    <release type="development" version="0.13.8-rc5" date="2026-06-19">
+    <release version="0.13.8" date="2026-06-19">
       <description>
         <p>Template dialog redesign, preview startup fix, release notes width.</p>
         <ul>
-          <li>Template dialog: tab sidebar runs full window height; "Template" tab (gallery) is now first; Quick Settings removed.</li>
-          <li>Preview always shows the most recently opened file on startup — project root only used when project toggle is ON.</li>
-          <li>Release notes window is narrower and all text wraps within its bounds.</li>
+          <li>Preview always opens the same file as the editor on startup.</li>
+          <li>Template dialog: full-height tab sidebar; new "Template" tab with gallery as first tab; Quick Settings removed; dialog doubled in width.</li>
+          <li>Release notes window text now wraps correctly within the window bounds.</li>
           <li>Removed Drafting package from Packages tab — caused compile errors with Typst 0.14.</li>
+          <li>Project root no longer used when the project toggle is OFF.</li>
         </ul>
       </description>
     </release>

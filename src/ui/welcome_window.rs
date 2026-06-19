@@ -27,7 +27,7 @@ impl WelcomeWindow {
             .title(title)
             .transient_for(parent)
             .modal(true)
-            .default_width(460)
+            .default_width(480)
             .default_height(580)
             .build();
 
