@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.7-rc8] — Project toggle layout polish and banner fix
+
+### Changed
+
+- **Project toggle left of SIMPLE** — the "project" toggle now sits to the left of the SIMPLE button (between the hexpand spacer and SIMPLE), putting all mode controls together in the centre of the status bar.
+- **Project controls left of toggle** — when the project toggle is ON, the inline root-file controls (filename label, Set…, ✕) appear to the left of the toggle, so the expanding controls don't push SIMPLE out of position.
+- **Draft/Final toggle hidden** — the DRAFT/FINAL compile-profile toggle is hidden from the status bar for now (functionality preserved internally).
+- **Banner only shown with project toggle** — the "main.typ detected — set it as root?" banner above the preview now only appears when the project toggle is ON; it is not shown on startup.
+- **Release notes text wrapping** — the What's New scrolled window now prevents horizontal scrolling, forcing all text to wrap within the window width.
+
+---
+
 ## [0.13.7-rc7] — Simple mode hides separator comments; project toggle; Help toggle
 
 ### Added

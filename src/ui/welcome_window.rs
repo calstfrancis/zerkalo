@@ -37,6 +37,7 @@ impl WelcomeWindow {
 
         let scroll = ScrolledWindow::new();
         scroll.set_vexpand(true);
+        scroll.set_hscrollbar_policy(gtk4::PolicyType::Never);
 
         let body = GtkBox::new(Orientation::Vertical, 12);
         body.set_margin_start(24);
@@ -119,9 +120,11 @@ impl WelcomeWindow {
                 "Build Log panel shows raw compiler output on error (collapsible)",
                 "Compile status shows page count and timing on success",
                 "Citations sidebar: folder button to pick a .bib file; filename shown in header",
-                "Project toggle in status bar: reveals root-file controls inline (default hidden)",
+                "Project toggle left of SIMPLE; inline controls appear to its left when ON",
                 "Simple Mode now hides the template marker comments at the top of the body area",
                 "Preview toolbar 'Help' toggle replaces the icon-only ? button",
+                "Root-file suggestion banner only shown when project toggle is ON",
+                "What's New text wraps correctly within the window",
             ] {
                 body.append(&bullet_row(item));
             }
