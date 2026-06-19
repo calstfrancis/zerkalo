@@ -5,85 +5,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.13.7-rc8] — Project toggle layout polish and banner fix
-
-### Changed
-
-- **Project toggle left of SIMPLE** — the "project" toggle now sits to the left of the SIMPLE button (between the hexpand spacer and SIMPLE), putting all mode controls together in the centre of the status bar.
-- **Project controls left of toggle** — when the project toggle is ON, the inline root-file controls (filename label, Set…, ✕) appear to the left of the toggle, so the expanding controls don't push SIMPLE out of position.
-- **Draft/Final toggle hidden** — the DRAFT/FINAL compile-profile toggle is hidden from the status bar for now (functionality preserved internally).
-- **Banner only shown with project toggle** — the "main.typ detected — set it as root?" banner above the preview now only appears when the project toggle is ON; it is not shown on startup.
-- **Release notes text wrapping** — the What's New scrolled window now prevents horizontal scrolling, forcing all text to wrap within the window width.
-
----
-
-## [0.13.7-rc7] — Simple mode hides separator comments; project toggle; Help toggle
+## [0.13.7] — Project controls, cursor sync, build log, Simple Mode polish
 
 ### Added
 
-- **Project toggle in status bar** — replaces the rc6 MenuButton with a flat "project" `ToggleButton` (default OFF). When toggled ON, inline controls appear in the status bar: the current root filename, a compact "Set…" picker button, and an "✕" clear button. Toggling OFF hides them again.
-- **Help toggle in preview toolbar** — the icon-only `?` button in the preview toolbar is now a labelled "Help" `ToggleButton`, making its purpose immediately clear without a tooltip.
-
-### Changed
-
-- **Simple mode hides body-separator comments** — the two `// ── Document body` marker lines (the "DO NOT DELETE" warning and the decorative rule) are now included in the text hidden when Simple Mode is on. Previously only the preamble above them was hidden; the marker lines themselves remained visible.
-
----
-
-## [0.13.7-rc6] — Project button in status bar
-
-### Added
-
-- **Project button in status bar** — a "project" `MenuButton` in the status bar (beside the draft toggle) opens a popover for root-file management: shows the current root filename, a "Set Root File…" picker, and a "Clear" button. The label turns bold when a root file is active. The file-tree right-click menu is unchanged.
-
----
-
-## [0.13.7-rc5] — Simple mode left margin
-
-### Changed
-
-- **Simple mode left margin** — when Simple Mode hides the line-number gutter, the editor text is now indented 40 px from the left edge (up from 8 px) so the text isn't flush against the window border.
-
----
-
-## [0.13.7-rc4] — Bib file picker in Citations sidebar
-
-### Added
-
-- **Bib file picker** — a folder-open button in the Citations sidebar header lets you select a `.bib` file directly without going through Settings. The filename of the active bibliography is shown in the header beside the "Citations" label. Selecting a file saves it to config.
-
----
-
-## [0.13.7-rc3] — Fix crash on cursor move after 300 ms debounce
-
-### Fixed
-
-- **Crash on cursor move** — `SourceId::remove()` in glib 0.18 panics when called on a source that `timeout_add_local_once` already auto-removed. The reverse-sync debounce now uses a generation counter instead of cancelling the source, eliminating the SIGABRT.
-
----
-
-## [0.13.7-rc2] — Phase 3 & 4: reverse sync, build log, compile timer
-
-### Added
-
+- **Project toggle in status bar** — a "project" toggle (default OFF, left of the SIMPLE button) reveals inline root-file controls: current root filename, "Set…" picker, and "✕" clear. Root controls no longer require the file-tree right-click menu.
+- **Bib file picker** — folder-open button in the Citations sidebar header to select a `.bib` file directly; active filename shown in the header.
 - **Reverse sync** — moving the cursor in the editor scrolls the preview proportionally to the cursor position (debounced 300 ms).
-- **Compile elapsed timer** — the spinner now shows "Compiling… Ns" updating every 500 ms while the compiler runs.
-- **Build Log panel** — a collapsible "Build Log" section appears below the error panel on compile failure, showing the raw Typst stderr output.
-- **Compile status label** — shows "✓ N pages · X.Xs" on success and "✗ X.Xs" on error (previously always said "Compiled in X.Xs").
-
----
-
-## [0.13.7-rc1] — Simple mode polish
+- **Compile elapsed timer** — the spinner shows "Compiling… Ns" updating every 500 ms while the compiler runs.
+- **Build Log panel** — a collapsible section below the error panel shows raw Typst stderr on compile failure.
+- **Compile status label** — shows "✓ N pages · X.Xs" on success and "✗ X.Xs" on error.
+- **Help toggle** — the preview toolbar now has a labelled "Help" toggle instead of an icon-only `?` button.
 
 ### Changed
 
-- **Line numbers hidden in Simple Mode** — the line number gutter is no longer shown when Simple Mode is active; it restores when Simple Mode is turned off.
-- **Word wrap button removed from toolbar** — the word-wrap toggle has been removed from the breadcrumb bar; word wrap is still configurable from Settings.
-- **Format bar auto-enables with Simple Mode** — activating Simple Mode now automatically shows the format bar if it was hidden.
+- **Simple Mode** — the line-number gutter is hidden; text gains a 40 px left margin; the `// ── Document body` marker comments are now hidden alongside the preamble; the format bar auto-enables when Simple Mode is activated.
+- **Root-file suggestion banner** — the "main.typ detected — set it as root?" banner above the preview only appears when the project toggle is ON, never on startup.
+- **Draft/Final toggle hidden** — removed from the status bar for now (compile-profile functionality preserved internally).
+- **Word wrap button** — removed from the breadcrumb toolbar; still configurable in Settings.
 
 ### Fixed
 
-- **Right-click no longer jumps to top** — opening the spell-check context menu no longer resets the scroll position to the top of the document.
+- **Crash on cursor move** — `SourceId::remove()` panics in glib 0.18 when the debounce timer has already auto-fired; replaced with generation counter pattern.
+- **Right-click no longer jumps to top** — spell-check context menu no longer resets scroll position.
+- **What's New text wrapping** — release notes window no longer scrolls horizontally.
 
 ---
 

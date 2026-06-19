@@ -115,16 +115,15 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
-                "Moving the cursor scrolls the preview to the matching position",
-                "Compile spinner shows elapsed seconds while the compiler runs",
-                "Build Log panel shows raw compiler output on error (collapsible)",
-                "Compile status shows page count and timing on success",
-                "Citations sidebar: folder button to pick a .bib file; filename shown in header",
-                "Project toggle left of SIMPLE; inline controls appear to its left when ON",
-                "Simple Mode now hides the template marker comments at the top of the body area",
+                "Project toggle in status bar — reveals root-file controls inline (left of SIMPLE)",
+                "Citations sidebar — folder button picks a .bib file; filename shown in header",
+                "Cursor movement scrolls the preview to the matching position",
+                "Compile spinner shows elapsed seconds; status shows page count and timing",
+                "Build Log panel — collapsible raw compiler output on error",
+                "Simple Mode — hides line numbers, adds left margin, hides template marker comments",
                 "Preview toolbar 'Help' toggle replaces the icon-only ? button",
                 "Root-file suggestion banner only shown when project toggle is ON",
-                "What's New text wraps correctly within the window",
+                "Fixed crash on cursor move (glib SourceId::remove panic)",
             ] {
                 body.append(&bullet_row(item));
             }
