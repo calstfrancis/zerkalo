@@ -44,6 +44,7 @@ impl WelcomeWindow {
         body.set_margin_end(24);
         body.set_margin_top(20);
         body.set_margin_bottom(20);
+        body.set_hexpand(true);
 
         let app_title = Label::new(Some("Zerkalo"));
         app_title.add_css_class("title-1");
@@ -115,14 +116,13 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
+                "Preview opens the most recently edited file on startup",
+                "Template settings tabs always visible with vertical side labels",
                 "Project toggle in status bar — reveals root-file controls inline (left of SIMPLE)",
                 "Citations sidebar — folder button picks a .bib file; filename shown in header",
                 "Cursor movement scrolls the preview to the matching position",
-                "Compile spinner shows elapsed seconds; status shows page count and timing",
                 "Build Log panel — collapsible raw compiler output on error",
                 "Simple Mode — hides line numbers, adds left margin, hides template marker comments",
-                "Preview toolbar 'Help' toggle replaces the icon-only ? button",
-                "Root-file suggestion banner only shown when project toggle is ON",
                 "Fixed crash on cursor move (glib SourceId::remove panic)",
             ] {
                 body.append(&bullet_row(item));
@@ -214,13 +214,16 @@ fn section_label(text: &str) -> Label {
 fn bullet_row(text: &str) -> GtkBox {
     let row = GtkBox::new(Orientation::Horizontal, 8);
     row.set_margin_start(4);
+    row.set_hexpand(true);
     let dot = Label::new(Some("•"));
     dot.set_valign(Align::Start);
     dot.add_css_class("dim-label");
     let lbl = Label::new(Some(text));
     lbl.set_xalign(0.0);
     lbl.set_wrap(true);
+    lbl.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
     lbl.set_hexpand(true);
+    lbl.set_halign(Align::Fill);
     row.append(&dot);
     row.append(&lbl);
     row

@@ -5,6 +5,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.8-rc1] — Preview startup fix; template dialog vertical tabs; drafting package removed
+
+### Fixed
+
+- **Preview shows wrong file on startup** — on launch, the preview now always compiles the most recently opened file. Previously, if a project root was configured from a prior session, the preview would show that root's output even though the editor had opened a different file.
+- **Release notes text overflow** — `bullet_row` labels now use `WrapMode::WordChar` and fill their column correctly; the body box is marked `hexpand` so content wraps within the window width.
+
+### Changed
+
+- **Template dialog: tabs always visible, now vertical** — the five settings tabs (Document, Layout, Sections, Languages, Packages) are no longer hidden inside an "Advanced settings" expander. They appear directly below Quick Settings with left-side (vertical) tab labels.
+- **Drafting package removed from Packages tab** — `@preview/drafting:0.2.2` exports conflicting names when imported with `*` in Typst 0.14, causing compile errors. Removed from the package list until a compatible version is available.
+
+---
+
 ## [0.13.7] — Project controls, cursor sync, build log, Simple Mode polish
 
 ### Added
