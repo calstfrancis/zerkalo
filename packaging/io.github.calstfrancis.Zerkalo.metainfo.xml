@@ -59,7 +59,7 @@
   <releases>
     <release version="0.13.8" date="2026-06-19">
       <description>
-        <p>Template dialog redesign, preview startup fix, release notes width.</p>
+        <p>0.13.8 "Still Water" — Template dialog redesign, preview startup fix, release notes width.</p>
         <ul>
           <li>Preview always opens the same file as the editor on startup.</li>
           <li>Template dialog: full-height tab sidebar; new "Template" tab with gallery as first tab; Quick Settings removed; dialog doubled in width.</li>

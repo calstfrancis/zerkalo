@@ -26,9 +26,15 @@
 - Still push to GitHub as part of the build flow so the repo stays current
 - On release: switch manifest source back to `type: git` for the published build, then switch back to `type: dir` after
 
+### Release names
+- Every release gets a name. Choose a two-word name: an adjective + a noun (e.g. "Amber Tide", "Silent Forge", "Iron Coast"). Pick something that evokes the theme of the main changes in the release, or just something that sounds good. Avoid clichés.
+- Include the name in the CHANGELOG heading: `## [0.13.8] "Amber Tide" — short description`
+- Include the name in the metainfo `<release>` description: `<p>0.13.8 "Amber Tide" — short description</p>`
+- Include the name in the commit message: `v0.13.8 "Amber Tide" — short description`
+
 ### Commit message
 - Builds: `v0.12.33-rc1 — short description`
-- Releases: `v0.12.33 — short description`
+- Releases: `v0.12.33 "Release Name" — short description`
 
 ## Documentation
 - Keep `README.md` in sync with any new features or changed CLI flags
