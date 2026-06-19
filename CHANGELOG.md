@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.13.8] — Template dialog redesign, preview startup fix, release notes
+## [0.13.8] "Still Water" — Template dialog redesign, preview startup fix, release notes
 
 ### Fixed
 
