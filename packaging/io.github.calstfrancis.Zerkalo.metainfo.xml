@@ -57,7 +57,7 @@
     </screenshot>
   </screenshots>
   <releases>
-    <release type="development" version="0.13.8-rc4" date="2026-06-19">
+    <release type="development" version="0.13.8-rc5" date="2026-06-19">
       <description>
         <p>Template dialog redesign, preview startup fix, release notes width.</p>
         <ul>
