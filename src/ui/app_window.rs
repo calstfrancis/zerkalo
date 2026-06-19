@@ -1912,6 +1912,9 @@ impl AppWindow {
         let configured_root: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(
             proj_cfg.root_file.as_ref().map(|r| project_root.join(r))
         ));
+        // Project mode is OFF by default; only use configured_root when it is ON.
+        // Shared with the project toggle below.
+        let proj_mode_active: Rc<std::cell::Cell<bool>> = Rc::new(std::cell::Cell::new(false));
 
         // ── Outline + title: update on tab switch ──────────────────────────
 
@@ -1925,6 +1928,7 @@ impl AppWindow {
         let style_btn_for_switch = style_btn.clone();
         let editor_pane_for_switch_delta = editor_pane.clone();
         let configured_root_for_switch = configured_root.clone();
+        let proj_mode_for_switch = proj_mode_active.clone();
         // Track per-file content hashes so tab switches don't recompile unchanged files.
         let switch_hash_map: Rc<RefCell<std::collections::HashMap<std::path::PathBuf, u64>>> =
             Rc::new(RefCell::new(std::collections::HashMap::new()));
@@ -1946,8 +1950,13 @@ impl AppWindow {
             let needs_compile = prev_hash != Some(content_hash);
             switch_hash_map.borrow_mut().insert(path.clone(), content_hash);
             preview_for_switch.set_buffer_snapshot(path.clone(), content.clone());
-            // Use configured root if set; otherwise compile the active file
-            let root_for_compile = configured_root_for_switch.borrow().clone().unwrap_or_else(|| path.clone());
+            // Only use configured root when project mode is actively ON; otherwise
+            // always compile the active file so the preview matches the editor.
+            let root_for_compile = if proj_mode_for_switch.get() {
+                configured_root_for_switch.borrow().clone().unwrap_or_else(|| path.clone())
+            } else {
+                path.clone()
+            };
             preview_for_switch.set_root_file(root_for_compile.clone());
             if needs_compile {
                 preview_for_switch.trigger_compile();
@@ -1958,12 +1967,16 @@ impl AppWindow {
                     .map(|n| n.strip_suffix(".typ").unwrap_or(n).to_string())
             }).unwrap_or_default();
             title_widget_for_switch.set_title(&title);
-            // Show root breadcrumb in subtitle when root differs from active file
-            if let Some(ref root_path) = *configured_root_for_switch.borrow() {
-                if root_path != &path {
-                    let root_name = root_path.file_name().and_then(|n| n.to_str()).unwrap_or("root");
-                    let active_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("file");
-                    title_widget_for_switch.set_subtitle(&format!("{root_name} › {active_name}"));
+            // Show root breadcrumb only when project mode is on and root differs
+            if proj_mode_for_switch.get() {
+                if let Some(ref root_path) = *configured_root_for_switch.borrow() {
+                    if root_path != &path {
+                        let root_name = root_path.file_name().and_then(|n| n.to_str()).unwrap_or("root");
+                        let active_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("file");
+                        title_widget_for_switch.set_subtitle(&format!("{root_name} › {active_name}"));
+                    } else {
+                        title_widget_for_switch.set_subtitle("");
+                    }
                 } else {
                     title_widget_for_switch.set_subtitle("");
                 }
@@ -3144,12 +3157,14 @@ impl AppWindow {
                 }
             }
 
-            // Toggle → show/hide inline controls and root banner
+            // Toggle → show/hide inline controls and root banner; update proj_mode_active
             {
                 let ctrls = proj_controls.clone();
                 let banner_rc = root_banner.clone();
+                let proj_mode_c = proj_mode_active.clone();
                 proj_toggle.connect_toggled(move |btn| {
                     let on = btn.is_active();
+                    proj_mode_c.set(on);
                     ctrls.set_visible(on);
                     if let Some(b) = banner_rc.borrow().as_ref() {
                         b.set_revealed(on);
