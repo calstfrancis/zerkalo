@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.9-dev1] — Running header options in template dialog
+
+### Added
+
+- **Running header** — new "Running Header" row in the template dialog Layout tab. Options: None, Title, Author, Current section (auto-matched to the nearest H1), Title · Author, Title · Section, Author · Section, Author · Title. Saved in the sidecar and restored when reopening template settings.
+
+---
+
 ## [0.13.8] "Still Water" — Template dialog redesign, preview startup fix, release notes
 
 ### Fixed

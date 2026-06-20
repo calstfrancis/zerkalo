@@ -56,6 +56,17 @@ const PAGE_NUM_OPTIONS: &[&str] = &[
     "None",
 ];
 
+const HEADER_OPTIONS: &[&str] = &[
+    "None",
+    "Title",
+    "Author",
+    "Current section",
+    "Title · Author",
+    "Title · Section",
+    "Author · Section",
+    "Author · Title",
+];
+
 const SPACING_OPTIONS: &[(&str, &str)] = &[
     ("Single", "0.65em"),
     ("1.5 Lines", "0.9em"),
@@ -221,6 +232,7 @@ pub(crate) struct TemplateSettings {
     font_size: String,
     spacing: String,
     page_num_pos: u32,
+    header_style: u32,
     include_toc: bool,
     toc_depth: u32,
     include_abstract: bool,
@@ -252,6 +264,8 @@ pub struct SidecarSettings {
     pub margin:             u32,
     pub spacing:            String,
     pub page_numbers:       u32,
+    #[serde(default)]
+    pub header_style:       u32,
     pub toc:                bool,
     pub toc_depth:          u32,
     pub abstract_enabled:   bool,
@@ -301,6 +315,7 @@ pub struct TemplateDialog {
     date_row: adw::EntryRow,
     bib_path: Rc<RefCell<Option<PathBuf>>>,
     pnum_row: adw::ComboRow,
+    header_row: adw::ComboRow,
     lang_switches: Vec<(String, adw::SwitchRow)>,
     pkg_switches: Vec<(String, adw::SwitchRow)>,
 }
@@ -421,6 +436,13 @@ impl TemplateDialog {
         pnum_row.set_model(Some(&pnum_model));
         pnum_row.set_selected(0);
         page_group.add(&pnum_row);
+
+        let header_model = gtk4::StringList::new(HEADER_OPTIONS);
+        let header_row = adw::ComboRow::new();
+        header_row.set_title("Running Header");
+        header_row.set_model(Some(&header_model));
+        header_row.set_selected(0);
+        page_group.add(&header_row);
 
         let typo_group = adw::PreferencesGroup::new();
         typo_group.set_title("Typography");
@@ -817,6 +839,7 @@ impl TemplateDialog {
         let w_font_size = font_size_row.clone();
         let w_spacing = spacing_row.clone();
         let w_pnum = pnum_row.clone();
+        let w_header = header_row.clone();
         let w_toc = toc_row.clone();
         let w_toc_depth = toc_depth_row.clone();
         let w_abstract = abstract_row.clone();
@@ -867,6 +890,7 @@ impl TemplateDialog {
                     .map(|(_, v)| v.to_string())
                     .unwrap_or_else(|| "1.5em".to_string()),
                 page_num_pos: w_pnum.selected(),
+                header_style: w_header.selected(),
                 include_toc: w_toc.is_active(),
                 toc_depth,
                 include_abstract: w_abstract.is_active(),
@@ -939,6 +963,7 @@ impl TemplateDialog {
         let a_font_size = font_size_row.clone();
         let a_spacing = spacing_row.clone();
         let a_pnum = pnum_row.clone();
+        let a_header = header_row.clone();
         let a_toc = toc_row.clone();
         let a_toc_depth = toc_depth_row.clone();
         let a_abstract = abstract_row.clone();
@@ -981,6 +1006,7 @@ impl TemplateDialog {
                     .map(|(_, v)| v.to_string())
                     .unwrap_or_else(|| "1.5em".to_string()),
                 page_num_pos: a_pnum.selected(),
+                header_style: a_header.selected(),
                 include_toc: a_toc.is_active(),
                 toc_depth,
                 include_abstract: a_abstract.is_active(),
@@ -1049,6 +1075,7 @@ impl TemplateDialog {
             let p_font_size = font_size_row.clone();
             let p_spacing = spacing_row.clone();
             let p_pnum = pnum_row.clone();
+            let p_header = header_row.clone();
             let p_toc = toc_row.clone();
             let p_toc_depth = toc_depth_row.clone();
             let p_abstract = abstract_row.clone();
@@ -1092,6 +1119,7 @@ impl TemplateDialog {
                         .map(|(_, v)| v.to_string())
                         .unwrap_or_else(|| "1.5em".to_string()),
                     page_num_pos: p_pnum.selected(),
+                    header_style: p_header.selected(),
                     include_toc: p_toc.is_active(),
                     toc_depth,
                     include_abstract: p_abstract.is_active(),
@@ -1158,7 +1186,7 @@ impl TemplateDialog {
             toc_row, toc_depth_row, abstract_row, abstract_text_row,
             keywords_row, keywords_text_row, heading_numbering_row, heading_format_row,
             title_row, subtitle_row, author_row, affil_row, course_row, date_row,
-            bib_path, pnum_row, lang_switches, pkg_switches,
+            bib_path, pnum_row, header_row, lang_switches, pkg_switches,
         }
     }
 
@@ -1334,6 +1362,12 @@ impl TemplateDialog {
         }
     }
 
+    pub fn preselect_header(&self, style: u32) {
+        if (style as usize) < HEADER_OPTIONS.len() {
+            self.header_row.set_selected(style);
+        }
+    }
+
     pub fn preselect_languages(&self, langs: &[String]) {
         for (key, sw) in &self.lang_switches {
             sw.set_active(langs.iter().any(|l| l == key));
@@ -1356,6 +1390,7 @@ impl TemplateDialog {
         if !s.spacing.is_empty()   { self.preselect_spacing(&s.spacing); }
         self.preselect_margin(s.margin as usize);
         self.preselect_page_numbers(s.page_numbers);
+        self.preselect_header(s.header_style);
         self.preselect_metadata(&s.title, &s.subtitle, &s.author, &s.affiliation, &s.course, &s.date);
         self.preselect_toc(s.toc, s.toc_depth);
         self.preselect_abstract(s.abstract_enabled, &s.abstract_text);
@@ -1419,6 +1454,7 @@ pub fn build_sidecar(t: &TemplateSettings) -> SidecarSettings {
         margin:            t.margin_idx as u32,
         spacing:           t.spacing.clone(),
         page_numbers:      t.page_num_pos,
+        header_style:      t.header_style,
         toc:               t.include_toc,
         toc_depth:         t.toc_depth,
         abstract_enabled:  t.include_abstract,
@@ -1459,6 +1495,7 @@ pub fn sidecar_to_settings(sc: &SidecarSettings) -> TemplateSettings {
         font_size: sc.font_size.clone(),
         spacing: sc.spacing.clone(),
         page_num_pos: sc.page_numbers,
+        header_style: sc.header_style,
         include_toc: sc.toc,
         toc_depth: sc.toc_depth,
         include_abstract: sc.abstract_enabled,
@@ -1834,6 +1871,9 @@ fn generate_title_page(style_key: &str, s: &TemplateSettings) -> String {
         s.date.clone()
     };
     let _ = writeln!(out, "#let doc-date = \"{}\"", typst_str(&date_val));
+    if let Some(hdr) = header_block(s.header_style) {
+        let _ = writeln!(out, "{hdr}");
+    }
     let _ = writeln!(out);
 
     match style_key {
@@ -1932,7 +1972,7 @@ pub fn rebuild_title_page_for_style(content: &str, new_style_key: &str) -> Strin
         date: parse_meta(content, "date"),
         // Remaining fields are not used by generate_title_page
         style_idx: 0, paper_idx: 0, margin_idx: 0,
-        font: String::new(), font_size: String::new(), spacing: String::new(), page_num_pos: 0,
+        font: String::new(), font_size: String::new(), spacing: String::new(), page_num_pos: 0, header_style: 0,
         include_toc: false, toc_depth: 2,
         include_abstract: false, abstract_text: String::new(),
         include_keywords: false, keywords: String::new(),
@@ -1964,6 +2004,26 @@ fn page_num_block(pos: u32) -> &'static str {
         2 => "numbering: \"1\",\n  number-align: top + center,",
         3 => "numbering: \"1\",\n  number-align: top + right,",
         _ => "",
+    }
+}
+
+fn header_block(style: u32) -> Option<String> {
+    match style {
+        0 => None,
+        1 => Some(String::from("#set page(header: align(center)[#doc-title])")),
+        2 => Some(String::from("#set page(header: align(center)[#doc-author])")),
+        3 => Some(String::from(
+            "#set page(header: context {\n  let hs = query(heading.where(level: 1).before(here()))\n  if hs.len() > 0 { align(center, hs.last().body) }\n})"
+        )),
+        4 => Some(String::from("#set page(header: align(center)[#doc-title \u{b7} #doc-author])")),
+        5 => Some(String::from(
+            "#set page(header: context {\n  let hs = query(heading.where(level: 1).before(here()))\n  let sec = if hs.len() > 0 { [ \u{b7} ] + hs.last().body } else { [] }\n  align(center)[#doc-title#sec]\n})"
+        )),
+        6 => Some(String::from(
+            "#set page(header: context {\n  let hs = query(heading.where(level: 1).before(here()))\n  let sec = if hs.len() > 0 { [ \u{b7} ] + hs.last().body } else { [] }\n  align(center)[#doc-author#sec]\n})"
+        )),
+        7 => Some(String::from("#set page(header: align(center)[#doc-author \u{b7} #doc-title])")),
+        _ => None,
     }
 }
 
@@ -2334,6 +2394,7 @@ fn generate_preset_preview(idx: usize) -> Result<Vec<u8>, String> {
         font_size: "12pt".to_string(),
         spacing,
         page_num_pos: p.page_num_pos,
+        header_style: 0,
         include_toc: false,
         toc_depth: 2,
         include_abstract: p.include_abstract,
@@ -2627,6 +2688,7 @@ pub fn default_import_preamble() -> String {
         font_size: "12pt".to_string(),
         spacing: "0.9em".to_string(),
         page_num_pos: 0, // Bottom center
+        header_style: 0,
         include_toc: false,
         toc_depth: 2,
         include_abstract: false,
