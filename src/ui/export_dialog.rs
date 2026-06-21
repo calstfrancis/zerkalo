@@ -148,7 +148,16 @@ impl ExportDialog {
             let checks = check_boxes.clone();
             let status_c = status_lbl.clone();
             let log_buf = log_view.buffer();
-            let out_dir = output_dir.clone();
+
+            // Derive the folder where output files land.  External tools run on
+            // the host via flatpak-spawn, so they cannot see sandbox-private /tmp
+            // paths.  Writing next to the source file is always host-accessible.
+            let export_dir = root_file
+                .as_ref()
+                .and_then(|p| p.parent())
+                .map(|p| p.to_path_buf())
+                .unwrap_or(output_dir);
+
             export_btn.connect_clicked(move |btn| {
                 let Some(ref input) = root_file else {
                     status_c.set_text("No file is currently open.");
@@ -177,10 +186,16 @@ impl ExportDialog {
                 let (tx, rx) = mpsc::sync_channel::<ExportMsg>(64);
 
                 let input_owned = input.clone();
-                let out_dir_owned = out_dir.clone();
+                let export_dir_owned = export_dir.clone();
                 let selected_owned = selected.clone();
 
                 std::thread::spawn(move || {
+                    // Ensure the output directory exists before writing anything.
+                    if let Err(e) = std::fs::create_dir_all(&export_dir_owned) {
+                        tx.send(ExportMsg::Err(format!("Cannot create output directory: {e}"))).ok();
+                        return;
+                    }
+
                     for fmt_idx in &selected_owned {
                         let (label, ext) = FORMATS[*fmt_idx];
                         let stem = input_owned
@@ -188,13 +203,13 @@ impl ExportDialog {
                             .and_then(|s| s.to_str())
                             .unwrap_or("output")
                             .to_string();
-                        let out_path = out_dir_owned.join(format!("{stem}.{ext}"));
+                        let out_path = export_dir_owned.join(format!("{stem}.{ext}"));
 
                         tx.send(ExportMsg::Log(format!("── Exporting {label}…"))).ok();
 
                         let result = match fmt_idx {
                             0 => {
-                                // PDF via embedded compiler
+                                // PDF via embedded compiler — runs in-process, no host tool needed.
                                 match crate::compiler::compile_to_pdf_bytes(
                                     &input_owned,
                                     &std::collections::HashMap::new(),
@@ -205,42 +220,41 @@ impl ExportDialog {
                                     Err(e) => Err(e),
                                 }
                             }
-                            1 => {
-                                // HTML via typst CLI
-                                run_command_logged(
-                                    crate::git_sync::host_command("typst"),
-                                    &[
-                                        "compile",
-                                        "--format", "html",
-                                        input_owned.to_str().unwrap_or(""),
-                                        out_path.to_str().unwrap_or(""),
-                                    ],
-                                    &tx,
-                                    "typst CLI not found. Install: cargo install typst-cli",
-                                )
-                            }
                             _ => {
-                                // pandoc formats
+                                // All other formats via pandoc.
+                                // HTML, DOCX, ODT, LaTeX, EPUB — pandoc reads typst natively.
                                 let pandoc_fmt = match fmt_idx {
+                                    1 => "html",
                                     2 => "docx",
                                     3 => "odt",
                                     4 => "latex",
                                     5 => "epub",
                                     _ => "docx",
                                 };
-                                run_command_logged(
+
+                                // Migrate legacy `it.numbering` pattern: Typst's non-PDF export
+                                // pipeline doesn't expose element fields in show rules, so field
+                                // access on heading elements fails. Write a patched temp file
+                                // rather than touching the original on disk.
+                                let tmp_path = migrate_for_pandoc(&input_owned);
+                                let actual_input = tmp_path.as_ref().unwrap_or(&input_owned);
+
+                                let result = run_command_logged(
                                     crate::git_sync::host_command("pandoc"),
                                     &[
                                         "-f", "typst",
-                                        input_owned.to_str().unwrap_or(""),
+                                        actual_input.to_str().unwrap_or(""),
                                         "-o", out_path.to_str().unwrap_or(""),
                                         "--standalone",
-                                        if pandoc_fmt == "docx" { "--reference-doc" } else { "--to" },
-                                        if pandoc_fmt == "docx" { "" } else { pandoc_fmt },
+                                        "--to", pandoc_fmt,
                                     ],
                                     &tx,
                                     &format!("pandoc not found. Install pandoc to export {label}.\n  apt install pandoc\n  dnf install pandoc\n  zypper install pandoc"),
-                                )
+                                );
+                                if let Some(tmp) = tmp_path {
+                                    let _ = std::fs::remove_file(tmp);
+                                }
+                                result
                             }
                         };
 
@@ -259,7 +273,7 @@ impl ExportDialog {
                 let btn_p = btn.clone();
                 let status_p = status_c.clone();
                 let log_buf_p = log_buf.clone();
-                let out_dir_for_open = out_dir.clone();
+                let export_dir_for_open = export_dir.clone();
                 let on_save_fmt_inner = on_save_format.clone();
                 let mut done_count = 0usize;
                 let total = selected.len();
@@ -278,8 +292,8 @@ impl ExportDialog {
                                     status_p.set_text("All exports complete. Opening output folder…");
                                     btn_p.set_sensitive(true);
                                     on_save_fmt_inner(first_fmt);
-                                    std::process::Command::new("xdg-open")
-                                        .arg(&out_dir_for_open)
+                                    crate::git_sync::host_command("xdg-open")
+                                        .arg(&export_dir_for_open)
                                         .spawn().ok();
                                     return glib::ControlFlow::Break;
                                 }
@@ -315,6 +329,53 @@ impl ExportDialog {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+// If the source file contains the legacy `it.numbering` pattern that Typst's
+// non-PDF export pipeline can't handle, write a patched temp file and return
+// its path. Returns None if no migration was needed (use the original file).
+fn migrate_for_pandoc(source: &std::path::Path) -> Option<PathBuf> {
+    const OLD: &str =
+        "#if it.numbering != none [#context counter(heading).display(it.numbering)#h(0.3em)]";
+
+    let content = std::fs::read_to_string(source).ok()?;
+    if !content.contains(OLD) {
+        return None;
+    }
+
+    // Detect whether heading numbering is active and what format is used.
+    let template_section = {
+        let b = content.find("// ZERKALO-TEMPLATE-BEGIN")?;
+        let e = content.find("// ZERKALO-TEMPLATE-END")?;
+        &content[b..e]
+    };
+    let (num_on, num_fmt) = {
+        let mut on = false;
+        let mut fmt = String::new();
+        for line in template_section.lines() {
+            if let Some(rest) = line.trim().strip_prefix("#set heading(numbering: \"") {
+                if let Some(end) = rest.find('"') {
+                    fmt = rest[..end].to_string();
+                    on = true;
+                    break;
+                }
+            }
+        }
+        (on, fmt)
+    };
+
+    let new_prefix = if num_on {
+        let f = if num_fmt.is_empty() { "1.".to_string() } else { num_fmt };
+        format!("#context counter(heading).display(\"{f}\")#h(0.3em)")
+    } else {
+        String::new()
+    };
+
+    let patched = content.replace(OLD, &new_prefix);
+    let stem = source.file_stem().and_then(|s| s.to_str()).unwrap_or("doc");
+    let tmp = std::env::temp_dir().join(format!("zerkalo_pandoc_{stem}.typ"));
+    std::fs::write(&tmp, patched).ok()?;
+    Some(tmp)
+}
+
 fn append_log(buf: &gtk4::TextBuffer, text: &str) {
     let mut end = buf.end_iter();
     if buf.char_count() > 0 {
@@ -329,11 +390,8 @@ fn run_command_logged(
     tx: &mpsc::SyncSender<ExportMsg>,
     not_found_msg: &str,
 ) -> Result<(), String> {
-    // Filter out empty args (used as placeholders for conditional flags)
-    let args: Vec<&str> = args.iter().copied().filter(|a| !a.is_empty()).collect();
-
     let mut child = match cmd
-        .args(&args)
+        .args(args)
         .stderr(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
@@ -345,7 +403,6 @@ fn run_command_logged(
         Err(e) => return Err(format!("Failed to start command: {e}")),
     };
 
-    // Read stderr in the same thread (we're already in a worker thread)
     let stderr = child.stderr.take().unwrap();
     let reader = BufReader::new(stderr);
     for line in reader.lines().flatten() {

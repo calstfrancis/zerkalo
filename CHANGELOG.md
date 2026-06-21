@@ -5,6 +5,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.9-dev4] — Fix non-PDF export failure caused by it.numbering in show rules
+
+### Fixed
+
+- **HTML, DOCX, ODT, LaTeX, and EPUB export no longer fail** — the heading show rules injected by the template dialog used `it.numbering` to conditionally display heading counters. Typst's non-PDF export pipeline does not expose element fields in show rules, so every non-PDF export errored with "Content does not have a method 'numbering'". Fixed at three layers:
+  - **Generation**: `inject_heading_numbering` now only injects counter display when heading numbering is actually enabled, and embeds the format string directly (`#context counter(heading).display("1.")`) instead of accessing `it.numbering` at runtime.
+  - **Export**: before handing the `.typ` file to pandoc, the old pattern is detected and patched in a temp file — so existing documents export correctly without any user action.
+  - **File open**: documents with the old pattern are migrated in the editor buffer on open; the next save persists the fix to disk.
+
+---
+
 ## [0.13.9-dev3] — Fix status bar word count and ghost "selected" label
 
 ### Fixed

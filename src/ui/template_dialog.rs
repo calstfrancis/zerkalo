@@ -1747,8 +1747,17 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
     let _ = writeln!(out, "#set par(leading: {}, spacing: 1.2em, first-line-indent: 1em, justify: true)", s.spacing);
     let _ = writeln!(out);
 
-    // Heading styles (with counter display injected so #set heading(numbering:) shows numbers)
-    let heading_code = inject_heading_numbering(heading_styles(style_key).trim_start_matches('\n'));
+    // Heading styles (with counter display injected when numbering is enabled)
+    let num_fmt = if s.heading_numbering {
+        if s.numbering_format.is_empty() { "1.".to_string() } else { s.numbering_format.clone() }
+    } else {
+        String::new()
+    };
+    let heading_code = inject_heading_numbering(
+        heading_styles(style_key).trim_start_matches('\n'),
+        s.heading_numbering,
+        &num_fmt,
+    );
     let _ = writeln!(out, "{heading_code}");
     let _ = writeln!(out);
 
@@ -2321,15 +2330,32 @@ pub fn heading_styles(style_key: &str) -> &'static str {
     }
 }
 
-// Injects conditional counter display before each heading body reference so that
-// #set heading(numbering: ...) actually shows numbers in custom show rules.
-fn inject_heading_numbering(rules: &str) -> String {
-    const PREFIX: &str =
-        "#if it.numbering != none [#context counter(heading).display(it.numbering)#h(0.3em)]";
+// Returns (numbering_on, format_string) by scanning the template block for
+// `#set heading(numbering: "...")`.
+fn extract_heading_numbering(block: &str) -> (bool, String) {
+    for line in block.lines() {
+        if let Some(rest) = line.trim().strip_prefix("#set heading(numbering: \"") {
+            if let Some(end) = rest.find('"') {
+                return (true, rest[..end].to_string());
+            }
+        }
+    }
+    (false, String::new())
+}
+
+// Injects a counter display before each heading body reference when numbering
+// is enabled. Uses the format string directly so no `it.numbering` field access
+// is needed — `it.numbering` is not available in Typst's non-PDF export modes.
+fn inject_heading_numbering(rules: &str, numbering_on: bool, format: &str) -> String {
+    if !numbering_on {
+        return rules.to_string();
+    }
+    let fmt = if format.is_empty() { "1." } else { format };
+    let prefix = format!("#context counter(heading).display(\"{fmt}\")#h(0.3em)");
     rules
-        .replace("#upper(it.body)", &format!("{PREFIX}#upper(it.body)"))
-        .replace("#text(it.body)", &format!("{PREFIX}#text(it.body)"))
-        .replace("#it.body", &format!("{PREFIX}#it.body"))
+        .replace("#upper(it.body)", &format!("{prefix}#upper(it.body)"))
+        .replace("#text(it.body)", &format!("{prefix}#text(it.body)"))
+        .replace("#it.body", &format!("{prefix}#it.body"))
 }
 
 // ── Preview helper ────────────────────────────────────────────────────────────
@@ -2884,7 +2910,12 @@ fn replace_margin_line(block: &str, new_margin: &str) -> String {
 }
 
 fn update_template_block_headings(block: &str, new_style_key: &str) -> String {
-    let raw = inject_heading_numbering(heading_styles(new_style_key).trim_start_matches('\n'));
+    let (num_on, num_fmt) = extract_heading_numbering(block);
+    let raw = inject_heading_numbering(
+        heading_styles(new_style_key).trim_start_matches('\n'),
+        num_on,
+        &num_fmt,
+    );
     let new_heading_code = raw.trim().to_string();
     let new_heading_code = new_heading_code.as_str();
     let style_name = CITATION_STYLES.iter()

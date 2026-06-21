@@ -2125,6 +2125,15 @@ impl EditorPane {
             buffer.set_style_scheme(Some(&scheme));
         }
 
+        let migrated;
+        let content = if content.contains(
+            "#if it.numbering != none [#context counter(heading).display(it.numbering)"
+        ) {
+            migrated = migrate_template_it_numbering(content);
+            migrated.as_str()
+        } else {
+            content
+        };
         buffer.set_text(content);
         apply_comment_highlights(&buffer);
         apply_simple_mode_tag(&buffer, *self.simple_mode.borrow());
@@ -4615,13 +4624,52 @@ fn set_wc_text_with_session(label: &Label, text: &str, session_start: u32) {
     label.set_text(&wc_str_with_delta(text, session_start));
 }
 
+// Replace the legacy `it.numbering` heading pattern that Typst's non-PDF export
+// pipeline cannot handle.  Called on file open so that saving the document
+// will persist the fix to disk.
+fn migrate_template_it_numbering(content: &str) -> String {
+    const OLD: &str =
+        "#if it.numbering != none [#context counter(heading).display(it.numbering)#h(0.3em)]";
+
+    let template_range = content
+        .find("// ZERKALO-TEMPLATE-BEGIN")
+        .zip(content.find("// ZERKALO-TEMPLATE-END"));
+
+    let (num_on, num_fmt) = if let Some((b, e)) = template_range {
+        let block = &content[b..e];
+        let mut on = false;
+        let mut fmt = String::new();
+        for line in block.lines() {
+            if let Some(rest) = line.trim().strip_prefix("#set heading(numbering: \"") {
+                if let Some(end) = rest.find('"') {
+                    fmt = rest[..end].to_string();
+                    on = true;
+                    break;
+                }
+            }
+        }
+        (on, fmt)
+    } else {
+        (false, String::new())
+    };
+
+    let new_prefix = if num_on {
+        let f = if num_fmt.is_empty() { "1.".to_string() } else { num_fmt };
+        format!("#context counter(heading).display(\"{f}\")#h(0.3em)")
+    } else {
+        String::new()
+    };
+
+    content.replace(OLD, &new_prefix)
+}
+
 fn count_content_words(text: &str) -> usize {
     strip_typst_markup(&strip_zerkalo_blocks(text)).split_whitespace().count()
 }
 
 // Remove ZERKALO-STYLE and ZERKALO-TEMPLATE blocks before word counting.
 // These contain raw Typst code that would otherwise inflate the count.
-fn strip_zerkalo_blocks(input: &str) -> String {
+pub(super) fn strip_zerkalo_blocks(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
     let mut in_block = false;
     for line in input.lines() {
@@ -4642,7 +4690,7 @@ fn strip_zerkalo_blocks(input: &str) -> String {
     out
 }
 
-fn strip_typst_markup(input: &str) -> String {
+pub(super) fn strip_typst_markup(input: &str) -> String {
     let chars: Vec<char> = input.chars().collect();
     let n = chars.len();
     let mut out = String::with_capacity(n);
