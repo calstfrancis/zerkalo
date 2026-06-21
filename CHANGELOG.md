@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.10-dev1] — Fix export log output (capture stdout alongside stderr)
+
+### Fixed
+
+- **Export log now shows the actual error** — `run_command_logged` previously only captured stderr; pandoc (and its Typst subprocess) may write error messages to stdout. Both streams are now captured concurrently so the log pane always reveals what went wrong.
+
+---
+
 ## [0.13.9] "True Shore" — Mouse selection, word count, export, and paragraph spacing
 
 ### Added
