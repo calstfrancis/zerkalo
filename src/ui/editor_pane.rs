@@ -2470,6 +2470,9 @@ impl EditorPane {
         let last_section_line: Rc<std::cell::Cell<i32>> = Rc::new(std::cell::Cell::new(-1));
         let wc_lbl_for_sel = self.word_count_label.clone();
         let last_wc_for_mark = self.last_wc_text.clone();
+        // Extra clones for the selection_bound handler below.
+        let wc_lbl_for_sel_bound = wc_lbl_for_sel.clone();
+        let last_wc_for_sel_bound = last_wc_for_mark.clone();
         let breadcrumb_lbl = self.breadcrumb_label.clone();
         let lsp_lbl_for_pkg = self.lsp_status_label.clone();
         let on_heading_cb = self.on_cursor_heading.clone();
@@ -2650,6 +2653,22 @@ impl EditorPane {
                             }
                         },
                     );
+                }
+            }
+        });
+
+        // When the user clicks to deselect, GTK moves the `insert` mark first and
+        // `selection_bound` second. The `insert` handler above fires while
+        // `selection_bound` is still at the old anchor, making
+        // `selection_bounds()` return Some — so it prints "N selected" even
+        // though nothing is selected. This second handler fires when
+        // `selection_bound` arrives and clears the ghost label.
+        buffer.connect_mark_set(move |buf, _iter, mark| {
+            if mark.name().as_deref() != Some("selection_bound") { return; }
+            if !buf.has_selection() {
+                let cached = last_wc_for_sel_bound.borrow().clone();
+                if !cached.is_empty() {
+                    wc_lbl_for_sel_bound.set_text(&cached);
                 }
             }
         });
@@ -4597,7 +4616,30 @@ fn set_wc_text_with_session(label: &Label, text: &str, session_start: u32) {
 }
 
 fn count_content_words(text: &str) -> usize {
-    strip_typst_markup(text).split_whitespace().count()
+    strip_typst_markup(&strip_zerkalo_blocks(text)).split_whitespace().count()
+}
+
+// Remove ZERKALO-STYLE and ZERKALO-TEMPLATE blocks before word counting.
+// These contain raw Typst code that would otherwise inflate the count.
+fn strip_zerkalo_blocks(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut in_block = false;
+    for line in input.lines() {
+        let t = line.trim();
+        if t == "// ZERKALO-STYLE-BEGIN" || t == "// ZERKALO-TEMPLATE-BEGIN" {
+            in_block = true;
+            continue;
+        }
+        if t == "// ZERKALO-STYLE-END" || t == "// ZERKALO-TEMPLATE-END" {
+            in_block = false;
+            continue;
+        }
+        if !in_block {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    out
 }
 
 fn strip_typst_markup(input: &str) -> String {
@@ -4686,11 +4728,17 @@ fn strip_typst_markup(input: &str) -> String {
             continue;
         }
 
-        // Hash function calls: skip #ident and (...){...} args, but KEEP text in [...] args
+        // Hash function calls: skip #ident and (...){...} args, but KEEP text in [...] args.
+        // Structural directives (#set, #show, #let, #import, #include, etc.) have a space
+        // between the keyword and the element name — skip the whole line for those.
         if c == '#' {
             i += 1;
             while i < n && (chars[i].is_alphanumeric() || chars[i] == '_' || chars[i] == '-' || chars[i] == '.') {
                 i += 1;
+            }
+            if i < n && chars[i] == ' ' {
+                while i < n && chars[i] != '\n' { i += 1; }
+                continue;
             }
             while i < n && matches!(chars[i], '[' | '(' | '{') {
                 if chars[i] == '[' {

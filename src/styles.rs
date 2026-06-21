@@ -17,7 +17,7 @@ pub const STYLES: &[(&str, &str, &str, &str, &str)] = &[
         // block(width: 100%) + set par(first-line-indent: 0pt) prevents the
         // paragraph indent from shifting centred headings off-axis.
         r#"#set text(size: 12pt, font: "Times New Roman", lang: "en")
-#set par(leading: 1em, first-line-indent: 0.5in, justify: false)
+#set par(leading: 1em, spacing: 1em, first-line-indent: 0.5in, justify: false)
 #set page(margin: 1in, numbering: "1", number-align: top + right)
 #show heading.where(level: 1): it => block(width: 100%, above: 1em, below: 0.5em)[
   #set par(first-line-indent: 0pt)
@@ -46,7 +46,7 @@ pub const STYLES: &[(&str, &str, &str, &str, &str)] = &[
     (
         "Chicago (Notes-Bib)",
         r#"#set text(size: 12pt, font: "Times New Roman", lang: "en")
-#set par(leading: 1em, first-line-indent: 0.5in, justify: true)
+#set par(leading: 1em, spacing: 1em, first-line-indent: 0.5in, justify: true)
 #set page(margin: 1in, numbering: "1", number-align: top + right)
 #show heading.where(level: 1): it => block(width: 100%, above: 1em, below: 0.5em)[
   #set par(first-line-indent: 0pt)
@@ -67,7 +67,7 @@ pub const STYLES: &[(&str, &str, &str, &str, &str)] = &[
     (
         "Chicago (Author-Date)",
         r#"#set text(size: 12pt, font: "Times New Roman", lang: "en")
-#set par(leading: 1em, first-line-indent: 0.5in, justify: true)
+#set par(leading: 1em, spacing: 1em, first-line-indent: 0.5in, justify: true)
 #set page(margin: 1in, numbering: "1", number-align: top + right)
 #show heading.where(level: 1): it => block(width: 100%, above: 1em, below: 0.5em)[
   #set par(first-line-indent: 0pt)
@@ -88,7 +88,7 @@ pub const STYLES: &[(&str, &str, &str, &str, &str)] = &[
     (
         "MLA",
         r#"#set text(size: 12pt, font: "Times New Roman", lang: "en")
-#set par(leading: 1em, first-line-indent: 0.5in, justify: false)
+#set par(leading: 1em, spacing: 1em, first-line-indent: 0.5in, justify: false)
 #set page(margin: 1in, numbering: "1", number-align: top + right)
 #show heading: it => block(width: 100%, above: 0.6em, below: 0.3em)[
   #set par(first-line-indent: 0pt)
@@ -103,7 +103,7 @@ pub const STYLES: &[(&str, &str, &str, &str, &str)] = &[
         // APA 7 §2.27: H1 centred bold; H2 flush-left bold; H3 flush-left bold italic;
         // H4 indented bold (run-in); H5 indented bold italic (run-in)
         r#"#set text(size: 12pt, font: "Times New Roman", lang: "en")
-#set par(leading: 1em, first-line-indent: 0.5in, justify: false)
+#set par(leading: 1em, spacing: 1em, first-line-indent: 0.5in, justify: false)
 #set page(margin: 1in, numbering: "1", number-align: top + right)
 #show heading.where(level: 1): it => block(width: 100%, above: 1em, below: 0.5em)[
   #set par(first-line-indent: 0pt)
@@ -124,7 +124,7 @@ pub const STYLES: &[(&str, &str, &str, &str, &str)] = &[
     (
         "ASA",
         r#"#set text(size: 12pt, font: "Times New Roman", lang: "en")
-#set par(leading: 1em, first-line-indent: 0.5in, justify: false)
+#set par(leading: 1em, spacing: 1em, first-line-indent: 0.5in, justify: false)
 #set page(margin: 1in, numbering: "1", number-align: top + right)
 #show heading.where(level: 1): it => block(width: 100%, above: 1em, below: 0.5em)[
   #set par(first-line-indent: 0pt)
@@ -145,7 +145,7 @@ pub const STYLES: &[(&str, &str, &str, &str, &str)] = &[
     (
         "Turabian",
         r#"#set text(size: 12pt, font: "Times New Roman", lang: "en")
-#set par(leading: 1em, first-line-indent: 0.5in, justify: true)
+#set par(leading: 1em, spacing: 1em, first-line-indent: 0.5in, justify: true)
 #set page(margin: 1in, numbering: "1", number-align: top + right)
 #show heading.where(level: 1): it => block(width: 100%, above: 1em, below: 0.5em)[
   #set par(first-line-indent: 0pt)
@@ -241,7 +241,7 @@ pub const STYLES: &[(&str, &str, &str, &str, &str)] = &[
     (
         "Harvard",
         r#"#set text(size: 12pt, font: "Times New Roman", lang: "en")
-#set par(leading: 1em, first-line-indent: 0.5in, justify: true)
+#set par(leading: 1em, spacing: 1em, first-line-indent: 0.5in, justify: true)
 #set page(margin: 1in, numbering: "1", number-align: top + right)
 #show heading.where(level: 1): it => block(width: 100%, above: 1em, below: 0.5em)[
   #set par(first-line-indent: 0pt)

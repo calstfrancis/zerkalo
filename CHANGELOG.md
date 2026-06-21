@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.9-dev3] — Fix status bar word count and ghost "selected" label
+
+### Fixed
+
+- **Status bar no longer shows "N words selected" when nothing is selected** — when clicking to deselect, GTK moves the `insert` mark before `selection_bound`, creating a momentary ghost selection. A second `connect_mark_set` handler now fires when `selection_bound` catches up and clears the label if no selection is active.
+- **Word count no longer inflates with Typst code, citations, or bibliography** — `strip_typst_markup` now strips ZERKALO-STYLE and ZERKALO-TEMPLATE blocks entirely before counting, and skips to end-of-line for structural directives (`#set`, `#show`, `#let`, `#import`, `#include`) that are followed by a space. Function calls and content blocks (`#emph[text]`, `#figure[caption]`, etc.) are unaffected.
+- **Uniform paragraph spacing in all double-spaced styles** — Chicago, SBL, Turabian, Harvard, MLA, APA, ASA now set `spacing: 1em` to match `leading: 1em`, giving true uniform double-spacing between paragraphs (previously Typst's default `spacing: 0.65em` made inter-paragraph gaps slightly tighter than inter-line gaps).
+
+---
+
 ## [0.13.9-dev2] — Fix mouse selection wild-scroll and focus-snap
 
 ### Fixed
