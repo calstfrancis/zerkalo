@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.9-dev2] — Fix mouse selection wild-scroll and focus-snap
+
+### Fixed
+
+- **Mouse text selection no longer causes wild viewport jumps** — GTK's built-in focus-in behaviour calls `scroll_mark_onscreen(insert)` when the text view gains keyboard focus, snapping the viewport to the cursor's old position even when the user had scrolled elsewhere. The scroll position is now saved when the pointer enters the editor and restored (via idle) after the focus-in snap fires, so the view stays where the user was reading. Covers both the first-click case and re-entry after clicking away.
+- **Scroll margin idle no longer disrupts drag selection** — the cursor-follow idle (keyboard typing only) is skipped when a selection is active or when the cursor is more than one viewport height outside the visible area.
+
+---
+
 ## [0.13.9-dev1] — Running header options in template dialog
 
 ### Added

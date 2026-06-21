@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use gtk4::prelude::*;
 use gtk4::{
-    AlertDialog, Box as GtkBox, Button, CssProvider, DropTarget, Entry, EventControllerKey,
-    EventControllerMotion, GestureClick, Label,
+    AlertDialog, Box as GtkBox, Button, CssProvider, DropTarget, Entry, EventControllerFocus,
+    EventControllerKey, EventControllerMotion, GestureClick, Label,
     Notebook, Orientation, Popover, ProgressBar, PropagationPhase, ScrolledWindow, Separator,
     TextSearchFlags, TextTag, TextWindowType, ToggleButton,
 };
@@ -2530,24 +2530,42 @@ impl EditorPane {
                     }
                 }
 
-                // Scroll margin: always keep the cursor at least ~3 lines away from
-                // the viewport edges (within_margin≈0.07 at typical window heights).
-                // use_align=false means it only scrolls when the cursor is actually
-                // outside the margin zone — so it never jumps when the cursor is
-                // already well-centred. Runs in idle so it doesn't fight GTK's own
-                // cursor-follow logic.
-                if !buf.has_selection() {
-                    let mut c = cursor.clone();
+                // Read typing flag before any scroll decisions. connect_changed fires
+                // before connect_mark_set on keyboard input, so was_typing is true for
+                // keystrokes and false for mouse clicks.
+                let was_typing = typing_flag.get();
+                typing_flag.set(false);
+
+                // Scroll margin: keep the cursor at least ~5 lines from the viewport
+                // edges while typing (within_margin=0.15). Only queued on keyboard
+                // input — mouse press must NOT queue this or the idle fires mid-drag
+                // and breaks selection.
+                //
+                // Inside the idle we re-check two conditions before scrolling:
+                //  1. No selection active (drag started while idle was pending).
+                //  2. Cursor is within ±1 viewport height of the visible area.
+                //     If it's further away the user intentionally scrolled; snapping
+                //     back would be disorienting. ±1vh covers the normal case of
+                //     typing one or two lines past the edge.
+                if was_typing && !buf.has_selection() {
                     let vs = view_for_scroll_margin.clone();
+                    let insert_mark = buf.get_insert();
+                    let buf_s = buf.clone();
                     glib::idle_add_local_once(move || {
-                        vs.scroll_to_iter(&mut c, 0.07, false, 0.0, 0.5);
+                        if buf_s.has_selection() { return; }
+                        let cursor = buf_s.iter_at_mark(&insert_mark);
+                        let loc = vs.iter_location(&cursor);
+                        let (_, wy) = vs.buffer_to_window_coords(
+                            TextWindowType::Widget, loc.x(), loc.y(),
+                        );
+                        let view_h = vs.allocated_height();
+                        if wy > -view_h && wy < 2 * view_h {
+                            vs.scroll_to_mark(&insert_mark, 0.15, false, 0.0, 0.5);
+                        }
                     });
                 }
 
                 // Typewriter scroll: only recenter when typing (not on mouse click).
-                // typing_flag is set true by connect_changed (fires before mark_set on keypress).
-                let was_typing = typing_flag.get();
-                typing_flag.set(false);
                 if *typewriter_for_mark.borrow()
                     && was_typing
                     && !buf.has_selection()
@@ -2609,10 +2627,12 @@ impl EditorPane {
                     }
                 }
 
-                // Debounced reverse sync: notify app_window of cursor position 300ms after it settles.
-                // Uses a generation counter rather than SourceId::remove() — glib 0.18 panics when
-                // remove() is called on a source that timeout_add_local_once already auto-removed.
-                {
+                // Debounced reverse sync: notify app_window of cursor position 300ms after it
+                // settles. Only fire on keyboard movement (was_typing), not mouse clicks —
+                // otherwise a click in the editor jumps the preview to match the clicked line.
+                // Uses a generation counter rather than SourceId::remove() — glib 0.18 panics
+                // when remove() is called on a source that timeout_add_local_once already removed.
+                if was_typing {
                     let line = cursor.line() as u32;
                     let total = buf.line_count() as u32;
                     let gen = cursor_moved_gen.get().wrapping_add(1);
@@ -3878,6 +3898,52 @@ impl EditorPane {
                 popover.popup();
             });
             view.add_controller(motion);
+        }
+
+        // Suppress GTK's built-in focus-in cursor snap.
+        // GtkTextView calls scroll_mark_onscreen(insert) when it gains keyboard
+        // focus, which can violently snap the viewport to the cursor's OLD position
+        // when the user has scrolled elsewhere. We save the scroll position the
+        // moment the pointer enters the widget (before any click/focus event) and
+        // restore it in idle after GTK's focus-in handler runs.
+        {
+            let saved_scroll: Rc<Cell<f64>> = Rc::new(Cell::new(-1.0));
+
+            // Save on pointer-enter (fires before the click that grants focus).
+            let ptr_ctrl = EventControllerMotion::new();
+            {
+                let sc = scroll.clone();
+                let sv = saved_scroll.clone();
+                ptr_ctrl.connect_enter(move |_, _, _| {
+                    sv.set(sc.vadjustment().value());
+                });
+            }
+            view.add_controller(ptr_ctrl);
+
+            // Also refresh the saved value whenever focus leaves the view, so
+            // that the stored position stays current for re-entry.
+            let focus_ctrl = EventControllerFocus::new();
+            {
+                let sc_leave = scroll.clone();
+                let sv_leave = saved_scroll.clone();
+                focus_ctrl.connect_leave(move |_| {
+                    sv_leave.set(sc_leave.vadjustment().value());
+                });
+            }
+            {
+                let sc_enter = scroll.clone();
+                let sv_enter = saved_scroll.clone();
+                focus_ctrl.connect_enter(move |_| {
+                    let val = sv_enter.get();
+                    if val >= 0.0 {
+                        let sc = sc_enter.clone();
+                        glib::idle_add_local_once(move || {
+                            sc.vadjustment().set_value(val);
+                        });
+                    }
+                });
+            }
+            view.add_controller(focus_ctrl);
         }
 
         // Re-apply squiggles after undo restores old text
