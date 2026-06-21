@@ -403,11 +403,24 @@ fn run_command_logged(
         Err(e) => return Err(format!("Failed to start command: {e}")),
     };
 
+    // Read both stderr and stdout concurrently to avoid deadlock and to capture
+    // whichever stream the tool (or its Typst subprocess) writes errors to.
     let stderr = child.stderr.take().unwrap();
-    let reader = BufReader::new(stderr);
-    for line in reader.lines().flatten() {
-        tx.send(ExportMsg::Log(line)).ok();
-    }
+    let stdout = child.stdout.take().unwrap();
+    let tx_err = tx.clone();
+    let stderr_thread = std::thread::spawn(move || {
+        for line in BufReader::new(stderr).lines().flatten() {
+            tx_err.send(ExportMsg::Log(line)).ok();
+        }
+    });
+    let tx_out = tx.clone();
+    let stdout_thread = std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines().flatten() {
+            tx_out.send(ExportMsg::Log(line)).ok();
+        }
+    });
+    stderr_thread.join().ok();
+    stdout_thread.join().ok();
 
     let status = child.wait().map_err(|e| format!("Process error: {e}"))?;
     if status.success() {
