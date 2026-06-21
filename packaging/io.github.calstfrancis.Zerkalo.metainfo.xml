@@ -57,6 +57,18 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.13.9" date="2026-06-21">
+      <description>
+        <p>0.13.9 "True Shore" — Mouse selection, word count, export, and paragraph spacing.</p>
+        <ul>
+          <li>Running header option in the template dialog Layout tab (None, Title, Author, Current Section, and combinations).</li>
+          <li>Mouse text selection no longer causes wild viewport jumps when the editor gains focus.</li>
+          <li>Status bar word count no longer inflates with Typst code, citations, or bibliography; document statistics window uses the same clean count.</li>
+          <li>HTML, DOCX, ODT, LaTeX, and EPUB export no longer fail due to heading show rules; existing documents are migrated automatically.</li>
+          <li>Uniform double-spacing between paragraphs in Chicago, SBL, Turabian, Harvard, MLA, APA, and ASA styles.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.13.8" date="2026-06-19">
       <description>
         <p>0.13.8 "Still Water" — Template dialog redesign, preview startup fix, release notes width.</p>

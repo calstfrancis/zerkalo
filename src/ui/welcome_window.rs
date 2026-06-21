@@ -7,7 +7,7 @@ use libadwaita as adw;
 use adw::prelude::*;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-const RELEASE_NAME: &str = "Still Water";
+const RELEASE_NAME: &str = "True Shore";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -125,13 +125,11 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION} \"{RELEASE_NAME}\"")));
             for item in [
-                "Preview always opens the same file as the editor on startup",
-                "Template dialog redesigned — tab sidebar runs the full window height; new Template tab shows the gallery; Quick Settings removed",
-                "Project toggle in status bar — reveals root-file controls inline (left of SIMPLE)",
-                "Citations sidebar — folder button picks a .bib file; filename shown in header",
-                "Cursor movement scrolls the preview to the matching position",
-                "Build Log panel — collapsible raw compiler output on error",
-                "Simple Mode — hides line numbers, adds left margin, hides template marker comments",
+                "Running header option in the template dialog Layout tab",
+                "Mouse text selection no longer causes wild viewport jumps when the editor gains focus",
+                "Word count (status bar and document statistics) no longer inflates with Typst code or bibliography",
+                "HTML, DOCX, ODT, LaTeX, and EPUB export no longer fail — existing documents migrate automatically",
+                "Uniform double-spacing between paragraphs in Chicago, SBL, Turabian, Harvard, MLA, APA, and ASA styles",
             ] {
                 body.append(&bullet_row(item));
             }

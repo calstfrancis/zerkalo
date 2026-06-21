@@ -5,41 +5,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.13.9-dev4] — Fix non-PDF export failure caused by it.numbering in show rules
+## [0.13.9] "True Shore" — Mouse selection, word count, export, and paragraph spacing
 
-### Fixed
+### Added
 
-- **HTML, DOCX, ODT, LaTeX, and EPUB export no longer fail** — the heading show rules injected by the template dialog used `it.numbering` to conditionally display heading counters. Typst's non-PDF export pipeline does not expose element fields in show rules, so every non-PDF export errored with "Content does not have a method 'numbering'". Fixed at three layers:
-  - **Generation**: `inject_heading_numbering` now only injects counter display when heading numbering is actually enabled, and embeds the format string directly (`#context counter(heading).display("1.")`) instead of accessing `it.numbering` at runtime.
-  - **Export**: before handing the `.typ` file to pandoc, the old pattern is detected and patched in a temp file — so existing documents export correctly without any user action.
-  - **File open**: documents with the old pattern are migrated in the editor buffer on open; the next save persists the fix to disk.
-
----
-
-## [0.13.9-dev3] — Fix status bar word count and ghost "selected" label
-
-### Fixed
-
-- **Status bar no longer shows "N words selected" when nothing is selected** — when clicking to deselect, GTK moves the `insert` mark before `selection_bound`, creating a momentary ghost selection. A second `connect_mark_set` handler now fires when `selection_bound` catches up and clears the label if no selection is active.
-- **Word count no longer inflates with Typst code, citations, or bibliography** — `strip_typst_markup` now strips ZERKALO-STYLE and ZERKALO-TEMPLATE blocks entirely before counting, and skips to end-of-line for structural directives (`#set`, `#show`, `#let`, `#import`, `#include`) that are followed by a space. Function calls and content blocks (`#emph[text]`, `#figure[caption]`, etc.) are unaffected.
-- **Uniform paragraph spacing in all double-spaced styles** — Chicago, SBL, Turabian, Harvard, MLA, APA, ASA now set `spacing: 1em` to match `leading: 1em`, giving true uniform double-spacing between paragraphs (previously Typst's default `spacing: 0.65em` made inter-paragraph gaps slightly tighter than inter-line gaps).
-
----
-
-## [0.13.9-dev2] — Fix mouse selection wild-scroll and focus-snap
+- **Running header** — new "Running Header" row in the template dialog Layout tab. Options: None, Title, Author, Current section (auto-matched to the nearest H1), Title · Author, Title · Section, Author · Section, Author · Title. Saved in the sidecar and restored when reopening template settings.
 
 ### Fixed
 
 - **Mouse text selection no longer causes wild viewport jumps** — GTK's built-in focus-in behaviour calls `scroll_mark_onscreen(insert)` when the text view gains keyboard focus, snapping the viewport to the cursor's old position even when the user had scrolled elsewhere. The scroll position is now saved when the pointer enters the editor and restored (via idle) after the focus-in snap fires, so the view stays where the user was reading. Covers both the first-click case and re-entry after clicking away.
 - **Scroll margin idle no longer disrupts drag selection** — the cursor-follow idle (keyboard typing only) is skipped when a selection is active or when the cursor is more than one viewport height outside the visible area.
-
----
-
-## [0.13.9-dev1] — Running header options in template dialog
-
-### Added
-
-- **Running header** — new "Running Header" row in the template dialog Layout tab. Options: None, Title, Author, Current section (auto-matched to the nearest H1), Title · Author, Title · Section, Author · Section, Author · Title. Saved in the sidecar and restored when reopening template settings.
+- **Status bar no longer shows "N words selected" when nothing is selected** — when clicking to deselect, GTK moves the `insert` mark before `selection_bound`, creating a momentary ghost selection; a second `connect_mark_set` handler now fires when `selection_bound` catches up and clears the label.
+- **Word count (status bar and document statistics) no longer inflates with Typst code, citations, or bibliography** — ZERKALO-STYLE and ZERKALO-TEMPLATE blocks are stripped before counting; structural directives (`#set`, `#show`, `#let`, `#import`, `#include`) are skipped to end-of-line. Document statistics window now uses the same clean count for words, characters, paragraphs, sentences, and reading time.
+- **HTML, DOCX, ODT, LaTeX, and EPUB export no longer fail** — heading show rules injected by the template dialog used `it.numbering`, which Typst's non-PDF export pipeline does not support. Counter display is now injected only when heading numbering is enabled, using the format string directly. Existing documents are migrated automatically on open and patched transparently when exported via pandoc.
+- **Uniform paragraph spacing in all double-spaced styles** — Chicago, SBL, Turabian, Harvard, MLA, APA, ASA now set `spacing: 1em` to match `leading: 1em`, giving true uniform double-spacing between paragraphs.
 
 ---
 
