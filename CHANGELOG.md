@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.10-dev7] — Fix typing delays: move spell check off main thread, cancel stale timers
+
+### Fixed
+
+- **Typing no longer stalls or feels choppy** — the debounced spell check was calling `wait_with_output()` (synchronous hunspell subprocess) directly on the GTK main thread, blocking the event loop for 50–200 ms every 700 ms. The spell check now runs in a background thread (same pattern as `recheck_all_buffers`); the main thread only does a non-blocking `try_recv()` poll every 50 ms.
+- **Timer accumulation eliminated** — the word count (300 ms), project word count (5 s), comment highlight (500 ms), and spell check (700 ms) debounce timers each now cancel the previous pending timer before adding a new one (`SourceId.remove()`). Previously, every keystroke added a new timer to the GLib event loop without removing the old ones, so after rapid typing thousands of pending timers had to be iterated on every event loop tick.
+
 ## [0.13.10-dev6] — Fix spell menu not appearing (move to connect_pressed)
 
 ### Fixed
