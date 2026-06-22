@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.10-dev4] — Fix spell correction popover blocked by gesture conflict
+
+### Fixed
+
+- **Spell correction popover now appears on right-click** — the `GestureClick(button=0)` gesture added for scroll-snap suppression was stealing the button-3 sequence (GTK4 processes last-added controllers first), preventing the spell menu gesture's `connect_released` from ever firing. Changed to `button=1` (left-click only) so the right-click spell gesture retains ownership of button-3 sequences.
+- **Right-click scroll snap suppression** — the idle scroll restore is now queued directly in the right-click gesture's `connect_pressed`, so right-clicks also suppress the viewport snap even when the editor already has focus.
+
 ## [0.13.10-dev3] — Fix right-click scroll jump (already-focused case) and popover position
 
 ### Fixed
