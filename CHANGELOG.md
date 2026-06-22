@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.10-dev8] — Fix scroll jump when dismissing spell popover (root cause)
+
+### Fixed
+
+- **Clicking to dismiss the spell popover no longer jumps the document** — the root cause was a race between GTK's focus-leave handler and our idle-based scroll restore. When right-clicking, GTK's button-3 handler snaps the scroll to the cursor before our idle can restore it. `focus_ctrl.connect_leave` fired during that window and saved the snapped (wrong) position into `saved_scroll`. When the popover was dismissed and the view regained focus, `focus_ctrl.connect_enter` restored from that wrong position, causing the jump. The fix: the right-click idle that restores scroll now also writes the correct position back into `saved_scroll`, so `focus_ctrl.connect_enter` always has the right value regardless of when `focus_leave` fired.
+
 ## [0.13.10-dev7] — Fix typing delays: move spell check off main thread, cancel stale timers
 
 ### Fixed
