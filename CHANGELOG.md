@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.10-dev2] — Fix preview flicker, right-click scroll jump, and spell menu
+
+### Fixed
+
+- **Preview pane shadow no longer flickers** — the auto-fit path now computes the correct zoom before the single redraw instead of doing an intermediate render at the old zoom level followed by a second render with the corrected zoom.
+- **Right-clicking in the code area no longer jumps to the top of the document** — the spell-correction popover handler now captures the buffer position and scroll offset at button-press time (before GTK's focus-in handler can snap the viewport to the cursor), so right-clicking anywhere in the document no longer causes the viewport to snap.
+- **Spell correction popover now appears at the correct word** — previously, the popover's position and word lookup used the widget coordinates from `connect_released`, which were wrong after the focus-snap; both now use coordinates captured at `connect_pressed`.
+- **Mouse text selection jumps reduced further** — `saved_scroll` is now updated on every button press (via a `GestureClick` with button=0), not just on pointer-enter. This ensures the scroll position used for the focus-snap restoration is always current, even when the user scrolls within the editor between enters.
+
 ## [0.13.10-dev1] — Fix export log output (capture stdout alongside stderr)
 
 ### Fixed

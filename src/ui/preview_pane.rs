@@ -698,24 +698,19 @@ impl PreviewPane {
                 glib::idle_add_local_once(move || { pane.fit_width(); });
             }
         } else if *self.auto_fit.borrow() {
-            // Update drawing area size immediately (no scroll restore), then
-            // do a single idle that recomputes zoom AND restores scroll position.
-            // Avoids a double-restore race that caused the preview to jump.
-            self.refit_drawing_area_centered(None);
-            let pane = self.clone();
-            let v = saved_v_frac;
-            glib::idle_add_local_once(move || {
-                let scroll_w = pane.img_scroll.allocated_width() as f64;
-                let pb_w = pane.page_pixbufs.borrow().first()
-                    .map(|pb| pb.width() as f64)
-                    .unwrap_or(0.0);
-                if pb_w > 0.0 && scroll_w > 16.0 {
-                    let z = ((scroll_w - 16.0) / pb_w).clamp(0.25, 4.0);
-                    *pane.zoom.borrow_mut() = z;
-                    if let Some(f) = pane.on_zoom_changed.borrow().as_ref() { f(z); }
-                }
-                pane.refit_drawing_area_centered(v);
-            });
+            // Compute the correct zoom synchronously before the single redraw so
+            // there is never an intermediate frame rendered at the old zoom level
+            // (which caused the shadow at the bottom of the last page to flicker).
+            let scroll_w = self.img_scroll.allocated_width() as f64;
+            let pb_w = self.page_pixbufs.borrow().first()
+                .map(|pb| pb.width() as f64)
+                .unwrap_or(0.0);
+            if pb_w > 0.0 && scroll_w > 16.0 {
+                let z = ((scroll_w - 16.0) / pb_w).clamp(0.25, 4.0);
+                *self.zoom.borrow_mut() = z;
+                if let Some(f) = self.on_zoom_changed.borrow().as_ref() { f(z); }
+            }
+            self.refit_drawing_area_centered(saved_v_frac);
         } else {
             self.refit_drawing_area_centered(saved_v_frac);
         }
