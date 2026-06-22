@@ -3835,11 +3835,11 @@ impl EditorPane {
                 popover.set_child(Some(&vbox));
 
                 let pop_close = popover.clone();
-                let scroll_close = scroll_rc.clone();
-                let saved_close = saved_scroll;
                 popover.connect_closed(move |_| {
                     pop_close.unparent();
-                    scroll_close.vadjustment().set_value(saved_close);
+                    // Do NOT restore scroll here. The idle in popup() already
+                    // anchored the view. Restoring on close fights with whatever
+                    // the user clicked to dismiss the popover.
                 });
 
                 popover.popup();
@@ -3973,22 +3973,26 @@ impl EditorPane {
             }
             view.add_controller(ptr_ctrl);
 
-            // Restore scroll on left-click (button=1 only — not button=0/any,
-            // which would steal the sequence from the right-click spell gesture).
-            // GestureClick::pressed fires before GtkTextView's own button-press
-            // handler, so we capture the pre-snap value and queue an idle restore.
+            // On left-click, suppress the focus-snap only when the view is
+            // actually gaining focus. If it already has focus the click is
+            // intentional navigation and should scroll to the cursor normally.
+            // button=1 only — button=0 would steal the right-click spell gesture's sequence.
             let any_click = GestureClick::new();
             any_click.set_button(1);
             {
                 let sc = scroll.clone();
                 let sv = saved_scroll.clone();
+                let view_fc = view.clone();
                 any_click.connect_pressed(move |_, _, _, _| {
                     let val = sc.vadjustment().value();
                     sv.set(val);
-                    let sc2 = sc.clone();
-                    glib::idle_add_local_once(move || {
-                        sc2.vadjustment().set_value(val);
-                    });
+                    if !view_fc.has_focus() {
+                        // View is gaining focus → GTK will snap to insert mark → restore.
+                        let sc2 = sc.clone();
+                        glib::idle_add_local_once(move || {
+                            sc2.vadjustment().set_value(val);
+                        });
+                    }
                 });
             }
             view.add_controller(any_click);
