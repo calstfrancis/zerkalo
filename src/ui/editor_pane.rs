@@ -3629,16 +3629,31 @@ impl EditorPane {
 
             let gesture = GestureClick::new();
             gesture.set_button(3); // right button
-            gesture.connect_released(move |_, _, x, y| {
+
+            // Capture the buffer position and scroll value on press, before GTK's
+            // focus-in handler fires and snaps the viewport to the insert mark.
+            // connect_released x/y coordinates are wrong after a focus-snap.
+            let pressed_state: Rc<RefCell<Option<(gtk4::TextIter, f64)>>> =
+                Rc::new(RefCell::new(None));
+            {
+                let view_p = view_rc.clone();
+                let scroll_p = scroll_rc.clone();
+                let ps = pressed_state.clone();
+                gesture.connect_pressed(move |_, _, x, y| {
+                    let scroll_val = scroll_p.vadjustment().value();
+                    let (bx, by) = view_p.window_to_buffer_coords(
+                        TextWindowType::Widget, x as i32, y as i32,
+                    );
+                    let iter = view_p.iter_at_location(bx, by);
+                    *ps.borrow_mut() = iter.map(|it| (it, scroll_val));
+                });
+            }
+
+            gesture.connect_released(move |_, _, _x, _y| {
                 let sc = spell_rc.borrow();
                 if !sc.enabled { return; }
 
-                let (bx, by) = view_rc.window_to_buffer_coords(
-                    TextWindowType::Widget,
-                    x as i32,
-                    y as i32,
-                );
-                let Some(iter) = view_rc.iter_at_location(bx, by) else { return };
+                let Some((iter, saved_scroll)) = pressed_state.borrow().clone() else { return };
 
                 let table = buf_rc.tag_table();
                 let Some(tag) = table.lookup("zerkalo-spell") else { return };
@@ -3662,11 +3677,16 @@ impl EditorPane {
                 let suggestions = sc.suggestions_for(&word);
                 drop(sc);
 
-                // Build and show popover
-                let saved_scroll = scroll_rc.vadjustment().value();
+                // Build and show popover — anchor to the word's position in widget
+                // coordinates (derived from the stored iter, not from the released
+                // event's x/y which may be wrong after a focus-snap).
                 let popover = Popover::new();
                 popover.set_parent(&view_rc);
-                let rect = gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1);
+                let buf_rect = view_rc.iter_location(&iter);
+                let (wx, wy) = view_rc.buffer_to_window_coords(
+                    TextWindowType::Widget, buf_rect.x(), buf_rect.y(),
+                );
+                let rect = gtk4::gdk::Rectangle::new(wx, wy, buf_rect.width().max(1), buf_rect.height().max(1));
                 popover.set_pointing_to(Some(&rect));
                 popover.set_has_arrow(true);
 
@@ -3931,13 +3951,14 @@ impl EditorPane {
         // Suppress GTK's built-in focus-in cursor snap.
         // GtkTextView calls scroll_mark_onscreen(insert) when it gains keyboard
         // focus, which can violently snap the viewport to the cursor's OLD position
-        // when the user has scrolled elsewhere. We save the scroll position the
-        // moment the pointer enters the widget (before any click/focus event) and
+        // when the user has scrolled elsewhere. We save the scroll position just
+        // before each click (GestureClick::pressed fires before GtkTextView's own
+        // button-press handler, which is what triggers focus-in and the snap) and
         // restore it in idle after GTK's focus-in handler runs.
         {
             let saved_scroll: Rc<Cell<f64>> = Rc::new(Cell::new(-1.0));
 
-            // Save on pointer-enter (fires before the click that grants focus).
+            // Save on pointer-enter as a fallback for the very first enter.
             let ptr_ctrl = EventControllerMotion::new();
             {
                 let sc = scroll.clone();
@@ -3947,6 +3968,20 @@ impl EditorPane {
                 });
             }
             view.add_controller(ptr_ctrl);
+
+            // Update saved_scroll on every button press (any button).
+            // GestureClick::pressed fires before GtkTextView's button-press handler,
+            // so this always captures the scroll position BEFORE any focus-in snap.
+            let any_click = GestureClick::new();
+            any_click.set_button(0); // 0 = any button
+            {
+                let sc = scroll.clone();
+                let sv = saved_scroll.clone();
+                any_click.connect_pressed(move |_, _, _, _| {
+                    sv.set(sc.vadjustment().value());
+                });
+            }
+            view.add_controller(any_click);
 
             // Also refresh the saved value whenever focus leaves the view, so
             // that the stored position stays current for re-entry.
