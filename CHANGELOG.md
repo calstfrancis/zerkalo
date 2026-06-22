@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.10-dev3] — Fix right-click scroll jump (already-focused case) and popover position
+
+### Fixed
+
+- **Right-click no longer jumps to the top of the document** — the previous fix only suppressed the snap when the view gained focus; if the view already had focus, GTK's right-click handling could still call `scroll_mark_onscreen` without firing a focus-in event. Every button press now queues an idle scroll restoration unconditionally.
+- **Spell correction popover appears at the click position** — the popover rect now uses the viewport-relative coordinates captured at press time rather than `buffer_to_window_coords`, which was computed after the scroll had already snapped and therefore gave the wrong position.
+
 ## [0.13.10-dev2] — Fix preview flicker, right-click scroll jump, and spell menu
 
 ### Fixed
