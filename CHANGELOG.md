@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.10-dev6] — Fix spell menu not appearing (move to connect_pressed)
+
+### Fixed
+
+- **Spell correction popover now reliably appears on right-click** — GtkSourceView processes button-3 internally and may grab the pointer before the release event reaches our gesture, so `connect_released` was silently never firing. The entire spell menu handler is now in `connect_pressed`, which always fires before any widget-level event handling.
+
 ## [0.13.10-dev5] — Fix scroll jump when dismissing spell popover
 
 ### Fixed

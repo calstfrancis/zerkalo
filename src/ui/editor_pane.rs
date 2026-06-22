@@ -3627,40 +3627,31 @@ impl EditorPane {
             let view_rc = view.clone();
             let scroll_rc = scroll.clone();
 
+            // Use connect_pressed, not connect_released. GtkSourceView processes
+            // button-3 internally and may grab the pointer before the release
+            // event reaches our gesture, so connect_released is unreliable.
+            // connect_pressed fires before any widget-level handling.
             let gesture = GestureClick::new();
             gesture.set_button(3); // right button
 
-            // Capture the buffer position, scroll value, and viewport coords on
-            // press, before GTK's focus-in handler fires and snaps the view.
-            // connect_released x/y are in the post-snap coordinate space and
-            // can't be trusted for buffer lookup or popover positioning.
-            let pressed_state: Rc<RefCell<Option<(gtk4::TextIter, f64, f64, f64)>>> =
-                Rc::new(RefCell::new(None));
-            {
-                let view_p = view_rc.clone();
-                let scroll_p = scroll_rc.clone();
-                let ps = pressed_state.clone();
-                gesture.connect_pressed(move |_, _, x, y| {
-                    let scroll_val = scroll_p.vadjustment().value();
-                    let (bx, by) = view_p.window_to_buffer_coords(
-                        TextWindowType::Widget, x as i32, y as i32,
-                    );
-                    let iter = view_p.iter_at_location(bx, by);
-                    *ps.borrow_mut() = iter.map(|it| (it, scroll_val, x, y));
-                    // Queue idle restore — right-click can snap the view even
-                    // when the editor already has focus.
-                    let sc = scroll_p.clone();
+            gesture.connect_pressed(move |_, _, x, y| {
+                // Suppress the focus-snap that right-click can trigger even when
+                // the view already has focus.
+                let scroll_val = scroll_rc.vadjustment().value();
+                {
+                    let sc = scroll_rc.clone();
                     glib::idle_add_local_once(move || {
                         sc.vadjustment().set_value(scroll_val);
                     });
-                });
-            }
+                }
 
-            gesture.connect_released(move |_, _, _x, _y| {
                 let sc = spell_rc.borrow();
                 if !sc.enabled { return; }
 
-                let Some((iter, saved_scroll, press_x, press_y)) = pressed_state.borrow().clone() else { return };
+                let (bx, by) = view_rc.window_to_buffer_coords(
+                    TextWindowType::Widget, x as i32, y as i32,
+                );
+                let Some(iter) = view_rc.iter_at_location(bx, by) else { return };
 
                 let table = buf_rc.tag_table();
                 let Some(tag) = table.lookup("zerkalo-spell") else { return };
@@ -3684,13 +3675,9 @@ impl EditorPane {
                 let suggestions = sc.suggestions_for(&word);
                 drop(sc);
 
-                // Anchor the popover to the viewport-relative coordinates captured
-                // at press time (press_x/press_y). Using buffer_to_window_coords
-                // here would be wrong because the scroll may have snapped between
-                // press and release; the press coords are always viewport-correct.
                 let popover = Popover::new();
                 popover.set_parent(&view_rc);
-                let rect = gtk4::gdk::Rectangle::new(press_x as i32, press_y as i32, 1, 1);
+                let rect = gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1);
                 popover.set_pointing_to(Some(&rect));
                 popover.set_has_arrow(true);
 
@@ -3843,12 +3830,6 @@ impl EditorPane {
                 });
 
                 popover.popup();
-                // Parenting the popover can trigger a layout pass that resets the
-                // scroll position — restore it after the event is fully processed.
-                let sc = scroll_rc.clone();
-                glib::idle_add_local_once(move || {
-                    sc.vadjustment().set_value(saved_scroll);
-                });
             });
             view.add_controller(gesture);
         }
