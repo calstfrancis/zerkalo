@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.10-dev5] — Fix scroll jump when dismissing spell popover
+
+### Fixed
+
+- **Clicking outside the spell popover no longer jumps the editor** — the `connect_closed` handler was forcing the scroll back to the right-click position after dismissal, which conflicted with wherever the user clicked. Popover close now only unparents; scroll position is not touched.
+- **Left-click navigation no longer suppressed** — the idle scroll restore is now only queued when the editor is actually gaining focus (no-focus → focused). When the view already has focus, left-click is intentional navigation and the view scrolls to the cursor normally.
+
 ## [0.13.10-dev4] — Fix spell correction popover blocked by gesture conflict
 
 ### Fixed
