@@ -3647,6 +3647,12 @@ impl EditorPane {
                     );
                     let iter = view_p.iter_at_location(bx, by);
                     *ps.borrow_mut() = iter.map(|it| (it, scroll_val, x, y));
+                    // Queue idle restore — right-click can snap the view even
+                    // when the editor already has focus.
+                    let sc = scroll_p.clone();
+                    glib::idle_add_local_once(move || {
+                        sc.vadjustment().set_value(scroll_val);
+                    });
                 });
             }
 
@@ -3967,14 +3973,12 @@ impl EditorPane {
             }
             view.add_controller(ptr_ctrl);
 
-            // Restore scroll on every button press (any button).
+            // Restore scroll on left-click (button=1 only — not button=0/any,
+            // which would steal the sequence from the right-click spell gesture).
             // GestureClick::pressed fires before GtkTextView's own button-press
-            // handler (which may call scroll_mark_onscreen even when the view
-            // already has focus, e.g. on right-click). We capture the pre-snap
-            // value here and unconditionally queue an idle restore, so the snap
-            // is suppressed regardless of whether focus changes.
+            // handler, so we capture the pre-snap value and queue an idle restore.
             let any_click = GestureClick::new();
-            any_click.set_button(0); // 0 = any button
+            any_click.set_button(1);
             {
                 let sc = scroll.clone();
                 let sv = saved_scroll.clone();
