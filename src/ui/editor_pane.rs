@@ -3656,12 +3656,20 @@ impl EditorPane {
         }
 
         // ── Right-click context menu (spell suggestions + ignore) ─────────────
+        //
+        // saved_scroll is defined here (not in the focus-snap block below) so
+        // the right-click gesture can also update it. If we don't, the sequence:
+        //   right-click → GTK snaps scroll → focus_leave saves snapped value
+        //   → idle restores real value → dismiss popover → focus_enter restores
+        //   wrong (snapped) value → visible jump.
+        let saved_scroll: Rc<Cell<f64>> = Rc::new(Cell::new(-1.0));
 
         {
             let spell_rc = self.spell_checker.clone();
             let buf_rc = buffer.clone();
             let view_rc = view.clone();
             let scroll_rc = scroll.clone();
+            let saved_rc = saved_scroll.clone();
 
             // Use connect_pressed, not connect_released. GtkSourceView processes
             // button-3 internally and may grab the pointer before the release
@@ -3671,13 +3679,19 @@ impl EditorPane {
             gesture.set_button(3); // right button
 
             gesture.connect_pressed(move |_, _, x, y| {
-                // Suppress the focus-snap that right-click can trigger even when
-                // the view already has focus.
+                // Suppress the focus-snap that right-click can trigger even
+                // when the view already has focus. Also update saved_scroll so
+                // that focus_ctrl.connect_enter (which fires on popover dismiss)
+                // restores to the correct position, not the GTK-snapped one.
+                // focus_ctrl.connect_leave fires during event processing (before
+                // idle), so it would otherwise capture the wrong snapped value.
                 let scroll_val = scroll_rc.vadjustment().value();
                 {
                     let sc = scroll_rc.clone();
+                    let sv = saved_rc.clone();
                     glib::idle_add_local_once(move || {
                         sc.vadjustment().set_value(scroll_val);
+                        sv.set(scroll_val);
                     });
                 }
 
@@ -3976,9 +3990,8 @@ impl EditorPane {
         // before each click (GestureClick::pressed fires before GtkTextView's own
         // button-press handler, which is what triggers focus-in and the snap) and
         // restore it in idle after GTK's focus-in handler runs.
+        // saved_scroll is shared with the right-click gesture above — see comment there.
         {
-            let saved_scroll: Rc<Cell<f64>> = Rc::new(Cell::new(-1.0));
-
             // Save on pointer-enter as a fallback for the very first enter.
             let ptr_ctrl = EventControllerMotion::new();
             {
