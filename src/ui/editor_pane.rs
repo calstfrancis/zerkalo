@@ -2399,10 +2399,12 @@ impl EditorPane {
         let last_wc_for_change = self.last_wc_text.clone();
         let project_root_for_wc = self.project_root.clone();
         let session_start_for_change: Rc<std::cell::Cell<u32>> = Rc::new(std::cell::Cell::new(count_words(content)));
-        // Generation counters for debounced per-keystroke work
-        let wc_gen: Rc<std::cell::Cell<u64>> = Rc::new(std::cell::Cell::new(0));
-        let comment_gen: Rc<std::cell::Cell<u64>> = Rc::new(std::cell::Cell::new(0));
-        let proj_wc_gen: Rc<std::cell::Cell<u64>> = Rc::new(std::cell::Cell::new(0));
+        // SourceId-based debounce timers. Each keystroke cancels the previous
+        // pending timer before scheduling a new one, so timers never accumulate
+        // in the event loop regardless of typing speed.
+        let wc_timer: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
+        let comment_timer: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
+        let proj_wc_timer: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
         buffer.connect_changed(move |buf| {
             let newly_modified = {
                 let mut state = state_for_change.borrow_mut();
@@ -2424,52 +2426,61 @@ impl EditorPane {
             if let Some(f) = on_change_cb.borrow().as_ref() { f(); }
 
             // ── Debounced word count (300 ms) ─────────────────────────────────
-            wc_gen.set(wc_gen.get().wrapping_add(1));
-            let my_wc = wc_gen.get();
-            let wc2 = wc_for_change.clone();
-            let goal2 = goal_for_change.clone();
-            let goal_val2 = goal_val_for_change.clone();
-            let last_wc2 = last_wc_for_change.clone();
-            let ss2 = session_start_for_change.clone();
-            let gen2 = wc_gen.clone();
-            let buf2 = buf.clone();
-            glib::timeout_add_local(Duration::from_millis(300), move || {
-                if gen2.get() != my_wc { return glib::ControlFlow::Break; }
-                let (s, e) = buf2.bounds();
-                let text = buf2.text(&s, &e, false);
-                let goal = *goal_val2.borrow();
-                if goal > 0 { update_goal_bar(&goal2, &text, goal); }
-                let wc_str = wc_str_with_delta(&text, ss2.get());
-                *last_wc2.borrow_mut() = wc_str.clone();
-                wc2.set_text(&wc_str);
-                glib::ControlFlow::Break
-            });
+            if let Some(id) = wc_timer.borrow_mut().take() { id.remove(); }
+            {
+                let wc2 = wc_for_change.clone();
+                let goal2 = goal_for_change.clone();
+                let goal_val2 = goal_val_for_change.clone();
+                let last_wc2 = last_wc_for_change.clone();
+                let ss2 = session_start_for_change.clone();
+                let buf2 = buf.clone();
+                let t = wc_timer.clone();
+                *wc_timer.borrow_mut() = Some(glib::timeout_add_local_once(
+                    Duration::from_millis(300),
+                    move || {
+                        *t.borrow_mut() = None;
+                        let (s, e) = buf2.bounds();
+                        let text = buf2.text(&s, &e, false);
+                        let goal = *goal_val2.borrow();
+                        if goal > 0 { update_goal_bar(&goal2, &text, goal); }
+                        let wc_str = wc_str_with_delta(&text, ss2.get());
+                        *last_wc2.borrow_mut() = wc_str.clone();
+                        wc2.set_text(&wc_str);
+                    },
+                ));
+            }
 
             // ── Debounced project word count tooltip (5 s) ────────────────────
-            proj_wc_gen.set(proj_wc_gen.get().wrapping_add(1));
-            let my_proj = proj_wc_gen.get();
-            let gen_proj = proj_wc_gen.clone();
-            let wc_lbl_proj = wc_for_change.clone();
-            let root_proj = project_root_for_wc.clone();
-            glib::timeout_add_local(Duration::from_millis(5000), move || {
-                if gen_proj.get() != my_proj { return glib::ControlFlow::Break; }
-                if let Some(root) = root_proj.borrow().as_ref() {
-                    let total = count_project_words(root);
-                    wc_lbl_proj.set_tooltip_text(Some(&format!("Project total: {total} words")));
-                }
-                glib::ControlFlow::Break
-            });
+            if let Some(id) = proj_wc_timer.borrow_mut().take() { id.remove(); }
+            {
+                let wc_lbl_proj = wc_for_change.clone();
+                let root_proj = project_root_for_wc.clone();
+                let t = proj_wc_timer.clone();
+                *proj_wc_timer.borrow_mut() = Some(glib::timeout_add_local_once(
+                    Duration::from_millis(5000),
+                    move || {
+                        *t.borrow_mut() = None;
+                        if let Some(root) = root_proj.borrow().as_ref() {
+                            let total = count_project_words(root);
+                            wc_lbl_proj.set_tooltip_text(Some(&format!("Project total: {total} words")));
+                        }
+                    },
+                ));
+            }
 
             // ── Debounced comment highlights (500 ms) ─────────────────────────
-            comment_gen.set(comment_gen.get().wrapping_add(1));
-            let my_comment = comment_gen.get();
-            let gen_comment = comment_gen.clone();
-            let buf_comment = buf.clone();
-            glib::timeout_add_local(Duration::from_millis(500), move || {
-                if gen_comment.get() != my_comment { return glib::ControlFlow::Break; }
-                apply_comment_highlights(&buf_comment);
-                glib::ControlFlow::Break
-            });
+            if let Some(id) = comment_timer.borrow_mut().take() { id.remove(); }
+            {
+                let buf_comment = buf.clone();
+                let t = comment_timer.clone();
+                *comment_timer.borrow_mut() = Some(glib::timeout_add_local_once(
+                    Duration::from_millis(500),
+                    move || {
+                        *t.borrow_mut() = None;
+                        apply_comment_highlights(&buf_comment);
+                    },
+                ));
+            }
         });
 
         // ── Cursor position tracking + heading detection ──────────────────────
@@ -3508,8 +3519,8 @@ impl EditorPane {
 
         {
             let spell_c = self.spell_checker.clone();
-            let spell_gen: Rc<RefCell<u64>> = Rc::new(RefCell::new(0));
-            let spell_gen_c = spell_gen.clone();
+            let spell_timer: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
+            let spell_poll_timer: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
             let buf_spell = buffer.clone();
 
             buffer.connect_changed(move |buf| {
@@ -3520,36 +3531,61 @@ impl EditorPane {
                 }
                 drop(sc);
 
-                *spell_gen_c.borrow_mut() += 1;
-                let my_gen = *spell_gen_c.borrow();
-                let gen2 = spell_gen_c.clone();
+                // Cancel any pending debounce and in-flight poll timer.
+                if let Some(id) = spell_timer.borrow_mut().take() { id.remove(); }
+                if let Some(id) = spell_poll_timer.borrow_mut().take() { id.remove(); }
+
                 let buf2 = buf.clone();
                 let sc2 = spell_c.clone();
+                let t = spell_timer.clone();
+                let pt = spell_poll_timer.clone();
 
-                glib::timeout_add_local(Duration::from_millis(700), move || {
-                    if *gen2.borrow() != my_gen {
-                        return glib::ControlFlow::Break;
-                    }
-                    let sc = sc2.borrow();
-                    if !sc.enabled {
-                        clear_spell_tags(&buf2);
-                        return glib::ControlFlow::Break;
-                    }
-                    let (s, e) = buf2.bounds();
-                    let text = buf2.text(&s, &e, true).to_string();
-                    let words = crate::spellcheck::extract_words(&text);
-                    let unique: Vec<&str> = {
-                        let mut seen = HashSet::new();
-                        words.iter()
-                            .filter(|(_, _, w)| !sc.is_ignored(w) && seen.insert(w.to_lowercase()))
-                            .map(|(_, _, w)| w.as_str())
-                            .collect()
-                    };
-                    let misspelled = sc.check_unique(&unique);
-                    drop(sc);
-                    apply_spell_tags(&buf2, &words, &misspelled);
-                    glib::ControlFlow::Break
-                });
+                *spell_timer.borrow_mut() = Some(glib::timeout_add_local_once(
+                    Duration::from_millis(700),
+                    move || {
+                        *t.borrow_mut() = None;
+
+                        let sc = sc2.borrow();
+                        if !sc.enabled {
+                            clear_spell_tags(&buf2);
+                            return;
+                        }
+                        let langs = sc.languages.clone();
+                        let ignored = sc.ignored().clone();
+                        drop(sc);
+
+                        let (s, e) = buf2.bounds();
+                        let text = buf2.text(&s, &e, true).to_string();
+                        let buf3 = buf2.clone();
+
+                        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+                        std::thread::spawn(move || {
+                            let words = crate::spellcheck::extract_words(&text);
+                            let unique: Vec<String> = {
+                                let mut seen = HashSet::new();
+                                words.iter()
+                                    .filter(|(_, _, w)| !ignored.contains(&w.to_lowercase()) && seen.insert(w.to_lowercase()))
+                                    .map(|(_, _, w)| w.clone())
+                                    .collect()
+                            };
+                            let unique_refs: Vec<&str> = unique.iter().map(|s| s.as_str()).collect();
+                            let misspelled = crate::spellcheck::check_words_batch(&unique_refs, &langs);
+                            let _ = tx.send((words, misspelled));
+                        });
+
+                        let poll_id = glib::timeout_add_local(Duration::from_millis(50), move || {
+                            match rx.try_recv() {
+                                Ok((words, misspelled)) => {
+                                    apply_spell_tags(&buf3, &words, &misspelled);
+                                    glib::ControlFlow::Break
+                                }
+                                Err(std::sync::mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
+                                Err(std::sync::mpsc::TryRecvError::Disconnected) => glib::ControlFlow::Break,
+                            }
+                        });
+                        *pt.borrow_mut() = Some(poll_id);
+                    },
+                ));
             });
         }
 
