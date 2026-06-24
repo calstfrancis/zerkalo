@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.10-dev9] — Split flatpak build into two modules for faster dev builds
+
+### Internal
+
+- Flatpak manifest split into `zerkalo-deps` (all cargo deps) and `zerkalo` (app crate only). Dep module is cached and skipped when `Cargo.lock` is unchanged; app module only recompiles the `zerkalo` crate (~30s vs ~3 min per dev build).
+
 ## [0.13.10-dev8] — Fix scroll jump when dismissing spell popover (root cause)
 
 ### Fixed

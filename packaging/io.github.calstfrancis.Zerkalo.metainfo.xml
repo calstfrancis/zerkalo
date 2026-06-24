@@ -57,6 +57,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release type="development" version="0.13.10-dev9" date="2026-06-24">
+      <description>
+        <p>0.13.10-dev9 — Split flatpak build for faster dev iteration.</p>
+      </description>
+    </release>
     <release version="0.13.9" date="2026-06-21">
       <description>
         <p>0.13.9 "True Shore" — Mouse selection, word count, export, and paragraph spacing.</p>
