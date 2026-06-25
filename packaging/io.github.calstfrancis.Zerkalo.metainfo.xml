@@ -57,6 +57,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release type="development" version="0.13.10-dev10" date="2026-06-25">
+      <description>
+        <p>0.13.10-dev10 — Fix SIGABRT crash from borrow_mut held across GTK widget ops.</p>
+      </description>
+    </release>
     <release type="development" version="0.13.10-dev9" date="2026-06-24">
       <description>
         <p>0.13.10-dev9 — Split flatpak build for faster dev iteration.</p>
