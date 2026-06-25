@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.10-dev10] — Fix SIGABRT crash: GTK widget ops inside borrow_mut
+
+### Fixed
+
+- **Crash (SIGABRT) when typing the first character after opening a file** — `set_visible` and `update_property` were called while `state.borrow_mut()` was active in the `connect_changed` handler, `mark_saved`, and `save_all_modified`. GTK fires `notify::visible` synchronously, which can cascade through the widget tree into GtkSourceView and re-enter a Zerkalo callback that tries to borrow `state`, causing a `BorrowMutError` panic. Fixed by cloning widget handles out of the borrow scope and performing all GTK calls only after the borrow is released.
+
 ## [0.13.10-dev9] — Split flatpak build into two modules for faster dev builds
 
 ### Internal

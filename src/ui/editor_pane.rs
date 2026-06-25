@@ -2409,17 +2409,17 @@ impl EditorPane {
             let newly_modified = {
                 let mut state = state_for_change.borrow_mut();
                 if let Some(tab) = state.tabs.get_mut(&path_for_change) {
-                    if !tab.modified {
-                        tab.modified = true;
-                        dot_for_change.set_visible(true);
-                        tab_box_for_change.update_property(&[gtk4::accessible::Property::Label(
-                            &format!("{} — unsaved", tab_name_for_change)
-                        )]);
-                        true
-                    } else { false }
+                    if !tab.modified { tab.modified = true; true } else { false }
                 } else { false }
             };
             if newly_modified {
+                // GTK widget ops must happen after borrow_mut is released — doing
+                // them inside the borrow can cause reentrant signal dispatch that
+                // tries to borrow state again, triggering a BorrowMutError panic.
+                dot_for_change.set_visible(true);
+                tab_box_for_change.update_property(&[gtk4::accessible::Property::Label(
+                    &format!("{} — unsaved", tab_name_for_change)
+                )]);
                 if let Some(f) = on_modified_cb.borrow().as_ref() { f(true); }
                 if let Some(f) = on_file_dirty_cb.borrow().as_ref() { f(path_for_change.clone(), true); }
             }
@@ -4229,13 +4229,17 @@ impl EditorPane {
     }
 
     pub fn mark_saved(&self, path: &PathBuf) {
-        let mut state = self.state.borrow_mut();
-        if let Some(tab) = state.tabs.get_mut(path) {
-            tab.modified = false;
-            tab.dot_label.set_visible(false);
-            tab.tab_box.update_property(&[gtk4::accessible::Property::Label(&tab.display_name)]);
+        let widgets = {
+            let mut state = self.state.borrow_mut();
+            state.tabs.get_mut(path).map(|tab| {
+                tab.modified = false;
+                (tab.dot_label.clone(), tab.tab_box.clone(), tab.display_name.clone())
+            })
+        };
+        if let Some((dot_label, tab_box, display_name)) = widgets {
+            dot_label.set_visible(false);
+            tab_box.update_property(&[gtk4::accessible::Property::Label(&display_name)]);
         }
-        drop(state);
         if let Some(f) = self.on_modified_changed.borrow().as_ref() { f(false); }
         if let Some(f) = self.on_file_dirty.borrow().as_ref() { f(path.clone(), false); }
     }
@@ -4299,18 +4303,23 @@ impl EditorPane {
     }
 
     pub fn save_all_modified(&self) {
-        let mut state = self.state.borrow_mut();
-        for (path, tab) in state.tabs.iter_mut() {
-            if !tab.modified {
-                continue;
+        let saved: Vec<(Label, GtkBox, String)> = {
+            let mut state = self.state.borrow_mut();
+            let mut out = Vec::new();
+            for (path, tab) in state.tabs.iter_mut() {
+                if !tab.modified { continue; }
+                let (start, end) = tab.buffer.bounds();
+                let content = tab.buffer.text(&start, &end, true);
+                if std::fs::write(path, content.as_bytes()).is_ok() {
+                    tab.modified = false;
+                    out.push((tab.dot_label.clone(), tab.tab_box.clone(), tab.display_name.clone()));
+                }
             }
-            let (start, end) = tab.buffer.bounds();
-            let content = tab.buffer.text(&start, &end, true);
-            if std::fs::write(path, content.as_bytes()).is_ok() {
-                tab.modified = false;
-                tab.dot_label.set_visible(false);
-                tab.tab_box.update_property(&[gtk4::accessible::Property::Label(&tab.display_name)]);
-            }
+            out
+        };
+        for (dot_label, tab_box, display_name) in saved {
+            dot_label.set_visible(false);
+            tab_box.update_property(&[gtk4::accessible::Property::Label(&display_name)]);
         }
     }
 
