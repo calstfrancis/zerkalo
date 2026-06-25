@@ -1874,7 +1874,7 @@ impl EditorPane {
             };
             if let Some(buffer) = buffer_opt {
                 buffer.set_text(&new_content);
-                apply_simple_mode_tag(&buffer, *self.simple_mode.borrow());
+                { let sm = *self.simple_mode.borrow(); apply_simple_mode_tag(&buffer, sm); }
             }
         }
     }
@@ -2074,7 +2074,7 @@ impl EditorPane {
         };
         if let Some((buffer, scroll)) = existing {
             buffer.set_text(content);
-            apply_simple_mode_tag(&buffer, *self.simple_mode.borrow());
+            { let sm = *self.simple_mode.borrow(); apply_simple_mode_tag(&buffer, sm); }
             if let Some(n) = self.notebook.page_num(&scroll) {
                 self.notebook.set_current_page(Some(n));
             }
@@ -2114,11 +2114,11 @@ impl EditorPane {
                 let mut ins = buffer.start_iter();
                 buffer.insert(&mut ins, new_preamble);
                 buffer.end_user_action();
-                apply_simple_mode_tag(&buffer, *self.simple_mode.borrow());
+                { let sm = *self.simple_mode.borrow(); apply_simple_mode_tag(&buffer, sm); }
             }
             None => {
                 buffer.set_text(full_new_content);
-                apply_simple_mode_tag(&buffer, *self.simple_mode.borrow());
+                { let sm = *self.simple_mode.borrow(); apply_simple_mode_tag(&buffer, sm); }
             }
         }
     }
@@ -2169,7 +2169,7 @@ impl EditorPane {
         };
         buffer.set_text(content);
         apply_comment_highlights(&buffer);
-        apply_simple_mode_tag(&buffer, *self.simple_mode.borrow());
+        { let sm = *self.simple_mode.borrow(); apply_simple_mode_tag(&buffer, sm); }
 
         let view = View::with_buffer(&buffer);
         view.update_property(&[
@@ -3557,12 +3557,17 @@ impl EditorPane {
             let buf_spell = buffer.clone();
 
             buffer.connect_changed(move |buf| {
-                let sc = spell_c.borrow();
-                if !sc.enabled {
+                let enabled = {
+                    let sc = spell_c.borrow();
+                    sc.enabled
+                };
+                if !enabled {
+                    // Release spell_checker borrow before GTK tag ops — remove_tag_by_name
+                    // can cascade through GtkSourceView signals and re-enter this closure
+                    // (or another that borrows spell_checker), causing a BorrowError panic.
                     clear_spell_tags(&buf_spell);
                     return;
                 }
-                drop(sc);
 
                 // Cancel any pending debounce and in-flight poll timer.
                 if let Some(id) = spell_timer.borrow_mut().take() { id.remove(); }
@@ -4214,7 +4219,7 @@ impl EditorPane {
         };
         if let Some(buffer) = buf {
             buffer.set_text(text);
-            apply_simple_mode_tag(&buffer, *self.simple_mode.borrow());
+            { let sm = *self.simple_mode.borrow(); apply_simple_mode_tag(&buffer, sm); }
         }
     }
 
@@ -4236,7 +4241,7 @@ impl EditorPane {
             buffer.delete(&mut start.clone(), &mut end.clone());
             buffer.insert(&mut buffer.end_iter(), text);
             buffer.end_user_action();
-            apply_simple_mode_tag(&buffer, *self.simple_mode.borrow());
+            { let sm = *self.simple_mode.borrow(); apply_simple_mode_tag(&buffer, sm); }
         }
     }
 
@@ -4248,7 +4253,7 @@ impl EditorPane {
         let buf = self.state.borrow().tabs.get(path).map(|t| t.buffer.clone());
         if let Some(buffer) = buf {
             buffer.set_text(text);
-            apply_simple_mode_tag(&buffer, *self.simple_mode.borrow());
+            { let sm = *self.simple_mode.borrow(); apply_simple_mode_tag(&buffer, sm); }
         }
     }
 

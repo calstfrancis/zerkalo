@@ -129,27 +129,30 @@ impl BibPopup {
         self.clear_rows();
         self.filtered_keys.borrow_mut().clear();
 
-        let entries = self.entries.borrow();
+        // Collect matched entries into owned data and release the borrow before
+        // any GTK widget ops — popover.popup() / select_row / append_row can
+        // cascade through signals back into Zerkalo code that tries to borrow
+        // entries again, causing a BorrowError panic.
         let q = query.to_lowercase();
-
-        let mut matched: Vec<&BibEntry> = entries
-            .iter()
-            .filter(|e| {
-                if q.is_empty() {
-                    return true;
-                }
-                let haystack = format!("{} {} {}", e.key, e.author, e.title).to_lowercase();
-                haystack.contains(&q)
-            })
-            .collect();
-
-        matched.sort_by_key(|e| {
-            let k = e.key.to_lowercase();
-            let a = e.author.to_lowercase();
-            if k.starts_with(&q) || a.starts_with(&q) { 0u8 } else { 1u8 }
-        });
-
-        let shown: Vec<&BibEntry> = matched;
+        let shown: Vec<BibEntry> = {
+            let entries = self.entries.borrow();
+            let mut matched: Vec<&BibEntry> = entries
+                .iter()
+                .filter(|e| {
+                    if q.is_empty() {
+                        return true;
+                    }
+                    let haystack = format!("{} {} {}", e.key, e.author, e.title).to_lowercase();
+                    haystack.contains(&q)
+                })
+                .collect();
+            matched.sort_by_key(|e| {
+                let k = e.key.to_lowercase();
+                let a = e.author.to_lowercase();
+                if k.starts_with(&q) || a.starts_with(&q) { 0u8 } else { 1u8 }
+            });
+            matched.into_iter().cloned().collect()
+        };
 
         if shown.is_empty() {
             if self.popover.is_visible() {

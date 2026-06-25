@@ -5,6 +5,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.11-dev4] — Fix crash when changing style (borrow held across GTK tag ops)
+
+### Fixed
+
+- **Crash (SIGABRT) when changing the editor style** — three separate borrows were held across GTK operations that cascade through GtkSourceView signals:
+  - `apply_simple_mode_tag(&buffer, *self.simple_mode.borrow())` — the `Ref<bool>` temporary lives until the end of the statement (after `apply_simple_mode_tag` returns), spanning `buffer.remove_tag()` / `buffer.apply_tag()` calls that emit signals. Fixed at 8 call sites by extracting the bool before the call: `{ let sm = *self.simple_mode.borrow(); apply_simple_mode_tag(&buffer, sm); }`.
+  - `spell_checker` borrow held in `connect_changed` closure while calling `clear_spell_tags()` → `buffer.remove_tag_by_name()`. Fixed by scoping the borrow to extract `enabled: bool`, releasing it before the tag removal call.
+  - `self.entries.borrow()` in `BibPopup::show_filtered` held across `append_row`, `select_row`, and `popover.popup()`. Fixed by collecting matched entries into an owned `Vec<BibEntry>` inside a scoped block, releasing the borrow before all GTK widget operations.
+
+---
+
 ## [0.13.11-dev3] — Fix crash in LSP poll timer (borrow held across GTK ops)
 
 ### Fixed
