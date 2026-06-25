@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.10-dev12] — Dev build
+
+### Internal
+
+- Version bump for dev build.
+
 ## [0.13.10-dev11] — Fix SIGABRT crash: GTK ops inside state borrow in mark_diagnostics
 
 ### Fixed
