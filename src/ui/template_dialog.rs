@@ -224,6 +224,7 @@ pub(crate) struct TemplateSettings {
     author: String,
     affiliation: String,
     course: String,
+    professor: String,
     date: String,
     style_idx: usize,
     paper_idx: usize,
@@ -256,6 +257,8 @@ pub struct SidecarSettings {
     pub author:             String,
     pub affiliation:        String,
     pub course:             String,
+    #[serde(default)]
+    pub professor:          String,
     pub date:               String,
     pub style:              String,
     pub font:               String,
@@ -312,6 +315,7 @@ pub struct TemplateDialog {
     author_row: adw::EntryRow,
     affil_row: adw::EntryRow,
     course_row: adw::EntryRow,
+    professor_row: adw::EntryRow,
     date_row: adw::EntryRow,
     bib_path: Rc<RefCell<Option<PathBuf>>>,
     pnum_row: adw::ComboRow,
@@ -388,6 +392,10 @@ impl TemplateDialog {
         let course_row = adw::EntryRow::new();
         course_row.set_title("Course / Context");
         meta_group.add(&course_row);
+
+        let professor_row = adw::EntryRow::new();
+        professor_row.set_title("Professor / Instructor");
+        meta_group.add(&professor_row);
 
         let date_row = adw::EntryRow::new();
         date_row.set_title("Date");
@@ -830,6 +838,7 @@ impl TemplateDialog {
         let w_author = author_row.clone();
         let w_affil = affil_row.clone();
         let w_course = course_row.clone();
+        let w_professor = professor_row.clone();
         let w_date = date_row.clone();
         let w_style = style_row.clone();
         let w_paper = paper_row.clone();
@@ -879,6 +888,7 @@ impl TemplateDialog {
                 author: w_author.text().to_string(),
                 affiliation: w_affil.text().to_string(),
                 course: w_course.text().to_string(),
+                professor: w_professor.text().to_string(),
                 date: w_date.text().to_string(),
                 style_idx: w_style.selected() as usize,
                 paper_idx: w_paper.selected() as usize,
@@ -954,6 +964,7 @@ impl TemplateDialog {
         let a_author = author_row.clone();
         let a_affil = affil_row.clone();
         let a_course = course_row.clone();
+        let a_professor = professor_row.clone();
         let a_date = date_row.clone();
         let a_style = style_row.clone();
         let a_paper = paper_row.clone();
@@ -995,6 +1006,7 @@ impl TemplateDialog {
                 author: a_author.text().to_string(),
                 affiliation: a_affil.text().to_string(),
                 course: a_course.text().to_string(),
+                professor: a_professor.text().to_string(),
                 date: a_date.text().to_string(),
                 style_idx: a_style.selected() as usize,
                 paper_idx: a_paper.selected() as usize,
@@ -1066,6 +1078,7 @@ impl TemplateDialog {
             let p_author = author_row.clone();
             let p_affil = affil_row.clone();
             let p_course = course_row.clone();
+            let p_professor = professor_row.clone();
             let p_date = date_row.clone();
             let p_style = style_row.clone();
             let p_paper = paper_row.clone();
@@ -1108,6 +1121,7 @@ impl TemplateDialog {
                     author: p_author.text().to_string(),
                     affiliation: p_affil.text().to_string(),
                     course: p_course.text().to_string(),
+                    professor: p_professor.text().to_string(),
                     date: p_date.text().to_string(),
                     style_idx: p_style.selected() as usize,
                     paper_idx: p_paper.selected() as usize,
@@ -1185,7 +1199,7 @@ impl TemplateDialog {
             style_row, font_row, font_size_row, paper_row, margin_row, spacing_row,
             toc_row, toc_depth_row, abstract_row, abstract_text_row,
             keywords_row, keywords_text_row, heading_numbering_row, heading_format_row,
-            title_row, subtitle_row, author_row, affil_row, course_row, date_row,
+            title_row, subtitle_row, author_row, affil_row, course_row, professor_row, date_row,
             bib_path, pnum_row, header_row, lang_switches, pkg_switches,
         }
     }
@@ -1294,6 +1308,7 @@ impl TemplateDialog {
         author: &str,
         affiliation: &str,
         course: &str,
+        professor: &str,
         date: &str,
     ) {
         if !title.is_empty()       { self.title_row.set_text(title); }
@@ -1301,6 +1316,7 @@ impl TemplateDialog {
         if !author.is_empty()      { self.author_row.set_text(author); }
         if !affiliation.is_empty() { self.affil_row.set_text(affiliation); }
         if !course.is_empty()      { self.course_row.set_text(course); }
+        if !professor.is_empty()   { self.professor_row.set_text(professor); }
         if !date.is_empty()        { self.date_row.set_text(date); }
     }
 
@@ -1391,7 +1407,7 @@ impl TemplateDialog {
         self.preselect_margin(s.margin as usize);
         self.preselect_page_numbers(s.page_numbers);
         self.preselect_header(s.header_style);
-        self.preselect_metadata(&s.title, &s.subtitle, &s.author, &s.affiliation, &s.course, &s.date);
+        self.preselect_metadata(&s.title, &s.subtitle, &s.author, &s.affiliation, &s.course, &s.professor, &s.date);
         self.preselect_toc(s.toc, s.toc_depth);
         self.preselect_abstract(s.abstract_enabled, &s.abstract_text);
         self.preselect_keywords(s.keywords_enabled, &s.keywords_text);
@@ -1446,6 +1462,7 @@ pub fn build_sidecar(t: &TemplateSettings) -> SidecarSettings {
         author:            t.author.clone(),
         affiliation:       t.affiliation.clone(),
         course:            t.course.clone(),
+        professor:         t.professor.clone(),
         date:              t.date.clone(),
         style:             CITATION_STYLES.get(t.style_idx).map(|(_, k)| k.to_string()).unwrap_or_default(),
         font:              t.font.clone(),
@@ -1487,6 +1504,7 @@ pub fn sidecar_to_settings(sc: &SidecarSettings) -> TemplateSettings {
         author: sc.author.clone(),
         affiliation: sc.affiliation.clone(),
         course: sc.course.clone(),
+        professor: sc.professor.clone(),
         date: sc.date.clone(),
         style_idx,
         paper_idx,
@@ -1874,6 +1892,7 @@ fn generate_title_page(style_key: &str, s: &TemplateSettings) -> String {
     let _ = writeln!(out, "#let doc-author = \"{}\"", typst_str(&s.author));
     let _ = writeln!(out, "#let doc-affil = \"{}\"", typst_str(&s.affiliation));
     let _ = writeln!(out, "#let doc-course = \"{}\"", typst_str(&s.course));
+    let _ = writeln!(out, "#let doc-professor = \"{}\"", typst_str(&s.professor));
     let date_val = if s.date.is_empty() {
         Local::now().format("%B %-d, %Y").to_string()
     } else {
@@ -1892,6 +1911,7 @@ fn generate_title_page(style_key: &str, s: &TemplateSettings) -> String {
             let _ = writeln!(out, "#if doc-author != \"\" [#doc-author \\ ]");
             let _ = writeln!(out, "#if doc-affil != \"\" [#doc-affil \\ ]");
             let _ = writeln!(out, "#if doc-course != \"\" [#doc-course \\ ]");
+            let _ = writeln!(out, "#if doc-professor != \"\" [#doc-professor \\ ]");
             let _ = writeln!(out, "#if doc-date != \"\" [#doc-date]");
             let _ = writeln!(out);
             let _ = writeln!(out, "#align(center)[#doc-title]");
@@ -1919,6 +1939,7 @@ fn generate_title_page(style_key: &str, s: &TemplateSettings) -> String {
             let _ = writeln!(out, "  #if doc-author != \"\" [#doc-author]");
             let _ = writeln!(out, "  #if doc-affil != \"\" [\\ #doc-affil]");
             let _ = writeln!(out, "  #if doc-course != \"\" [\\ #doc-course]");
+            let _ = writeln!(out, "  #if doc-professor != \"\" [\\ #doc-professor]");
             let _ = writeln!(out, "  #if doc-date != \"\" [\\ #doc-date]");
             let _ = writeln!(out, "]");
             let _ = writeln!(out);
@@ -1956,6 +1977,7 @@ fn generate_title_page(style_key: &str, s: &TemplateSettings) -> String {
             let _ = writeln!(out, "  #if doc-author != \"\" [#doc-author]");
             let _ = writeln!(out, "  #if doc-affil != \"\" [\\ #text(style: \"italic\")[#doc-affil]]");
             let _ = writeln!(out, "  #if doc-course != \"\" [\\ #doc-course]");
+            let _ = writeln!(out, "  #if doc-professor != \"\" [\\ #doc-professor]");
             let _ = writeln!(out, "  #if doc-date != \"\" [\\ #doc-date]");
             let _ = writeln!(out, "  #v(1fr)");
             let _ = writeln!(out, "]");
@@ -1978,6 +2000,7 @@ pub fn rebuild_title_page_for_style(content: &str, new_style_key: &str) -> Strin
         author: parse_meta(content, "author"),
         affiliation: parse_meta(content, "affiliation"),
         course: parse_meta(content, "course"),
+        professor: parse_meta(content, "professor"),
         date: parse_meta(content, "date"),
         // Remaining fields are not used by generate_title_page
         style_idx: 0, paper_idx: 0, margin_idx: 0,
@@ -2412,6 +2435,7 @@ fn generate_preset_preview(idx: usize) -> Result<Vec<u8>, String> {
         author: "Author Name".to_string(),
         affiliation: "Sample University".to_string(),
         course: String::new(),
+        professor: String::new(),
         date: "2026".to_string(),
         style_idx: p.style_idx as usize,
         paper_idx: p.paper_idx as usize,
@@ -2706,6 +2730,7 @@ pub fn default_import_preamble() -> String {
         author: String::new(),
         affiliation: String::new(),
         course: String::new(),
+        professor: String::new(),
         date: String::new(),
         style_idx: 1,    // Chicago (Notes-Bib) — common humanities default
         paper_idx: 0,    // US Letter
@@ -3042,6 +3067,7 @@ pub fn parse_meta(content: &str, field: &str) -> String {
         "author"      => "doc-author",
         "affiliation" => "doc-affil",
         "course"      => "doc-course",
+        "professor"   => "doc-professor",
         "date"        => "doc-date",
         _ => "",
     };

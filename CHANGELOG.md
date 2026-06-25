@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.11-dev1] — Professor/course fields, more crash fixes
+
+### Added
+
+- **Professor / Instructor field on the title page** — new field in the template dialog (under Course Code). Persisted in the `.zerkalo.toml` sidecar. Rendered on title pages for all academic styles (MLA, APA, ASA, Harvard, Chicago, Turabian, SBL, Default).
+
+### Fixed
+
+- **Crash (SIGABRT) when editing a freshly created template file** — the undo/redo toolbar buttons held `state.borrow()` while calling `tab.buffer.undo()` / `tab.buffer.redo()`. Those calls fire `changed`, which cascades through GtkSourceView (`source-mark-updated`) and re-enters Zerkalo handlers that try a conflicting borrow → `BorrowError` panic. Fixed by cloning the buffer handle out of the state borrow scope, then calling `undo()`/`redo()` after the borrow is released.
+- **Same pattern eliminated** from `apply_simple_mode_to_buffer`, `apply_word_wrap`, `apply_show_whitespace`, `apply_tab_width`, `apply_line_spacing`, and `apply_style_scheme` — all previously held `state.borrow()` while calling GTK buffer/view ops that can emit signals.
+
+---
+
 ## [0.13.10] "Steady Quill" — Crash fixes and faster dev builds
 
 ### Fixed
