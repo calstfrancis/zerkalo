@@ -5,29 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.13.10-dev12] — Dev build
-
-### Internal
-
-- Version bump for dev build.
-
-## [0.13.10-dev11] — Fix SIGABRT crash: GTK ops inside state borrow in mark_diagnostics
+## [0.13.10] "Steady Quill" — Crash fixes and faster dev builds
 
 ### Fixed
 
-- **Second SIGABRT crash on typing** — `mark_diagnostics` and `clear_diagnostic_marks` held `self.state.borrow()` while calling `diag_dot.set_visible()`, `apply_tag_by_name()`, and `create_source_mark()`. These fire synchronous GtkSourceBuffer signals that cascade into Zerkalo callbacks which attempt `state.borrow_mut()`, panicking because an immutable borrow was already active. Fixed by collecting `(buffer, diag_dot)` clones from state while the borrow is held, then dropping the borrow before any GTK calls.
-
-## [0.13.10-dev10] — Fix SIGABRT crash: GTK widget ops inside borrow_mut
-
-### Fixed
-
-- **Crash (SIGABRT) when typing the first character after opening a file** — `set_visible` and `update_property` were called while `state.borrow_mut()` was active in the `connect_changed` handler, `mark_saved`, and `save_all_modified`. GTK fires `notify::visible` synchronously, which can cascade through the widget tree into GtkSourceView and re-enter a Zerkalo callback that tries to borrow `state`, causing a `BorrowMutError` panic. Fixed by cloning widget handles out of the borrow scope and performing all GTK calls only after the borrow is released.
-
-## [0.13.10-dev9] — Split flatpak build into two modules for faster dev builds
+- **Crash (SIGABRT) when typing** — two separate RefCell double-borrow crashes eliminated. The `connect_changed` handler, `mark_saved`, and `save_all_modified` called `set_visible` / `update_property` while holding `state.borrow_mut()`; `mark_diagnostics` and `clear_diagnostic_marks` called GTK buffer ops while holding `state.borrow()`. In both cases, GTK fires synchronous signals that cascade through GtkSourceView and re-enter Zerkalo callbacks that try a conflicting borrow, causing a `BorrowError` panic. All fixed by releasing the borrow before any GTK calls.
+- **Clicking to dismiss the spell popover no longer jumps the document** — fixed a race between GTK's focus-leave handler and the idle-based scroll restore that was saving and restoring the wrong scroll position.
 
 ### Internal
 
-- Flatpak manifest split into `zerkalo-deps` (all cargo deps) and `zerkalo` (app crate only). Dep module is cached and skipped when `Cargo.lock` is unchanged; app module only recompiles the `zerkalo` crate (~30s vs ~3 min per dev build).
+- Flatpak manifest split into `zerkalo-deps` (all cargo deps, cached) and `zerkalo` (app crate only). Dev builds now recompile only the `zerkalo` crate (~30 s vs ~3 min) when `Cargo.lock` is unchanged.
 
 ## [0.13.10-dev8] — Fix scroll jump when dismissing spell popover (root cause)
 
