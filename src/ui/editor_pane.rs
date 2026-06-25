@@ -1696,48 +1696,55 @@ impl EditorPane {
             Some(p) => p,
             None => return,
         };
-        let state = self.state.borrow();
-        for tab in state.tabs.values() {
-            if self.notebook.page_num(&tab.scroll_window) == Some(current) {
-                let prefix = lsp_hash_prefix(&tab.buffer);
-
-                let cursor = tab.buffer.iter_at_offset(tab.buffer.cursor_position());
-                let loc = tab.view.iter_location(&cursor);
-                let (wx, wy_bottom) = tab.view.buffer_to_window_coords(
-                    TextWindowType::Widget,
-                    loc.x(),
-                    loc.y() + loc.height(),
-                );
-                let (_, wy_top) = tab.view.buffer_to_window_coords(
-                    TextWindowType::Widget,
-                    loc.x(),
-                    loc.y(),
-                );
-                let view_h = tab.view.allocated_height() as i32;
-                let above = wy_bottom > view_h / 2;
-                let wy = if above { wy_top } else { wy_bottom };
-
-                if !tab.lsp_popup.is_visible() {
-                    // Popup wasn't shown yet (e.g. LSP responded before connect_changed fired)
-                    let mut all_items: Vec<CompletionItem> = ACADEMIC_SNIPPETS
-                        .iter()
-                        .map(|(_, label, desc, body)| CompletionItem {
-                            label: label.to_string(),
-                            kind: 15,
-                            detail: Some(desc.to_string()),
-                            insert_text: Some(body.to_string()),
-                        })
-                        .collect();
-                    all_items.extend(items);
-                    tab.lsp_popup.show_items(all_items, wx, wy, above);
-                } else {
-                    // Popup already showing snippets — merge in LSP results
-                    tab.lsp_popup.merge_items(items);
-                }
-                tab.lsp_popup.apply_filter(&prefix);
-                break;
-            }
+        // Collect everything we need from state, then drop the borrow before any
+        // GTK widget ops — popup.popup() / show_items can cascade through GTK and
+        // fire signals that re-enter Zerkalo callbacks trying borrow_mut on state.
+        struct TabInfo {
+            view: sourceview5::View,
+            buffer: sourceview5::Buffer,
+            lsp_popup: crate::ui::lsp_popup::LspPopup,
+            popup_visible: bool,
         }
+        let tab_info: Option<TabInfo> = {
+            let state = self.state.borrow();
+            state.tabs.values()
+                .find(|tab| self.notebook.page_num(&tab.scroll_window) == Some(current))
+                .map(|tab| TabInfo {
+                    view: tab.view.clone(),
+                    buffer: tab.buffer.clone(),
+                    lsp_popup: tab.lsp_popup.clone(),
+                    popup_visible: tab.lsp_popup.is_visible(),
+                })
+        };
+        let Some(ti) = tab_info else { return };
+
+        let prefix = lsp_hash_prefix(&ti.buffer);
+        let cursor = ti.buffer.iter_at_offset(ti.buffer.cursor_position());
+        let loc = ti.view.iter_location(&cursor);
+        let (wx, wy_bottom) = ti.view.buffer_to_window_coords(
+            TextWindowType::Widget, loc.x(), loc.y() + loc.height());
+        let (_, wy_top) = ti.view.buffer_to_window_coords(
+            TextWindowType::Widget, loc.x(), loc.y());
+        let view_h = ti.view.allocated_height() as i32;
+        let above = wy_bottom > view_h / 2;
+        let wy = if above { wy_top } else { wy_bottom };
+
+        if !ti.popup_visible {
+            let mut all_items: Vec<CompletionItem> = ACADEMIC_SNIPPETS
+                .iter()
+                .map(|(_, label, desc, body)| CompletionItem {
+                    label: label.to_string(),
+                    kind: 15,
+                    detail: Some(desc.to_string()),
+                    insert_text: Some(body.to_string()),
+                })
+                .collect();
+            all_items.extend(items);
+            ti.lsp_popup.show_items(all_items, wx, wy, above);
+        } else {
+            ti.lsp_popup.merge_items(items);
+        }
+        ti.lsp_popup.apply_filter(&prefix);
     }
 
     // ── Inline diagnostic marks ───────────────────────────────────────────────

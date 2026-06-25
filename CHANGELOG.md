@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.11-dev2] — Fix crash when LSP completion popup appears during typing
+
+### Fixed
+
+- **Crash (SIGABRT) when typing in the code editor** — `show_lsp_completions` held `state.borrow()` while calling `lsp_popup.show_items(...)`, which calls `popover.popup()`. That popup show triggers GTK layout, which cascades through GtkSourceView signals and re-enters a Zerkalo handler that tries a conflicting borrow → `BorrowError` panic. The crash manifested when tinymist responded with completions during or shortly after typing. Fixed by collecting all tab data in a scoped borrow block, releasing the borrow, then performing all GTK popup operations.
+
+---
+
 ## [0.13.11-dev1] — Professor/course fields, more crash fixes
 
 ### Added
