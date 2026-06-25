@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.11-dev3] — Fix crash in LSP poll timer (borrow held across GTK ops)
+
+### Fixed
+
+- **Crash (SIGABRT) when typing while tinymist is running** — the 400ms LSP poll timer held `lsp_client.borrow()` across calls to `mark_diagnostics()` and `show_lsp_completions()`. Both functions call GTK buffer operations (`create_source_mark`, `popover.popup`) that cascade through GtkSourceView signals and re-enter Zerkalo callbacks that try to borrow `lsp_client` again → `BorrowError` panic. Fixed by extracting all LSP data (`poll()`, `poll_completion()`) in a scoped borrow block, releasing the borrow, then performing all GTK operations.
+
+---
+
 ## [0.13.11-dev2] — Fix crash when LSP completion popup appears during typing
 
 ### Fixed

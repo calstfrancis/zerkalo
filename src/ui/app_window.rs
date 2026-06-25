@@ -21,7 +21,7 @@ use crate::session::Session;
 use super::command_palette::{CommandPalette, default_commands, heading_items};
 use super::dep_graph::DepGraph;
 use super::docs_browser::DocsBrowser;
-use super::editor_pane::EditorPane;
+use super::editor_pane::{EditorPane, strip_typst_markup, strip_zerkalo_blocks};
 use super::file_tree::FileTree;
 use super::font_manager::FontManager;
 use super::error_panel::{parse_typst_errors, CompileError, ErrorPanel, Severity};
@@ -373,20 +373,6 @@ impl AppWindow {
             });
         }
 
-        // Reverse sync: cursor moves → scroll preview proportionally (item 10).
-        let preview_pane_for_moved: Rc<RefCell<Option<PreviewPane>>> =
-            Rc::new(RefCell::new(None));
-        {
-            let pp_ref = preview_pane_for_moved.clone();
-            editor_pane.set_on_cursor_moved(move |_path, line, total| {
-                if let Some(ref pp) = *pp_ref.borrow() {
-                    if total > 0 {
-                        pp.scroll_to_fraction(line as f64 / total as f64);
-                    }
-                }
-            });
-        }
-
         // Set project root for project-wide word count tooltip
         editor_pane.set_project_root(project_root.clone());
 
@@ -580,7 +566,6 @@ impl AppWindow {
             extra_compiler_args,
         );
         *preview_pane_for_heading.borrow_mut() = Some(preview_pane.clone());
-        *preview_pane_for_moved.borrow_mut() = Some(preview_pane.clone());
         let error_panel = ErrorPanel::new();
         error_panel.widget().set_visible(false);
 
@@ -1509,6 +1494,7 @@ impl AppWindow {
                 &super::template_dialog::parse_meta(&current_content, "author"),
                 &super::template_dialog::parse_meta(&current_content, "affiliation"),
                 &super::template_dialog::parse_meta(&current_content, "course"),
+                &super::template_dialog::parse_meta(&current_content, "professor"),
                 &super::template_dialog::parse_meta(&current_content, "date"),
             );
 
@@ -2429,12 +2415,21 @@ impl AppWindow {
                     }
                 }
             }
-            if let Some(client) = lsp_poll.borrow().as_ref() {
-                let diags = client.poll();
-                if !diags.is_empty() {
+            // Collect all LSP data in a scoped borrow, then release it before
+            // any GTK ops. mark_diagnostics / show_lsp_completions call
+            // buffer.create_source_mark / popover.popup, which cascade through
+            // GtkSourceView signals that re-enter Zerkalo callbacks — those
+            // callbacks may try to borrow lsp_client, causing a BorrowError
+            // panic if the borrow is still held.
+            let lsp_data: Option<(Vec<_>, Option<_>)> = {
+                let slot = lsp_poll.borrow();
+                slot.as_ref().map(|client| (client.poll(), client.poll_completion()))
+            };
+            if let Some((raw_diags, completion_result)) = lsp_data {
+                if !raw_diags.is_empty() {
                     *lsp_empty_polls.borrow_mut() = 0;
                     *lsp_diags_for_poll.borrow_mut() = true;
-                    let errors: Vec<CompileError> = diags
+                    let errors: Vec<CompileError> = raw_diags
                         .into_iter()
                         .map(|d| CompileError {
                             file: d.file,
@@ -2467,7 +2462,7 @@ impl AppWindow {
                         *lsp_diags_for_poll.borrow_mut() = false;
                     }
                 }
-                if let Some((id, items)) = client.poll_completion() {
+                if let Some((id, items)) = completion_result {
                     if *last_req_poll.borrow() == Some(id) {
                         editor_for_comp_poll.show_lsp_completions(items);
                     }
@@ -3390,6 +3385,7 @@ impl AppWindow {
                     &super::template_dialog::parse_meta(&current_content, "author"),
                     &super::template_dialog::parse_meta(&current_content, "affiliation"),
                     &super::template_dialog::parse_meta(&current_content, "course"),
+                    &super::template_dialog::parse_meta(&current_content, "professor"),
                     &super::template_dialog::parse_meta(&current_content, "date"),
                 );
 
@@ -5310,11 +5306,12 @@ fn show_doc_stats(
     session_start: u32,
     _project_root: Option<&std::path::Path>,
 ) {
-    let words = text.split_whitespace().count();
-    let chars = text.chars().filter(|c| !c.is_whitespace()).count();
-    let chars_with_spaces = text.chars().count();
-    let paragraphs = text.split("\n\n").filter(|s| !s.trim().is_empty()).count();
-    let sentences = text
+    let content = strip_typst_markup(&strip_zerkalo_blocks(text));
+    let words = content.split_whitespace().count();
+    let chars = content.chars().filter(|c| !c.is_whitespace()).count();
+    let chars_with_spaces = content.chars().count();
+    let paragraphs = content.split("\n\n").filter(|s| !s.trim().is_empty()).count();
+    let sentences = content
         .split(|c: char| matches!(c, '.' | '!' | '?'))
         .filter(|s| !s.trim().is_empty())
         .count();
