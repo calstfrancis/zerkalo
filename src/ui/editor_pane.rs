@@ -1728,30 +1728,35 @@ impl EditorPane {
     /// (file, 1-based line, is_error). Call after compile or LSP diagnostics.
     pub fn mark_diagnostics(&self, diagnostics: &[(PathBuf, u32, bool)]) {
         *self.last_diagnostics.borrow_mut() = diagnostics.to_vec();
-        let state = self.state.borrow();
-        for (path, tab) in &state.tabs {
-            let (buf_start, buf_end) = tab.buffer.bounds();
-            ensure_diag_tags(&tab.buffer);
-            tab.buffer.remove_tag_by_name("zerkalo-diag-error", &buf_start, &buf_end);
-            tab.buffer.remove_tag_by_name("zerkalo-diag-warning", &buf_start, &buf_end);
-            // Clear gutter marks for this buffer
-            tab.buffer.remove_source_marks(&buf_start, &buf_end, Some("zerkalo-error"));
-            tab.buffer.remove_source_marks(&buf_start, &buf_end, Some("zerkalo-warning"));
+        // Collect buffer/widget refs while holding borrow, then drop it before GTK ops.
+        // GTK buffer ops (apply_tag, create_source_mark) fire synchronous signals that
+        // can cascade back into Zerkalo callbacks that try borrow_mut — holding borrow
+        // across them causes a BorrowError → SIGABRT.
+        let tabs: Vec<(PathBuf, Buffer, Label)> = {
+            let state = self.state.borrow();
+            state.tabs.iter().map(|(p, t)| (p.clone(), t.buffer.clone(), t.diag_dot.clone())).collect()
+        };
+        for (path, buffer, diag_dot) in &tabs {
+            let (buf_start, buf_end) = buffer.bounds();
+            ensure_diag_tags(buffer);
+            buffer.remove_tag_by_name("zerkalo-diag-error", &buf_start, &buf_end);
+            buffer.remove_tag_by_name("zerkalo-diag-warning", &buf_start, &buf_end);
+            buffer.remove_source_marks(&buf_start, &buf_end, Some("zerkalo-error"));
+            buffer.remove_source_marks(&buf_start, &buf_end, Some("zerkalo-warning"));
             let has_errors = diagnostics.iter().any(|(f, _, is_err)| f == path && *is_err);
-            tab.diag_dot.set_visible(has_errors);
+            diag_dot.set_visible(has_errors);
             for (err_file, err_line, is_error) in diagnostics {
                 if err_file != path {
                     continue;
                 }
                 let line_idx = err_line.saturating_sub(1) as i32;
-                if let Some(line_start) = tab.buffer.iter_at_line(line_idx) {
+                if let Some(line_start) = buffer.iter_at_line(line_idx) {
                     let mut line_end = line_start.clone();
                     line_end.forward_to_line_end();
                     let tag = if *is_error { "zerkalo-diag-error" } else { "zerkalo-diag-warning" };
-                    tab.buffer.apply_tag_by_name(tag, &line_start, &line_end);
-                    // Gutter marker at line start
+                    buffer.apply_tag_by_name(tag, &line_start, &line_end);
                     let category = if *is_error { "zerkalo-error" } else { "zerkalo-warning" };
-                    tab.buffer.create_source_mark(None, category, &line_start);
+                    buffer.create_source_mark(None, category, &line_start);
                 }
             }
         }
@@ -1759,15 +1764,18 @@ impl EditorPane {
 
     pub fn clear_diagnostic_marks(&self) {
         self.last_diagnostics.borrow_mut().clear();
-        let state = self.state.borrow();
-        for tab in state.tabs.values() {
-            let (start, end) = tab.buffer.bounds();
-            ensure_diag_tags(&tab.buffer);
-            tab.buffer.remove_tag_by_name("zerkalo-diag-error", &start, &end);
-            tab.buffer.remove_tag_by_name("zerkalo-diag-warning", &start, &end);
-            tab.buffer.remove_source_marks(&start, &end, Some("zerkalo-error"));
-            tab.buffer.remove_source_marks(&start, &end, Some("zerkalo-warning"));
-            tab.diag_dot.set_visible(false);
+        let tabs: Vec<(Buffer, Label)> = {
+            let state = self.state.borrow();
+            state.tabs.values().map(|t| (t.buffer.clone(), t.diag_dot.clone())).collect()
+        };
+        for (buffer, diag_dot) in &tabs {
+            let (start, end) = buffer.bounds();
+            ensure_diag_tags(buffer);
+            buffer.remove_tag_by_name("zerkalo-diag-error", &start, &end);
+            buffer.remove_tag_by_name("zerkalo-diag-warning", &start, &end);
+            buffer.remove_source_marks(&start, &end, Some("zerkalo-error"));
+            buffer.remove_source_marks(&start, &end, Some("zerkalo-warning"));
+            diag_dot.set_visible(false);
         }
     }
 

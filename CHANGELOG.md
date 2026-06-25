@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.10-dev11] — Fix SIGABRT crash: GTK ops inside state borrow in mark_diagnostics
+
+### Fixed
+
+- **Second SIGABRT crash on typing** — `mark_diagnostics` and `clear_diagnostic_marks` held `self.state.borrow()` while calling `diag_dot.set_visible()`, `apply_tag_by_name()`, and `create_source_mark()`. These fire synchronous GtkSourceBuffer signals that cascade into Zerkalo callbacks which attempt `state.borrow_mut()`, panicking because an immutable borrow was already active. Fixed by collecting `(buffer, diag_dot)` clones from state while the borrow is held, then dropping the borrow before any GTK calls.
+
 ## [0.13.10-dev10] — Fix SIGABRT crash: GTK widget ops inside borrow_mut
 
 ### Fixed
