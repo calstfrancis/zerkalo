@@ -57,6 +57,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release type="development" version="0.13.10-dev12" date="2026-06-25">
+      <description>
+        <p>0.13.10-dev12 — Dev build.</p>
+      </description>
+    </release>
     <release type="development" version="0.13.10-dev11" date="2026-06-25">
       <description>
         <p>0.13.10-dev11 — Fix second SIGABRT crash: state borrow held across GTK buffer ops in mark_diagnostics.</p>
