@@ -1243,13 +1243,13 @@ impl EditorPane {
             let nb_u = ep.notebook.clone();
             ep.undo_btn.connect_clicked(move |_| {
                 let current = nb_u.current_page().unwrap_or(0);
-                let state = state_u.borrow();
-                for tab in state.tabs.values() {
-                    if nb_u.page_num(&tab.scroll_window) == Some(current) {
-                        tab.buffer.undo();
-                        break;
-                    }
-                }
+                let buffer = {
+                    let state = state_u.borrow();
+                    state.tabs.values()
+                        .find(|tab| nb_u.page_num(&tab.scroll_window) == Some(current))
+                        .map(|tab| tab.buffer.clone())
+                };
+                if let Some(buf) = buffer { buf.undo(); }
             });
         }
         {
@@ -1257,13 +1257,13 @@ impl EditorPane {
             let nb_r = ep.notebook.clone();
             ep.redo_btn.connect_clicked(move |_| {
                 let current = nb_r.current_page().unwrap_or(0);
-                let state = state_r.borrow();
-                for tab in state.tabs.values() {
-                    if nb_r.page_num(&tab.scroll_window) == Some(current) {
-                        tab.buffer.redo();
-                        break;
-                    }
-                }
+                let buffer = {
+                    let state = state_r.borrow();
+                    state.tabs.values()
+                        .find(|tab| nb_r.page_num(&tab.scroll_window) == Some(current))
+                        .map(|tab| tab.buffer.clone())
+                };
+                if let Some(buf) = buffer { buf.redo(); }
             });
         }
         {
@@ -1383,11 +1383,14 @@ impl EditorPane {
 
     fn apply_simple_mode_to_buffer(&self, on: bool) {
         let left_margin = if on { 40 } else { 8 };
-        let state = self.state.borrow();
-        for tab in state.tabs.values() {
-            apply_simple_mode_tag(&tab.buffer, on);
-            tab.view.set_show_line_numbers(!on);
-            tab.view.set_left_margin(left_margin);
+        let tabs: Vec<_> = {
+            let state = self.state.borrow();
+            state.tabs.values().map(|t| (t.buffer.clone(), t.view.clone())).collect()
+        };
+        for (buffer, view) in &tabs {
+            apply_simple_mode_tag(buffer, on);
+            view.set_show_line_numbers(!on);
+            view.set_left_margin(left_margin);
         }
     }
 
@@ -1408,36 +1411,48 @@ impl EditorPane {
         *self.word_wrap.borrow_mut() = enabled;
         let mode = if enabled { gtk4::WrapMode::Word } else { gtk4::WrapMode::None };
         let h_policy = if enabled { gtk4::PolicyType::Never } else { gtk4::PolicyType::Automatic };
-        let state = self.state.borrow();
-        for tab in state.tabs.values() {
-            tab.view.set_wrap_mode(mode);
-            tab.scroll_window.set_policy(h_policy, gtk4::PolicyType::Automatic);
+        let tabs: Vec<_> = {
+            let state = self.state.borrow();
+            state.tabs.values().map(|t| (t.view.clone(), t.scroll_window.clone())).collect()
+        };
+        for (view, scroll) in &tabs {
+            view.set_wrap_mode(mode);
+            scroll.set_policy(h_policy, gtk4::PolicyType::Automatic);
         }
     }
 
     pub fn apply_show_whitespace(&self, enabled: bool) {
         *self.show_whitespace.borrow_mut() = enabled;
-        let state = self.state.borrow();
-        for tab in state.tabs.values() {
-            apply_space_drawer(&tab.view, enabled);
+        let views: Vec<_> = {
+            let state = self.state.borrow();
+            state.tabs.values().map(|t| t.view.clone()).collect()
+        };
+        for view in &views {
+            apply_space_drawer(view, enabled);
         }
     }
 
     pub fn apply_tab_width(&self, width: u32) {
         *self.tab_width.borrow_mut() = width;
         let w = width.max(1);
-        let state = self.state.borrow();
-        for tab in state.tabs.values() {
-            tab.view.set_tab_width(w);
-            tab.view.set_indent_width(w as i32);
+        let views: Vec<_> = {
+            let state = self.state.borrow();
+            state.tabs.values().map(|t| t.view.clone()).collect()
+        };
+        for view in &views {
+            view.set_tab_width(w);
+            view.set_indent_width(w as i32);
         }
     }
 
     pub fn apply_line_spacing(&self, spacing: u32) {
         *self.line_spacing.borrow_mut() = spacing;
-        let state = self.state.borrow();
-        for tab in state.tabs.values() {
-            set_view_line_spacing(&tab.view, spacing);
+        let views: Vec<_> = {
+            let state = self.state.borrow();
+            state.tabs.values().map(|t| t.view.clone()).collect()
+        };
+        for view in &views {
+            set_view_line_spacing(view, spacing);
         }
     }
 
@@ -1482,9 +1497,12 @@ impl EditorPane {
         };
         let mgr = StyleSchemeManager::default();
         let scheme = candidates.iter().find_map(|id| mgr.scheme(id));
-        let state = self.state.borrow();
-        for tab in state.tabs.values() {
-            tab.buffer.set_style_scheme(scheme.as_ref());
+        let buffers: Vec<_> = {
+            let state = self.state.borrow();
+            state.tabs.values().map(|t| t.buffer.clone()).collect()
+        };
+        for buffer in &buffers {
+            buffer.set_style_scheme(scheme.as_ref());
         }
     }
 
