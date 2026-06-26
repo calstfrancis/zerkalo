@@ -4136,17 +4136,20 @@ impl EditorPane {
                 let sv_enter = saved_scroll.clone();
                 let sh_enter = saved_hscroll.clone();
                 focus_ctrl.connect_enter(move |_| {
-                    let val = sv_enter.get();
-                    let hval = sh_enter.get();
-                    eprintln!("[HSNAP-DIAG] focus_enter: restoring V={val:.2} H={hval:.2}");
-                    if val >= 0.0 {
-                        let sc = sc_enter.clone();
-                        glib::idle_add_local_once(move || {
-                            eprintln!("[HSNAP-DIAG] focus_enter idle: V={val:.2} H={hval:.2}");
-                            sc.vadjustment().set_value(val);
-                            sc.hadjustment().set_value(hval);
-                        });
-                    }
+                    // Read the CURRENT scroll at the moment focus enters — not the
+                    // value saved at focus-leave. saved_scroll goes stale if the user
+                    // scrolled while this view didn't have keyboard focus (e.g. mouse
+                    // wheel over the view focuses it via GTK, but scroll has already
+                    // moved). Restoring a stale position would snap the view backwards.
+                    let val = sc_enter.vadjustment().value();
+                    let hval = sc_enter.hadjustment().value();
+                    eprintln!("[HSNAP-DIAG] focus_enter: current V={val:.2} H={hval:.2}");
+                    let sc = sc_enter.clone();
+                    glib::idle_add_local_once(move || {
+                        eprintln!("[HSNAP-DIAG] focus_enter idle: V={val:.2} H={hval:.2}");
+                        sc.vadjustment().set_value(val);
+                        sc.hadjustment().set_value(hval);
+                    });
                 });
             }
             view.add_controller(focus_ctrl);
