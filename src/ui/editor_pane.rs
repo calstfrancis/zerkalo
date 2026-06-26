@@ -3583,6 +3583,7 @@ impl EditorPane {
                 let sc2 = spell_c.clone();
                 let t = spell_timer.clone();
                 let pt = spell_poll_timer.clone();
+                let pt2 = spell_poll_timer.clone();
 
                 *spell_timer.borrow_mut() = Some(glib::timeout_add_local_once(
                     Duration::from_millis(700),
@@ -3620,11 +3621,19 @@ impl EditorPane {
                         let poll_id = glib::timeout_add_local(Duration::from_millis(50), move || {
                             match rx.try_recv() {
                                 Ok((words, misspelled)) => {
+                                    // Clear the RefCell before returning Break. GLib auto-removes
+                                    // the source after the callback, but the RefCell still holds
+                                    // the now-dead SourceId. A subsequent connect_changed would call
+                                    // id.remove() on it and panic with "Failed to remove source".
+                                    *pt2.borrow_mut() = None;
                                     apply_spell_tags(&buf3, &words, &misspelled);
                                     glib::ControlFlow::Break
                                 }
                                 Err(std::sync::mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
-                                Err(std::sync::mpsc::TryRecvError::Disconnected) => glib::ControlFlow::Break,
+                                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                                    *pt2.borrow_mut() = None;
+                                    glib::ControlFlow::Break
+                                }
                             }
                         });
                         *pt.borrow_mut() = Some(poll_id);

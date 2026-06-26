@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.11-dev6] — Fix crash when changing style twice (spell poll timer SourceId)
+
+### Fixed
+
+- **Crash (panic "Failed to remove source") when changing style a second time** — the spell-check poll timer uses `glib::timeout_add_local`, which auto-removes the GLib source when the callback returns `ControlFlow::Break`. The `spell_poll_timer` RefCell still held the now-dead `SourceId`. The next `connect_changed` (triggered by the second style change) called `id.remove()` on it, which panicked because the source no longer existed. Fixed by clearing `*pt2.borrow_mut() = None` inside the poll callback before returning `Break`, mirroring the pattern used by all the debounce timers.
+
+---
+
 ## [0.13.11-dev5] — Fix borrow held across spell-tag removal in set_spell_enabled
 
 ### Fixed
