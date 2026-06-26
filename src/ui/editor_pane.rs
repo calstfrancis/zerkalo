@@ -4057,10 +4057,19 @@ impl EditorPane {
         // restore it in idle after GTK's focus-in handler runs.
         // saved_scroll is shared with the right-click gesture above — see comment there.
         {
-            // DIAG: trace every horizontal adjustment change to identify the source.
+            // DIAG: trace every adjustment change and left_margin change to find the snap source.
             scroll.hadjustment().connect_value_changed(|adj| {
                 eprintln!("[HSNAP-DIAG] hadjustment → {:.2}  (upper={:.2})", adj.value(), adj.upper());
             });
+            scroll.vadjustment().connect_value_changed(|adj| {
+                eprintln!("[HSNAP-DIAG] vadjustment → {:.2}  (upper={:.2})", adj.value(), adj.upper());
+            });
+            {
+                let vd = view.clone();
+                view.connect_left_margin_notify(move |_| {
+                    eprintln!("[HSNAP-DIAG] left_margin → {}", vd.left_margin());
+                });
+            }
 
             // Save on pointer-enter as a fallback for the very first enter.
             let ptr_ctrl = EventControllerMotion::new();
@@ -4092,14 +4101,14 @@ impl EditorPane {
                     let val = sc.vadjustment().value();
                     let hval = sc.hadjustment().value();
                     let has_focus = view_fc.has_focus();
-                    eprintln!("[HSNAP-DIAG] click: H={hval:.2} has_focus={has_focus}");
+                    eprintln!("[HSNAP-DIAG] click: V={val:.2} H={hval:.2} has_focus={has_focus}");
                     sv.set(val);
                     sh.set(hval);
                     if !has_focus {
                         // View is gaining focus → GTK will snap to insert mark → restore both axes.
                         let sc2 = sc.clone();
                         glib::idle_add_local_once(move || {
-                            eprintln!("[HSNAP-DIAG] idle restore: H={hval:.2}");
+                            eprintln!("[HSNAP-DIAG] idle restore: V={val:.2} H={hval:.2}");
                             sc2.vadjustment().set_value(val);
                             sc2.hadjustment().set_value(hval);
                         });
@@ -4129,10 +4138,11 @@ impl EditorPane {
                 focus_ctrl.connect_enter(move |_| {
                     let val = sv_enter.get();
                     let hval = sh_enter.get();
-                    eprintln!("[HSNAP-DIAG] focus_enter: restoring H={hval:.2}");
+                    eprintln!("[HSNAP-DIAG] focus_enter: restoring V={val:.2} H={hval:.2}");
                     if val >= 0.0 {
                         let sc = sc_enter.clone();
                         glib::idle_add_local_once(move || {
+                            eprintln!("[HSNAP-DIAG] focus_enter idle: V={val:.2} H={hval:.2}");
                             sc.vadjustment().set_value(val);
                             sc.hadjustment().set_value(hval);
                         });

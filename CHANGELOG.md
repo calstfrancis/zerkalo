@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.11-dev9] — Expand diagnostics: vadjustment + left_margin
+
+### Internal
+
+- Added vadjustment and left_margin change tracing to narrow down the snap source (hadjustment confirmed to never change).
+
+---
+
 ## [0.13.11-dev8] — Add H-scroll diagnostics to trace snap source
 
 ### Internal
