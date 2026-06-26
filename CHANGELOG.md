@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.11-dev8] — Add H-scroll diagnostics to trace snap source
+
+### Internal
+
+- Added `[HSNAP-DIAG]` eprintln! traces on hadjustment value-changed, ptr_enter, click, idle restore, focus_leave, and focus_enter to pinpoint what is actually changing the horizontal scroll and when.
+
+---
+
 ## [0.13.11-dev7] — Fix click focus-snap and typewriter horizontal scroll
 
 ### Fixed
