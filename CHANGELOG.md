@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.11-dev13] — Fix horizontal snap via tick-callback correction
+
+### Fixed
+
+- **Left-margin snap on click** — GTK's internal `scroll_to_cursor` sets the GtkSourceView's OWN hadjustment (a separate object from the `ScrolledWindow`'s hadjustment in GtkSourceView5) to exactly `left_margin` on every cursor move, hiding the margin and pressing text against the left edge. The new per-frame `add_tick_callback` detects `visible_rect.x == left_margin` and resets the view's hadjustment to 0 BEFORE the frame's layout+draw pass, so the user never sees the snapped position. Diagnostic `[TICK-DIAG]` logging is still present.
+
+---
+
 ## [0.13.11-dev12] — Switch to per-frame tick callback to diagnose snap
 
 ### Internal

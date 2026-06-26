@@ -4057,9 +4057,11 @@ impl EditorPane {
         // restore it in idle after GTK's focus-in handler runs.
         // saved_scroll is shared with the right-click gesture above — see comment there.
         {
-            // DIAG: per-frame tick callback to track the ACTUAL rendered region.
-            // Fires before every frame draw — immune to signal timing races.
-            // Catches both vertical and horizontal snaps via visible_rect.
+            // Per-frame tick callback: correct the horizontal left-margin snap before any
+            // frame is drawn. GTK's scroll-to-cursor (fired internally on cursor movement)
+            // sets the view's OWN hadjustment (a separate object from scroll.hadjustment()
+            // in GtkSourceView5) to exactly left_margin, hiding the margin. The tick fires
+            // before layout+draw so setting it back here prevents any visible artifact.
             {
                 let last_y: Rc<Cell<i32>> = Rc::new(Cell::new(i32::MIN));
                 let last_x: Rc<Cell<i32>> = Rc::new(Cell::new(i32::MIN));
@@ -4077,6 +4079,16 @@ impl EditorPane {
                     if x != last_x.get() {
                         eprintln!("[TICK-DIAG] visible_rect.x: {} → {x}  hadj={h:.2} upper={hu:.2}", last_x.get());
                         last_x.set(x);
+                    }
+                    // If visible_rect.x snapped to exactly left_margin (GTK's scroll-to-cursor
+                    // placing the cursor at the left edge and hiding the margin), undo it here
+                    // before this frame's layout pass uses the wrong offset.
+                    let lm = v.left_margin();
+                    if x > 0 && x == lm {
+                        if let Some(view_hadj) = v.hadjustment() {
+                            eprintln!("[TICK-DIAG] correcting snap: x={x} == left_margin={lm}, reset hadj to 0");
+                            view_hadj.set_value(0.0);
+                        }
                     }
                     glib::ControlFlow::Continue
                 });
