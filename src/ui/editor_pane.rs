@@ -4057,42 +4057,21 @@ impl EditorPane {
         // restore it in idle after GTK's focus-in handler runs.
         // saved_scroll is shared with the right-click gesture above — see comment there.
         {
-            // Per-frame tick callback: correct the horizontal left-margin snap before any
-            // frame is drawn. GTK's scroll-to-cursor (fired internally on cursor movement)
-            // sets the view's OWN hadjustment (a separate object from scroll.hadjustment()
-            // in GtkSourceView5) to exactly left_margin, hiding the margin. The tick fires
-            // before layout+draw so setting it back here prevents any visible artifact.
-            {
-                let last_y: Rc<Cell<i32>> = Rc::new(Cell::new(i32::MIN));
-                let last_x: Rc<Cell<i32>> = Rc::new(Cell::new(i32::MIN));
-                let scroll_tick = scroll.clone();
-                view.add_tick_callback(move |v, _| {
-                    let rect = v.visible_rect();
-                    let y = rect.y();
-                    let x = rect.x();
-                    let h = scroll_tick.hadjustment().value();
-                    let hu = scroll_tick.hadjustment().upper();
-                    if y != last_y.get() {
-                        eprintln!("[TICK-DIAG] visible_rect.y: {} → {y}", last_y.get());
-                        last_y.set(y);
+            // Per-frame tick: undo GTK's left-margin snap before this frame renders.
+            // GtkSourceView5's scroll-to-cursor sets the view's own hadjustment (a
+            // separate object from the ScrolledWindow's hadjustment) to exactly
+            // left_margin, hiding the margin. Correcting in the tick — which fires
+            // before layout+draw — prevents any visible artifact.
+            view.add_tick_callback(|v, _| {
+                let x = v.visible_rect().x();
+                let lm = v.left_margin();
+                if x > 0 && x == lm {
+                    if let Some(hadj) = v.hadjustment() {
+                        hadj.set_value(0.0);
                     }
-                    if x != last_x.get() {
-                        eprintln!("[TICK-DIAG] visible_rect.x: {} → {x}  hadj={h:.2} upper={hu:.2}", last_x.get());
-                        last_x.set(x);
-                    }
-                    // If visible_rect.x snapped to exactly left_margin (GTK's scroll-to-cursor
-                    // placing the cursor at the left edge and hiding the margin), undo it here
-                    // before this frame's layout pass uses the wrong offset.
-                    let lm = v.left_margin();
-                    if x > 0 && x == lm {
-                        if let Some(view_hadj) = v.hadjustment() {
-                            eprintln!("[TICK-DIAG] correcting snap: x={x} == left_margin={lm}, reset hadj to 0");
-                            view_hadj.set_value(0.0);
-                        }
-                    }
-                    glib::ControlFlow::Continue
-                });
-            }
+                }
+                glib::ControlFlow::Continue
+            });
 
             // Save on pointer-enter as a fallback for the very first enter.
             let ptr_ctrl = EventControllerMotion::new();
@@ -4102,7 +4081,6 @@ impl EditorPane {
                 let sh = saved_hscroll.clone();
                 ptr_ctrl.connect_enter(move |_, _, _| {
                     let hval = sc.hadjustment().value();
-                    eprintln!("[HSNAP-DIAG] ptr_enter: saving H={hval:.2}");
                     sv.set(sc.vadjustment().value());
                     sh.set(hval);
                 });
@@ -4123,17 +4101,14 @@ impl EditorPane {
                 any_click.connect_pressed(move |_, _, _, _| {
                     let val = sc.vadjustment().value();
                     let hval = sc.hadjustment().value();
-                    let has_focus = view_fc.has_focus();
-                    eprintln!("[HSNAP-DIAG] click: V={val:.2} H={hval:.2} has_focus={has_focus}");
                     sv.set(val);
                     sh.set(hval);
-                    if !has_focus {
+                    if !view_fc.has_focus() {
                         // View is gaining focus → GTK will snap to insert mark → restore both axes.
                         // Use a 0ms timeout (not idle_add) so we fire AFTER the entire idle queue
                         // drains, including GTK's own focus-snap scroll_mark_onscreen idle.
                         let sc2 = sc.clone();
                         glib::timeout_add_local_once(Duration::ZERO, move || {
-                            eprintln!("[HSNAP-DIAG] 0ms restore: V={val:.2} H={hval:.2}");
                             sc2.vadjustment().set_value(val);
                             sc2.hadjustment().set_value(hval);
                         });
@@ -4151,24 +4126,19 @@ impl EditorPane {
                 let sh_leave = saved_hscroll.clone();
                 focus_ctrl.connect_leave(move |_| {
                     let hval = sc_leave.hadjustment().value();
-                    eprintln!("[HSNAP-DIAG] focus_leave: saving H={hval:.2}");
                     sv_leave.set(sc_leave.vadjustment().value());
                     sh_leave.set(hval);
                 });
             }
             {
                 let sc_enter = scroll.clone();
-                let sv_enter = saved_scroll.clone();
-                let sh_enter = saved_hscroll.clone();
                 focus_ctrl.connect_enter(move |_| {
                     // Read the CURRENT scroll at the moment focus enters, then restore
                     // it via a 0ms timeout so we fire AFTER GTK's own focus-snap idle.
                     let val = sc_enter.vadjustment().value();
                     let hval = sc_enter.hadjustment().value();
-                    eprintln!("[HSNAP-DIAG] focus_enter: current V={val:.2} H={hval:.2}");
                     let sc = sc_enter.clone();
                     glib::timeout_add_local_once(Duration::ZERO, move || {
-                        eprintln!("[HSNAP-DIAG] focus_enter 0ms: V={val:.2} H={hval:.2}");
                         sc.vadjustment().set_value(val);
                         sc.hadjustment().set_value(hval);
                     });

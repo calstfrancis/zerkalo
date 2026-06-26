@@ -57,6 +57,15 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.13.11" date="2026-06-26">
+      <description>
+        <p>0.13.11 "Steady Gaze" — Fix horizontal view snap on click.</p>
+        <ul>
+          <li>Clicking in the editor no longer snaps text against the left edge in Simple Mode or hides it behind line numbers in regular mode.</li>
+          <li>Typewriter scroll no longer snaps the view horizontally when recentering the cursor on a new line.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.13.10" date="2026-06-25">
       <description>
         <p>0.13.10 "Steady Quill" — Crash fixes and faster dev builds.</p>

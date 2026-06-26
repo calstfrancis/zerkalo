@@ -7,7 +7,7 @@ use libadwaita as adw;
 use adw::prelude::*;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-const RELEASE_NAME: &str = "True Shore";
+const RELEASE_NAME: &str = "Steady Gaze";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -125,11 +125,8 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION} \"{RELEASE_NAME}\"")));
             for item in [
-                "Running header option in the template dialog Layout tab",
-                "Mouse text selection no longer causes wild viewport jumps when the editor gains focus",
-                "Word count (status bar and document statistics) no longer inflates with Typst code or bibliography",
-                "HTML, DOCX, ODT, LaTeX, and EPUB export no longer fail — existing documents migrate automatically",
-                "Uniform double-spacing between paragraphs in Chicago, SBL, Turabian, Harvard, MLA, APA, and ASA styles",
+                "Clicking in the editor no longer shifts text against the left edge or hides it behind line numbers",
+                "Typewriter scroll no longer snaps the view horizontally when recentering the cursor",
             ] {
                 body.append(&bullet_row(item));
             }
