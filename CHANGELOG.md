@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.11-dev10] — Fix scroll snap: focus_enter was restoring stale position
+
+### Fixed
+
+- **Scroll snaps backward when clicking in the editor** — `focus_ctrl.connect_enter` was restoring the vadjustment to the value saved at the last `focus_leave`, which goes stale if the user scrolls while the view doesn't have keyboard focus (GTK gives the view keyboard focus on mouse-wheel scroll). The idle then jumped the view back to the old position. Fixed by reading the CURRENT scroll at the moment focus_enter fires and restoring THAT — which preserves the user's current position while still suppressing GTK's own focus-snap.
+
+---
+
 ## [0.13.11-dev9] — Expand diagnostics: vadjustment + left_margin
 
 ### Internal
