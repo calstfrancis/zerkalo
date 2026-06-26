@@ -2542,6 +2542,7 @@ impl EditorPane {
         let last_heading_line: Rc<RefCell<u32>> = Rc::new(RefCell::new(u32::MAX));
         let typewriter_for_mark = self.typewriter_scroll.clone();
         let view_for_typewriter = view.clone();
+        let scroll_for_typewriter = scroll.clone();
         let view_for_scroll_margin = view.clone();
         // Track last line the typewriter scroll recentered on, so we only fire
         // when the cursor crosses a line boundary (not every column move).
@@ -2636,8 +2637,13 @@ impl EditorPane {
                     last_tw_line.set(cursor.line());
                     let mut c = cursor.clone();
                     let vt = view_for_typewriter.clone();
+                    let sc_tw = scroll_for_typewriter.clone();
                     glib::idle_add_local_once(move || {
+                        // Preserve horizontal scroll — scroll_to_iter with xalign=0.0 would
+                        // snap the view left, hiding text behind the left margin/line numbers.
+                        let h = sc_tw.hadjustment().value();
                         vt.scroll_to_iter(&mut c, 0.0, true, 0.0, 0.45);
+                        sc_tw.hadjustment().set_value(h);
                     });
                 }
 
@@ -3716,6 +3722,7 @@ impl EditorPane {
         //   → idle restores real value → dismiss popover → focus_enter restores
         //   wrong (snapped) value → visible jump.
         let saved_scroll: Rc<Cell<f64>> = Rc::new(Cell::new(-1.0));
+        let saved_hscroll: Rc<Cell<f64>> = Rc::new(Cell::new(-1.0));
 
         {
             let spell_rc = self.spell_checker.clone();
@@ -3723,6 +3730,7 @@ impl EditorPane {
             let view_rc = view.clone();
             let scroll_rc = scroll.clone();
             let saved_rc = saved_scroll.clone();
+            let saved_hrc = saved_hscroll.clone();
 
             // Use connect_pressed, not connect_released. GtkSourceView processes
             // button-3 internally and may grab the pointer before the release
@@ -3739,12 +3747,16 @@ impl EditorPane {
                 // focus_ctrl.connect_leave fires during event processing (before
                 // idle), so it would otherwise capture the wrong snapped value.
                 let scroll_val = scroll_rc.vadjustment().value();
+                let hscroll_val = scroll_rc.hadjustment().value();
                 {
                     let sc = scroll_rc.clone();
                     let sv = saved_rc.clone();
+                    let sh = saved_hrc.clone();
                     glib::idle_add_local_once(move || {
                         sc.vadjustment().set_value(scroll_val);
+                        sc.hadjustment().set_value(hscroll_val);
                         sv.set(scroll_val);
+                        sh.set(hscroll_val);
                     });
                 }
 
@@ -4050,8 +4062,10 @@ impl EditorPane {
             {
                 let sc = scroll.clone();
                 let sv = saved_scroll.clone();
+                let sh = saved_hscroll.clone();
                 ptr_ctrl.connect_enter(move |_, _, _| {
                     sv.set(sc.vadjustment().value());
+                    sh.set(sc.hadjustment().value());
                 });
             }
             view.add_controller(ptr_ctrl);
@@ -4065,15 +4079,19 @@ impl EditorPane {
             {
                 let sc = scroll.clone();
                 let sv = saved_scroll.clone();
+                let sh = saved_hscroll.clone();
                 let view_fc = view.clone();
                 any_click.connect_pressed(move |_, _, _, _| {
                     let val = sc.vadjustment().value();
+                    let hval = sc.hadjustment().value();
                     sv.set(val);
+                    sh.set(hval);
                     if !view_fc.has_focus() {
-                        // View is gaining focus → GTK will snap to insert mark → restore.
+                        // View is gaining focus → GTK will snap to insert mark → restore both axes.
                         let sc2 = sc.clone();
                         glib::idle_add_local_once(move || {
                             sc2.vadjustment().set_value(val);
+                            sc2.hadjustment().set_value(hval);
                         });
                     }
                 });
@@ -4086,19 +4104,24 @@ impl EditorPane {
             {
                 let sc_leave = scroll.clone();
                 let sv_leave = saved_scroll.clone();
+                let sh_leave = saved_hscroll.clone();
                 focus_ctrl.connect_leave(move |_| {
                     sv_leave.set(sc_leave.vadjustment().value());
+                    sh_leave.set(sc_leave.hadjustment().value());
                 });
             }
             {
                 let sc_enter = scroll.clone();
                 let sv_enter = saved_scroll.clone();
+                let sh_enter = saved_hscroll.clone();
                 focus_ctrl.connect_enter(move |_| {
                     let val = sv_enter.get();
+                    let hval = sh_enter.get();
                     if val >= 0.0 {
                         let sc = sc_enter.clone();
                         glib::idle_add_local_once(move || {
                             sc.vadjustment().set_value(val);
+                            sc.hadjustment().set_value(hval);
                         });
                     }
                 });
