@@ -4057,17 +4057,28 @@ impl EditorPane {
         // restore it in idle after GTK's focus-in handler runs.
         // saved_scroll is shared with the right-click gesture above — see comment there.
         {
-            // DIAG: trace every adjustment change and left_margin change to find the snap source.
-            scroll.hadjustment().connect_value_changed(|adj| {
-                eprintln!("[HSNAP-DIAG] hadjustment → {:.2}  (upper={:.2})", adj.value(), adj.upper());
-            });
-            scroll.vadjustment().connect_value_changed(|adj| {
-                eprintln!("[HSNAP-DIAG] vadjustment → {:.2}  (upper={:.2})", adj.value(), adj.upper());
-            });
+            // DIAG: per-frame tick callback to track the ACTUAL rendered region.
+            // Fires before every frame draw — immune to signal timing races.
+            // Catches both vertical and horizontal snaps via visible_rect.
             {
-                let vd = view.clone();
-                view.connect_left_margin_notify(move |_| {
-                    eprintln!("[HSNAP-DIAG] left_margin → {}", vd.left_margin());
+                let last_y: Rc<Cell<i32>> = Rc::new(Cell::new(i32::MIN));
+                let last_x: Rc<Cell<i32>> = Rc::new(Cell::new(i32::MIN));
+                let scroll_tick = scroll.clone();
+                view.add_tick_callback(move |v, _| {
+                    let rect = v.visible_rect();
+                    let y = rect.y();
+                    let x = rect.x();
+                    let h = scroll_tick.hadjustment().value();
+                    let hu = scroll_tick.hadjustment().upper();
+                    if y != last_y.get() {
+                        eprintln!("[TICK-DIAG] visible_rect.y: {} → {y}", last_y.get());
+                        last_y.set(y);
+                    }
+                    if x != last_x.get() {
+                        eprintln!("[TICK-DIAG] visible_rect.x: {} → {x}  hadj={h:.2} upper={hu:.2}", last_x.get());
+                        last_x.set(x);
+                    }
+                    glib::ControlFlow::Continue
                 });
             }
 

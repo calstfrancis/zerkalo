@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.11-dev12] — Switch to per-frame tick callback to diagnose snap
+
+### Internal
+
+- Replaced signal-based `connect_value_changed` diagnostics with a `add_tick_callback` that fires before every rendered frame. Tracks `view.visible_rect()` (actual buffer region rendered, not the adjustment object) so both horizontal and vertical snaps are caught regardless of signal timing. This directly answers whether the snap is horizontal (visible_rect.x changes) or vertical (visible_rect.y changes), and will catch it even if the hadjustment/vadjustment signals fire and settle within the same GLib iteration.
+
+---
+
 ## [0.13.11-dev11] — Use 0ms timeout for scroll restore to beat GTK's snap idle
 
 ### Fixed
