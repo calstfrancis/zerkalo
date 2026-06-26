@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.12-dev1] — Fix spell check freeze
+
+### Fixed
+
+- **Clicking "Ignore All", "Add to Dictionary", or "Add to Project Dictionary" in the spell check popover froze the UI** — the tag-removal loop scanned every character in the buffer one at a time. Replaced with `forward_to_tag_toggle` iteration, which skips directly between tagged ranges and is O(k) in the number of misspelled-word markers rather than O(N) in buffer length.
+
+---
+
 ## [0.13.11] "Steady Gaze" — Fix horizontal view snap on click
 
 ### Fixed

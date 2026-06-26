@@ -3840,27 +3840,9 @@ impl EditorPane {
                 let pop_ign = popover.clone();
                 ignore_btn.connect_clicked(move |_| {
                     spell_ign.borrow_mut().ignore(&word_ign);
-                    // Remove spell tags for this word from the buffer
                     let tag_table = buf_ign.tag_table();
                     if let Some(t) = tag_table.lookup("zerkalo-spell") {
-                        let (s, e) = buf_ign.bounds();
-                        let mut it = s.clone();
-                        while it < e {
-                            if it.has_tag(&t) {
-                                let mut ws2 = it.clone();
-                                let mut we2 = it.clone();
-                                while ws2.backward_char() && ws2.char().is_alphabetic() {}
-                                if !ws2.char().is_alphabetic() { ws2.forward_char(); }
-                                while we2.char().is_alphabetic() {
-                                    if !we2.forward_char() { break; }
-                                }
-                                let w = buf_ign.text(&ws2, &we2, false).to_string();
-                                if w.to_lowercase() == word_ign.to_lowercase() {
-                                    buf_ign.remove_tag(&t, &ws2, &we2);
-                                }
-                            }
-                            if !it.forward_char() { break; }
-                        }
+                        remove_spell_word_tags(&buf_ign, &t, &word_ign);
                     }
                     pop_ign.popdown();
                 });
@@ -3876,24 +3858,7 @@ impl EditorPane {
                     spell_dict.borrow_mut().add_to_user_dict(&word_dict);
                     let tag_table = buf_dict.tag_table();
                     if let Some(t) = tag_table.lookup("zerkalo-spell") {
-                        let (s, e) = buf_dict.bounds();
-                        let mut it = s.clone();
-                        while it < e {
-                            if it.has_tag(&t) {
-                                let mut ws2 = it.clone();
-                                let mut we2 = it.clone();
-                                while ws2.backward_char() && ws2.char().is_alphabetic() {}
-                                if !ws2.char().is_alphabetic() { ws2.forward_char(); }
-                                while we2.char().is_alphabetic() {
-                                    if !we2.forward_char() { break; }
-                                }
-                                let w = buf_dict.text(&ws2, &we2, false).to_string();
-                                if w.to_lowercase() == word_dict.to_lowercase() {
-                                    buf_dict.remove_tag(&t, &ws2, &we2);
-                                }
-                            }
-                            if !it.forward_char() { break; }
-                        }
+                        remove_spell_word_tags(&buf_dict, &t, &word_dict);
                     }
                     pop_dict.popdown();
                 });
@@ -3910,24 +3875,7 @@ impl EditorPane {
                         spell_proj.borrow_mut().add_to_project_dict(&word_proj);
                         let tag_table = buf_proj.tag_table();
                         if let Some(t) = tag_table.lookup("zerkalo-spell") {
-                            let (s, e) = buf_proj.bounds();
-                            let mut it = s.clone();
-                            while it < e {
-                                if it.has_tag(&t) {
-                                    let mut ws2 = it.clone();
-                                    let mut we2 = it.clone();
-                                    while ws2.backward_char() && ws2.char().is_alphabetic() {}
-                                    if !ws2.char().is_alphabetic() { ws2.forward_char(); }
-                                    while we2.char().is_alphabetic() {
-                                        if !we2.forward_char() { break; }
-                                    }
-                                    let w = buf_proj.text(&ws2, &we2, false).to_string();
-                                    if w.to_lowercase() == word_proj.to_lowercase() {
-                                        buf_proj.remove_tag(&t, &ws2, &we2);
-                                    }
-                                }
-                                if !it.forward_char() { break; }
-                            }
+                            remove_spell_word_tags(&buf_proj, &t, &word_proj);
                         }
                         pop_proj.popdown();
                     });
@@ -4737,6 +4685,29 @@ fn clear_spell_tags(buffer: &Buffer) {
     ensure_spell_tag(buffer);
     let (s, e) = buffer.bounds();
     buffer.remove_tag_by_name("zerkalo-spell", &s, &e);
+}
+
+// Remove the spell-error tag from every occurrence of `word` in the buffer.
+// Uses forward_to_tag_toggle to skip directly between tagged ranges — O(k) in
+// the number of misspelled-word ranges, not O(N) in buffer length.
+fn remove_spell_word_tags(buffer: &Buffer, tag: &gtk4::TextTag, word: &str) {
+    let target = word.to_lowercase();
+    let (mut it, e) = buffer.bounds();
+    loop {
+        if !it.has_tag(tag) {
+            if !it.forward_to_tag_toggle(Some(tag)) { break; }
+            if it >= e { break; }
+        }
+        let ws = it.clone();
+        let mut we = it.clone();
+        if !we.forward_to_tag_toggle(Some(tag)) { we = e.clone(); }
+        let w = buffer.text(&ws, &we, false).to_string();
+        if w.to_lowercase() == target {
+            buffer.remove_tag(tag, &ws, &we);
+        }
+        it = we;
+        if it >= e { break; }
+    }
 }
 
 fn apply_spell_tags(
