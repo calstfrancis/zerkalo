@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.11-dev11] — Use 0ms timeout for scroll restore to beat GTK's snap idle
+
+### Fixed
+
+- **Scroll snap still occurring after dev10 fix** — the idle-based restore (`glib::idle_add_local_once`) was firing before GTK's own focus-snap (`scroll_mark_onscreen`) idle, so GTK's snap ran after us and won. Switched all three restore sites (right-click gesture, left-click focus gain, focus_enter) to `glib::timeout_add_local_once(Duration::ZERO)`. A 0ms timeout fires after the entire idle queue drains, ensuring we are always the last to set the scroll position.
+
+---
+
 ## [0.13.11-dev10] — Fix scroll snap: focus_enter was restoring stale position
 
 ### Fixed

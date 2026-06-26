@@ -3752,7 +3752,7 @@ impl EditorPane {
                     let sc = scroll_rc.clone();
                     let sv = saved_rc.clone();
                     let sh = saved_hrc.clone();
-                    glib::idle_add_local_once(move || {
+                    glib::timeout_add_local_once(Duration::ZERO, move || {
                         sc.vadjustment().set_value(scroll_val);
                         sc.hadjustment().set_value(hscroll_val);
                         sv.set(scroll_val);
@@ -4106,9 +4106,11 @@ impl EditorPane {
                     sh.set(hval);
                     if !has_focus {
                         // View is gaining focus → GTK will snap to insert mark → restore both axes.
+                        // Use a 0ms timeout (not idle_add) so we fire AFTER the entire idle queue
+                        // drains, including GTK's own focus-snap scroll_mark_onscreen idle.
                         let sc2 = sc.clone();
-                        glib::idle_add_local_once(move || {
-                            eprintln!("[HSNAP-DIAG] idle restore: V={val:.2} H={hval:.2}");
+                        glib::timeout_add_local_once(Duration::ZERO, move || {
+                            eprintln!("[HSNAP-DIAG] 0ms restore: V={val:.2} H={hval:.2}");
                             sc2.vadjustment().set_value(val);
                             sc2.hadjustment().set_value(hval);
                         });
@@ -4136,17 +4138,14 @@ impl EditorPane {
                 let sv_enter = saved_scroll.clone();
                 let sh_enter = saved_hscroll.clone();
                 focus_ctrl.connect_enter(move |_| {
-                    // Read the CURRENT scroll at the moment focus enters — not the
-                    // value saved at focus-leave. saved_scroll goes stale if the user
-                    // scrolled while this view didn't have keyboard focus (e.g. mouse
-                    // wheel over the view focuses it via GTK, but scroll has already
-                    // moved). Restoring a stale position would snap the view backwards.
+                    // Read the CURRENT scroll at the moment focus enters, then restore
+                    // it via a 0ms timeout so we fire AFTER GTK's own focus-snap idle.
                     let val = sc_enter.vadjustment().value();
                     let hval = sc_enter.hadjustment().value();
                     eprintln!("[HSNAP-DIAG] focus_enter: current V={val:.2} H={hval:.2}");
                     let sc = sc_enter.clone();
-                    glib::idle_add_local_once(move || {
-                        eprintln!("[HSNAP-DIAG] focus_enter idle: V={val:.2} H={hval:.2}");
+                    glib::timeout_add_local_once(Duration::ZERO, move || {
+                        eprintln!("[HSNAP-DIAG] focus_enter 0ms: V={val:.2} H={hval:.2}");
                         sc.vadjustment().set_value(val);
                         sc.hadjustment().set_value(hval);
                     });
