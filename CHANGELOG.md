@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.11-dev7] — Fix click focus-snap and typewriter horizontal scroll
+
+### Fixed
+
+- **Click causes text to snap left** (simple mode) or **hide under line numbers** (regular mode) — the focus-snap suppression code saved and restored only the vertical scroll (`vadjustment`). GTK's `scroll_mark_onscreen(insert)`, which fires when the text view gains keyboard focus, also moves the horizontal scroll (`hadjustment`). Now both axes are saved before each click/focus-enter event and restored in an idle callback, so the viewport position is fully preserved on focus-in.
+- **Typewriter scroll snapping text to left edge** — `scroll_to_iter` with `xalign=0.0` was horizontally scrolling the view to put the cursor at the left edge of the viewport every time the typewriter recentered (on each line change while typing). Fixed by saving the current horizontal adjustment before calling `scroll_to_iter` and restoring it afterward, so typewriter scroll only ever adjusts the vertical position.
+
+---
+
 ## [0.13.11-dev6] — Fix crash when changing style twice (spell poll timer SourceId)
 
 ### Fixed
