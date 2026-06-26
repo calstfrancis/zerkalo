@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.11-dev5] — Fix borrow held across spell-tag removal in set_spell_enabled
+
+### Fixed
+
+- **Borrow violation in `set_spell_enabled`** — when disabling spell check, `self.state.borrow()` was held while calling `clear_spell_tags()` on each tab's buffer. `clear_spell_tags` calls `remove_tag_by_name`, which fires the `tag-removed` signal and can cascade through GtkSourceView's internal signal handlers back into Zerkalo code that needs a conflicting borrow. Fixed by collecting the buffer list in a scoped block and releasing the `state` borrow before any GTK tag operations.
+
+---
+
 ## [0.13.11-dev4] — Fix crash when changing style (borrow held across GTK tag ops)
 
 ### Fixed
