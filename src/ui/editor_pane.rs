@@ -1943,9 +1943,15 @@ impl EditorPane {
     pub fn set_spell_enabled(&self, enabled: bool) {
         self.spell_checker.borrow_mut().enabled = enabled;
         if !enabled {
-            let state = self.state.borrow();
-            for tab in state.tabs.values() {
-                clear_spell_tags(&tab.buffer);
+            // Clone buffers out of the borrow before GTK tag ops — remove_tag_by_name
+            // can cascade through GtkSourceView signals and re-enter code that tries
+            // a conflicting borrow on state, causing a BorrowError panic.
+            let buffers: Vec<_> = {
+                let state = self.state.borrow();
+                state.tabs.values().map(|t| t.buffer.clone()).collect()
+            };
+            for buffer in &buffers {
+                clear_spell_tags(buffer);
             }
         } else {
             self.recheck_all_buffers();
