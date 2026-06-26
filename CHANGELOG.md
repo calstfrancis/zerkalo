@@ -5,60 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.13.11-dev13] — Fix horizontal snap via tick-callback correction
+## [0.13.11] "Steady Gaze" — Fix horizontal view snap on click
 
 ### Fixed
 
-- **Left-margin snap on click** — GTK's internal `scroll_to_cursor` sets the GtkSourceView's OWN hadjustment (a separate object from the `ScrolledWindow`'s hadjustment in GtkSourceView5) to exactly `left_margin` on every cursor move, hiding the margin and pressing text against the left edge. The new per-frame `add_tick_callback` detects `visible_rect.x == left_margin` and resets the view's hadjustment to 0 BEFORE the frame's layout+draw pass, so the user never sees the snapped position. Diagnostic `[TICK-DIAG]` logging is still present.
-
----
-
-## [0.13.11-dev12] — Switch to per-frame tick callback to diagnose snap
-
-### Internal
-
-- Replaced signal-based `connect_value_changed` diagnostics with a `add_tick_callback` that fires before every rendered frame. Tracks `view.visible_rect()` (actual buffer region rendered, not the adjustment object) so both horizontal and vertical snaps are caught regardless of signal timing. This directly answers whether the snap is horizontal (visible_rect.x changes) or vertical (visible_rect.y changes), and will catch it even if the hadjustment/vadjustment signals fire and settle within the same GLib iteration.
-
----
-
-## [0.13.11-dev11] — Use 0ms timeout for scroll restore to beat GTK's snap idle
-
-### Fixed
-
-- **Scroll snap still occurring after dev10 fix** — the idle-based restore (`glib::idle_add_local_once`) was firing before GTK's own focus-snap (`scroll_mark_onscreen`) idle, so GTK's snap ran after us and won. Switched all three restore sites (right-click gesture, left-click focus gain, focus_enter) to `glib::timeout_add_local_once(Duration::ZERO)`. A 0ms timeout fires after the entire idle queue drains, ensuring we are always the last to set the scroll position.
-
----
-
-## [0.13.11-dev10] — Fix scroll snap: focus_enter was restoring stale position
-
-### Fixed
-
-- **Scroll snaps backward when clicking in the editor** — `focus_ctrl.connect_enter` was restoring the vadjustment to the value saved at the last `focus_leave`, which goes stale if the user scrolls while the view doesn't have keyboard focus (GTK gives the view keyboard focus on mouse-wheel scroll). The idle then jumped the view back to the old position. Fixed by reading the CURRENT scroll at the moment focus_enter fires and restoring THAT — which preserves the user's current position while still suppressing GTK's own focus-snap.
-
----
-
-## [0.13.11-dev9] — Expand diagnostics: vadjustment + left_margin
-
-### Internal
-
-- Added vadjustment and left_margin change tracing to narrow down the snap source (hadjustment confirmed to never change).
-
----
-
-## [0.13.11-dev8] — Add H-scroll diagnostics to trace snap source
-
-### Internal
-
-- Added `[HSNAP-DIAG]` eprintln! traces on hadjustment value-changed, ptr_enter, click, idle restore, focus_leave, and focus_enter to pinpoint what is actually changing the horizontal scroll and when.
-
----
-
-## [0.13.11-dev7] — Fix click focus-snap and typewriter horizontal scroll
-
-### Fixed
-
-- **Click causes text to snap left** (simple mode) or **hide under line numbers** (regular mode) — the focus-snap suppression code saved and restored only the vertical scroll (`vadjustment`). GTK's `scroll_mark_onscreen(insert)`, which fires when the text view gains keyboard focus, also moves the horizontal scroll (`hadjustment`). Now both axes are saved before each click/focus-enter event and restored in an idle callback, so the viewport position is fully preserved on focus-in.
-- **Typewriter scroll snapping text to left edge** — `scroll_to_iter` with `xalign=0.0` was horizontally scrolling the view to put the cursor at the left edge of the viewport every time the typewriter recentered (on each line change while typing). Fixed by saving the current horizontal adjustment before calling `scroll_to_iter` and restoring it afterward, so typewriter scroll only ever adjusts the vertical position.
+- **Clicking in the editor snaps text against the left edge** (simple mode) or **hides text under line numbers** (regular mode) — GtkSourceView5 maintains its own internal hadjustment (separate from the `ScrolledWindow`'s hadjustment) and sets it to exactly `left_margin` on every cursor movement, scrolling the left margin off screen. Diagnosed via a per-frame `add_tick_callback` that reads `view.visible_rect()` directly (bypassing GTK signal timing). Fixed by detecting `visible_rect.x == left_margin` in the tick and resetting the view's hadjustment to 0 before the frame's layout+draw pass, so the user never sees the snapped position.
+- **Typewriter scroll snapping text to the left edge** — `scroll_to_iter` with `xalign=0.0` was placing the cursor at the left edge of the viewport on every line change while typing. Fixed by saving and restoring the horizontal adjustment around the call, so typewriter scroll only moves vertically.
 
 ---
 
