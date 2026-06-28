@@ -3760,6 +3760,22 @@ impl EditorPane {
                     });
                 }
 
+                // Move cursor to the right-click position (unless it's inside
+                // the current selection). This makes GTK's focus-in scroll-to-mark
+                // target a position already in the viewport, so the snap is a no-op.
+                let (bx, by) = view_rc.window_to_buffer_coords(
+                    TextWindowType::Widget, x as i32, y as i32,
+                );
+                if let Some(iter) = view_rc.iter_at_location(bx, by) {
+                    let ofs = iter.offset();
+                    let inside_sel = buf_rc.selection_bounds()
+                        .map(|(s, e)| ofs >= s.offset() && ofs <= e.offset())
+                        .unwrap_or(false);
+                    if !inside_sel {
+                        buf_rc.place_cursor(&iter);
+                    }
+                }
+
                 let sc = spell_rc.borrow();
                 if !sc.enabled { return; }
 
@@ -4021,13 +4037,27 @@ impl EditorPane {
                 glib::ControlFlow::Continue
             });
 
-            // Save on pointer-enter as a fallback for the very first enter.
+            // Save scroll on pointer-enter and pointer-leave so that saved_scroll
+            // stays current after the user scrolls with the mouse wheel (the wheel
+            // fires inside the view without triggering enter again). Without leave,
+            // right-clicking elsewhere after scrolling would restore the stale
+            // pre-scroll position.
             let ptr_ctrl = EventControllerMotion::new();
             {
                 let sc = scroll.clone();
                 let sv = saved_scroll.clone();
                 let sh = saved_hscroll.clone();
                 ptr_ctrl.connect_enter(move |_, _, _| {
+                    let hval = sc.hadjustment().value();
+                    sv.set(sc.vadjustment().value());
+                    sh.set(hval);
+                });
+            }
+            {
+                let sc = scroll.clone();
+                let sv = saved_scroll.clone();
+                let sh = saved_hscroll.clone();
+                ptr_ctrl.connect_leave(move |_| {
                     let hval = sc.hadjustment().value();
                     sv.set(sc.vadjustment().value());
                     sh.set(hval);

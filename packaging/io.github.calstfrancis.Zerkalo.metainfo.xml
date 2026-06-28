@@ -57,6 +57,14 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release type="development" version="0.13.12-dev3" date="2026-06-28">
+      <description>
+        <p>0.13.12-dev3 — Fix scroll jump after right-click context menu.</p>
+        <ul>
+          <li>Editor no longer scrolls back to the selected paragraph after dismissing a right-click context menu.</li>
+        </ul>
+      </description>
+    </release>
     <release type="development" version="0.13.12-dev2" date="2026-06-28">
       <description>
         <p>0.13.12-dev2 — Fix context menu scroll jump.</p>

@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.12-dev3] — Fix scroll jump after right-click context menu
+
+### Fixed
+
+- **Editor scrolled back to the selected paragraph after dismissing a right-click context menu** — two root causes: (1) `saved_scroll` was not updated when the mouse left the text view after scrolling, so right-clicking elsewhere after a mouse-wheel scroll restored the stale pre-scroll position; (2) GTK's focus-in `scroll_to_mark` snapped to the old cursor position (the selected paragraph) because the cursor wasn't moved on right-click. Fixed by adding `ptr_ctrl.connect_leave` so `saved_scroll` tracks mouse-wheel scrolling, and by placing the cursor at the right-click position (if not inside the active selection) before the context menu opens, making the focus-in snap a no-op.
+
+---
+
 ## [0.13.12-dev2] — Fix context menu scroll jump
 
 ### Fixed
