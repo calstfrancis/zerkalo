@@ -4080,11 +4080,17 @@ impl EditorPane {
             }
             {
                 let sc_enter = scroll.clone();
+                let sv_enter = saved_scroll.clone();
+                let sh_enter = saved_hscroll.clone();
                 focus_ctrl.connect_enter(move |_| {
-                    // Read the CURRENT scroll at the moment focus enters, then restore
-                    // it via a 0ms timeout so we fire AFTER GTK's own focus-snap idle.
-                    let val = sc_enter.vadjustment().value();
-                    let hval = sc_enter.hadjustment().value();
+                    // Use the value saved when focus left (or at right-click time) rather
+                    // than the current scroll. GTK can snap the view to the cursor
+                    // synchronously before this signal fires (e.g. on context-menu
+                    // dismiss), so reading the current value would restore the snapped
+                    // position rather than where the user actually was.
+                    let val = sv_enter.get();
+                    let hval = sh_enter.get();
+                    if val < 0.0 { return; }
                     let sc = sc_enter.clone();
                     glib::timeout_add_local_once(Duration::ZERO, move || {
                         sc.vadjustment().set_value(val);

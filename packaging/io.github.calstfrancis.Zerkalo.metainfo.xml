@@ -57,6 +57,14 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release type="development" version="0.13.12-dev2" date="2026-06-28">
+      <description>
+        <p>0.13.12-dev2 — Fix context menu scroll jump.</p>
+        <ul>
+          <li>Right-clicking and clicking away to dismiss the context menu no longer causes the editor to jump to the cursor position.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.13.11" date="2026-06-26">
       <description>
         <p>0.13.11 "Steady Gaze" — Fix horizontal view snap on click.</p>

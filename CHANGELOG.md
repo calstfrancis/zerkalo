@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.12-dev2] — Fix context menu scroll jump
+
+### Fixed
+
+- **Right-clicking in the editor and clicking away to dismiss the context menu caused the view to jump** — `focus_ctrl.connect_enter` was reading the current scroll position at the moment focus returned, which could already be GTK's snapped (cursor-aligned) value. Fixed by reading from `saved_scroll`/`saved_hscroll` (set by `connect_leave` and the right-click gesture's idle callback) so the pre-right-click position is always what gets restored.
+
+---
+
 ## [0.13.12-dev1] — Fix spell check freeze
 
 ### Fixed
