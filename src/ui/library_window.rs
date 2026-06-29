@@ -1,16 +1,18 @@
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::rc::Rc;
 
 use gtk4::prelude::*;
 use gtk4::{
     Align, Box as GtkBox, Button, CheckButton, DragSource, DropTarget, Entry, Image, Label,
-    ListBox, ListBoxRow, Orientation, Popover, ScrolledWindow, SearchEntry, Separator,
+    ListBox, ListBoxRow, Orientation, Popover, Revealer, ScrolledWindow, SearchEntry, Separator,
+    TextView,
 };
 use libadwaita as adw;
 use adw::prelude::*;
 
-use crate::library::{Library, LibraryFilter};
+use crate::library::{Library, LibraryFilter, SortOrder};
 
 const TAG_COLORS: &[&str] = &[
     "#3584e4", "#33d17a", "#f6d32d", "#ff7800", "#e01b24", "#9141ac", "#dc8add", "#986a44",
@@ -24,6 +26,10 @@ pub struct LibraryWindow {
     filter_list: ListBox,
     search_entry: SearchEntry,
     current_filter: Rc<RefCell<LibraryFilter>>,
+    current_sort: Rc<RefCell<SortOrder>>,
+    selection: Rc<RefCell<HashSet<i64>>>,
+    action_bar_revealer: Revealer,
+    selected_count_label: Label,
     #[allow(dead_code)]
     toast_overlay: adw::ToastOverlay,
     on_open: Rc<RefCell<Option<Box<dyn Fn(PathBuf)>>>>,
@@ -101,8 +107,12 @@ impl LibraryWindow {
         new_doc_btn.add_css_class("suggested-action");
         let import_btn = Button::with_label("Import…");
         import_btn.add_css_class("flat");
+        let sort_dropdown =
+            gtk4::DropDown::from_strings(&["Modified", "Created", "Opened", "A→Z"]);
+        sort_dropdown.set_tooltip_text(Some("Sort order"));
         right_header.pack_end(&import_btn);
         right_header.pack_end(&new_doc_btn);
+        right_header.pack_end(&sort_dropdown);
 
         right.add_top_bar(&right_header);
 
@@ -112,6 +122,48 @@ impl LibraryWindow {
         doc_list.set_selection_mode(gtk4::SelectionMode::None);
         doc_scroll.set_child(Some(&doc_list));
         right.set_content(Some(&doc_scroll));
+
+        // ── Bulk-action bottom bar ──────────────────────────────────────────
+        let action_bar_revealer = Revealer::new();
+        action_bar_revealer.set_transition_type(gtk4::RevealerTransitionType::SlideUp);
+        action_bar_revealer.set_reveal_child(false);
+
+        let action_bar = GtkBox::new(Orientation::Horizontal, 8);
+        action_bar.set_margin_top(8);
+        action_bar.set_margin_bottom(8);
+        action_bar.set_margin_start(12);
+        action_bar.set_margin_end(12);
+
+        let selected_count_label = Label::new(Some("0 selected"));
+        selected_count_label.add_css_class("dim-label");
+        action_bar.append(&selected_count_label);
+
+        let spacer = GtkBox::new(Orientation::Horizontal, 0);
+        spacer.set_hexpand(true);
+        action_bar.append(&spacer);
+
+        let bulk_archive_btn = Button::with_label("Archive");
+        bulk_archive_btn.add_css_class("flat");
+        action_bar.append(&bulk_archive_btn);
+
+        let bulk_tag_btn = Button::with_label("Tag…");
+        bulk_tag_btn.add_css_class("flat");
+        action_bar.append(&bulk_tag_btn);
+
+        let bulk_project_btn = Button::with_label("Add to Project…");
+        bulk_project_btn.add_css_class("flat");
+        action_bar.append(&bulk_project_btn);
+
+        let bulk_remove_btn = Button::with_label("Remove");
+        bulk_remove_btn.add_css_class("destructive-action");
+        action_bar.append(&bulk_remove_btn);
+
+        let clear_btn = Button::from_icon_name("window-close-symbolic");
+        clear_btn.add_css_class("flat");
+        action_bar.append(&clear_btn);
+
+        action_bar_revealer.set_child(Some(&action_bar));
+        right.add_bottom_bar(&action_bar_revealer);
 
         root.append(&right);
 
@@ -130,6 +182,10 @@ impl LibraryWindow {
             filter_list,
             search_entry,
             current_filter: Rc::new(RefCell::new(LibraryFilter::All)),
+            current_sort: Rc::new(RefCell::new(SortOrder::Modified)),
+            selection: Rc::new(RefCell::new(HashSet::new())),
+            action_bar_revealer,
+            selected_count_label,
             toast_overlay,
             on_open: Rc::new(RefCell::new(None)),
             work_dir,
@@ -137,17 +193,35 @@ impl LibraryWindow {
 
         lw.populate_filter_list();
         lw.populate_doc_list();
-        lw.wire_signals(&new_doc_btn, &import_btn, &manage_tags_btn, &new_project_btn);
+        lw.wire_signals(
+            &new_doc_btn,
+            &import_btn,
+            &manage_tags_btn,
+            &new_project_btn,
+            &sort_dropdown,
+            &bulk_archive_btn,
+            &bulk_tag_btn,
+            &bulk_project_btn,
+            &bulk_remove_btn,
+            &clear_btn,
+        );
 
         lw
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn wire_signals(
         &self,
         new_doc_btn: &Button,
         import_btn: &Button,
         manage_tags_btn: &Button,
         new_project_btn: &Button,
+        sort_dropdown: &gtk4::DropDown,
+        bulk_archive_btn: &Button,
+        bulk_tag_btn: &Button,
+        bulk_project_btn: &Button,
+        bulk_remove_btn: &Button,
+        clear_btn: &Button,
     ) {
         {
             let this = self.clone();
@@ -156,7 +230,72 @@ impl LibraryWindow {
                     let name = row.widget_name().to_string();
                     let filter = parse_filter_name(&name);
                     *this.current_filter.borrow_mut() = filter;
+                    this.selection.borrow_mut().clear();
+                    this.update_action_bar();
                     this.populate_doc_list();
+                }
+            });
+        }
+        {
+            let this = self.clone();
+            sort_dropdown.connect_selected_notify(move |dd| {
+                let sort = match dd.selected() {
+                    1 => SortOrder::Created,
+                    2 => SortOrder::Opened,
+                    3 => SortOrder::Title,
+                    _ => SortOrder::Modified,
+                };
+                *this.current_sort.borrow_mut() = sort;
+                this.populate_doc_list();
+            });
+        }
+        {
+            let this = self.clone();
+            clear_btn.connect_clicked(move |_| {
+                this.selection.borrow_mut().clear();
+                this.update_action_bar();
+                this.populate_doc_list();
+            });
+        }
+        {
+            let this = self.clone();
+            bulk_archive_btn.connect_clicked(move |_| {
+                let ids: Vec<i64> = this.selection.borrow().iter().cloned().collect();
+                for id in ids {
+                    this.library.borrow_mut().set_archived(id, true).ok();
+                }
+                this.selection.borrow_mut().clear();
+                this.update_action_bar();
+                this.refresh();
+            });
+        }
+        {
+            let this = self.clone();
+            bulk_remove_btn.connect_clicked(move |_| {
+                let ids: Vec<i64> = this.selection.borrow().iter().cloned().collect();
+                for id in ids {
+                    this.library.borrow_mut().remove_document(id).ok();
+                }
+                this.selection.borrow_mut().clear();
+                this.update_action_bar();
+                this.refresh();
+            });
+        }
+        {
+            let this = self.clone();
+            bulk_tag_btn.connect_clicked(move |_| {
+                let ids: Vec<i64> = this.selection.borrow().iter().cloned().collect();
+                if !ids.is_empty() {
+                    this.bulk_tag_dialog(ids);
+                }
+            });
+        }
+        {
+            let this = self.clone();
+            bulk_project_btn.connect_clicked(move |_| {
+                let ids: Vec<i64> = this.selection.borrow().iter().cloned().collect();
+                if !ids.is_empty() {
+                    this.bulk_add_to_project_dialog(ids);
                 }
             });
         }
@@ -198,8 +337,18 @@ impl LibraryWindow {
             self.filter_list.remove(&child);
         }
 
-        self.filter_list
-            .append(&make_filter_row("all", "document-open-recent-symbolic", "All Documents", None));
+        self.filter_list.append(&make_filter_row(
+            "all",
+            "document-open-recent-symbolic",
+            "All Documents",
+            self.library.borrow().doc_count(&LibraryFilter::All).ok(),
+        ));
+        self.filter_list.append(&make_filter_row(
+            "recent",
+            "document-open-recent-symbolic",
+            "Recently Opened",
+            self.library.borrow().doc_count(&LibraryFilter::Recent).ok(),
+        ));
 
         let projects = self
             .library
@@ -209,12 +358,31 @@ impl LibraryWindow {
         if !projects.is_empty() {
             self.filter_list.append(&header_row("PROJECTS"));
             for p in projects {
-                self.filter_list.append(&make_filter_row(
+                let count = self
+                    .library
+                    .borrow()
+                    .doc_count(&LibraryFilter::Project(p.id))
+                    .ok();
+                let filter_row = make_filter_row(
                     &format!("project:{}", p.id),
                     "folder-symbolic",
                     &p.name,
-                    None,
-                ));
+                    count,
+                );
+                let gesture = gtk4::GestureClick::new();
+                gesture.set_button(3);
+                let this = self.clone();
+                let pid = p.id;
+                let pname = p.name.clone();
+                let row_weak = filter_row.downgrade();
+                gesture.connect_pressed(move |g, _, x, y| {
+                    g.set_state(gtk4::EventSequenceState::Claimed);
+                    if let Some(row) = row_weak.upgrade() {
+                        this.show_project_menu(&row, pid, &pname, x, y);
+                    }
+                });
+                filter_row.add_controller(gesture);
+                self.filter_list.append(&filter_row);
             }
         }
 
@@ -226,11 +394,16 @@ impl LibraryWindow {
         if !categories.is_empty() {
             self.filter_list.append(&header_row("CATEGORIES"));
             for c in categories {
+                let cat_count = self
+                    .library
+                    .borrow()
+                    .doc_count(&LibraryFilter::Category(c.clone()))
+                    .ok();
                 let filter_row = make_filter_row(
                     &format!("category:{}", c),
                     "tag-symbolic",
                     &c,
-                    None,
+                    cat_count,
                 );
                 let drop = DropTarget::new(gtk4::glib::Type::STRING, gtk4::gdk::DragAction::COPY);
                 let this = self.clone();
@@ -254,13 +427,23 @@ impl LibraryWindow {
         if !tags.is_empty() {
             self.filter_list.append(&header_row("TAGS"));
             for t in tags {
-                self.filter_list.append(&make_tag_filter_row(t.id, &t.name, &t.color_hex));
+                let count = self
+                    .library
+                    .borrow()
+                    .doc_count(&LibraryFilter::Tag(t.id))
+                    .ok();
+                self.filter_list
+                    .append(&make_tag_filter_row(t.id, &t.name, &t.color_hex, count));
             }
         }
 
         self.filter_list.append(&header_row(""));
-        self.filter_list
-            .append(&make_filter_row("archive", "user-trash-symbolic", "Archive", None));
+        self.filter_list.append(&make_filter_row(
+            "archive",
+            "user-trash-symbolic",
+            "Archive",
+            self.library.borrow().doc_count(&LibraryFilter::Archive).ok(),
+        ));
 
         if let Some(first) = self.filter_list.row_at_index(0) {
             self.filter_list.select_row(Some(&first));
@@ -273,10 +456,15 @@ impl LibraryWindow {
         }
         let search = self.search_entry.text().to_string();
         let filter = self.current_filter.borrow().clone();
+        let sort = self.current_sort.borrow().clone();
+        let project_reorder = match &filter {
+            LibraryFilter::Project(pid) => Some(*pid),
+            _ => None,
+        };
         let docs = self
             .library
             .borrow()
-            .documents(filter, &search)
+            .documents(filter, &search, sort)
             .unwrap_or_default();
 
         if docs.is_empty() {
@@ -294,8 +482,19 @@ impl LibraryWindow {
 
         for doc in docs {
             let tags = self.library.borrow().doc_tags(doc.id).unwrap_or_default();
-            let row = self.make_doc_row(&doc, &tags);
+            let row = self.make_doc_row(&doc, &tags, project_reorder);
             self.doc_list.append(&row);
+        }
+    }
+
+    fn update_action_bar(&self) {
+        let count = self.selection.borrow().len();
+        if count == 0 {
+            self.action_bar_revealer.set_reveal_child(false);
+        } else {
+            self.selected_count_label
+                .set_text(&format!("{} selected", count));
+            self.action_bar_revealer.set_reveal_child(true);
         }
     }
 
@@ -303,6 +502,7 @@ impl LibraryWindow {
         &self,
         doc: &crate::library::Document,
         tags: &[crate::library::Tag],
+        project_reorder: Option<i64>,
     ) -> ListBoxRow {
         let row = ListBoxRow::new();
         row.set_widget_name(&doc.id.to_string());
@@ -351,6 +551,19 @@ impl LibraryWindow {
         date.add_css_class("caption");
         date.set_halign(Align::End);
         meta.append(&date);
+        let file_size = std::fs::metadata(&doc.path).map(|m| m.len()).unwrap_or(0);
+        if file_size > 0 && file_size <= 1_000_000 {
+            let line_count = std::fs::read_to_string(&doc.path)
+                .map(|s| s.lines().count())
+                .unwrap_or(0);
+            if line_count > 0 {
+                let lines_lbl = Label::new(Some(&format!("{} lines", line_count)));
+                lines_lbl.add_css_class("dim-label");
+                lines_lbl.add_css_class("caption");
+                lines_lbl.set_halign(Align::End);
+                meta.append(&lines_lbl);
+            }
+        }
         if doc.archived {
             let badge = Label::new(Some("[archived]"));
             badge.add_css_class("dim-label");
@@ -359,6 +572,10 @@ impl LibraryWindow {
             meta.append(&badge);
         }
         hbox.append(&meta);
+
+        if self.selection.borrow().contains(&doc.id) {
+            hbox.add_css_class("selected-doc");
+        }
 
         row.set_child(Some(&hbox));
 
@@ -370,6 +587,54 @@ impl LibraryWindow {
             Some(gtk4::gdk::ContentProvider::for_value(&id_str.to_value()))
         });
         row.add_controller(drag_source);
+
+        if let Some(pid) = project_reorder {
+            let drop = DropTarget::new(gtk4::glib::Type::STRING, gtk4::gdk::DragAction::COPY);
+            let this = self.clone();
+            let target_doc_id = doc.id;
+            drop.connect_drop(move |_, value, _, _| {
+                if let Ok(id_str) = value.get::<String>() {
+                    if let Ok(dragged_id) = id_str.parse::<i64>() {
+                        if dragged_id != target_doc_id {
+                            if let Ok(Some(target_pos)) =
+                                this.library.borrow().position_in_project(pid, target_doc_id)
+                            {
+                                this.library
+                                    .borrow_mut()
+                                    .move_doc_in_project(pid, dragged_id, target_pos)
+                                    .ok();
+                                this.populate_doc_list();
+                            }
+                        }
+                    }
+                }
+                false
+            });
+            row.add_controller(drop);
+        }
+
+        // Ctrl+click multi-select
+        let ctrl_click = gtk4::GestureClick::new();
+        ctrl_click.set_button(1);
+        let this = self.clone();
+        let doc_id = doc.id;
+        ctrl_click.connect_pressed(move |g, _, _, _| {
+            let mods = g.current_event_state();
+            if mods.contains(gtk4::gdk::ModifierType::CONTROL_MASK) {
+                g.set_state(gtk4::EventSequenceState::Claimed);
+                {
+                    let mut sel = this.selection.borrow_mut();
+                    if sel.contains(&doc_id) {
+                        sel.remove(&doc_id);
+                    } else {
+                        sel.insert(doc_id);
+                    }
+                }
+                this.update_action_bar();
+                this.populate_doc_list();
+            }
+        });
+        row.add_controller(ctrl_click);
 
         // Right-click context menu
         let gesture = gtk4::GestureClick::new();
@@ -475,6 +740,18 @@ impl LibraryWindow {
         }
         vbox.append(&tags_b);
 
+        let notes_b = mk("Edit Notes…");
+        {
+            let this = self.clone();
+            let doc = doc.clone();
+            let pop = popover.clone();
+            notes_b.connect_clicked(move |_| {
+                pop.popdown();
+                this.edit_notes_dialog(&doc);
+            });
+        }
+        vbox.append(&notes_b);
+
         let project_b = mk("Add to Project…");
         {
             let this = self.clone();
@@ -486,6 +763,22 @@ impl LibraryWindow {
             });
         }
         vbox.append(&project_b);
+
+        let maybe_pid = match *self.current_filter.borrow() {
+            LibraryFilter::Project(pid) => Some(pid),
+            _ => None,
+        };
+        if let Some(pid) = maybe_pid {
+            let root_b = mk("Set as Project Root");
+            let this = self.clone();
+            let id = doc.id;
+            let pop = popover.clone();
+            root_b.connect_clicked(move |_| {
+                pop.popdown();
+                this.library.borrow_mut().set_project_root(pid, Some(id)).ok();
+            });
+            vbox.append(&root_b);
+        }
 
         let arch_label = if doc.archived { "Unarchive" } else { "Archive" };
         let arch_b = mk(arch_label);
@@ -532,6 +825,249 @@ impl LibraryWindow {
 
         popover.set_child(Some(&vbox));
         popover.popup();
+    }
+
+    fn edit_notes_dialog(&self, doc: &crate::library::Document) {
+        let dlg = adw::MessageDialog::new(Some(&self.window), Some("Notes"), None);
+        dlg.add_response("cancel", "Cancel");
+        dlg.add_response("ok", "Save");
+        dlg.set_response_appearance("ok", adw::ResponseAppearance::Suggested);
+        dlg.set_default_response(Some("ok"));
+        dlg.set_close_response("cancel");
+
+        let scroll = ScrolledWindow::new();
+        scroll.set_min_content_height(120);
+        scroll.set_width_request(320);
+        let text_view = TextView::new();
+        text_view.set_wrap_mode(gtk4::WrapMode::Word);
+        text_view.set_top_margin(8);
+        text_view.set_bottom_margin(8);
+        text_view.set_left_margin(8);
+        text_view.set_right_margin(8);
+        if let Some(notes) = &doc.notes {
+            text_view.buffer().set_text(notes);
+        }
+        scroll.set_child(Some(&text_view));
+        dlg.set_extra_child(Some(&scroll));
+
+        let this = self.clone();
+        let id = doc.id;
+        let buf = text_view.buffer();
+        dlg.connect_response(None, move |_, resp| {
+            if resp == "ok" {
+                let text = buf
+                    .text(&buf.start_iter(), &buf.end_iter(), false)
+                    .to_string();
+                let notes_owned: Option<String> = if text.trim().is_empty() {
+                    None
+                } else {
+                    Some(text.trim().to_string())
+                };
+                this.library
+                    .borrow_mut()
+                    .set_notes(id, notes_owned.as_deref())
+                    .ok();
+            }
+        });
+        dlg.present();
+    }
+
+    fn show_project_menu(
+        &self,
+        row: &ListBoxRow,
+        project_id: i64,
+        project_name: &str,
+        x: f64,
+        y: f64,
+    ) {
+        let popover = Popover::new();
+        popover.set_parent(row);
+        popover.set_has_arrow(true);
+        popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+
+        let vbox = GtkBox::new(Orientation::Vertical, 2);
+        vbox.set_margin_top(4);
+        vbox.set_margin_bottom(4);
+        vbox.set_margin_start(4);
+        vbox.set_margin_end(4);
+
+        let mk = |label: &str| -> Button {
+            let b = Button::with_label(label);
+            b.add_css_class("flat");
+            b.set_halign(Align::Fill);
+            if let Some(child) = b.child() {
+                child.set_halign(Align::Start);
+            }
+            b
+        };
+
+        if let Ok(Some(root_path)) = self.library.borrow().project_root_path(project_id) {
+            let open_root = mk("Open Root File");
+            let this = self.clone();
+            let pop = popover.clone();
+            open_root.connect_clicked(move |_| {
+                pop.popdown();
+                if let Some(cb) = this.on_open.borrow().as_ref() {
+                    this.library.borrow_mut().touch_opened(&root_path).ok();
+                    cb(root_path.clone());
+                }
+            });
+            vbox.append(&open_root);
+            vbox.append(&Separator::new(Orientation::Horizontal));
+        }
+
+        let rename_b = mk("Rename Project…");
+        {
+            let this = self.clone();
+            let pop = popover.clone();
+            let pname = project_name.to_string();
+            rename_b.connect_clicked(move |_| {
+                pop.popdown();
+                this.rename_project_dialog(project_id, &pname);
+            });
+        }
+        vbox.append(&rename_b);
+
+        let delete_b = mk("Delete Project");
+        delete_b.add_css_class("error");
+        {
+            let this = self.clone();
+            let pop = popover.clone();
+            delete_b.connect_clicked(move |_| {
+                pop.popdown();
+                this.library.borrow_mut().delete_project(project_id).ok();
+                *this.current_filter.borrow_mut() = LibraryFilter::All;
+                this.refresh();
+            });
+        }
+        vbox.append(&delete_b);
+
+        popover.set_child(Some(&vbox));
+        popover.popup();
+    }
+
+    fn rename_project_dialog(&self, project_id: i64, current_name: &str) {
+        let dlg = adw::MessageDialog::new(Some(&self.window), Some("Rename Project"), None);
+        dlg.add_response("cancel", "Cancel");
+        dlg.add_response("ok", "Rename");
+        dlg.set_response_appearance("ok", adw::ResponseAppearance::Suggested);
+        dlg.set_default_response(Some("ok"));
+        dlg.set_close_response("cancel");
+        let entry = Entry::new();
+        entry.set_text(current_name);
+        dlg.set_extra_child(Some(&entry));
+        let this = self.clone();
+        let entry_c = entry.clone();
+        dlg.connect_response(None, move |_, resp| {
+            if resp == "ok" {
+                let name = entry_c.text().to_string();
+                if !name.trim().is_empty() {
+                    this.library
+                        .borrow_mut()
+                        .rename_project(project_id, name.trim())
+                        .ok();
+                    this.refresh();
+                }
+            }
+        });
+        dlg.present();
+    }
+
+    fn bulk_tag_dialog(&self, doc_ids: Vec<i64>) {
+        let all_tags = self.library.borrow().all_tags().unwrap_or_default();
+        let dlg = adw::MessageDialog::new(Some(&self.window), Some("Tag Documents"), None);
+        dlg.add_response("cancel", "Cancel");
+        dlg.add_response("ok", "Apply");
+        dlg.set_response_appearance("ok", adw::ResponseAppearance::Suggested);
+        dlg.set_default_response(Some("ok"));
+        dlg.set_close_response("cancel");
+
+        let scroll = ScrolledWindow::new();
+        scroll.set_min_content_height(160);
+        scroll.set_width_request(300);
+        let listbox = ListBox::new();
+        listbox.add_css_class("boxed-list");
+        listbox.set_selection_mode(gtk4::SelectionMode::None);
+
+        let checks: Rc<RefCell<Vec<(i64, CheckButton)>>> = Rc::new(RefCell::new(Vec::new()));
+        for tag in &all_tags {
+            let check = CheckButton::with_label(&tag.name);
+            let r = ListBoxRow::new();
+            r.set_selectable(false);
+            r.set_child(Some(&check));
+            listbox.append(&r);
+            checks.borrow_mut().push((tag.id, check));
+        }
+        scroll.set_child(Some(&listbox));
+        dlg.set_extra_child(Some(&scroll));
+
+        let this = self.clone();
+        dlg.connect_response(None, move |_, resp| {
+            if resp == "ok" {
+                let selected: Vec<i64> = checks
+                    .borrow()
+                    .iter()
+                    .filter(|(_, c)| c.is_active())
+                    .map(|(id, _)| *id)
+                    .collect();
+                for doc_id in &doc_ids {
+                    this.library.borrow_mut().set_doc_tags(*doc_id, &selected).ok();
+                }
+                this.selection.borrow_mut().clear();
+                this.update_action_bar();
+                this.refresh();
+            }
+        });
+        dlg.present();
+    }
+
+    fn bulk_add_to_project_dialog(&self, doc_ids: Vec<i64>) {
+        let projects = self.library.borrow().all_projects().unwrap_or_default();
+        if projects.is_empty() {
+            return;
+        }
+        let dlg = adw::MessageDialog::new(Some(&self.window), Some("Add to Project"), None);
+        dlg.add_response("cancel", "Cancel");
+        dlg.set_close_response("cancel");
+
+        let scroll = ScrolledWindow::new();
+        scroll.set_min_content_height(150);
+        scroll.set_width_request(300);
+        let listbox = ListBox::new();
+        listbox.set_selection_mode(gtk4::SelectionMode::Single);
+        for p in &projects {
+            let r = ListBoxRow::new();
+            r.set_widget_name(&p.id.to_string());
+            r.set_child(Some(
+                &Label::builder()
+                    .label(&p.name)
+                    .halign(Align::Start)
+                    .margin_top(6)
+                    .margin_bottom(6)
+                    .margin_start(8)
+                    .build(),
+            ));
+            listbox.append(&r);
+        }
+        scroll.set_child(Some(&listbox));
+        dlg.set_extra_child(Some(&scroll));
+
+        let this = self.clone();
+        let dlg_weak = dlg.downgrade();
+        listbox.connect_row_activated(move |_, row| {
+            if let Ok(pid) = row.widget_name().to_string().parse::<i64>() {
+                for doc_id in &doc_ids {
+                    this.library.borrow_mut().add_doc_to_project(pid, *doc_id).ok();
+                }
+                this.selection.borrow_mut().clear();
+                this.update_action_bar();
+                this.refresh();
+                if let Some(d) = dlg_weak.upgrade() {
+                    d.close();
+                }
+            }
+        });
+        dlg.present();
     }
 
     fn rename_doc_dialog(&self, doc: &crate::library::Document) {
@@ -682,7 +1218,9 @@ impl LibraryWindow {
                 let name = entry.text().to_string();
                 let name = name.trim().to_string();
                 if name.is_empty() { return; }
-                if let Ok(new_id) = this.library.borrow_mut().create_tag(&name, &color.borrow()) {
+                let color_val = color.borrow().clone();
+                let result = this.library.borrow_mut().create_tag(&name, &color_val);
+                if let Ok(new_id) = result {
                     let check = CheckButton::with_label(&name);
                     check.set_active(true);
                     let r = ListBoxRow::new();
@@ -853,45 +1391,48 @@ impl LibraryWindow {
         dlg.add_response("close", "Close");
         dlg.set_close_response("close");
 
-        let vbox = GtkBox::new(Orientation::Vertical, 8);
+        let vbox = GtkBox::new(Orientation::Vertical, 4);
         vbox.set_width_request(320);
 
         let scroll = ScrolledWindow::new();
-        scroll.set_min_content_height(180);
+        scroll.set_min_content_height(140);
         let tag_list = ListBox::new();
         tag_list.set_selection_mode(gtk4::SelectionMode::None);
         scroll.set_child(Some(&tag_list));
         vbox.append(&scroll);
 
-        let new_row = GtkBox::new(Orientation::Horizontal, 6);
+        // Compact single row: [name entry] [color swatches] [+ button]
+        let new_row = GtkBox::new(Orientation::Horizontal, 4);
+        new_row.set_margin_top(2);
         let name_entry = Entry::new();
-        name_entry.set_placeholder_text(Some("New tag name"));
+        name_entry.set_placeholder_text(Some("New tag…"));
         name_entry.set_hexpand(true);
         new_row.append(&name_entry);
-        vbox.append(&new_row);
 
-        let color_box = GtkBox::new(Orientation::Horizontal, 4);
         let selected_color: Rc<RefCell<String>> = Rc::new(RefCell::new(TAG_COLORS[0].to_string()));
         for color in TAG_COLORS {
             let btn = Button::new();
-            btn.set_size_request(24, 24);
+            btn.set_size_request(20, 20);
             apply_color_css(&btn, color);
             let sel = selected_color.clone();
             let c = color.to_string();
-            btn.connect_clicked(move |_| {
-                *sel.borrow_mut() = c.clone();
-            });
-            color_box.append(&btn);
+            btn.connect_clicked(move |_| *sel.borrow_mut() = c.clone());
+            new_row.append(&btn);
         }
-        vbox.append(&color_box);
 
-        let add_btn = Button::with_label("Add Tag");
+        let add_btn = Button::with_label("+");
         add_btn.add_css_class("suggested-action");
-        vbox.append(&add_btn);
+        new_row.append(&add_btn);
+        vbox.append(&new_row);
+
+        let bib_btn = Button::with_label("Import authors from BibTeX…");
+        bib_btn.add_css_class("flat");
+        bib_btn.set_margin_top(0);
+        vbox.append(&bib_btn);
 
         let this = self.clone();
         let tag_list_c = tag_list.clone();
-        let refresh_tags = Rc::new(move || {
+        let refresh_tags: Rc<dyn Fn()> = Rc::new(move || {
             while let Some(child) = tag_list_c.first_child() {
                 tag_list_c.remove(&child);
             }
@@ -899,12 +1440,12 @@ impl LibraryWindow {
             for tag in tags {
                 let r = ListBoxRow::new();
                 r.set_selectable(false);
-                let hbox = GtkBox::new(Orientation::Horizontal, 8);
-                hbox.set_margin_top(4);
-                hbox.set_margin_bottom(4);
+                let hbox = GtkBox::new(Orientation::Horizontal, 6);
+                hbox.set_margin_top(3);
+                hbox.set_margin_bottom(3);
                 hbox.set_margin_start(8);
-                hbox.set_margin_end(8);
-                let dot = Label::new(Some("●"));
+                hbox.set_margin_end(4);
+                let dot = Label::new(None);
                 dot.set_use_markup(true);
                 dot.set_markup(&format!("<span foreground=\"{}\">●</span>", tag.color_hex));
                 hbox.append(&dot);
@@ -935,10 +1476,8 @@ impl LibraryWindow {
             add_btn.connect_clicked(move |_| {
                 let name = name_entry.text().to_string();
                 if !name.trim().is_empty() {
-                    this.library
-                        .borrow_mut()
-                        .create_tag(name.trim(), &sel.borrow())
-                        .ok();
+                    let color_val = sel.borrow().clone();
+                    this.library.borrow_mut().create_tag(name.trim(), &color_val).ok();
                     name_entry.set_text("");
                     refresh_tags();
                     this.populate_filter_list();
@@ -946,10 +1485,89 @@ impl LibraryWindow {
             });
         }
 
+        {
+            let this = self.clone();
+            let refresh_tags = refresh_tags.clone();
+            bib_btn.connect_clicked(move |_| {
+                this.import_authors_from_bibtex(refresh_tags.clone());
+            });
+        }
+
         dlg.set_extra_child(Some(&vbox));
         let this = self.clone();
-        dlg.connect_response(None, move |_, _| {
-            this.refresh();
+        dlg.connect_response(None, move |_, _| this.refresh());
+        dlg.present();
+    }
+
+    fn import_authors_from_bibtex(&self, refresh_tags: Rc<dyn Fn()>) {
+        let dialog = gtk4::FileDialog::new();
+        dialog.set_title("Select BibTeX File");
+        let filter = gtk4::FileFilter::new();
+        filter.add_pattern("*.bib");
+        filter.set_name(Some("BibTeX files"));
+        let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
+        filters.append(&filter);
+        dialog.set_filters(Some(&filters));
+        dialog.set_initial_folder(Some(&gtk4::gio::File::for_path(&self.work_dir)));
+        let this = self.clone();
+        dialog.open(Some(&self.window), gtk4::gio::Cancellable::NONE, move |res| {
+            if let Ok(file) = res {
+                if let Some(path) = file.path() {
+                    let authors = parse_bibtex_authors(&path);
+                    if !authors.is_empty() {
+                        this.show_author_selection_dialog(authors, refresh_tags.clone());
+                    }
+                }
+            }
+        });
+    }
+
+    fn show_author_selection_dialog(&self, authors: Vec<String>, refresh_tags: Rc<dyn Fn()>) {
+        let dlg = adw::MessageDialog::new(
+            Some(&self.window),
+            Some("Import Author Tags"),
+            Some("Select authors to create as tags:"),
+        );
+        dlg.add_response("cancel", "Cancel");
+        dlg.add_response("ok", "Create Tags");
+        dlg.set_response_appearance("ok", adw::ResponseAppearance::Suggested);
+        dlg.set_default_response(Some("ok"));
+        dlg.set_close_response("cancel");
+
+        let scroll = ScrolledWindow::new();
+        scroll.set_min_content_height(180);
+        scroll.set_width_request(280);
+        let listbox = ListBox::new();
+        listbox.set_selection_mode(gtk4::SelectionMode::None);
+
+        let checks: Vec<(String, CheckButton)> = authors
+            .into_iter()
+            .map(|name| {
+                let check = CheckButton::with_label(&name);
+                check.set_active(true);
+                let r = ListBoxRow::new();
+                r.set_selectable(false);
+                r.set_child(Some(&check));
+                listbox.append(&r);
+                (name, check)
+            })
+            .collect();
+
+        scroll.set_child(Some(&listbox));
+        dlg.set_extra_child(Some(&scroll));
+
+        let this = self.clone();
+        dlg.connect_response(None, move |_, resp| {
+            if resp == "ok" {
+                for (name, check) in &checks {
+                    if check.is_active() {
+                        let color = TAG_COLORS[1].to_string(); // green for authors
+                        this.library.borrow_mut().create_tag(name, &color).ok();
+                    }
+                }
+                refresh_tags();
+                this.populate_filter_list();
+            }
         });
         dlg.present();
     }
@@ -1033,6 +1651,8 @@ impl LibraryWindow {
 fn parse_filter_name(name: &str) -> LibraryFilter {
     if name == "all" {
         LibraryFilter::All
+    } else if name == "recent" {
+        LibraryFilter::Recent
     } else if name == "archive" {
         LibraryFilter::Archive
     } else if let Some(rest) = name.strip_prefix("project:") {
@@ -1076,7 +1696,7 @@ fn make_filter_row(name: &str, icon: &str, label: &str, count: Option<i64>) -> L
     row
 }
 
-fn make_tag_filter_row(tag_id: i64, label: &str, color: &str) -> ListBoxRow {
+fn make_tag_filter_row(tag_id: i64, label: &str, color: &str, count: Option<i64>) -> ListBoxRow {
     let row = ListBoxRow::new();
     row.set_widget_name(&format!("tag:{tag_id}"));
     let hbox = GtkBox::new(Orientation::Horizontal, 8);
@@ -1093,6 +1713,12 @@ fn make_tag_filter_row(tag_id: i64, label: &str, color: &str) -> ListBoxRow {
     lbl.set_halign(Align::Start);
     lbl.set_ellipsize(gtk4::pango::EllipsizeMode::End);
     hbox.append(&lbl);
+    if let Some(c) = count {
+        let c_lbl = Label::new(Some(&c.to_string()));
+        c_lbl.add_css_class("dim-label");
+        c_lbl.add_css_class("caption");
+        hbox.append(&c_lbl);
+    }
     row.set_child(Some(&hbox));
     row
 }
@@ -1167,6 +1793,10 @@ fn load_library_css() {
         }
         .doc-title {
             font-weight: 600;
+        }
+        .selected-doc {
+            background: alpha(@accent_color, 0.1);
+            border-radius: 4px;
         }",
     );
     if let Some(display) = gtk4::gdk::Display::default() {
@@ -1176,4 +1806,46 @@ fn load_library_css() {
             gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
         );
     }
+}
+
+fn parse_bibtex_authors(path: &std::path::Path) -> Vec<String> {
+    let content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(_) => return vec![],
+    };
+    let mut seen = std::collections::HashSet::new();
+    for line in content.lines() {
+        let trimmed = line.trim();
+        let lower = trimmed.to_lowercase();
+        if !lower.starts_with("author") {
+            continue;
+        }
+        let Some(eq) = trimmed.find('=') else { continue };
+        let value = trimmed[eq + 1..].trim();
+        // Strip outer delimiters
+        let value = value
+            .trim_start_matches('{').trim_end_matches('}')
+            .trim_start_matches('"').trim_end_matches('"')
+            .trim_end_matches(',')
+            .trim();
+        for part in value.split_terminator(" and ") {
+            let name = part.trim();
+            if name.is_empty() { continue; }
+            // "Last, First" → take last name; "First Last" → take last word
+            let tag_name = if let Some(c) = name.find(',') {
+                name[..c].trim().to_string()
+            } else {
+                name.split_whitespace()
+                    .last()
+                    .unwrap_or(name)
+                    .to_string()
+            };
+            if !tag_name.is_empty() {
+                seen.insert(tag_name);
+            }
+        }
+    }
+    let mut result: Vec<String> = seen.into_iter().collect();
+    result.sort();
+    result
 }

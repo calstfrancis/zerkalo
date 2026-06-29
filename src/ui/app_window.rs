@@ -3667,9 +3667,18 @@ impl AppWindow {
         let preview_for_watch = preview_pane.clone();
         let editor_for_watch = editor_pane.clone();
         let mco_for_watch = manual_compile_only.clone();
+        let library_for_watch = library.clone();
+        let lw_for_watch = library_window.clone();
         let file_watcher = crate::file_watcher::start(
             project_root.clone(),
             move |changed_path| {
+                library_for_watch
+                    .borrow_mut()
+                    .upsert_document(&changed_path)
+                    .ok();
+                if lw_for_watch.window().is_visible() {
+                    lw_for_watch.refresh();
+                }
                 // Only react to files we don't have open — those are handled by
                 // the editor's own save path.
                 let is_open = editor_for_watch.get_active_path()
