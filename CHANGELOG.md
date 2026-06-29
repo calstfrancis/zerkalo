@@ -5,85 +5,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.13.12-dev8] — Library: pinned sidebar, heat tags, word count
+## [0.13.12] "Amber Index" — Document Library
 
 ### Added
 
-- **Pinned sidebar bottom** — "Trash", "Archive", "New Project", and "Manage Tags" are now fixed below the scrollable filter list, always visible while scrolling through tags and categories
-- **Tag heat colours** — tag chips are coloured by frequency: top third red (most used), middle yellow, bottom blue (least used); applies in the sidebar, compact view, and card view
-- **Prose word count** — card view shows word count instead of line count, excluding Typst commands (`#`), comments (`//`), code blocks, and citation tokens (`@key`)
-- **Document titles from source** — library entries now default to the `#let doc-title = "…"` value from the file; falls back to filename if not found; title updates on every save
-
----
-
-## [0.13.12-dev7] — Library: 8 more features
-
-### Added
-
-- **Citation-aware BibTeX author import** — "Import cited authors from BibTeX…" now parses the open document (or all docs in the current project) for `@key`, `#cite(<key>)`, and `#cite("key")` citations, then filters the `.bib` file to show only authors from actually-cited entries. Button also added to the per-document "Edit Tags…" dialog.
-- **Compact list view** — toggle button in the doc list header bar switches between card layout (title + chips + date on separate lines) and a single-line compact layout (all metadata inline).
-- **Pinned documents** — "Pin to Top" / "Unpin" in the doc context menu; pinned docs always sort to the top within any filter; shown with a left accent border.
-- **Document templates** — "New Document" checks `Documents/Zerkalo/Templates/` for `.typ` files; if found, a picker lets you choose a template or create blank. If no templates folder exists, creates blank as before.
-- **Category colors** — each category gets a color (stored in a new `categories` table). Color picker in the "Set Category" dialog; category chips in doc rows and sidebar dots reflect the chosen color.
-- **"Untagged" filter** — sidebar entry showing all non-archived docs with no tags assigned.
-- **Trash / soft delete** — "Delete File…" is replaced by "Move to Trash" which moves the file to `~/.local/share/zerkalo/trash/` and sets a `deleted` flag; the Trash sidebar filter shows trashed docs with "Restore" and "Permanently Delete…" options.
-- **Library statistics bar** — bottom of the sidebar shows total doc count, project count, and the last-opened document title, updated on every refresh.
-
----
-
-## [0.13.12-dev6] — Library: 10 features + tag fixes
-
-### Added (10 library features)
-
-- **Sort control** — Modified / Created / Opened / A→Z dropdown in the doc list header
-- **Doc count badges** — each sidebar filter entry shows its document count
-- **"Recently Opened" filter** — shows the last 30 docs by open time
-- **Project right-click menu** — rename or delete a project directly from the sidebar; open its root file if one is set
-- **Notes field** — "Edit Notes…" in the doc context menu; multiline text per document (stored in DB)
-- **Line count** — each doc row shows its line count (skipped for files over 1 MB)
-- **Drag to reorder within a project** — drop a document onto another document when viewing a project filter to reorder it
-- **Filesystem watcher → library** — when a `.typ` file is created or saved externally, it's auto-registered in the library; library window refreshes if open
-- **Bulk operations** — Ctrl+click multi-select; bottom action bar slides up with Archive / Tag… / Add to Project… / Remove actions
-- **"Set as Project Root"** in doc context menu when viewing a project; "Open Root File" in project right-click menu
-- **Import authors from BibTeX** — "Import authors from BibTeX…" button in Manage Tags opens a `.bib` file, parses all author last names, and lets you select which to create as tags (shown in green)
+- **Document Library** (`Ctrl+L` or Library button in toolbar) — a floating window that serves as the primary document navigator, backed by SQLite at `~/.local/share/zerkalo/library.sqlite`
+- **Filter sidebar** — All Documents, Recently Opened, Untagged, Projects, Categories, Tags; Trash and Archive pinned below the scrollable list and always visible
+- **Card view and compact view** — toggle between pleasant card layout (title, chips, word count, date) and a single-line compact layout; word count excludes Typst commands, code blocks, and citation tokens
+- **Tags** — create tags with 8 preset colours; tag chips on every card use heat colouring (red = most used, yellow = middle, blue = least used); manage and rename tags in Manage Tags
+- **BibTeX author import** — import author last names as tags from a `.bib` file; filtered to entries actually cited in the current document
+- **Projects** — group documents into named projects; drag to reorder within a project; right-click to rename or delete
+- **Categories** — assign a category and colour to any document; drag a document onto a category in the sidebar to assign it; right-click to rename or delete a category
+- **Document templates** — "New Document" picks from `.typ` files in `Templates/` in your work dir; falls back to a blank file if none exist
+- **Pinned documents** — "Pin to Top" in the context menu; pinned docs sort to the top with a left accent border
+- **Trash / soft delete** — "Move to Trash" sends a file to `~/.local/share/zerkalo/trash/`; Trash filter shows trashed docs with "Restore" and "Permanently Delete…" options
+- **Archive** — flag-only archiving; archived docs hidden from All and shown under Archive
+- **Bulk operations** — Ctrl+click multi-select; action bar slides up with Archive / Tag / Add to Project / Remove
+- **Document titles from source** — library titles default to `#let doc-title = "…"` in the file; fall back to filename
+- **Sort control** — Modified / Created / Opened / A→Z dropdown
+- **Statistics bar** — total doc count, project count, and last-opened document
+- **Export** — "Export…" in the doc context menu copies the file anywhere via a save dialog
+- **Auto-registration** — files opened in the editor and `.typ` files added externally are registered automatically
+- **Notes field** — "Edit Notes…" in the doc context menu stores a multiline note per document
 
 ### Fixed
 
-- **Crash when creating a tag** — `RefMut<Library>` from `borrow_mut()` inside an `if let` expression kept the mutable borrow alive through the entire block, causing a panic when `populate_filter_list()` tried to re-borrow. Extracted to a `let` statement so the borrow drops at the semicolon.
-
-### Changed
-
-- **Manage Tags dialog** is more compact: entry, color swatches, and + button are on one row; tag rows have tighter margins; dialog height reduced
-
----
-
-## [0.13.12-dev5] — Library improvements: drag-to-category, inline tag creation, auto-import
-
-### Added
-
-- **Drag doc onto a category in the sidebar** to assign that category — drag any document row from the list and drop it on a category filter entry; the library updates and refreshes immediately
-- **Inline tag creation in Edit Tags dialog** — type a new tag name, pick a color from the palette, and press + to create and immediately check the tag without opening Manage Tags separately
-- **Auto-import on startup** — on launch, Zerkalo recursively scans `~/Documents/Zerkalo/` (or configured work dir) and registers any `.typ` files not yet in the library; hidden directories are skipped
-
----
-
-## [0.13.12-dev4] — Document Library
-
-### Added
-
-- **Document Library** (`Ctrl+L` or Library button in toolbar) — a floating `AdwApplicationWindow` that serves as the primary document navigator, replacing the need to use Nautilus/Dolphin
-  - SQLite-backed global library at `~/.local/share/zerkalo/library.sqlite`
-  - Left filter sidebar: All Documents, Projects (grouped), Categories, Tags, Archive
-  - Right document list: title, category chip, tag chips (max 4), relative date (Today / Yesterday / weekday / month-day)
-  - **Search**: live filter by document title via the search bar
-  - **New Document**: creates `Untitled.typ` (auto-increments if exists) in the default work dir, adds to library, and opens in editor
-  - **Import**: file picker to add an existing `.typ` file to the library without copying it
-  - **Right-click context menu** on any document: Open, Rename, Set Category, Edit Tags, Add to Project, Archive/Unarchive, Remove from Library, Delete File
-  - **Manage Tags**: dialog to create tags with 8 preset colors, delete tags, rename tags
-  - **Projects**: create from "New Project" button in sidebar; add/remove documents per-project; right-click project to delete it
-  - **Auto-registration**: files opened in the editor are automatically added to the library and their `last_opened_at` / `modified_at` timestamps kept current
-  - **Archiving**: flag-only (no file movement); archived documents shown under the Archive filter and hidden from All
-  - Library window hides on close rather than destroying — toggle with Ctrl+L or the Library button
+- **Crash when creating a tag** — borrow conflict in `populate_filter_list()` after `borrow_mut()` in the same expression; fixed by dropping the mutable borrow before re-borrowing
+- **BibTeX author parser** — fixed trim order (comma before brace), BibLaTeX extended name format (`family=…`), and double-braced organisation names; no longer matches `authorrunning` as the author field
 
 ---
 
