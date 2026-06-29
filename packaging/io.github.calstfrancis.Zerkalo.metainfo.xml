@@ -66,6 +66,20 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.14.0" date="2026-06-29">
+      <description>
+        <p>0.14.0 "Lucid Archive" — Library search, hierarchy, and polish.</p>
+        <ul>
+          <li>Search bar now matches tag names and category names, not just document titles</li>
+          <li>New Category button in the sidebar with colour picker — no longer need to open a document first</li>
+          <li>Two-rank category hierarchy — assign a parent to any category; parent rows show a combined doc count and filter to all children</li>
+          <li>Notes visible in the library — first line shown under tags in card view; full text as a tooltip in compact view</li>
+          <li>Bulk tagging is now additive — existing tags are preserved when applying new ones to a selection</li>
+          <li>Database indexes added for faster filter switches on large libraries</li>
+          <li>Several library correctness fixes: Recent badge count, category backfill after migration, title extraction, and auto-save registration</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.13.12" date="2026-06-29">
       <description>
         <p>0.13.12 "Amber Index" — Document Library.</p>

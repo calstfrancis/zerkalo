@@ -5,19 +5,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.13.13-dev1] — Two-rank categories, close-bug fix
+## [0.14.0] "Lucid Archive" — Library search, hierarchy, and polish
 
 ### Added
-- **Two-rank category hierarchy** — categories can now have a parent, enabling groupings like Semester → Class; create subcategories via right-click "Add Subcategory…" on any category in the sidebar; parent categories show a combined doc count across all children
+- **Search across tags and categories** — the search bar in the library now matches tag names and category names in addition to document titles, across every filter
+- **New Category button** — sidebar now has a direct "New Category" button (with colour picker) alongside "New Project" and "Manage Tags"; no longer requires opening a document first
+- **Two-rank category hierarchy** — categories can now have a parent, enabling groupings like Semester → Class; create subcategories via right-click "Add Subcategory…"; parent categories show a combined doc count across children
 - **Set Parent** — move a leaf/standalone category under a parent via right-click "Set Parent…"
 - **Category group filter** — clicking a parent category in the sidebar filters to all documents in that category and its children
+- **Notes visible in library** — card view shows the first line of a document's notes below the tags; compact view shows the full notes text as a tooltip on hover
 
 ### Changed
-- **Delete blocked on parent categories** — deleting a category with subcategories is blocked (button dimmed, tooltip shown); remove subcategories first
-- **Drag-to-parent blocked** — dragging a document onto a parent category (one with subcategories) shows a toast instead of assigning; drop onto a specific subcategory
+- **Bulk tagging is now additive** — "Tag…" in the bulk action bar adds the selected tags to each document without erasing tags they already have
+- **Delete blocked on parent categories** — deleting a category with subcategories is blocked (button dimmed with tooltip); remove subcategories first
+- **Drag-to-parent blocked** — dragging a document onto a parent category shows a toast; drop onto a specific subcategory instead
 
 ### Fixed
-- **App now quits cleanly when library is open** — the library window was created as an `adw::ApplicationWindow`, keeping the process alive after the main window closed; changed to `adw::Window`
+- **Saving a file not yet in the library now registers it** — auto-save previously did nothing for files that hadn't been added to the library; it now upserts the document first
+- **Recently Opened badge matches the list** — the count badge now uses the same LIMIT 30 as the list, so the number is never larger than what's shown
+- **Old categories visible in sidebar** — categories assigned before the categories table was introduced now appear correctly in the sidebar after migration
+- **Title extraction could abort early** — a `?` in the `#let doc-title` parsing path caused the whole function to return `None` if the `=` was formatted unexpectedly; both title paths now use identical logic
+- **App now quits cleanly when library is open** — the library window was an `adw::ApplicationWindow`, keeping the process alive after the main window closed; changed to `adw::Window`
+
+### Performance
+- **Database indexes** — added indexes on category, archived/deleted, last_opened_at, modified_at, and both sides of the tag join table; filter switches are faster on large libraries
 
 ## [0.13.12] "Amber Index" — Document Library
 

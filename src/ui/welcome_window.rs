@@ -7,7 +7,7 @@ use libadwaita as adw;
 use adw::prelude::*;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-const RELEASE_NAME: &str = "Amber Index";
+const RELEASE_NAME: &str = "Lucid Archive";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -125,16 +125,12 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION} \"{RELEASE_NAME}\"")));
             for item in [
-                "Document Library — organise your .typ files with projects, categories, and colour-coded tags",
-                "Open the library with Ctrl+L or the Library button in the header bar",
-                "Drag documents between categories in the sidebar, or set category colours",
-                "Sort by modified date, created date, last opened, or title",
-                "Pin documents to keep them at the top; mark others as archived or move to trash",
-                "Create tags from BibTeX authors — filtered to entries actually cited in the document",
-                "Bulk-select with Ctrl+click to archive, tag, or remove multiple documents at once",
-                "Compact / list view toggle in the library toolbar",
-                "Create new documents from templates stored in your work directory under Templates/",
-                "Stats bar shows total document count, project count, and last-opened document",
+                "Search now matches tag names and category names, not just document titles",
+                "New Category button in the sidebar — create a category directly without opening a document first",
+                "Two-rank category hierarchy — nest categories under a parent (e.g. Semester → Class); parent rows filter to all children",
+                "Notes visible in the library — first line shown in card view; full text as a tooltip in compact view",
+                "Bulk tagging is now additive — applying tags to a selection no longer removes tags already on those documents",
+                "Database indexes added for faster filter switching on large libraries",
             ] {
                 body.append(&bullet_row(item));
             }
