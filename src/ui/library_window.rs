@@ -113,6 +113,9 @@ impl LibraryWindow {
         let new_project_btn = Button::with_label("New Project");
         new_project_btn.add_css_class("flat");
         manage_box.append(&new_project_btn);
+        let new_cat_btn = Button::with_label("New Category");
+        new_cat_btn.add_css_class("flat");
+        manage_box.append(&new_cat_btn);
         let manage_tags_btn = Button::with_label("Manage Tags");
         manage_tags_btn.add_css_class("flat");
         manage_box.append(&manage_tags_btn);
@@ -238,6 +241,7 @@ impl LibraryWindow {
             &import_btn,
             &manage_tags_btn,
             &new_project_btn,
+            &new_cat_btn,
             &sort_dropdown,
             &bulk_archive_btn,
             &bulk_tag_btn,
@@ -257,6 +261,7 @@ impl LibraryWindow {
         import_btn: &Button,
         manage_tags_btn: &Button,
         new_project_btn: &Button,
+        new_cat_btn: &Button,
         sort_dropdown: &gtk4::DropDown,
         bulk_archive_btn: &Button,
         bulk_tag_btn: &Button,
@@ -416,6 +421,10 @@ impl LibraryWindow {
         {
             let this = self.clone();
             new_project_btn.connect_clicked(move |_| this.create_project_dialog());
+        }
+        {
+            let this = self.clone();
+            new_cat_btn.connect_clicked(move |_| this.create_category_dialog());
         }
     }
 
@@ -810,6 +819,12 @@ impl LibraryWindow {
                 hbox.append(&chip);
             }
 
+            if let Some(notes) = &doc.notes {
+                if !notes.trim().is_empty() {
+                    hbox.set_tooltip_text(Some(notes.trim()));
+                }
+            }
+
             let spacer = GtkBox::new(Orientation::Horizontal, 0);
             spacer.set_hexpand(true);
             hbox.append(&spacer);
@@ -878,6 +893,18 @@ impl LibraryWindow {
                 chips.append(&chip);
             }
             vbox.append(&chips);
+
+            if let Some(notes) = &doc.notes {
+                let first_line = notes.lines().next().unwrap_or("").trim().to_string();
+                if !first_line.is_empty() {
+                    let notes_lbl = Label::new(Some(&first_line));
+                    notes_lbl.add_css_class("dim-label");
+                    notes_lbl.add_css_class("caption");
+                    notes_lbl.set_halign(Align::Start);
+                    notes_lbl.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+                    vbox.append(&notes_lbl);
+                }
+            }
 
             hbox.append(&vbox);
 
@@ -1611,7 +1638,7 @@ impl LibraryWindow {
                     .map(|(id, _)| *id)
                     .collect();
                 for doc_id in &doc_ids {
-                    this.library.borrow_mut().set_doc_tags(*doc_id, &selected).ok();
+                    this.library.borrow_mut().add_doc_tags(*doc_id, &selected).ok();
                 }
                 this.selection.borrow_mut().clear();
                 this.update_action_bar();
@@ -1994,6 +2021,53 @@ impl LibraryWindow {
                     if let Ok(pid) = this.library.borrow_mut().create_project(name.trim()) {
                         this.library.borrow_mut().add_doc_to_project(pid, doc_id).ok();
                     }
+                    this.refresh();
+                }
+            }
+        });
+        dlg.present();
+    }
+
+    fn create_category_dialog(&self) {
+        let dlg = adw::MessageDialog::new(Some(&self.window), Some("New Category"), None);
+        dlg.add_response("cancel", "Cancel");
+        dlg.add_response("ok", "Create");
+        dlg.set_response_appearance("ok", adw::ResponseAppearance::Suggested);
+        dlg.set_default_response(Some("ok"));
+        dlg.set_close_response("cancel");
+
+        let container = GtkBox::new(Orientation::Vertical, 8);
+        container.set_width_request(280);
+        let entry = Entry::new();
+        entry.set_placeholder_text(Some("Category name"));
+        entry.set_activates_default(true);
+        container.append(&entry);
+
+        let color_row = GtkBox::new(Orientation::Horizontal, 4);
+        let selected_color: Rc<RefCell<String>> = Rc::new(RefCell::new(TAG_COLORS[0].to_string()));
+        for color in TAG_COLORS {
+            let btn = Button::new();
+            btn.set_size_request(20, 20);
+            apply_color_css(&btn, color);
+            let sel = selected_color.clone();
+            let c = color.to_string();
+            btn.connect_clicked(move |_| *sel.borrow_mut() = c.clone());
+            color_row.append(&btn);
+        }
+        container.append(&color_row);
+        dlg.set_extra_child(Some(&container));
+
+        let this = self.clone();
+        let entry_c = entry.clone();
+        let color_sel = selected_color.clone();
+        dlg.connect_response(None, move |_, resp| {
+            if resp == "ok" {
+                let name = entry_c.text().to_string();
+                let name = name.trim().to_string();
+                if !name.is_empty() {
+                    this.library.borrow_mut().create_category(&name, None).ok();
+                    let color = color_sel.borrow().clone();
+                    this.library.borrow_mut().set_category_color(&name, &color).ok();
                     this.refresh();
                 }
             }

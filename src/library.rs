@@ -161,6 +161,18 @@ impl Library {
         self.conn.execute_batch(
             "ALTER TABLE categories ADD COLUMN parent TEXT REFERENCES categories(name);"
         ).ok();
+        self.conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_doc_category ON documents(category);
+             CREATE INDEX IF NOT EXISTS idx_doc_archived ON documents(archived, deleted);
+             CREATE INDEX IF NOT EXISTS idx_doc_last_opened ON documents(last_opened_at);
+             CREATE INDEX IF NOT EXISTS idx_doc_modified ON documents(modified_at);
+             CREATE INDEX IF NOT EXISTS idx_doc_tags_tag ON doc_tags(tag_id);
+             CREATE INDEX IF NOT EXISTS idx_doc_tags_doc ON doc_tags(doc_id);"
+        ).ok();
+        self.conn.execute_batch(
+            "INSERT OR IGNORE INTO categories (name)
+             SELECT DISTINCT category FROM documents WHERE category IS NOT NULL;"
+        ).ok();
         Ok(())
     }
 
@@ -218,6 +230,7 @@ impl Library {
     }
 
     pub fn touch_saved(&mut self, path: &Path) -> SqlResult<()> {
+        self.upsert_document(path)?;
         let path_str = path.to_string_lossy().to_string();
         let now = Utc::now().to_rfc3339();
         self.conn.execute(
@@ -243,124 +256,115 @@ impl Library {
             LibraryFilter::All => {
                 let sql = format!(
                     "SELECT {DOC_COLS} FROM documents
-                     WHERE archived = 0 AND deleted = 0 AND title LIKE ?1
+                     WHERE archived = 0 AND deleted = 0 AND {}
                      ORDER BY pinned DESC, {}",
+                    search_clause("", 1),
                     sort.clause("")
                 );
                 let mut stmt = self.conn.prepare(&sql)?;
                 let rows = stmt.query_map(params![search_pat], row_to_doc)?;
-                for r in rows {
-                    docs.push(r?);
-                }
+                for r in rows { docs.push(r?); }
             }
             LibraryFilter::Project(pid) => {
                 let sql = format!(
                     "SELECT {} FROM documents d
                      JOIN project_docs pd ON pd.doc_id = d.id
-                     WHERE pd.project_id = ?1 AND d.deleted = 0 AND d.title LIKE ?2
+                     WHERE pd.project_id = ?1 AND d.deleted = 0 AND {}
                      ORDER BY d.pinned DESC, pd.position, d.title",
-                    doc_cols_prefixed("d")
+                    doc_cols_prefixed("d"),
+                    search_clause("d.", 2)
                 );
                 let mut stmt = self.conn.prepare(&sql)?;
                 let rows = stmt.query_map(params![pid, search_pat], row_to_doc)?;
-                for r in rows {
-                    docs.push(r?);
-                }
+                for r in rows { docs.push(r?); }
             }
             LibraryFilter::Tag(tid) => {
                 let sql = format!(
                     "SELECT {} FROM documents d
                      JOIN doc_tags dt ON dt.doc_id = d.id
-                     WHERE dt.tag_id = ?1 AND d.archived = 0 AND d.deleted = 0 AND d.title LIKE ?2
+                     WHERE dt.tag_id = ?1 AND d.archived = 0 AND d.deleted = 0 AND {}
                      ORDER BY d.pinned DESC, {}",
                     doc_cols_prefixed("d"),
+                    search_clause("d.", 2),
                     sort.clause("d.")
                 );
                 let mut stmt = self.conn.prepare(&sql)?;
                 let rows = stmt.query_map(params![tid, search_pat], row_to_doc)?;
-                for r in rows {
-                    docs.push(r?);
-                }
+                for r in rows { docs.push(r?); }
             }
             LibraryFilter::Category(cat) => {
                 let sql = format!(
                     "SELECT {DOC_COLS} FROM documents
-                     WHERE category = ?1 AND archived = 0 AND deleted = 0 AND title LIKE ?2
+                     WHERE category = ?1 AND archived = 0 AND deleted = 0 AND {}
                      ORDER BY pinned DESC, {}",
+                    search_clause("", 2),
                     sort.clause("")
                 );
                 let mut stmt = self.conn.prepare(&sql)?;
                 let rows = stmt.query_map(params![cat, search_pat], row_to_doc)?;
-                for r in rows {
-                    docs.push(r?);
-                }
+                for r in rows { docs.push(r?); }
             }
             LibraryFilter::CategoryGroup(ref parent) => {
                 let sql = format!(
                     "SELECT {DOC_COLS} FROM documents
                      WHERE category IN (
                          SELECT name FROM categories WHERE name = ?1 OR parent = ?1
-                     ) AND archived = 0 AND deleted = 0 AND title LIKE ?2
+                     ) AND archived = 0 AND deleted = 0 AND {}
                      ORDER BY pinned DESC, {}",
+                    search_clause("", 2),
                     sort.clause("")
                 );
                 let mut stmt = self.conn.prepare(&sql)?;
                 let rows = stmt.query_map(params![parent, search_pat], row_to_doc)?;
-                for r in rows {
-                    docs.push(r?);
-                }
+                for r in rows { docs.push(r?); }
             }
             LibraryFilter::Archive => {
                 let sql = format!(
                     "SELECT {DOC_COLS} FROM documents
-                     WHERE archived = 1 AND deleted = 0 AND title LIKE ?1
+                     WHERE archived = 1 AND deleted = 0 AND {}
                      ORDER BY pinned DESC, {}",
+                    search_clause("", 1),
                     sort.clause("")
                 );
                 let mut stmt = self.conn.prepare(&sql)?;
                 let rows = stmt.query_map(params![search_pat], row_to_doc)?;
-                for r in rows {
-                    docs.push(r?);
-                }
+                for r in rows { docs.push(r?); }
             }
             LibraryFilter::Recent => {
                 let sql = format!(
                     "SELECT {DOC_COLS} FROM documents
-                     WHERE last_opened_at IS NOT NULL AND archived = 0 AND deleted = 0 AND title LIKE ?1
-                     ORDER BY pinned DESC, last_opened_at DESC LIMIT 30"
+                     WHERE last_opened_at IS NOT NULL AND archived = 0 AND deleted = 0 AND {}
+                     ORDER BY pinned DESC, last_opened_at DESC LIMIT 30",
+                    search_clause("", 1)
                 );
                 let mut stmt = self.conn.prepare(&sql)?;
                 let rows = stmt.query_map(params![search_pat], row_to_doc)?;
-                for r in rows {
-                    docs.push(r?);
-                }
+                for r in rows { docs.push(r?); }
             }
             LibraryFilter::Untagged => {
                 let sql = format!(
                     "SELECT {DOC_COLS} FROM documents
                      WHERE archived = 0 AND deleted = 0
                      AND id NOT IN (SELECT DISTINCT doc_id FROM doc_tags)
-                     AND title LIKE ?1
+                     AND {}
                      ORDER BY pinned DESC, {}",
+                    search_clause("", 1),
                     sort.clause("")
                 );
                 let mut stmt = self.conn.prepare(&sql)?;
                 let rows = stmt.query_map(params![search_pat], row_to_doc)?;
-                for r in rows {
-                    docs.push(r?);
-                }
+                for r in rows { docs.push(r?); }
             }
             LibraryFilter::Trash => {
                 let sql = format!(
                     "SELECT {DOC_COLS} FROM documents
-                     WHERE deleted = 1 AND title LIKE ?1
-                     ORDER BY modified_at DESC"
+                     WHERE deleted = 1 AND {}
+                     ORDER BY modified_at DESC",
+                    search_clause("", 1)
                 );
                 let mut stmt = self.conn.prepare(&sql)?;
                 let rows = stmt.query_map(params![search_pat], row_to_doc)?;
-                for r in rows {
-                    docs.push(r?);
-                }
+                for r in rows { docs.push(r?); }
             }
         }
         Ok(docs)
@@ -401,7 +405,7 @@ impl Library {
                 |r| r.get(0),
             ),
             LibraryFilter::Recent => self.conn.query_row(
-                "SELECT COUNT(*) FROM documents WHERE last_opened_at IS NOT NULL AND archived=0 AND deleted=0",
+                "SELECT COUNT(*) FROM (SELECT 1 FROM documents WHERE last_opened_at IS NOT NULL AND archived=0 AND deleted=0 ORDER BY last_opened_at DESC LIMIT 30)",
                 [],
                 |r| r.get(0),
             ),
@@ -705,6 +709,16 @@ impl Library {
         Ok(())
     }
 
+    pub fn add_doc_tags(&mut self, doc_id: i64, tag_ids: &[i64]) -> SqlResult<()> {
+        for tid in tag_ids {
+            self.conn.execute(
+                "INSERT OR IGNORE INTO doc_tags (doc_id, tag_id) VALUES (?1, ?2)",
+                params![doc_id, tid],
+            )?;
+        }
+        Ok(())
+    }
+
     pub fn all_categories(&self) -> SqlResult<Vec<String>> {
         let mut stmt = self.conn.prepare(
             "SELECT DISTINCT category FROM documents
@@ -924,6 +938,16 @@ impl Library {
     }
 }
 
+fn search_clause(prefix: &str, param: usize) -> String {
+    format!(
+        "({prefix}title LIKE ?{param} \
+         OR {prefix}category LIKE ?{param} \
+         OR {prefix}id IN (SELECT doc_id FROM doc_tags _dt \
+                           JOIN tags _t ON _t.id = _dt.tag_id \
+                           WHERE _t.name LIKE ?{param}))"
+    )
+}
+
 /// Reads the first `#let doc-title = "..."` line from a Typst file.
 /// Falls back to `#let title = "..."` if doc-title isn't found.
 fn extract_typst_title(path: &Path) -> Option<String> {
@@ -932,13 +956,15 @@ fn extract_typst_title(path: &Path) -> Option<String> {
     for line in content.lines() {
         let t = line.trim();
         if let Some(rest) = t.strip_prefix("#let doc-title") {
-            if let Some(val) = parse_typst_string_value(rest.trim().strip_prefix('=')?.trim()) {
-                return Some(val);
+            let after = rest.trim();
+            if after.starts_with('=') {
+                if let Some(val) = parse_typst_string_value(after[1..].trim()) {
+                    return Some(val);
+                }
             }
         }
         if fallback.is_none() {
             if let Some(rest) = t.strip_prefix("#let title") {
-                // guard against #let titlefoo etc. — next char must be whitespace or =
                 let after = rest.trim();
                 if after.starts_with('=') {
                     if let Some(val) = parse_typst_string_value(after[1..].trim()) {
