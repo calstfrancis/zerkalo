@@ -38,6 +38,8 @@ use super::template_dialog::TemplateDialog;
 use super::notes_panel::NotesPanel;
 use super::plan_panel::PlanPanel;
 use super::snapshot_dialog::{SnapshotDialog, save_snapshot};
+use super::library_window::LibraryWindow;
+use crate::library::Library;
 
 pub struct AppWindow {
     window: adw::ApplicationWindow,
@@ -63,11 +65,19 @@ pub struct AppWindow {
     #[allow(dead_code)]
     file_watcher: Option<notify::RecommendedWatcher>,
     compile_btn: Button,
+    #[allow(dead_code)]
+    library: Rc<RefCell<Library>>,
+    library_window: LibraryWindow,
 }
 
 impl AppWindow {
     pub fn new(app: &adw::Application, config: Config) -> Self {
         let project_root = config.work_dir.clone();
+
+        let library = Rc::new(RefCell::new(Library::open().unwrap_or_else(|e| {
+            tracing::warn!("Failed to open library DB: {e}");
+            Library::open_in_memory()
+        })));
 
         let window = adw::ApplicationWindow::new(app);
         window.set_title(Some("Zerkalo"));
@@ -106,6 +116,11 @@ impl AppWindow {
         sidebar_btn.add_css_class("flat");
         sidebar_btn.update_property(&[gtk4::accessible::Property::Label("Toggle sidebar")]);
         header.pack_start(&sidebar_btn);
+
+        let library_btn = Button::with_label("Library");
+        library_btn.add_css_class("flat");
+        library_btn.set_tooltip_text(Some("Open document library (Ctrl+L)"));
+        header.pack_start(&library_btn);
 
         // Style switcher dropdown — placed in header start, beside the title
         let style_names = crate::styles::STYLES.iter().map(|(n, _, _, _, _)| *n).collect::<Vec<_>>();
@@ -287,6 +302,25 @@ impl AppWindow {
         // ── Panels ──────────────────────────────────────────────────────────
 
         let editor_pane = EditorPane::new();
+
+        let library_window = LibraryWindow::new(app, library.clone(), config.work_dir.clone());
+        {
+            let ep = editor_pane.clone();
+            let win_for_open = window.clone();
+            let lib_for_open = library.clone();
+            library_window.set_on_open(move |path| {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    ep.open_file(path.clone(), &content);
+                }
+                lib_for_open.borrow_mut().touch_opened(&path).ok();
+                win_for_open.present();
+            });
+        }
+        {
+            let lw = library_window.clone();
+            library_btn.connect_clicked(move |_| lw.toggle());
+        }
+
         let outline_panel = OutlinePanel::new();
         let citation_panel = CitationPanel::new();
         let ref_manager = RefManager::new();
@@ -403,6 +437,7 @@ impl AppWindow {
             let editor_for_open = editor_pane.clone();
             let pop_for_open = recent_popover.clone();
             let config_for_open = current_config.clone();
+            let library_for_open = library.clone();
 
             let rebuild: Rc<dyn Fn(&str)> = Rc::new(move |query: &str| {
                 while let Some(child) = open_list_rc.first_child() {
@@ -489,10 +524,12 @@ impl AppWindow {
                     let ep = editor_for_open.clone();
                     let pop = pop_for_open.clone();
                     let p = path.clone();
+                    let lib = library_for_open.clone();
                     btn.connect_clicked(move |_| {
                         if let Ok(content) = std::fs::read_to_string(&p) {
                             ep.open_file(p.clone(), &content);
                         }
+                        lib.borrow_mut().touch_opened(&p).ok();
                         pop.popdown();
                     });
 
@@ -2926,10 +2963,12 @@ impl AppWindow {
         let file_tree = FileTree::new(project_root.clone());
         {
             let ep = editor_pane.clone();
+            let lib = library.clone();
             file_tree.set_on_open(move |path| {
                 if let Ok(content) = std::fs::read_to_string(&path) {
-                    ep.open_file(path, &content);
+                    ep.open_file(path.clone(), &content);
                 }
+                lib.borrow_mut().touch_opened(&path).ok();
             });
         }
         {
@@ -3658,6 +3697,8 @@ impl AppWindow {
             manual_compile_only,
             file_watcher,
             compile_btn,
+            library,
+            library_window,
         }
     }
 
@@ -3682,6 +3723,8 @@ impl AppWindow {
         let snapshot_root = self.project_root.clone();
         let toast_for_key = self.toast_overlay.clone();
         let compile_btn_for_key = self.compile_btn.clone();
+        let library_window_for_key = self.library_window.clone();
+        let library_for_key = self.library.clone();
         let controller = gtk4::EventControllerKey::new();
 
         // ── Command palette (Ctrl+P) ────────────────────────────────────────
@@ -3765,6 +3808,7 @@ impl AppWindow {
                     if let Some(content) = editor.get_active_content() {
                         if std::fs::write(&path, &content).is_ok() {
                             editor.mark_saved(&path);
+                            library_for_key.borrow_mut().touch_saved(&path).ok();
                             save_snapshot(&snapshot_root, &path, &content);
                             if !*kb_manual_only.borrow() {
                                 preview.set_buffer_snapshot(path.clone(), content);
@@ -3779,6 +3823,14 @@ impl AppWindow {
             if matches_binding(&kb.compile, ctrl, shift, alt, key) {
                 compile_btn_for_key.emit_clicked();
                 return glib::Propagation::Stop;
+            }
+            // Ctrl+L — toggle the document library
+            {
+                use gtk4::gdk::Key;
+                if ctrl && !shift && !alt && key == Key::l {
+                    library_window_for_key.toggle();
+                    return glib::Propagation::Stop;
+                }
             }
             // Ctrl+E — focus first error row (shows the panel if hidden)
             {

@@ -1,0 +1,511 @@
+use std::path::{Path, PathBuf};
+
+use chrono::Utc;
+use rusqlite::{params, Connection, OptionalExtension, Result as SqlResult};
+
+pub struct Library {
+    conn: Connection,
+}
+
+#[derive(Clone, Debug)]
+pub struct Document {
+    pub id: i64,
+    pub path: PathBuf,
+    pub title: String,
+    pub category: Option<String>,
+    pub archived: bool,
+    pub notes: Option<String>,
+    pub created_at: String,
+    pub modified_at: String,
+    pub last_opened_at: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Tag {
+    pub id: i64,
+    pub name: String,
+    pub color_hex: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct Project {
+    pub id: i64,
+    pub name: String,
+    pub root_doc_id: Option<i64>,
+    pub created_at: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum LibraryFilter {
+    All,
+    Project(i64),
+    Tag(i64),
+    Category(String),
+    Archive,
+}
+
+const DOC_COLS: &str =
+    "id, path, title, category, archived, notes, created_at, modified_at, last_opened_at";
+
+fn doc_cols_prefixed(prefix: &str) -> String {
+    DOC_COLS
+        .split(", ")
+        .map(|c| format!("{prefix}.{c}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+impl Library {
+    pub fn open() -> SqlResult<Self> {
+        let dir = glib::user_data_dir().join("zerkalo");
+        std::fs::create_dir_all(&dir).ok();
+        let path = dir.join("library.sqlite");
+        let conn = Connection::open(path)?;
+        conn.execute_batch("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;")?;
+        let lib = Self { conn };
+        lib.migrate()?;
+        Ok(lib)
+    }
+
+    pub fn open_in_memory() -> Self {
+        let conn = Connection::open_in_memory().expect("in-memory DB");
+        conn.execute_batch("PRAGMA foreign_keys = ON;").ok();
+        let lib = Self { conn };
+        lib.migrate().ok();
+        lib
+    }
+
+    fn migrate(&self) -> SqlResult<()> {
+        self.conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS documents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                path TEXT NOT NULL UNIQUE,
+                title TEXT NOT NULL,
+                category TEXT,
+                archived INTEGER NOT NULL DEFAULT 0,
+                notes TEXT,
+                created_at TEXT NOT NULL,
+                modified_at TEXT NOT NULL,
+                last_opened_at TEXT
+            );
+            CREATE TABLE IF NOT EXISTS projects (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                root_doc_id INTEGER REFERENCES documents(id) ON DELETE SET NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS project_docs (
+                project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                doc_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+                position INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (project_id, doc_id)
+            );
+            CREATE TABLE IF NOT EXISTS tags (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                color_hex TEXT NOT NULL DEFAULT '#3584e4'
+            );
+            CREATE TABLE IF NOT EXISTS doc_tags (
+                doc_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+                tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+                PRIMARY KEY (doc_id, tag_id)
+            );",
+        )
+    }
+
+    pub fn upsert_document(&mut self, path: &Path) -> SqlResult<i64> {
+        let path_str = path.to_string_lossy().to_string();
+        let title = path
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| path_str.clone());
+        let now = Utc::now().to_rfc3339();
+        let fs_modified = std::fs::metadata(path)
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .map(|t| {
+                let dt: chrono::DateTime<Utc> = t.into();
+                dt.to_rfc3339()
+            })
+            .unwrap_or_else(|| now.clone());
+
+        let existing: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT id FROM documents WHERE path = ?1",
+                params![path_str],
+                |r| r.get(0),
+            )
+            .optional()?;
+
+        if let Some(id) = existing {
+            self.conn.execute(
+                "UPDATE documents SET modified_at = ?1 WHERE id = ?2",
+                params![fs_modified, id],
+            )?;
+            Ok(id)
+        } else {
+            self.conn.execute(
+                "INSERT INTO documents (path, title, created_at, modified_at)
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![path_str, title, now, fs_modified],
+            )?;
+            Ok(self.conn.last_insert_rowid())
+        }
+    }
+
+    pub fn touch_opened(&mut self, path: &Path) -> SqlResult<()> {
+        self.upsert_document(path)?;
+        let path_str = path.to_string_lossy().to_string();
+        let now = Utc::now().to_rfc3339();
+        self.conn.execute(
+            "UPDATE documents SET last_opened_at = ?1 WHERE path = ?2",
+            params![now, path_str],
+        )?;
+        Ok(())
+    }
+
+    pub fn touch_saved(&mut self, path: &Path) -> SqlResult<()> {
+        let path_str = path.to_string_lossy().to_string();
+        let now = Utc::now().to_rfc3339();
+        self.conn.execute(
+            "UPDATE documents SET modified_at = ?1 WHERE path = ?2",
+            params![now, path_str],
+        )?;
+        Ok(())
+    }
+
+    pub fn documents(&self, filter: LibraryFilter, search: &str) -> SqlResult<Vec<Document>> {
+        let search_pat = if search.is_empty() {
+            "%".to_string()
+        } else {
+            format!("%{}%", search)
+        };
+        let mut docs = Vec::new();
+        match filter {
+            LibraryFilter::All => {
+                let sql = format!(
+                    "SELECT {DOC_COLS} FROM documents
+                     WHERE archived = 0 AND title LIKE ?1
+                     ORDER BY modified_at DESC"
+                );
+                let mut stmt = self.conn.prepare(&sql)?;
+                let rows = stmt.query_map(params![search_pat], row_to_doc)?;
+                for r in rows {
+                    docs.push(r?);
+                }
+            }
+            LibraryFilter::Project(pid) => {
+                let sql = format!(
+                    "SELECT {} FROM documents d
+                     JOIN project_docs pd ON pd.doc_id = d.id
+                     WHERE pd.project_id = ?1 AND d.title LIKE ?2
+                     ORDER BY pd.position, d.title",
+                    doc_cols_prefixed("d")
+                );
+                let mut stmt = self.conn.prepare(&sql)?;
+                let rows = stmt.query_map(params![pid, search_pat], row_to_doc)?;
+                for r in rows {
+                    docs.push(r?);
+                }
+            }
+            LibraryFilter::Tag(tid) => {
+                let sql = format!(
+                    "SELECT {} FROM documents d
+                     JOIN doc_tags dt ON dt.doc_id = d.id
+                     WHERE dt.tag_id = ?1 AND d.archived = 0 AND d.title LIKE ?2
+                     ORDER BY d.modified_at DESC",
+                    doc_cols_prefixed("d")
+                );
+                let mut stmt = self.conn.prepare(&sql)?;
+                let rows = stmt.query_map(params![tid, search_pat], row_to_doc)?;
+                for r in rows {
+                    docs.push(r?);
+                }
+            }
+            LibraryFilter::Category(cat) => {
+                let sql = format!(
+                    "SELECT {DOC_COLS} FROM documents
+                     WHERE category = ?1 AND archived = 0 AND title LIKE ?2
+                     ORDER BY modified_at DESC"
+                );
+                let mut stmt = self.conn.prepare(&sql)?;
+                let rows = stmt.query_map(params![cat, search_pat], row_to_doc)?;
+                for r in rows {
+                    docs.push(r?);
+                }
+            }
+            LibraryFilter::Archive => {
+                let sql = format!(
+                    "SELECT {DOC_COLS} FROM documents
+                     WHERE archived = 1 AND title LIKE ?1
+                     ORDER BY modified_at DESC"
+                );
+                let mut stmt = self.conn.prepare(&sql)?;
+                let rows = stmt.query_map(params![search_pat], row_to_doc)?;
+                for r in rows {
+                    docs.push(r?);
+                }
+            }
+        }
+        Ok(docs)
+    }
+
+    pub fn doc_tags(&self, doc_id: i64) -> SqlResult<Vec<Tag>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT t.id, t.name, t.color_hex FROM tags t
+             JOIN doc_tags dt ON dt.tag_id = t.id
+             WHERE dt.doc_id = ?1 ORDER BY t.name",
+        )?;
+        let rows = stmt.query_map(params![doc_id], |r| {
+            Ok(Tag {
+                id: r.get(0)?,
+                name: r.get(1)?,
+                color_hex: r.get(2)?,
+            })
+        })?;
+        let mut tags = Vec::new();
+        for r in rows {
+            tags.push(r?);
+        }
+        Ok(tags)
+    }
+
+    pub fn set_title(&mut self, doc_id: i64, title: &str) -> SqlResult<()> {
+        self.conn.execute(
+            "UPDATE documents SET title = ?1 WHERE id = ?2",
+            params![title, doc_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn set_category(&mut self, doc_id: i64, category: Option<&str>) -> SqlResult<()> {
+        self.conn.execute(
+            "UPDATE documents SET category = ?1 WHERE id = ?2",
+            params![category, doc_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn set_archived(&mut self, doc_id: i64, archived: bool) -> SqlResult<()> {
+        self.conn.execute(
+            "UPDATE documents SET archived = ?1 WHERE id = ?2",
+            params![archived as i64, doc_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn remove_document(&mut self, doc_id: i64) -> SqlResult<()> {
+        self.conn
+            .execute("DELETE FROM documents WHERE id = ?1", params![doc_id])?;
+        Ok(())
+    }
+
+    pub fn all_tags(&self) -> SqlResult<Vec<Tag>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, name, color_hex FROM tags ORDER BY name")?;
+        let rows = stmt.query_map([], |r| {
+            Ok(Tag {
+                id: r.get(0)?,
+                name: r.get(1)?,
+                color_hex: r.get(2)?,
+            })
+        })?;
+        let mut tags = Vec::new();
+        for r in rows {
+            tags.push(r?);
+        }
+        Ok(tags)
+    }
+
+    pub fn create_tag(&mut self, name: &str, color: &str) -> SqlResult<i64> {
+        self.conn.execute(
+            "INSERT OR IGNORE INTO tags (name, color_hex) VALUES (?1, ?2)",
+            params![name, color],
+        )?;
+        self.conn.query_row(
+            "SELECT id FROM tags WHERE name = ?1",
+            params![name],
+            |r| r.get(0),
+        )
+    }
+
+    pub fn delete_tag(&mut self, tag_id: i64) -> SqlResult<()> {
+        self.conn
+            .execute("DELETE FROM tags WHERE id = ?1", params![tag_id])?;
+        Ok(())
+    }
+
+    pub fn rename_tag(&mut self, tag_id: i64, name: &str) -> SqlResult<()> {
+        self.conn.execute(
+            "UPDATE tags SET name = ?1 WHERE id = ?2",
+            params![name, tag_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn set_doc_tags(&mut self, doc_id: i64, tag_ids: &[i64]) -> SqlResult<()> {
+        self.conn
+            .execute("DELETE FROM doc_tags WHERE doc_id = ?1", params![doc_id])?;
+        for tid in tag_ids {
+            self.conn.execute(
+                "INSERT OR IGNORE INTO doc_tags (doc_id, tag_id) VALUES (?1, ?2)",
+                params![doc_id, tid],
+            )?;
+        }
+        Ok(())
+    }
+
+    pub fn all_categories(&self) -> SqlResult<Vec<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT DISTINCT category FROM documents
+             WHERE category IS NOT NULL ORDER BY category",
+        )?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        let mut cats = Vec::new();
+        for r in rows {
+            cats.push(r?);
+        }
+        Ok(cats)
+    }
+
+    pub fn create_category(&mut self, _name: &str) -> SqlResult<()> {
+        Ok(())
+    }
+
+    pub fn delete_category(&mut self, name: &str) -> SqlResult<()> {
+        self.conn.execute(
+            "UPDATE documents SET category = NULL WHERE category = ?1",
+            params![name],
+        )?;
+        Ok(())
+    }
+
+    pub fn all_projects(&self) -> SqlResult<Vec<Project>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, name, root_doc_id, created_at FROM projects ORDER BY name")?;
+        let rows = stmt.query_map([], |r| {
+            Ok(Project {
+                id: r.get(0)?,
+                name: r.get(1)?,
+                root_doc_id: r.get(2)?,
+                created_at: r.get(3)?,
+            })
+        })?;
+        let mut projects = Vec::new();
+        for r in rows {
+            projects.push(r?);
+        }
+        Ok(projects)
+    }
+
+    pub fn create_project(&mut self, name: &str) -> SqlResult<i64> {
+        let now = Utc::now().to_rfc3339();
+        self.conn.execute(
+            "INSERT INTO projects (name, created_at) VALUES (?1, ?2)",
+            params![name, now],
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    pub fn rename_project(&mut self, project_id: i64, name: &str) -> SqlResult<()> {
+        self.conn.execute(
+            "UPDATE projects SET name = ?1 WHERE id = ?2",
+            params![name, project_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_project(&mut self, project_id: i64) -> SqlResult<()> {
+        self.conn
+            .execute("DELETE FROM projects WHERE id = ?1", params![project_id])?;
+        Ok(())
+    }
+
+    pub fn add_doc_to_project(&mut self, project_id: i64, doc_id: i64) -> SqlResult<()> {
+        let next_pos: i64 = self.conn.query_row(
+            "SELECT COALESCE(MAX(position), -1) + 1 FROM project_docs WHERE project_id = ?1",
+            params![project_id],
+            |r| r.get(0),
+        )?;
+        self.conn.execute(
+            "INSERT OR IGNORE INTO project_docs (project_id, doc_id, position)
+             VALUES (?1, ?2, ?3)",
+            params![project_id, doc_id, next_pos],
+        )?;
+        Ok(())
+    }
+
+    pub fn remove_doc_from_project(&mut self, project_id: i64, doc_id: i64) -> SqlResult<()> {
+        self.conn.execute(
+            "DELETE FROM project_docs WHERE project_id = ?1 AND doc_id = ?2",
+            params![project_id, doc_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn set_project_root(&mut self, project_id: i64, doc_id: Option<i64>) -> SqlResult<()> {
+        self.conn.execute(
+            "UPDATE projects SET root_doc_id = ?1 WHERE id = ?2",
+            params![doc_id, project_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn project_root_path(&self, project_id: i64) -> SqlResult<Option<PathBuf>> {
+        let res: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT d.path FROM documents d
+                 JOIN projects p ON p.root_doc_id = d.id
+                 WHERE p.id = ?1",
+                params![project_id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(res.map(PathBuf::from))
+    }
+
+    pub fn doc_by_path(&self, path: &Path) -> SqlResult<Option<Document>> {
+        let path_str = path.to_string_lossy().to_string();
+        let sql = format!("SELECT {DOC_COLS} FROM documents WHERE path = ?1");
+        self.conn
+            .query_row(&sql, params![path_str], row_to_doc)
+            .optional()
+    }
+
+    pub fn doc_by_id(&self, doc_id: i64) -> SqlResult<Option<Document>> {
+        let sql = format!("SELECT {DOC_COLS} FROM documents WHERE id = ?1");
+        self.conn
+            .query_row(&sql, params![doc_id], row_to_doc)
+            .optional()
+    }
+
+    pub fn project_of_doc(&self, doc_id: i64) -> SqlResult<Option<(i64, String)>> {
+        self.conn
+            .query_row(
+                "SELECT p.id, p.name FROM projects p
+                 JOIN project_docs pd ON pd.project_id = p.id
+                 WHERE pd.doc_id = ?1 LIMIT 1",
+                params![doc_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+    }
+}
+
+fn row_to_doc(row: &rusqlite::Row<'_>) -> rusqlite::Result<Document> {
+    Ok(Document {
+        id: row.get(0)?,
+        path: PathBuf::from(row.get::<_, String>(1)?),
+        title: row.get(2)?,
+        category: row.get(3)?,
+        archived: row.get::<_, i64>(4)? != 0,
+        notes: row.get(5)?,
+        created_at: row.get(6)?,
+        modified_at: row.get(7)?,
+        last_opened_at: row.get(8)?,
+    })
+}

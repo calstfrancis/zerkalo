@@ -25,3 +25,4 @@ pub mod search_panel;
 pub mod setup_wizard;
 pub mod snapshot_dialog;
 pub mod welcome_window;
+pub mod library_window;
