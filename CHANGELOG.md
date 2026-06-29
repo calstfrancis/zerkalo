@@ -5,6 +5,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.13-dev1] — Two-rank categories, close-bug fix
+
+### Added
+- **Two-rank category hierarchy** — categories can now have a parent, enabling groupings like Semester → Class; create subcategories via right-click "Add Subcategory…" on any category in the sidebar; parent categories show a combined doc count across all children
+- **Set Parent** — move a leaf/standalone category under a parent via right-click "Set Parent…"
+- **Category group filter** — clicking a parent category in the sidebar filters to all documents in that category and its children
+
+### Changed
+- **Delete blocked on parent categories** — deleting a category with subcategories is blocked (button dimmed, tooltip shown); remove subcategories first
+- **Drag-to-parent blocked** — dragging a document onto a parent category (one with subcategories) shows a toast instead of assigning; drop onto a specific subcategory
+
+### Fixed
+- **App now quits cleanly when library is open** — the library window was created as an `adw::ApplicationWindow`, keeping the process alive after the main window closed; changed to `adw::Window`
+
 ## [0.13.12] "Amber Index" — Document Library
 
 ### Added
