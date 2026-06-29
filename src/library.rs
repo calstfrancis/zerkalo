@@ -14,6 +14,7 @@ pub struct Document {
     pub title: String,
     pub category: Option<String>,
     pub archived: bool,
+    pub pinned: bool,
     pub notes: Option<String>,
     pub created_at: String,
     pub modified_at: String,
@@ -43,6 +44,8 @@ pub enum LibraryFilter {
     Category(String),
     Archive,
     Recent,
+    Untagged,
+    Trash,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -65,7 +68,7 @@ impl SortOrder {
 }
 
 const DOC_COLS: &str =
-    "id, path, title, category, archived, notes, created_at, modified_at, last_opened_at";
+    "id, path, title, category, archived, pinned, notes, created_at, modified_at, last_opened_at";
 
 fn doc_cols_prefixed(prefix: &str) -> String {
     DOC_COLS
@@ -130,7 +133,25 @@ impl Library {
                 tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
                 PRIMARY KEY (doc_id, tag_id)
             );",
-        )
+        )?;
+        self.conn
+            .execute_batch("ALTER TABLE documents ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;")
+            .ok();
+        self.conn
+            .execute_batch("ALTER TABLE documents ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0;")
+            .ok();
+        self.conn
+            .execute_batch("ALTER TABLE documents ADD COLUMN trash_path TEXT;")
+            .ok();
+        self.conn
+            .execute_batch(
+                "CREATE TABLE IF NOT EXISTS categories (
+                    name TEXT NOT NULL PRIMARY KEY,
+                    color_hex TEXT NOT NULL DEFAULT '#3584e4'
+                );",
+            )
+            .ok();
+        Ok(())
     }
 
     pub fn upsert_document(&mut self, path: &Path) -> SqlResult<i64> {
@@ -211,8 +232,8 @@ impl Library {
             LibraryFilter::All => {
                 let sql = format!(
                     "SELECT {DOC_COLS} FROM documents
-                     WHERE archived = 0 AND title LIKE ?1
-                     ORDER BY {}",
+                     WHERE archived = 0 AND deleted = 0 AND title LIKE ?1
+                     ORDER BY pinned DESC, {}",
                     sort.clause("")
                 );
                 let mut stmt = self.conn.prepare(&sql)?;
@@ -225,8 +246,8 @@ impl Library {
                 let sql = format!(
                     "SELECT {} FROM documents d
                      JOIN project_docs pd ON pd.doc_id = d.id
-                     WHERE pd.project_id = ?1 AND d.title LIKE ?2
-                     ORDER BY pd.position, d.title",
+                     WHERE pd.project_id = ?1 AND d.deleted = 0 AND d.title LIKE ?2
+                     ORDER BY d.pinned DESC, pd.position, d.title",
                     doc_cols_prefixed("d")
                 );
                 let mut stmt = self.conn.prepare(&sql)?;
@@ -239,8 +260,8 @@ impl Library {
                 let sql = format!(
                     "SELECT {} FROM documents d
                      JOIN doc_tags dt ON dt.doc_id = d.id
-                     WHERE dt.tag_id = ?1 AND d.archived = 0 AND d.title LIKE ?2
-                     ORDER BY {}",
+                     WHERE dt.tag_id = ?1 AND d.archived = 0 AND d.deleted = 0 AND d.title LIKE ?2
+                     ORDER BY d.pinned DESC, {}",
                     doc_cols_prefixed("d"),
                     sort.clause("d.")
                 );
@@ -253,8 +274,8 @@ impl Library {
             LibraryFilter::Category(cat) => {
                 let sql = format!(
                     "SELECT {DOC_COLS} FROM documents
-                     WHERE category = ?1 AND archived = 0 AND title LIKE ?2
-                     ORDER BY {}",
+                     WHERE category = ?1 AND archived = 0 AND deleted = 0 AND title LIKE ?2
+                     ORDER BY pinned DESC, {}",
                     sort.clause("")
                 );
                 let mut stmt = self.conn.prepare(&sql)?;
@@ -266,8 +287,8 @@ impl Library {
             LibraryFilter::Archive => {
                 let sql = format!(
                     "SELECT {DOC_COLS} FROM documents
-                     WHERE archived = 1 AND title LIKE ?1
-                     ORDER BY {}",
+                     WHERE archived = 1 AND deleted = 0 AND title LIKE ?1
+                     ORDER BY pinned DESC, {}",
                     sort.clause("")
                 );
                 let mut stmt = self.conn.prepare(&sql)?;
@@ -279,8 +300,35 @@ impl Library {
             LibraryFilter::Recent => {
                 let sql = format!(
                     "SELECT {DOC_COLS} FROM documents
-                     WHERE last_opened_at IS NOT NULL AND archived = 0 AND title LIKE ?1
-                     ORDER BY last_opened_at DESC LIMIT 30"
+                     WHERE last_opened_at IS NOT NULL AND archived = 0 AND deleted = 0 AND title LIKE ?1
+                     ORDER BY pinned DESC, last_opened_at DESC LIMIT 30"
+                );
+                let mut stmt = self.conn.prepare(&sql)?;
+                let rows = stmt.query_map(params![search_pat], row_to_doc)?;
+                for r in rows {
+                    docs.push(r?);
+                }
+            }
+            LibraryFilter::Untagged => {
+                let sql = format!(
+                    "SELECT {DOC_COLS} FROM documents
+                     WHERE archived = 0 AND deleted = 0
+                     AND id NOT IN (SELECT DISTINCT doc_id FROM doc_tags)
+                     AND title LIKE ?1
+                     ORDER BY pinned DESC, {}",
+                    sort.clause("")
+                );
+                let mut stmt = self.conn.prepare(&sql)?;
+                let rows = stmt.query_map(params![search_pat], row_to_doc)?;
+                for r in rows {
+                    docs.push(r?);
+                }
+            }
+            LibraryFilter::Trash => {
+                let sql = format!(
+                    "SELECT {DOC_COLS} FROM documents
+                     WHERE deleted = 1 AND title LIKE ?1
+                     ORDER BY modified_at DESC"
                 );
                 let mut stmt = self.conn.prepare(&sql)?;
                 let rows = stmt.query_map(params![search_pat], row_to_doc)?;
@@ -295,32 +343,42 @@ impl Library {
     pub fn doc_count(&self, filter: &LibraryFilter) -> SqlResult<i64> {
         match filter {
             LibraryFilter::All => self.conn.query_row(
-                "SELECT COUNT(*) FROM documents WHERE archived=0",
+                "SELECT COUNT(*) FROM documents WHERE archived=0 AND deleted=0",
                 [],
                 |r| r.get(0),
             ),
             LibraryFilter::Archive => self.conn.query_row(
-                "SELECT COUNT(*) FROM documents WHERE archived=1",
+                "SELECT COUNT(*) FROM documents WHERE archived=1 AND deleted=0",
                 [],
                 |r| r.get(0),
             ),
             LibraryFilter::Project(pid) => self.conn.query_row(
-                "SELECT COUNT(*) FROM project_docs WHERE project_id=?1",
+                "SELECT COUNT(*) FROM project_docs pd JOIN documents d ON d.id=pd.doc_id WHERE pd.project_id=?1 AND d.deleted=0",
                 params![pid],
                 |r| r.get(0),
             ),
             LibraryFilter::Tag(tid) => self.conn.query_row(
-                "SELECT COUNT(*) FROM doc_tags JOIN documents d ON d.id=doc_id WHERE tag_id=?1 AND d.archived=0",
+                "SELECT COUNT(*) FROM doc_tags JOIN documents d ON d.id=doc_id WHERE tag_id=?1 AND d.archived=0 AND d.deleted=0",
                 params![tid],
                 |r| r.get(0),
             ),
             LibraryFilter::Category(cat) => self.conn.query_row(
-                "SELECT COUNT(*) FROM documents WHERE category=?1 AND archived=0",
+                "SELECT COUNT(*) FROM documents WHERE category=?1 AND archived=0 AND deleted=0",
                 params![cat],
                 |r| r.get(0),
             ),
             LibraryFilter::Recent => self.conn.query_row(
-                "SELECT COUNT(*) FROM documents WHERE last_opened_at IS NOT NULL AND archived=0",
+                "SELECT COUNT(*) FROM documents WHERE last_opened_at IS NOT NULL AND archived=0 AND deleted=0",
+                [],
+                |r| r.get(0),
+            ),
+            LibraryFilter::Untagged => self.conn.query_row(
+                "SELECT COUNT(*) FROM documents WHERE archived=0 AND deleted=0 AND id NOT IN (SELECT DISTINCT doc_id FROM doc_tags)",
+                [],
+                |r| r.get(0),
+            ),
+            LibraryFilter::Trash => self.conn.query_row(
+                "SELECT COUNT(*) FROM documents WHERE deleted=1",
                 [],
                 |r| r.get(0),
             ),
@@ -356,10 +414,130 @@ impl Library {
     }
 
     pub fn set_category(&mut self, doc_id: i64, category: Option<&str>) -> SqlResult<()> {
+        if let Some(name) = category {
+            self.ensure_category(name)?;
+        }
         self.conn.execute(
             "UPDATE documents SET category = ?1 WHERE id = ?2",
             params![category, doc_id],
         )?;
+        Ok(())
+    }
+
+    pub fn set_pinned(&mut self, doc_id: i64, pinned: bool) -> SqlResult<()> {
+        self.conn.execute(
+            "UPDATE documents SET pinned=?1 WHERE id=?2",
+            params![pinned as i64, doc_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_category_color(&self, name: &str) -> String {
+        self.conn
+            .query_row(
+                "SELECT color_hex FROM categories WHERE name=?1",
+                params![name],
+                |r| r.get(0),
+            )
+            .unwrap_or_else(|_| "#3584e4".to_string())
+    }
+
+    pub fn set_category_color(&mut self, name: &str, color: &str) -> SqlResult<()> {
+        self.conn.execute(
+            "INSERT INTO categories (name, color_hex) VALUES (?1, ?2)
+             ON CONFLICT(name) DO UPDATE SET color_hex=excluded.color_hex",
+            params![name, color],
+        )?;
+        Ok(())
+    }
+
+    pub fn ensure_category(&mut self, name: &str) -> SqlResult<()> {
+        self.conn.execute(
+            "INSERT OR IGNORE INTO categories (name) VALUES (?1)",
+            params![name],
+        )?;
+        Ok(())
+    }
+
+    pub fn all_categories_with_colors(&self) -> SqlResult<Vec<(String, String)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT DISTINCT d.category, COALESCE(c.color_hex, '#3584e4')
+             FROM documents d
+             LEFT JOIN categories c ON c.name = d.category
+             WHERE d.category IS NOT NULL AND d.deleted = 0
+             ORDER BY d.category",
+        )?;
+        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+
+    pub fn move_to_trash(&mut self, doc_id: i64) -> SqlResult<()> {
+        let doc = match self.doc_by_id(doc_id)? {
+            Some(d) => d,
+            None => return Ok(()),
+        };
+        let trash_dir = glib::user_data_dir().join("zerkalo").join("trash");
+        std::fs::create_dir_all(&trash_dir).ok();
+        let ts = Utc::now().timestamp();
+        let filename = doc
+            .path
+            .file_name()
+            .map(|n| format!("{}-{}", ts, n.to_string_lossy()))
+            .unwrap_or_else(|| format!("{}.typ", ts));
+        let trash_path = trash_dir.join(&filename);
+        if std::fs::rename(&doc.path, &trash_path).is_err() {
+            if std::fs::copy(&doc.path, &trash_path).is_ok() {
+                std::fs::remove_file(&doc.path).ok();
+            }
+        }
+        let trash_str = trash_path.to_string_lossy().to_string();
+        self.conn.execute(
+            "UPDATE documents SET deleted=1, trash_path=?1 WHERE id=?2",
+            params![trash_str, doc_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn restore_from_trash(&mut self, doc_id: i64) -> SqlResult<()> {
+        let trash_path: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT trash_path FROM documents WHERE id=?1",
+                params![doc_id],
+                |r| r.get(0),
+            )
+            .optional()?
+            .flatten();
+
+        if let (Some(tpath), Some(doc)) = (trash_path, self.doc_by_id(doc_id)?) {
+            let _ = std::fs::rename(&tpath, &doc.path);
+            self.conn.execute(
+                "UPDATE documents SET deleted=0, trash_path=NULL WHERE id=?1",
+                params![doc_id],
+            )?;
+        }
+        Ok(())
+    }
+
+    pub fn permanently_delete(&mut self, doc_id: i64) -> SqlResult<()> {
+        let trash_path: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT trash_path FROM documents WHERE id=?1",
+                params![doc_id],
+                |r| r.get(0),
+            )
+            .optional()?
+            .flatten();
+        if let Some(tpath) = trash_path {
+            std::fs::remove_file(&tpath).ok();
+        }
+        self.conn
+            .execute("DELETE FROM documents WHERE id=?1", params![doc_id])?;
         Ok(())
     }
 
@@ -642,9 +820,10 @@ fn row_to_doc(row: &rusqlite::Row<'_>) -> rusqlite::Result<Document> {
         title: row.get(2)?,
         category: row.get(3)?,
         archived: row.get::<_, i64>(4)? != 0,
-        notes: row.get(5)?,
-        created_at: row.get(6)?,
-        modified_at: row.get(7)?,
-        last_opened_at: row.get(8)?,
+        pinned: row.get::<_, i64>(5)? != 0,
+        notes: row.get(6)?,
+        created_at: row.get(7)?,
+        modified_at: row.get(8)?,
+        last_opened_at: row.get(9)?,
     })
 }

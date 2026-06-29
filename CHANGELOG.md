@@ -5,6 +5,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.12-dev7] — Library: 8 more features
+
+### Added
+
+- **Citation-aware BibTeX author import** — "Import cited authors from BibTeX…" now parses the open document (or all docs in the current project) for `@key`, `#cite(<key>)`, and `#cite("key")` citations, then filters the `.bib` file to show only authors from actually-cited entries. Button also added to the per-document "Edit Tags…" dialog.
+- **Compact list view** — toggle button in the doc list header bar switches between card layout (title + chips + date on separate lines) and a single-line compact layout (all metadata inline).
+- **Pinned documents** — "Pin to Top" / "Unpin" in the doc context menu; pinned docs always sort to the top within any filter; shown with a left accent border.
+- **Document templates** — "New Document" checks `Documents/Zerkalo/Templates/` for `.typ` files; if found, a picker lets you choose a template or create blank. If no templates folder exists, creates blank as before.
+- **Category colors** — each category gets a color (stored in a new `categories` table). Color picker in the "Set Category" dialog; category chips in doc rows and sidebar dots reflect the chosen color.
+- **"Untagged" filter** — sidebar entry showing all non-archived docs with no tags assigned.
+- **Trash / soft delete** — "Delete File…" is replaced by "Move to Trash" which moves the file to `~/.local/share/zerkalo/trash/` and sets a `deleted` flag; the Trash sidebar filter shows trashed docs with "Restore" and "Permanently Delete…" options.
+- **Library statistics bar** — bottom of the sidebar shows total doc count, project count, and the last-opened document title, updated on every refresh.
+
+---
+
 ## [0.13.12-dev6] — Library: 10 features + tag fixes
 
 ### Added (10 library features)
