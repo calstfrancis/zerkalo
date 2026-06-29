@@ -78,6 +78,7 @@ impl AppWindow {
             tracing::warn!("Failed to open library DB: {e}");
             Library::open_in_memory()
         })));
+        library.borrow_mut().import_directory(&config.work_dir).ok();
 
         let window = adw::ApplicationWindow::new(app);
         window.set_title(Some("Zerkalo"));

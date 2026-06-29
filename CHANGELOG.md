@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.12-dev5] — Library improvements: drag-to-category, inline tag creation, auto-import
+
+### Added
+
+- **Drag doc onto a category in the sidebar** to assign that category — drag any document row from the list and drop it on a category filter entry; the library updates and refreshes immediately
+- **Inline tag creation in Edit Tags dialog** — type a new tag name, pick a color from the palette, and press + to create and immediately check the tag without opening Manage Tags separately
+- **Auto-import on startup** — on launch, Zerkalo recursively scans `~/Documents/Zerkalo/` (or configured work dir) and registers any `.typ` files not yet in the library; hidden directories are skipped
+
+---
+
 ## [0.13.12-dev4] — Document Library
 
 ### Added

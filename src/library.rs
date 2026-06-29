@@ -494,6 +494,29 @@ impl Library {
             )
             .optional()
     }
+
+    pub fn import_directory(&mut self, dir: &Path) -> SqlResult<usize> {
+        let mut count = 0;
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return Ok(0);
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                let hidden = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().starts_with('.'))
+                    .unwrap_or(false);
+                if !hidden {
+                    count += self.import_directory(&path)?;
+                }
+            } else if path.extension().map(|e| e == "typ").unwrap_or(false) {
+                self.upsert_document(&path)?;
+                count += 1;
+            }
+        }
+        Ok(count)
+    }
 }
 
 fn row_to_doc(row: &rusqlite::Row<'_>) -> rusqlite::Result<Document> {
