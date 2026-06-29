@@ -7,7 +7,7 @@ use libadwaita as adw;
 use adw::prelude::*;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-const RELEASE_NAME: &str = "Steady Gaze";
+const RELEASE_NAME: &str = "Amber Index";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -125,8 +125,16 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION} \"{RELEASE_NAME}\"")));
             for item in [
-                "Clicking in the editor no longer shifts text against the left edge or hides it behind line numbers",
-                "Typewriter scroll no longer snaps the view horizontally when recentering the cursor",
+                "Document Library — organise your .typ files with projects, categories, and colour-coded tags",
+                "Open the library with Ctrl+L or the Library button in the header bar",
+                "Drag documents between categories in the sidebar, or set category colours",
+                "Sort by modified date, created date, last opened, or title",
+                "Pin documents to keep them at the top; mark others as archived or move to trash",
+                "Create tags from BibTeX authors — filtered to entries actually cited in the document",
+                "Bulk-select with Ctrl+click to archive, tag, or remove multiple documents at once",
+                "Compact / list view toggle in the library toolbar",
+                "Create new documents from templates stored in your work directory under Templates/",
+                "Stats bar shows total document count, project count, and last-opened document",
             ] {
                 body.append(&bullet_row(item));
             }

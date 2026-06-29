@@ -42,6 +42,15 @@
       <li>Symbol insert panel for Cyrillic, Greek, Hebrew, and Sanskrit</li>
       <li>Snapshot history with diff view and restore</li>
     </ul>
+    <p>Document Library (Ctrl+L):</p>
+    <ul>
+      <li>SQLite-backed library of all your Typst documents with search, sort, and filter</li>
+      <li>Organise with projects, categories (with colours), and frequency heat-coloured tags</li>
+      <li>Card view with prose word count; compact single-line view for dense lists</li>
+      <li>Pinned documents, trash (soft delete with restore), archive, and bulk operations</li>
+      <li>Create new documents from templates; import BibTeX author names as tags</li>
+      <li>Auto-registers any .typ file opened in the editor</li>
+    </ul>
   </description>
   <launchable type="desktop-id">io.github.calstfrancis.Zerkalo.desktop</launchable>
   <url type="homepage">https://github.com/calstfrancis/zerkalo</url>
@@ -57,6 +66,19 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.13.12" date="2026-06-29">
+      <description>
+        <p>0.13.12 "Amber Index" — Document Library.</p>
+        <ul>
+          <li>Document Library (Ctrl+L) — browse, search, and organise all your Typst files in one place, backed by a local SQLite database</li>
+          <li>Filter sidebar with Projects, Categories, Tags, Recently Opened, Untagged, Trash, and Archive; Trash and Archive always pinned visible below the scrollable list</li>
+          <li>Card and compact list views; card view shows prose word count (excluding commands, code blocks, and citations)</li>
+          <li>Tags with heat colouring — most-used tags are red, middle yellow, least-used blue</li>
+          <li>BibTeX author import — create tags from author names in your .bib file, filtered to entries actually cited in the document</li>
+          <li>Projects, categories with colours, pinned documents, bulk operations, document templates, notes, and export</li>
+        </ul>
+      </description>
+    </release>
     <release type="development" version="0.13.12-dev3" date="2026-06-28">
       <description>
         <p>0.13.12-dev3 — Fix scroll jump after right-click context menu.</p>
