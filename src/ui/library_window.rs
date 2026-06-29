@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -42,6 +42,7 @@ pub struct LibraryWindow {
     work_dir: PathBuf,
     view_mode: Rc<RefCell<ViewMode>>,
     stats_label: Label,
+    bottom_filter_list: ListBox,
 }
 
 impl LibraryWindow {
@@ -63,6 +64,8 @@ impl LibraryWindow {
 
         let sidebar_header = adw::HeaderBar::new();
         sidebar_header.add_css_class("flat");
+        sidebar_header.set_show_start_title_buttons(false);
+        sidebar_header.set_show_end_title_buttons(false);
         let sidebar_title = adw::WindowTitle::new("Library", "");
         sidebar_header.set_title_widget(Some(&sidebar_title));
         sidebar.append(&sidebar_header);
@@ -75,7 +78,7 @@ impl LibraryWindow {
 
         let filter_list = ListBox::new();
         filter_list.add_css_class("navigation-sidebar");
-        filter_list.set_selection_mode(gtk4::SelectionMode::Browse);
+        filter_list.set_selection_mode(gtk4::SelectionMode::Single);
         sidebar_inner.append(&filter_list);
 
         let stats_label = Label::new(None);
@@ -89,8 +92,21 @@ impl LibraryWindow {
         stats_label.set_halign(Align::Start);
         sidebar_inner.append(&stats_label);
 
+        sidebar_scroll.set_child(Some(&sidebar_inner));
+        sidebar.append(&sidebar_scroll);
+
+        // ── Fixed bottom section (always visible, outside scroll) ────────────
+        sidebar.append(&Separator::new(Orientation::Horizontal));
+
+        let bottom_filter_list = ListBox::new();
+        bottom_filter_list.add_css_class("navigation-sidebar");
+        bottom_filter_list.set_selection_mode(gtk4::SelectionMode::Single);
+        sidebar.append(&bottom_filter_list);
+
+        sidebar.append(&Separator::new(Orientation::Horizontal));
+
         let manage_box = GtkBox::new(Orientation::Vertical, 0);
-        manage_box.set_margin_top(8);
+        manage_box.set_margin_top(4);
         manage_box.set_margin_bottom(8);
         manage_box.set_margin_start(8);
         manage_box.set_margin_end(8);
@@ -100,10 +116,7 @@ impl LibraryWindow {
         let manage_tags_btn = Button::with_label("Manage Tags");
         manage_tags_btn.add_css_class("flat");
         manage_box.append(&manage_tags_btn);
-        sidebar_inner.append(&manage_box);
-
-        sidebar_scroll.set_child(Some(&sidebar_inner));
-        sidebar.append(&sidebar_scroll);
+        sidebar.append(&manage_box);
 
         root.append(&sidebar);
         root.append(&Separator::new(Orientation::Vertical));
@@ -215,6 +228,7 @@ impl LibraryWindow {
             work_dir,
             view_mode: Rc::new(RefCell::new(ViewMode::List)),
             stats_label,
+            bottom_filter_list,
         };
 
         lw.populate_filter_list();
@@ -253,6 +267,7 @@ impl LibraryWindow {
     ) {
         {
             let this = self.clone();
+            let view_btn_c = view_btn.clone();
             view_btn.connect_clicked(move |_| {
                 {
                     let mut mode = this.view_mode.borrow_mut();
@@ -262,13 +277,43 @@ impl LibraryWindow {
                         ViewMode::List
                     };
                 }
+                let icon = if *this.view_mode.borrow() == ViewMode::Compact {
+                    "view-list-symbolic"
+                } else {
+                    "view-list-compact-symbolic"
+                };
+                view_btn_c.set_icon_name(icon);
                 this.populate_doc_list();
+            });
+        }
+        let inhibit: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
+        let inhibit_b = inhibit.clone();
+        {
+            let this = self.clone();
+            let inhibit = inhibit.clone();
+            self.filter_list.connect_row_selected(move |_, row| {
+                if *inhibit.borrow() { return; }
+                if let Some(row) = row {
+                    *inhibit.borrow_mut() = true;
+                    this.bottom_filter_list.unselect_all();
+                    *inhibit.borrow_mut() = false;
+                    let name = row.widget_name().to_string();
+                    let filter = parse_filter_name(&name);
+                    *this.current_filter.borrow_mut() = filter;
+                    this.selection.borrow_mut().clear();
+                    this.update_action_bar();
+                    this.populate_doc_list();
+                }
             });
         }
         {
             let this = self.clone();
-            self.filter_list.connect_row_selected(move |_, row| {
+            self.bottom_filter_list.connect_row_selected(move |_, row| {
+                if *inhibit_b.borrow() { return; }
                 if let Some(row) = row {
+                    *inhibit_b.borrow_mut() = true;
+                    this.filter_list.unselect_all();
+                    *inhibit_b.borrow_mut() = false;
                     let name = row.widget_name().to_string();
                     let filter = parse_filter_name(&name);
                     *this.current_filter.borrow_mut() = filter;
@@ -470,39 +515,60 @@ impl LibraryWindow {
                     false
                 });
                 filter_row.add_controller(drop);
+                let gesture = gtk4::GestureClick::new();
+                gesture.set_button(3);
+                let this = self.clone();
+                let cat_name = c.clone();
+                let row_weak = filter_row.downgrade();
+                gesture.connect_pressed(move |g, _, x, y| {
+                    g.set_state(gtk4::EventSequenceState::Claimed);
+                    if let Some(row) = row_weak.upgrade() {
+                        this.show_category_menu(&row, &cat_name, x, y);
+                    }
+                });
+                filter_row.add_controller(gesture);
                 self.filter_list.append(&filter_row);
             }
         }
 
-        let tags = self.library.borrow().all_tags().unwrap_or_default();
-        if !tags.is_empty() {
+        let tags_with_counts = self.library.borrow().all_tags_with_counts().unwrap_or_default();
+        if !tags_with_counts.is_empty() {
             self.filter_list.append(&header_row("TAGS"));
-            for t in tags {
-                let count = self
-                    .library
-                    .borrow()
-                    .doc_count(&LibraryFilter::Tag(t.id))
-                    .ok();
-                self.filter_list
-                    .append(&make_tag_filter_row(t.id, &t.name, &t.color_hex, count));
+            let total = tags_with_counts.len();
+            for (rank, (t, _)) in tags_with_counts.iter().enumerate() {
+                let heat = tag_heat_color(rank, total);
+                let count = self.library.borrow().doc_count(&LibraryFilter::Tag(t.id)).ok();
+                self.filter_list.append(&make_tag_filter_row(t.id, &t.name, heat, count));
             }
         }
 
-        self.filter_list.append(&header_row(""));
-        self.filter_list.append(&make_filter_row(
+        // Repopulate the fixed bottom list (Trash / Archive)
+        while let Some(child) = self.bottom_filter_list.first_child() {
+            self.bottom_filter_list.remove(&child);
+        }
+        self.bottom_filter_list.append(&make_filter_row(
             "trash",
             "user-trash-symbolic",
             "Trash",
             self.library.borrow().doc_count(&LibraryFilter::Trash).ok(),
         ));
-        self.filter_list.append(&make_filter_row(
+        self.bottom_filter_list.append(&make_filter_row(
             "archive",
             "view-archive-symbolic",
             "Archive",
             self.library.borrow().doc_count(&LibraryFilter::Archive).ok(),
         ));
 
-        if let Some(first) = self.filter_list.row_at_index(0) {
+        // Restore selection to match current_filter
+        let current = self.current_filter.borrow().clone();
+        let is_bottom = matches!(current, LibraryFilter::Trash | LibraryFilter::Archive);
+        if is_bottom {
+            // Select the matching bottom row
+            let idx = if matches!(current, LibraryFilter::Trash) { 0 } else { 1 };
+            if let Some(row) = self.bottom_filter_list.row_at_index(idx) {
+                self.bottom_filter_list.select_row(Some(&row));
+            }
+        } else if let Some(first) = self.filter_list.row_at_index(0) {
             self.filter_list.select_row(Some(&first));
         }
 
@@ -555,18 +621,25 @@ impl LibraryWindow {
             return;
         }
 
-        let cat_colors: std::collections::HashMap<String, String> = self
+        let cat_colors: HashMap<String, String> = self
             .library
             .borrow()
             .all_categories_with_colors()
             .unwrap_or_default()
             .into_iter()
             .collect();
+        let twc = self.library.borrow().all_tags_with_counts().unwrap_or_default();
+        let total_tags = twc.len();
+        let tag_heat_colors: HashMap<i64, String> = twc
+            .iter()
+            .enumerate()
+            .map(|(rank, (t, _))| (t.id, tag_heat_color(rank, total_tags).to_string()))
+            .collect();
         let mode = self.view_mode.borrow().clone();
 
         for doc in docs {
             let tags = self.library.borrow().doc_tags(doc.id).unwrap_or_default();
-            let row = self.make_doc_row(&doc, &tags, project_reorder, mode.clone(), &cat_colors);
+            let row = self.make_doc_row(&doc, &tags, project_reorder, mode.clone(), &cat_colors, &tag_heat_colors);
             self.doc_list.append(&row);
         }
     }
@@ -588,7 +661,8 @@ impl LibraryWindow {
         tags: &[crate::library::Tag],
         project_reorder: Option<i64>,
         mode: ViewMode,
-        cat_colors: &std::collections::HashMap<String, String>,
+        cat_colors: &HashMap<String, String>,
+        tag_heat_colors: &HashMap<i64, String>,
     ) -> ListBoxRow {
         let row = ListBoxRow::new();
         row.set_widget_name(&doc.id.to_string());
@@ -629,6 +703,8 @@ impl LibraryWindow {
                 let chip = Label::new(Some(&tag.name));
                 chip.add_css_class("tag-chip");
                 chip.add_css_class("caption");
+                let heat = tag_heat_colors.get(&tag.id).map(|s| s.as_str()).unwrap_or("#3584e4");
+                apply_cat_color(&chip, heat);
                 hbox.append(&chip);
             }
 
@@ -649,11 +725,19 @@ impl LibraryWindow {
             hbox.append(&date);
             hbox
         } else {
+            let card = GtkBox::new(Orientation::Horizontal, 0);
+            card.add_css_class("card");
+            card.set_margin_top(4);
+            card.set_margin_bottom(4);
+            card.set_margin_start(8);
+            card.set_margin_end(8);
+
             let hbox = GtkBox::new(Orientation::Horizontal, 12);
             hbox.set_margin_top(10);
             hbox.set_margin_bottom(10);
-            hbox.set_margin_start(10);
-            hbox.set_margin_end(10);
+            hbox.set_margin_start(12);
+            hbox.set_margin_end(12);
+            hbox.set_hexpand(true);
 
             let icon = Image::from_icon_name("text-x-generic-symbolic");
             icon.set_pixel_size(32);
@@ -687,6 +771,8 @@ impl LibraryWindow {
                 let chip = Label::new(Some(&tag.name));
                 chip.add_css_class("tag-chip");
                 chip.add_css_class("caption");
+                let heat = tag_heat_colors.get(&tag.id).map(|s| s.as_str()).unwrap_or("#3584e4");
+                apply_cat_color(&chip, heat);
                 chips.append(&chip);
             }
             vbox.append(&chips);
@@ -701,18 +787,13 @@ impl LibraryWindow {
             date.add_css_class("caption");
             date.set_halign(Align::End);
             meta.append(&date);
-            let file_size = std::fs::metadata(&doc.path).map(|m| m.len()).unwrap_or(0);
-            if file_size > 0 && file_size <= 1_000_000 {
-                let line_count = std::fs::read_to_string(&doc.path)
-                    .map(|s| s.lines().count())
-                    .unwrap_or(0);
-                if line_count > 0 {
-                    let lines_lbl = Label::new(Some(&format!("{} lines", line_count)));
-                    lines_lbl.add_css_class("dim-label");
-                    lines_lbl.add_css_class("caption");
-                    lines_lbl.set_halign(Align::End);
-                    meta.append(&lines_lbl);
-                }
+            let word_count = count_prose_words(std::path::Path::new(&doc.path));
+            if word_count > 0 {
+                let words_lbl = Label::new(Some(&format!("{} words", word_count)));
+                words_lbl.add_css_class("dim-label");
+                words_lbl.add_css_class("caption");
+                words_lbl.set_halign(Align::End);
+                meta.append(&words_lbl);
             }
             if doc.archived {
                 let badge = Label::new(Some("[archived]"));
@@ -722,7 +803,8 @@ impl LibraryWindow {
                 meta.append(&badge);
             }
             hbox.append(&meta);
-            hbox
+            card.append(&hbox);
+            card
         };
 
         if doc.pinned {
@@ -894,6 +976,18 @@ impl LibraryWindow {
             });
         }
         vbox.append(&open_b);
+
+        let export_b = mk("Export…");
+        {
+            let this = self.clone();
+            let doc = doc.clone();
+            let pop = popover.clone();
+            export_b.connect_clicked(move |_| {
+                pop.popdown();
+                this.export_doc_dialog(&doc);
+            });
+        }
+        vbox.append(&export_b);
 
         let rename_b = mk("Rename…");
         {
@@ -1173,6 +1267,81 @@ impl LibraryWindow {
                         .borrow_mut()
                         .rename_project(project_id, name.trim())
                         .ok();
+                    this.refresh();
+                }
+            }
+        });
+        dlg.present();
+    }
+
+    fn show_category_menu(&self, row: &ListBoxRow, cat_name: &str, x: f64, y: f64) {
+        let popover = Popover::new();
+        popover.set_parent(row);
+        popover.set_has_arrow(true);
+        popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+        let vbox = GtkBox::new(Orientation::Vertical, 2);
+        vbox.set_margin_top(4);
+        vbox.set_margin_bottom(4);
+        vbox.set_margin_start(4);
+        vbox.set_margin_end(4);
+        let mk = |label: &str| -> Button {
+            let b = Button::with_label(label);
+            b.add_css_class("flat");
+            b.set_halign(Align::Fill);
+            if let Some(child) = b.child() {
+                child.set_halign(Align::Start);
+            }
+            b
+        };
+        let rename_b = mk("Rename Category…");
+        {
+            let this = self.clone();
+            let pop = popover.clone();
+            let cname = cat_name.to_string();
+            rename_b.connect_clicked(move |_| {
+                pop.popdown();
+                this.rename_category_dialog(&cname);
+            });
+        }
+        vbox.append(&rename_b);
+        let delete_b = mk("Delete Category");
+        delete_b.add_css_class("error");
+        {
+            let this = self.clone();
+            let pop = popover.clone();
+            let cname = cat_name.to_string();
+            delete_b.connect_clicked(move |_| {
+                pop.popdown();
+                this.library.borrow_mut().delete_category(&cname).ok();
+                *this.current_filter.borrow_mut() = LibraryFilter::All;
+                this.refresh();
+            });
+        }
+        vbox.append(&delete_b);
+        popover.set_child(Some(&vbox));
+        popover.popup();
+    }
+
+    fn rename_category_dialog(&self, current_name: &str) {
+        let dlg = adw::MessageDialog::new(Some(&self.window), Some("Rename Category"), None);
+        dlg.add_response("cancel", "Cancel");
+        dlg.add_response("ok", "Rename");
+        dlg.set_response_appearance("ok", adw::ResponseAppearance::Suggested);
+        dlg.set_default_response(Some("ok"));
+        dlg.set_close_response("cancel");
+        let entry = Entry::new();
+        entry.set_text(current_name);
+        entry.set_activates_default(true);
+        dlg.set_extra_child(Some(&entry));
+        let this = self.clone();
+        let old_name = current_name.to_string();
+        let entry_c = entry.clone();
+        dlg.connect_response(None, move |_, resp| {
+            if resp == "ok" {
+                let new_name = entry_c.text().to_string();
+                if !new_name.trim().is_empty() && new_name.trim() != old_name {
+                    this.library.borrow_mut().rename_category(&old_name, new_name.trim()).ok();
+                    *this.current_filter.borrow_mut() = LibraryFilter::All;
                     this.refresh();
                 }
             }
@@ -1703,6 +1872,8 @@ impl LibraryWindow {
 
         let this = self.clone();
         let tag_list_c = tag_list.clone();
+        let refresh_slot: Rc<RefCell<Option<Rc<dyn Fn()>>>> = Rc::new(RefCell::new(None));
+        let rs_outer = refresh_slot.clone();
         let refresh_tags: Rc<dyn Fn()> = Rc::new(move || {
             while let Some(child) = tag_list_c.first_child() {
                 tag_list_c.remove(&child);
@@ -1724,19 +1895,61 @@ impl LibraryWindow {
                 name.set_halign(Align::Start);
                 name.set_hexpand(true);
                 hbox.append(&name);
+
+                let edit = Button::from_icon_name("document-edit-symbolic");
+                edit.add_css_class("flat");
+                let this_e = this.clone();
+                let tid_e = tag.id;
+                let tag_name_e = tag.name.clone();
+                let rs_e = rs_outer.clone();
+                edit.connect_clicked(move |_| {
+                    let entry = Entry::new();
+                    entry.set_text(&tag_name_e);
+                    entry.set_activates_default(true);
+                    let rename_dlg = adw::MessageDialog::new(
+                        Some(&this_e.window),
+                        Some("Rename Tag"),
+                        None,
+                    );
+                    rename_dlg.set_extra_child(Some(&entry));
+                    rename_dlg.add_response("cancel", "Cancel");
+                    rename_dlg.add_response("ok", "Rename");
+                    rename_dlg.set_response_appearance("ok", adw::ResponseAppearance::Suggested);
+                    rename_dlg.set_default_response(Some("ok"));
+                    let this_r = this_e.clone();
+                    let rs_r = rs_e.clone();
+                    let entry_c = entry.clone();
+                    rename_dlg.connect_response(None, move |dlg, resp| {
+                        if resp == "ok" {
+                            let new_name = entry_c.text().to_string();
+                            if !new_name.trim().is_empty() {
+                                this_r.library.borrow_mut().rename_tag(tid_e, new_name.trim()).ok();
+                                this_r.populate_filter_list();
+                                if let Some(f) = rs_r.borrow().as_ref() { f(); }
+                            }
+                        }
+                        dlg.close();
+                    });
+                    rename_dlg.present();
+                });
+                hbox.append(&edit);
+
                 let del = Button::from_icon_name("user-trash-symbolic");
                 del.add_css_class("flat");
                 let this2 = this.clone();
                 let tid = tag.id;
+                let rs_d = rs_outer.clone();
                 del.connect_clicked(move |_| {
                     this2.library.borrow_mut().delete_tag(tid).ok();
                     this2.refresh();
+                    if let Some(f) = rs_d.borrow().as_ref() { f(); }
                 });
                 hbox.append(&del);
                 r.set_child(Some(&hbox));
                 tag_list_c.append(&r);
             }
         });
+        *refresh_slot.borrow_mut() = Some(refresh_tags.clone());
         refresh_tags();
 
         {
@@ -1881,11 +2094,6 @@ impl LibraryWindow {
             vec![]
         };
 
-        if templates.is_empty() {
-            self.create_new_from_template(None);
-            return;
-        }
-
         let dlg = adw::MessageDialog::new(Some(&self.window), Some("New Document"), None);
         dlg.add_response("blank", "Blank Document");
         dlg.set_default_response(Some("blank"));
@@ -1982,6 +2190,22 @@ impl LibraryWindow {
                         cb(path);
                     }
                     this.refresh();
+                }
+            }
+        });
+    }
+
+    fn export_doc_dialog(&self, doc: &crate::library::Document) {
+        let dialog = gtk4::FileDialog::new();
+        dialog.set_title("Export Document");
+        dialog.set_initial_name(Some(
+            &doc.path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
+        ));
+        let src = doc.path.clone();
+        dialog.save(Some(&self.window), gtk4::gio::Cancellable::NONE, move |res| {
+            if let Ok(file) = res {
+                if let Some(dest) = file.path() {
+                    std::fs::copy(&src, &dest).ok();
                 }
             }
         });
@@ -2276,28 +2500,16 @@ fn parse_bibtex_authors_for_keys(
             continue;
         }
         let lower = trimmed.to_lowercase();
-        if lower.starts_with("author") {
+        if lower.starts_with("author") && lower[6..].trim_start().starts_with('=') {
             if let Some(eq) = trimmed.find('=') {
-                let value = trimmed[eq + 1..]
-                    .trim()
-                    .trim_start_matches('{')
-                    .trim_end_matches('}')
-                    .trim_start_matches('"')
-                    .trim_end_matches('"')
-                    .trim_end_matches(',')
+                let raw = trimmed[eq + 1..].trim();
+                let value = raw
+                    .trim_start_matches(|c: char| c == '{' || c == '"')
+                    .trim_end_matches(|c: char| c == ',' || c == '}' || c == '"')
                     .trim();
-                for part in value.split_terminator(" and ") {
-                    let name = part.trim();
-                    if name.is_empty() {
-                        continue;
-                    }
-                    let tag_name = if let Some(c) = name.find(',') {
-                        name[..c].trim().to_string()
-                    } else {
-                        name.split_whitespace().last().unwrap_or(name).to_string()
-                    };
-                    if !tag_name.is_empty() {
-                        seen.insert(tag_name);
+                for part in value.split(" and ") {
+                    if let Some(tag) = extract_author_tag(part) {
+                        seen.insert(tag);
                     }
                 }
             }
@@ -2306,4 +2518,68 @@ fn parse_bibtex_authors_for_keys(
     let mut result: Vec<String> = seen.into_iter().collect();
     result.sort();
     result
+}
+
+fn extract_author_tag(raw: &str) -> Option<String> {
+    let name = raw
+        .trim()
+        .trim_start_matches(|c: char| c == '{')
+        .trim_end_matches(|c: char| c == '}' || c == ',')
+        .trim();
+    if name.is_empty() {
+        return None;
+    }
+    let lower = name.to_lowercase();
+    if lower.starts_with("family=") {
+        let family = name[7..].split(',').next().unwrap_or("").trim();
+        if !family.is_empty() {
+            return Some(family.to_string());
+        }
+    }
+    if let Some(comma) = name.find(',') {
+        let last = name[..comma]
+            .trim()
+            .trim_matches(|c: char| c == '{' || c == '}')
+            .trim();
+        if !last.is_empty() {
+            return Some(last.to_string());
+        }
+    }
+    Some(name.to_string())
+}
+
+fn tag_heat_color(rank: usize, total: usize) -> &'static str {
+    if total == 0 {
+        return "#3584e4";
+    }
+    match rank * 3 / total {
+        0 => "#e01b24", // hot — most used
+        1 => "#f6d32d", // warm — middle
+        _ => "#3584e4", // cool — least used
+    }
+}
+
+fn count_prose_words(path: &std::path::Path) -> usize {
+    let content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(_) => return 0,
+    };
+    let mut in_code_block = false;
+    let mut total = 0usize;
+    for line in content.lines() {
+        let t = line.trim();
+        if t.starts_with("```") {
+            in_code_block = !in_code_block;
+            continue;
+        }
+        if in_code_block || t.starts_with("//") || t.starts_with('#') {
+            continue;
+        }
+        for word in t.split_whitespace() {
+            if !word.starts_with('@') && !word.starts_with('<') && !word.starts_with('`') {
+                total += 1;
+            }
+        }
+    }
+    total
 }

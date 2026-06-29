@@ -156,10 +156,11 @@ impl Library {
 
     pub fn upsert_document(&mut self, path: &Path) -> SqlResult<i64> {
         let path_str = path.to_string_lossy().to_string();
-        let title = path
-            .file_stem()
-            .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or_else(|| path_str.clone());
+        let title = extract_typst_title(path).unwrap_or_else(|| {
+            path.file_stem()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_else(|| path_str.clone())
+        });
         let now = Utc::now().to_rfc3339();
         let fs_modified = std::fs::metadata(path)
             .ok()
@@ -181,8 +182,8 @@ impl Library {
 
         if let Some(id) = existing {
             self.conn.execute(
-                "UPDATE documents SET modified_at = ?1 WHERE id = ?2",
-                params![fs_modified, id],
+                "UPDATE documents SET modified_at = ?1, title = ?2 WHERE id = ?3",
+                params![fs_modified, title, id],
             )?;
             Ok(id)
         } else {
@@ -613,6 +614,27 @@ impl Library {
         Ok(tags)
     }
 
+    pub fn all_tags_with_counts(&self) -> SqlResult<Vec<(Tag, i64)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT t.id, t.name, t.color_hex, COUNT(dt.doc_id) AS cnt
+             FROM tags t
+             LEFT JOIN doc_tags dt ON dt.tag_id = t.id
+             GROUP BY t.id
+             ORDER BY cnt DESC, t.name",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok((
+                Tag { id: r.get(0)?, name: r.get(1)?, color_hex: r.get(2)? },
+                r.get::<_, i64>(3)?,
+            ))
+        })?;
+        let mut result = Vec::new();
+        for r in rows {
+            result.push(r?);
+        }
+        Ok(result)
+    }
+
     pub fn create_tag(&mut self, name: &str, color: &str) -> SqlResult<i64> {
         self.conn.execute(
             "INSERT OR IGNORE INTO tags (name, color_hex) VALUES (?1, ?2)",
@@ -672,6 +694,14 @@ impl Library {
         self.conn.execute(
             "UPDATE documents SET category = NULL WHERE category = ?1",
             params![name],
+        )?;
+        Ok(())
+    }
+
+    pub fn rename_category(&mut self, old_name: &str, new_name: &str) -> SqlResult<()> {
+        self.conn.execute(
+            "UPDATE documents SET category = ?1 WHERE category = ?2",
+            params![new_name, old_name],
         )?;
         Ok(())
     }
@@ -811,6 +841,46 @@ impl Library {
         }
         Ok(count)
     }
+}
+
+/// Reads the first `#let doc-title = "..."` line from a Typst file.
+/// Falls back to `#let title = "..."` if doc-title isn't found.
+fn extract_typst_title(path: &Path) -> Option<String> {
+    let content = std::fs::read_to_string(path).ok()?;
+    let mut fallback: Option<String> = None;
+    for line in content.lines() {
+        let t = line.trim();
+        if let Some(rest) = t.strip_prefix("#let doc-title") {
+            if let Some(val) = parse_typst_string_value(rest.trim().strip_prefix('=')?.trim()) {
+                return Some(val);
+            }
+        }
+        if fallback.is_none() {
+            if let Some(rest) = t.strip_prefix("#let title") {
+                // guard against #let titlefoo etc. — next char must be whitespace or =
+                let after = rest.trim();
+                if after.starts_with('=') {
+                    if let Some(val) = parse_typst_string_value(after[1..].trim()) {
+                        fallback = Some(val);
+                    }
+                }
+            }
+        }
+    }
+    fallback
+}
+
+fn parse_typst_string_value(s: &str) -> Option<String> {
+    if let Some(inner) = s.strip_prefix('"') {
+        let end = inner.find('"')?;
+        let val = inner[..end].trim().to_string();
+        if !val.is_empty() { return Some(val); }
+    } else if let Some(inner) = s.strip_prefix('[') {
+        let end = inner.find(']')?;
+        let val = inner[..end].trim().to_string();
+        if !val.is_empty() { return Some(val); }
+    }
+    None
 }
 
 fn row_to_doc(row: &rusqlite::Row<'_>) -> rusqlite::Result<Document> {

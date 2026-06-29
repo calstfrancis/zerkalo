@@ -5,6 +5,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.12-dev8] — Library: pinned sidebar, heat tags, word count
+
+### Added
+
+- **Pinned sidebar bottom** — "Trash", "Archive", "New Project", and "Manage Tags" are now fixed below the scrollable filter list, always visible while scrolling through tags and categories
+- **Tag heat colours** — tag chips are coloured by frequency: top third red (most used), middle yellow, bottom blue (least used); applies in the sidebar, compact view, and card view
+- **Prose word count** — card view shows word count instead of line count, excluding Typst commands (`#`), comments (`//`), code blocks, and citation tokens (`@key`)
+- **Document titles from source** — library entries now default to the `#let doc-title = "…"` value from the file; falls back to filename if not found; title updates on every save
+
+---
+
 ## [0.13.12-dev7] — Library: 8 more features
 
 ### Added
