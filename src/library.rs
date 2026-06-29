@@ -42,6 +42,26 @@ pub enum LibraryFilter {
     Tag(i64),
     Category(String),
     Archive,
+    Recent,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum SortOrder {
+    Modified,
+    Created,
+    Opened,
+    Title,
+}
+
+impl SortOrder {
+    fn clause(&self, prefix: &str) -> String {
+        match self {
+            SortOrder::Modified => format!("{prefix}modified_at DESC"),
+            SortOrder::Created => format!("{prefix}created_at DESC"),
+            SortOrder::Opened => format!("{prefix}last_opened_at DESC NULLS LAST"),
+            SortOrder::Title => format!("{prefix}title COLLATE NOCASE ASC"),
+        }
+    }
 }
 
 const DOC_COLS: &str =
@@ -175,7 +195,12 @@ impl Library {
         Ok(())
     }
 
-    pub fn documents(&self, filter: LibraryFilter, search: &str) -> SqlResult<Vec<Document>> {
+    pub fn documents(
+        &self,
+        filter: LibraryFilter,
+        search: &str,
+        sort: SortOrder,
+    ) -> SqlResult<Vec<Document>> {
         let search_pat = if search.is_empty() {
             "%".to_string()
         } else {
@@ -187,7 +212,8 @@ impl Library {
                 let sql = format!(
                     "SELECT {DOC_COLS} FROM documents
                      WHERE archived = 0 AND title LIKE ?1
-                     ORDER BY modified_at DESC"
+                     ORDER BY {}",
+                    sort.clause("")
                 );
                 let mut stmt = self.conn.prepare(&sql)?;
                 let rows = stmt.query_map(params![search_pat], row_to_doc)?;
@@ -214,8 +240,9 @@ impl Library {
                     "SELECT {} FROM documents d
                      JOIN doc_tags dt ON dt.doc_id = d.id
                      WHERE dt.tag_id = ?1 AND d.archived = 0 AND d.title LIKE ?2
-                     ORDER BY d.modified_at DESC",
-                    doc_cols_prefixed("d")
+                     ORDER BY {}",
+                    doc_cols_prefixed("d"),
+                    sort.clause("d.")
                 );
                 let mut stmt = self.conn.prepare(&sql)?;
                 let rows = stmt.query_map(params![tid, search_pat], row_to_doc)?;
@@ -227,7 +254,8 @@ impl Library {
                 let sql = format!(
                     "SELECT {DOC_COLS} FROM documents
                      WHERE category = ?1 AND archived = 0 AND title LIKE ?2
-                     ORDER BY modified_at DESC"
+                     ORDER BY {}",
+                    sort.clause("")
                 );
                 let mut stmt = self.conn.prepare(&sql)?;
                 let rows = stmt.query_map(params![cat, search_pat], row_to_doc)?;
@@ -239,7 +267,20 @@ impl Library {
                 let sql = format!(
                     "SELECT {DOC_COLS} FROM documents
                      WHERE archived = 1 AND title LIKE ?1
-                     ORDER BY modified_at DESC"
+                     ORDER BY {}",
+                    sort.clause("")
+                );
+                let mut stmt = self.conn.prepare(&sql)?;
+                let rows = stmt.query_map(params![search_pat], row_to_doc)?;
+                for r in rows {
+                    docs.push(r?);
+                }
+            }
+            LibraryFilter::Recent => {
+                let sql = format!(
+                    "SELECT {DOC_COLS} FROM documents
+                     WHERE last_opened_at IS NOT NULL AND archived = 0 AND title LIKE ?1
+                     ORDER BY last_opened_at DESC LIMIT 30"
                 );
                 let mut stmt = self.conn.prepare(&sql)?;
                 let rows = stmt.query_map(params![search_pat], row_to_doc)?;
@@ -249,6 +290,41 @@ impl Library {
             }
         }
         Ok(docs)
+    }
+
+    pub fn doc_count(&self, filter: &LibraryFilter) -> SqlResult<i64> {
+        match filter {
+            LibraryFilter::All => self.conn.query_row(
+                "SELECT COUNT(*) FROM documents WHERE archived=0",
+                [],
+                |r| r.get(0),
+            ),
+            LibraryFilter::Archive => self.conn.query_row(
+                "SELECT COUNT(*) FROM documents WHERE archived=1",
+                [],
+                |r| r.get(0),
+            ),
+            LibraryFilter::Project(pid) => self.conn.query_row(
+                "SELECT COUNT(*) FROM project_docs WHERE project_id=?1",
+                params![pid],
+                |r| r.get(0),
+            ),
+            LibraryFilter::Tag(tid) => self.conn.query_row(
+                "SELECT COUNT(*) FROM doc_tags JOIN documents d ON d.id=doc_id WHERE tag_id=?1 AND d.archived=0",
+                params![tid],
+                |r| r.get(0),
+            ),
+            LibraryFilter::Category(cat) => self.conn.query_row(
+                "SELECT COUNT(*) FROM documents WHERE category=?1 AND archived=0",
+                params![cat],
+                |r| r.get(0),
+            ),
+            LibraryFilter::Recent => self.conn.query_row(
+                "SELECT COUNT(*) FROM documents WHERE last_opened_at IS NOT NULL AND archived=0",
+                [],
+                |r| r.get(0),
+            ),
+        }
     }
 
     pub fn doc_tags(&self, doc_id: i64) -> SqlResult<Vec<Tag>> {
@@ -293,6 +369,46 @@ impl Library {
             params![archived as i64, doc_id],
         )?;
         Ok(())
+    }
+
+    pub fn set_notes(&mut self, doc_id: i64, notes: Option<&str>) -> SqlResult<()> {
+        self.conn.execute(
+            "UPDATE documents SET notes=?1 WHERE id=?2",
+            params![notes, doc_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn move_doc_in_project(
+        &mut self,
+        project_id: i64,
+        doc_id: i64,
+        new_position: i64,
+    ) -> SqlResult<()> {
+        self.conn.execute(
+            "UPDATE project_docs SET position = position + 1
+             WHERE project_id=?1 AND doc_id != ?2 AND position >= ?3",
+            params![project_id, doc_id, new_position],
+        )?;
+        self.conn.execute(
+            "UPDATE project_docs SET position=?1 WHERE project_id=?2 AND doc_id=?3",
+            params![new_position, project_id, doc_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn position_in_project(
+        &self,
+        project_id: i64,
+        doc_id: i64,
+    ) -> SqlResult<Option<i64>> {
+        self.conn
+            .query_row(
+                "SELECT position FROM project_docs WHERE project_id=?1 AND doc_id=?2",
+                params![project_id, doc_id],
+                |r| r.get(0),
+            )
+            .optional()
     }
 
     pub fn remove_document(&mut self, doc_id: i64) -> SqlResult<()> {

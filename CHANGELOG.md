@@ -5,6 +5,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.12-dev6] — Library: 10 features + tag fixes
+
+### Added (10 library features)
+
+- **Sort control** — Modified / Created / Opened / A→Z dropdown in the doc list header
+- **Doc count badges** — each sidebar filter entry shows its document count
+- **"Recently Opened" filter** — shows the last 30 docs by open time
+- **Project right-click menu** — rename or delete a project directly from the sidebar; open its root file if one is set
+- **Notes field** — "Edit Notes…" in the doc context menu; multiline text per document (stored in DB)
+- **Line count** — each doc row shows its line count (skipped for files over 1 MB)
+- **Drag to reorder within a project** — drop a document onto another document when viewing a project filter to reorder it
+- **Filesystem watcher → library** — when a `.typ` file is created or saved externally, it's auto-registered in the library; library window refreshes if open
+- **Bulk operations** — Ctrl+click multi-select; bottom action bar slides up with Archive / Tag… / Add to Project… / Remove actions
+- **"Set as Project Root"** in doc context menu when viewing a project; "Open Root File" in project right-click menu
+- **Import authors from BibTeX** — "Import authors from BibTeX…" button in Manage Tags opens a `.bib` file, parses all author last names, and lets you select which to create as tags (shown in green)
+
+### Fixed
+
+- **Crash when creating a tag** — `RefMut<Library>` from `borrow_mut()` inside an `if let` expression kept the mutable borrow alive through the entire block, causing a panic when `populate_filter_list()` tried to re-borrow. Extracted to a `let` statement so the borrow drops at the semicolon.
+
+### Changed
+
+- **Manage Tags dialog** is more compact: entry, color swatches, and + button are on one row; tag rows have tighter margins; dialog height reduced
+
+---
+
 ## [0.13.12-dev5] — Library improvements: drag-to-category, inline tag creation, auto-import
 
 ### Added
