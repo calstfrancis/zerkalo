@@ -4,8 +4,8 @@ use std::rc::Rc;
 
 use gtk4::prelude::*;
 use gtk4::{
-    Align, Box as GtkBox, Button, CheckButton, Entry, Image, Label, ListBox, ListBoxRow,
-    Orientation, Popover, ScrolledWindow, SearchEntry, Separator,
+    Align, Box as GtkBox, Button, CheckButton, DragSource, DropTarget, Entry, Image, Label,
+    ListBox, ListBoxRow, Orientation, Popover, ScrolledWindow, SearchEntry, Separator,
 };
 use libadwaita as adw;
 use adw::prelude::*;
@@ -226,12 +226,27 @@ impl LibraryWindow {
         if !categories.is_empty() {
             self.filter_list.append(&header_row("CATEGORIES"));
             for c in categories {
-                self.filter_list.append(&make_filter_row(
+                let filter_row = make_filter_row(
                     &format!("category:{}", c),
                     "tag-symbolic",
                     &c,
                     None,
-                ));
+                );
+                let drop = DropTarget::new(gtk4::glib::Type::STRING, gtk4::gdk::DragAction::COPY);
+                let this = self.clone();
+                let cat_name = c.clone();
+                drop.connect_drop(move |_, value, _, _| {
+                    if let Ok(id_str) = value.get::<String>() {
+                        if let Ok(doc_id) = id_str.parse::<i64>() {
+                            this.library.borrow_mut().set_category(doc_id, Some(&cat_name)).ok();
+                            this.refresh();
+                            return true;
+                        }
+                    }
+                    false
+                });
+                filter_row.add_controller(drop);
+                self.filter_list.append(&filter_row);
             }
         }
 
@@ -346,6 +361,15 @@ impl LibraryWindow {
         hbox.append(&meta);
 
         row.set_child(Some(&hbox));
+
+        // Drag source — carry doc ID as a string for drop-on-category
+        let drag_source = DragSource::new();
+        drag_source.set_actions(gtk4::gdk::DragAction::COPY);
+        let id_str = doc.id.to_string();
+        drag_source.connect_prepare(move |_, _, _| {
+            Some(gtk4::gdk::ContentProvider::for_value(&id_str.to_value()))
+        });
+        row.add_controller(drag_source);
 
         // Right-click context menu
         let gesture = gtk4::GestureClick::new();
@@ -599,23 +623,16 @@ impl LibraryWindow {
         dlg.set_default_response(Some("ok"));
         dlg.set_close_response("cancel");
 
+        let container = GtkBox::new(Orientation::Vertical, 6);
+        container.set_width_request(300);
+
         let scroll = ScrolledWindow::new();
-        scroll.set_min_content_height(200);
-        scroll.set_width_request(300);
+        scroll.set_min_content_height(160);
         let listbox = ListBox::new();
+        listbox.add_css_class("boxed-list");
         listbox.set_selection_mode(gtk4::SelectionMode::None);
 
         let checks: Rc<RefCell<Vec<(i64, CheckButton)>>> = Rc::new(RefCell::new(Vec::new()));
-        if all_tags.is_empty() {
-            let lbl = Label::new(Some("No tags yet. Use Manage Tags to create some."));
-            lbl.add_css_class("dim-label");
-            lbl.set_margin_top(12);
-            lbl.set_margin_bottom(12);
-            let r = ListBoxRow::new();
-            r.set_selectable(false);
-            r.set_child(Some(&lbl));
-            listbox.append(&r);
-        }
         for tag in &all_tags {
             let check = CheckButton::with_label(&tag.name);
             check.set_active(current.contains(&tag.id));
@@ -626,7 +643,58 @@ impl LibraryWindow {
             checks.borrow_mut().push((tag.id, check));
         }
         scroll.set_child(Some(&listbox));
-        dlg.set_extra_child(Some(&scroll));
+        container.append(&scroll);
+
+        // Inline new-tag row
+        let new_tag_box = GtkBox::new(Orientation::Horizontal, 4);
+        new_tag_box.set_margin_top(4);
+        let new_tag_entry = Entry::new();
+        new_tag_entry.set_placeholder_text(Some("New tag…"));
+        new_tag_entry.set_hexpand(true);
+        new_tag_box.append(&new_tag_entry);
+
+        let new_color: Rc<RefCell<String>> = Rc::new(RefCell::new(TAG_COLORS[0].to_string()));
+        for color in TAG_COLORS {
+            let btn = Button::new();
+            btn.set_size_request(18, 18);
+            apply_color_css(&btn, color);
+            let sel = new_color.clone();
+            let c = color.to_string();
+            btn.connect_clicked(move |_| *sel.borrow_mut() = c.clone());
+            new_tag_box.append(&btn);
+        }
+
+        let add_tag_btn = Button::with_label("+");
+        add_tag_btn.add_css_class("suggested-action");
+        new_tag_box.append(&add_tag_btn);
+        container.append(&new_tag_box);
+
+        dlg.set_extra_child(Some(&container));
+
+        // Wire inline create
+        {
+            let this = self.clone();
+            let entry = new_tag_entry.clone();
+            let color = new_color.clone();
+            let listbox_c = listbox.clone();
+            let checks_c = checks.clone();
+            add_tag_btn.connect_clicked(move |_| {
+                let name = entry.text().to_string();
+                let name = name.trim().to_string();
+                if name.is_empty() { return; }
+                if let Ok(new_id) = this.library.borrow_mut().create_tag(&name, &color.borrow()) {
+                    let check = CheckButton::with_label(&name);
+                    check.set_active(true);
+                    let r = ListBoxRow::new();
+                    r.set_selectable(false);
+                    r.set_child(Some(&check));
+                    listbox_c.append(&r);
+                    checks_c.borrow_mut().push((new_id, check));
+                    entry.set_text("");
+                    this.populate_filter_list();
+                }
+            });
+        }
 
         let this = self.clone();
         dlg.connect_response(None, move |_, resp| {
