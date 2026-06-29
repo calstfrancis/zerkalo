@@ -35,6 +35,12 @@ pub struct Project {
     pub root_doc_id: Option<i64>,
     pub created_at: String,
 }
+#[derive(Clone, Debug)]
+pub struct Category {
+    pub name: String,
+    pub color_hex: String,
+    pub parent: Option<String>,
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum LibraryFilter {
@@ -42,6 +48,7 @@ pub enum LibraryFilter {
     Project(i64),
     Tag(i64),
     Category(String),
+    CategoryGroup(String),
     Archive,
     Recent,
     Untagged,
@@ -151,6 +158,9 @@ impl Library {
                 );",
             )
             .ok();
+        self.conn.execute_batch(
+            "ALTER TABLE categories ADD COLUMN parent TEXT REFERENCES categories(name);"
+        ).ok();
         Ok(())
     }
 
@@ -285,6 +295,21 @@ impl Library {
                     docs.push(r?);
                 }
             }
+            LibraryFilter::CategoryGroup(ref parent) => {
+                let sql = format!(
+                    "SELECT {DOC_COLS} FROM documents
+                     WHERE category IN (
+                         SELECT name FROM categories WHERE name = ?1 OR parent = ?1
+                     ) AND archived = 0 AND deleted = 0 AND title LIKE ?2
+                     ORDER BY pinned DESC, {}",
+                    sort.clause("")
+                );
+                let mut stmt = self.conn.prepare(&sql)?;
+                let rows = stmt.query_map(params![parent, search_pat], row_to_doc)?;
+                for r in rows {
+                    docs.push(r?);
+                }
+            }
             LibraryFilter::Archive => {
                 let sql = format!(
                     "SELECT {DOC_COLS} FROM documents
@@ -366,6 +391,13 @@ impl Library {
             LibraryFilter::Category(cat) => self.conn.query_row(
                 "SELECT COUNT(*) FROM documents WHERE category=?1 AND archived=0 AND deleted=0",
                 params![cat],
+                |r| r.get(0),
+            ),
+            LibraryFilter::CategoryGroup(parent) => self.conn.query_row(
+                "SELECT COUNT(*) FROM documents
+                 WHERE category IN (SELECT name FROM categories WHERE name=?1 OR parent=?1)
+                 AND archived=0 AND deleted=0",
+                params![parent],
                 |r| r.get(0),
             ),
             LibraryFilter::Recent => self.conn.query_row(
@@ -686,7 +718,11 @@ impl Library {
         Ok(cats)
     }
 
-    pub fn create_category(&mut self, _name: &str) -> SqlResult<()> {
+    pub fn create_category(&mut self, name: &str, parent: Option<&str>) -> SqlResult<()> {
+        self.conn.execute(
+            "INSERT OR IGNORE INTO categories (name, parent) VALUES (?1, ?2)",
+            params![name, parent],
+        )?;
         Ok(())
     }
 
@@ -699,9 +735,54 @@ impl Library {
     }
 
     pub fn rename_category(&mut self, old_name: &str, new_name: &str) -> SqlResult<()> {
-        self.conn.execute(
-            "UPDATE documents SET category = ?1 WHERE category = ?2",
+        let tx = self.conn.transaction()?;
+        tx.execute(
+            "INSERT OR IGNORE INTO categories (name, color_hex, parent)
+             SELECT ?1, color_hex, parent FROM categories WHERE name = ?2",
             params![new_name, old_name],
+        )?;
+        tx.execute("UPDATE categories SET parent = ?1 WHERE parent = ?2", params![new_name, old_name])?;
+        tx.execute("UPDATE documents SET category = ?1 WHERE category = ?2", params![new_name, old_name])?;
+        tx.execute("DELETE FROM categories WHERE name = ?1", params![old_name])?;
+        tx.commit()?;
+        Ok(())
+    }
+
+
+    pub fn all_categories_structured(&self) -> SqlResult<Vec<Category>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT name, color_hex, parent FROM categories ORDER BY parent NULLS FIRST, name"
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok(Category { name: r.get(0)?, color_hex: r.get(1)?, parent: r.get(2)? })
+        })?;
+        let mut out = Vec::new();
+        for r in rows { out.push(r?); }
+        Ok(out)
+    }
+
+    pub fn category_has_children(&self, name: &str) -> SqlResult<bool> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM categories WHERE parent = ?1",
+            params![name],
+            |r| r.get(0),
+        )?;
+        Ok(count > 0)
+    }
+
+    pub fn force_delete_category_if_no_children(&mut self, name: &str) -> SqlResult<bool> {
+        if self.category_has_children(name)? {
+            return Ok(false);
+        }
+        self.conn.execute("UPDATE documents SET category = NULL WHERE category = ?1", params![name])?;
+        self.conn.execute("DELETE FROM categories WHERE name = ?1", params![name])?;
+        Ok(true)
+    }
+
+    pub fn set_category_parent(&mut self, name: &str, parent: Option<&str>) -> SqlResult<()> {
+        self.conn.execute(
+            "UPDATE categories SET parent = ?1 WHERE name = ?2",
+            params![parent, name],
         )?;
         Ok(())
     }

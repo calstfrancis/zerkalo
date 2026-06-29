@@ -12,7 +12,7 @@ use gtk4::{
 use libadwaita as adw;
 use adw::prelude::*;
 
-use crate::library::{Library, LibraryFilter, SortOrder};
+use crate::library::{Category, Library, LibraryFilter, SortOrder};
 
 const TAG_COLORS: &[&str] = &[
     "#3584e4", "#33d17a", "#f6d32d", "#ff7800", "#e01b24", "#9141ac", "#dc8add", "#986a44",
@@ -26,7 +26,7 @@ enum ViewMode {
 
 #[derive(Clone)]
 pub struct LibraryWindow {
-    window: adw::ApplicationWindow,
+    window: adw::Window,
     library: Rc<RefCell<Library>>,
     doc_list: ListBox,
     filter_list: ListBox,
@@ -46,10 +46,10 @@ pub struct LibraryWindow {
 }
 
 impl LibraryWindow {
-    pub fn new(app: &adw::Application, library: Rc<RefCell<Library>>, work_dir: PathBuf) -> Self {
+    pub fn new(_app: &adw::Application, library: Rc<RefCell<Library>>, work_dir: PathBuf) -> Self {
         load_library_css();
 
-        let window = adw::ApplicationWindow::new(app);
+        let window = adw::Window::new();
         window.set_title(Some("Library — Zerkalo"));
         window.set_default_width(900);
         window.set_default_height(650);
@@ -482,28 +482,130 @@ impl LibraryWindow {
             }
         }
 
-        let categories = self
+        let all_cats = self
             .library
             .borrow()
-            .all_categories_with_colors()
+            .all_categories_structured()
             .unwrap_or_default();
-        if !categories.is_empty() {
+        if !all_cats.is_empty() {
+            // Partition into parents (have children), children (have parent), standalone
+            let parent_names: std::collections::HashSet<String> = all_cats
+                .iter()
+                .filter_map(|c| c.parent.clone())
+                .collect();
+            let cats_with_children: std::collections::HashSet<String> = all_cats
+                .iter()
+                .filter(|c| parent_names.contains(&c.name))
+                .map(|c| c.name.clone())
+                .collect();
+
             self.filter_list.append(&header_row("CATEGORIES"));
-            for (c, color) in categories {
+
+            // Emit parent rows first, then their children, then standalones
+            let mut emitted: std::collections::HashSet<String> = std::collections::HashSet::new();
+            for cat in &all_cats {
+                if cat.parent.is_none() && cats_with_children.contains(&cat.name) {
+                    // Parent category row
+                    let has_children = true;
+                    let cat_count = self
+                        .library
+                        .borrow()
+                        .doc_count(&LibraryFilter::CategoryGroup(cat.name.clone()))
+                        .ok();
+                    let filter_row = make_category_filter_row(
+                        &format!("category-group:{}", cat.name),
+                        &cat.color_hex,
+                        &cat.name,
+                        cat_count,
+                    );
+                    // Parent rows: drop rejected with toast
+                    let drop = DropTarget::new(gtk4::glib::Type::STRING, gtk4::gdk::DragAction::COPY);
+                    let toast_overlay = self.toast_overlay.clone();
+                    drop.connect_drop(move |_, _, _, _| {
+                        let toast = adw::Toast::new("Drop onto a specific subcategory");
+                        toast_overlay.add_toast(toast);
+                        false
+                    });
+                    filter_row.add_controller(drop);
+                    let gesture = gtk4::GestureClick::new();
+                    gesture.set_button(3);
+                    let this = self.clone();
+                    let cat_name = cat.name.clone();
+                    let row_weak = filter_row.downgrade();
+                    gesture.connect_pressed(move |g, _, x, y| {
+                        g.set_state(gtk4::EventSequenceState::Claimed);
+                        if let Some(row) = row_weak.upgrade() {
+                            this.show_category_menu(&row, &cat_name, has_children, x, y);
+                        }
+                    });
+                    filter_row.add_controller(gesture);
+                    self.filter_list.append(&filter_row);
+                    emitted.insert(cat.name.clone());
+
+                    // Children of this parent
+                    for child in &all_cats {
+                        if child.parent.as_deref() == Some(&cat.name) {
+                            let child_count = self
+                                .library
+                                .borrow()
+                                .doc_count(&LibraryFilter::Category(child.name.clone()))
+                                .ok();
+                            let child_row = make_category_filter_row_indented(
+                                &format!("category:{}", child.name),
+                                &child.color_hex,
+                                &child.name,
+                                child_count,
+                                16,
+                            );
+                            let drop2 = DropTarget::new(gtk4::glib::Type::STRING, gtk4::gdk::DragAction::COPY);
+                            let this2 = self.clone();
+                            let cname2 = child.name.clone();
+                            drop2.connect_drop(move |_, value, _, _| {
+                                if let Ok(id_str) = value.get::<String>() {
+                                    if let Ok(doc_id) = id_str.parse::<i64>() {
+                                        this2.library.borrow_mut().set_category(doc_id, Some(&cname2)).ok();
+                                        this2.refresh();
+                                        return true;
+                                    }
+                                }
+                                false
+                            });
+                            child_row.add_controller(drop2);
+                            let gesture2 = gtk4::GestureClick::new();
+                            gesture2.set_button(3);
+                            let this2 = self.clone();
+                            let cname2 = child.name.clone();
+                            let row_weak2 = child_row.downgrade();
+                            gesture2.connect_pressed(move |g, _, x, y| {
+                                g.set_state(gtk4::EventSequenceState::Claimed);
+                                if let Some(row) = row_weak2.upgrade() {
+                                    this2.show_category_menu(&row, &cname2, false, x, y);
+                                }
+                            });
+                            child_row.add_controller(gesture2);
+                            self.filter_list.append(&child_row);
+                            emitted.insert(child.name.clone());
+                        }
+                    }
+                }
+            }
+            // Standalone categories (no parent, no children)
+            for cat in &all_cats {
+                if emitted.contains(&cat.name) { continue; }
                 let cat_count = self
                     .library
                     .borrow()
-                    .doc_count(&LibraryFilter::Category(c.clone()))
+                    .doc_count(&LibraryFilter::Category(cat.name.clone()))
                     .ok();
                 let filter_row = make_category_filter_row(
-                    &format!("category:{}", c),
-                    &color,
-                    &c,
+                    &format!("category:{}", cat.name),
+                    &cat.color_hex,
+                    &cat.name,
                     cat_count,
                 );
                 let drop = DropTarget::new(gtk4::glib::Type::STRING, gtk4::gdk::DragAction::COPY);
                 let this = self.clone();
-                let cat_name = c.clone();
+                let cat_name = cat.name.clone();
                 drop.connect_drop(move |_, value, _, _| {
                     if let Ok(id_str) = value.get::<String>() {
                         if let Ok(doc_id) = id_str.parse::<i64>() {
@@ -518,12 +620,12 @@ impl LibraryWindow {
                 let gesture = gtk4::GestureClick::new();
                 gesture.set_button(3);
                 let this = self.clone();
-                let cat_name = c.clone();
+                let cat_name = cat.name.clone();
                 let row_weak = filter_row.downgrade();
                 gesture.connect_pressed(move |g, _, x, y| {
                     g.set_state(gtk4::EventSequenceState::Claimed);
                     if let Some(row) = row_weak.upgrade() {
-                        this.show_category_menu(&row, &cat_name, x, y);
+                        this.show_category_menu(&row, &cat_name, false, x, y);
                     }
                 });
                 filter_row.add_controller(gesture);
@@ -1274,7 +1376,7 @@ impl LibraryWindow {
         dlg.present();
     }
 
-    fn show_category_menu(&self, row: &ListBoxRow, cat_name: &str, x: f64, y: f64) {
+    fn show_category_menu(&self, row: &ListBoxRow, cat_name: &str, has_children: bool, x: f64, y: f64) {
         let popover = Popover::new();
         popover.set_parent(row);
         popover.set_has_arrow(true);
@@ -1293,6 +1395,28 @@ impl LibraryWindow {
             }
             b
         };
+        let add_sub_b = mk("Add Subcategory…");
+        {
+            let this = self.clone();
+            let pop = popover.clone();
+            let cname = cat_name.to_string();
+            add_sub_b.connect_clicked(move |_| {
+                pop.popdown();
+                this.add_subcategory_dialog(&cname);
+            });
+        }
+        vbox.append(&add_sub_b);
+        if !has_children {
+            let set_parent_b = mk("Set Parent…");
+            let this = self.clone();
+            let pop = popover.clone();
+            let cname = cat_name.to_string();
+            set_parent_b.connect_clicked(move |_| {
+                pop.popdown();
+                this.set_parent_dialog(&cname);
+            });
+            vbox.append(&set_parent_b);
+        }
         let rename_b = mk("Rename Category…");
         {
             let this = self.clone();
@@ -1306,13 +1430,21 @@ impl LibraryWindow {
         vbox.append(&rename_b);
         let delete_b = mk("Delete Category");
         delete_b.add_css_class("error");
-        {
+        if has_children {
+            delete_b.set_sensitive(false);
+            delete_b.add_css_class("dim-label");
+            delete_b.set_tooltip_text(Some("Remove subcategories first"));
+        } else {
             let this = self.clone();
             let pop = popover.clone();
             let cname = cat_name.to_string();
             delete_b.connect_clicked(move |_| {
                 pop.popdown();
-                this.library.borrow_mut().delete_category(&cname).ok();
+                let deleted = this.library.borrow_mut().force_delete_category_if_no_children(&cname).unwrap_or(false);
+                if !deleted {
+                    let toast = adw::Toast::new("Cannot delete: subcategories exist");
+                    this.toast_overlay.add_toast(toast);
+                }
                 *this.current_filter.borrow_mut() = LibraryFilter::All;
                 this.refresh();
             });
@@ -1344,6 +1476,98 @@ impl LibraryWindow {
                     *this.current_filter.borrow_mut() = LibraryFilter::All;
                     this.refresh();
                 }
+            }
+        });
+        dlg.present();
+    }
+
+    fn add_subcategory_dialog(&self, parent_name: &str) {
+        let dlg = adw::MessageDialog::new(Some(&self.window), Some("Add Subcategory"), None);
+        dlg.add_response("cancel", "Cancel");
+        dlg.add_response("ok", "Add");
+        dlg.set_response_appearance("ok", adw::ResponseAppearance::Suggested);
+        dlg.set_default_response(Some("ok"));
+        dlg.set_close_response("cancel");
+        let entry = Entry::new();
+        entry.set_placeholder_text(Some("Subcategory name"));
+        entry.set_activates_default(true);
+        dlg.set_extra_child(Some(&entry));
+        let this = self.clone();
+        let parent_for_dialog = parent_name.to_string();
+        let entry_c = entry.clone();
+        dlg.connect_response(None, move |_, resp| {
+            if resp == "ok" {
+                let name = entry_c.text().to_string();
+                let trimmed = name.trim().to_string();
+                if !trimmed.is_empty() {
+                    this.library.borrow_mut().create_category(&trimmed, Some(&parent_for_dialog)).ok();
+                    this.refresh();
+                }
+            }
+        });
+        dlg.present();
+    }
+
+    fn set_parent_dialog(&self, cat_name: &str) {
+        let all_cats = self.library.borrow().all_categories_structured().unwrap_or_default();
+        // Top-level categories with no parent and no children of their own (avoid cycles, keep max 2 levels)
+        let parent_names: std::collections::HashSet<String> = all_cats
+            .iter()
+            .filter_map(|c| c.parent.clone())
+            .collect();
+        let candidates: Vec<String> = all_cats
+            .iter()
+            .filter(|c| c.parent.is_none() && c.name != cat_name && !parent_names.contains(&c.name))
+            .map(|c| c.name.clone())
+            .collect();
+
+        let dlg = adw::MessageDialog::new(Some(&self.window), Some("Set Parent Category"), None);
+        dlg.add_response("cancel", "Cancel");
+        dlg.add_response("ok", "Set");
+        dlg.set_response_appearance("ok", adw::ResponseAppearance::Suggested);
+        dlg.set_default_response(Some("ok"));
+        dlg.set_close_response("cancel");
+
+        let vbox = GtkBox::new(Orientation::Vertical, 4);
+        let listbox = ListBox::new();
+        listbox.add_css_class("boxed-list");
+        listbox.set_selection_mode(gtk4::SelectionMode::Single);
+
+        let none_row = ListBoxRow::new();
+        none_row.set_widget_name("__none__");
+        let none_lbl = Label::new(Some("None (top-level)"));
+        none_lbl.set_margin_top(8);
+        none_lbl.set_margin_bottom(8);
+        none_lbl.set_margin_start(8);
+        none_row.set_child(Some(&none_lbl));
+        listbox.append(&none_row);
+
+        for parent in &candidates {
+            let r = ListBoxRow::new();
+            r.set_widget_name(parent.as_str());
+            let lbl = Label::new(Some(parent.as_str()));
+            lbl.set_margin_top(8);
+            lbl.set_margin_bottom(8);
+            lbl.set_margin_start(8);
+            lbl.set_halign(Align::Start);
+            r.set_child(Some(&lbl));
+            listbox.append(&r);
+        }
+
+        vbox.append(&listbox);
+        dlg.set_extra_child(Some(&vbox));
+
+        let this = self.clone();
+        let cat = cat_name.to_string();
+        let listbox_c = listbox.clone();
+        dlg.connect_response(None, move |_, resp| {
+            if resp == "ok" {
+                let parent_value = listbox_c
+                    .selected_row()
+                    .map(|r| r.widget_name().to_string())
+                    .filter(|n| n != "__none__");
+                this.library.borrow_mut().set_category_parent(&cat, parent_value.as_deref()).ok();
+                this.refresh();
             }
         });
         dlg.present();
@@ -2238,7 +2462,7 @@ impl LibraryWindow {
     }
 
     #[allow(dead_code)]
-    pub fn window(&self) -> &adw::ApplicationWindow {
+    pub fn window(&self) -> &adw::Window {
         &self.window
     }
 }
@@ -2262,6 +2486,8 @@ fn parse_filter_name(name: &str) -> LibraryFilter {
         rest.parse::<i64>()
             .map(LibraryFilter::Tag)
             .unwrap_or(LibraryFilter::All)
+    } else if let Some(rest) = name.strip_prefix("category-group:") {
+        LibraryFilter::CategoryGroup(rest.to_string())
     } else if let Some(rest) = name.strip_prefix("category:") {
         LibraryFilter::Category(rest.to_string())
     } else {
@@ -2319,6 +2545,14 @@ fn make_category_filter_row(name: &str, color: &str, label: &str, count: Option<
         hbox.append(&c_lbl);
     }
     row.set_child(Some(&hbox));
+    row
+}
+
+fn make_category_filter_row_indented(name: &str, color: &str, label: &str, count: Option<i64>, indent: i32) -> ListBoxRow {
+    let row = make_category_filter_row(name, color, label, count);
+    if let Some(child) = row.child() {
+        child.set_margin_start(indent);
+    }
     row
 }
 
