@@ -5,6 +5,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.13.12-dev4] — Document Library
+
+### Added
+
+- **Document Library** (`Ctrl+L` or Library button in toolbar) — a floating `AdwApplicationWindow` that serves as the primary document navigator, replacing the need to use Nautilus/Dolphin
+  - SQLite-backed global library at `~/.local/share/zerkalo/library.sqlite`
+  - Left filter sidebar: All Documents, Projects (grouped), Categories, Tags, Archive
+  - Right document list: title, category chip, tag chips (max 4), relative date (Today / Yesterday / weekday / month-day)
+  - **Search**: live filter by document title via the search bar
+  - **New Document**: creates `Untitled.typ` (auto-increments if exists) in the default work dir, adds to library, and opens in editor
+  - **Import**: file picker to add an existing `.typ` file to the library without copying it
+  - **Right-click context menu** on any document: Open, Rename, Set Category, Edit Tags, Add to Project, Archive/Unarchive, Remove from Library, Delete File
+  - **Manage Tags**: dialog to create tags with 8 preset colors, delete tags, rename tags
+  - **Projects**: create from "New Project" button in sidebar; add/remove documents per-project; right-click project to delete it
+  - **Auto-registration**: files opened in the editor are automatically added to the library and their `last_opened_at` / `modified_at` timestamps kept current
+  - **Archiving**: flag-only (no file movement); archived documents shown under the Archive filter and hidden from All
+  - Library window hides on close rather than destroying — toggle with Ctrl+L or the Library button
+
+---
+
 ## [0.13.12-dev3] — Fix scroll jump after right-click context menu
 
 ### Fixed

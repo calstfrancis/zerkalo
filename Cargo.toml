@@ -1,6 +1,6 @@
 [package]
 name = "zerkalo"
-version = "0.13.12-dev3"
+version = "0.13.12-dev4"
 edition = "2021"
 license = "MIT"
 description = "Contemplative Typst editor with live preview, LSP completions, and git sync"
@@ -25,6 +25,7 @@ regex = "1.10"
 chrono = "0.4"
 shellexpand = "3.1"
 notify = "6"
+rusqlite = { version = "0.31", features = ["bundled"] }
 
 # Embedded Typst compiler
 typst = "0.14"
