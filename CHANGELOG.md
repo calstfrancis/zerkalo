@@ -5,6 +5,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.14.1-dev4] — Library status bar, compile mode toggle, more visual polish
+
+### Added
+- **Library status bar** — doc/project count and last-opened info moved from sidebar to a bottom status bar on the right panel; "Compact" text button (bold when active) also lives there
+- **Compile mode status bar toggle** — click "on save / auto / manual" in the editor status bar to cycle compile modes; label turns amber in manual, green in auto; syncs with Settings
+- **Sidebar count badges** — each filter row in the library sidebar shows a pill badge with the matching document count; hidden when zero
+- **Doc list empty state** — an empty filter or search now shows a "No documents / Nothing here yet" centred placeholder instead of a blank list; subtitle updates to "Try a different search" when searching
+- **Pinned docs divider** — a separator row appears between pinned and unpinned documents in the library list
+- **Compile pulse animation** — the compile button pulses its opacity during compilation to indicate active work
+- **Preview zoom step buttons** — `−` and `+` flank the zoom percentage label in the preview bottom bar for mouse-free zoom
+- **Goal ring celebration** — when the word count crosses the goal threshold, the ring flashes bright green with a thicker stroke for 900 ms
+- **Tab overflow fade** — a right-edge gradient on the tab header hints at scrollable overflow
+- **CSS: compile mode colour** — "manual" label is amber, "auto" is success-green
+
+### Changed
+- **Tab transitions** — extended to `all 150 ms ease` on the notebook stack child
+
+---
+
 ## [0.14.1-dev3] — Visual polish and save behaviour fixes
 
 ### Added

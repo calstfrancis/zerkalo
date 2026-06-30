@@ -198,6 +198,7 @@ pub struct EditorPane {
     session_delta_label: Label,
     goal_ring: DrawingArea,
     goal_fraction: Rc<Cell<f64>>,
+    goal_celebrating: Rc<Cell<bool>>,
     lsp_status_label: Label,
     diag_label: Label,
     last_diagnostics: Rc<RefCell<Vec<(PathBuf, u32, bool)>>>,
@@ -217,6 +218,7 @@ pub struct EditorPane {
     project_root: Rc<RefCell<Option<PathBuf>>>,
     status_bar: GtkBox,
     status_bar_left_spacer: GtkBox,
+    simple_mode_btn: Button,
     autocorrect_label: Label,
     on_autocorrect_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
     gost_label: Label,
@@ -501,6 +503,7 @@ impl EditorPane {
         status_bar.append(&session_delta_label);
 
         let goal_fraction: Rc<Cell<f64>> = Rc::new(Cell::new(0.0));
+        let goal_celebrating: Rc<Cell<bool>> = Rc::new(Cell::new(false));
         let goal_ring = DrawingArea::new();
         goal_ring.set_visible(false);
         goal_ring.set_valign(gtk4::Align::Center);
@@ -510,18 +513,23 @@ impl EditorPane {
         goal_ring.add_css_class("goal-ring");
         {
             let frac_rc = goal_fraction.clone();
+            let cel_rc = goal_celebrating.clone();
             goal_ring.set_draw_func(move |_da, cr, w, h| {
                 let cx = w as f64 / 2.0;
                 let cy = h as f64 / 2.0;
                 let radius = (w.min(h) as f64 / 2.0) - 2.0;
-                cr.set_line_width(2.5);
+                let celebrating = cel_rc.get();
+                cr.set_line_width(if celebrating { 3.5 } else { 2.5 });
                 cr.set_source_rgba(0.5, 0.5, 0.5, 0.2);
                 cr.arc(cx, cy, radius, 0.0, 2.0 * std::f64::consts::PI);
                 let _ = cr.stroke();
                 let frac = frac_rc.get();
                 if frac > 0.0 {
                     let end_angle = -std::f64::consts::FRAC_PI_2 + frac * 2.0 * std::f64::consts::PI;
-                    if frac >= 1.0 {
+                    if celebrating {
+                        cr.set_line_width(3.5);
+                        cr.set_source_rgba(0.1, 1.0, 0.1, 1.0);
+                    } else if frac >= 1.0 {
                         cr.set_source_rgba(0.2, 0.8, 0.2, 0.9);
                     } else {
                         cr.set_source_rgba(0.2, 0.7, 0.5, 0.9);
@@ -996,6 +1004,7 @@ impl EditorPane {
             session_delta_label,
             goal_ring,
             goal_fraction,
+            goal_celebrating,
             lsp_status_label,
             diag_label,
             last_diagnostics: Rc::new(RefCell::new(Vec::new())),
@@ -1015,6 +1024,7 @@ impl EditorPane {
             project_root,
             status_bar,
             status_bar_left_spacer: left_spacer.clone(),
+            simple_mode_btn: simple_mode_btn.clone(),
             autocorrect_label,
             on_autocorrect_toggle,
             gost_label,
@@ -1386,6 +1396,15 @@ impl EditorPane {
     /// (i.e. between the hexpand spacer and SIMPLE).
     pub fn status_bar_insert_before_simple(&self, w: &impl gtk4::prelude::IsA<gtk4::Widget>) {
         self.status_bar.insert_child_after(w, Some(&self.status_bar_left_spacer));
+    }
+
+    /// Insert a widget into the status bar immediately after the SIMPLE toggle.
+    pub fn status_bar_insert_after_simple(&self, w: &impl gtk4::prelude::IsA<gtk4::Widget>) {
+        self.status_bar.insert_child_after(w, Some(&self.simple_mode_btn));
+    }
+
+    pub fn simple_mode_button(&self) -> &Button {
+        &self.simple_mode_btn
     }
 
     // ── Settings ──────────────────────────────────────────────────────────────
@@ -2566,6 +2585,8 @@ impl EditorPane {
         let goal_for_change = self.goal_ring.clone();
         let goal_frac_for_change = self.goal_fraction.clone();
         let goal_val_for_change = self.word_count_goal.clone();
+        let goal_celebrating_for_change = self.goal_celebrating.clone();
+        let goal_was_met_for_change: Rc<Cell<bool>> = Rc::new(Cell::new(false));
         let last_wc_for_change = self.last_wc_text.clone();
         let project_root_for_wc = self.project_root.clone();
         let session_start_for_change: Rc<std::cell::Cell<u32>> = Rc::new(std::cell::Cell::new(count_words(content)));
@@ -2606,6 +2627,8 @@ impl EditorPane {
                 let ss2 = session_start_for_change.clone();
                 let buf2 = buf.clone();
                 let t = wc_timer.clone();
+                let goal_cel2 = goal_celebrating_for_change.clone();
+                let goal_was2 = goal_was_met_for_change.clone();
                 *wc_timer.borrow_mut() = Some(glib::timeout_add_local_once(
                     Duration::from_millis(300),
                     move || {
@@ -2613,7 +2636,25 @@ impl EditorPane {
                         let (s, e) = buf2.bounds();
                         let text = buf2.text(&s, &e, false);
                         let goal = *goal_val2.borrow();
-                        if goal > 0 { update_goal_ring(&goal2, &goal_frac2, &text, goal); }
+                        if goal > 0 {
+                            let was_met = goal_was2.get();
+                            update_goal_ring(&goal2, &goal_frac2, &text, goal);
+                            let now_met = goal_frac2.get() >= 1.0;
+                            goal_was2.set(now_met);
+                            if now_met && !was_met {
+                                goal_cel2.set(true);
+                                goal2.queue_draw();
+                                let cel_reset = goal_cel2.clone();
+                                let ring_reset = goal2.clone();
+                                glib::timeout_add_local_once(
+                                    Duration::from_millis(900),
+                                    move || {
+                                        cel_reset.set(false);
+                                        ring_reset.queue_draw();
+                                    },
+                                );
+                            }
+                        }
                         let wc_str = wc_str_with_delta(&text, ss2.get());
                         *last_wc2.borrow_mut() = wc_str.clone();
                         wc2.set_text(&wc_str);

@@ -11,7 +11,7 @@ use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{
     Align, Box as GtkBox, Button, DrawingArea, EventControllerKey, GestureClick, Label,
-    Orientation, Overlay, ScrolledWindow, Spinner, Stack,
+    Orientation, Overlay, ScrolledWindow, Separator, Spinner, Stack,
 };
 use std::time::Instant;
 
@@ -54,6 +54,7 @@ pub struct PreviewPane {
     first_load: Rc<RefCell<bool>>,
     zoom_osd: Label,
     osd_timer: Rc<RefCell<Option<glib::SourceId>>>,
+    zoom_label: Label,
 }
 
 impl PreviewPane {
@@ -137,6 +138,43 @@ impl PreviewPane {
         preview_overlay.set_hexpand(true);
         preview_overlay.set_vexpand(true);
         root_widget.append(&preview_overlay);
+
+        // ── Zoom control bar ──────────────────────────────────────────────────
+        let zoom_bar = GtkBox::new(Orientation::Horizontal, 0);
+        zoom_bar.set_hexpand(true);
+
+        let zoom_spacer = GtkBox::new(Orientation::Horizontal, 0);
+        zoom_spacer.set_hexpand(true);
+        zoom_bar.append(&zoom_spacer);
+
+        let zoom_minus_btn = Button::with_label("\u{2212}");
+        zoom_minus_btn.add_css_class("flat");
+        zoom_minus_btn.add_css_class("caption");
+        zoom_minus_btn.set_tooltip_text(Some("Zoom out (−10%)"));
+        zoom_minus_btn.set_margin_top(2);
+        zoom_minus_btn.set_margin_bottom(2);
+        zoom_bar.append(&zoom_minus_btn);
+
+        let zoom_label = Label::new(Some("100%"));
+        zoom_label.add_css_class("caption");
+        zoom_label.add_css_class("dim-label");
+        zoom_label.set_width_chars(5);
+        zoom_label.set_xalign(0.5);
+        zoom_label.set_margin_start(2);
+        zoom_label.set_margin_end(2);
+        zoom_bar.append(&zoom_label);
+
+        let zoom_plus_btn = Button::with_label("+");
+        zoom_plus_btn.add_css_class("flat");
+        zoom_plus_btn.add_css_class("caption");
+        zoom_plus_btn.set_tooltip_text(Some("Zoom in (+10%)"));
+        zoom_plus_btn.set_margin_top(2);
+        zoom_plus_btn.set_margin_bottom(2);
+        zoom_bar.append(&zoom_plus_btn);
+
+        let zoom_sep = Separator::new(Orientation::Horizontal);
+        root_widget.append(&zoom_sep);
+        root_widget.append(&zoom_bar);
 
         let css_provider = gtk4::CssProvider::new();
         css_provider.load_from_data(
@@ -271,6 +309,7 @@ impl PreviewPane {
             first_load: Rc::new(RefCell::new(true)),
             zoom_osd,
             osd_timer: Rc::new(RefCell::new(None)),
+            zoom_label: zoom_label.clone(),
         };
 
         // Refit to width whenever the scroll viewport width changes (window resize).
@@ -329,6 +368,26 @@ impl PreviewPane {
             pane.img_scroll.add_controller(key_ctrl);
         }
 
+        // ── Zoom step buttons ─────────────────────────────────────────────────
+        {
+            let pane_minus = pane.clone();
+            zoom_minus_btn.connect_clicked(move |_| {
+                let z = (pane_minus.zoom() - 0.10).max(0.25);
+                let z = (z * 100.0).round() / 100.0;
+                pane_minus.set_zoom(z);
+                pane_minus.update_zoom_label(z);
+            });
+        }
+        {
+            let pane_plus = pane.clone();
+            zoom_plus_btn.connect_clicked(move |_| {
+                let z = (pane_plus.zoom() + 0.10).min(4.0);
+                let z = (z * 100.0).round() / 100.0;
+                pane_plus.set_zoom(z);
+                pane_plus.update_zoom_label(z);
+            });
+        }
+
         // Wire cancel button once
         let gen_c = pane.compile_gen.clone();
         let spinner_c = pane.spinner.clone();
@@ -349,7 +408,12 @@ impl PreviewPane {
         pane
     }
 
+    fn update_zoom_label(&self, zoom: f64) {
+        self.zoom_label.set_text(&format!("{:.0}%", zoom * 100.0));
+    }
+
     fn show_zoom_osd(&self, zoom: f64) {
+        self.update_zoom_label(zoom);
         self.zoom_osd.set_text(&format!("{:.0}%", zoom * 100.0));
         self.zoom_osd.set_visible(true);
         if let Some(id) = self.osd_timer.borrow_mut().take() {
@@ -427,6 +491,7 @@ impl PreviewPane {
         self.refit_drawing_area_centered(v_frac);
 
         let actual = *self.zoom.borrow();
+        self.update_zoom_label(actual);
         if let Some(f) = self.on_zoom_changed.borrow().as_ref() {
             f(actual);
         }
@@ -443,6 +508,7 @@ impl PreviewPane {
             let z = ((scroll_w - 16.0) / pb_w).clamp(0.25, 4.0);
             *self.zoom.borrow_mut() = z;
             self.refit_drawing_area_centered(None);
+            self.update_zoom_label(z);
             if let Some(f) = self.on_zoom_changed.borrow().as_ref() { f(z); }
         }
     }
@@ -762,6 +828,7 @@ impl PreviewPane {
             if pb_w > 0.0 && scroll_w > 16.0 {
                 let z = ((scroll_w - 16.0) / pb_w).clamp(0.25, 4.0);
                 *self.zoom.borrow_mut() = z;
+                self.update_zoom_label(z);
                 if let Some(f) = self.on_zoom_changed.borrow().as_ref() { f(z); }
             }
             self.refit_drawing_area_centered(saved_v_frac);
