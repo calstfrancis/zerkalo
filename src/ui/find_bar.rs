@@ -25,7 +25,7 @@ impl FindBar {
     pub fn new() -> Self {
         let revealer = Revealer::new();
         revealer.set_transition_type(RevealerTransitionType::SlideDown);
-        revealer.set_transition_duration(200);
+        revealer.set_transition_duration(250);
         revealer.set_reveal_child(false);
 
         let bar_container = GtkBox::new(Orientation::Vertical, 0);

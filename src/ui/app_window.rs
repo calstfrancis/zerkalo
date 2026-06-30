@@ -2243,6 +2243,7 @@ impl AppWindow {
                     error_panel_for_compile.clear();
                     error_panel_for_compile.widget().set_visible(false);
                     editor_for_diag.clear_diagnostic_marks();
+                    editor_for_diag.clear_error_marks();
                     editor_for_diag.set_diag_summary(0, 0);
                     error_banner_for_compile.set_visible(false);
                     error_banner_lbl_for_compile.set_visible(false);
@@ -2279,6 +2280,11 @@ impl AppWindow {
                         .map(|e| (e.file.clone(), e.line, matches!(e.severity, Severity::Error)))
                         .collect();
                     editor_for_diag.mark_diagnostics(&diags);
+                    let error_lines: Vec<usize> = errors.iter()
+                        .filter(|e| matches!(e.severity, Severity::Error))
+                        .map(|e| e.line as usize)
+                        .collect();
+                    editor_for_diag.mark_error_lines(error_lines);
                     editor_for_diag.set_diag_summary(err_count as u32, warn_count as u32);
                     // Update window title with error count
                     let title = match (err_count, warn_count) {
@@ -5256,12 +5262,13 @@ fn load_app_css() {
             color: @accent_fg_color; \
         } \
         .paned > separator { \
-            min-width: 4px; \
-            min-height: 4px; \
-            transition: background-color 200ms; \
+            min-width: 5px; \
+            min-height: 5px; \
+            transition: background-color 150ms ease; \
         } \
         .paned > separator:hover { \
-            background-color: alpha(@accent_color, 0.3); \
+            background-color: alpha(@accent_color, 0.45); \
+            -gtk-icon-source: -gtk-icontheme(\"col-resize-symbolic\"); \
         } \
         .zerkalo-sidebar { \
             transition: opacity 250ms; \
@@ -5330,6 +5337,15 @@ fn load_app_css() {
         .table-grid-cell-selected { \
             background-color: alpha(@accent_color, 0.25); \
             border-color: @accent_color; \
+        } \
+        notebook stack { transition: opacity 120ms ease; } \
+        revealer > * { transition: opacity 200ms ease; } \
+        notebook > header > tabs > tab { \
+            transition: background-color 120ms ease; \
+        } \
+        notebook > header > tabs > tab:not(:checked):hover { \
+            background-color: alpha(@window_fg_color, 0.06); \
+            transition: background-color 120ms ease; \
         }",
     );
     if let Some(display) = gtk4::gdk::Display::default() {
