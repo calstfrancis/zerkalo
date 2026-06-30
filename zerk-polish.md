@@ -69,9 +69,37 @@ The new state (style applied) becomes one undoable step; Ctrl+Z takes you back t
 
 ## Phase 2 — Crash Recovery
 
-*(planned — not yet detailed)*
+### Diagnosis
 
-Areas to investigate: autosave write atomicity, recovery UI flow, what happens on unclean exit with unsaved changes in multiple tabs.
+The autosave machinery (`auto_save.rs`) exists and covers all modified tabs. The gaps are:
+
+1. **Non-atomic writes** — `auto_save::save` calls `std::fs::write` directly onto `{key}.typ`. A crash mid-write leaves a truncated (corrupt) file. On next open, the corrupt content is offered for recovery.
+2. **Autosave never cleared after manual save** — `save_current` and `save_all_modified` in `editor_pane.rs` write the original file but never call `auto_save::clear`. Stale autosave files accumulate indefinitely; the mtime guard prevents false recovery offers but the files are never garbage-collected.
+3. **Multiple simultaneous recovery dialogs on session restore** — `set_on_file_opened` fires once per tab during session restore. With 5 open tabs, all 5 recovery dialogs appear simultaneously. The user has no way to handle them in order.
+
+### Fixes
+
+#### 1. Atomic autosave writes — `auto_save.rs:23`
+Replace `std::fs::write(dest, content)` with: write to `{key}.typ.tmp`, then `std::fs::rename` to `{key}.typ`. `rename` is atomic on Linux (same filesystem) — a crash mid-write leaves the `.tmp` file; the previous good `.typ` is untouched.
+
+#### 2. Clear autosave after manual save — `editor_pane.rs:4425, 4409`
+After a successful `std::fs::write` in both `save_current` and `save_all_modified`, call `crate::auto_save::clear(path)`. This keeps the autosave directory clean without relying on the recovery dialog being shown.
+
+#### 3. Serialise recovery dialogs — `app_window.rs:2038-2094`
+Replace the inline dialog creation with a queue (`Rc<RefCell<VecDeque<(PathBuf, String, String)>>>`). When `set_on_file_opened` detects a recovery, push to the queue. If no dialog is currently showing, pop and show immediately. Each dialog's response handler clears the autosave then pops and shows the next item from the queue. This ensures at most one recovery dialog is on screen at a time.
+
+### What is already correct
+
+- All modified tabs are autosaved (not just the active one).
+- Recovery check uses mtime comparison — stale autosaves (older than the original) are never offered.
+- `auto_save::clear` is called unconditionally on dialog dismiss (both Restore and Discard).
+- Recovery for deleted/moved originals: autosave is offered even when the original file is gone (mtime guard is skipped). Edge case — if the original tab was excluded from session restore (because `read_to_string` failed), restoring is a silent no-op. Deferred: low frequency, complex to fix properly.
+
+### Implementation order
+
+1. Atomic writes in `auto_save.rs` (trivial, highest safety value).
+2. `auto_save::clear` in `save_current` / `save_all_modified`.
+3. Recovery dialog queue in `app_window.rs`.
 
 ---
 

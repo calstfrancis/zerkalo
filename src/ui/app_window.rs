@@ -2035,8 +2035,49 @@ impl AppWindow {
         let current_config_for_open = current_config.clone();
         let todo_panel_for_open = todo_panel.clone();
         let notes_panel_for_open = notes_panel.clone();
-        let editor_for_recovery = editor_pane.clone();
-        let window_for_recovery = window.clone();
+        // Recovery queue: at most one dialog on screen at a time. Each dialog's
+        // response handler calls show_next to pop and show the next item.
+        let recovery_queue: Rc<RefCell<std::collections::VecDeque<(PathBuf, String, String)>>> =
+            Rc::new(RefCell::new(std::collections::VecDeque::new()));
+        let show_next_recovery: Rc<RefCell<Option<Box<dyn Fn()>>>> = Rc::new(RefCell::new(None));
+        {
+            let queue = recovery_queue.clone();
+            let show_next_weak = Rc::downgrade(&show_next_recovery);
+            let win = window.clone();
+            let ep = editor_pane.clone();
+            *show_next_recovery.borrow_mut() = Some(Box::new(move || {
+                let next = queue.borrow_mut().pop_front();
+                if let Some((path, content, ts)) = next {
+                    let dlg = adw::MessageDialog::new(
+                        Some(&win),
+                        Some("Unsaved changes detected"),
+                        Some(&format!(
+                            "An auto-save from {ts} is newer than the last saved version.\n\
+                             Restore the auto-saved content?"
+                        )),
+                    );
+                    dlg.add_response("discard", "Discard");
+                    dlg.add_response("restore", "Restore");
+                    dlg.set_response_appearance("restore", adw::ResponseAppearance::Suggested);
+                    dlg.set_default_response(Some("restore"));
+                    let ep_c = ep.clone();
+                    let path_c = path.clone();
+                    let sn = show_next_weak.clone();
+                    dlg.connect_response(None, move |_, resp| {
+                        if resp == "restore" {
+                            ep_c.set_content(&path_c, &content);
+                        }
+                        crate::auto_save::clear(&path_c);
+                        if let Some(f) = sn.upgrade() {
+                            if let Some(cb) = f.borrow().as_ref() { cb(); }
+                        }
+                    });
+                    dlg.present();
+                }
+            }));
+        }
+        let recovery_queue_for_open = recovery_queue.clone();
+        let show_next_for_open = show_next_recovery.clone();
         let style_btn_for_open = style_btn.clone();
         let file_start_words_for_open = file_start_words.clone();
         let title_widget_for_open = file_title_widget.clone();
@@ -2065,32 +2106,16 @@ impl AppWindow {
             cfg.push_recent(path.clone());
             let _ = cfg.save();
 
-            // Auto-save recovery check
+            // Auto-save recovery check — queue to avoid stacking dialogs during session restore
             if let Some((recovered, save_time)) = crate::auto_save::find_recovery(&path) {
                 let ts = chrono::DateTime::<chrono::Local>::from(save_time)
                     .format("%H:%M:%S")
                     .to_string();
-                let dlg = adw::MessageDialog::new(
-                    Some(&window_for_recovery),
-                    Some("Unsaved changes detected"),
-                    Some(&format!(
-                        "An auto-save from {ts} is newer than the last saved version.\n\
-                         Restore the auto-saved content?"
-                    )),
-                );
-                dlg.add_response("discard", "Discard");
-                dlg.add_response("restore", "Restore");
-                dlg.set_response_appearance("restore", adw::ResponseAppearance::Suggested);
-                dlg.set_default_response(Some("restore"));
-                let ep = editor_for_recovery.clone();
-                let path_c = path.clone();
-                dlg.connect_response(None, move |_, resp| {
-                    if resp == "restore" {
-                        ep.set_content(&path_c, &recovered);
-                    }
-                    crate::auto_save::clear(&path_c);
-                });
-                dlg.present();
+                let was_empty = recovery_queue_for_open.borrow().is_empty();
+                recovery_queue_for_open.borrow_mut().push_back((path.clone(), recovered, ts));
+                if was_empty {
+                    if let Some(f) = show_next_for_open.borrow().as_ref() { f(); }
+                }
             }
         });
 

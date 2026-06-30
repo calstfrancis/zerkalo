@@ -4399,7 +4399,7 @@ impl EditorPane {
     }
 
     pub fn save_all_modified(&self) {
-        let saved: Vec<(Label, GtkBox, String)> = {
+        let saved: Vec<(Label, GtkBox, String, PathBuf)> = {
             let mut state = self.state.borrow_mut();
             let mut out = Vec::new();
             for (path, tab) in state.tabs.iter_mut() {
@@ -4408,14 +4408,15 @@ impl EditorPane {
                 let content = tab.buffer.text(&start, &end, true);
                 if std::fs::write(path, content.as_bytes()).is_ok() {
                     tab.modified = false;
-                    out.push((tab.dot_label.clone(), tab.tab_box.clone(), tab.display_name.clone()));
+                    out.push((tab.dot_label.clone(), tab.tab_box.clone(), tab.display_name.clone(), path.clone()));
                 }
             }
             out
         };
-        for (dot_label, tab_box, display_name) in saved {
+        for (dot_label, tab_box, display_name, path) in saved {
             dot_label.set_visible(false);
             tab_box.update_property(&[gtk4::accessible::Property::Label(&display_name)]);
+            crate::auto_save::clear(&path);
         }
     }
 
@@ -4423,6 +4424,7 @@ impl EditorPane {
         let path = self.get_active_path()?;
         let content = self.get_active_content()?;
         std::fs::write(&path, content.as_bytes()).ok()?;
+        crate::auto_save::clear(&path);
         self.mark_saved(&path);
         Some(path)
     }
