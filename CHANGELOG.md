@@ -5,6 +5,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.14.2-dev1] — More visual polish
+
+### Added
+- **Session delta color** — the session word-count counter turns green when positive
+- **LSP status dot** — a single colored dot replaces the text glyph: green = ready, amber = loading/indexing, red = error, grey = unknown
+- **Find bar match size** — the "N of M" counter in the find bar now renders at caption size
+- **Format bar fade** — the format bar fades in on text selection (120ms opacity transition)
+- **Error banner shake** — when a new compile error fires with the banner already visible, it shakes briefly to signal updated content
+- **Preview page indicator** — "Page X / Y" label in the preview bottom bar, hidden when single-page
+- **Breadcrumb bar class** — breadcrumb bar receives CSS class for future styling
+- **Tag chip click-filter** — clicking a tag chip in the doc list sets the sidebar filter to that tag and selects the matching sidebar row; brief accent flash confirms the action
+- **Command palette match highlighting** — matched query characters are bolded in palette results and subtitles
+- **Tab drag CSS** — the dragged tab gets `opacity: 0.7` + accent background during reorder
+
+---
+
 ## [0.14.1] "Quiet Brass" — Library status bar, compile mode toggle, visual polish
 
 ### Added

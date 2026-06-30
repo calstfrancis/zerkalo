@@ -851,6 +851,39 @@ impl LibraryWindow {
                 let heat = tag_heat_colors.get(&tag.id).map(|s| s.as_str()).unwrap_or("#3584e4");
                 apply_cat_color(&chip, heat);
                 hbox.append(&chip);
+                let chip_click = gtk4::GestureClick::new();
+                chip_click.set_button(1);
+                let this_chip = self.clone();
+                let tag_id = tag.id;
+                let chip_ref = chip.clone();
+                chip_click.connect_pressed(move |g, _, _, _| {
+                    g.set_state(gtk4::EventSequenceState::Claimed);
+                    chip_ref.add_css_class("chip-active");
+                    let chip_weak = chip_ref.downgrade();
+                    glib::timeout_add_local_once(std::time::Duration::from_millis(200), move || {
+                        if let Some(c) = chip_weak.upgrade() { c.remove_css_class("chip-active"); }
+                    });
+                    *this_chip.current_filter.borrow_mut() = LibraryFilter::Tag(tag_id);
+                    this_chip.populate_doc_list();
+                    let tag_name = format!("tag:{}", tag_id);
+                    let mut i = 0;
+                    while let Some(row) = this_chip.filter_list.row_at_index(i) {
+                        if row.widget_name().as_str() == tag_name {
+                            this_chip.filter_list.select_row(Some(&row));
+                            return;
+                        }
+                        i += 1;
+                    }
+                    let mut j = 0;
+                    while let Some(row) = this_chip.bottom_filter_list.row_at_index(j) {
+                        if row.widget_name().as_str() == tag_name {
+                            this_chip.bottom_filter_list.select_row(Some(&row));
+                            return;
+                        }
+                        j += 1;
+                    }
+                });
+                chip.add_controller(chip_click);
             }
 
             if let Some(notes) = &doc.notes {
@@ -925,6 +958,39 @@ impl LibraryWindow {
                 let heat = tag_heat_colors.get(&tag.id).map(|s| s.as_str()).unwrap_or("#3584e4");
                 apply_cat_color(&chip, heat);
                 chips.append(&chip);
+                let chip_click = gtk4::GestureClick::new();
+                chip_click.set_button(1);
+                let this_chip = self.clone();
+                let tag_id = tag.id;
+                let chip_ref = chip.clone();
+                chip_click.connect_pressed(move |g, _, _, _| {
+                    g.set_state(gtk4::EventSequenceState::Claimed);
+                    chip_ref.add_css_class("chip-active");
+                    let chip_weak = chip_ref.downgrade();
+                    glib::timeout_add_local_once(std::time::Duration::from_millis(200), move || {
+                        if let Some(c) = chip_weak.upgrade() { c.remove_css_class("chip-active"); }
+                    });
+                    *this_chip.current_filter.borrow_mut() = LibraryFilter::Tag(tag_id);
+                    this_chip.populate_doc_list();
+                    let tag_name = format!("tag:{}", tag_id);
+                    let mut i = 0;
+                    while let Some(row) = this_chip.filter_list.row_at_index(i) {
+                        if row.widget_name().as_str() == tag_name {
+                            this_chip.filter_list.select_row(Some(&row));
+                            return;
+                        }
+                        i += 1;
+                    }
+                    let mut j = 0;
+                    while let Some(row) = this_chip.bottom_filter_list.row_at_index(j) {
+                        if row.widget_name().as_str() == tag_name {
+                            this_chip.bottom_filter_list.select_row(Some(&row));
+                            return;
+                        }
+                        j += 1;
+                    }
+                });
+                chip.add_controller(chip_click);
             }
             vbox.append(&chips);
 
@@ -2800,6 +2866,9 @@ fn load_library_css() {
             background: alpha(@window_fg_color, 0.08);
             padding: 0 4px;
             font-size: 0.8em;
+        }
+        .chip-active {
+            background: alpha(@accent_color, 0.25);
         }",
     );
     if let Some(display) = gtk4::gdk::Display::default() {

@@ -177,7 +177,7 @@ fn rebuild_list(list: &ListBox, items: &[PaletteItem], query: &str) {
             continue;
         }
 
-        let row = make_row(item);
+        let row = make_row(item, query);
         list.append(&row);
 
         if first {
@@ -187,7 +187,23 @@ fn rebuild_list(list: &ListBox, items: &[PaletteItem], query: &str) {
     }
 }
 
-fn make_row(item: &PaletteItem) -> gtk4::ListBoxRow {
+fn highlight_match(text: &str, query: &str) -> String {
+    if query.is_empty() {
+        return glib::markup_escape_text(text).to_string();
+    }
+    let lower_text = text.to_lowercase();
+    if let Some(start) = lower_text.find(query) {
+        let end = start + query.len();
+        let prefix = glib::markup_escape_text(&text[..start]);
+        let matched = glib::markup_escape_text(&text[start..end]);
+        let suffix = glib::markup_escape_text(&text[end..]);
+        format!("{}<b>{}</b>{}", prefix, matched, suffix)
+    } else {
+        glib::markup_escape_text(text).to_string()
+    }
+}
+
+fn make_row(item: &PaletteItem, query: &str) -> gtk4::ListBoxRow {
     let row = gtk4::ListBoxRow::new();
     row.set_widget_name(&item.id);
 
@@ -200,12 +216,16 @@ fn make_row(item: &PaletteItem) -> gtk4::ListBoxRow {
     let vbox = GtkBox::new(Orientation::Vertical, 2);
     vbox.set_hexpand(true);
 
-    let lbl = Label::new(Some(&item.label));
+    let lbl = Label::new(None);
+    lbl.set_use_markup(true);
+    lbl.set_markup(&highlight_match(&item.label, query));
     lbl.set_xalign(0.0);
     vbox.append(&lbl);
 
     if !item.subtitle.is_empty() {
-        let sub = Label::new(Some(&item.subtitle));
+        let sub = Label::new(None);
+        sub.set_use_markup(true);
+        sub.set_markup(&highlight_match(&item.subtitle, query));
         sub.set_xalign(0.0);
         sub.add_css_class("dim-label");
         sub.add_css_class("caption");

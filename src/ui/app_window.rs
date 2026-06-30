@@ -2321,10 +2321,18 @@ impl AppWindow {
                 }
                 Some(stderr) => {
                     *has_errors_for_compile.borrow_mut() = true;
+                    let already_visible = error_banner_for_compile.is_visible();
                     let first_line = stderr.lines().next().unwrap_or("Compile error").to_string();
                     error_banner_lbl_for_compile.set_text(&first_line);
                     error_banner_lbl_for_compile.set_visible(true);
                     error_banner_for_compile.set_visible(true);
+                    if already_visible {
+                        error_banner_lbl_for_compile.add_css_class("shake-banner");
+                        let lbl_shake = error_banner_lbl_for_compile.clone();
+                        glib::timeout_add_local_once(Duration::from_millis(600), move || {
+                            lbl_shake.remove_css_class("shake-banner");
+                        });
+                    }
                     let t = adw::Toast::new("Compile error — see panel");
                     t.set_timeout(3);
                     toast_for_compile.add_toast(t);
@@ -5445,6 +5453,36 @@ fn load_app_css() {
         } \
         .compile-mode-auto { \
             color: @success_color; \
+        } \
+        .session-delta-positive { \
+            color: @success_color; \
+        } \
+        .format-bar { \
+            transition: opacity 120ms ease; \
+        } \
+        .breadcrumb-bar { \
+            -gtk-icon-shadow: none; \
+        } \
+        .breadcrumb-scroll-fade { \
+            box-shadow: inset 16px 0 12px -8px alpha(@window_bg_color, 0.7); \
+        } \
+        notebook > header > tabs > tab.reorderable-page:hover { \
+            background-color: alpha(@accent_color, 0.08); \
+        } \
+        notebook > header > tabs > tab.dragged-tab { \
+            opacity: 0.7; \
+            background-color: alpha(@accent_color, 0.15); \
+        } \
+        @keyframes shake { \
+            0%   { margin-left: 0px; } \
+            20%  { margin-left: -6px; } \
+            40%  { margin-left: 5px; } \
+            60%  { margin-left: -4px; } \
+            80%  { margin-left: 3px; } \
+            100% { margin-left: 0px; } \
+        } \
+        .shake-banner { \
+            animation: shake 0.5s ease-in-out; \
         }",
     );
     if let Some(display) = gtk4::gdk::Display::default() {
