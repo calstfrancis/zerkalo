@@ -5,6 +5,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.14.1-dev3] — Visual polish and save behaviour fixes
+
+### Added
+- **Preview zoom OSD** — a percentage chip fades in near the preview bottom-right on zoom in/out/reset, disappearing after 1.5 s
+- **Word count goal ring** — the flat progress bar is replaced by a small circular Cairo arc; teal while in progress, green at 100 %
+- **Typewriter scroll crosshair** — a faint 1 px horizontal line sits at the 45 % typewriter anchor while typing, fading 800 ms after keystrokes stop
+- **Compile error line gutter** — lines containing compile errors receive a faint red paragraph background; cleared on next successful compile
+- **Status bar micro-separators** — thin `│` glyphs divide the word-count, session-delta, and version segments in the status bar
+
+### Changed
+- **Tab transitions** — switching notebook pages now fades at 120 ms ease instead of snapping
+- **Tab hover** — inactive tabs show a subtle background tint on hover
+- **Sidebar pane handle** — hover accent is more visible (0.45 alpha) with a slightly wider handle
+- **Find bar reveal** — transition extended to 250 ms for a smoother slide
+- **Library card selection** — selected cards show a 2 px accent `outline` ring in addition to the background tint
+- **Default spell language** — new installs default to `en_CA` instead of `en_US`
+
+### Fixed
+- **Unsaved dot clears after git push and auto-save** — `save_all_modified` now fires the title-bar modified callback so the `·` disappears correctly
+- **Compile saves first** — the Preview toggle and Recompile button now call `save_current()` before triggering compilation
+
+---
+
 ## [0.14.1-dev2] — Editor polish and library improvements
 
 ### Added
