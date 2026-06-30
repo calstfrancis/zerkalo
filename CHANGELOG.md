@@ -5,6 +5,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.14.1-dev1] — Reliability and startup polish
+
+### Fixed
+- **Undo stack no longer wiped by style changes** — applying a citation style, updating template settings when no body marker exists, or accepting autosave recovery no longer silently destroys the undo history; each operation is now one undoable step (Ctrl+Z takes you back to before it)
+- **"File reloaded" toast** — when an external change triggers a file reload (file watcher or git sync), a toast notifies that undo history was cleared rather than leaving Ctrl+Z silently broken
+- **Ctrl+Y as redo alias** — Ctrl+Y now redoes alongside the existing Ctrl+Shift+Z
+- **Atomic autosave writes** — autosave now writes to a `.tmp` file then renames atomically; a crash mid-write can no longer corrupt the previous good autosave
+- **Stale autosaves cleared after manual save** — manually saving (Ctrl+S or Save All) now deletes the corresponding autosave entry, preventing false recovery offers on next launch
+- **Recovery dialogs serialized** — if multiple tabs have pending recovery on session restore, dialogs now appear one at a time rather than all at once
+
+### Performance
+- **Library DB loaded off the main thread** — opening and scanning the library database no longer blocks the GTK main thread on startup; the window now appears immediately and the library is available in the background within a few hundred milliseconds
+- **Typewriter scroll debounced** — rapid line crossings (holding Enter, pasting) no longer trigger multiple recenters; the view settles once after 80 ms of no new line changes
+- **Heading-based preview sync debounced** — the preview no longer jumps the instant the cursor crosses a section boundary mid-edit; it waits 200 ms for the cursor to settle before scrolling
+
+### UX
+- **Tab switching lands focus in the editor** — switching tabs with the keyboard shortcut now moves focus to the new tab's text view; previously required a mouse click to start typing
+- **Tab exits the file sidebar** — pressing Tab while the file tree has focus now jumps directly to the editor instead of cycling through toolbar buttons
+- **Command palette returns focus on close** — closing the palette (Escape or selecting a command) now returns keyboard focus to the editor
+- **Find bar Escape returns focus** — pressing Escape to close the find bar now returns focus to the editor text view
+
+### Fixed
+- **Tab close prompts to save unsaved changes** — closing a modified tab now shows a Save / Discard / Cancel dialog instead of silently discarding changes; applies to the X button, middle-click, and right-click "Close tab"
+- **File watcher deduplication** — rapid back-to-back external writes to the same file no longer trigger multiple recompiles within the same 250 ms window
+- **Background tabs no longer trigger spurious recompile** — the file watcher's "is this file open?" guard now checks all open tabs, not just the active one
+- **Git sync conflict shows a clear message** — a merge conflict during pull now shows "Merge conflict — sync aborted" with guidance, instead of raw git error output
+- **Work folder change now shows restart notice** — changing the work directory in Settings now tells the user a restart is needed for the change to take effect
+
+---
+
 ## [0.14.0] "Lucid Archive" — Library search, hierarchy, and polish
 
 ### Added

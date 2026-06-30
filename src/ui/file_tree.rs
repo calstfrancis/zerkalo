@@ -6,8 +6,9 @@ use std::rc::Rc;
 use gtk4::gdk::Rectangle;
 use gtk4::prelude::*;
 use gtk4::{
-    Align, AlertDialog, Box as GtkBox, Button, DragSource, DropTarget, Entry, GestureClick,
-    Label, ListBox, ListBoxRow, Orientation, Popover, ScrolledWindow, SelectionMode, Separator,
+    Align, AlertDialog, Box as GtkBox, Button, DragSource, DropTarget, Entry, EventControllerKey,
+    GestureClick, Label, ListBox, ListBoxRow, Orientation, Popover, PropagationPhase,
+    ScrolledWindow, SelectionMode, Separator,
 };
 
 type Callback<T> = Rc<RefCell<Option<Box<dyn Fn(T)>>>>;
@@ -302,6 +303,20 @@ impl FileTree {
 
     pub fn grab_focus(&self) {
         self.list_box.grab_focus();
+    }
+
+    pub fn set_on_tab_out(&self, f: impl Fn() + 'static) {
+        let kc = EventControllerKey::new();
+        kc.set_propagation_phase(PropagationPhase::Capture);
+        kc.connect_key_pressed(move |_, key, _, _| {
+            if key == gtk4::gdk::Key::Tab || key == gtk4::gdk::Key::ISO_Left_Tab {
+                f();
+                glib::Propagation::Stop
+            } else {
+                glib::Propagation::Proceed
+            }
+        });
+        self.list_box.add_controller(kc);
     }
 
     pub fn refresh(&self) {

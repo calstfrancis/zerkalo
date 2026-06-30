@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -12,14 +13,18 @@ pub fn start(
     on_change: impl Fn(PathBuf) + 'static,
 ) -> Option<RecommendedWatcher> {
     // Pending paths collected by the watcher thread, drained on the GTK thread.
-    let pending: Arc<Mutex<Vec<PathBuf>>> = Arc::new(Mutex::new(Vec::new()));
+    // HashSet deduplicates rapid back-to-back writes to the same file.
+    let pending: Arc<Mutex<HashSet<PathBuf>>> = Arc::new(Mutex::new(HashSet::new()));
     let pending_watcher = pending.clone();
 
     let on_change = std::rc::Rc::new(on_change);
 
     // Poll the pending queue on GTK's main loop every 250 ms.
     glib::timeout_add_local(std::time::Duration::from_millis(250), move || {
-        let paths: Vec<PathBuf> = pending.lock().map(|mut g| g.drain(..).collect()).unwrap_or_default();
+        let paths: Vec<PathBuf> = pending
+            .lock()
+            .map(|mut g| g.drain().collect())
+            .unwrap_or_default();
         for path in paths {
             on_change(path);
         }
@@ -36,7 +41,7 @@ pub fn start(
                 if let Ok(mut guard) = pending_watcher.lock() {
                     for path in event.paths {
                         if path.extension().map_or(false, |e| e == "typ") {
-                            guard.push(path);
+                            guard.insert(path);
                         }
                     }
                 }

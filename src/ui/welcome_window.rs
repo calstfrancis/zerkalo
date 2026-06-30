@@ -123,14 +123,14 @@ impl WelcomeWindow {
                 body.append(&bullet_row(item));
             }
         } else {
-            body.append(&section_label(&format!("What's New in {VERSION} \"{RELEASE_NAME}\"")));
+            body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
-                "Search now matches tag names and category names, not just document titles",
-                "New Category button in the sidebar — create a category directly without opening a document first",
-                "Two-rank category hierarchy — nest categories under a parent (e.g. Semester → Class); parent rows filter to all children",
-                "Notes visible in the library — first line shown in card view; full text as a tooltip in compact view",
-                "Bulk tagging is now additive — applying tags to a selection no longer removes tags already on those documents",
-                "Database indexes added for faster filter switching on large libraries",
+                "Startup is faster — the library database loads in the background so the window appears immediately",
+                "Closing a modified tab now asks to Save, Discard, or Cancel instead of silently discarding changes",
+                "Tab switching, command palette close, find bar Escape, and sidebar Tab all return focus to the editor",
+                "Typewriter scroll and preview heading sync are debounced — less jumping while typing",
+                "Git sync conflict shows a clear message with guidance instead of raw git output",
+                "File watcher no longer triggers duplicate recompiles from rapid external writes",
             ] {
                 body.append(&bullet_row(item));
             }
