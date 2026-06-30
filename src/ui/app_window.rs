@@ -761,6 +761,58 @@ impl AppWindow {
             });
         }
 
+        // ── Compile mode status bar toggle ──────────────────────────────────
+        let compile_mode_btn = {
+            let initial_label = compile_mode_label_str(
+                config.auto_compile,
+                config.compile_on_save,
+                config.manual_compile_only,
+            );
+            let btn = Button::with_label(initial_label);
+            btn.add_css_class("flat");
+            btn.add_css_class("status-toggle");
+            btn.set_tooltip_text(Some("Cycle compile mode: auto → on save → manual"));
+            apply_compile_mode_css(&btn, config.auto_compile, config.compile_on_save, config.manual_compile_only);
+
+            let sep_cm = Label::new(Some("│"));
+            sep_cm.add_css_class("dim-label");
+            sep_cm.add_css_class("caption");
+            sep_cm.set_opacity(0.4);
+            sep_cm.set_margin_start(2);
+            sep_cm.set_margin_end(2);
+
+            // Insert btn after simple, then sep between simple and btn
+            editor_pane.status_bar_insert_after_simple(&btn);
+            editor_pane.status_bar_widget().insert_child_after(&sep_cm, Some(editor_pane.simple_mode_button()));
+
+            let auto_cm = auto_compile.clone();
+            let cos_cm = compile_on_save.clone();
+            let mco_cm = manual_compile_only.clone();
+            let cfg_cm = current_config.clone();
+            btn.connect_clicked(move |b| {
+                let auto = *auto_cm.borrow();
+                let mco = *mco_cm.borrow();
+                let (new_auto, new_cos, new_mco) = if auto {
+                    (false, true, false)
+                } else if mco {
+                    (true, false, false)
+                } else {
+                    (false, false, true)
+                };
+                *auto_cm.borrow_mut() = new_auto;
+                *cos_cm.borrow_mut() = new_cos;
+                *mco_cm.borrow_mut() = new_mco;
+                b.set_label(compile_mode_label_str(new_auto, new_cos, new_mco));
+                apply_compile_mode_css(b, new_auto, new_cos, new_mco);
+                let mut cfg = cfg_cm.borrow_mut();
+                cfg.auto_compile = new_auto;
+                cfg.compile_on_save = new_cos;
+                cfg.manual_compile_only = new_mco;
+                let _ = cfg.save();
+            });
+            btn
+        };
+
         apply_theme(&config.theme);
         if config.high_contrast {
             window.add_css_class("high-contrast");
@@ -976,6 +1028,7 @@ impl AppWindow {
         let current_config_for_settings = current_config.clone();
         let menu_popover_for_settings = menu_popover.clone();
         let import_item_for_settings = menu_import_item.clone();
+        let compile_mode_btn_for_settings = compile_mode_btn.clone();
         menu_settings_item.connect_clicked(move |_| {
             menu_popover_for_settings.popdown();
             let dialog = SettingsDialog::new(
@@ -990,6 +1043,7 @@ impl AppWindow {
             let cfg_rc = current_config_for_settings.clone();
             let window_for_save = window_for_settings.clone();
             let import_item_save = import_item_for_settings.clone();
+            let cm_btn_save = compile_mode_btn_for_settings.clone();
 
             // Live preview — apply appearance changes immediately while dialog is open
             {
@@ -1019,6 +1073,12 @@ impl AppWindow {
                 *auto_flag.borrow_mut() = new_cfg.auto_compile;
                 *cos_flag.borrow_mut() = new_cfg.compile_on_save;
                 *mco_flag.borrow_mut() = new_cfg.manual_compile_only;
+                cm_btn_save.set_label(compile_mode_label_str(
+                    new_cfg.auto_compile,
+                    new_cfg.compile_on_save,
+                    new_cfg.manual_compile_only,
+                ));
+                apply_compile_mode_css(&cm_btn_save, new_cfg.auto_compile, new_cfg.compile_on_save, new_cfg.manual_compile_only);
                 editor.apply_font_size(new_cfg.editor_font_size);
                 editor.apply_font_family(&new_cfg.editor_font_family);
                 editor.apply_word_wrap(new_cfg.editor_word_wrap);
@@ -2212,9 +2272,11 @@ impl AppWindow {
 
         let compile_rev_for_start = compile_rev.clone();
         let compile_bar_for_start = compile_progress.clone();
+        let compile_btn_for_start = compile_btn.clone();
         // Holds the active pulse timer so we can cancel it before starting a new one.
         let pulse_timer: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
         preview_pane.set_on_compile_start(move || {
+            compile_btn_for_start.add_css_class("compiling-pulse");
             compile_rev_for_start.set_reveal_child(true);
             let bar = compile_bar_for_start.clone();
             let rev = compile_rev_for_start.clone();
@@ -2234,7 +2296,9 @@ impl AppWindow {
         });
 
         let compile_rev_for_done = compile_rev.clone();
+        let compile_btn_for_done = compile_btn.clone();
         preview_pane.set_on_compile_done(move |result| {
+            compile_btn_for_done.remove_css_class("compiling-pulse");
             compile_rev_for_done.set_reveal_child(false);
             match &result {
                 None => {
@@ -4260,6 +4324,23 @@ impl AppWindow {
     }
 }
 
+fn compile_mode_label_str(auto: bool, cos: bool, mco: bool) -> &'static str {
+    if mco { "manual" } else if auto { "auto" } else if cos { "on save" } else { "on save" }
+}
+
+fn apply_compile_mode_css(btn: &Button, auto: bool, _cos: bool, mco: bool) {
+    if mco {
+        btn.add_css_class("compile-mode-manual");
+        btn.remove_css_class("compile-mode-auto");
+    } else if auto {
+        btn.add_css_class("compile-mode-auto");
+        btn.remove_css_class("compile-mode-manual");
+    } else {
+        btn.remove_css_class("compile-mode-manual");
+        btn.remove_css_class("compile-mode-auto");
+    }
+}
+
 // ── Writing session recorder ──────────────────────────────────────────────────
 
 fn record_writing_session(
@@ -5339,6 +5420,7 @@ fn load_app_css() {
             border-color: @accent_color; \
         } \
         notebook stack { transition: opacity 120ms ease; } \
+        notebook > stack { transition: all 150ms ease; } \
         revealer > * { transition: opacity 200ms ease; } \
         notebook > header > tabs > tab { \
             transition: background-color 120ms ease; \
@@ -5346,6 +5428,23 @@ fn load_app_css() {
         notebook > header > tabs > tab:not(:checked):hover { \
             background-color: alpha(@window_fg_color, 0.06); \
             transition: background-color 120ms ease; \
+        } \
+        notebook header.top { \
+            box-shadow: inset -16px 0 12px -8px alpha(@window_bg_color, 0.7); \
+        } \
+        @keyframes pulse-opacity { \
+            0%   { opacity: 1.0; } \
+            50%  { opacity: 0.45; } \
+            100% { opacity: 1.0; } \
+        } \
+        .compiling-pulse { \
+            animation: pulse-opacity 1.2s ease-in-out infinite; \
+        } \
+        .compile-mode-manual { \
+            color: #e5a50a; \
+        } \
+        .compile-mode-auto { \
+            color: @success_color; \
         }",
     );
     if let Some(display) = gtk4::gdk::Display::default() {

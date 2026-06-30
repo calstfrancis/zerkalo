@@ -7,7 +7,7 @@ use gtk4::prelude::*;
 use gtk4::{
     Align, Box as GtkBox, Button, CheckButton, DragSource, DropTarget, Entry, Image, Label,
     ListBox, ListBoxRow, Orientation, Popover, Revealer, ScrolledWindow, SearchEntry, Separator,
-    TextView,
+    Stack, TextView,
 };
 use libadwaita as adw;
 use adw::prelude::*;
@@ -43,6 +43,8 @@ pub struct LibraryWindow {
     view_mode: Rc<RefCell<ViewMode>>,
     stats_label: Label,
     bottom_filter_list: ListBox,
+    doc_list_stack: Stack,
+    empty_subtitle: Label,
 }
 
 impl LibraryWindow {
@@ -84,13 +86,6 @@ impl LibraryWindow {
         let stats_label = Label::new(None);
         stats_label.add_css_class("dim-label");
         stats_label.add_css_class("caption");
-        stats_label.set_margin_top(4);
-        stats_label.set_margin_bottom(6);
-        stats_label.set_margin_start(8);
-        stats_label.set_margin_end(8);
-        stats_label.set_wrap(true);
-        stats_label.set_halign(Align::Start);
-        sidebar_inner.append(&stats_label);
 
         sidebar_scroll.set_child(Some(&sidebar_inner));
         sidebar.append(&sidebar_scroll);
@@ -145,14 +140,9 @@ impl LibraryWindow {
         let sort_dropdown =
             gtk4::DropDown::from_strings(&["Modified", "Created", "Opened", "A→Z"]);
         sort_dropdown.set_tooltip_text(Some("Sort order"));
-        let view_btn = Button::from_icon_name("view-list-compact-symbolic");
-        view_btn.set_tooltip_text(Some("Toggle compact view"));
-        view_btn.add_css_class("flat");
-
         right_header.pack_end(&import_btn);
         right_header.pack_end(&new_doc_btn);
         right_header.pack_end(&sort_dropdown);
-        right_header.pack_end(&view_btn);
 
         right.add_top_bar(&right_header);
 
@@ -161,7 +151,24 @@ impl LibraryWindow {
         let doc_list = ListBox::new();
         doc_list.set_selection_mode(gtk4::SelectionMode::None);
         doc_scroll.set_child(Some(&doc_list));
-        right.set_content(Some(&doc_scroll));
+
+        let empty_box = GtkBox::new(Orientation::Vertical, 8);
+        empty_box.set_halign(Align::Center);
+        empty_box.set_valign(Align::Center);
+        empty_box.set_vexpand(true);
+        let empty_title = Label::new(Some("No documents"));
+        empty_title.add_css_class("dim-label");
+        let empty_subtitle = Label::new(Some("Nothing here yet"));
+        empty_subtitle.add_css_class("dim-label");
+        empty_subtitle.add_css_class("caption");
+        empty_box.append(&empty_title);
+        empty_box.append(&empty_subtitle);
+
+        let doc_list_stack = Stack::new();
+        doc_list_stack.set_vexpand(true);
+        doc_list_stack.add_named(&doc_scroll, Some("docs"));
+        doc_list_stack.add_named(&empty_box, Some("empty"));
+        right.set_content(Some(&doc_list_stack));
 
         // ── Bulk-action bottom bar ──────────────────────────────────────────
         let action_bar_revealer = Revealer::new();
@@ -205,6 +212,21 @@ impl LibraryWindow {
         action_bar_revealer.set_child(Some(&action_bar));
         right.add_bottom_bar(&action_bar_revealer);
 
+        // ── Library status bar ─────────────────────────────────────────────
+        let lib_status_bar = GtkBox::new(Orientation::Horizontal, 8);
+        lib_status_bar.set_margin_start(12);
+        lib_status_bar.set_margin_end(8);
+        lib_status_bar.set_margin_top(4);
+        lib_status_bar.set_margin_bottom(4);
+        lib_status_bar.append(&stats_label);
+        stats_label.set_hexpand(true);
+        stats_label.set_halign(Align::Start);
+        let compact_btn = Button::with_label("Compact");
+        compact_btn.add_css_class("flat");
+        compact_btn.add_css_class("caption");
+        lib_status_bar.append(&compact_btn);
+        right.add_bottom_bar(&lib_status_bar);
+
         root.append(&right);
 
         toast_overlay.set_child(Some(&root));
@@ -232,6 +254,8 @@ impl LibraryWindow {
             view_mode: Rc::new(RefCell::new(ViewMode::List)),
             stats_label,
             bottom_filter_list,
+            doc_list_stack,
+            empty_subtitle,
         };
 
         lw.populate_filter_list();
@@ -248,7 +272,7 @@ impl LibraryWindow {
             &bulk_project_btn,
             &bulk_remove_btn,
             &clear_btn,
-            &view_btn,
+            &compact_btn,
         );
 
         lw
@@ -268,12 +292,12 @@ impl LibraryWindow {
         bulk_project_btn: &Button,
         bulk_remove_btn: &Button,
         clear_btn: &Button,
-        view_btn: &Button,
+        compact_btn: &Button,
     ) {
         {
             let this = self.clone();
-            let view_btn_c = view_btn.clone();
-            view_btn.connect_clicked(move |_| {
+            let compact_btn_c = compact_btn.clone();
+            compact_btn.connect_clicked(move |_| {
                 {
                     let mut mode = this.view_mode.borrow_mut();
                     *mode = if *mode == ViewMode::List {
@@ -282,12 +306,11 @@ impl LibraryWindow {
                         ViewMode::List
                     };
                 }
-                let icon = if *this.view_mode.borrow() == ViewMode::Compact {
-                    "view-list-symbolic"
+                if *this.view_mode.borrow() == ViewMode::Compact {
+                    compact_btn_c.add_css_class("compact-active");
                 } else {
-                    "view-list-compact-symbolic"
-                };
-                view_btn_c.set_icon_name(icon);
+                    compact_btn_c.remove_css_class("compact-active");
+                }
                 this.populate_doc_list();
             });
         }
@@ -699,7 +722,7 @@ impl LibraryWindow {
             .map(|d| d.title)
             .unwrap_or_else(|| "—".to_string());
         self.stats_label
-            .set_text(&format!("{} docs · {} projects\nLast: {}", total, projects, last));
+            .set_text(&format!("{} docs · {} projects · Last: {}", total, projects, last));
     }
 
     fn populate_doc_list(&self) {
@@ -720,17 +743,15 @@ impl LibraryWindow {
             .unwrap_or_default();
 
         if docs.is_empty() {
-            let placeholder = Label::new(Some("No documents."));
-            placeholder.add_css_class("dim-label");
-            placeholder.set_margin_top(40);
-            placeholder.set_margin_bottom(40);
-            let row = ListBoxRow::new();
-            row.set_selectable(false);
-            row.set_activatable(false);
-            row.set_child(Some(&placeholder));
-            self.doc_list.append(&row);
+            self.empty_subtitle.set_text(if !search.is_empty() {
+                "Try a different search"
+            } else {
+                "Nothing here yet"
+            });
+            self.doc_list_stack.set_visible_child_name("empty");
             return;
         }
+        self.doc_list_stack.set_visible_child_name("docs");
 
         let cat_colors: HashMap<String, String> = self
             .library
@@ -748,7 +769,20 @@ impl LibraryWindow {
             .collect();
         let mode = self.view_mode.borrow().clone();
 
+        let has_pinned = docs.iter().any(|d| d.pinned);
+        let has_unpinned = docs.iter().any(|d| !d.pinned);
+        let show_divider = has_pinned && has_unpinned;
+        let mut divider_inserted = false;
+
         for doc in docs {
+            if show_divider && !divider_inserted && !doc.pinned {
+                let sep_row = ListBoxRow::new();
+                sep_row.set_selectable(false);
+                sep_row.set_activatable(false);
+                sep_row.set_child(Some(&Separator::new(Orientation::Horizontal)));
+                self.doc_list.append(&sep_row);
+                divider_inserted = true;
+            }
             let tags = self.library.borrow().doc_tags(doc.id).unwrap_or_default();
             let row = self.make_doc_row(&doc, &tags, project_reorder, mode.clone(), &cat_colors, &tag_heat_colors);
             self.doc_list.append(&row);
@@ -2589,6 +2623,9 @@ fn make_filter_row(name: &str, icon: &str, label: &str, count: Option<i64>) -> L
         let c_lbl = Label::new(Some(&c.to_string()));
         c_lbl.add_css_class("dim-label");
         c_lbl.add_css_class("caption");
+        c_lbl.add_css_class("count-badge");
+        c_lbl.set_halign(Align::End);
+        c_lbl.set_visible(c > 0);
         hbox.append(&c_lbl);
     }
     row.set_child(Some(&hbox));
@@ -2616,6 +2653,9 @@ fn make_category_filter_row(name: &str, color: &str, label: &str, count: Option<
         let c_lbl = Label::new(Some(&c.to_string()));
         c_lbl.add_css_class("dim-label");
         c_lbl.add_css_class("caption");
+        c_lbl.add_css_class("count-badge");
+        c_lbl.set_halign(Align::End);
+        c_lbl.set_visible(c > 0);
         hbox.append(&c_lbl);
     }
     row.set_child(Some(&hbox));
@@ -2651,6 +2691,9 @@ fn make_tag_filter_row(tag_id: i64, label: &str, color: &str, count: Option<i64>
         let c_lbl = Label::new(Some(&c.to_string()));
         c_lbl.add_css_class("dim-label");
         c_lbl.add_css_class("caption");
+        c_lbl.add_css_class("count-badge");
+        c_lbl.set_halign(Align::End);
+        c_lbl.set_visible(c > 0);
         hbox.append(&c_lbl);
     }
     row.set_child(Some(&hbox));
@@ -2747,6 +2790,16 @@ fn load_library_css() {
         .pinned-doc {
             border-left: 2px solid @accent_color;
             padding-left: 6px;
+        }
+        .compact-active {
+            font-weight: bold;
+        }
+        .count-badge {
+            min-width: 24px;
+            border-radius: 8px;
+            background: alpha(@window_fg_color, 0.08);
+            padding: 0 4px;
+            font-size: 0.8em;
         }",
     );
     if let Some(display) = gtk4::gdk::Display::default() {
@@ -2839,20 +2892,48 @@ fn extract_author_tag(raw: &str) -> Option<String> {
         return None;
     }
     let lower = name.to_lowercase();
-    if lower.starts_with("family=") {
-        let family = name[7..].split(',').next().unwrap_or("").trim();
+    // BibLaTeX extended format: "family=Doe, given=John, ..."
+    if lower.contains("family=") {
+        let family = name.split(',')
+            .find(|p| p.trim().to_lowercase().starts_with("family="))
+            .map(|p| p.trim()[7..].trim().trim_matches(|c: char| c == '{' || c == '}').trim())
+            .unwrap_or("");
+        let given = name.split(',')
+            .find(|p| p.trim().to_lowercase().starts_with("given="))
+            .map(|p| p.trim()[6..].trim().trim_matches(|c: char| c == '{' || c == '}').trim())
+            .unwrap_or("");
         if !family.is_empty() {
-            return Some(family.to_string());
+            return Some(if given.is_empty() {
+                family.to_string()
+            } else {
+                format!("{family}, {given}")
+            });
         }
     }
+    // BibTeX comma format: "Last, First [Middle]"
     if let Some(comma) = name.find(',') {
         let last = name[..comma]
             .trim()
             .trim_matches(|c: char| c == '{' || c == '}')
             .trim();
+        let first = name[comma + 1..]
+            .trim()
+            .trim_matches(|c: char| c == '{' || c == '}')
+            .trim();
         if !last.is_empty() {
-            return Some(last.to_string());
+            return Some(if first.is_empty() {
+                last.to_string()
+            } else {
+                format!("{last}, {first}")
+            });
         }
+    }
+    // "First [Middle] Last" — last word is surname
+    let parts: Vec<&str> = name.split_whitespace().collect();
+    if parts.len() >= 2 {
+        let last = *parts.last().unwrap();
+        let first = parts[..parts.len() - 1].join(" ");
+        return Some(format!("{last}, {first}"));
     }
     Some(name.to_string())
 }
