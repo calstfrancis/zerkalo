@@ -203,6 +203,11 @@ impl SettingsDialog {
         high_contrast_row.set_subtitle("Add extra CSS contrast to the editor and UI");
         high_contrast_row.set_active(current.high_contrast);
 
+        let word_count_goal_spin = adw::SpinRow::with_range(0.0, 1_000_000.0, 100.0);
+        word_count_goal_spin.set_title("Word count goal");
+        word_count_goal_spin.set_subtitle("Show progress bar in status bar (0 = disabled)");
+        word_count_goal_spin.set_value(current.word_count_goal as f64);
+
         font_group.add(&font_row);
         font_group.add(&tab_spin);
         font_group.add(&wrap_row);
@@ -210,6 +215,7 @@ impl SettingsDialog {
         font_group.add(&spacing_row);
         font_group.add(&typewriter_row);
         font_group.add(&high_contrast_row);
+        font_group.add(&word_count_goal_spin);
 
         // Bibliography
         let bib_group = adw::PreferencesGroup::new();
@@ -449,6 +455,7 @@ impl SettingsDialog {
             let spacing_row = spacing_row.clone();
             let typewriter_row = typewriter_row.clone();
             let high_contrast_row = high_contrast_row.clone();
+            let word_count_goal_spin = word_count_goal_spin.clone();
             let spell_enabled_row = spell_enabled_row.clone();
             let spell_autocorrect_row = spell_autocorrect_row.clone();
             let selected_langs = selected_langs.clone();
@@ -460,7 +467,7 @@ impl SettingsDialog {
             let preview_zoom_cur = current.preview_zoom;
             let sidebar_width_cur = current.sidebar_width;
             let preview_split_cur = current.preview_split;
-            let word_count_goal_cur = current.word_count_goal;
+            let _word_count_goal_cur = current.word_count_goal; // replaced by spin row
             let last_export_format_cur = current.last_export_format;
             let auto_save_idle_ms_cur = current.auto_save_idle_ms;
             let active_profile_cur = current.active_profile.clone();
@@ -539,7 +546,7 @@ impl SettingsDialog {
                     editor_line_spacing,
                     typewriter_scrolling: typewriter_row.is_active(),
                     high_contrast: high_contrast_row.is_active(),
-                    word_count_goal: word_count_goal_cur,
+                    word_count_goal: word_count_goal_spin.value() as u32,
                     sidebar_width: sidebar_width_cur,
                     preview_split: preview_split_cur,
                     developer_mode: dev_mode_row.is_active(),
@@ -554,6 +561,7 @@ impl SettingsDialog {
                     shown_simple_intro: shown_simple_intro_cur,
                     format_bar_visible: format_bar_visible_cur,
                     last_used_advanced: last_used_advanced_cur,
+                    snippets: Vec::new(),
                 }
             }
         };

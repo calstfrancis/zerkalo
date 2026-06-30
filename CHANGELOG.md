@@ -5,6 +5,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.14.1-dev2] — Editor polish and library improvements
+
+### Added
+- **Paragraph focus mode** — new menu item (Ctrl+Shift+D) dims all paragraphs except the one containing the cursor, reducing visual noise during writing
+- **User-defined snippets** — Settings → Editor → Snippets tab; add trigger/body pairs that expand on Tab keypress in the editor
+- **Compile status shows timing and page count** — status bar now reads "Compiled in X.Xs · N pages" on success, or "Error · X.Xs" on failure; shows "Compiling…" while in progress
+- **Title dirty indicator** — window title gains a bullet (·) when the active file has unsaved changes; cleared on save
+- **Word count goal** — Settings → Editor → Word Count Goal; non-zero value shows a progress bar in the editor status bar
+- **Recent project word count** — library project view header shows total document count and word count for the project
+- **Library empty state** — library shows a proper empty-state page when no documents exist or a search returns no results
+
+### Fixed
+- **Style/font/size changes now trigger recompile** — clicking a style button, changing the font family, or adjusting font size from the toolbar now correctly recompiles the preview; previously the snapshot could be stale causing the old version to compile
+- **High-contrast mode respects light/dark theme** — high-contrast now applies the correct CSS class for the current color scheme; previously switching themes while high-contrast was enabled could show white-on-white text in light mode
+- **Library file creation dates** — documents newly added to the library now record the filesystem creation time rather than the import time; a one-time migration corrects existing records
+- **Citation tag format** — "Tag from citation" now generates `Lastname, Firstname` format for all BibTeX author name styles
+
+---
+
 ## [0.14.1-dev1] — Reliability and startup polish
 
 ### Fixed

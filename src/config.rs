@@ -25,6 +25,14 @@ pub enum CompileProfile {
     Final,
 }
 
+// ── Snippet ───────────────────────────────────────────────────────────────────
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct Snippet {
+    pub trigger: String,
+    pub body: String,
+}
+
 // ── Global config ─────────────────────────────────────────────────────────────
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -103,6 +111,8 @@ pub struct Config {
     pub format_bar_visible: bool,
     #[serde(default)]
     pub last_used_advanced: bool,
+    #[serde(default)]
+    pub snippets: Vec<Snippet>,
 }
 
 fn default_work_dir() -> PathBuf {
@@ -164,6 +174,7 @@ impl Default for Config {
             shown_simple_intro: false,
             format_bar_visible: true,
             last_used_advanced: false,
+            snippets: Vec::new(),
         }
     }
 }
