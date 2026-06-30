@@ -55,6 +55,7 @@ pub struct PreviewPane {
     zoom_osd: Label,
     osd_timer: Rc<RefCell<Option<glib::SourceId>>>,
     zoom_label: Label,
+    page_label: Label,
 }
 
 impl PreviewPane {
@@ -142,6 +143,14 @@ impl PreviewPane {
         // ── Zoom control bar ──────────────────────────────────────────────────
         let zoom_bar = GtkBox::new(Orientation::Horizontal, 0);
         zoom_bar.set_hexpand(true);
+
+        let page_label = Label::new(Some(""));
+        page_label.add_css_class("caption");
+        page_label.add_css_class("dim-label");
+        page_label.set_margin_start(8);
+        page_label.set_margin_end(4);
+        page_label.set_visible(false);
+        zoom_bar.append(&page_label);
 
         let zoom_spacer = GtkBox::new(Orientation::Horizontal, 0);
         zoom_spacer.set_hexpand(true);
@@ -310,6 +319,7 @@ impl PreviewPane {
             zoom_osd,
             osd_timer: Rc::new(RefCell::new(None)),
             zoom_label: zoom_label.clone(),
+            page_label: page_label.clone(),
         };
 
         // Refit to width whenever the scroll viewport width changes (window resize).
@@ -604,9 +614,13 @@ impl PreviewPane {
         let current = self.current_page_idx();
         let total = self.page_count();
         if total > 0 {
+            self.page_label.set_text(&format!("Page {} / {}", current + 1, total));
+            self.page_label.set_visible(true);
             if let Some(f) = self.on_page_changed.borrow().as_ref() {
                 f(current, total);
             }
+        } else {
+            self.page_label.set_visible(false);
         }
     }
 

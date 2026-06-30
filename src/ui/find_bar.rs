@@ -63,6 +63,7 @@ impl FindBar {
 
         let result_label = Label::new(Some(""));
         result_label.add_css_class("dim-label");
+        result_label.add_css_class("caption");
 
         let sep = Separator::new(Orientation::Vertical);
 

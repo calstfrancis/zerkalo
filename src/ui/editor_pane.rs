@@ -573,6 +573,7 @@ impl EditorPane {
         word_wrap_btn.update_property(&[gtk4::accessible::Property::Label("Toggle word wrap")]);
 
         let breadcrumb_bar = GtkBox::new(Orientation::Horizontal, 0);
+        breadcrumb_bar.add_css_class("breadcrumb-bar");
         // Undo/redo at top-left of the editor panel
         breadcrumb_bar.append(&undo_btn);
         breadcrumb_bar.append(&redo_btn);
@@ -612,6 +613,7 @@ impl EditorPane {
 
         // ── Formatting toolbar ────────────────────────────────────────────────
         let format_bar = GtkBox::new(Orientation::Horizontal, 0);
+        format_bar.add_css_class("format-bar");
         format_bar.set_hexpand(true);
         format_bar.set_margin_start(4);
         format_bar.set_margin_end(4);
@@ -2020,8 +2022,10 @@ impl EditorPane {
     pub fn set_session_delta(&self, delta: i32) {
         if delta > 0 {
             self.session_delta_label.set_text(&format!("↑ {delta}"));
+            self.session_delta_label.add_css_class("session-delta-positive");
             self.session_delta_label.set_visible(true);
         } else {
+            self.session_delta_label.remove_css_class("session-delta-positive");
             self.session_delta_label.set_visible(false);
         }
     }
@@ -2044,12 +2048,30 @@ impl EditorPane {
     }
 
     pub fn set_lsp_status(&self, status: &str) {
+        if status.is_empty() {
+            self.lsp_status_label.set_markup("");
+            return;
+        }
         let is_dark = adw::StyleManager::default().is_dark();
-        let green = if is_dark { "#57e389" } else { "#26a269" };
-        let red   = if is_dark { "#ff7b63" } else { "#c01c28" };
-        let markup = status
-            .replace('●', &format!("<span color=\"{green}\">●</span>"))
-            .replace('✗', &format!("<span color=\"{red}\">✗</span>"));
+        let lower = status.to_lowercase();
+        let dot_color = if status.contains('✗') || lower.contains("error") || lower.contains("failed") {
+            if is_dark { "#ff7b63" } else { "#c01c28" }
+        } else if status.contains('↻') || lower.contains("loading") || lower.contains("indexing")
+            || lower.contains("starting") || lower.contains("connecting")
+        {
+            "#e5a50a"
+        } else if status.contains('●') || lower.contains("ready") || lower.contains("connected") {
+            if is_dark { "#57e389" } else { "#26a269" }
+        } else {
+            if is_dark { "#888888" } else { "#666666" }
+        };
+        let plain: String = status.chars()
+            .filter(|c| !matches!(*c, '●' | '✗' | '↻'))
+            .collect::<String>()
+            .trim()
+            .to_string();
+        let text = if plain.is_empty() { "LSP".to_string() } else { plain };
+        let markup = format!("<span color=\"{dot_color}\">●</span> {text}");
         self.lsp_status_label.set_markup(&markup);
     }
 
