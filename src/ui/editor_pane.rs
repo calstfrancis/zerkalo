@@ -8,7 +8,7 @@ use gtk4::prelude::*;
 use gtk4::{
     AlertDialog, Box as GtkBox, Button, CssProvider, DrawingArea, DropTarget, Entry,
     EventControllerFocus, EventControllerKey, EventControllerMotion, GestureClick, Label,
-    Notebook, Orientation, Overlay, Popover, PropagationPhase, ScrolledWindow, Separator,
+    Notebook, Orientation, Popover, PropagationPhase, ScrolledWindow, Separator,
     TextSearchFlags, TextTag, TextWindowType, ToggleButton,
 };
 use libadwaita as adw;
@@ -158,8 +158,6 @@ struct EditorTab {
     display_name: String,
     lsp_popup: LspPopup,
     session_start_words: u32,
-    crosshair: DrawingArea,
-    crosshair_timer: Rc<Cell<Option<glib::SourceId>>>,
 }
 
 struct EditorState {
@@ -4350,8 +4348,6 @@ impl EditorPane {
                 display_name: display_name.clone(),
                 lsp_popup,
                 session_start_words,
-                crosshair: DrawingArea::new(),
-                crosshair_timer: Rc::new(Cell::new(None)),
             },
         );
 
