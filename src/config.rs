@@ -128,7 +128,7 @@ fn default_font_size() -> u32 { 13 }
 fn default_font_family() -> String { "Monospace".to_string() }
 fn default_tab_width() -> u32 { 2 }
 fn default_preview_zoom() -> f64 { 1.0 }
-fn default_spell_languages() -> Vec<String> { vec!["en_US".to_string()] }
+fn default_spell_languages() -> Vec<String> { vec!["en_CA".to_string()] }
 fn default_line_spacing() -> u32 { 2 }
 fn default_sidebar_width() -> i32 { 220 }
 fn default_preview_split() -> i32 { 600 }

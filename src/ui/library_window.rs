@@ -2740,8 +2740,9 @@ fn load_library_css() {
             font-weight: 600;
         }
         .selected-doc {
-            background: alpha(@accent_color, 0.1);
-            border-radius: 4px;
+            outline: 2px solid @accent_color;
+            outline-offset: -2px;
+            background: alpha(@accent_color, 0.08);
         }
         .pinned-doc {
             border-left: 2px solid @accent_color;

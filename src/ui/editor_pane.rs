@@ -6,9 +6,9 @@ use std::time::Duration;
 
 use gtk4::prelude::*;
 use gtk4::{
-    AlertDialog, Box as GtkBox, Button, CssProvider, DropTarget, Entry, EventControllerFocus,
-    EventControllerKey, EventControllerMotion, GestureClick, Label,
-    Notebook, Orientation, Popover, ProgressBar, PropagationPhase, ScrolledWindow, Separator,
+    AlertDialog, Box as GtkBox, Button, CssProvider, DrawingArea, DropTarget, Entry,
+    EventControllerFocus, EventControllerKey, EventControllerMotion, GestureClick, Label,
+    Notebook, Orientation, Overlay, Popover, PropagationPhase, ScrolledWindow, Separator,
     TextSearchFlags, TextTag, TextWindowType, ToggleButton,
 };
 use libadwaita as adw;
@@ -158,6 +158,8 @@ struct EditorTab {
     display_name: String,
     lsp_popup: LspPopup,
     session_start_words: u32,
+    crosshair: DrawingArea,
+    crosshair_timer: Rc<Cell<Option<glib::SourceId>>>,
 }
 
 struct EditorState {
@@ -170,6 +172,8 @@ struct EditorState {
 pub struct EditorPane {
     outer: GtkBox,
     notebook: Notebook,
+    typewriter_crosshair: DrawingArea,
+    typewriter_crosshair_timer: Rc<RefCell<Option<glib::SourceId>>>,
     state: Rc<RefCell<EditorState>>,
     on_change: Rc<RefCell<Option<Box<dyn Fn()>>>>,
     on_modified_changed: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
@@ -194,7 +198,8 @@ pub struct EditorPane {
     word_count_label: Label,
     on_word_count_click: Rc<RefCell<Option<Box<dyn Fn()>>>>,
     session_delta_label: Label,
-    goal_bar: ProgressBar,
+    goal_ring: DrawingArea,
+    goal_fraction: Rc<Cell<f64>>,
     lsp_status_label: Label,
     diag_label: Label,
     last_diagnostics: Rc<RefCell<Vec<(PathBuf, u32, bool)>>>,
@@ -450,6 +455,14 @@ impl EditorPane {
         simple_mode_btn.update_property(&[gtk4::accessible::Property::Label("Toggle simple mode")]);
         status_bar.append(&simple_mode_btn);
 
+        let sep1 = Label::new(Some("│"));
+        sep1.add_css_class("dim-label");
+        sep1.add_css_class("caption");
+        sep1.set_opacity(0.4);
+        sep1.set_margin_start(2);
+        sep1.set_margin_end(2);
+        status_bar.append(&sep1);
+
         let section_wc_label = Label::new(None);
         section_wc_label.add_css_class("dim-label");
         section_wc_label.add_css_class("caption");
@@ -472,6 +485,14 @@ impl EditorPane {
         wc_btn.set_tooltip_text(Some("Document statistics"));
         status_bar.append(&wc_btn);
 
+        let sep2 = Label::new(Some("│"));
+        sep2.add_css_class("dim-label");
+        sep2.add_css_class("caption");
+        sep2.set_opacity(0.4);
+        sep2.set_margin_start(2);
+        sep2.set_margin_end(2);
+        status_bar.append(&sep2);
+
         let session_delta_label = Label::new(None);
         session_delta_label.add_css_class("dim-label");
         session_delta_label.add_css_class("caption");
@@ -481,13 +502,38 @@ impl EditorPane {
         session_delta_label.set_visible(false);
         status_bar.append(&session_delta_label);
 
-        let goal_bar = ProgressBar::new();
-        goal_bar.set_visible(false);
-        goal_bar.set_valign(gtk4::Align::Center);
-        goal_bar.set_size_request(80, -1);
-        goal_bar.set_margin_end(8);
-        goal_bar.set_tooltip_text(Some("Word count progress toward goal"));
-        status_bar.append(&goal_bar);
+        let goal_fraction: Rc<Cell<f64>> = Rc::new(Cell::new(0.0));
+        let goal_ring = DrawingArea::new();
+        goal_ring.set_visible(false);
+        goal_ring.set_valign(gtk4::Align::Center);
+        goal_ring.set_size_request(22, 22);
+        goal_ring.set_margin_end(6);
+        goal_ring.set_tooltip_text(Some("Word count progress toward goal"));
+        goal_ring.add_css_class("goal-ring");
+        {
+            let frac_rc = goal_fraction.clone();
+            goal_ring.set_draw_func(move |_da, cr, w, h| {
+                let cx = w as f64 / 2.0;
+                let cy = h as f64 / 2.0;
+                let radius = (w.min(h) as f64 / 2.0) - 2.0;
+                cr.set_line_width(2.5);
+                cr.set_source_rgba(0.5, 0.5, 0.5, 0.2);
+                cr.arc(cx, cy, radius, 0.0, 2.0 * std::f64::consts::PI);
+                let _ = cr.stroke();
+                let frac = frac_rc.get();
+                if frac > 0.0 {
+                    let end_angle = -std::f64::consts::FRAC_PI_2 + frac * 2.0 * std::f64::consts::PI;
+                    if frac >= 1.0 {
+                        cr.set_source_rgba(0.2, 0.8, 0.2, 0.9);
+                    } else {
+                        cr.set_source_rgba(0.2, 0.7, 0.5, 0.9);
+                    }
+                    cr.arc(cx, cy, radius, -std::f64::consts::FRAC_PI_2, end_angle);
+                    let _ = cr.stroke();
+                }
+            });
+        }
+        status_bar.append(&goal_ring);
 
         let version_btn = Button::with_label(concat!("v", env!("CARGO_PKG_VERSION")));
         version_btn.add_css_class("flat");
@@ -539,6 +585,24 @@ impl EditorPane {
         editor_row.set_hexpand(true);
         editor_row.set_vexpand(true);
         editor_row.append(&notebook);
+
+        let typewriter_crosshair = DrawingArea::new();
+        typewriter_crosshair.set_can_target(false);
+        typewriter_crosshair.set_visible(false);
+        typewriter_crosshair.set_hexpand(true);
+        typewriter_crosshair.set_vexpand(true);
+        typewriter_crosshair.set_draw_func(move |_da, cr, w, h| {
+            let y = h as f64 * 0.45;
+            cr.set_source_rgba(0.5, 0.5, 0.5, 0.13);
+            cr.set_line_width(1.0);
+            cr.move_to(0.0, y);
+            cr.line_to(w as f64, y);
+            let _ = cr.stroke();
+        });
+
+        let editor_overlay = gtk4::Overlay::new();
+        editor_overlay.set_child(Some(&editor_row));
+        editor_overlay.add_overlay(&typewriter_crosshair);
 
         // ── Formatting toolbar ────────────────────────────────────────────────
         let format_bar = GtkBox::new(Orientation::Horizontal, 0);
@@ -829,7 +893,7 @@ impl EditorPane {
         outer.append(&breadcrumb_bar);
         outer.append(&Separator::new(Orientation::Horizontal));
         outer.append(&format_bar_container);
-        outer.append(&editor_row);
+        outer.append(&editor_overlay);
         outer.append(find_bar.widget());
         // Note: status_bar is intentionally NOT appended here.
         // app_window places it below inner_paned so it spans the full window width.
@@ -907,6 +971,8 @@ impl EditorPane {
         let ep = Self {
             outer,
             notebook,
+            typewriter_crosshair,
+            typewriter_crosshair_timer: Rc::new(RefCell::new(None)),
             state,
             on_change,
             on_modified_changed,
@@ -930,7 +996,8 @@ impl EditorPane {
             redo_btn,
             word_count_label,
             session_delta_label,
-            goal_bar,
+            goal_ring,
+            goal_fraction,
             lsp_status_label,
             diag_label,
             last_diagnostics: Rc::new(RefCell::new(Vec::new())),
@@ -1314,7 +1381,7 @@ impl EditorPane {
     }
 
     pub fn status_bar_insert_after_goal(&self, w: &impl gtk4::prelude::IsA<gtk4::Widget>) {
-        self.status_bar.insert_child_after(w, Some(&self.goal_bar));
+        self.status_bar.insert_child_after(w, Some(&self.goal_ring));
     }
 
     /// Insert a widget into the status bar just before the SIMPLE toggle
@@ -1485,10 +1552,10 @@ impl EditorPane {
     pub fn apply_word_count_goal(&self, goal: u32) {
         *self.word_count_goal.borrow_mut() = goal;
         if goal == 0 {
-            self.goal_bar.set_visible(false);
+            self.goal_ring.set_visible(false);
         } else {
             if let Some(text) = self.get_active_content() {
-                update_goal_bar(&self.goal_bar, &text, goal);
+                update_goal_ring(&self.goal_ring, &self.goal_fraction, &text, goal);
             }
         }
     }
@@ -1805,6 +1872,41 @@ impl EditorPane {
             buffer.remove_source_marks(&start, &end, Some("zerkalo-error"));
             buffer.remove_source_marks(&start, &end, Some("zerkalo-warning"));
             diag_dot.set_visible(false);
+        }
+    }
+
+    pub fn mark_error_lines(&self, lines: Vec<usize>) {
+        let active_path = self.get_active_path();
+        let tabs: Vec<(PathBuf, Buffer)> = {
+            let state = self.state.borrow();
+            state.tabs.iter().map(|(p, t)| (p.clone(), t.buffer.clone())).collect()
+        };
+        for (path, buffer) in &tabs {
+            let (start, end) = buffer.bounds();
+            ensure_error_line_tag(buffer);
+            buffer.remove_tag_by_name("zerkalo-error-line", &start, &end);
+            if active_path.as_ref() == Some(path) {
+                for &line in &lines {
+                    let line_idx = (line as i32).saturating_sub(1);
+                    if let Some(line_start) = buffer.iter_at_line(line_idx) {
+                        let mut line_end = line_start.clone();
+                        line_end.forward_to_line_end();
+                        buffer.apply_tag_by_name("zerkalo-error-line", &line_start, &line_end);
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn clear_error_marks(&self) {
+        let tabs: Vec<Buffer> = {
+            let state = self.state.borrow();
+            state.tabs.values().map(|t| t.buffer.clone()).collect()
+        };
+        for buffer in &tabs {
+            let (start, end) = buffer.bounds();
+            ensure_error_line_tag(buffer);
+            buffer.remove_tag_by_name("zerkalo-error-line", &start, &end);
         }
     }
 
@@ -2463,7 +2565,8 @@ impl EditorPane {
         let on_modified_cb = self.on_modified_changed.clone();
         let on_file_dirty_cb = self.on_file_dirty.clone();
         let wc_for_change = self.word_count_label.clone();
-        let goal_for_change = self.goal_bar.clone();
+        let goal_for_change = self.goal_ring.clone();
+        let goal_frac_for_change = self.goal_fraction.clone();
         let goal_val_for_change = self.word_count_goal.clone();
         let last_wc_for_change = self.last_wc_text.clone();
         let project_root_for_wc = self.project_root.clone();
@@ -2499,6 +2602,7 @@ impl EditorPane {
             {
                 let wc2 = wc_for_change.clone();
                 let goal2 = goal_for_change.clone();
+                let goal_frac2 = goal_frac_for_change.clone();
                 let goal_val2 = goal_val_for_change.clone();
                 let last_wc2 = last_wc_for_change.clone();
                 let ss2 = session_start_for_change.clone();
@@ -2511,7 +2615,7 @@ impl EditorPane {
                         let (s, e) = buf2.bounds();
                         let text = buf2.text(&s, &e, false);
                         let goal = *goal_val2.borrow();
-                        if goal > 0 { update_goal_bar(&goal2, &text, goal); }
+                        if goal > 0 { update_goal_ring(&goal2, &goal_frac2, &text, goal); }
                         let wc_str = wc_str_with_delta(&text, ss2.get());
                         *last_wc2.borrow_mut() = wc_str.clone();
                         wc2.set_text(&wc_str);
@@ -2575,6 +2679,8 @@ impl EditorPane {
         let typewriter_for_mark = self.typewriter_scroll.clone();
         let view_for_typewriter = view.clone();
         let scroll_for_typewriter = scroll.clone();
+        let crosshair_for_mark = self.typewriter_crosshair.clone();
+        let crosshair_timer_for_mark = self.typewriter_crosshair_timer.clone();
         let view_for_scroll_margin = view.clone();
         // Track last line the typewriter scroll recentered on, so we only fire
         // when the cursor crosses a line boundary (not every column move).
@@ -2674,6 +2780,8 @@ impl EditorPane {
                     let gen = typewriter_gen.get().wrapping_add(1);
                     typewriter_gen.set(gen);
                     let gen_rc = typewriter_gen.clone();
+                    let crosshair_tw = crosshair_for_mark.clone();
+                    let crosshair_timer_tw = crosshair_timer_for_mark.clone();
                     glib::timeout_add_local_once(
                         std::time::Duration::from_millis(80),
                         move || {
@@ -2683,6 +2791,17 @@ impl EditorPane {
                             let h = sc_tw.hadjustment().value();
                             vt.scroll_to_iter(&mut c, 0.0, true, 0.0, 0.45);
                             sc_tw.hadjustment().set_value(h);
+                            // Show crosshair line at anchor; hide after 800ms
+                            crosshair_tw.set_visible(true);
+                            crosshair_tw.queue_draw();
+                            if let Some(id) = crosshair_timer_tw.borrow_mut().take() { id.remove(); }
+                            let ch = crosshair_tw.clone();
+                            let ct = crosshair_timer_tw.clone();
+                            let id = glib::timeout_add_local_once(
+                                std::time::Duration::from_millis(800),
+                                move || { ch.set_visible(false); *ct.borrow_mut() = None; },
+                            );
+                            *crosshair_timer_tw.borrow_mut() = Some(id);
                         },
                     );
                 }
@@ -4231,6 +4350,8 @@ impl EditorPane {
                 display_name: display_name.clone(),
                 lsp_popup,
                 session_start_words,
+                crosshair: DrawingArea::new(),
+                crosshair_timer: Rc::new(Cell::new(None)),
             },
         );
 
@@ -4240,7 +4361,7 @@ impl EditorPane {
         // Parse per-document goal from `// @zerkalo-goal: N`
         if let Some(goal) = parse_goal_comment(content) {
             *self.word_count_goal.borrow_mut() = goal;
-            update_goal_bar(&self.goal_bar, content, goal);
+            update_goal_ring(&self.goal_ring, &self.goal_fraction, content, goal);
         }
 
         // Explicitly fire page_switch so title/outline update even when this is
@@ -4777,6 +4898,15 @@ fn ensure_diag_tags(buffer: &Buffer) {
     }
 }
 
+fn ensure_error_line_tag(buffer: &Buffer) {
+    let table = buffer.tag_table();
+    if table.lookup("zerkalo-error-line").is_none() {
+        let tag = TextTag::new(Some("zerkalo-error-line"));
+        tag.set_paragraph_background_rgba(Some(&gtk4::gdk::RGBA::new(0.86, 0.15, 0.15, 0.10)));
+        table.add(&tag);
+    }
+}
+
 fn ensure_spell_tag(buffer: &Buffer) {
     let table = buffer.tag_table();
     if table.lookup("zerkalo-spell").is_none() {
@@ -5280,16 +5410,17 @@ fn set_view_line_spacing(view: &View, spacing: u32) {
     view.set_pixels_below_lines(spacing as i32);
 }
 
-fn update_goal_bar(bar: &ProgressBar, text: &str, goal: u32) {
+fn update_goal_ring(ring: &DrawingArea, frac: &Rc<Cell<f64>>, text: &str, goal: u32) {
     if goal == 0 {
-        bar.set_visible(false);
+        ring.set_visible(false);
         return;
     }
     let words = count_content_words(text);
     let fraction = (words as f64 / goal as f64).min(1.0);
-    bar.set_fraction(fraction);
-    bar.set_visible(true);
-    bar.set_tooltip_text(Some(&format!("{words} / {goal} words ({:.0}%)", fraction * 100.0)));
+    frac.set(fraction);
+    ring.queue_draw();
+    ring.set_visible(true);
+    ring.set_tooltip_text(Some(&format!("{words} / {goal} words ({:.0}%)", fraction * 100.0)));
 }
 
 fn parse_goal_comment(content: &str) -> Option<u32> {

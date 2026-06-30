@@ -11,7 +11,7 @@ use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{
     Align, Box as GtkBox, Button, DrawingArea, EventControllerKey, GestureClick, Label,
-    Orientation, ScrolledWindow, Spinner, Stack,
+    Orientation, Overlay, ScrolledWindow, Spinner, Stack,
 };
 use std::time::Instant;
 
@@ -52,6 +52,8 @@ pub struct PreviewPane {
     buffer_snapshot: Rc<RefCell<HashMap<PathBuf, String>>>,
     draft_mode: Rc<RefCell<bool>>,
     first_load: Rc<RefCell<bool>>,
+    zoom_osd: Label,
+    osd_timer: Rc<RefCell<Option<glib::SourceId>>>,
 }
 
 impl PreviewPane {
@@ -119,7 +121,35 @@ impl PreviewPane {
         stack.add_named(&err_scroll, Some("error"));
 
         stack.set_visible_child_name("empty");
-        root_widget.append(&stack);
+
+        let zoom_osd = Label::new(None);
+        zoom_osd.add_css_class("zoom-osd");
+        zoom_osd.set_halign(gtk4::Align::End);
+        zoom_osd.set_valign(gtk4::Align::End);
+        zoom_osd.set_margin_end(12);
+        zoom_osd.set_margin_bottom(12);
+        zoom_osd.set_visible(false);
+        zoom_osd.set_can_target(false);
+
+        let preview_overlay = Overlay::new();
+        preview_overlay.set_child(Some(&stack));
+        preview_overlay.add_overlay(&zoom_osd);
+        preview_overlay.set_hexpand(true);
+        preview_overlay.set_vexpand(true);
+        root_widget.append(&preview_overlay);
+
+        let css_provider = gtk4::CssProvider::new();
+        css_provider.load_from_data(
+            ".zoom-osd { background: alpha(@window_bg_color, 0.85); \
+             border-radius: 6px; padding: 4px 10px; \
+             font-size: 0.85em; font-weight: bold; \
+             box-shadow: 0 1px 4px alpha(black, 0.3); }"
+        );
+        gtk4::style_context_add_provider_for_display(
+            &gtk4::gdk::Display::default().unwrap(),
+            &css_provider,
+            gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
 
         let page_pixbufs: Rc<RefCell<Vec<Pixbuf>>> = Rc::new(RefCell::new(Vec::new()));
 
@@ -239,6 +269,8 @@ impl PreviewPane {
             buffer_snapshot: Rc::new(RefCell::new(HashMap::new())),
             draft_mode: Rc::new(RefCell::new(false)),
             first_load: Rc::new(RefCell::new(true)),
+            zoom_osd,
+            osd_timer: Rc::new(RefCell::new(None)),
         };
 
         // Refit to width whenever the scroll viewport width changes (window resize).
@@ -263,15 +295,19 @@ impl PreviewPane {
                     Key::plus | Key::equal => {
                         let z = (pane_k.zoom() * 1.15).min(4.0);
                         pane_k.set_zoom(z);
+                        pane_k.show_zoom_osd(z);
                         return glib::Propagation::Stop;
                     }
                     Key::minus => {
                         let z = (pane_k.zoom() / 1.15).max(0.25);
                         pane_k.set_zoom(z);
+                        pane_k.show_zoom_osd(z);
                         return glib::Propagation::Stop;
                     }
                     Key::_0 => {
                         pane_k.fit_width();
+                        let z = pane_k.zoom();
+                        pane_k.show_zoom_osd(z);
                         return glib::Propagation::Stop;
                     }
                     Key::space => {
@@ -311,6 +347,24 @@ impl PreviewPane {
         });
 
         pane
+    }
+
+    fn show_zoom_osd(&self, zoom: f64) {
+        self.zoom_osd.set_text(&format!("{:.0}%", zoom * 100.0));
+        self.zoom_osd.set_visible(true);
+        if let Some(id) = self.osd_timer.borrow_mut().take() {
+            id.remove();
+        }
+        let osd_c = self.zoom_osd.clone();
+        let timer_c = self.osd_timer.clone();
+        let source = glib::timeout_add_local_once(
+            std::time::Duration::from_millis(1500),
+            move || {
+                osd_c.set_visible(false);
+                *timer_c.borrow_mut() = None;
+            },
+        );
+        *self.osd_timer.borrow_mut() = Some(source);
     }
 
     pub fn widget(&self) -> &GtkBox {
