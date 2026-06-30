@@ -20,7 +20,13 @@ pub fn save(original_path: &Path, content: &str) {
     let dir = autosave_dir();
     let _ = std::fs::create_dir_all(&dir);
     let key = path_key(original_path);
-    let _ = std::fs::write(dir.join(format!("{key}.typ")), content);
+    // Write to a temp file then rename — rename is atomic on Linux so a crash
+    // mid-write leaves the previous good file intact rather than truncating it.
+    let tmp = dir.join(format!("{key}.typ.tmp"));
+    let dest = dir.join(format!("{key}.typ"));
+    if std::fs::write(&tmp, content).is_ok() {
+        let _ = std::fs::rename(&tmp, &dest);
+    }
     let _ = std::fs::write(dir.join(format!("{key}.meta")), original_path.to_string_lossy().as_bytes());
 }
 
