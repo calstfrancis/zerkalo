@@ -66,6 +66,23 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.14.1" date="2026-06-30">
+      <description>
+        <p>0.14.1 "Quiet Brass" — Library status bar, compile mode toggle, visual polish.</p>
+        <ul>
+          <li>Library status bar — doc/project count and last-opened info at the bottom of the doc panel; "Compact" toggle lives there too</li>
+          <li>Compile mode status bar toggle — click "on save / auto / manual" to cycle modes; label turns amber in manual, green in auto</li>
+          <li>Sidebar count badges — each filter row shows a pill badge with the matching document count</li>
+          <li>Doc list empty state — centred placeholder when a filter or search returns no results</li>
+          <li>Pinned docs divider — separator row between pinned and unpinned documents</li>
+          <li>Compile pulse animation — compile button fades in and out while compiling</li>
+          <li>Preview zoom step buttons — − and + flank the zoom percentage in the preview bar</li>
+          <li>Goal ring celebration — ring flashes bright green for 900 ms when the word count goal is reached</li>
+          <li>Tab overflow fade — right-edge gradient on the tab header hints at scrollable overflow</li>
+          <li>Tag-from-citation now produces "Lastname, Firstname" for all BibTeX author formats</li>
+        </ul>
+      </description>
+    </release>
     <release type="development" version="0.14.1-dev1" date="2026-06-30">
       <description>
         <p>0.14.1-dev1 — Reliability and startup polish (phases 3–6).</p>
