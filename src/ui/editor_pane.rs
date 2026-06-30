@@ -990,8 +990,12 @@ impl EditorPane {
         }
         {
             let sl = search_label.clone();
+            let ep_focus = ep.clone();
             ep.find_bar.set_on_reveal_changed(move |revealed| {
                 set_toggle_label(&sl, "search", revealed);
+                if !revealed {
+                    ep_focus.grab_focus();
+                }
             });
         }
         {
@@ -2315,11 +2319,17 @@ impl EditorPane {
         let notebook_for_close = self.notebook.clone();
         let path_for_close = path.clone();
         let scroll_for_close = scroll.clone();
+        let ep_for_close = self.clone();
+        let dn_for_close = display_name.clone();
         close_btn.connect_clicked(move |_| {
-            if let Some(n) = notebook_for_close.page_num(&scroll_for_close) {
-                notebook_for_close.remove_page(Some(n));
-            }
-            state_for_close.borrow_mut().tabs.remove(&path_for_close);
+            close_tab_with_dirty_check(
+                ep_for_close.clone(),
+                state_for_close.clone(),
+                notebook_for_close.clone(),
+                scroll_for_close.clone(),
+                path_for_close.clone(),
+                dn_for_close.clone(),
+            );
         });
 
         // Middle-click anywhere on the tab label also closes the tab
@@ -2328,13 +2338,19 @@ impl EditorPane {
             let sc_mc = scroll.clone();
             let st_mc = self.state.clone();
             let p_mc  = path.clone();
+            let ep_mc = self.clone();
+            let dn_mc = display_name.clone();
             let mc = gtk4::GestureClick::new();
             mc.set_button(2); // middle button
             mc.connect_pressed(move |_, _, _, _| {
-                if let Some(n) = nb_mc.page_num(&sc_mc) {
-                    nb_mc.remove_page(Some(n));
-                }
-                st_mc.borrow_mut().tabs.remove(&p_mc);
+                close_tab_with_dirty_check(
+                    ep_mc.clone(),
+                    st_mc.clone(),
+                    nb_mc.clone(),
+                    sc_mc.clone(),
+                    p_mc.clone(),
+                    dn_mc.clone(),
+                );
             });
             tab_box.add_controller(mc);
         }
@@ -2372,12 +2388,18 @@ impl EditorPane {
             let st_ci = st_rc.clone();
             let path_ci = path_rc.clone();
             let pop_ci = popover.clone();
+            let ep_ci = self.clone();
+            let dn_ci = display_name.clone();
             close_item.connect_clicked(move |_| {
                 pop_ci.popdown();
-                if let Some(n) = nb_ci.page_num(&sc_ci) {
-                    nb_ci.remove_page(Some(n));
-                }
-                st_ci.borrow_mut().tabs.remove(&path_ci);
+                close_tab_with_dirty_check(
+                    ep_ci.clone(),
+                    st_ci.clone(),
+                    nb_ci.clone(),
+                    sc_ci.clone(),
+                    path_ci.clone(),
+                    dn_ci.clone(),
+                );
             });
 
             // Delete file
@@ -2545,6 +2567,8 @@ impl EditorPane {
         let on_heading_cb = self.on_cursor_heading.clone();
         let on_moved_cb = self.on_cursor_moved.clone();
         let cursor_moved_gen: Rc<std::cell::Cell<u64>> = Rc::new(std::cell::Cell::new(0));
+        let typewriter_gen: Rc<std::cell::Cell<u64>> = Rc::new(std::cell::Cell::new(0));
+        let heading_sync_gen: Rc<std::cell::Cell<u64>> = Rc::new(std::cell::Cell::new(0));
         let path_for_heading = path.clone();
         let path_for_moved = path.clone();
         let last_heading_line: Rc<RefCell<u32>> = Rc::new(RefCell::new(u32::MAX));
@@ -2637,6 +2661,7 @@ impl EditorPane {
                 }
 
                 // Typewriter scroll: only recenter when typing (not on mouse click).
+                // Debounced 80 ms so rapid line crossings coalesce into one recenter.
                 if *typewriter_for_mark.borrow()
                     && was_typing
                     && !buf.has_selection()
@@ -2646,13 +2671,20 @@ impl EditorPane {
                     let mut c = cursor.clone();
                     let vt = view_for_typewriter.clone();
                     let sc_tw = scroll_for_typewriter.clone();
-                    glib::idle_add_local_once(move || {
-                        // Preserve horizontal scroll — scroll_to_iter with xalign=0.0 would
-                        // snap the view left, hiding text behind the left margin/line numbers.
-                        let h = sc_tw.hadjustment().value();
-                        vt.scroll_to_iter(&mut c, 0.0, true, 0.0, 0.45);
-                        sc_tw.hadjustment().set_value(h);
-                    });
+                    let gen = typewriter_gen.get().wrapping_add(1);
+                    typewriter_gen.set(gen);
+                    let gen_rc = typewriter_gen.clone();
+                    glib::timeout_add_local_once(
+                        std::time::Duration::from_millis(80),
+                        move || {
+                            if gen_rc.get() != gen { return; }
+                            // Preserve horizontal scroll — scroll_to_iter with xalign=0.0 would
+                            // snap the view left, hiding text behind the left margin/line numbers.
+                            let h = sc_tw.hadjustment().value();
+                            vt.scroll_to_iter(&mut c, 0.0, true, 0.0, 0.45);
+                            sc_tw.hadjustment().set_value(h);
+                        },
+                    );
                 }
 
                 // #import "@preview/pkg:ver" tooltip
@@ -2691,14 +2723,26 @@ impl EditorPane {
                 breadcrumb_lbl.set_text(&heading_path);
 
                 // Scan backward for a heading; only scroll preview on keyboard nav (not mouse click).
+                // Debounced 200 ms so the preview doesn't jump on every section boundary crossing.
                 if was_typing {
-                    if let Some(cb) = on_heading_cb.borrow().as_ref() {
-                        let heading_line = find_heading_line_for(buf, cursor.line());
-                        if heading_line != *last_heading_line.borrow() {
-                            *last_heading_line.borrow_mut() = heading_line;
-                            if heading_line != u32::MAX {
-                                cb(path_for_heading.clone(), heading_line);
-                            }
+                    let heading_line = find_heading_line_for(buf, cursor.line());
+                    if heading_line != *last_heading_line.borrow() {
+                        *last_heading_line.borrow_mut() = heading_line;
+                        if heading_line != u32::MAX && on_heading_cb.borrow().is_some() {
+                            let gen = heading_sync_gen.get().wrapping_add(1);
+                            heading_sync_gen.set(gen);
+                            let gen_rc = heading_sync_gen.clone();
+                            let cb_h = on_heading_cb.clone();
+                            let path_h = path_for_heading.clone();
+                            glib::timeout_add_local_once(
+                                std::time::Duration::from_millis(200),
+                                move || {
+                                    if gen_rc.get() != gen { return; }
+                                    if let Some(f) = cb_h.borrow().as_ref() {
+                                        f(path_h.clone(), heading_line);
+                                    }
+                                },
+                            );
                         }
                     }
                 }
@@ -4344,6 +4388,10 @@ impl EditorPane {
         *self.on_file_dirty.borrow_mut() = Some(Box::new(f));
     }
 
+    pub fn is_file_open(&self, path: &PathBuf) -> bool {
+        self.state.borrow().tabs.contains_key(path)
+    }
+
     pub fn get_open_paths_ordered(&self) -> Vec<PathBuf> {
         let state = self.state.borrow();
         let mut pages: Vec<(u32, PathBuf)> = state
@@ -4436,6 +4484,7 @@ impl EditorPane {
         }
         let current = self.notebook.current_page().unwrap_or(0);
         self.notebook.set_current_page(Some((current + 1) % n));
+        self.grab_focus();
     }
 
     pub fn prev_tab(&self) {
@@ -4446,6 +4495,7 @@ impl EditorPane {
         let current = self.notebook.current_page().unwrap_or(0);
         let prev = if current == 0 { n - 1 } else { current - 1 };
         self.notebook.set_current_page(Some(prev));
+        self.grab_focus();
     }
 
     /// Jump to the first occurrence of `text` in the active buffer, select it, and scroll to centre.
@@ -4816,6 +4866,54 @@ fn count_project_words(root: &std::path::Path) -> u32 {
         .filter_map(|p| std::fs::read_to_string(p).ok())
         .map(|c| count_content_words(&c) as u32)
         .sum()
+}
+
+/// Show a Save / Discard / Cancel dialog if the tab has unsaved changes,
+/// then close the tab (or not) based on the user's response.
+fn close_tab_with_dirty_check(
+    ep: EditorPane,
+    state: Rc<RefCell<EditorState>>,
+    notebook: Notebook,
+    scroll: ScrolledWindow,
+    path: PathBuf,
+    display_name: String,
+) {
+    let is_modified = state.borrow().tabs.get(&path).map(|t| t.modified).unwrap_or(false);
+    if is_modified {
+        let alert = AlertDialog::builder()
+            .modal(true)
+            .message(&format!("Save changes to '{}'?", display_name))
+            .detail("Your changes will be lost if you close without saving.")
+            .buttons(["Cancel", "Discard", "Save"])
+            .cancel_button(0)
+            .default_button(2)
+            .build();
+        alert.choose(
+            None::<&gtk4::Window>,
+            None::<&gtk4::gio::Cancellable>,
+            move |result| match result {
+                Ok(1) => {
+                    if let Some(n) = notebook.page_num(&scroll) {
+                        notebook.remove_page(Some(n));
+                    }
+                    state.borrow_mut().tabs.remove(&path);
+                }
+                Ok(2) => {
+                    ep.save_current();
+                    if let Some(n) = notebook.page_num(&scroll) {
+                        notebook.remove_page(Some(n));
+                    }
+                    state.borrow_mut().tabs.remove(&path);
+                }
+                _ => {}
+            },
+        );
+    } else {
+        if let Some(n) = notebook.page_num(&scroll) {
+            notebook.remove_page(Some(n));
+        }
+        state.borrow_mut().tabs.remove(&path);
+    }
 }
 
 fn wc_str_with_delta(text: &str, session_start: u32) -> String {

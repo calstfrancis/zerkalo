@@ -66,6 +66,20 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release type="development" version="0.14.1-dev1" date="2026-06-30">
+      <description>
+        <p>0.14.1-dev1 — Reliability and startup polish (phases 3–6).</p>
+        <ul>
+          <li>Library database now loads on a background thread — window appears immediately on startup</li>
+          <li>Typewriter scroll and heading-based preview sync are now debounced to reduce jank</li>
+          <li>Tab switching, find bar Escape, command palette close, and sidebar Tab key all return focus to the editor</li>
+          <li>Closing a modified tab now shows a Save / Discard / Cancel dialog</li>
+          <li>File watcher deduplicates rapid external writes; background tabs no longer trigger spurious recompiles</li>
+          <li>Git sync conflict shows a clear targeted message instead of raw git output</li>
+          <li>Changing the work folder in Settings now shows a restart-required notice</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.14.0" date="2026-06-29">
       <description>
         <p>0.14.0 "Lucid Archive" — Library search, hierarchy, and polish.</p>

@@ -143,6 +143,10 @@ impl CommandPalette {
         *self.on_activate.borrow_mut() = Some(Box::new(f));
     }
 
+    pub fn set_on_close(&self, f: impl Fn() + 'static) {
+        self.window.connect_hide(move |_| f());
+    }
+
     pub fn set_items(&self, items: Vec<PaletteItem>) {
         *self.items.borrow_mut() = items;
     }

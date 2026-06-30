@@ -74,11 +74,29 @@ impl AppWindow {
     pub fn new(app: &adw::Application, config: Config) -> Self {
         let project_root = config.work_dir.clone();
 
-        let library = Rc::new(RefCell::new(Library::open().unwrap_or_else(|e| {
-            tracing::warn!("Failed to open library DB: {e}");
-            Library::open_in_memory()
-        })));
-        library.borrow_mut().import_directory(&config.work_dir).ok();
+        // Start with an in-memory placeholder so the window can open immediately.
+        // The real DB is opened and scanned on a background thread; the RefCell
+        // contents are swapped in when the thread finishes.
+        let library = Rc::new(RefCell::new(Library::open_in_memory()));
+        {
+            let library_bg = library.clone();
+            let work_dir_bg = config.work_dir.clone();
+            let (sender, receiver) =
+                glib::MainContext::channel::<Library>(glib::Priority::LOW);
+            std::thread::spawn(move || {
+                let mut lib = Library::open().unwrap_or_else(|e| {
+                    tracing::warn!("Failed to open library DB: {e}");
+                    Library::open_in_memory()
+                });
+                lib.import_directory(&work_dir_bg).ok();
+                sender.send(lib).ok();
+            });
+            receiver.attach(None, move |lib| {
+                *library_bg.borrow_mut() = lib;
+                tracing::info!("Library DB ready");
+                glib::ControlFlow::Break
+            });
+        }
 
         let window = adw::ApplicationWindow::new(app);
         window.set_title(Some("Zerkalo"));
@@ -1028,7 +1046,22 @@ impl AppWindow {
                     }
                 }
                 import_item_save.set_visible(new_cfg.developer_mode);
+                let work_dir_changed = new_cfg.work_dir != cfg_rc.borrow().work_dir;
                 *cfg_rc.borrow_mut() = new_cfg;
+                if work_dir_changed {
+                    let alert = AlertDialog::builder()
+                        .modal(true)
+                        .message("Restart required")
+                        .detail("The work folder change takes effect after restarting Zerkalo.")
+                        .buttons(["OK"])
+                        .default_button(0)
+                        .build();
+                    alert.choose(
+                        Some(&window_for_save),
+                        None::<&gtk4::gio::Cancellable>,
+                        |_| {},
+                    );
+                }
             });
             dialog.present();
         });
@@ -3143,6 +3176,12 @@ impl AppWindow {
                 let _ = pcfg.save(&root_dir);
             });
         }
+        {
+            let editor_for_tab_out = editor_pane.clone();
+            file_tree.set_on_tab_out(move || {
+                editor_for_tab_out.grab_focus();
+            });
+        }
 
         // ── Project toggle in status bar ─────────────────────────────────────
         //
@@ -3710,8 +3749,7 @@ impl AppWindow {
                 }
                 // Only react to files we don't have open — those are handled by
                 // the editor's own save path.
-                let is_open = editor_for_watch.get_active_path()
-                    .map_or(false, |p| p == changed_path);
+                let is_open = editor_for_watch.is_file_open(&changed_path);
                 if !is_open && !*mco_for_watch.borrow() {
                     preview_for_watch.trigger_compile();
                 }
@@ -3830,6 +3868,12 @@ impl AppWindow {
                         _ => {}
                     }
                 }
+            });
+        }
+        {
+            let editor_for_pal_close = editor.clone();
+            palette.set_on_close(move || {
+                editor_for_pal_close.grab_focus();
             });
         }
         let palette_for_key = palette.clone();
@@ -4297,10 +4341,17 @@ fn show_sync_result(
             );
             return;
         }
+        let is_conflict = detail.contains("CONFLICT") || detail.contains("Pull failed");
         if result.pushed {
             let summary = result.commit_message.lines().next().unwrap_or("Synced").to_string();
             overlay.add_toast(adw::Toast::new(&format!("Synced — {summary}")));
             show_alert(window, "Some remotes failed", &detail);
+        } else if is_conflict {
+            show_alert(
+                window,
+                "Merge conflict — sync aborted",
+                "Remote changes conflict with your local edits. Your work is safe and unchanged.\n\nResolve the conflict by editing the file manually or force-pushing from the command line.",
+            );
         } else {
             show_alert(window, "Push Failed", &detail);
         }

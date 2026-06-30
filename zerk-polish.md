@@ -105,33 +105,155 @@ Replace the inline dialog creation with a queue (`Rc<RefCell<VecDeque<(PathBuf, 
 
 ## Phase 3 — Fast Startup
 
-*(planned — not yet detailed)*
+### Diagnosis
 
-Areas to investigate: time to first paint, LSP startup latency, library DB open on main thread vs async, Typst compiler init.
+Four startup paths were investigated:
+
+1. **Library DB** (`app_window.rs:77–81`) — `Library::open()` opens SQLite, runs WAL pragma, and migrates schema; then `import_directory()` recursively walks the entire work directory and upserts every `.typ` file. Both run synchronously on the GTK main thread **before** `window.present()`. On a large work directory this is the dominant startup cost.
+2. **Font install** (`main.rs:86`) — `fonts::ensure_gost_font()` checks if the font file already exists (a single `stat` call); only writes and spawns `fc-cache` on first run. Fast on repeat launches — not a bottleneck.
+3. **LSP init** (`app_window.rs:2438`) — already deferred with a 500 ms `timeout_add_local`; does not block first paint.
+4. **Typst compiler** (`compiler.rs`) — font scan is a `OnceLock`, first access is on a background `std::thread::spawn`. Does not block the main thread.
+
+The only real bottleneck is the library DB.
+
+### Fix
+
+#### Library DB on background thread — `app_window.rs:77–81`
+
+Replace the blocking init with a `glib::MainContext::channel` pattern:
+- Create an in-memory `Library` immediately (no I/O) so the rest of `AppWindow::new()` continues and `window.present()` fires.
+- `std::thread::spawn` opens the real DB, runs `import_directory`, and sends the result back.
+- The `receiver.attach` callback (runs on the main thread) swaps the in-memory library out once the thread finishes.
+
+Because `LibraryWindow` holds a `Rc<RefCell<Library>>` clone (not a snapshot), it sees the real library automatically on next open — no additional wiring needed.
+
+`rusqlite::Connection` is `Send` (since rusqlite 0.26), so `Library` can cross thread boundaries.
+
+### What is already correct
+
+- LSP: deferred 500 ms, does not block first paint.
+- Typst compiler: lazy, always on a background thread.
+- Font install: stat-only on repeat runs, effectively free.
+
+### Implementation order
+
+1. Replace blocking library init with thread + channel pattern. ✓
+
+### Test plan
+
+- Launch Zerkalo with a large work directory (100+ `.typ` files) — window should appear before the library is fully scanned.
+- Open the Library window immediately on launch — shows empty (in-memory placeholder) and populates once the background thread finishes.
+- Library window opened after a few seconds — shows full contents as expected.
 
 ---
 
 ## Phase 4 — Smooth Scrolling
 
-*(planned — not yet detailed)*
+### Diagnosis
 
-Areas to investigate: typewriter scroll debounce, preview scroll sync, GtkSourceView hadjustment snap (left-margin workaround already exists at `editor_pane.rs:4024`).
+Three areas investigated in `editor_pane.rs`:
+
+1. **Typewriter scroll** (`editor_pane.rs:2639`) — fires via `idle_add_local_once` on every line-boundary crossing while typing. One idle tick is not enough to coalesce rapid crossings (e.g. holding Enter or pasting), so the view can recenter multiple times in quick succession for a single burst of input. Fix: replace `idle_add_local_once` with an 80 ms `timeout_add_local_once` + generation counter — the same pattern used for cursor-moved debounce.
+
+2. **Heading-based preview sync** (`editor_pane.rs:2693`) — fires immediately when the cursor enters a new heading section (guarded by `heading_line != *last_heading_line`). The guard prevents per-keystroke firing within a section, but the preview jumps instantly when the cursor first crosses a section boundary mid-edit. Fix: 200 ms generation-counter debounce, so the preview only jumps after the cursor settles.
+
+3. **Line-fraction preview sync** (`editor_pane.rs:2706`) — already debounced 300 ms with a generation counter. No change needed.
+
+4. **hadjustment snap** (`editor_pane.rs:4043`) — a per-frame tick resets horizontal scroll when GTK snaps it to `left_margin`. This is the only viable workaround for a GtkSourceView5 bug; no upstream API to suppress it. Left as-is.
+
+### Fixes
+
+#### Typewriter scroll debounce — `editor_pane.rs:2639`
+Added `typewriter_gen: Rc<Cell<u64>>`. Replaced `idle_add_local_once` with `timeout_add_local_once(80ms)` + generation check. Rapid line crossings now coalesce: only the last one fires.
+
+#### Heading sync debounce — `editor_pane.rs:2693`
+Added `heading_sync_gen: Rc<Cell<u64>>`. The `last_heading_line` is still updated immediately (so duplicate headings are suppressed), but the callback into `on_heading_cb` is deferred 200 ms. The preview jumps only when the cursor settles in a new section, not on the instant of boundary crossing.
+
+### What is already correct
+
+- Line-fraction preview sync: 300 ms debounce, generation counter. Correct.
+- hadjustment snap tick callback: unavoidable workaround; a no-op on most frames.
+
+### Implementation order
+
+1. Add `typewriter_gen` and `heading_sync_gen` counters. ✓
+2. Debounce typewriter scroll (80 ms). ✓
+3. Debounce heading sync (200 ms). ✓
 
 ---
 
 ## Phase 5 — Keyboard Workflow
 
-*(planned — not yet detailed)*
+### Diagnosis
 
-Areas to investigate: tab navigation, sidebar focus traps, command palette keyboard flow, find-bar Escape behaviour.
+Four areas investigated:
+
+1. **Tab navigation** (`editor_pane.rs:4454`) — `next_tab` / `prev_tab` called `set_current_page` but never moved keyboard focus to the new tab's text view. GTK left focus on the old tab's widget, so the newly-selected tab was non-editable without a mouse click.
+
+2. **Sidebar focus trap** (`file_tree.rs`) — the sidebar `ListBox` participates in GTK's default Tab focus chain. Pressing Tab from a sidebar row cycled through every toolbar button and widget rather than jumping back to the editor. The only escape was `F6` / `Shift+F6`. No Tab override existed.
+
+3. **Command palette focus return** (`command_palette.rs`) — `show()` grabbed focus to the entry field, but on close (Escape or row activation) no `grab_focus()` was called on the editor. GTK returned focus to the parent window's last-focused widget, which could be any toolbar button.
+
+4. **Find-bar Escape** (`editor_pane.rs:993`) — pressing Escape hid the find bar via `set_reveal_child(false)`, but the `on_reveal_changed` callback only updated the toggle button label. GTK dropped focus (the entry was no longer visible) without returning it to the editor text view.
+
+### Fixes
+
+#### Tab navigation — `editor_pane.rs:4460, 4470`
+Added `self.grab_focus()` after every `set_current_page` call in `next_tab` and `prev_tab`. The active text view immediately receives keyboard focus.
+
+#### Sidebar Tab key — `file_tree.rs:303`, `app_window.rs`
+Added `set_on_tab_out(f)` to `FileTree`: registers a Capture-phase `EventControllerKey` on the `ListBox` that intercepts `Tab` / `ISO_Left_Tab`, calls the callback, and stops propagation. Wired in `app_window.rs` to call `editor_pane.grab_focus()`. Tab now exits the sidebar in one keystroke.
+
+#### Command palette focus return — `command_palette.rs:142`, `app_window.rs`
+Added `set_on_close(f)` to `CommandPalette`: connects `window.connect_hide` so the callback fires whenever the palette hides (Escape, row activation, or window-manager close). Wired in `app_window.rs` to call `editor.grab_focus()`.
+
+#### Find-bar Escape focus — `editor_pane.rs:993`
+Extended the `set_on_reveal_changed` callback to capture an `EditorPane` clone and call `grab_focus()` when `revealed == false`.
+
+### What is already correct
+
+- `F6` / `Shift+F6`: toggles focus between file tree and editor. Correct.
+- Command palette arrow-key navigation: Up/Down moves list selection. Correct.
+- Find-bar search-entry focus on open: `toggle()` grabs focus to entry. Correct.
 
 ---
 
 ## Phase 6 — Stable Project Handling
 
-*(planned — not yet detailed)*
+### Diagnosis
 
-Areas to investigate: file-watcher reliability, git sync conflict handling, multi-tab close/restore, work-dir change behaviour.
+Four areas investigated:
+
+1. **File-watcher deduplication** (`file_watcher.rs:15`) — pending paths were stored in a `Vec<PathBuf>`. A tool writing a file twice within 250 ms would fire `on_change` twice, triggering two compiles. Also, the "is open" guard in `app_window.rs` only compared against the *active* tab, so any background tab being externally modified would still trigger a spurious compile.
+
+2. **Git sync conflict message** (`app_window.rs:4318`) — when a pull rebase failed (merge conflict), the error was shown as "Push Failed" with raw git output. The rebase was correctly aborted (repo left clean), but the message gave no guidance about what happened or what to do.
+
+3. **Tab close without dirty check** (`editor_pane.rs:2322`) — all three close paths (X button, middle-click, context menu "Close tab") called `notebook.remove_page` immediately without checking the `modified` flag. Unsaved work was silently discarded.
+
+4. **Work-dir change** (`app_window.rs:1017`) — changing the work folder in Settings applied the new config but left the file watcher, file tree, and `project_root` pointing at the old directory. No indication was given that a restart was needed.
+
+### Fixes
+
+#### File-watcher dedup — `file_watcher.rs`
+Changed `Arc<Mutex<Vec<PathBuf>>>` to `Arc<Mutex<HashSet<PathBuf>>>`. Duplicate writes to the same file within a 250 ms poll window now collapse to one `on_change` call.
+
+#### Watcher "is open" guard — `editor_pane.rs`, `app_window.rs`
+Added `pub fn is_file_open(&self, path: &PathBuf) -> bool` to `EditorPane`. Updated the watcher callback to use this instead of `get_active_path()`, so any open tab — not just the active one — suppresses spurious recompile on external write.
+
+#### Git sync conflict message — `app_window.rs:4318`
+Parse `push_errors` for `"CONFLICT"` or `"Pull failed"`. When detected, show a targeted dialog: *"Merge conflict — sync aborted"* with a clear explanation that local work is safe and instructions to resolve manually.
+
+#### Tab close dirty check — `editor_pane.rs:2322`
+Added `close_tab_with_dirty_check(ep, state, notebook, scroll, path, display_name)` free function. Shows an `AlertDialog` with **Save / Discard / Cancel** when a modified tab is closed. "Save" calls `ep.save_current()` then closes; "Discard" closes immediately; "Cancel" does nothing. Wired into all three close paths: X button, middle-click, and context menu "Close tab".
+
+#### Work-dir restart prompt — `app_window.rs:1049`
+After saving settings, compare `new_cfg.work_dir` to `old_cfg.work_dir`. If changed, show an `AlertDialog`: *"Restart required — the work folder change takes effect after restarting Zerkalo."*
+
+### What is already correct
+
+- Autosave covers all modified tabs (not just active). Correct.
+- Session restore saves and restores cursor positions. Correct.
+- Git rebase abort on conflict: repo left clean. Correct.
 
 ---
 
