@@ -1873,7 +1873,11 @@ impl EditorPane {
                 state.tabs.get(&path).map(|tab| tab.buffer.clone())
             };
             if let Some(buffer) = buffer_opt {
-                buffer.set_text(&new_content);
+                buffer.begin_user_action();
+                let (start, end) = buffer.bounds();
+                buffer.delete(&mut start.clone(), &mut end.clone());
+                buffer.insert(&mut buffer.end_iter(), &new_content);
+                buffer.end_user_action();
                 { let sm = *self.simple_mode.borrow(); apply_simple_mode_tag(&buffer, sm); }
             }
         }
@@ -2123,7 +2127,11 @@ impl EditorPane {
                 { let sm = *self.simple_mode.borrow(); apply_simple_mode_tag(&buffer, sm); }
             }
             None => {
-                buffer.set_text(full_new_content);
+                buffer.begin_user_action();
+                let (start, end) = buffer.bounds();
+                buffer.delete(&mut start.clone(), &mut end.clone());
+                buffer.insert(&mut buffer.end_iter(), full_new_content);
+                buffer.end_user_action();
                 { let sm = *self.simple_mode.borrow(); apply_simple_mode_tag(&buffer, sm); }
             }
         }
@@ -3382,11 +3390,17 @@ impl EditorPane {
                 let ctrl  = mods.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
                 let shift = mods.contains(gtk4::gdk::ModifierType::SHIFT_MASK);
                 let alt   = mods.contains(gtk4::gdk::ModifierType::ALT_MASK);
-                if !ctrl || alt || key != Key::z { return glib::Propagation::Proceed; }
-                if shift {
+                if !ctrl || alt { return glib::Propagation::Proceed; }
+                if key == Key::z {
+                    if shift {
+                        if buf_undo.can_redo() { buf_undo.redo(); }
+                    } else {
+                        if buf_undo.can_undo() { buf_undo.undo(); }
+                    }
+                } else if key == Key::y && !shift {
                     if buf_undo.can_redo() { buf_undo.redo(); }
                 } else {
-                    if buf_undo.can_undo() { buf_undo.undo(); }
+                    return glib::Propagation::Proceed;
                 }
                 glib::Propagation::Stop
             });
@@ -4292,7 +4306,11 @@ impl EditorPane {
     pub fn set_content(&self, path: &std::path::Path, text: &str) {
         let buf = self.state.borrow().tabs.get(path).map(|t| t.buffer.clone());
         if let Some(buffer) = buf {
-            buffer.set_text(text);
+            buffer.begin_user_action();
+            let (start, end) = buffer.bounds();
+            buffer.delete(&mut start.clone(), &mut end.clone());
+            buffer.insert(&mut buffer.end_iter(), text);
+            buffer.end_user_action();
             { let sm = *self.simple_mode.borrow(); apply_simple_mode_tag(&buffer, sm); }
         }
     }

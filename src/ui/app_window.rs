@@ -3537,10 +3537,14 @@ impl AppWindow {
         {
             // Reload file in editor when replace_all modifies it
             let ep = editor_pane.clone();
+            let toast_for_reload = toast_overlay.clone();
             search_panel.set_on_replace_done(move |path| {
                 if ep.state_has_file(&path) {
                     if let Ok(content) = std::fs::read_to_string(&path) {
                         ep.reload_file(path, &content);
+                        toast_for_reload.add_toast(
+                            adw::Toast::new("File reloaded — undo history cleared")
+                        );
                     }
                 }
             });
