@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.14.1-dev4] — Library status bar, compile mode toggle, more visual polish
+## [0.14.1] "Quiet Brass" — Library status bar, compile mode toggle, visual polish
 
 ### Added
 - **Library status bar** — doc/project count and last-opened info moved from sidebar to a bottom status bar on the right panel; "Compact" text button (bold when active) also lives there
