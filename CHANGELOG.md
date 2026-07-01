@@ -5,21 +5,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.14.2-dev7] — CV style switching fix; improved CV templates; library PDF export
+## [0.14.2] "Burnished Folio" — CV/Résumé support, library PDF export, UI polish
 
 ### Added
-- **Library PDF export** — the Export button in the document library now compiles the `.typ` file to PDF using the embedded Typst compiler; shows a save dialog defaulting to `<name>.pdf` with error reporting on failure
+- **CV/Résumé templates** — three new presets in the "New from Template" dialog: Modern, Academic, and Classic, each with a fully distinct visual identity throughout
+- **CV helper functions** — `#section`, `#job`, `#edu`, `#skill`, `#award` helpers embedded in every CV document; all adapt automatically to the active style
+- **CV snippets** — the `#` completion popup shows CV-specific completions (`#job`, `#edu`, `#skill`, `#section`, `#award`) when editing a CV file
+- **CV-aware format bar** — the academic Style button is replaced by a CV Style button when a CV file is open; one-click switching between Modern, Academic, and Classic rewrites the document's style variable in place
+- **CV awards section** — `#award(title, org, years, desc: none)` helper for awards and honours entries
+- **CV-aware cheatsheet** — the embedded `?` reference panel and Help popup switch to a CV helper reference when editing a CV file
+- **Library PDF export** — the Export button in the library compiles the document to PDF using the embedded Typst compiler
 
 ### Fixed
-- **CV style switching wiped preamble** — `apply_cv_style` was calling `buf.text(..., false)`, which silently excludes characters hidden by invisible tags; simple mode hides the entire preamble with an invisible tag, so the full-buffer replace was overwriting it with just the body; fixed by passing `true` and using the safe `delete + insert` pattern with simple mode re-applied
-- **Academic style button replaced by CV style** — opening a CV document now hides the academic Style button and replaces it with the CV Style button in the format bar; switching back to a non-CV document restores the original
+- **CV style switching wiped preamble** — switching CV style via the format bar button would erase the entire document preamble; caused by reading the buffer with `include_hidden_chars=false`, which silently dropped the preamble hidden by simple mode's invisible tag
+- **Cheatsheet horizontal drift** — code blocks in the help/cheatsheet panel could drift left unpredictably; disabled horizontal scrolling entirely and switched to `WordChar` wrap mode
 
 ### Changed
-- **CV templates redesigned** — all three styles now differ in every visual element, not just section headers:
-  - *Modern*: 26pt letter-tracked name, accent-blue contact row, colored section bars with spaced uppercase labels, company names in accent color, two-column skills grid, 1.5pt accent rule below header
-  - *Academic*: smallcaps name, two-line centered contact block, smallcaps+uppercase section headers with 1pt rule, italic company names, standard skills format
-  - *Classic*: bold-italic section headings, em dash separator in job/edu entries, italic skill categories, thin rule below header
-  - Color palette (`cv-accent`, `cv-muted`, `cv-dim`) computed from `CV_STYLE` so all helpers adapt automatically when style is switched
+- **CV templates redesigned** — all three styles differ in every visual element:
+  - *Modern*: 26pt letter-tracked name, accent-blue contact row and company names, colored section bars with spaced uppercase labels, two-column skills grid, 1.5pt accent rule below header
+  - *Academic*: smallcaps name, two-line centered contact, smallcaps+uppercase section headers with 1pt rule, italic company names
+  - *Classic*: bold-italic section headings, em dash separators in job/edu entries, italic skill categories, thin rule below header
+- **Hamburger menu reorganized** — cleaner groups: New/Open (with Browse Documents), Current Document (Update Template Settings + Repair Markers), Save/Version, Export/Share, App Settings, Help; "Update Template Settings…" restored (was wired but never visible)
 
 ---
 
