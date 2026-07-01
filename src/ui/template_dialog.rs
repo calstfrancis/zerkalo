@@ -2089,98 +2089,182 @@ fn generate_cv_template(s: &TemplateSettings) -> String {
     let _ = writeln!(out);
     let _ = writeln!(out, "#set page(paper: \"{paper}\", margin: (x: {margin_x}, y: {margin_y}))");
     let _ = writeln!(out, "#set text(font: \"{font}\", size: {font_size}, lang: \"en\")", font = typst_str(font));
-    let _ = writeln!(out, "#set par(spacing: 0.5em, leading: 0.55em)");
+    let _ = writeln!(out, "#set par(spacing: 0.55em, leading: 0.65em)");
     let _ = writeln!(out);
     let _ = writeln!(out, "// Change CV_STYLE to switch theme: \"modern\" | \"academic\" | \"classic\"");
     let _ = writeln!(out, "#let CV_STYLE = \"{cv_style}\"");
     let _ = writeln!(out);
+
+    // ── Colour palette (derived from CV_STYLE at compile time) ───────────────
+    let _ = writeln!(out, "// ── Colour palette ──────────────────────────────────────────────────────");
+    let _ = writeln!(out, "#let cv-accent = if CV_STYLE == \"modern\" {{ rgb(\"#2a5298\") }} else {{ black }}");
+    let _ = writeln!(out, "#let cv-muted  = if CV_STYLE == \"modern\" {{ rgb(\"#555555\") }} else {{ luma(90) }}");
+    let _ = writeln!(out, "#let cv-dim    = if CV_STYLE == \"modern\" {{ rgb(\"#888888\") }} else {{ luma(130) }}");
+    let _ = writeln!(out);
+
+    // ── Helper functions ─────────────────────────────────────────────────────
     let _ = writeln!(out, "// ── CV helper functions ─────────────────────────────────────────────────");
     let _ = writeln!(out);
+
+    // #section
     let _ = writeln!(out, "#let section(title, body) = {{");
-    let _ = writeln!(out, "  v(0.8em)");
+    let _ = writeln!(out, "  v(0.9em)");
     let _ = writeln!(out, "  if CV_STYLE == \"modern\" [");
-    let _ = writeln!(out, "    #stack(dir: ltr, spacing: 0.5em,");
-    let _ = writeln!(out, "      box(height: 0.85em, width: 3pt, fill: rgb(\"#4a6fa5\")),");
-    let _ = writeln!(out, "      text(weight: \"bold\", size: 10.5pt)[#upper(title)]");
+    let _ = writeln!(out, "    #grid(columns: (4pt, 1fr), gutter: 0.45em,");
+    let _ = writeln!(out, "      box(height: 0.9em, fill: cv-accent, radius: 1pt),");
+    let _ = writeln!(out, "      text(weight: \"bold\", size: 9.5pt, fill: cv-accent, tracking: 1pt)[#upper(title)],");
     let _ = writeln!(out, "    )");
     let _ = writeln!(out, "    #v(-0.5em)");
-    let _ = writeln!(out, "    #line(length: 100%, stroke: 0.4pt + rgb(\"#4a6fa5\"))");
+    let _ = writeln!(out, "    #line(length: 100%, stroke: 0.4pt + cv-accent)");
     let _ = writeln!(out, "  ] else if CV_STYLE == \"academic\" [");
-    let _ = writeln!(out, "    #text(weight: \"bold\", size: 10.5pt)[#upper(title)]");
-    let _ = writeln!(out, "    #v(-0.4em)");
-    let _ = writeln!(out, "    #line(length: 100%, stroke: 0.8pt)");
+    let _ = writeln!(out, "    #text(weight: \"bold\", size: 10pt)[#smallcaps(upper(title))]");
+    let _ = writeln!(out, "    #v(-0.45em)");
+    let _ = writeln!(out, "    #line(length: 100%, stroke: 1pt)");
     let _ = writeln!(out, "  ] else [");
-    let _ = writeln!(out, "    #text(weight: \"bold\")[#title]");
+    let _ = writeln!(out, "    #text(weight: \"bold\", style: \"italic\")[#title]");
     let _ = writeln!(out, "    #v(-0.4em)");
-    let _ = writeln!(out, "    #line(length: 100%, stroke: 0.4pt)");
+    let _ = writeln!(out, "    #line(length: 100%, stroke: 0.5pt)");
     let _ = writeln!(out, "  ]");
-    let _ = writeln!(out, "  v(0.3em)");
+    let _ = writeln!(out, "  v(0.4em)");
     let _ = writeln!(out, "  body");
     let _ = writeln!(out, "}}");
     let _ = writeln!(out);
+
+    // #job
     let _ = writeln!(out, "#let job(title, company, years, desc) = {{");
-    let _ = writeln!(out, "  grid(");
-    let _ = writeln!(out, "    columns: (1fr, auto),");
-    let _ = writeln!(out, "    [*#title* #h(0.3em) #text(fill: luma(80))[#company]],");
-    let _ = writeln!(out, "    text(style: \"italic\", fill: luma(110))[#years],");
-    let _ = writeln!(out, "  )");
-    let _ = writeln!(out, "  v(0.15em)");
+    let _ = writeln!(out, "  if CV_STYLE == \"modern\" {{");
+    let _ = writeln!(out, "    grid(columns: (1fr, auto),");
+    let _ = writeln!(out, "      [*#title* #h(0.3em)#text(fill: cv-accent, size: 9.5pt)[#company]],");
+    let _ = writeln!(out, "      text(size: 9pt, fill: cv-dim, style: \"italic\")[#years],");
+    let _ = writeln!(out, "    )");
+    let _ = writeln!(out, "  }} else if CV_STYLE == \"academic\" {{");
+    let _ = writeln!(out, "    grid(columns: (1fr, auto),");
+    let _ = writeln!(out, "      [*#title* #h(0.3em)#text(style: \"italic\")[#company]],");
+    let _ = writeln!(out, "      text(style: \"italic\", fill: cv-muted)[#years],");
+    let _ = writeln!(out, "    )");
+    let _ = writeln!(out, "  }} else {{");
+    let _ = writeln!(out, "    grid(columns: (1fr, auto),");
+    let _ = writeln!(out, "      [*#title* #h(0.25em)#text(fill: cv-muted)[—]#h(0.25em)#company],");
+    let _ = writeln!(out, "      text(fill: cv-muted, style: \"italic\")[#years],");
+    let _ = writeln!(out, "    )");
+    let _ = writeln!(out, "  }}");
+    let _ = writeln!(out, "  v(0.2em)");
     let _ = writeln!(out, "  desc");
-    let _ = writeln!(out, "  v(0.45em)");
+    let _ = writeln!(out, "  v(0.5em)");
     let _ = writeln!(out, "}}");
     let _ = writeln!(out);
+
+    // #edu
     let _ = writeln!(out, "#let edu(degree, institution, years, note: none) = {{");
-    let _ = writeln!(out, "  grid(");
-    let _ = writeln!(out, "    columns: (1fr, auto),");
-    let _ = writeln!(out, "    [*#degree* #h(0.3em) #text(fill: luma(80))[#institution]],");
-    let _ = writeln!(out, "    text(style: \"italic\", fill: luma(110))[#years],");
-    let _ = writeln!(out, "  )");
-    let _ = writeln!(out, "  if note != none {{ v(0.1em); note }}");
+    let _ = writeln!(out, "  if CV_STYLE == \"modern\" {{");
+    let _ = writeln!(out, "    grid(columns: (1fr, auto),");
+    let _ = writeln!(out, "      [*#degree* #h(0.3em)#text(fill: cv-accent, size: 9.5pt)[#institution]],");
+    let _ = writeln!(out, "      text(size: 9pt, fill: cv-dim, style: \"italic\")[#years],");
+    let _ = writeln!(out, "    )");
+    let _ = writeln!(out, "  }} else if CV_STYLE == \"academic\" {{");
+    let _ = writeln!(out, "    grid(columns: (1fr, auto),");
+    let _ = writeln!(out, "      [*#degree* #h(0.3em)#text(style: \"italic\")[#institution]],");
+    let _ = writeln!(out, "      text(style: \"italic\", fill: cv-muted)[#years],");
+    let _ = writeln!(out, "    )");
+    let _ = writeln!(out, "  }} else {{");
+    let _ = writeln!(out, "    grid(columns: (1fr, auto),");
+    let _ = writeln!(out, "      [*#degree* #h(0.25em)#text(fill: cv-muted)[—]#h(0.25em)#institution],");
+    let _ = writeln!(out, "      text(fill: cv-muted, style: \"italic\")[#years],");
+    let _ = writeln!(out, "    )");
+    let _ = writeln!(out, "  }}");
+    let _ = writeln!(out, "  if note != none {{ v(0.15em); note }}");
     let _ = writeln!(out, "  v(0.45em)");
     let _ = writeln!(out, "}}");
     let _ = writeln!(out);
-    let _ = writeln!(out, "#let skill(category, items) = [");
-    let _ = writeln!(out, "  *#category:* #items.join(\", \") \\");
-    let _ = writeln!(out, "]");
+
+    // #skill
+    let _ = writeln!(out, "#let skill(category, items) = {{");
+    let _ = writeln!(out, "  if CV_STYLE == \"modern\" [");
+    let _ = writeln!(out, "    #grid(columns: (6em, 1fr),");
+    let _ = writeln!(out, "      text(fill: cv-accent, weight: \"bold\", size: 9pt, tracking: 0.5pt)[#upper(category)],");
+    let _ = writeln!(out, "      text(fill: cv-muted)[#items.join(\"  ·  \")],");
+    let _ = writeln!(out, "    )");
+    let _ = writeln!(out, "    #v(0.15em)");
+    let _ = writeln!(out, "  ] else if CV_STYLE == \"academic\" [");
+    let _ = writeln!(out, "    *#category:* #items.join(\", \") \\");
+    let _ = writeln!(out, "  ] else [");
+    let _ = writeln!(out, "    #text(style: \"italic\")[#category:] #h(0.3em)#items.join(\", \") \\");
+    let _ = writeln!(out, "  ]");
+    let _ = writeln!(out, "}}");
     let _ = writeln!(out);
+
+    // #award
     let _ = writeln!(out, "#let award(title, org, years, desc: none) = {{");
-    let _ = writeln!(out, "  grid(");
-    let _ = writeln!(out, "    columns: (1fr, auto),");
-    let _ = writeln!(out, "    [*#title* #h(0.3em) #text(fill: luma(80))[#org]],");
-    let _ = writeln!(out, "    text(style: \"italic\", fill: luma(110))[#years],");
-    let _ = writeln!(out, "  )");
-    let _ = writeln!(out, "  if desc != none {{ v(0.1em); desc }}");
+    let _ = writeln!(out, "  if CV_STYLE == \"modern\" {{");
+    let _ = writeln!(out, "    grid(columns: (1fr, auto),");
+    let _ = writeln!(out, "      [*#title* #h(0.3em)#text(fill: cv-accent, size: 9.5pt)[#org]],");
+    let _ = writeln!(out, "      text(size: 9pt, fill: cv-dim, style: \"italic\")[#years],");
+    let _ = writeln!(out, "    )");
+    let _ = writeln!(out, "  }} else if CV_STYLE == \"academic\" {{");
+    let _ = writeln!(out, "    grid(columns: (1fr, auto),");
+    let _ = writeln!(out, "      [*#title* #h(0.3em)#text(style: \"italic\")[#org]],");
+    let _ = writeln!(out, "      text(style: \"italic\", fill: cv-muted)[#years],");
+    let _ = writeln!(out, "    )");
+    let _ = writeln!(out, "  }} else {{");
+    let _ = writeln!(out, "    grid(columns: (1fr, auto),");
+    let _ = writeln!(out, "      [*#title* #h(0.25em)#text(fill: cv-muted)[—]#h(0.25em)#org],");
+    let _ = writeln!(out, "      text(fill: cv-muted, style: \"italic\")[#years],");
+    let _ = writeln!(out, "    )");
+    let _ = writeln!(out, "  }}");
+    let _ = writeln!(out, "  if desc != none {{ v(0.15em); desc }}");
     let _ = writeln!(out, "  v(0.45em)");
     let _ = writeln!(out, "}}");
     let _ = writeln!(out);
+
     let _ = writeln!(out, "{TEMPLATE_END}");
     let _ = writeln!(out);
+
+    // ── Personal details + styled header ────────────────────────────────────
     let _ = writeln!(out, "// ── Personal details ─────────────────────────────────────────────────");
-    let _ = writeln!(out, "#let cv-name = \"{}\"", typst_str(name));
-    let _ = writeln!(out, "#let cv-email = \"your@email.com\"");
-    let _ = writeln!(out, "#let cv-phone = \"+1 555 000 0000\"");
+    let _ = writeln!(out, "#let cv-name     = \"{}\"", typst_str(name));
+    let _ = writeln!(out, "#let cv-email    = \"your@email.com\"");
+    let _ = writeln!(out, "#let cv-phone    = \"+1 555 000 0000\"");
     let _ = writeln!(out, "#let cv-location = \"City, Country\"");
-    let _ = writeln!(out, "#let cv-links = \"github.com/handle\"");
+    let _ = writeln!(out, "#let cv-links    = \"github.com/handle\"");
     let _ = writeln!(out);
-    let _ = writeln!(out, "#align(center)[");
-    let _ = writeln!(out, "  #if CV_STYLE == \"modern\" [");
-    let _ = writeln!(out, "    #text(size: 22pt, weight: \"bold\")[#cv-name] \\");
-    let _ = writeln!(out, "    #v(0.2em)");
-    let _ = writeln!(out, "    #text(fill: rgb(\"#4a6fa5\"))[#cv-email] · #cv-phone · #cv-location · #cv-links");
-    let _ = writeln!(out, "  ] else if CV_STYLE == \"academic\" [");
-    let _ = writeln!(out, "    #text(size: 20pt, weight: \"bold\")[#cv-name] \\");
-    let _ = writeln!(out, "    #v(0.15em)");
-    let _ = writeln!(out, "    #cv-email · #cv-phone · #cv-location \\");
-    let _ = writeln!(out, "    #cv-links");
-    let _ = writeln!(out, "  ] else [");
-    let _ = writeln!(out, "    #text(size: 20pt, weight: \"bold\")[#cv-name] \\");
-    let _ = writeln!(out, "    #v(0.1em)");
-    let _ = writeln!(out, "    #cv-email · #cv-phone · #cv-location · #cv-links");
+
+    // Modern header: large tracked name, accent-colored contact row, thick rule
+    let _ = writeln!(out, "#if CV_STYLE == \"modern\" [");
+    let _ = writeln!(out, "  #align(center)[");
+    let _ = writeln!(out, "    #text(size: 26pt, weight: \"bold\", tracking: 1pt)[#cv-name]");
+    let _ = writeln!(out, "    #v(0.35em)");
+    let _ = writeln!(out, "    #text(size: 9.5pt, fill: cv-accent)[");
+    let _ = writeln!(out, "      #cv-email #h(0.5em)·#h(0.5em) #cv-phone #h(0.5em)·#h(0.5em) #cv-location #h(0.5em)·#h(0.5em) #cv-links");
+    let _ = writeln!(out, "    ]");
     let _ = writeln!(out, "  ]");
+    let _ = writeln!(out, "  #v(0.55em)");
+    let _ = writeln!(out, "  #line(length: 100%, stroke: 1.5pt + cv-accent)");
+    // Academic header: smallcaps name, two-line contact, 1pt rule
+    let _ = writeln!(out, "] else if CV_STYLE == \"academic\" [");
+    let _ = writeln!(out, "  #align(center)[");
+    let _ = writeln!(out, "    #text(size: 22pt, weight: \"bold\")[#smallcaps(cv-name)]");
+    let _ = writeln!(out, "    #v(0.3em)");
+    let _ = writeln!(out, "    #text(size: 9.5pt)[#cv-email · #cv-phone]");
+    let _ = writeln!(out, "    \\");
+    let _ = writeln!(out, "    #text(size: 9.5pt)[#cv-location · #cv-links]");
+    let _ = writeln!(out, "  ]");
+    let _ = writeln!(out, "  #v(0.45em)");
+    let _ = writeln!(out, "  #line(length: 100%, stroke: 1pt)");
+    // Classic header: centered name, muted contact, thin rule
+    let _ = writeln!(out, "] else [");
+    let _ = writeln!(out, "  #align(center)[");
+    let _ = writeln!(out, "    #text(size: 22pt, weight: \"bold\")[#cv-name]");
+    let _ = writeln!(out, "    #v(0.25em)");
+    let _ = writeln!(out, "    #text(size: 9.5pt, fill: cv-muted)[#cv-email · #cv-phone · #cv-location · #cv-links]");
+    let _ = writeln!(out, "  ]");
+    let _ = writeln!(out, "  #v(0.4em)");
+    let _ = writeln!(out, "  #line(length: 100%, stroke: 0.5pt)");
     let _ = writeln!(out, "]");
     let _ = writeln!(out);
-    let _ = writeln!(out, "#v(0.8em)");
+    let _ = writeln!(out, "#v(0.6em)");
     let _ = writeln!(out);
+
+    // ── Document body ────────────────────────────────────────────────────────
     let _ = writeln!(out, "// ── Document body ─────────────────────────────────────────────────────");
     let _ = writeln!(out);
     let _ = writeln!(out, "#section(\"Experience\")[");
