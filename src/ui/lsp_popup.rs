@@ -253,7 +253,8 @@ impl LspPopup {
         let kind_str = kind_label(item.kind);
         let kind_lbl = Label::new(Some(kind_str));
         kind_lbl.add_css_class("dim-label");
-        kind_lbl.set_width_chars(5);
+        kind_lbl.add_css_class("caption");
+        kind_lbl.set_width_chars(12);
         kind_lbl.set_xalign(0.0);
         kind_lbl.set_valign(Align::Center);
         row_box.append(&kind_lbl);
@@ -286,17 +287,19 @@ impl LspPopup {
 
 fn kind_label(kind: u8) -> &'static str {
     match kind {
-        2 => "mthd",
-        3 => "fn",
-        4 => "ctor",
-        5 | 10 => "prop",
-        6 => "var",
-        7 | 8 => "type",
-        9 => "mod",
-        12 => "val",
-        13 => "enum",
-        14 => "kw",
-        15 => "snip",
-        _ => "·",
+        2  => "Method",
+        3  => "Function",
+        4  => "Constructor",
+        5  => "Field",
+        6  => "Variable",
+        7  => "Class",
+        8  => "Interface",
+        9  => "Module",
+        10 => "Property",
+        12 => "Value",
+        13 => "Enum",
+        14 => "Keyword",
+        15 => "Snippet",
+        _  => "",
     }
 }

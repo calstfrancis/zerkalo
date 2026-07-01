@@ -762,13 +762,16 @@ impl AppWindow {
         }
 
         // ── Compile mode status bar toggle ──────────────────────────────────
+        let compile_mode_label = Label::new(None);
+        compile_mode_label.add_css_class("caption");
+        compile_mode_label.set_text(compile_mode_label_str(
+            config.auto_compile,
+            config.compile_on_save,
+            config.manual_compile_only,
+        ));
         let compile_mode_btn = {
-            let initial_label = compile_mode_label_str(
-                config.auto_compile,
-                config.compile_on_save,
-                config.manual_compile_only,
-            );
-            let btn = Button::with_label(initial_label);
+            let btn = Button::new();
+            btn.set_child(Some(&compile_mode_label));
             btn.add_css_class("flat");
             btn.add_css_class("status-toggle");
             btn.set_tooltip_text(Some("Cycle compile mode: auto → on save → manual"));
@@ -789,6 +792,7 @@ impl AppWindow {
             let cos_cm = compile_on_save.clone();
             let mco_cm = manual_compile_only.clone();
             let cfg_cm = current_config.clone();
+            let cm_lbl = compile_mode_label.clone();
             btn.connect_clicked(move |b| {
                 let auto = *auto_cm.borrow();
                 let mco = *mco_cm.borrow();
@@ -802,7 +806,7 @@ impl AppWindow {
                 *auto_cm.borrow_mut() = new_auto;
                 *cos_cm.borrow_mut() = new_cos;
                 *mco_cm.borrow_mut() = new_mco;
-                b.set_label(compile_mode_label_str(new_auto, new_cos, new_mco));
+                cm_lbl.set_text(compile_mode_label_str(new_auto, new_cos, new_mco));
                 apply_compile_mode_css(b, new_auto, new_cos, new_mco);
                 let mut cfg = cfg_cm.borrow_mut();
                 cfg.auto_compile = new_auto;
@@ -1029,6 +1033,7 @@ impl AppWindow {
         let menu_popover_for_settings = menu_popover.clone();
         let import_item_for_settings = menu_import_item.clone();
         let compile_mode_btn_for_settings = compile_mode_btn.clone();
+        let compile_mode_label_for_settings = compile_mode_label.clone();
         menu_settings_item.connect_clicked(move |_| {
             menu_popover_for_settings.popdown();
             let dialog = SettingsDialog::new(
@@ -1044,6 +1049,7 @@ impl AppWindow {
             let window_for_save = window_for_settings.clone();
             let import_item_save = import_item_for_settings.clone();
             let cm_btn_save = compile_mode_btn_for_settings.clone();
+            let cm_lbl_save = compile_mode_label_for_settings.clone();
 
             // Live preview — apply appearance changes immediately while dialog is open
             {
@@ -1073,7 +1079,7 @@ impl AppWindow {
                 *auto_flag.borrow_mut() = new_cfg.auto_compile;
                 *cos_flag.borrow_mut() = new_cfg.compile_on_save;
                 *mco_flag.borrow_mut() = new_cfg.manual_compile_only;
-                cm_btn_save.set_label(compile_mode_label_str(
+                cm_lbl_save.set_text(compile_mode_label_str(
                     new_cfg.auto_compile,
                     new_cfg.compile_on_save,
                     new_cfg.manual_compile_only,
@@ -1549,6 +1555,7 @@ impl AppWindow {
         let menu_popover_for_reapply = menu_popover.clone();
         let project_root_for_reapply = project_root.clone();
         let cfg_for_reapply = current_config.clone();
+        let preview_for_reapply = preview_pane.clone();
         menu_reapply_template_item.connect_clicked(move |_| {
             menu_popover_for_reapply.popdown();
             let Some(current_path) = editor_for_reapply.get_active_path() else {
@@ -1631,6 +1638,7 @@ impl AppWindow {
 
             let ep = editor_for_reapply.clone();
             let win_for_apply = window_for_reapply.clone();
+            let preview_apply = preview_for_reapply.clone();
             dlg.set_on_apply(move |new_content, sidecar| {
                 let do_apply = {
                     let cc = current_content.clone();
@@ -1638,6 +1646,7 @@ impl AppWindow {
                     let sc = sidecar.clone();
                     let path = current_path.clone();
                     let ep2 = ep.clone();
+                    let pv = preview_apply.clone();
                     move || {
                         let updated = super::template_dialog::apply_body_splice(&cc, &nc);
                         super::template_dialog::save_sidecar(&path, &sc);
@@ -1645,6 +1654,7 @@ impl AppWindow {
                             tracing::error!("Failed to write updated template: {e}");
                         } else {
                             ep2.splice_preamble(path.clone(), &updated);
+                            pv.trigger_compile();
                         }
                     }
                 };
@@ -1835,7 +1845,7 @@ impl AppWindow {
             let ep = editor_for_snap.clone();
             let pp_path = path.clone();
             dialog.set_on_restore(move |text| {
-                ep.open_file(pp_path.clone(), &text);
+                ep.set_content(&pp_path, &text);
             });
             dialog.present();
         });
@@ -2174,6 +2184,7 @@ impl AppWindow {
         let style_btn_for_open = style_btn.clone();
         let file_start_words_for_open = file_start_words.clone();
         let title_widget_for_open = file_title_widget.clone();
+        let ep_for_open = editor_pane.clone();
         editor_pane.set_on_file_opened(move |path, content| {
             // Track initial word count for this file (first open only)
             let mut starts = file_start_words_for_open.borrow_mut();
@@ -2190,6 +2201,12 @@ impl AppWindow {
                 .and_then(|key| super::template_dialog::style_name_for_key(&key))
                 .unwrap_or("Style");
             style_btn_for_open.set_label(style_name);
+            ep_for_open.set_doc_font_label(
+                &super::template_dialog::parse_font(&content).unwrap_or_else(|| "font".into())
+            );
+            ep_for_open.set_doc_size_label(
+                &super::template_dialog::parse_font_size(&content).unwrap_or_else(|| "size".into())
+            );
             let title = extract_doc_title(&content).or_else(|| {
                 path.file_name().and_then(|n| n.to_str())
                     .map(|n| n.strip_suffix(".typ").unwrap_or(n).to_string())
@@ -3938,7 +3955,7 @@ impl AppWindow {
                                 let ep = editor_for_pal.clone();
                                 let pp = path.clone();
                                 dialog.set_on_restore(move |text| {
-                                    ep.open_file(pp.clone(), &text);
+                                    ep.set_content(&pp, &text);
                                 });
                                 dialog.present();
                             }

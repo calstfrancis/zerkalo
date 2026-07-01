@@ -5,6 +5,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.14.2-dev2] — Bug fixes and format bar improvements
+
+### Added
+- **Line number toggle** — `#` button in the format bar lets users show line numbers even in Simple Mode
+- **Font and size labels** — the Font and Size buttons in the format bar now display the current font name and size from the open document
+- **LSP completion kinds** — completion popup now shows readable kind labels (Function, Method, Variable, Keyword, Snippet…) in caption style instead of cryptic abbreviations
+- **Compile on template apply** — "Update Template Settings → Apply" now triggers a compile immediately
+
+### Fixed
+- **Snapshot restore** — the Restore button in Browse Snapshots now actually replaces the buffer content; previously it silently did nothing because the file was already open
+- **Horizontal editor movement** — removed the per-frame tick callback that was fighting with GTK layout and causing the view to jitter horizontally
+- **Status bar compile toggle** — the On Save / Auto / Manual toggle now uses the correct font size and weight (was previously created with `Button::with_label`, causing it to appear larger and always bold)
+- **Welcome window** — release name updated to "Quiet Brass" and "What's New" bullets reflect current features
+
+---
+
 ## [0.14.2-dev1] — More visual polish
 
 ### Added

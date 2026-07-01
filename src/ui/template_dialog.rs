@@ -2638,6 +2638,28 @@ pub fn parse_font(content: &str) -> Option<String> {
     last_found
 }
 
+/// Parse `size: Xpt` from `#set text(…)` in document content.
+pub fn parse_font_size(content: &str) -> Option<String> {
+    let mut last_found: Option<String> = None;
+    let mut in_set_text = false;
+    for line in content.lines() {
+        let t = line.trim();
+        if t.starts_with("//") { continue; }
+        if t.starts_with("#set text(") { in_set_text = true; }
+        if in_set_text {
+            if let Some(start) = t.find("size:") {
+                let after = t[start + 5..].trim_start();
+                let token: String = after.chars().take_while(|c| !c.is_whitespace() && *c != ',').collect();
+                if !token.is_empty() { last_found = Some(token); }
+            }
+            let opened_inline = t.starts_with("#set text(") && t.contains(')');
+            let closed_alone  = !t.starts_with("#set text(") && t.starts_with(')');
+            if opened_inline || closed_alone { in_set_text = false; }
+        }
+    }
+    last_found
+}
+
 /// Parse `paper: "…"` from `#set page(…)` in document content.
 pub fn parse_paper(content: &str) -> Option<String> {
     for line in content.lines() {
