@@ -5,6 +5,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.14.2-dev4] — Dropcap height setting
+
+### Added
+- **Dropcap height** — a "Height" selector in the template settings Droplet section lets you choose how many lines tall the drop capital should be (2–6 lines; default 3); emits `height: N` in the generated `dropcap.with(…)` call
+- **Dropcap sub-panel** — the Droplet entry in template settings is now an expandable row; the Font and Height options slide open underneath it when Droplet is enabled, and collapse when disabled
+
+### Changed
+- **Dropcap font** — now a dropdown of the document's enabled fonts (plus "(use body font)") instead of a free-text entry row
+
+---
+
 ## [0.14.2-dev3] — Dropcap font setting
 
 ### Added
