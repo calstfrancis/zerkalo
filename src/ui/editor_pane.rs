@@ -145,6 +145,21 @@ const ACADEMIC_SNIPPETS: &[(&str, &str, &str, &str)] = &[
      "#dropcap[\n  First paragraph text here.\n]"),
 ];
 
+const CV_SNIPPETS: &[(&str, &str, &str, &str)] = &[
+    ("job", "#job",
+     "Work experience entry — title, company, years, description",
+     "#job(\n  \"Job Title\",\n  \"Company Name\",\n  \"2022\u{2013}present\",\n  [Description of role and key accomplishments.]\n)"),
+    ("edu", "#edu",
+     "Education entry — degree, institution, years",
+     "#edu(\n  \"Degree\",\n  \"Institution Name\",\n  \"2016\u{2013}2020\",\n)"),
+    ("skill", "#skill",
+     "Skills category row",
+     "#skill(\"Languages\", (\"Rust\", \"Python\", \"Kotlin\"))"),
+    ("section", "#section",
+     "CV section — heading + content block",
+     "#section(\"Section Title\")[\n  \n]"),
+];
+
 // ── Internal types ────────────────────────────────────────────────────────────
 
 struct EditorTab {
@@ -238,6 +253,9 @@ pub struct EditorPane {
     size_bar_label: Label,
     line_numbers_override: Rc<Cell<bool>>,
     line_numbers_btn: ToggleButton,
+    cv_mode: Rc<Cell<bool>>,
+    cv_format_section: GtkBox,
+    cv_style_label: Label,
 }
 
 fn set_autocorrect_label(label: &Label, enabled: bool) {
@@ -821,6 +839,50 @@ impl EditorPane {
         figure_btn.update_property(&[gtk4::accessible::Property::Label("Insert figure or image")]);
         format_bar.append(&figure_btn);
 
+        // ── CV style switcher (shown only when editing a CV) ─────────────────
+        let cv_sep = Separator::new(Orientation::Vertical);
+        cv_sep.set_margin_top(6); cv_sep.set_margin_bottom(6);
+        cv_sep.set_margin_start(4); cv_sep.set_margin_end(4);
+
+        let cv_style_label = Label::new(Some("Modern"));
+        cv_style_label.add_css_class("dim-label");
+        cv_style_label.add_css_class("caption");
+
+        let cv_style_popover = Popover::new();
+        let cv_style_popover_box = GtkBox::new(Orientation::Vertical, 2);
+        cv_style_popover_box.set_margin_top(4); cv_style_popover_box.set_margin_bottom(4);
+        cv_style_popover_box.set_margin_start(4); cv_style_popover_box.set_margin_end(4);
+        for label in &["Modern", "Academic", "Classic"] {
+            let row = Button::with_label(label);
+            row.add_css_class("flat");
+            row.add_css_class("caption");
+            row.set_halign(gtk4::Align::Start);
+            row.set_size_request(100, -1);
+            cv_style_popover_box.append(&row);
+        }
+        cv_style_popover.set_child(Some(&cv_style_popover_box));
+        cv_style_popover.set_autohide(true);
+
+        let cv_style_btn = Button::new();
+        cv_style_btn.set_child(Some(&cv_style_label));
+        cv_style_btn.add_css_class("flat");
+        cv_style_btn.set_tooltip_text(Some("Switch CV visual style"));
+        cv_style_btn.set_margin_start(4);
+        {
+            let sp = cv_style_popover.clone();
+            let sb = cv_style_btn.clone();
+            cv_style_btn.connect_clicked(move |_| {
+                sp.set_parent(&sb);
+                if sp.is_visible() { sp.popdown(); } else { sp.popup(); sp.grab_focus(); }
+            });
+        }
+
+        let cv_format_section = GtkBox::new(Orientation::Horizontal, 0);
+        cv_format_section.append(&cv_sep);
+        cv_format_section.append(&cv_style_btn);
+        cv_format_section.set_visible(false);
+        format_bar.append(&cv_format_section);
+
         // ── Spacer ────────────────────────────────────────────────────────────
         let fb_spacer = GtkBox::new(Orientation::Horizontal, 0);
         fb_spacer.set_hexpand(true);
@@ -1061,7 +1123,31 @@ impl EditorPane {
             size_bar_label,
             line_numbers_override: Rc::new(Cell::new(false)),
             line_numbers_btn,
+            cv_mode: Rc::new(Cell::new(false)),
+            cv_format_section,
+            cv_style_label,
         };
+
+        // Wire CV style buttons
+        {
+            let mut child_opt = cv_style_popover_box.first_child();
+            for style in &["modern", "academic", "classic"] {
+                let Some(child) = child_opt else { break };
+                let next = child.next_sibling();
+                let Some(btn) = child.downcast_ref::<Button>() else {
+                    child_opt = next;
+                    continue;
+                };
+                let ep_cv = ep.clone();
+                let style_s = style.to_string();
+                let pop = cv_style_popover.clone();
+                btn.connect_clicked(move |_| {
+                    pop.popdown();
+                    ep_cv.apply_cv_style(&style_s);
+                });
+                child_opt = next;
+            }
+        }
 
         {
             let ep_ln = ep.clone();
@@ -1850,7 +1936,8 @@ impl EditorPane {
         let wy = if above { wy_top } else { wy_bottom };
 
         if !ti.popup_visible {
-            let mut all_items: Vec<CompletionItem> = ACADEMIC_SNIPPETS
+            let snippets = if self.cv_mode.get() { CV_SNIPPETS } else { ACADEMIC_SNIPPETS };
+            let mut all_items: Vec<CompletionItem> = snippets
                 .iter()
                 .map(|(_, label, desc, body)| CompletionItem {
                     label: label.to_string(),
@@ -2161,6 +2248,46 @@ impl EditorPane {
 
     pub fn format_bar_visible(&self) -> bool {
         self.format_bar_container.is_visible()
+    }
+
+    pub fn set_cv_mode(&self, cv: bool) {
+        self.cv_mode.set(cv);
+        self.cv_format_section.set_visible(cv);
+    }
+
+    pub fn update_cv_style_label(&self, content: &str) {
+        let style = super::template_dialog::parse_cv_style(content)
+            .unwrap_or_else(|| "modern".to_string());
+        let display = match style.as_str() {
+            "academic" => "Academic",
+            "classic"  => "Classic",
+            _          => "Modern",
+        };
+        self.cv_style_label.set_text(display);
+    }
+
+    pub fn apply_cv_style(&self, style: &str) {
+        let Some((_view, buf)) = self.active_view_buffer() else { return };
+        let (start, end) = buf.bounds();
+        let text = buf.text(&start, &end, false).to_string();
+        let new_text: String = text.lines().map(|line| {
+            let t = line.trim_start();
+            if t.starts_with("#let CV_STYLE =") {
+                format!("#let CV_STYLE = \"{style}\"")
+            } else if t.starts_with("// @zerkalo-cv-style:") {
+                format!("// @zerkalo-cv-style: {style}")
+            } else {
+                line.to_string()
+            }
+        }).collect::<Vec<_>>().join("\n");
+        let new_text = if text.ends_with('\n') { format!("{new_text}\n") } else { new_text };
+        buf.set_text(&new_text);
+        let display = match style {
+            "academic" => "Academic",
+            "classic"  => "Classic",
+            _          => "Modern",
+        };
+        self.cv_style_label.set_text(display);
     }
 
     pub fn set_on_focus_toggle(&self, f: impl Fn(bool) + 'static) {
@@ -3165,6 +3292,7 @@ impl EditorPane {
             let on_comp_cb = self.on_completion_needed.clone();
             let path_for_lsp = path.clone();
             let view_lsp = view.clone();
+            let cv_mode_for_lsp = self.cv_mode.clone();
             buffer.connect_changed(move |buf| {
                 if *lsp_completing3.borrow() {
                     return;
@@ -3213,7 +3341,8 @@ impl EditorPane {
                         let view_h = view_lsp.allocated_height() as i32;
                         let above = wy_bottom > view_h / 2;
                         let wy = if above { wy_top } else { wy_bottom };
-                        let snippets: Vec<CompletionItem> = ACADEMIC_SNIPPETS
+                        let snippet_src = if cv_mode_for_lsp.get() { CV_SNIPPETS } else { ACADEMIC_SNIPPETS };
+                        let snippets: Vec<CompletionItem> = snippet_src
                             .iter()
                             .map(|(_, label, desc, body)| CompletionItem {
                                 label: label.to_string(),

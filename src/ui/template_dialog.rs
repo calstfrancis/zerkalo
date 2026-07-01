@@ -205,6 +205,45 @@ const TEMPLATE_PRESETS: &[TemplatePreset] = &[
         include_keywords: false,
         body_kind: BodyKind::Book,
     },
+    TemplatePreset {
+        name: "CV — Modern",
+        description: "Clean résumé with colour accents · A4 · compact margins",
+        style_idx: 0,   // 0 = modern in CV context
+        paper_idx: 1,   // A4
+        margin_idx: 1,  // Narrow
+        spacing_idx: 0, // Single
+        page_num_pos: 4, // None
+        include_toc: false,
+        include_abstract: false,
+        include_keywords: false,
+        body_kind: BodyKind::Cv,
+    },
+    TemplatePreset {
+        name: "CV — Academic",
+        description: "Traditional academic CV with ruled section headers · A4",
+        style_idx: 1,   // 1 = academic in CV context
+        paper_idx: 1,   // A4
+        margin_idx: 0,  // Normal
+        spacing_idx: 0, // Single
+        page_num_pos: 0, // bottom center
+        include_toc: false,
+        include_abstract: false,
+        include_keywords: false,
+        body_kind: BodyKind::Cv,
+    },
+    TemplatePreset {
+        name: "CV — Classic",
+        description: "Minimal timeless résumé · clean lines, no colour · A4",
+        style_idx: 2,   // 2 = classic in CV context
+        paper_idx: 1,   // A4
+        margin_idx: 0,  // Normal
+        spacing_idx: 0, // Single
+        page_num_pos: 0, // bottom center
+        include_toc: false,
+        include_abstract: false,
+        include_keywords: false,
+        body_kind: BodyKind::Cv,
+    },
 ];
 
 // ── Body kind ─────────────────────────────────────────────────────────────────
@@ -214,6 +253,7 @@ enum BodyKind {
     #[default]
     Academic,
     Book,
+    Cv,
 }
 
 // ── Settings struct ───────────────────────────────────────────────────────────
@@ -1607,7 +1647,7 @@ pub fn build_sidecar(t: &TemplateSettings) -> SidecarSettings {
         dropcap_font:      t.dropcap_font.clone(),
         dropcap_lines:     t.dropcap_lines,
         bib_path:          t.bib_path.as_ref().map(|p| p.to_string_lossy().into_owned()),
-        body_kind:         match t.body_kind { BodyKind::Book => "book".into(), BodyKind::Academic => "academic".into() },
+        body_kind:         match t.body_kind { BodyKind::Book => "book".into(), BodyKind::Cv => "cv".into(), BodyKind::Academic => "academic".into() },
     }
 }
 
@@ -1650,7 +1690,7 @@ pub fn sidecar_to_settings(sc: &SidecarSettings) -> TemplateSettings {
         packages: sc.packages.clone(),
         dropcap_font: sc.dropcap_font.clone(),
         dropcap_lines: sc.dropcap_lines,
-        body_kind: if sc.body_kind == "book" { BodyKind::Book } else { BodyKind::Academic },
+        body_kind: if sc.body_kind == "book" { BodyKind::Book } else if sc.body_kind == "cv" { BodyKind::Cv } else { BodyKind::Academic },
         bib_path: sc.bib_path.as_ref().map(|s| std::path::PathBuf::from(s)),
     }
 }
@@ -1839,6 +1879,9 @@ fn typst_str(s: &str) -> String {
 // ── Template generator ────────────────────────────────────────────────────────
 
 pub fn generate_typst_template(s: &TemplateSettings) -> String {
+    if matches!(s.body_kind, BodyKind::Cv) {
+        return generate_cv_template(s);
+    }
     let style_key = CITATION_STYLES.get(s.style_idx).map(|(_, k)| *k).unwrap_or("chicago-notes");
     let style_name = CITATION_STYLES.get(s.style_idx).map(|(n, _)| *n).unwrap_or("Chicago");
     let bib = bib_style(style_key);
@@ -2012,7 +2055,151 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
                 let _ = writeln!(out, "// #bibliography(\"refs.bib\", style: \"{bib}\")");
             }
         }
+        BodyKind::Cv => { /* dispatched to generate_cv_template() above */ }
     }
+
+    out
+}
+
+// ── CV template generator ─────────────────────────────────────────────────────
+
+fn generate_cv_template(s: &TemplateSettings) -> String {
+    let cv_style = match s.style_idx {
+        1 => "academic",
+        2 => "classic",
+        _ => "modern",
+    };
+    let paper = PAPER_SIZES.get(s.paper_idx).map(|(_, k)| *k).unwrap_or("a4");
+    let (margin_x, margin_y) = match s.margin_idx {
+        1 => ("1.2cm", "1.2cm"),
+        2 => ("2.5cm", "2.5cm"),
+        _ => ("1.5cm", "1.5cm"),
+    };
+    let font = if s.font.is_empty() || s.font == "Times New Roman" { "Linux Libertine" } else { &s.font };
+    let font_size = if s.font_size.is_empty() { "10.5pt" } else { &s.font_size };
+    let name = if s.author.is_empty() { "Your Name" } else { &s.author };
+
+    let mut out = String::new();
+    let _ = writeln!(out, "{TEMPLATE_BEGIN}");
+    let _ = writeln!(out, "// Created with Zerkalo · CV / Résumé");
+    let _ = writeln!(out, "// @zerkalo-style: cv");
+    let _ = writeln!(out, "// @zerkalo-kind: cv");
+    let _ = writeln!(out, "// @zerkalo-cv-style: {cv_style}");
+    let _ = writeln!(out, "// @zerkalo-version: {}", env!("CARGO_PKG_VERSION"));
+    let _ = writeln!(out);
+    let _ = writeln!(out, "#set page(paper: \"{paper}\", margin: (x: {margin_x}, y: {margin_y}))");
+    let _ = writeln!(out, "#set text(font: \"{font}\", size: {font_size}, lang: \"en\")", font = typst_str(font));
+    let _ = writeln!(out, "#set par(spacing: 0.5em, leading: 0.55em)");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "// Change CV_STYLE to switch theme: \"modern\" | \"academic\" | \"classic\"");
+    let _ = writeln!(out, "#let CV_STYLE = \"{cv_style}\"");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "// ── CV helper functions ─────────────────────────────────────────────────");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "#let section(title, body) = {{");
+    let _ = writeln!(out, "  v(0.8em)");
+    let _ = writeln!(out, "  if CV_STYLE == \"modern\" [");
+    let _ = writeln!(out, "    #stack(dir: ltr, spacing: 0.5em,");
+    let _ = writeln!(out, "      box(height: 0.85em, width: 3pt, fill: rgb(\"#4a6fa5\")),");
+    let _ = writeln!(out, "      text(weight: \"bold\", size: 10.5pt)[#upper(title)]");
+    let _ = writeln!(out, "    )");
+    let _ = writeln!(out, "    #v(-0.5em)");
+    let _ = writeln!(out, "    #line(length: 100%, stroke: 0.4pt + rgb(\"#4a6fa5\"))");
+    let _ = writeln!(out, "  ] else if CV_STYLE == \"academic\" [");
+    let _ = writeln!(out, "    #text(weight: \"bold\", size: 10.5pt)[#upper(title)]");
+    let _ = writeln!(out, "    #v(-0.4em)");
+    let _ = writeln!(out, "    #line(length: 100%, stroke: 0.8pt)");
+    let _ = writeln!(out, "  ] else [");
+    let _ = writeln!(out, "    #text(weight: \"bold\")[#title]");
+    let _ = writeln!(out, "    #v(-0.4em)");
+    let _ = writeln!(out, "    #line(length: 100%, stroke: 0.4pt)");
+    let _ = writeln!(out, "  ]");
+    let _ = writeln!(out, "  v(0.3em)");
+    let _ = writeln!(out, "  body");
+    let _ = writeln!(out, "}}");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "#let job(title, company, years, desc) = {{");
+    let _ = writeln!(out, "  grid(");
+    let _ = writeln!(out, "    columns: (1fr, auto),");
+    let _ = writeln!(out, "    [*#title* #h(0.3em) #text(fill: luma(80))[#company]],");
+    let _ = writeln!(out, "    text(style: \"italic\", fill: luma(110))[#years],");
+    let _ = writeln!(out, "  )");
+    let _ = writeln!(out, "  v(0.15em)");
+    let _ = writeln!(out, "  desc");
+    let _ = writeln!(out, "  v(0.45em)");
+    let _ = writeln!(out, "}}");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "#let edu(degree, institution, years, note: none) = {{");
+    let _ = writeln!(out, "  grid(");
+    let _ = writeln!(out, "    columns: (1fr, auto),");
+    let _ = writeln!(out, "    [*#degree* #h(0.3em) #text(fill: luma(80))[#institution]],");
+    let _ = writeln!(out, "    text(style: \"italic\", fill: luma(110))[#years],");
+    let _ = writeln!(out, "  )");
+    let _ = writeln!(out, "  if note != none {{ v(0.1em); note }}");
+    let _ = writeln!(out, "  v(0.45em)");
+    let _ = writeln!(out, "}}");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "#let skill(category, items) = [");
+    let _ = writeln!(out, "  *#category:* #items.join(\", \") \\");
+    let _ = writeln!(out, "]");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "{TEMPLATE_END}");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "// ── Personal details ─────────────────────────────────────────────────");
+    let _ = writeln!(out, "#let cv-name = \"{}\"", typst_str(name));
+    let _ = writeln!(out, "#let cv-email = \"your@email.com\"");
+    let _ = writeln!(out, "#let cv-phone = \"+1 555 000 0000\"");
+    let _ = writeln!(out, "#let cv-location = \"City, Country\"");
+    let _ = writeln!(out, "#let cv-links = \"github.com/handle\"");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "#align(center)[");
+    let _ = writeln!(out, "  #if CV_STYLE == \"modern\" [");
+    let _ = writeln!(out, "    #text(size: 22pt, weight: \"bold\")[#cv-name] \\");
+    let _ = writeln!(out, "    #v(0.2em)");
+    let _ = writeln!(out, "    #text(fill: rgb(\"#4a6fa5\"))[#cv-email] · #cv-phone · #cv-location · #cv-links");
+    let _ = writeln!(out, "  ] else if CV_STYLE == \"academic\" [");
+    let _ = writeln!(out, "    #text(size: 20pt, weight: \"bold\")[#cv-name] \\");
+    let _ = writeln!(out, "    #v(0.15em)");
+    let _ = writeln!(out, "    #cv-email · #cv-phone · #cv-location \\");
+    let _ = writeln!(out, "    #cv-links");
+    let _ = writeln!(out, "  ] else [");
+    let _ = writeln!(out, "    #text(size: 20pt, weight: \"bold\")[#cv-name] \\");
+    let _ = writeln!(out, "    #v(0.1em)");
+    let _ = writeln!(out, "    #cv-email · #cv-phone · #cv-location · #cv-links");
+    let _ = writeln!(out, "  ]");
+    let _ = writeln!(out, "]");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "#v(0.8em)");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "// ── Document body ─────────────────────────────────────────────────────");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "#section(\"Experience\")[");
+    let _ = writeln!(out, "  #job(");
+    let _ = writeln!(out, "    \"Senior Engineer\",");
+    let _ = writeln!(out, "    \"Company Name\",");
+    let _ = writeln!(out, "    \"2022–present\",");
+    let _ = writeln!(out, "    [Description of role and key accomplishments.]");
+    let _ = writeln!(out, "  )");
+    let _ = writeln!(out, "  #job(");
+    let _ = writeln!(out, "    \"Engineer\",");
+    let _ = writeln!(out, "    \"Previous Company\",");
+    let _ = writeln!(out, "    \"2019–2022\",");
+    let _ = writeln!(out, "    [Description of your work and contributions.]");
+    let _ = writeln!(out, "  )");
+    let _ = writeln!(out, "]");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "#section(\"Education\")[");
+    let _ = writeln!(out, "  #edu(");
+    let _ = writeln!(out, "    \"B.Sc. Computer Science\",");
+    let _ = writeln!(out, "    \"University Name\",");
+    let _ = writeln!(out, "    \"2015–2019\",");
+    let _ = writeln!(out, "  )");
+    let _ = writeln!(out, "]");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "#section(\"Skills\")[");
+    let _ = writeln!(out, "  #skill(\"Languages\", (\"Rust\", \"Python\", \"TypeScript\"))");
+    let _ = writeln!(out, "  #skill(\"Tools\", (\"GTK4\", \"PostgreSQL\", \"Docker\"))");
+    let _ = writeln!(out, "]");
 
     out
 }
@@ -2603,15 +2790,28 @@ fn generate_preset_preview(idx: usize) -> Result<Vec<u8>, String> {
 
     let mut preamble = generate_typst_template(&settings);
 
+    // For CVs the template already contains full content — no body to append.
+    if matches!(p.body_kind, BodyKind::Cv) {
+        let tmp_dir = std::env::temp_dir();
+        let typ_path = tmp_dir.join(format!("zerkalo_tmpl_preview_{idx}.typ"));
+        std::fs::write(&typ_path, &preamble).map_err(|e| e.to_string())?;
+        return crate::compiler::compile_to_png_bytes(&typ_path, 1.5, &std::collections::HashMap::new(), &std::collections::HashMap::new())
+            .map(|pages| {
+                let png = pages.into_iter().next().unwrap_or_default();
+                let _ = std::fs::write(&cache_path, &png);
+                png
+            });
+    }
+
     // Replace the starter body with richer sample content
     let body = match p.body_kind {
         BodyKind::Book => PREVIEW_BOOK_BODY,
-        BodyKind::Academic => PREVIEW_ACADEMIC_BODY,
+        BodyKind::Academic | BodyKind::Cv => PREVIEW_ACADEMIC_BODY,
     };
     // Strip everything from the first chapter/section marker onward and append rich body
     let marker = match p.body_kind {
         BodyKind::Book => "// ── Chapters",
-        BodyKind::Academic => "// ── Document body",
+        BodyKind::Academic | BodyKind::Cv => "// ── Document body",
     };
     if let Some(pos) = preamble.find(marker) {
         preamble.truncate(pos);
@@ -2738,6 +2938,26 @@ pub fn parse_style_key(content: &str) -> Option<String> {
             if !key.is_empty() {
                 return Some(key);
             }
+        }
+    }
+    None
+}
+
+pub fn parse_doc_kind(content: &str) -> Option<String> {
+    for line in content.lines().take(20) {
+        if let Some(rest) = line.trim().strip_prefix("// @zerkalo-kind:") {
+            let kind = rest.trim().to_string();
+            if !kind.is_empty() { return Some(kind); }
+        }
+    }
+    None
+}
+
+pub fn parse_cv_style(content: &str) -> Option<String> {
+    for line in content.lines().take(20) {
+        if let Some(rest) = line.trim().strip_prefix("// @zerkalo-cv-style:") {
+            let style = rest.trim().to_string();
+            if !style.is_empty() { return Some(style); }
         }
     }
     None

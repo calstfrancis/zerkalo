@@ -2057,6 +2057,7 @@ impl AppWindow {
         let notes_panel_for_switch = notes_panel.clone();
         let style_btn_for_switch = style_btn.clone();
         let editor_pane_for_switch_delta = editor_pane.clone();
+        let editor_pane_cv_switch = editor_pane.clone();
         let configured_root_for_switch = configured_root.clone();
         let proj_mode_for_switch = proj_mode_active.clone();
         // Track per-file content hashes so tab switches don't recompile unchanged files.
@@ -2112,6 +2113,13 @@ impl AppWindow {
                 }
             } else {
                 title_widget_for_switch.set_subtitle("");
+            }
+            let is_cv = super::template_dialog::parse_doc_kind(&content)
+                .map(|k| k == "cv")
+                .unwrap_or(false);
+            editor_pane_cv_switch.set_cv_mode(is_cv);
+            if is_cv {
+                editor_pane_cv_switch.update_cv_style_label(&content);
             }
             let style_name = super::template_dialog::parse_style_key(&content)
                 .and_then(|key| super::template_dialog::style_name_for_key(&key))
@@ -2188,6 +2196,7 @@ impl AppWindow {
         let file_start_words_for_open = file_start_words.clone();
         let title_widget_for_open = file_title_widget.clone();
         let ep_for_open = editor_pane.clone();
+        let ep_cv_for_open = editor_pane.clone();
         editor_pane.set_on_file_opened(move |path, content| {
             // Track initial word count for this file (first open only)
             let mut starts = file_start_words_for_open.borrow_mut();
@@ -2200,6 +2209,11 @@ impl AppWindow {
             }
             todo_panel_for_open.set_current_file(Some(&path));
             notes_panel_for_open.update(&content, &path);
+            let is_cv = super::template_dialog::parse_doc_kind(&content)
+                .map(|k| k == "cv")
+                .unwrap_or(false);
+            ep_cv_for_open.set_cv_mode(is_cv);
+            if is_cv { ep_cv_for_open.update_cv_style_label(&content); }
             let style_name = super::template_dialog::parse_style_key(&content)
                 .and_then(|key| super::template_dialog::style_name_for_key(&key))
                 .unwrap_or("Style");

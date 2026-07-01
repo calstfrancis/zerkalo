@@ -5,6 +5,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.14.2-dev5] — CV/Résumé template and CV-aware editor
+
+### Added
+- **CV/Résumé templates** — three new presets in the "New from Template" dialog: CV — Modern (clean two-column layout), CV — Academic (page numbers, conservative margins), and CV — Classic (traditional single-column)
+- **CV helper functions** — generated CV files include `#section`, `#job`, `#edu`, and `#skill` Typst helpers; style-conditional rendering adapts to the chosen CV_STYLE variable
+- **CV snippets** — when editing a CV file, the `#` completion popup offers `#job`, `#edu`, `#skill`, and `#section` instead of the usual academic snippets
+- **CV-aware format bar** — a "CV Style" button appears in the format bar when a CV file is open, replacing the academic citation options; one-click switching between Modern, Academic, and Classic rewrites the `CV_STYLE` variable in the document in-place
+- **CV style persistence** — CV style is detected from the `// @zerkalo-cv-style:` comment marker embedded in generated files; label in the format bar reflects the active style
+
+---
+
 ## [0.14.2-dev4] — Dropcap height setting
 
 ### Added
