@@ -7,7 +7,7 @@ use libadwaita as adw;
 use adw::prelude::*;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-const RELEASE_NAME: &str = "Quiet Brass";
+const RELEASE_NAME: &str = "Burnished Folio";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -125,14 +125,14 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
-                "Library window shows document and project count in the status bar, with a Compact toggle",
-                "Status bar has a compile mode toggle — click to cycle Auto / On Save / Manual",
-                "Session delta in the status bar turns green when you're ahead of where you started",
-                "LSP completion popup shows readable kind labels (Function, Method, Variable…) and colored dots",
-                "Command palette highlights the matched portion of each result",
-                "Zoom step buttons (− and +) flank the zoom percentage in the preview pane",
-                "Snapshot restore now correctly replaces the open buffer instead of silently doing nothing",
-                "Horizontal movement in the editor is suppressed",
+                "CV/Résumé templates — three presets (Modern, Academic, Classic) in New from Template",
+                "CV style switching — format bar shows CV Style instead of Style when editing a CV",
+                "CV helpers — #job, #edu, #skill, #section, #award adapt their look to the active style",
+                "CV cheatsheet — the ? panel and Help popup show CV reference when a CV is open",
+                "Library Export now compiles to PDF using the built-in Typst compiler",
+                "Hamburger menu reorganized into clearer groups; Update Template Settings restored",
+                "Fixed: switching CV style via the format bar wiped the document preamble",
+                "Fixed: cheatsheet code blocks could drift left unpredictably",
             ] {
                 body.append(&bullet_row(item));
             }

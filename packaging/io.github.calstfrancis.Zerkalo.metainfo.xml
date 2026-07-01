@@ -66,6 +66,22 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.14.2" date="2026-07-01">
+      <description>
+        <p>0.14.2 "Burnished Folio" — CV/Résumé support, library PDF export, UI polish.</p>
+        <ul>
+          <li>CV/Résumé templates — three presets (Modern, Academic, Classic) in the New from Template dialog, each with a fully distinct visual identity throughout</li>
+          <li>CV helpers — #section, #job, #edu, #skill, #award functions embedded in every CV; all adapt automatically to the active style</li>
+          <li>CV-aware format bar — the Style button is replaced by a CV Style button when a CV is open; one-click style switching rewrites the document in place</li>
+          <li>CV snippets — the # completion popup shows CV-specific completions when editing a CV file</li>
+          <li>CV-aware cheatsheet — the ? reference panel and Help popup switch to a CV helper reference when editing a CV</li>
+          <li>Library PDF export — the Export button in the document library now compiles to PDF using the embedded Typst compiler</li>
+          <li>Hamburger menu reorganized — cleaner groups with Update Template Settings restored to the menu</li>
+          <li>Fixed: switching CV style via the format bar wiped the entire document preamble</li>
+          <li>Fixed: cheatsheet/help panel code blocks could drift left unpredictably</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.14.1" date="2026-06-30">
       <description>
         <p>0.14.1 "Quiet Brass" — Library status bar, compile mode toggle, visual polish.</p>
