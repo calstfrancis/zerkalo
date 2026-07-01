@@ -238,24 +238,25 @@ impl AppWindow {
 
         // New / Open
         menu_popover_box.append(&menu_new_template_item);
-        menu_popover_box.append(&menu_repair_markers_item);
         menu_popover_box.append(&menu_new_item);
         menu_popover_box.append(&Separator::new(Orientation::Horizontal));
         menu_popover_box.append(&menu_open_item);
+        menu_popover_box.append(&menu_docs_item);
         menu_popover_box.append(&Separator::new(Orientation::Horizontal));
-        // Save
+        // Current document
+        menu_popover_box.append(&menu_reapply_template_item);
+        menu_popover_box.append(&menu_repair_markers_item);
+        menu_popover_box.append(&Separator::new(Orientation::Horizontal));
+        // Save / version
         menu_popover_box.append(&menu_save_item);
         menu_popover_box.append(&menu_save_as_item);
         menu_popover_box.append(&menu_snapshots_item);
         menu_popover_box.append(&Separator::new(Orientation::Horizontal));
-        // Convert / share
+        // Export / share
         menu_popover_box.append(&menu_export_item);
         menu_popover_box.append(&menu_export_web_item);
         menu_popover_box.append(&menu_print_item);
         menu_popover_box.append(&menu_import_item);
-        menu_popover_box.append(&Separator::new(Orientation::Horizontal));
-        // View
-        menu_popover_box.append(&menu_docs_item);
         menu_popover_box.append(&Separator::new(Orientation::Horizontal));
         // App settings
         menu_popover_box.append(&menu_fonts_item);
@@ -1136,9 +1137,10 @@ impl AppWindow {
 
         let window_for_help = window.clone();
         let menu_popover_for_help = menu_popover.clone();
+        let editor_for_help = editor_pane.clone();
         menu_help_item.connect_clicked(move |_| {
             menu_popover_for_help.popdown();
-            HelpWindow::new(&window_for_help).present();
+            HelpWindow::new(&window_for_help, editor_for_help.is_cv_mode()).present();
         });
 
         // ── Menu: Setup & Onboarding ────────────────────────────────────────
@@ -2057,6 +2059,10 @@ impl AppWindow {
         let notes_panel_for_switch = notes_panel.clone();
         let style_btn_for_switch = style_btn.clone();
         let editor_pane_for_switch_delta = editor_pane.clone();
+        let cs_stack = gtk4::Stack::new();
+        let cs_stack_for_switch = cs_stack.clone();
+        let cs_stack_for_open = cs_stack.clone();
+
         let editor_pane_cv_switch = editor_pane.clone();
         let configured_root_for_switch = configured_root.clone();
         let proj_mode_for_switch = proj_mode_active.clone();
@@ -2121,6 +2127,7 @@ impl AppWindow {
             if is_cv {
                 editor_pane_cv_switch.update_cv_style_label(&content);
             }
+            cs_stack_for_switch.set_visible_child_name(if is_cv { "cv" } else { "normal" });
             let style_name = super::template_dialog::parse_style_key(&content)
                 .and_then(|key| super::template_dialog::style_name_for_key(&key))
                 .unwrap_or("Style");
@@ -2214,6 +2221,7 @@ impl AppWindow {
                 .unwrap_or(false);
             ep_cv_for_open.set_cv_mode(is_cv);
             if is_cv { ep_cv_for_open.update_cv_style_label(&content); }
+            cs_stack_for_open.set_visible_child_name(if is_cv { "cv" } else { "normal" });
             let style_name = super::template_dialog::parse_style_key(&content)
                 .and_then(|key| super::template_dialog::style_name_for_key(&key))
                 .unwrap_or("Style");
@@ -2886,8 +2894,14 @@ impl AppWindow {
         ref_notebook.set_hexpand(true);
         {
             let cs_lbl = Label::new(Some("Cheatsheet"));
-            let cs_scroll = super::help_window::cheatsheet_scroll();
-            ref_notebook.append_page(&cs_scroll, Some(&cs_lbl));
+            let normal_cs = super::help_window::cheatsheet_scroll();
+            let cv_cs = super::help_window::cv_cheatsheet_scroll();
+            cs_stack.add_named(&normal_cs, Some("normal"));
+            cs_stack.add_named(&cv_cs, Some("cv"));
+            cs_stack.set_visible_child_name("normal");
+            cs_stack.set_hexpand(true);
+            cs_stack.set_vexpand(true);
+            ref_notebook.append_page(&cs_stack, Some(&cs_lbl));
             let help_lbl = Label::new(Some("Help"));
             let help_scroll = super::help_window::overview_scroll();
             ref_notebook.append_page(&help_scroll, Some(&help_lbl));
@@ -3948,7 +3962,7 @@ impl AppWindow {
                     match id {
                         "toggle_find"    => editor_for_pal.toggle_find(),
                         "save"           => { editor_for_pal.save_all_modified(); }
-                        "help"           => { HelpWindow::new(&w).present(); }
+                        "help"           => { HelpWindow::new(&w, editor_for_pal.is_cv_mode()).present(); }
                         "find_in_files"  => { search_for_pal.toggle(); }
                         "project_outline" => {
                             if let (Some(content), Some(path)) = (
@@ -4086,7 +4100,7 @@ impl AppWindow {
                 }
                 // Ctrl+? / Ctrl+Shift+/ — keyboard shortcut help overlay
                 if ctrl && (key == Key::question || (shift && key == Key::slash)) {
-                    HelpWindow::new(&window).present();
+                    HelpWindow::new(&window, editor.is_cv_mode()).present();
                     return glib::Propagation::Stop;
                 }
                 // Command palette (default Ctrl+K, configurable via keybindings.toml)

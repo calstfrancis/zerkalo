@@ -2143,6 +2143,16 @@ fn generate_cv_template(s: &TemplateSettings) -> String {
     let _ = writeln!(out, "  *#category:* #items.join(\", \") \\");
     let _ = writeln!(out, "]");
     let _ = writeln!(out);
+    let _ = writeln!(out, "#let award(title, org, years, desc: none) = {{");
+    let _ = writeln!(out, "  grid(");
+    let _ = writeln!(out, "    columns: (1fr, auto),");
+    let _ = writeln!(out, "    [*#title* #h(0.3em) #text(fill: luma(80))[#org]],");
+    let _ = writeln!(out, "    text(style: \"italic\", fill: luma(110))[#years],");
+    let _ = writeln!(out, "  )");
+    let _ = writeln!(out, "  if desc != none {{ v(0.1em); desc }}");
+    let _ = writeln!(out, "  v(0.45em)");
+    let _ = writeln!(out, "}}");
+    let _ = writeln!(out);
     let _ = writeln!(out, "{TEMPLATE_END}");
     let _ = writeln!(out);
     let _ = writeln!(out, "// ── Personal details ─────────────────────────────────────────────────");
@@ -2199,6 +2209,15 @@ fn generate_cv_template(s: &TemplateSettings) -> String {
     let _ = writeln!(out, "#section(\"Skills\")[");
     let _ = writeln!(out, "  #skill(\"Languages\", (\"Rust\", \"Python\", \"TypeScript\"))");
     let _ = writeln!(out, "  #skill(\"Tools\", (\"GTK4\", \"PostgreSQL\", \"Docker\"))");
+    let _ = writeln!(out, "]");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "#section(\"Awards & Honours\")[");
+    let _ = writeln!(out, "  #award(");
+    let _ = writeln!(out, "    \"Award Name\",");
+    let _ = writeln!(out, "    \"Awarding Organisation\",");
+    let _ = writeln!(out, "    \"2023\",");
+    let _ = writeln!(out, "    desc: [Brief description of the award and why it was given.]");
+    let _ = writeln!(out, "  )");
     let _ = writeln!(out, "]");
 
     out
