@@ -244,6 +244,7 @@ pub(crate) struct TemplateSettings {
     numbering_format: String,
     languages: Vec<String>,
     packages: Vec<String>,
+    dropcap_font: String,
     body_kind: BodyKind,
     bib_path: Option<PathBuf>,
 }
@@ -279,6 +280,8 @@ pub struct SidecarSettings {
     pub numbering_format:   String,
     pub languages:          Vec<String>,
     pub packages:           Vec<String>,
+    #[serde(default)]
+    pub dropcap_font:       String,
     pub bib_path:           Option<String>,
     pub body_kind:          String,
 }
@@ -322,6 +325,7 @@ pub struct TemplateDialog {
     header_row: adw::ComboRow,
     lang_switches: Vec<(String, adw::SwitchRow)>,
     pkg_switches: Vec<(String, adw::SwitchRow)>,
+    dropcap_font_row: adw::EntryRow,
 }
 
 impl TemplateDialog {
@@ -615,6 +619,20 @@ impl TemplateDialog {
             pkg_switches.push((key.to_string(), sw));
         }
 
+        let dropcap_font_row = adw::EntryRow::new();
+        dropcap_font_row.set_title("Dropcap Font");
+        dropcap_font_row.set_tooltip_text(Some("Font for the large initial letter (leave blank to use the body font)"));
+        dropcap_font_row.set_input_hints(gtk4::InputHints::NO_SPELLCHECK);
+        dropcap_font_row.set_show_apply_button(false);
+        dropcap_font_row.set_visible(false);
+        if let Some((_, droplet_sw)) = pkg_switches.iter().find(|(k, _)| k == "pkg_droplet") {
+            pkg_group.add(&dropcap_font_row);
+            let row_c = dropcap_font_row.clone();
+            droplet_sw.connect_notify_local(Some("active"), move |sw, _| {
+                row_c.set_visible(sw.is_active());
+            });
+        }
+
         let tab5_box = pref_tab_box();
         tab5_box.append(&pkg_group);
         notebook.append_page(&tab_scroll(tab5_box), Some(&tab_label("Packages")));
@@ -859,6 +877,7 @@ impl TemplateDialog {
         let w_heading_fmt = heading_format_row.clone();
         let w_langs = lang_switches.clone();
         let w_pkgs = pkg_switches.clone();
+        let w_dropcap_font = dropcap_font_row.clone();
         let w_body_kind = body_kind_state.clone();
         let w_bib_path = bib_path.clone();
 
@@ -922,6 +941,11 @@ impl TemplateDialog {
                     .filter(|(_, sw)| sw.is_active())
                     .map(|(k, _)| k.clone())
                     .collect(),
+                dropcap_font: if w_pkgs.iter().any(|(k, sw)| k == "pkg_droplet" && sw.is_active()) {
+                    w_dropcap_font.text().to_string()
+                } else {
+                    String::new()
+                },
                 body_kind: *w_body_kind.borrow(),
                 bib_path: w_bib_path.borrow().clone(),
             };
@@ -985,6 +1009,7 @@ impl TemplateDialog {
         let a_heading_fmt = heading_format_row.clone();
         let a_langs = lang_switches.clone();
         let a_pkgs = pkg_switches.clone();
+        let a_dropcap_font = dropcap_font_row.clone();
         let a_body_kind = body_kind_state.clone();
         let a_bib_path = bib_path.clone();
         apply_btn.connect_clicked(move |_| {
@@ -1038,6 +1063,11 @@ impl TemplateDialog {
                     .filter(|(_, sw)| sw.is_active())
                     .map(|(k, _)| k.clone())
                     .collect(),
+                dropcap_font: if a_pkgs.iter().any(|(k, sw)| k == "pkg_droplet" && sw.is_active()) {
+                    a_dropcap_font.text().to_string()
+                } else {
+                    String::new()
+                },
                 body_kind: *a_body_kind.borrow(),
                 bib_path: a_bib_path.borrow().clone(),
             };
@@ -1099,6 +1129,7 @@ impl TemplateDialog {
             let p_heading_fmt = heading_format_row.clone();
             let p_langs = lang_switches.clone();
             let p_pkgs = pkg_switches.clone();
+            let p_dropcap_font = dropcap_font_row.clone();
             let p_body_kind = body_kind_state.clone();
             let p_bib_path = bib_path.clone();
             let p_win = window.clone();
@@ -1153,6 +1184,11 @@ impl TemplateDialog {
                         .filter(|(_, sw)| sw.is_active())
                         .map(|(k, _)| k.clone())
                         .collect(),
+                    dropcap_font: if p_pkgs.iter().any(|(k, sw)| k == "pkg_droplet" && sw.is_active()) {
+                        p_dropcap_font.text().to_string()
+                    } else {
+                        String::new()
+                    },
                     body_kind: *p_body_kind.borrow(),
                     bib_path: p_bib_path.borrow().clone(),
                 };
@@ -1200,7 +1236,7 @@ impl TemplateDialog {
             toc_row, toc_depth_row, abstract_row, abstract_text_row,
             keywords_row, keywords_text_row, heading_numbering_row, heading_format_row,
             title_row, subtitle_row, author_row, affil_row, course_row, professor_row, date_row,
-            bib_path, pnum_row, header_row, lang_switches, pkg_switches,
+            bib_path, pnum_row, header_row, lang_switches, pkg_switches, dropcap_font_row,
         }
     }
 
@@ -1245,6 +1281,10 @@ impl TemplateDialog {
             }
             _ => {}
         }
+    }
+
+    pub fn preselect_dropcap_font(&self, font: &str) {
+        self.dropcap_font_row.set_text(font);
     }
 
     /// Pre-select the body font by name.
@@ -1417,6 +1457,9 @@ impl TemplateDialog {
         }
         self.preselect_languages(&s.languages);
         self.preselect_packages(&s.packages);
+        if !s.dropcap_font.is_empty() {
+            self.preselect_dropcap_font(&s.dropcap_font);
+        }
         if let Some(ref p) = s.bib_path {
             if !p.is_empty() {
                 *self.bib_path.borrow_mut() = Some(PathBuf::from(p));
@@ -1482,6 +1525,7 @@ pub fn build_sidecar(t: &TemplateSettings) -> SidecarSettings {
         numbering_format:  t.numbering_format.clone(),
         languages:         t.languages.clone(),
         packages:          t.packages.clone(),
+        dropcap_font:      t.dropcap_font.clone(),
         bib_path:          t.bib_path.as_ref().map(|p| p.to_string_lossy().into_owned()),
         body_kind:         match t.body_kind { BodyKind::Book => "book".into(), BodyKind::Academic => "academic".into() },
     }
@@ -1524,6 +1568,7 @@ pub fn sidecar_to_settings(sc: &SidecarSettings) -> TemplateSettings {
         numbering_format: sc.numbering_format.clone(),
         languages: sc.languages.clone(),
         packages: sc.packages.clone(),
+        dropcap_font: sc.dropcap_font.clone(),
         body_kind: if sc.body_kind == "book" { BodyKind::Book } else { BodyKind::Academic },
         bib_path: sc.bib_path.as_ref().map(|s| std::path::PathBuf::from(s)),
     }
@@ -1744,6 +1789,9 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
         if let Some(import) = package_import(pkg) {
             let _ = writeln!(out, "{import}");
         }
+    }
+    if s.packages.contains(&"pkg_droplet".to_string()) && !s.dropcap_font.is_empty() {
+        let _ = writeln!(out, "#let dropcap = dropcap.with(font: \"{}\")", typst_str(&s.dropcap_font));
     }
     if !s.packages.is_empty() {
         let _ = writeln!(out);
@@ -2009,7 +2057,7 @@ pub fn rebuild_title_page_for_style(content: &str, new_style_key: &str) -> Strin
         include_abstract: false, abstract_text: String::new(),
         include_keywords: false, keywords: String::new(),
         heading_numbering: false, numbering_format: String::new(),
-        languages: vec![], packages: vec![],
+        languages: vec![], packages: vec![], dropcap_font: String::new(),
         body_kind: BodyKind::Academic,
         bib_path: None,
     };
@@ -2457,6 +2505,7 @@ fn generate_preset_preview(idx: usize) -> Result<Vec<u8>, String> {
         numbering_format: String::new(),
         languages: Vec::new(),
         packages: Vec::new(),
+        dropcap_font: String::new(),
         body_kind: p.body_kind,
         bib_path: None,
     };
@@ -2638,6 +2687,24 @@ pub fn parse_font(content: &str) -> Option<String> {
     last_found
 }
 
+pub fn parse_dropcap_font(content: &str) -> Option<String> {
+    for line in content.lines() {
+        let t = line.trim();
+        if t.starts_with("#let dropcap = dropcap.with(") {
+            if let Some(start) = t.find("font:") {
+                let after = t[start + 5..].trim_start();
+                if let Some(after) = after.strip_prefix('"') {
+                    if let Some(end) = after.find('"') {
+                        let f = after[..end].to_string();
+                        if !f.is_empty() { return Some(f); }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Parse `size: Xpt` from `#set text(…)` in document content.
 pub fn parse_font_size(content: &str) -> Option<String> {
     let mut last_found: Option<String> = None;
@@ -2772,6 +2839,7 @@ pub fn default_import_preamble() -> String {
         numbering_format: String::new(),
         languages: vec![],
         packages: vec![],
+        dropcap_font: String::new(),
         body_kind: BodyKind::default(),
         bib_path: None,
     };
@@ -3381,14 +3449,14 @@ mod tests {
     fn replace_heading_styles_updates_style_key() {
         let settings = TemplateSettings {
             title: "Test".into(), subtitle: String::new(), author: String::new(),
-            affiliation: String::new(), course: String::new(), date: String::new(),
+            affiliation: String::new(), course: String::new(), professor: String::new(), date: String::new(),
             style_idx: 1, // Chicago
             paper_idx: 0, margin_idx: 0,
             font: "Times New Roman".into(), spacing: "0.9em".into(),
-            page_num_pos: 0, include_toc: false, toc_depth: 2,
+            page_num_pos: 0, header_style: 0, include_toc: false, toc_depth: 2,
             include_abstract: false, abstract_text: String::new(),
             include_keywords: false, keywords: String::new(),
-            languages: vec![], packages: vec![], body_kind: BodyKind::Academic,
+            languages: vec![], packages: vec![], dropcap_font: String::new(), body_kind: BodyKind::Academic,
             font_size: "12pt".into(), heading_numbering: false, numbering_format: String::new(),
             bib_path: None,
         };
@@ -3407,13 +3475,13 @@ mod tests {
     fn replace_heading_styles_ieee_adds_columns() {
         let settings = TemplateSettings {
             title: String::new(), subtitle: String::new(), author: String::new(),
-            affiliation: String::new(), course: String::new(), date: String::new(),
+            affiliation: String::new(), course: String::new(), professor: String::new(), date: String::new(),
             style_idx: 0, paper_idx: 0, margin_idx: 0,
             font: "Times New Roman".into(), spacing: "0.9em".into(),
-            page_num_pos: 0, include_toc: false, toc_depth: 2,
+            page_num_pos: 0, header_style: 0, include_toc: false, toc_depth: 2,
             include_abstract: false, abstract_text: String::new(),
             include_keywords: false, keywords: String::new(),
-            languages: vec![], packages: vec![], body_kind: BodyKind::Academic,
+            languages: vec![], packages: vec![], dropcap_font: String::new(), body_kind: BodyKind::Academic,
             font_size: "12pt".into(), heading_numbering: false, numbering_format: String::new(),
             bib_path: None,
         };
@@ -3523,6 +3591,7 @@ Body text.\n";
             author: "Author".to_string(),
             affiliation: String::new(),
             course: String::new(),
+            professor: String::new(),
             date: "2025".to_string(),
             style_idx: 1,
             paper_idx: 0,
@@ -3530,6 +3599,7 @@ Body text.\n";
             font: "Times New Roman".to_string(),
             spacing: "1.2em".to_string(),
             page_num_pos: 0,
+            header_style: 0,
             include_toc: false,
             toc_depth: 2,
             include_abstract: false,
@@ -3538,6 +3608,7 @@ Body text.\n";
             keywords: String::new(),
             languages: vec![],
             packages: vec![],
+            dropcap_font: String::new(),
             body_kind: BodyKind::Academic,
             font_size: "12pt".into(), heading_numbering: false, numbering_format: String::new(),
             bib_path: None,
@@ -3575,6 +3646,7 @@ Body text.\n";
             author: "Cal".to_string(),
             affiliation: "University".to_string(),
             course: "Grad Seminar".to_string(),
+            professor: String::new(),
             date: "2026".to_string(),
             style_idx: 4,  // APA 7th
             paper_idx: 1,  // A4
@@ -3582,6 +3654,7 @@ Body text.\n";
             font: "EB Garamond".to_string(),
             spacing: "1.2em".to_string(),
             page_num_pos: 3,
+            header_style: 0,
             include_toc: true,
             toc_depth: 3,
             include_abstract: true,
@@ -3590,6 +3663,7 @@ Body text.\n";
             keywords: "one, two, three".to_string(),
             languages: vec!["lang_ru".to_string(), "lang_he".to_string()],
             packages: vec!["pkg_codly".to_string()],
+            dropcap_font: String::new(),
             body_kind: BodyKind::Academic,
             font_size: "12pt".into(), heading_numbering: false, numbering_format: String::new(),
             bib_path: Some(std::path::PathBuf::from("/home/user/refs.bib")),
@@ -3704,6 +3778,7 @@ Body text.\n";
             author: "Author".to_string(),
             affiliation: String::new(),
             course: String::new(),
+            professor: String::new(),
             date: "2026".to_string(),
             style_idx: 1,  // Chicago
             paper_idx: 0,  // US Letter
@@ -3711,6 +3786,7 @@ Body text.\n";
             font: "Times New Roman".to_string(),
             spacing: "0.9em".to_string(),
             page_num_pos: 3,
+            header_style: 0,
             include_toc: false,
             toc_depth: 2,
             include_abstract: false,
@@ -3719,6 +3795,7 @@ Body text.\n";
             keywords: String::new(),
             languages: vec![],
             packages: vec![],
+            dropcap_font: String::new(),
             body_kind: BodyKind::Academic,
             font_size: "12pt".into(), heading_numbering: false, numbering_format: String::new(),
             bib_path: None,
@@ -3764,14 +3841,14 @@ Body text.\n";
     fn apply_body_splice_updates_bib_style() {
         let settings = TemplateSettings {
             title: String::new(), subtitle: String::new(), author: String::new(),
-            affiliation: String::new(), course: String::new(), date: String::new(),
+            affiliation: String::new(), course: String::new(), professor: String::new(), date: String::new(),
             style_idx: 2,  // Chicago Author-Date
             paper_idx: 0, margin_idx: 0,
             font: "Times New Roman".to_string(), spacing: "0.9em".to_string(),
-            page_num_pos: 0, include_toc: false, toc_depth: 2,
+            page_num_pos: 0, header_style: 0, include_toc: false, toc_depth: 2,
             include_abstract: false, abstract_text: String::new(),
             include_keywords: false, keywords: String::new(),
-            languages: vec![], packages: vec![], body_kind: BodyKind::Academic,
+            languages: vec![], packages: vec![], dropcap_font: String::new(), body_kind: BodyKind::Academic,
             font_size: "12pt".into(), heading_numbering: false, numbering_format: String::new(),
             bib_path: Some(std::path::PathBuf::from("refs.bib")),
         };
@@ -3793,13 +3870,13 @@ Body text.\n";
         let existing = "// some old stuff\n= Heading\nContent.\n";
         let fresh_settings = TemplateSettings {
             title: "Fresh".to_string(), subtitle: String::new(), author: String::new(),
-            affiliation: String::new(), course: String::new(), date: String::new(),
+            affiliation: String::new(), course: String::new(), professor: String::new(), date: String::new(),
             style_idx: 0, paper_idx: 0, margin_idx: 0,
             font: "Times New Roman".to_string(), spacing: "0.9em".to_string(),
-            page_num_pos: 0, include_toc: false, toc_depth: 2,
+            page_num_pos: 0, header_style: 0, include_toc: false, toc_depth: 2,
             include_abstract: false, abstract_text: String::new(),
             include_keywords: false, keywords: String::new(),
-            languages: vec![], packages: vec![], body_kind: BodyKind::Academic,
+            languages: vec![], packages: vec![], dropcap_font: String::new(), body_kind: BodyKind::Academic,
             font_size: "12pt".into(), heading_numbering: false, numbering_format: String::new(),
             bib_path: None,
         };

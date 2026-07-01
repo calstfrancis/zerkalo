@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.14.2-dev3] — Dropcap font setting
+
+### Added
+- **Dropcap font** — when the Droplet package is enabled in template settings, a "Dropcap Font" entry row appears underneath it; setting a font name emits `#let dropcap = dropcap.with(font: "…")` in the template, so all `#dropcap[…]` calls in the document use that font automatically
+
+---
+
 ## [0.14.2-dev2] — Bug fixes and format bar improvements
 
 ### Added

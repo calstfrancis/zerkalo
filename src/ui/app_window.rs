@@ -1620,6 +1620,9 @@ impl AppWindow {
                     super::template_dialog::parse_has_keywords(&current_content),
                     &super::template_dialog::parse_keywords_text(&current_content),
                 );
+                if let Some(f) = super::template_dialog::parse_dropcap_font(&current_content) {
+                    dlg.preselect_dropcap_font(&f);
+                }
             }
             if let Some(doc_abstract) = super::template_dialog::parse_abstract_from_doc(&current_content) {
                 dlg.override_abstract_text(&doc_abstract);
@@ -3570,6 +3573,9 @@ impl AppWindow {
                         super::template_dialog::parse_has_keywords(&current_content),
                         &super::template_dialog::parse_keywords_text(&current_content),
                     );
+                    if let Some(f) = super::template_dialog::parse_dropcap_font(&current_content) {
+                        dlg.preselect_dropcap_font(&f);
+                    }
                 }
                 // If the user edited the abstract directly in the .typ file, that wins
                 // over what the sidecar recorded last time. Override with doc's text.
