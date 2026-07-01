@@ -245,6 +245,7 @@ pub(crate) struct TemplateSettings {
     languages: Vec<String>,
     packages: Vec<String>,
     dropcap_font: String,
+    dropcap_lines: u32,
     body_kind: BodyKind,
     bib_path: Option<PathBuf>,
 }
@@ -282,6 +283,8 @@ pub struct SidecarSettings {
     pub packages:           Vec<String>,
     #[serde(default)]
     pub dropcap_font:       String,
+    #[serde(default = "default_dropcap_lines")]
+    pub dropcap_lines:      u32,
     pub bib_path:           Option<String>,
     pub body_kind:          String,
 }
@@ -325,7 +328,9 @@ pub struct TemplateDialog {
     header_row: adw::ComboRow,
     lang_switches: Vec<(String, adw::SwitchRow)>,
     pkg_switches: Vec<(String, adw::SwitchRow)>,
-    dropcap_font_row: adw::EntryRow,
+    dropcap_expander: adw::ExpanderRow,
+    dropcap_font_row: adw::ComboRow,
+    dropcap_lines_row: adw::ComboRow,
 }
 
 impl TemplateDialog {
@@ -610,27 +615,53 @@ impl TemplateDialog {
         ));
 
         let mut pkg_switches: Vec<(String, adw::SwitchRow)> = Vec::new();
-        for (key, name, desc) in EXTRA_PACKAGES {
+
+        // ── Droplet: ExpanderRow with font + lines children ───────────────────
+        let dropcap_expander = adw::ExpanderRow::new();
+        dropcap_expander.set_title("Droplet");
+        dropcap_expander.set_subtitle("Large decorative first-letter (dropcap)");
+        dropcap_expander.set_show_enable_switch(true);
+        dropcap_expander.set_enable_expansion(false);
+        pkg_group.add(&dropcap_expander);
+
+        let droplet_hidden_sw = adw::SwitchRow::new();
+        droplet_hidden_sw.set_active(false);
+        {
+            let sw_c = droplet_hidden_sw.clone();
+            dropcap_expander.connect_notify_local(Some("enable-expansion"), move |exp, _| {
+                sw_c.set_active(exp.enables_expansion());
+            });
+        }
+        pkg_switches.push(("pkg_droplet".to_string(), droplet_hidden_sw));
+
+        let dropcap_font_list: Vec<String> = {
+            let mut v = vec!["(use body font)".to_string()];
+            v.extend(build_font_list().into_iter().filter(|f| f != "Other…"));
+            v
+        };
+        let dropcap_font_labels: Vec<&str> = dropcap_font_list.iter().map(|s| s.as_str()).collect();
+        let dropcap_font_row = adw::ComboRow::new();
+        dropcap_font_row.set_title("Font");
+        dropcap_font_row.set_subtitle("Decorative font for the large first letter");
+        dropcap_font_row.set_model(Some(&gtk4::StringList::new(&dropcap_font_labels)));
+        dropcap_font_row.set_selected(0);
+        dropcap_expander.add_row(&dropcap_font_row);
+
+        let dropcap_lines_row = adw::ComboRow::new();
+        dropcap_lines_row.set_title("Height");
+        dropcap_lines_row.set_subtitle("How many lines tall the dropcap should be");
+        dropcap_lines_row.set_model(Some(&gtk4::StringList::new(&["2 lines", "3 lines", "4 lines", "5 lines", "6 lines"])));
+        dropcap_lines_row.set_selected(1); // 3 lines default
+        dropcap_expander.add_row(&dropcap_lines_row);
+
+        // ── Other extra packages ──────────────────────────────────────────────
+        for (key, name, desc) in EXTRA_PACKAGES.iter().filter(|(k, _, _)| *k != "pkg_droplet") {
             let sw = adw::SwitchRow::new();
             sw.set_title(name);
             sw.set_subtitle(desc);
             sw.set_active(false);
             pkg_group.add(&sw);
             pkg_switches.push((key.to_string(), sw));
-        }
-
-        let dropcap_font_row = adw::EntryRow::new();
-        dropcap_font_row.set_title("Dropcap Font");
-        dropcap_font_row.set_tooltip_text(Some("Font for the large initial letter (leave blank to use the body font)"));
-        dropcap_font_row.set_input_hints(gtk4::InputHints::NO_SPELLCHECK);
-        dropcap_font_row.set_show_apply_button(false);
-        dropcap_font_row.set_visible(false);
-        if let Some((_, droplet_sw)) = pkg_switches.iter().find(|(k, _)| k == "pkg_droplet") {
-            pkg_group.add(&dropcap_font_row);
-            let row_c = dropcap_font_row.clone();
-            droplet_sw.connect_notify_local(Some("active"), move |sw, _| {
-                row_c.set_visible(sw.is_active());
-            });
         }
 
         let tab5_box = pref_tab_box();
@@ -878,6 +909,7 @@ impl TemplateDialog {
         let w_langs = lang_switches.clone();
         let w_pkgs = pkg_switches.clone();
         let w_dropcap_font = dropcap_font_row.clone();
+        let w_dropcap_lines = dropcap_lines_row.clone();
         let w_body_kind = body_kind_state.clone();
         let w_bib_path = bib_path.clone();
 
@@ -942,10 +974,18 @@ impl TemplateDialog {
                     .map(|(k, _)| k.clone())
                     .collect(),
                 dropcap_font: if w_pkgs.iter().any(|(k, sw)| k == "pkg_droplet" && sw.is_active()) {
-                    w_dropcap_font.text().to_string()
+                    let idx = w_dropcap_font.selected() as usize;
+                    if idx == 0 { String::new() } else {
+                        w_dropcap_font.model()
+                            .and_then(|m| m.downcast::<gtk4::StringList>().ok())
+                            .and_then(|sl| sl.string(idx as u32))
+                            .map(|s| s.to_string())
+                            .unwrap_or_default()
+                    }
                 } else {
                     String::new()
                 },
+                dropcap_lines: w_dropcap_lines.selected() + 2,
                 body_kind: *w_body_kind.borrow(),
                 bib_path: w_bib_path.borrow().clone(),
             };
@@ -1010,6 +1050,7 @@ impl TemplateDialog {
         let a_langs = lang_switches.clone();
         let a_pkgs = pkg_switches.clone();
         let a_dropcap_font = dropcap_font_row.clone();
+        let a_dropcap_lines = dropcap_lines_row.clone();
         let a_body_kind = body_kind_state.clone();
         let a_bib_path = bib_path.clone();
         apply_btn.connect_clicked(move |_| {
@@ -1064,10 +1105,18 @@ impl TemplateDialog {
                     .map(|(k, _)| k.clone())
                     .collect(),
                 dropcap_font: if a_pkgs.iter().any(|(k, sw)| k == "pkg_droplet" && sw.is_active()) {
-                    a_dropcap_font.text().to_string()
+                    let idx = a_dropcap_font.selected() as usize;
+                    if idx == 0 { String::new() } else {
+                        a_dropcap_font.model()
+                            .and_then(|m| m.downcast::<gtk4::StringList>().ok())
+                            .and_then(|sl| sl.string(idx as u32))
+                            .map(|s| s.to_string())
+                            .unwrap_or_default()
+                    }
                 } else {
                     String::new()
                 },
+                dropcap_lines: a_dropcap_lines.selected() + 2,
                 body_kind: *a_body_kind.borrow(),
                 bib_path: a_bib_path.borrow().clone(),
             };
@@ -1130,6 +1179,7 @@ impl TemplateDialog {
             let p_langs = lang_switches.clone();
             let p_pkgs = pkg_switches.clone();
             let p_dropcap_font = dropcap_font_row.clone();
+            let p_dropcap_lines = dropcap_lines_row.clone();
             let p_body_kind = body_kind_state.clone();
             let p_bib_path = bib_path.clone();
             let p_win = window.clone();
@@ -1185,10 +1235,18 @@ impl TemplateDialog {
                         .map(|(k, _)| k.clone())
                         .collect(),
                     dropcap_font: if p_pkgs.iter().any(|(k, sw)| k == "pkg_droplet" && sw.is_active()) {
-                        p_dropcap_font.text().to_string()
+                        let idx = p_dropcap_font.selected() as usize;
+                        if idx == 0 { String::new() } else {
+                            p_dropcap_font.model()
+                                .and_then(|m| m.downcast::<gtk4::StringList>().ok())
+                                .and_then(|sl| sl.string(idx as u32))
+                                .map(|s| s.to_string())
+                                .unwrap_or_default()
+                        }
                     } else {
                         String::new()
                     },
+                    dropcap_lines: p_dropcap_lines.selected() + 2,
                     body_kind: *p_body_kind.borrow(),
                     bib_path: p_bib_path.borrow().clone(),
                 };
@@ -1236,7 +1294,8 @@ impl TemplateDialog {
             toc_row, toc_depth_row, abstract_row, abstract_text_row,
             keywords_row, keywords_text_row, heading_numbering_row, heading_format_row,
             title_row, subtitle_row, author_row, affil_row, course_row, professor_row, date_row,
-            bib_path, pnum_row, header_row, lang_switches, pkg_switches, dropcap_font_row,
+            bib_path, pnum_row, header_row, lang_switches, pkg_switches,
+            dropcap_expander, dropcap_font_row, dropcap_lines_row,
         }
     }
 
@@ -1284,7 +1343,26 @@ impl TemplateDialog {
     }
 
     pub fn preselect_dropcap_font(&self, font: &str) {
-        self.dropcap_font_row.set_text(font);
+        if font.is_empty() {
+            self.dropcap_font_row.set_selected(0);
+            return;
+        }
+        if let Some(model) = self.dropcap_font_row.model()
+            .and_then(|m| m.downcast::<gtk4::StringList>().ok())
+        {
+            for i in 0..model.n_items() {
+                if model.string(i).map(|s| s.to_string()).as_deref() == Some(font) {
+                    self.dropcap_font_row.set_selected(i);
+                    return;
+                }
+            }
+        }
+        self.dropcap_font_row.set_selected(0);
+    }
+
+    pub fn preselect_dropcap_lines(&self, lines: u32) {
+        let idx = lines.saturating_sub(2).min(4);
+        self.dropcap_lines_row.set_selected(idx);
     }
 
     /// Pre-select the body font by name.
@@ -1434,6 +1512,8 @@ impl TemplateDialog {
         for (key, sw) in &self.pkg_switches {
             sw.set_active(pkgs.iter().any(|p| p == key));
         }
+        let droplet_on = pkgs.iter().any(|p| p == "pkg_droplet");
+        self.dropcap_expander.set_enable_expansion(droplet_on);
     }
 
     /// Pre-fill all dialog fields from a sidecar. Called when opening
@@ -1457,9 +1537,8 @@ impl TemplateDialog {
         }
         self.preselect_languages(&s.languages);
         self.preselect_packages(&s.packages);
-        if !s.dropcap_font.is_empty() {
-            self.preselect_dropcap_font(&s.dropcap_font);
-        }
+        self.preselect_dropcap_font(&s.dropcap_font);
+        self.preselect_dropcap_lines(s.dropcap_lines);
         if let Some(ref p) = s.bib_path {
             if !p.is_empty() {
                 *self.bib_path.borrow_mut() = Some(PathBuf::from(p));
@@ -1526,6 +1605,7 @@ pub fn build_sidecar(t: &TemplateSettings) -> SidecarSettings {
         languages:         t.languages.clone(),
         packages:          t.packages.clone(),
         dropcap_font:      t.dropcap_font.clone(),
+        dropcap_lines:     t.dropcap_lines,
         bib_path:          t.bib_path.as_ref().map(|p| p.to_string_lossy().into_owned()),
         body_kind:         match t.body_kind { BodyKind::Book => "book".into(), BodyKind::Academic => "academic".into() },
     }
@@ -1569,6 +1649,7 @@ pub fn sidecar_to_settings(sc: &SidecarSettings) -> TemplateSettings {
         languages: sc.languages.clone(),
         packages: sc.packages.clone(),
         dropcap_font: sc.dropcap_font.clone(),
+        dropcap_lines: sc.dropcap_lines,
         body_kind: if sc.body_kind == "book" { BodyKind::Book } else { BodyKind::Academic },
         bib_path: sc.bib_path.as_ref().map(|s| std::path::PathBuf::from(s)),
     }
@@ -1790,8 +1871,15 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
             let _ = writeln!(out, "{import}");
         }
     }
-    if s.packages.contains(&"pkg_droplet".to_string()) && !s.dropcap_font.is_empty() {
-        let _ = writeln!(out, "#let dropcap = dropcap.with(font: \"{}\")", typst_str(&s.dropcap_font));
+    if s.packages.contains(&"pkg_droplet".to_string()) {
+        let has_font = !s.dropcap_font.is_empty();
+        let has_height = s.dropcap_lines != 3;
+        if has_font || has_height {
+            let mut args = Vec::new();
+            if has_font  { args.push(format!("font: \"{}\"", typst_str(&s.dropcap_font))); }
+            if has_height { args.push(format!("height: {}", s.dropcap_lines)); }
+            let _ = writeln!(out, "#let dropcap = dropcap.with({})", args.join(", "));
+        }
     }
     if !s.packages.is_empty() {
         let _ = writeln!(out);
@@ -2057,7 +2145,7 @@ pub fn rebuild_title_page_for_style(content: &str, new_style_key: &str) -> Strin
         include_abstract: false, abstract_text: String::new(),
         include_keywords: false, keywords: String::new(),
         heading_numbering: false, numbering_format: String::new(),
-        languages: vec![], packages: vec![], dropcap_font: String::new(),
+        languages: vec![], packages: vec![], dropcap_font: String::new(), dropcap_lines: 3,
         body_kind: BodyKind::Academic,
         bib_path: None,
     };
@@ -2106,6 +2194,8 @@ fn header_block(style: u32) -> Option<String> {
         _ => None,
     }
 }
+
+fn default_dropcap_lines() -> u32 { 3 }
 
 pub fn bib_style(style_key: &str) -> &'static str {
     match style_key {
@@ -2506,6 +2596,7 @@ fn generate_preset_preview(idx: usize) -> Result<Vec<u8>, String> {
         languages: Vec::new(),
         packages: Vec::new(),
         dropcap_font: String::new(),
+        dropcap_lines: 3,
         body_kind: p.body_kind,
         bib_path: None,
     };
@@ -2840,6 +2931,7 @@ pub fn default_import_preamble() -> String {
         languages: vec![],
         packages: vec![],
         dropcap_font: String::new(),
+        dropcap_lines: 3,
         body_kind: BodyKind::default(),
         bib_path: None,
     };
@@ -3456,7 +3548,7 @@ mod tests {
             page_num_pos: 0, header_style: 0, include_toc: false, toc_depth: 2,
             include_abstract: false, abstract_text: String::new(),
             include_keywords: false, keywords: String::new(),
-            languages: vec![], packages: vec![], dropcap_font: String::new(), body_kind: BodyKind::Academic,
+            languages: vec![], packages: vec![], dropcap_font: String::new(), dropcap_lines: 3, body_kind: BodyKind::Academic,
             font_size: "12pt".into(), heading_numbering: false, numbering_format: String::new(),
             bib_path: None,
         };
@@ -3481,7 +3573,7 @@ mod tests {
             page_num_pos: 0, header_style: 0, include_toc: false, toc_depth: 2,
             include_abstract: false, abstract_text: String::new(),
             include_keywords: false, keywords: String::new(),
-            languages: vec![], packages: vec![], dropcap_font: String::new(), body_kind: BodyKind::Academic,
+            languages: vec![], packages: vec![], dropcap_font: String::new(), dropcap_lines: 3, body_kind: BodyKind::Academic,
             font_size: "12pt".into(), heading_numbering: false, numbering_format: String::new(),
             bib_path: None,
         };
@@ -3609,6 +3701,7 @@ Body text.\n";
             languages: vec![],
             packages: vec![],
             dropcap_font: String::new(),
+            dropcap_lines: 3,
             body_kind: BodyKind::Academic,
             font_size: "12pt".into(), heading_numbering: false, numbering_format: String::new(),
             bib_path: None,
@@ -3664,6 +3757,7 @@ Body text.\n";
             languages: vec!["lang_ru".to_string(), "lang_he".to_string()],
             packages: vec!["pkg_codly".to_string()],
             dropcap_font: String::new(),
+            dropcap_lines: 3,
             body_kind: BodyKind::Academic,
             font_size: "12pt".into(), heading_numbering: false, numbering_format: String::new(),
             bib_path: Some(std::path::PathBuf::from("/home/user/refs.bib")),
@@ -3796,6 +3890,7 @@ Body text.\n";
             languages: vec![],
             packages: vec![],
             dropcap_font: String::new(),
+            dropcap_lines: 3,
             body_kind: BodyKind::Academic,
             font_size: "12pt".into(), heading_numbering: false, numbering_format: String::new(),
             bib_path: None,
@@ -3848,7 +3943,7 @@ Body text.\n";
             page_num_pos: 0, header_style: 0, include_toc: false, toc_depth: 2,
             include_abstract: false, abstract_text: String::new(),
             include_keywords: false, keywords: String::new(),
-            languages: vec![], packages: vec![], dropcap_font: String::new(), body_kind: BodyKind::Academic,
+            languages: vec![], packages: vec![], dropcap_font: String::new(), dropcap_lines: 3, body_kind: BodyKind::Academic,
             font_size: "12pt".into(), heading_numbering: false, numbering_format: String::new(),
             bib_path: Some(std::path::PathBuf::from("refs.bib")),
         };
@@ -3876,7 +3971,7 @@ Body text.\n";
             page_num_pos: 0, header_style: 0, include_toc: false, toc_depth: 2,
             include_abstract: false, abstract_text: String::new(),
             include_keywords: false, keywords: String::new(),
-            languages: vec![], packages: vec![], dropcap_font: String::new(), body_kind: BodyKind::Academic,
+            languages: vec![], packages: vec![], dropcap_font: String::new(), dropcap_lines: 3, body_kind: BodyKind::Academic,
             font_size: "12pt".into(), heading_numbering: false, numbering_format: String::new(),
             bib_path: None,
         };
