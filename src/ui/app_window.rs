@@ -2062,6 +2062,8 @@ impl AppWindow {
         let cs_stack = gtk4::Stack::new();
         let cs_stack_for_switch = cs_stack.clone();
         let cs_stack_for_open = cs_stack.clone();
+        let style_btn_for_cv_switch = style_btn.clone();
+        let style_btn_for_cv_open = style_btn.clone();
 
         let editor_pane_cv_switch = editor_pane.clone();
         let configured_root_for_switch = configured_root.clone();
@@ -2127,6 +2129,7 @@ impl AppWindow {
             if is_cv {
                 editor_pane_cv_switch.update_cv_style_label(&content);
             }
+            style_btn_for_cv_switch.set_visible(!is_cv);
             cs_stack_for_switch.set_visible_child_name(if is_cv { "cv" } else { "normal" });
             let style_name = super::template_dialog::parse_style_key(&content)
                 .and_then(|key| super::template_dialog::style_name_for_key(&key))
@@ -2221,6 +2224,7 @@ impl AppWindow {
                 .unwrap_or(false);
             ep_cv_for_open.set_cv_mode(is_cv);
             if is_cv { ep_cv_for_open.update_cv_style_label(&content); }
+            style_btn_for_cv_open.set_visible(!is_cv);
             cs_stack_for_open.set_visible_child_name(if is_cv { "cv" } else { "normal" });
             let style_name = super::template_dialog::parse_style_key(&content)
                 .and_then(|key| super::template_dialog::style_name_for_key(&key))

@@ -2276,7 +2276,9 @@ impl EditorPane {
     pub fn apply_cv_style(&self, style: &str) {
         let Some((_view, buf)) = self.active_view_buffer() else { return };
         let (start, end) = buf.bounds();
-        let text = buf.text(&start, &end, false).to_string();
+        // include_hidden_chars=true: simple mode marks the preamble invisible; without
+        // this flag buf.text() silently drops it and the full-buffer replace wipes it.
+        let text = buf.text(&start, &end, true).to_string();
         let new_text: String = text.lines().map(|line| {
             let t = line.trim_start();
             if t.starts_with("#let CV_STYLE =") {
@@ -2288,7 +2290,13 @@ impl EditorPane {
             }
         }).collect::<Vec<_>>().join("\n");
         let new_text = if text.ends_with('\n') { format!("{new_text}\n") } else { new_text };
-        buf.set_text(&new_text);
+        buf.begin_user_action();
+        let (mut s, mut e) = buf.bounds();
+        buf.delete(&mut s, &mut e);
+        buf.insert(&mut buf.end_iter(), &new_text);
+        buf.end_user_action();
+        let sm = *self.simple_mode.borrow();
+        apply_simple_mode_tag(&buf, sm);
         let display = match style {
             "academic" => "Academic",
             "classic"  => "Classic",

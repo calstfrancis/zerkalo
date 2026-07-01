@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
 
+use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{
     Align, Box as GtkBox, Button, CheckButton, DragSource, DropTarget, Entry, Image, Label,
@@ -2595,17 +2596,53 @@ impl LibraryWindow {
 
     fn export_doc_dialog(&self, doc: &crate::library::Document) {
         let dialog = gtk4::FileDialog::new();
-        dialog.set_title("Export Document");
-        dialog.set_initial_name(Some(
-            &doc.path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
-        ));
+        dialog.set_title("Export PDF");
+        let stem = doc.path
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| "document".to_string());
+        dialog.set_initial_name(Some(&format!("{stem}.pdf")));
+        let filter = gtk4::FileFilter::new();
+        filter.set_name(Some("PDF files (*.pdf)"));
+        filter.add_pattern("*.pdf");
+        let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
+        filters.append(&filter);
+        dialog.set_filters(Some(&filters));
+
         let src = doc.path.clone();
+        let window = self.window.clone();
         dialog.save(Some(&self.window), gtk4::gio::Cancellable::NONE, move |res| {
-            if let Ok(file) = res {
-                if let Some(dest) = file.path() {
-                    std::fs::copy(&src, &dest).ok();
+            let dest = match res.ok().and_then(|f| f.path()) { Some(p) => p, None => return };
+            let dest = if dest.extension().is_none() { dest.with_extension("pdf") } else { dest };
+
+            let (tx, rx) = std::sync::mpsc::sync_channel::<Result<Vec<u8>, String>>(1);
+            let src_for_thread = src.clone();
+            std::thread::spawn(move || {
+                let result = crate::compiler::compile_to_pdf_bytes(
+                    &src_for_thread,
+                    &std::collections::HashMap::new(),
+                    &std::collections::HashMap::new(),
+                ).map_err(|e| e.to_string());
+                let _ = tx.send(result);
+            });
+
+            glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
+                use std::sync::mpsc::TryRecvError;
+                match rx.try_recv() {
+                    Ok(Ok(bytes)) => {
+                        if let Err(e) = std::fs::write(&dest, &bytes) {
+                            show_export_error(&window, &e.to_string());
+                        }
+                        glib::ControlFlow::Break
+                    }
+                    Ok(Err(e)) => {
+                        show_export_error(&window, &e);
+                        glib::ControlFlow::Break
+                    }
+                    Err(TryRecvError::Empty) => glib::ControlFlow::Continue,
+                    Err(_) => glib::ControlFlow::Break,
                 }
-            }
+            });
         });
     }
 
@@ -3041,4 +3078,10 @@ fn count_prose_words(path: &std::path::Path) -> usize {
         }
     }
     total
+}
+
+fn show_export_error(parent: &adw::Window, msg: &str) {
+    let dlg = adw::MessageDialog::new(Some(parent), Some("Export Failed"), Some(msg));
+    dlg.add_response("ok", "OK");
+    dlg.present();
 }

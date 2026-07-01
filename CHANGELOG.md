@@ -5,6 +5,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.14.2-dev7] — CV style switching fix; improved CV templates; library PDF export
+
+### Added
+- **Library PDF export** — the Export button in the document library now compiles the `.typ` file to PDF using the embedded Typst compiler; shows a save dialog defaulting to `<name>.pdf` with error reporting on failure
+
+### Fixed
+- **CV style switching wiped preamble** — `apply_cv_style` was calling `buf.text(..., false)`, which silently excludes characters hidden by invisible tags; simple mode hides the entire preamble with an invisible tag, so the full-buffer replace was overwriting it with just the body; fixed by passing `true` and using the safe `delete + insert` pattern with simple mode re-applied
+- **Academic style button replaced by CV style** — opening a CV document now hides the academic Style button and replaces it with the CV Style button in the format bar; switching back to a non-CV document restores the original
+
+### Changed
+- **CV templates redesigned** — all three styles now differ in every visual element, not just section headers:
+  - *Modern*: 26pt letter-tracked name, accent-blue contact row, colored section bars with spaced uppercase labels, company names in accent color, two-column skills grid, 1.5pt accent rule below header
+  - *Academic*: smallcaps name, two-line centered contact block, smallcaps+uppercase section headers with 1pt rule, italic company names, standard skills format
+  - *Classic*: bold-italic section headings, em dash separator in job/edu entries, italic skill categories, thin rule below header
+  - Color palette (`cv-accent`, `cv-muted`, `cv-dim`) computed from `CV_STYLE` so all helpers adapt automatically when style is switched
+
+---
+
 ## [0.14.2-dev6] — Cheatsheet horizontal scroll fix; CV awards; hamburger menu cleanup
 
 ### Added
