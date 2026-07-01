@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.14.2-dev6] — Cheatsheet horizontal scroll fix; CV awards; hamburger menu cleanup
+
+### Added
+- **CV awards section** — `#award(title, org, years, desc: none)` helper added to generated CV templates; Awards & Honours placeholder section included; `#award` appears in the `#` completion popup when editing a CV file
+- **CV-aware cheatsheet** — the embedded `?` reference panel and the Help popup both switch to a CV-specific cheatsheet (helper reference, style switching, personal details variables) when the active document is a CV
+- **Hamburger menu reorganized** — cleaner groupings: New/Open together (including Browse Documents), a dedicated "Current document" group (Update Template Settings + Repair Markers), Save/Version, Export/Share, App settings, Help; "Update Template Settings…" restored to the menu (was wired but never shown)
+
+### Fixed
+- **Cheatsheet horizontal scroll** — code blocks in the cheatsheet/help panel could drift left unpredictably; disabled horizontal scrolling entirely on the panel (`PolicyType::Never`) and switched wrap mode to `WordChar` so no horizontal scroll range can exist
+
+---
+
 ## [0.14.2-dev5] — CV/Résumé template and CV-aware editor
 
 ### Added

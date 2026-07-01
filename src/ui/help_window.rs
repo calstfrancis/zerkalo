@@ -85,6 +85,52 @@ fn projects_blocks() -> Vec<Block<'static>> {
     ]
 }
 
+fn cv_cheatsheet_blocks() -> Vec<Block<'static>> {
+    vec![
+        Block::H1("CV / Résumé Helper Reference"),
+        Block::Gap,
+        Block::H2("CV Helper Functions"),
+        Block::Code(
+            "#job(\"Job Title\", \"Company\", \"2022–present\",\n\
+             \x20 [Description of role and accomplishments.])\n\
+             \n\
+             #edu(\"Degree\", \"Institution\", \"2016–2020\")\n\
+             #edu(\"Degree\", \"Institution\", \"2016–2020\",\n\
+             \x20 note: [Thesis: ...  ·  GPA: 3.9])\n\
+             \n\
+             #skill(\"Languages\", (\"Rust\", \"Python\", \"Kotlin\"))\n\
+             \n\
+             #award(\"Award Name\", \"Organisation\", \"2023\")\n\
+             #award(\"Award Name\", \"Organisation\", \"2023\",\n\
+             \x20 desc: [Brief description of the award.])\n\
+             \n\
+             #section(\"Section Title\")[\n\
+             \x20 Content goes here.\n\
+             ]"
+        ),
+        Block::Gap,
+        Block::H2("Switching Style"),
+        Block::Body("Use the CV Style button in the format bar to switch between Modern, Academic, and Classic. This rewrites the #let CV_STYLE line in the document."),
+        Block::Code("// @zerkalo-cv-style: modern   ← marker read by Zerkalo\n#let CV_STYLE = \"modern\"       ← change to \"academic\" or \"classic\""),
+        Block::Gap,
+        Block::H2("Adding Sections"),
+        Block::Body("Use #section to create any custom section. The heading style adapts to CV_STYLE automatically."),
+        Block::Code("#section(\"Publications\")[\n  ...\n]\n#section(\"Volunteer Work\")[\n  ...\n]"),
+        Block::Gap,
+        Block::H2("Personal Details"),
+        Block::Code("#let cv-name     = \"Your Name\"\n#let cv-email    = \"your@email.com\"\n#let cv-phone    = \"+1 555 000 0000\"\n#let cv-location = \"City, Country\"\n#let cv-links    = \"github.com/handle\""),
+        Block::Gap,
+        Block::H2("Common Typst Inline Formatting"),
+        Block::Code("*bold*    _italic_    #link(\"https://...\")[text]\n#text(fill: luma(80))[dim text]\n#text(weight: \"bold\")[bold text]"),
+        Block::Gap,
+        Block::H2("Lists"),
+        Block::Code("- Bullet item\n+ Numbered item\n/ Term: Definition"),
+        Block::Gap,
+        Block::H2("Spacing & Layout"),
+        Block::Code("#v(0.5em)          Vertical gap\n#h(0.5em)          Horizontal gap\n#pagebreak()       Force new page\n#colbreak()        Column break (two-column CVs)"),
+    ]
+}
+
 fn cheatsheet_blocks() -> Vec<Block<'static>> {
     vec![
         Block::H1("Typst Cheatsheet — Academic Writing"),
@@ -257,6 +303,10 @@ pub fn cheatsheet_scroll() -> ScrolledWindow {
     make_rich_tab(cheatsheet_blocks())
 }
 
+pub fn cv_cheatsheet_scroll() -> ScrolledWindow {
+    make_rich_tab(cv_cheatsheet_blocks())
+}
+
 pub fn overview_scroll() -> ScrolledWindow {
     make_rich_tab(overview_blocks())
 }
@@ -272,7 +322,7 @@ pub struct HelpWindow {
 }
 
 impl HelpWindow {
-    pub fn new(parent: &impl IsA<gtk4::Window>) -> Self {
+    pub fn new(parent: &impl IsA<gtk4::Window>, cv_mode: bool) -> Self {
         let window = adw::Window::new();
         window.set_title(Some("Help — Zerkalo"));
         window.set_default_width(720);
@@ -284,14 +334,26 @@ impl HelpWindow {
         let notebook = Notebook::new();
         notebook.set_scrollable(true);
 
+        let cheatsheet_fn: fn() -> Vec<Block<'static>> = if cv_mode {
+            cv_cheatsheet_blocks
+        } else {
+            cheatsheet_blocks
+        };
+
         let tabs: &[(&str, fn() -> Vec<Block<'static>>)] = &[
             ("Overview",   overview_blocks),
             ("Projects",   projects_blocks),
-            ("Cheatsheet", cheatsheet_blocks),
             ("Shortcuts",  shortcuts_blocks),
             ("FAQ",        faq_blocks),
             ("About",      about_blocks),
         ];
+
+        // Cheatsheet tab first, then the rest
+        {
+            let lbl = gtk4::Label::new(Some("Cheatsheet"));
+            let scroll = make_rich_tab(cheatsheet_fn());
+            notebook.append_page(&scroll, Some(&lbl));
+        }
         for (title, blocks_fn) in tabs {
             let lbl = gtk4::Label::new(Some(title));
             let scroll = make_rich_tab(blocks_fn());
@@ -354,7 +416,7 @@ pub(crate) fn make_rich_tab(blocks: Vec<Block<'_>>) -> ScrolledWindow {
     let view = TextView::with_buffer(&buf);
     view.set_editable(false);
     view.set_cursor_visible(false);
-    view.set_wrap_mode(WrapMode::Word);
+    view.set_wrap_mode(WrapMode::WordChar);
     view.set_left_margin(20);
     view.set_right_margin(20);
     view.set_top_margin(16);
@@ -365,6 +427,7 @@ pub(crate) fn make_rich_tab(blocks: Vec<Block<'_>>) -> ScrolledWindow {
     let scroll = ScrolledWindow::new();
     scroll.set_hexpand(true);
     scroll.set_vexpand(true);
+    scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
     scroll.set_child(Some(&view));
     scroll
 }

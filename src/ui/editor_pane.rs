@@ -158,6 +158,9 @@ const CV_SNIPPETS: &[(&str, &str, &str, &str)] = &[
     ("section", "#section",
      "CV section — heading + content block",
      "#section(\"Section Title\")[\n  \n]"),
+    ("award", "#award",
+     "Award or honour entry — title, organisation, year, optional description",
+     "#award(\n  \"Award Name\",\n  \"Awarding Organisation\",\n  \"2023\",\n  desc: [Brief description.]\n)"),
 ];
 
 // ── Internal types ────────────────────────────────────────────────────────────
@@ -2248,6 +2251,10 @@ impl EditorPane {
 
     pub fn format_bar_visible(&self) -> bool {
         self.format_bar_container.is_visible()
+    }
+
+    pub fn is_cv_mode(&self) -> bool {
+        self.cv_mode.get()
     }
 
     pub fn set_cv_mode(&self, cv: bool) {
