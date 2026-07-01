@@ -7,7 +7,7 @@ use libadwaita as adw;
 use adw::prelude::*;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-const RELEASE_NAME: &str = "Lucid Archive";
+const RELEASE_NAME: &str = "Quiet Brass";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -125,12 +125,14 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
-                "Startup is faster — the library database loads in the background so the window appears immediately",
-                "Closing a modified tab now asks to Save, Discard, or Cancel instead of silently discarding changes",
-                "Tab switching, command palette close, find bar Escape, and sidebar Tab all return focus to the editor",
-                "Typewriter scroll and preview heading sync are debounced — less jumping while typing",
-                "Git sync conflict shows a clear message with guidance instead of raw git output",
-                "File watcher no longer triggers duplicate recompiles from rapid external writes",
+                "Library window shows document and project count in the status bar, with a Compact toggle",
+                "Status bar has a compile mode toggle — click to cycle Auto / On Save / Manual",
+                "Session delta in the status bar turns green when you're ahead of where you started",
+                "LSP completion popup shows readable kind labels (Function, Method, Variable…) and colored dots",
+                "Command palette highlights the matched portion of each result",
+                "Zoom step buttons (− and +) flank the zoom percentage in the preview pane",
+                "Snapshot restore now correctly replaces the open buffer instead of silently doing nothing",
+                "Horizontal movement in the editor is suppressed",
             ] {
                 body.append(&bullet_row(item));
             }

@@ -236,6 +236,8 @@ pub struct EditorPane {
     on_doc_font_size: Rc<RefCell<Option<Box<dyn Fn(String)>>>>,
     font_bar_label: Label,
     size_bar_label: Label,
+    line_numbers_override: Rc<Cell<bool>>,
+    line_numbers_btn: ToggleButton,
 }
 
 fn set_autocorrect_label(label: &Label, enabled: bool) {
@@ -671,6 +673,18 @@ impl EditorPane {
         fb_sep3.set_margin_start(4); fb_sep3.set_margin_end(4);
         format_bar.append(&fb_sep3);
 
+        let line_numbers_btn = ToggleButton::with_label("#");
+        line_numbers_btn.add_css_class("flat");
+        line_numbers_btn.add_css_class("caption");
+        line_numbers_btn.set_tooltip_text(Some("Toggle line numbers"));
+        line_numbers_btn.update_property(&[gtk4::accessible::Property::Label("Toggle line numbers")]);
+        format_bar.append(&line_numbers_btn);
+
+        let fb_sep3b = Separator::new(Orientation::Vertical);
+        fb_sep3b.set_margin_top(6); fb_sep3b.set_margin_bottom(6);
+        fb_sep3b.set_margin_start(4); fb_sep3b.set_margin_end(4);
+        format_bar.append(&fb_sep3b);
+
         // ── Insert table (grid picker) ──────────────────────────────────────
         let table_popover = Popover::new();
         let table_grid_box = GtkBox::new(Orientation::Vertical, 2);
@@ -1045,8 +1059,24 @@ impl EditorPane {
             on_doc_font_size: Rc::new(RefCell::new(None)),
             font_bar_label,
             size_bar_label,
+            line_numbers_override: Rc::new(Cell::new(false)),
+            line_numbers_btn,
         };
 
+        {
+            let ep_ln = ep.clone();
+            ep.line_numbers_btn.connect_toggled(move |btn| {
+                let on = btn.is_active();
+                ep_ln.line_numbers_override.set(on);
+                let simple = *ep_ln.simple_mode.borrow();
+                let show = on || !simple;
+                let views: Vec<_> = {
+                    let state = ep_ln.state.borrow();
+                    state.tabs.values().map(|t| t.view.clone()).collect()
+                };
+                for v in &views { v.set_show_line_numbers(show); }
+            });
+        }
         {
             let cb = ep.on_version_click.clone();
             version_btn.connect_clicked(move |_| {
@@ -1479,7 +1509,7 @@ impl EditorPane {
         };
         for (buffer, view) in &tabs {
             apply_simple_mode_tag(buffer, on);
-            view.set_show_line_numbers(!on);
+            view.set_show_line_numbers(!on || self.line_numbers_override.get());
             view.set_left_margin(left_margin);
         }
     }
@@ -2156,7 +2186,6 @@ impl EditorPane {
         self.font_bar_label.set_text(name);
     }
 
-    #[allow(dead_code)]
     pub fn set_doc_size_label(&self, size: &str) {
         self.size_bar_label.set_text(size);
     }
@@ -2335,7 +2364,7 @@ impl EditorPane {
             gtk4::accessible::Property::Label("Document editor"),
             gtk4::accessible::Property::MultiLine(true),
         ]);
-        view.set_show_line_numbers(!*self.simple_mode.borrow());
+        view.set_show_line_numbers(!*self.simple_mode.borrow() || self.line_numbers_override.get());
         // Soft right-margin guide at 90 characters — useful even with word wrap
         // as a visual rhythm reference for longer code lines.
         view.set_show_right_margin(true);
@@ -4259,21 +4288,6 @@ impl EditorPane {
         // restore it in idle after GTK's focus-in handler runs.
         // saved_scroll is shared with the right-click gesture above — see comment there.
         {
-            // Per-frame tick: undo GTK's left-margin snap before this frame renders.
-            // GtkSourceView5's scroll-to-cursor sets the view's own hadjustment (a
-            // separate object from the ScrolledWindow's hadjustment) to exactly
-            // left_margin, hiding the margin. Correcting in the tick — which fires
-            // before layout+draw — prevents any visible artifact.
-            view.add_tick_callback(|v, _| {
-                let x = v.visible_rect().x();
-                let lm = v.left_margin();
-                if x > 0 && x == lm {
-                    if let Some(hadj) = v.hadjustment() {
-                        hadj.set_value(0.0);
-                    }
-                }
-                glib::ControlFlow::Continue
-            });
 
             // Save scroll on pointer-enter and pointer-leave so that saved_scroll
             // stays current after the user scrolls with the mouse wheel (the wheel
