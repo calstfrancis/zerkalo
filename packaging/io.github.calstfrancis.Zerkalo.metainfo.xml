@@ -66,6 +66,14 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release type="development" version="0.14.3-rc1" date="2026-07-02">
+      <description>
+        <p>0.14.3-rc1 "Firm Ground" — undo button reliability fix.</p>
+        <ul>
+          <li>Fixed: undo/redo buttons could grey out incorrectly when multiple files were open; background tab state no longer interferes with the active tab's button sensitivity</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.14.2" date="2026-07-01">
       <description>
         <p>0.14.2 "Burnished Folio" — CV/Résumé support, library PDF export, UI polish.</p>

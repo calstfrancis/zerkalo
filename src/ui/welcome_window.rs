@@ -7,7 +7,7 @@ use libadwaita as adw;
 use adw::prelude::*;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-const RELEASE_NAME: &str = "Burnished Folio";
+const RELEASE_NAME: &str = "Firm Ground";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -125,14 +125,13 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
+                "Fixed: undo/redo buttons could grey out while working when multiple files are open",
                 "CV/Résumé templates — three presets (Modern, Academic, Classic) in New from Template",
                 "CV style switching — format bar shows CV Style instead of Style when editing a CV",
                 "CV helpers — #job, #edu, #skill, #section, #award adapt their look to the active style",
                 "CV cheatsheet — the ? panel and Help popup show CV reference when a CV is open",
                 "Library Export now compiles to PDF using the built-in Typst compiler",
                 "Hamburger menu reorganized into clearer groups; Update Template Settings restored",
-                "Fixed: switching CV style via the format bar wiped the document preamble",
-                "Fixed: cheatsheet code blocks could drift left unpredictably",
             ] {
                 body.append(&bullet_row(item));
             }
