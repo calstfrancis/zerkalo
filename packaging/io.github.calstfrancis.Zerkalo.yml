@@ -66,8 +66,9 @@ modules:
         CARGO_HOME: /run/build/zerkalo/cargo
         CARGO_NET_OFFLINE: 'true'
     sources:
-      - type: dir
-        path: ..
+      - type: git
+        url: https://github.com/calstfrancis/zerkalo
+        tag: v0.14.3
       - type: archive
         url: https://github.com/Myriad-Dreamin/tinymist/releases/download/v0.14.18/tinymist-x86_64-unknown-linux-gnu.tar.gz
         sha256: 8033383d691165d567c5ccd83888dca2b629fcc1054da6eef8c81e1715df8ca9
