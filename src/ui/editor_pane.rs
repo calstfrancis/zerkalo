@@ -2471,6 +2471,9 @@ impl EditorPane {
             .to_string();
 
         let buffer = Buffer::new(None::<&gtk4::TextTagTable>);
+        // GTK4 defaults to 200 undo steps; raise to effectively unlimited so
+        // users can always undo back through an entire editing session.
+        gtk4::prelude::TextBufferExt::set_max_undo_levels(&buffer, u32::MAX);
 
         let lang_manager = LanguageManager::default();
         if let Some(path_str) = path.to_str() {
@@ -3142,14 +3145,26 @@ impl EditorPane {
         });
 
         // ── Undo / Redo sensitivity ───────────────────────────────────────────
+        // Guard against background-tab interference: only update the shared
+        // undo/redo buttons when the notification comes from the active tab's
+        // buffer. A background tab's begin_user_action or set_text can fire
+        // notify::can-undo and silently grey out the button for the active tab.
         {
             let ub = self.undo_btn.clone();
+            let nb_u = self.notebook.clone();
+            let sc_u = scroll.clone();
             buffer.connect_can_undo_notify(move |buf| {
-                ub.set_sensitive(buf.can_undo());
+                if nb_u.page_num(&sc_u) == nb_u.current_page() {
+                    ub.set_sensitive(buf.can_undo());
+                }
             });
             let rb = self.redo_btn.clone();
+            let nb_r = self.notebook.clone();
+            let sc_r = scroll.clone();
             buffer.connect_can_redo_notify(move |buf| {
-                rb.set_sensitive(buf.can_redo());
+                if nb_r.page_num(&sc_r) == nb_r.current_page() {
+                    rb.set_sensitive(buf.can_redo());
+                }
             });
         }
 

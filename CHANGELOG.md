@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.14.3-rc1] "Firm Ground" — undo button reliability
+
+### Fixed
+- **Undo button greys out incorrectly with multiple tabs** — the undo/redo buttons were connected to every open buffer's `notify::can-undo` signal, so a background tab's transient state (e.g. during autocorrect or any internal GtkSourceView operation) could disable the buttons even when the active tab had a full undo history. The handlers now guard against this: notifications from background tabs are ignored, and only the currently active tab's buffer drives button sensitivity.
+
+---
+
 ## [0.14.2] "Burnished Folio" — CV/Résumé support, library PDF export, UI polish
 
 ### Added
