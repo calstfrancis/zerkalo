@@ -66,6 +66,17 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release type="development" version="0.14.4-rc1" date="2026-07-03">
+      <description>
+        <p>0.14.4-rc1 — data-loss and crash fixes.</p>
+        <ul>
+          <li>Fixed: Replace All in Simple Mode wiped the document preamble permanently</li>
+          <li>Fixed: closing a background tab via Save would save the wrong (foreground) tab</li>
+          <li>Fixed: Update Template Settings dialog could overwrite edits made while it was open</li>
+          <li>Fixed: compiler panicked on documents with non-ASCII characters when a compile error occurred</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.14.3" date="2026-07-02">
       <description>
         <p>0.14.3 "Firm Ground" — undo button reliability fix.</p>

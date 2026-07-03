@@ -125,6 +125,10 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
+                "Fixed: Replace All in Simple Mode no longer wipes the document preamble",
+                "Fixed: closing a background tab via Save now saves that tab, not the focused one",
+                "Fixed: Update Template Settings no longer discards edits made while the dialog was open",
+                "Fixed: compiler no longer crashes on non-ASCII documents with errors",
                 "Fixed: undo/redo buttons could grey out while working when multiple files are open",
                 "CV/Résumé templates — three presets (Modern, Academic, Classic) in New from Template",
                 "CV style switching — format bar shows CV Style instead of Style when editing a CV",
