@@ -3700,7 +3700,7 @@ impl EditorPane {
                         && text.len() > 2 * marker.len()
                     {
                         let inner = text[marker.len()..text.len() - marker.len()].to_string();
-                        let inner_len = inner.len() as i32;
+                        let inner_len = inner.chars().count() as i32;
                         let mut s = buf_bi.iter_at_offset(start_off);
                         let mut e = buf_bi.iter_at_offset(end_off);
                         buf_bi.delete(&mut s, &mut e);
@@ -3710,7 +3710,7 @@ impl EditorPane {
                         let ne = buf_bi.iter_at_offset(start_off + inner_len);
                         buf_bi.select_range(&ns, &ne);
                     } else {
-                        let tlen = text.len() as i32;
+                        let tlen = text.chars().count() as i32;
                         let mut s = buf_bi.iter_at_offset(start_off);
                         let mut e = buf_bi.iter_at_offset(end_off);
                         buf_bi.delete(&mut s, &mut e);
@@ -4127,13 +4127,21 @@ impl EditorPane {
                 if let Some(best) = suggestions.first() {
                     // Only apply if edit distance is 1 (very confident replacement)
                     if crate::spellcheck::levenshtein(&word.to_lowercase(), &best.to_lowercase()) <= 1 {
-                        let ws = word_start.clone();
-                        let we = word_end.clone();
+                        // Capture char offsets instead of TextIter objects: iterators are
+                        // invalidated by any subsequent buffer edit before the idle fires.
+                        // Re-validate the word at those offsets before applying so a second
+                        // keypress between connect_changed and the idle is safely ignored.
+                        let ws_off = word_start.offset();
+                        let we_off = word_end.offset();
                         let best_c = best.clone();
+                        let word_c = word.clone();
                         let buf_c = buf_ac.clone();
                         glib::idle_add_local_once(move || {
-                            let mut s = ws;
-                            let mut e = we;
+                            let mut s = buf_c.iter_at_offset(ws_off);
+                            let mut e = buf_c.iter_at_offset(we_off);
+                            if buf_c.text(&s, &e, false) != word_c.as_str() {
+                                return;
+                            }
                             buf_c.begin_user_action();
                             buf_c.delete(&mut s, &mut e);
                             buf_c.insert(&mut s, &best_c);

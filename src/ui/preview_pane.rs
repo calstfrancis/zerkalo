@@ -332,6 +332,15 @@ impl PreviewPane {
             });
         }
 
+        // Wire scroll → page-changed once here; load_pixbufs_from_bytes must NOT
+        // reconnect this signal or closures accumulate O(N) across compiles.
+        {
+            let pane_s = pane.clone();
+            pane.img_scroll.vadjustment().connect_value_changed(move |_| {
+                pane_s.fire_page_changed();
+            });
+        }
+
         // ── Keyboard navigation for the preview pane ─────────────────────────
         // +/=  zoom in,  -  zoom out,  0  fit-to-width,  Space/Shift+Space scroll page
         {
@@ -850,11 +859,6 @@ impl PreviewPane {
             self.refit_drawing_area_centered(saved_v_frac);
         }
 
-        // Wire scroll adjustment to fire page-changed (only wire once per load)
-        let pane = self.clone();
-        self.img_scroll.vadjustment().connect_value_changed(move |_| {
-            pane.fire_page_changed();
-        });
         self.fire_page_changed();
     }
 

@@ -220,7 +220,7 @@ fn reader_thread(
     diag_tx: Sender<Vec<LspDiagnostic>>,
     comp_tx: Sender<(u64, Vec<CompletionItem>)>,
 ) {
-    loop {
+    'msg: loop {
         let mut line = String::new();
         match reader.read_line(&mut line) {
             Ok(0) | Err(_) => break,
@@ -237,9 +237,19 @@ fn reader_thread(
         if len == 0 {
             continue;
         }
-        let mut blank = String::new();
-        if reader.read_line(&mut blank).is_err() {
-            break;
+        // Consume all remaining headers until the blank separator line.
+        // The LSP spec allows multiple headers (e.g. Content-Type after Content-Length);
+        // reading only one line would consume a real header as the separator, corrupting
+        // the body offset for every subsequent message.
+        loop {
+            let mut hdr = String::new();
+            match reader.read_line(&mut hdr) {
+                Ok(0) | Err(_) => break 'msg,
+                _ => {}
+            }
+            if hdr.trim().is_empty() {
+                break;
+            }
         }
         let mut body = vec![0u8; len];
         if reader.read_exact(&mut body).is_err() {

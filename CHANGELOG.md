@@ -5,13 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.14.4-rc1] — data-loss and crash fixes
+## [0.14.4-rc1] — correctness fixes
 
 ### Fixed
 - **Replace All in Simple Mode wiped document preamble** — regex/whole-word Replace All read the buffer with `include_hidden_chars=false`, which silently dropped the preamble; after the replacement the full buffer was deleted and reinserted without it, permanently destroying all `#set`, `#show`, and bibliography declarations
 - **Close-tab Save dialog saved the wrong tab** — when closing a background tab via right-click → Close → Save, the Save action called `save_current()` which saved whatever tab was focused in the foreground; the background tab's unsaved changes were silently lost
 - **Template dialog overwrote edits made while dialog was open** — the "Update Template Settings" dialog is non-modal; body edits typed after opening it were discarded on Apply because the apply callback used a content snapshot taken at dialog-open time rather than reading the buffer fresh
 - **Compiler panicked on non-ASCII documents with errors** — diagnostic span byte offsets from Typst could land inside a multibyte UTF-8 codepoint; `&text[..offset]` then panicked with "byte index N is not a char boundary"; the offset is now clamped to the nearest char boundary before slicing
+- **Bold/italic toggle corrupted selection on non-ASCII text** — Ctrl+B/I used the byte length of the selected text as a GTK character offset; any selection containing multibyte characters (accented letters, Cyrillic, CJK) landed the post-toggle selection one or more positions too far
+- **Autocorrect could corrupt text on fast typing** — the idle callback for autocorrect captured `TextIter` objects which are invalidated by any subsequent buffer edit; now captures char offsets and validates the word still matches before applying
+- **Preview scroll signal accumulated O(N) closures across compiles** — `connect_value_changed` was reconnected on every successful compile without disconnecting the previous handler; after a long session with auto-preview, scrolling degraded and memory grew proportionally
+- **Upgrading users got wrong word-wrap and compile-on-save defaults** — `editor_word_wrap` had `#[serde(default)]` (→ false) but `Config::default()` set it to true; `compile_on_save` had the opposite mismatch; upgrading users silently got word wrap disabled and compile-on-save enabled
+- **Failed git rebase --abort was silently discarded** — if `git pull --rebase` hit a conflict and `rebase --abort` also failed, the error was dropped with `let _ = ...`; the repository would remain in mid-rebase state with no indication; the failure is now surfaced in the sync error log with a manual recovery hint
+- **LSP reader broke on servers sending multiple headers** — the reader consumed exactly one line after Content-Length as the blank separator; a Content-Type header between Content-Length and the blank line offset every subsequent message body, silently losing all diagnostics and completions for the session
 
 ---
 

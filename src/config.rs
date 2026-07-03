@@ -57,7 +57,7 @@ pub struct Config {
     pub theme: Theme,
     #[serde(default = "default_font_family")]
     pub editor_font_family: String,
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub editor_word_wrap: bool,
     #[serde(default)]
     pub editor_show_whitespace: bool,
@@ -87,7 +87,7 @@ pub struct Config {
     pub developer_mode: bool,
     #[serde(default)]
     pub last_export_format: u32,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub compile_on_save: bool,
     #[serde(default)]
     pub manual_compile_only: bool,
