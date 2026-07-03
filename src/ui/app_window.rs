@@ -372,8 +372,29 @@ impl AppWindow {
                 let key_s = style_key.to_string();
                 let sbtn = style_btn.clone();
                 let name_s = name.to_string();
+                let cfg_for_style = current_config.clone();
+                let win_for_style = window.clone();
                 btn.connect_clicked(move |_| {
                     pop.popdown();
+                    if bib_s == crate::styles::CUSTOM_STYLE_PLACEHOLDER {
+                        let custom_path = cfg_for_style.borrow().custom_csl_path.clone();
+                        match custom_path {
+                            Some(path) => {
+                                ep.apply_style(&code_s, &path.to_string_lossy(), &title_s, &key_s);
+                                sbtn.set_label(&name_s);
+                            }
+                            None => {
+                                let dlg = adw::MessageDialog::new(
+                                    Some(&win_for_style),
+                                    Some("No custom CSL file configured"),
+                                    Some("Choose a .csl file in Settings before using the Custom style."),
+                                );
+                                dlg.add_response("ok", "OK");
+                                dlg.present();
+                            }
+                        }
+                        return;
+                    }
                     ep.apply_style(&code_s, &bib_s, &title_s, &key_s);
                     sbtn.set_label(&name_s);
                 });
@@ -876,7 +897,11 @@ impl AppWindow {
             if let Ok(mut entries) = std::fs::read_dir(&project_root) {
                 let found = entries.find_map(|e| {
                     let path = e.ok()?.path();
-                    if path.extension().and_then(|x| x.to_str()) == Some("bib") {
+                    let ext = path.extension().and_then(|x| x.to_str())?;
+                    if ext.eq_ignore_ascii_case("bib")
+                        || ext.eq_ignore_ascii_case("yaml")
+                        || ext.eq_ignore_ascii_case("yml")
+                    {
                         Some(path)
                     } else {
                         None
@@ -911,8 +936,10 @@ impl AppWindow {
                 let dialog = gtk4::FileDialog::new();
                 dialog.set_title("Choose Bibliography File");
                 let filter = gtk4::FileFilter::new();
-                filter.set_name(Some("BibTeX files (*.bib)"));
+                filter.set_name(Some("Bibliography files (*.bib, *.yaml, *.yml)"));
                 filter.add_pattern("*.bib");
+                filter.add_pattern("*.yaml");
+                filter.add_pattern("*.yml");
                 let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
                 filters.append(&filter);
                 dialog.set_filters(Some(&filters));
@@ -948,6 +975,110 @@ impl AppWindow {
             let ep = editor_pane.clone();
             ref_manager.set_on_jump_citation(move |key| {
                 ep.jump_to_text(&format!("@{key}"));
+            });
+        }
+
+        // ── Reference manager: project-wide citation-key rename ───────────────
+        {
+            let ep = editor_pane.clone();
+            let rm = ref_manager.clone();
+            let cp = citation_panel.clone();
+            let win = window.clone();
+            let project_root_for_rename = project_root.clone();
+            ref_manager.set_on_rename(move |old_key, new_key| {
+                let Some(bib_path) = rm.bib_path() else { return };
+                let is_bibtex = bib_path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("bib"));
+                if !is_bibtex {
+                    let dlg = adw::MessageDialog::new(
+                        Some(&win),
+                        Some("Only BibTeX rename is supported"),
+                        Some("Renaming keys is only available for .bib bibliographies."),
+                    );
+                    dlg.add_response("ok", "OK");
+                    dlg.present();
+                    return;
+                }
+
+                let typ_files = crate::project::collect_typ_files(&project_root_for_rename);
+                let open_tab_texts: std::collections::HashMap<PathBuf, String> =
+                    ep.all_tab_texts().into_iter().collect();
+
+                let mut affected_files = 0usize;
+                for path in &typ_files {
+                    let changed = if let Some(text) = open_tab_texts.get(path) {
+                        bibliography::rename_key_in_text(text, &old_key, &new_key).1
+                    } else {
+                        std::fs::read_to_string(path).is_ok_and(|content| {
+                            bibliography::rename_key_in_text(&content, &old_key, &new_key).1
+                        })
+                    };
+                    if changed {
+                        affected_files += 1;
+                    }
+                }
+
+                let dlg = adw::MessageDialog::new(
+                    Some(&win),
+                    Some("Rename citation key?"),
+                    Some(&format!(
+                        "Rename @{old_key} to @{new_key} in the bibliography and {affected_files} document(s)?"
+                    )),
+                );
+                dlg.add_response("cancel", "Cancel");
+                dlg.add_response("rename", "Rename");
+                dlg.set_response_appearance("rename", adw::ResponseAppearance::Suggested);
+
+                let bib_path2 = bib_path.clone();
+                let old_key2 = old_key.clone();
+                let new_key2 = new_key.clone();
+                let ep2 = ep.clone();
+                let rm2 = rm.clone();
+                let cp2 = cp.clone();
+                let win2 = win.clone();
+                let typ_files2 = typ_files.clone();
+                dlg.connect_response(None, move |dlg, response| {
+                    dlg.close();
+                    if response != "rename" {
+                        return;
+                    }
+
+                    if let Err(e) = bibliography::rename_key_in_bib_file(&bib_path2, &old_key2, &new_key2) {
+                        let err_dlg = adw::MessageDialog::new(
+                            Some(&win2),
+                            Some("Rename failed"),
+                            Some(&format!("Could not update the bibliography file: {e}")),
+                        );
+                        err_dlg.add_response("ok", "OK");
+                        err_dlg.present();
+                        return;
+                    }
+
+                    ep2.replace_citation_key_in_open_tabs(&old_key2, &new_key2);
+
+                    let open_paths: std::collections::HashSet<PathBuf> =
+                        ep2.open_tab_paths().into_iter().collect();
+                    for path in &typ_files2 {
+                        if open_paths.contains(path) {
+                            continue;
+                        }
+                        if let Ok(content) = std::fs::read_to_string(path) {
+                            let (new_content, changed) =
+                                bibliography::rename_key_in_text(&content, &old_key2, &new_key2);
+                            if changed {
+                                let _ = std::fs::write(path, new_content);
+                            }
+                        }
+                    }
+
+                    let entries = bibliography::load_bib(&bib_path2);
+                    ep2.set_bib_entries(entries.clone());
+                    cp2.load_bib(entries.clone());
+                    rm2.load_bib(&bib_path2);
+                });
+                dlg.present();
             });
         }
 

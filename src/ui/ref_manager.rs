@@ -17,6 +17,7 @@ use crate::bibliography::BibEntry;
 
 type InsertCb = Rc<RefCell<Option<Box<dyn Fn(String)>>>>;
 type JumpCb = Rc<RefCell<Option<Box<dyn Fn(String)>>>>;
+type RenameCb = Rc<RefCell<Option<Box<dyn Fn(String, String)>>>>;
 
 static CITE_RE: OnceLock<Regex> = OnceLock::new();
 
@@ -33,6 +34,7 @@ pub struct RefManager {
     entries: Rc<RefCell<Vec<BibEntry>>>,
     on_insert: InsertCb,
     on_jump_citation: JumpCb,
+    on_rename: RenameCb,
     used_keys: Rc<RefCell<HashSet<String>>>,
     bib_path: Rc<RefCell<Option<PathBuf>>>,
 }
@@ -51,6 +53,12 @@ impl RefManager {
         title.set_hexpand(true);
         title.add_css_class("heading");
         header.append(&title);
+
+        let export_btn = Button::from_icon_name("document-save-symbolic");
+        export_btn.set_tooltip_text(Some("Export cited-only bibliography"));
+        export_btn.add_css_class("flat");
+        export_btn.set_valign(Align::Center);
+        header.append(&export_btn);
 
         let new_entry_btn = Button::from_icon_name("list-add-symbolic");
         new_entry_btn.set_tooltip_text(Some("Add new bibliography entry"));
@@ -82,11 +90,12 @@ impl RefManager {
 
         let on_insert: InsertCb = Rc::new(RefCell::new(None));
         let on_jump_citation: JumpCb = Rc::new(RefCell::new(None));
+        let on_rename: RenameCb = Rc::new(RefCell::new(None));
         let entries: Rc<RefCell<Vec<BibEntry>>> = Rc::new(RefCell::new(Vec::new()));
         let used_keys: Rc<RefCell<HashSet<String>>> = Rc::new(RefCell::new(HashSet::new()));
         let bib_path: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
 
-        let panel = Self { widget, list_box, filter_entry, entries, on_insert, on_jump_citation, used_keys, bib_path };
+        let panel = Self { widget, list_box, filter_entry, entries, on_insert, on_jump_citation, on_rename, used_keys, bib_path };
 
         // Filter entry → rebuild list
         {
@@ -96,18 +105,82 @@ impl RefManager {
             });
         }
 
+        // Export cited-only bibliography button
+        {
+            let p = panel.clone();
+            export_btn.connect_clicked(move |btn| {
+                let root = btn.root().and_then(|r| r.downcast::<gtk4::Window>().ok());
+                let bib = p.bib_path.borrow().clone();
+                let is_bibtex = bib.as_ref().is_some_and(|path| {
+                    path.extension().and_then(|e| e.to_str()).is_some_and(|ext| ext.eq_ignore_ascii_case("bib"))
+                });
+                let (title, body): (&str, &str) = if bib.is_none() {
+                    ("No bibliography configured", "Set a .bib file in Settings before exporting.")
+                } else if !is_bibtex {
+                    ("Only BibTeX export is supported", "Export is only available for .bib bibliographies.")
+                } else if p.used_keys.borrow().is_empty() {
+                    ("No citations found", "This document doesn't cite any keys from the bibliography yet.")
+                } else {
+                    ("", "")
+                };
+                if !title.is_empty() {
+                    let dlg = adw::MessageDialog::new(root.as_ref(), Some(title), Some(body));
+                    dlg.add_response("ok", "OK");
+                    dlg.present();
+                    return;
+                }
+
+                let bib_path = bib.unwrap();
+                let used_keys = p.used_keys.borrow().clone();
+                let content = match std::fs::read_to_string(&bib_path) {
+                    Ok(c) => c,
+                    Err(_) => return,
+                };
+                let full = match biblatex::Bibliography::parse(&content) {
+                    Ok(b) => b,
+                    Err(_) => return,
+                };
+                let mut subset = biblatex::Bibliography::new();
+                for key in &used_keys {
+                    if let Some(entry) = full.get(key) {
+                        subset.insert(entry.clone());
+                    }
+                }
+                let out = subset.to_bibtex_string();
+
+                let dialog = gtk4::FileDialog::new();
+                dialog.set_title("Export Cited-Only Bibliography");
+                dialog.set_initial_name(Some("cited.bib"));
+                dialog.save(root.as_ref(), None::<&gtk4::gio::Cancellable>, move |result| {
+                    if let Ok(file) = result {
+                        if let Some(path) = file.path() {
+                            let _ = std::fs::write(&path, &out);
+                        }
+                    }
+                });
+            });
+        }
+
         // New entry button → open dialog
         {
             let p = panel.clone();
             new_entry_btn.connect_clicked(move |btn| {
                 let bib = p.bib_path.borrow().clone();
-                if bib.is_none() {
+                let is_yaml = bib.as_ref().is_some_and(|path| {
+                    path.extension()
+                        .and_then(|e| e.to_str())
+                        .is_some_and(|ext| ext.eq_ignore_ascii_case("yaml") || ext.eq_ignore_ascii_case("yml"))
+                });
+                if bib.is_none() || is_yaml {
                     let root = btn.root().and_then(|r| r.downcast::<gtk4::Window>().ok());
-                    let dlg = adw::MessageDialog::new(
-                        root.as_ref(),
-                        Some("No bibliography configured"),
-                        Some("Set a .bib file in Settings before adding entries."),
-                    );
+                    let (title, body) = if is_yaml {
+                        ("YAML bibliography is read-only",
+                         "Adding new entries is only supported for .bib files. Edit the .yaml file directly, or switch to a .bib bibliography in Settings.")
+                    } else {
+                        ("No bibliography configured",
+                         "Set a .bib file in Settings before adding entries.")
+                    };
+                    let dlg = adw::MessageDialog::new(root.as_ref(), Some(title), Some(body));
                     dlg.add_response("ok", "OK");
                     dlg.present();
                     return;
@@ -131,6 +204,16 @@ impl RefManager {
 
     pub fn set_on_jump_citation(&self, f: impl Fn(String) + 'static) {
         *self.on_jump_citation.borrow_mut() = Some(Box::new(f));
+    }
+
+    /// Called with `(old_key, new_key)` when the user confirms a rename via
+    /// the per-entry rename popover.
+    pub fn set_on_rename(&self, f: impl Fn(String, String) + 'static) {
+        *self.on_rename.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn bib_path(&self) -> Option<PathBuf> {
+        self.bib_path.borrow().clone()
     }
 
     pub fn load_bib(&self, path: &Path) {
@@ -257,12 +340,26 @@ impl RefManager {
             let key_lbl = Label::new(Some(&format!("@{}", entry.key)));
             key_lbl.add_css_class("caption");
             key_lbl.set_xalign(0.0);
+            top.append(&key_lbl);
+
+            let rename_btn = Button::from_icon_name("document-edit-symbolic");
+            rename_btn.add_css_class("flat");
+            rename_btn.add_css_class("circular");
+            rename_btn.set_tooltip_text(Some("Rename citation key"));
+            {
+                let key = entry.key.clone();
+                let cb = self.on_rename.clone();
+                rename_btn.connect_clicked(move |btn| {
+                    open_rename_popover(btn, key.clone(), cb.clone());
+                });
+            }
+            top.append(&rename_btn);
+
             let year_lbl = Label::new(Some(&entry.year));
             year_lbl.add_css_class("dim-label");
             year_lbl.add_css_class("caption");
             year_lbl.set_hexpand(true);
             year_lbl.set_xalign(1.0);
-            top.append(&key_lbl);
             top.append(&year_lbl);
 
             // Citation status indicator
@@ -323,6 +420,59 @@ impl RefManager {
             self.list_box.append(&row);
         }
     }
+}
+
+// ── Rename popover ──────────────────────────────────────────────────────────
+
+fn open_rename_popover(anchor: &Button, old_key: String, on_rename: RenameCb) {
+    let popover = gtk4::Popover::new();
+    popover.set_parent(anchor);
+
+    let vbox = GtkBox::new(Orientation::Vertical, 6);
+    vbox.set_margin_top(10);
+    vbox.set_margin_bottom(10);
+    vbox.set_margin_start(10);
+    vbox.set_margin_end(10);
+
+    let label = Label::new(Some("New citation key"));
+    label.set_xalign(0.0);
+    label.add_css_class("caption");
+    vbox.append(&label);
+
+    let entry = Entry::new();
+    entry.set_text(&old_key);
+    entry.set_width_chars(24);
+    vbox.append(&entry);
+
+    let confirm_btn = Button::with_label("Rename");
+    confirm_btn.add_css_class("suggested-action");
+    vbox.append(&confirm_btn);
+
+    popover.set_child(Some(&vbox));
+
+    let do_rename: Rc<dyn Fn()> = {
+        let entry = entry.clone();
+        let popover = popover.clone();
+        Rc::new(move || {
+            let new_key = entry.text().trim().to_string();
+            if !new_key.is_empty() && new_key != old_key {
+                if let Some(f) = on_rename.borrow().as_ref() {
+                    f(old_key.clone(), new_key);
+                }
+            }
+            popover.popdown();
+        })
+    };
+    {
+        let f = do_rename.clone();
+        confirm_btn.connect_clicked(move |_| f());
+    }
+    {
+        let f = do_rename.clone();
+        entry.connect_activate(move |_| f());
+    }
+
+    popover.popup();
 }
 
 // ── New entry dialog ──────────────────────────────────────────────────────────

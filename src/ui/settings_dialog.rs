@@ -246,6 +246,37 @@ impl SettingsDialog {
         bib_row.add_suffix(&browse_btn);
         bib_group.add(&bib_row);
 
+        let csl_row = adw::EntryRow::new();
+        csl_row.set_title("Custom CSL file");
+        if let Some(ref p) = current.custom_csl_path {
+            csl_row.set_text(p.to_str().unwrap_or(""));
+        }
+
+        let csl_browse_btn = Button::from_icon_name("document-open-symbolic");
+        csl_browse_btn.set_valign(Align::Center);
+        csl_browse_btn.add_css_class("flat");
+        let csl_row_browse = csl_row.clone();
+        let window_browse_csl = window.clone();
+        csl_browse_btn.connect_clicked(move |_| {
+            let row = csl_row_browse.clone();
+            let fd = gtk4::FileDialog::new();
+            let filter = gtk4::FileFilter::new();
+            filter.set_name(Some("CSL files (*.csl)"));
+            filter.add_pattern("*.csl");
+            let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
+            filters.append(&filter);
+            fd.set_filters(Some(&filters));
+            fd.open(Some(&window_browse_csl), None::<&gtk4::gio::Cancellable>, move |result| {
+                if let Ok(file) = result {
+                    if let Some(path) = file.path() {
+                        row.set_text(path.to_str().unwrap_or(""));
+                    }
+                }
+            });
+        });
+        csl_row.add_suffix(&csl_browse_btn);
+        bib_group.add(&csl_row);
+
         // Spell check
         let spell_group = adw::PreferencesGroup::new();
         spell_group.set_title("Spell Check");
@@ -496,6 +527,12 @@ impl SettingsDialog {
                 } else {
                     Some(PathBuf::from(bib_path_text))
                 };
+                let custom_csl_path_text = csl_row.text().trim().to_string();
+                let custom_csl_path: Option<PathBuf> = if custom_csl_path_text.is_empty() {
+                    None
+                } else {
+                    Some(PathBuf::from(custom_csl_path_text))
+                };
                 let theme = match theme_row.selected() {
                     1 => Theme::Light,
                     2 => Theme::Dark,
@@ -529,6 +566,7 @@ impl SettingsDialog {
                     recent_files: recent_files_cur.clone(),
                     recent_projects: recent_projects_cur.clone(),
                     bib_path,
+                    custom_csl_path,
                     debounce_ms: debounce_spin.value() as u64,
                     auto_compile: btn_auto.is_active(),
                     compile_on_save: btn_save.is_active(),

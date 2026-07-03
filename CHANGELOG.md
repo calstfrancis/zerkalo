@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.14.4-dev2] — citation management improvements
+
+### Added
+- **Hayagriva YAML bibliography support** — `.yaml`/`.yml` bibliography files are now recognized alongside `.bib`, in the bib-file picker, project auto-detect, and citation completion/browsing (read-only for now — adding new entries still requires a `.bib` file)
+- **Custom CSL style support** — a new "Custom (CSL file)" entry in the style switcher lets you point at any `.csl` file (configured in Settings) instead of being limited to the 8 built-in styles; Typst's own bibliography engine renders it
+- **Citation hover preview** — hovering `@key` or `<key>` inside `#cite(...)` shows the formatted citation and title in a popover
+- **Export cited-only bibliography** — new button in the reference manager exports only the `.bib` entries actually cited in the current document
+- **Citation key rename** — rename a key from the reference manager and it updates the `.bib` file plus every `@key`/`#cite(<key>)` occurrence across the whole project, not just open tabs
+
+### Changed
+- Replaced the hand-rolled BibTeX parser with the `biblatex` crate, fixing edge cases with `@string` macros and nested braces that the old regex-based parser could mishandle
+
 ## [0.14.4-rc1] — correctness fixes
 
 ### Fixed
