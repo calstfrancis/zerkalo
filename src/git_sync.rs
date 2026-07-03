@@ -279,10 +279,26 @@ pub fn sync(repo_path: &Path, github_token: Option<&str>) -> SyncResult {
             .output()
         {
             if !pull_out.status.success() {
-                // Abort the rebase so the repo is left in a clean state.
-                let _ = git_cmd(repo_path).args(["rebase", "--abort"]).output();
                 let msg = lossy_combined(&pull_out);
-                push_errors.push(format!("({remote}) Pull failed: {msg}"));
+                // Abort the rebase so the repo is left in a clean state.
+                match git_cmd(repo_path).args(["rebase", "--abort"]).output() {
+                    Ok(a) if !a.status.success() => {
+                        let abort_msg = lossy_combined(&a);
+                        push_errors.push(format!(
+                            "({remote}) Pull failed and rebase --abort also failed: {abort_msg}. \
+                             Repository may be in mid-rebase state — run 'git rebase --abort' manually."
+                        ));
+                    }
+                    Err(e) => {
+                        push_errors.push(format!(
+                            "({remote}) Pull failed and could not run rebase --abort: {e}. \
+                             Repository may be in mid-rebase state — run 'git rebase --abort' manually."
+                        ));
+                    }
+                    Ok(_) => {
+                        push_errors.push(format!("({remote}) Pull failed: {msg}"));
+                    }
+                }
                 continue;
             }
         }
