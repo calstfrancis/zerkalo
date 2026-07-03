@@ -156,6 +156,8 @@ impl typst::World for ZerkaloWorld {
 /// Convert a byte offset in `text` to a (line, column) pair (both 1-based).
 fn offset_to_line_col(text: &str, offset: usize) -> (usize, usize) {
     let safe = offset.min(text.len());
+    // Walk back to a char boundary so we never panic on a multibyte codepoint.
+    let safe = (0..=safe).rev().find(|&i| text.is_char_boundary(i)).unwrap_or(0);
     let before = &text[..safe];
     let line = before.bytes().filter(|&b| b == b'\n').count() + 1;
     let col  = safe - before.rfind('\n').map(|p| p + 1).unwrap_or(0) + 1;

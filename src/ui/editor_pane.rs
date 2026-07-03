@@ -1839,7 +1839,9 @@ impl EditorPane {
         let mut count: usize = 0;
 
         if regex_mode || whole_word {
-            let full_text = buffer.text(&buffer.start_iter(), &buffer.end_iter(), false).to_string();
+            // include_hidden_chars=true: simple mode marks the preamble invisible; without
+            // this flag buf.text() drops it and the full-buffer delete+reinsert wipes it.
+            let full_text = buffer.text(&buffer.start_iter(), &buffer.end_iter(), true).to_string();
             let pattern = if whole_word {
                 format!("\\b{}\\b", regex::escape(find))
             } else {
@@ -1867,6 +1869,8 @@ impl EditorPane {
                     let mut ins = buffer.start_iter();
                     buffer.insert(&mut ins, &new_text);
                     buffer.end_user_action();
+                    let sm = *self.simple_mode.borrow();
+                    apply_simple_mode_tag(&buffer, sm);
                 }
             }
         } else {
@@ -5261,7 +5265,18 @@ fn close_tab_with_dirty_check(
                     state.borrow_mut().tabs.remove(&path);
                 }
                 Ok(2) => {
-                    ep.save_current();
+                    let content = {
+                        let st = state.borrow();
+                        st.tabs.get(&path).map(|t| {
+                            let (s, e) = t.buffer.bounds();
+                            t.buffer.text(&s, &e, true).to_string()
+                        })
+                    };
+                    if let Some(content) = content {
+                        let _ = std::fs::write(&path, content.as_bytes());
+                        crate::auto_save::clear(&path);
+                        ep.mark_saved(&path);
+                    }
                     if let Some(n) = notebook.page_num(&scroll) {
                         notebook.remove_page(Some(n));
                     }

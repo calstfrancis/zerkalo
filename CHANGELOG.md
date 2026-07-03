@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.14.4-rc1] — data-loss and crash fixes
+
+### Fixed
+- **Replace All in Simple Mode wiped document preamble** — regex/whole-word Replace All read the buffer with `include_hidden_chars=false`, which silently dropped the preamble; after the replacement the full buffer was deleted and reinserted without it, permanently destroying all `#set`, `#show`, and bibliography declarations
+- **Close-tab Save dialog saved the wrong tab** — when closing a background tab via right-click → Close → Save, the Save action called `save_current()` which saved whatever tab was focused in the foreground; the background tab's unsaved changes were silently lost
+- **Template dialog overwrote edits made while dialog was open** — the "Update Template Settings" dialog is non-modal; body edits typed after opening it were discarded on Apply because the apply callback used a content snapshot taken at dialog-open time rather than reading the buffer fresh
+- **Compiler panicked on non-ASCII documents with errors** — diagnostic span byte offsets from Typst could land inside a multibyte UTF-8 codepoint; `&text[..offset]` then panicked with "byte index N is not a char boundary"; the offset is now clamped to the nearest char boundary before slicing
+
+---
+
 ## [0.14.3] "Firm Ground" — undo button reliability
 
 ### Fixed

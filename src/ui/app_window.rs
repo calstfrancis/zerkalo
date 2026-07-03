@@ -1646,13 +1646,15 @@ impl AppWindow {
             let preview_apply = preview_for_reapply.clone();
             dlg.set_on_apply(move |new_content, sidecar| {
                 let do_apply = {
-                    let cc = current_content.clone();
                     let nc = new_content.clone();
                     let sc = sidecar.clone();
                     let path = current_path.clone();
                     let ep2 = ep.clone();
                     let pv = preview_apply.clone();
                     move || {
+                        // Read the editor buffer fresh at apply time so edits made
+                        // while this non-modal dialog was open are not discarded.
+                        let cc = ep2.get_active_content().unwrap_or_default();
                         let updated = super::template_dialog::apply_body_splice(&cc, &nc);
                         super::template_dialog::save_sidecar(&path, &sc);
                         if let Err(e) = std::fs::write(&path, &updated) {
@@ -2248,7 +2250,7 @@ impl AppWindow {
             // Auto-save recovery check — queue to avoid stacking dialogs during session restore
             if let Some((recovered, save_time)) = crate::auto_save::find_recovery(&path) {
                 let ts = chrono::DateTime::<chrono::Local>::from(save_time)
-                    .format("%H:%M:%S")
+                    .format("%Y-%m-%d %H:%M")
                     .to_string();
                 let was_empty = recovery_queue_for_open.borrow().is_empty();
                 recovery_queue_for_open.borrow_mut().push_back((path.clone(), recovered, ts));
@@ -4024,6 +4026,7 @@ impl AppWindow {
                     if let Some(content) = editor.get_active_content() {
                         if std::fs::write(&path, &content).is_ok() {
                             editor.mark_saved(&path);
+                            crate::auto_save::clear(&path);
                             library_for_key.borrow_mut().touch_saved(&path).ok();
                             save_snapshot(&snapshot_root, &path, &content);
                             if !*kb_manual_only.borrow() {
