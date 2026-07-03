@@ -2057,6 +2057,37 @@ impl EditorPane {
         *self.bib_active.borrow()
     }
 
+    /// Renames citation-key occurrences (`@key`, `#cite(<key>)`, `#cite("key")`)
+    /// in every currently open tab. Returns the paths of tabs that changed.
+    pub fn replace_citation_key_in_open_tabs(&self, old_key: &str, new_key: &str) -> Vec<PathBuf> {
+        let tabs: Vec<(PathBuf, Buffer)> = self.state.borrow().tabs.iter()
+            .map(|(p, t)| (p.clone(), t.buffer.clone()))
+            .collect();
+
+        let mut changed_paths = Vec::new();
+        for (path, buf) in tabs {
+            let (s, e) = buf.bounds();
+            let text = buf.text(&s, &e, true).to_string();
+            let (new_text, changed) = crate::bibliography::rename_key_in_text(&text, old_key, new_key);
+            if !changed {
+                continue;
+            }
+            buf.begin_user_action();
+            let mut start = buf.start_iter();
+            let mut end = buf.end_iter();
+            buf.delete(&mut start, &mut end);
+            buf.insert(&mut start, &new_text);
+            buf.end_user_action();
+            changed_paths.push(path);
+        }
+        changed_paths
+    }
+
+    /// Paths of every tab currently open in this editor.
+    pub fn open_tab_paths(&self) -> Vec<PathBuf> {
+        self.state.borrow().tabs.keys().cloned().collect()
+    }
+
     // ── Callbacks ─────────────────────────────────────────────────────────────
 
     pub fn set_on_change(&self, f: impl Fn() + 'static) {
@@ -4450,6 +4481,81 @@ impl EditorPane {
             view.add_controller(motion);
         }
 
+        // ── Citation hover preview — hover over @key or #cite(<key>) ──────────
+        {
+            let bib_entries_hover = self.bib_entries.clone();
+            let view_cite_hover = view.clone();
+            let active_cite_popup: Rc<RefCell<Option<Popover>>> = Rc::new(RefCell::new(None));
+
+            let motion = EventControllerMotion::new();
+            motion.connect_motion(move |_, x, y| {
+                if active_cite_popup.borrow().is_some() {
+                    return;
+                }
+
+                let (bx, by) = view_cite_hover.window_to_buffer_coords(
+                    TextWindowType::Widget, x as i32, y as i32,
+                );
+                let Some(iter) = view_cite_hover.iter_at_location(bx, by) else { return };
+
+                let line_start = {
+                    let mut it = iter.clone();
+                    it.set_line_offset(0);
+                    it
+                };
+                let mut line_end = line_start.clone();
+                line_end.forward_to_line_end();
+                let line_text = line_start.text(&line_end).to_string();
+                let char_offset = iter.line_offset() as usize;
+
+                let Some(key) = cite_key_at_offset(&line_text, char_offset) else { return };
+
+                let entry = bib_entries_hover.borrow().iter().find(|e| e.key == key).cloned();
+                let Some(entry) = entry else { return };
+
+                let popover = Popover::new();
+                popover.set_parent(&view_cite_hover);
+                popover.set_has_arrow(true);
+                popover.set_autohide(true);
+                popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+
+                let vbox = GtkBox::new(Orientation::Vertical, 2);
+                vbox.set_margin_top(8);
+                vbox.set_margin_bottom(8);
+                vbox.set_margin_start(10);
+                vbox.set_margin_end(10);
+
+                let citation_lbl = Label::new(None);
+                citation_lbl.set_markup(&format!(
+                    "<b>{}</b>",
+                    glib::markup_escape_text(&crate::bibliography::format_author_year(&entry))
+                ));
+                citation_lbl.set_xalign(0.0);
+                citation_lbl.set_wrap(true);
+                citation_lbl.set_max_width_chars(50);
+                vbox.append(&citation_lbl);
+
+                if !entry.title.is_empty() {
+                    let title_lbl = Label::new(Some(&entry.title));
+                    title_lbl.set_xalign(0.0);
+                    title_lbl.set_wrap(true);
+                    title_lbl.set_max_width_chars(50);
+                    title_lbl.add_css_class("dim-label");
+                    title_lbl.add_css_class("caption");
+                    vbox.append(&title_lbl);
+                }
+
+                popover.set_child(Some(&vbox));
+                *active_cite_popup.borrow_mut() = Some(popover.clone());
+                let ap_closed = active_cite_popup.clone();
+                popover.connect_closed(move |_| {
+                    *ap_closed.borrow_mut() = None;
+                });
+                popover.popup();
+            });
+            view.add_controller(motion);
+        }
+
         // Suppress GTK's built-in focus-in cursor snap.
         // GtkTextView calls scroll_mark_onscreen(insert) when it gains keyboard
         // focus, which can violently snap the viewport to the cursor's OLD position
@@ -5635,13 +5741,15 @@ fn dismiss_popup_only(
     popup.hide();
 }
 
-fn do_bib_complete(
+/// Replaces the text between `mark` and the cursor with `text`, then resets
+/// completion state. Shared by `do_bib_complete` and `do_lsp_complete` — the
+/// only difference between the two triggers is what `text` ends up being.
+fn insert_completion_text(
     buf: &Buffer,
     mark: &Rc<RefCell<Option<gtk4::TextMark>>>,
     completing: &Rc<RefCell<bool>>,
-    popup: &BibPopup,
     view: &View,
-    key: &str,
+    text: &str,
 ) {
     *completing.borrow_mut() = true;
     let mark_opt = mark.borrow().clone();
@@ -5650,14 +5758,48 @@ fn do_bib_complete(
         let mut end = buf.iter_at_offset(buf.cursor_position());
         buf.begin_user_action();
         buf.delete(&mut start, &mut end);
-        buf.insert_at_cursor(&format!("@{key}"));
+        buf.insert_at_cursor(text);
         buf.end_user_action();
         buf.delete_mark(m);
     }
     *mark.borrow_mut() = None;
-    popup.hide();
     view.grab_focus();
     *completing.borrow_mut() = false;
+}
+
+/// Finds a citation key (`@key` shorthand or `<key>` inside `#cite(...)`) whose
+/// span contains `char_offset` in `line_text`. Used by the hover-preview popup.
+fn cite_key_at_offset(line_text: &str, char_offset: usize) -> Option<String> {
+    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let re = RE.get_or_init(|| {
+        regex::Regex::new(r"@([A-Za-z][\w:.-]*)|<([A-Za-z][\w:.-]*)>").unwrap()
+    });
+
+    let byte_offset = line_text
+        .char_indices()
+        .nth(char_offset)
+        .map(|(b, _)| b)
+        .unwrap_or(line_text.len());
+
+    for caps in re.captures_iter(line_text) {
+        let m = caps.get(0).unwrap();
+        if m.start() <= byte_offset && byte_offset < m.end() {
+            return caps.get(1).or_else(|| caps.get(2)).map(|g| g.as_str().to_string());
+        }
+    }
+    None
+}
+
+fn do_bib_complete(
+    buf: &Buffer,
+    mark: &Rc<RefCell<Option<gtk4::TextMark>>>,
+    completing: &Rc<RefCell<bool>>,
+    popup: &BibPopup,
+    view: &View,
+    key: &str,
+) {
+    insert_completion_text(buf, mark, completing, view, &format!("@{key}"));
+    popup.hide();
 }
 
 fn set_view_line_spacing(view: &View, spacing: u32) {
@@ -5714,28 +5856,11 @@ fn do_lsp_complete(
     view: &View,
     item: CompletionItem,
 ) {
-    *completing.borrow_mut() = true;
-    let mark_opt = mark.borrow().clone();
-    if let Some(ref m) = mark_opt {
-        let mut start = buf.iter_at_mark(m);
-        let mut end = buf.iter_at_offset(buf.cursor_position());
-        let raw = item.insert_text.as_deref().unwrap_or(&item.label);
-        let cleaned = strip_snippets(raw);
-        let final_text = if cleaned.starts_with('#') {
-            cleaned
-        } else {
-            format!("#{cleaned}")
-        };
-        buf.begin_user_action();
-        buf.delete(&mut start, &mut end);
-        buf.insert_at_cursor(&final_text);
-        buf.end_user_action();
-        buf.delete_mark(m);
-    }
-    *mark.borrow_mut() = None;
+    let raw = item.insert_text.as_deref().unwrap_or(&item.label);
+    let cleaned = strip_snippets(raw);
+    let final_text = if cleaned.starts_with('#') { cleaned } else { format!("#{cleaned}") };
+    insert_completion_text(buf, mark, completing, view, &final_text);
     popup.hide();
-    view.grab_focus();
-    *completing.borrow_mut() = false;
 }
 
 fn section_heading_level(text: &str) -> Option<usize> {

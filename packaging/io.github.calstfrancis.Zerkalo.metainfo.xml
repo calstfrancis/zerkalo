@@ -66,6 +66,19 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release type="development" version="0.14.4-dev2" date="2026-07-03">
+      <description>
+        <p>0.14.4-dev2 — citation management improvements.</p>
+        <ul>
+          <li>Added: Hayagriva YAML bibliography support (read-only) alongside BibTeX</li>
+          <li>Added: custom CSL style support via a user-supplied .csl file</li>
+          <li>Added: citation hover preview showing author/year and title</li>
+          <li>Added: export a cited-only bibliography from the reference manager</li>
+          <li>Added: project-wide citation key rename from the reference manager</li>
+          <li>Changed: BibTeX parsing now uses the biblatex crate for better edge-case handling</li>
+        </ul>
+      </description>
+    </release>
     <release type="development" version="0.14.4-rc1" date="2026-07-03">
       <description>
         <p>0.14.4-rc1 — data-loss and crash fixes.</p>

@@ -1,13 +1,6 @@
 use std::path::Path;
-use std::sync::OnceLock;
 
-use regex::Regex;
-
-static ENTRY_RE: OnceLock<Regex> = OnceLock::new();
-
-fn entry_re() -> &'static Regex {
-    ENTRY_RE.get_or_init(|| Regex::new(r"(?i)@(\w+)\s*\{\s*([^,\s\}]+)").unwrap())
-}
+use biblatex::{Bibliography, ChunksExt, DateValue, PermissiveType};
 
 #[derive(Clone, Debug, Default)]
 pub struct BibEntry {
@@ -20,9 +13,62 @@ pub struct BibEntry {
 }
 
 pub fn load_bib(path: &Path) -> Vec<BibEntry> {
+    match path.extension().and_then(|e| e.to_str()) {
+        Some(ext) if ext.eq_ignore_ascii_case("yaml") || ext.eq_ignore_ascii_case("yml") => {
+            load_yaml_bib(path)
+        }
+        _ => match std::fs::read_to_string(path) {
+            Ok(content) => parse_bib(&content),
+            Err(_) => Vec::new(),
+        },
+    }
+}
+
+fn load_yaml_bib(path: &Path) -> Vec<BibEntry> {
     match std::fs::read_to_string(path) {
-        Ok(content) => parse_bib(&content),
+        Ok(content) => parse_yaml_bib(&content),
         Err(_) => Vec::new(),
+    }
+}
+
+pub fn parse_yaml_bib(content: &str) -> Vec<BibEntry> {
+    let library = match hayagriva::io::from_yaml_str(content) {
+        Ok(lib) => lib,
+        Err(_) => return Vec::new(),
+    };
+
+    library
+        .iter()
+        .map(|entry| {
+            let author = entry
+                .authors()
+                .map(|people| {
+                    people
+                        .iter()
+                        .map(format_hayagriva_person)
+                        .collect::<Vec<_>>()
+                        .join(" and ")
+                })
+                .unwrap_or_default();
+
+            let title = entry.title().map(|t| t.value.to_string()).unwrap_or_default();
+            let year = entry.date().map(|d| d.year.to_string()).unwrap_or_default();
+
+            BibEntry {
+                key: entry.key().to_string(),
+                entry_type: format!("{:?}", entry.entry_type()).to_lowercase(),
+                author,
+                title,
+                year,
+            }
+        })
+        .collect()
+}
+
+fn format_hayagriva_person(p: &hayagriva::types::Person) -> String {
+    match &p.given_name {
+        Some(given) if !given.is_empty() => format!("{given} {}", p.name),
+        _ => p.name.clone(),
     }
 }
 
@@ -56,139 +102,103 @@ fn first_last_name(author: &str) -> String {
 }
 
 pub fn parse_bib(content: &str) -> Vec<BibEntry> {
-    let mut entries = Vec::new();
+    let bib = match Bibliography::parse(content) {
+        Ok(b) => b,
+        Err(_) => return Vec::new(),
+    };
 
-    for caps in entry_re().captures_iter(content) {
-        let entry_type = caps[1].to_lowercase();
-        let key = caps[2].trim().to_string();
+    bib.iter()
+        .map(|entry| {
+            let author = entry
+                .author()
+                .map(|people| {
+                    people
+                        .iter()
+                        .map(format_biblatex_person)
+                        .collect::<Vec<_>>()
+                        .join(" and ")
+                })
+                .unwrap_or_default();
 
-        if matches!(entry_type.as_str(), "string" | "preamble" | "comment") {
-            continue;
-        }
+            let title = entry.title().map(|c| c.format_verbatim()).unwrap_or_default();
 
-        let body_start = caps.get(0).unwrap().end();
-        let body = extract_body(content, body_start);
-
-        let mut author = String::new();
-        let mut title = String::new();
-        let mut year = String::new();
-
-        for (name, val) in parse_fields(body) {
-            match name.to_lowercase().as_str() {
-                "author" => author = clean_braces(&val),
-                "title"  => title  = clean_braces(&val),
-                "year"   => year   = val,
-                _ => {}
-            }
-        }
-
-        entries.push(BibEntry { key, entry_type, author, title, year });
-    }
-
-    entries
-}
-
-/// Parse `field = {value}` or `field = "value"` pairs from an entry body,
-/// handling arbitrarily nested braces in the value.
-fn parse_fields(body: &str) -> Vec<(String, String)> {
-    let mut fields = Vec::new();
-    let bytes = body.as_bytes();
-    let len = bytes.len();
-    let mut i = 0;
-
-    while i < len {
-        // Skip whitespace and commas between fields
-        while i < len && (bytes[i].is_ascii_whitespace() || bytes[i] == b',') {
-            i += 1;
-        }
-        if i >= len { break; }
-
-        // Read field name (word chars)
-        let name_start = i;
-        while i < len && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_' || bytes[i] == b'-') {
-            i += 1;
-        }
-        if i == name_start { i += 1; continue; } // skip unexpected char
-        let name = body[name_start..i].to_string();
-
-        // Skip whitespace then expect '='
-        while i < len && bytes[i].is_ascii_whitespace() { i += 1; }
-        if i >= len || bytes[i] != b'=' { continue; }
-        i += 1;
-
-        // Skip whitespace
-        while i < len && bytes[i].is_ascii_whitespace() { i += 1; }
-        if i >= len { break; }
-
-        let value = if bytes[i] == b'{' {
-            // Brace-delimited value — track depth so nested braces are included
-            i += 1; // skip opening brace
-            let val_start = i;
-            let mut depth = 1i32;
-            while i < len {
-                match bytes[i] {
-                    b'{' => depth += 1,
-                    b'}' => {
-                        depth -= 1;
-                        if depth == 0 { break; }
-                    }
-                    _ => {}
+            let year = match entry.date() {
+                Ok(PermissiveType::Typed(date)) => {
+                    let dt = match date.value {
+                        DateValue::At(dt)
+                        | DateValue::After(dt)
+                        | DateValue::Before(dt)
+                        | DateValue::Between(dt, _) => dt,
+                    };
+                    dt.year.to_string()
                 }
-                i += 1;
-            }
-            let val = body[val_start..i].to_string();
-            if i < len { i += 1; } // skip closing brace
-            val
-        } else if bytes[i] == b'"' {
-            // Quote-delimited value — no nesting, but respect escaped quotes
-            i += 1;
-            let val_start = i;
-            while i < len && bytes[i] != b'"' {
-                if bytes[i] == b'\\' { i += 1; } // skip escaped char
-                i += 1;
-            }
-            let val = body[val_start..i].to_string();
-            if i < len { i += 1; } // skip closing quote
-            val
-        } else {
-            // Bare value (e.g. year = 2020) — read until comma or brace
-            let val_start = i;
-            while i < len && bytes[i] != b',' && bytes[i] != b'}' {
-                i += 1;
-            }
-            body[val_start..i].trim().to_string()
-        };
+                Ok(PermissiveType::Chunks(c)) => c.format_verbatim(),
+                Err(_) => String::new(),
+            };
 
-        if !name.is_empty() {
-            fields.push((name, value));
-        }
-    }
-
-    fields
+            BibEntry {
+                key: entry.key.clone(),
+                entry_type: entry.entry_type.to_string(),
+                author,
+                title,
+                year,
+            }
+        })
+        .collect()
 }
 
-fn extract_body(content: &str, start: usize) -> &str {
-    let bytes = content.as_bytes();
-    let mut depth = 1i32;
-    let mut i = start;
-    while i < bytes.len() {
-        match bytes[i] {
-            b'{' => depth += 1,
-            b'}' => {
-                depth -= 1;
-                if depth == 0 {
-                    return &content[start..i];
-                }
-            }
-            _ => {}
-        }
-        i += 1;
-    }
-    &content[start..]
+/// Renames a citation key in place in a BibTeX file. Returns an error if the
+/// file can't be read/parsed/written, or if `old_key` isn't present.
+pub fn rename_key_in_bib_file(path: &Path, old_key: &str, new_key: &str) -> std::io::Result<()> {
+    let content = std::fs::read_to_string(path)?;
+    let mut bib = Bibliography::parse(&content)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
+    let mut entry = bib.remove(old_key).ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::NotFound, format!("key '{old_key}' not found"))
+    })?;
+    entry.key = new_key.to_string();
+    bib.insert(entry);
+    std::fs::write(path, bib.to_bibtex_string())
 }
 
-fn clean_braces(s: &str) -> String {
-    s.replace('{', "").replace('}', "").trim().to_string()
+/// Renames occurrences of a citation key (`@key` shorthand or `#cite(<key>)` /
+/// `#cite("key")`) in Typst source text. Returns the rewritten text and
+/// whether anything changed.
+pub fn rename_key_in_text(text: &str, old_key: &str, new_key: &str) -> (String, bool) {
+    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let re = RE.get_or_init(|| {
+        regex::Regex::new(r#"@([A-Za-z][A-Za-z0-9_:]*)|#cite\(<([^>]+)>\)|#cite\("([^"]+)"\)"#)
+            .unwrap()
+    });
+
+    let result = re.replace_all(text, |caps: &regex::Captures| {
+        let whole = caps.get(0).unwrap().as_str();
+        if let Some(k) = caps.get(1) {
+            if k.as_str() == old_key {
+                return format!("@{new_key}");
+            }
+        } else if let Some(k) = caps.get(2) {
+            if k.as_str() == old_key {
+                return format!("#cite(<{new_key}>)");
+            }
+        } else if let Some(k) = caps.get(3) {
+            if k.as_str() == old_key {
+                return format!("#cite(\"{new_key}\")");
+            }
+        }
+        whole.to_string()
+    });
+    let changed = result != text;
+    (result.into_owned(), changed)
+}
+
+fn format_biblatex_person(p: &biblatex::Person) -> String {
+    [&p.given_name, &p.prefix, &p.name, &p.suffix]
+        .into_iter()
+        .filter(|s| !s.is_empty())
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 #[cfg(test)]
@@ -297,8 +307,122 @@ mod tests {
     }
 
     #[test]
+    fn parse_bib_string_macro_expansion() {
+        let bib = r#"
+@string{jot = "Journal of Great Things"}
+@article{macro_test,
+  author = {Someone Else},
+  title = {A Macro Title},
+  journal = jot,
+  year = {2023},
+}
+"#;
+        let entries = parse_bib(bib);
+        let e = entries.iter().find(|e| e.key == "macro_test").unwrap();
+        assert_eq!(e.title, "A Macro Title");
+    }
+
+    #[test]
+    fn parse_bib_at_sign_in_email_field_does_not_break_parsing() {
+        let bib = r#"
+@article{withemail,
+  author = {Someone},
+  title = {A Title},
+  year = {2020},
+  note = {contact: someone@example.com},
+}
+@article{after,
+  author = {Another},
+  title = {Another Title},
+  year = {2021},
+}
+"#;
+        let entries = parse_bib(bib);
+        assert_eq!(entries.len(), 2);
+        assert!(entries.iter().any(|e| e.key == "after"));
+    }
+
+    #[test]
     fn load_bib_returns_empty_for_nonexistent_file() {
         let entries = load_bib(std::path::Path::new("/nonexistent/path/refs.bib"));
+        assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn rename_key_in_text_shorthand() {
+        let (out, changed) = rename_key_in_text("See @smith2020 for details.", "smith2020", "smith2021");
+        assert!(changed);
+        assert_eq!(out, "See @smith2021 for details.");
+    }
+
+    #[test]
+    fn rename_key_in_text_cite_label_form() {
+        let (out, changed) = rename_key_in_text("#cite(<smith2020>)", "smith2020", "smith2021");
+        assert!(changed);
+        assert_eq!(out, "#cite(<smith2021>)");
+    }
+
+    #[test]
+    fn rename_key_in_text_no_match_is_noop() {
+        let (out, changed) = rename_key_in_text("See @doe2019.", "smith2020", "smith2021");
+        assert!(!changed);
+        assert_eq!(out, "See @doe2019.");
+    }
+
+    #[test]
+    fn rename_key_in_text_does_not_touch_prefix_matches() {
+        let (out, changed) = rename_key_in_text("See @smith2020extra.", "smith2020", "smith2021");
+        assert!(!changed);
+        assert_eq!(out, "See @smith2020extra.");
+    }
+
+    #[test]
+    fn rename_key_in_bib_file_round_trip() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("refs.bib");
+        std::fs::write(&path, "@article{smith2020,\n  author = {John Smith},\n  year = {2020},\n}\n").unwrap();
+        rename_key_in_bib_file(&path, "smith2020", "smith2021").unwrap();
+        let entries = load_bib(&path);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].key, "smith2021");
+    }
+
+    #[test]
+    fn parse_yaml_bib_basic() {
+        let yaml = r#"
+smith2020:
+  type: article
+  title: A Great Paper
+  author: John Smith
+  date: 2020
+"#;
+        let entries = parse_yaml_bib(yaml);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].key, "smith2020");
+        assert_eq!(entries[0].title, "A Great Paper");
+        assert_eq!(entries[0].author, "John Smith");
+        assert_eq!(entries[0].year, "2020");
+    }
+
+    #[test]
+    fn parse_yaml_bib_multiple_authors() {
+        let yaml = r#"
+multi:
+  type: article
+  title: Collaborative Work
+  author:
+    - Alice Brown
+    - Bob Green
+  date: 2021
+"#;
+        let entries = parse_yaml_bib(yaml);
+        assert_eq!(entries[0].author, "Alice Brown and Bob Green");
+        assert_eq!(format_author_year(&entries[0]), "Brown et al., 2021");
+    }
+
+    #[test]
+    fn parse_yaml_bib_invalid_returns_empty() {
+        let entries = parse_yaml_bib("not: valid: yaml: at all: [");
         assert!(entries.is_empty());
     }
 

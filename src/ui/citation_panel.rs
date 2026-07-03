@@ -50,7 +50,7 @@ impl CitationPanel {
         let choose_btn = Button::from_icon_name("document-open-symbolic");
         choose_btn.add_css_class("flat");
         choose_btn.add_css_class("circular");
-        choose_btn.set_tooltip_text(Some("Choose bibliography file (.bib)"));
+        choose_btn.set_tooltip_text(Some("Choose bibliography file (.bib, .yaml)"));
         choose_btn.update_property(&[gtk4::accessible::Property::Label("Choose bibliography file")]);
         header_box.append(&choose_btn);
 

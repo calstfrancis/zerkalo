@@ -259,7 +259,19 @@ pub const STYLES: &[(&str, &str, &str, &str, &str)] = &[
         "References",
         "harvard",
     ),
+    (
+        "Custom (CSL file)",
+        "",
+        "custom",
+        "",
+        "custom",
+    ),
 ];
+
+/// Placeholder `bib_style_key` used by the "Custom" style entry above. The UI
+/// layer resolves this to the user's configured `custom_csl_path` before it
+/// reaches `apply_to`/`update_bibliography_only`.
+pub const CUSTOM_STYLE_PLACEHOLDER: &str = "custom";
 
 const STYLE_BEGIN: &str = "// ZERKALO-STYLE-BEGIN";
 const STYLE_END: &str = "// ZERKALO-STYLE-END";
@@ -353,6 +365,8 @@ fn update_bibliography(content: &str, bib_style: &str, bib_title: &str) -> Strin
 }
 
 fn build_bib_call(filename: &str, style: &str, title: &str) -> String {
+    let style = style.replace('\\', "\\\\").replace('"', "\\\"");
+    let style = style.as_str();
     if title.is_empty() {
         format!("#bibliography(\"{filename}\", style: \"{style}\")")
     } else {

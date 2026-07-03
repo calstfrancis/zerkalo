@@ -3,18 +3,18 @@
 ## Build and release rules
 
 - **Never build or release unless Cal explicitly says to.** Code changes alone do not trigger a build.
-- Saying "build a rc" triggers a build. Saying "release" triggers a release. Nothing else does.
+- Saying "build a dev" / "prep a dev build" triggers a build. Saying "release" triggers a release. Nothing else does.
 
 ## Version Management
 
-### Release candidate numbering
-- Builds get the **next** release version number with an `-rcN` suffix: `0.12.33-rc1`, `0.12.33-rc2`, …
-- When Cal says "release", strip the `-rcN` suffix → `0.12.33`; push, tag, and publish flatpak
-- After a release, the next build starts at `<next>-rc1` again (e.g. `0.12.34-rc1`)
+### Dev build numbering
+- Builds get the **next** release version number with a `-devN` suffix: `0.12.33-dev1`, `0.12.33-dev2`, …
+- When Cal says "release", strip the `-devN` suffix → `0.12.33`; push, tag, and publish flatpak
+- After a release, the next build starts at `<next>-dev1` again (e.g. `0.12.34-dev1`)
 - Never bump to a plain release version during a build — only on explicit release instruction
 
 ### On every build
-1. Update `Cargo.toml` version to the next rc number
+1. Update `Cargo.toml` version to the next dev number
 2. Update `CHANGELOG.md` — add entry at top for the new rc version
 3. Update `packaging/io.github.calstfrancis.Zerkalo.metainfo.xml` — add release entry
 4. Update What's New in `src/ui/welcome_window.rs` to reflect current features
@@ -34,7 +34,7 @@
 - Update `RELEASE_NAME` constant in `src/ui/welcome_window.rs` so the name appears in the version subtitle and "What's New" heading
 
 ### Commit message
-- Builds: `v0.12.33-rc1 — short description`
+- Builds: `v0.12.33-dev1 — short description`
 - Releases: `v0.12.33 "Release Name" — short description`
 
 ## Documentation

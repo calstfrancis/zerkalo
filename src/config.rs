@@ -47,6 +47,8 @@ pub struct Config {
     pub recent_projects: Vec<PathBuf>,
     #[serde(default)]
     pub bib_path: Option<PathBuf>,
+    #[serde(default)]
+    pub custom_csl_path: Option<PathBuf>,
     #[serde(default = "default_debounce_ms")]
     pub debounce_ms: u64,
     #[serde(default = "default_true")]
@@ -142,6 +144,7 @@ impl Default for Config {
             recent_files: Vec::new(),
             recent_projects: Vec::new(),
             bib_path: None,
+            custom_csl_path: None,
             debounce_ms: 800,
             auto_compile: true,
             editor_font_size: 13,

@@ -125,17 +125,12 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
-                "Fixed: Replace All in Simple Mode no longer wipes the document preamble",
-                "Fixed: closing a background tab via Save now saves that tab, not the focused one",
-                "Fixed: Update Template Settings no longer discards edits made while the dialog was open",
-                "Fixed: compiler no longer crashes on non-ASCII documents with errors",
-                "Fixed: undo/redo buttons could grey out while working when multiple files are open",
-                "CV/Résumé templates — three presets (Modern, Academic, Classic) in New from Template",
-                "CV style switching — format bar shows CV Style instead of Style when editing a CV",
-                "CV helpers — #job, #edu, #skill, #section, #award adapt their look to the active style",
-                "CV cheatsheet — the ? panel and Help popup show CV reference when a CV is open",
-                "Library Export now compiles to PDF using the built-in Typst compiler",
-                "Hamburger menu reorganized into clearer groups; Update Template Settings restored",
+                "Added: Hayagriva YAML bibliography support alongside BibTeX (read-only)",
+                "Added: custom CSL style support — point the style switcher at any .csl file",
+                "Added: citation hover preview shows the formatted reference for @key / #cite",
+                "Added: export a cited-only bibliography from the reference manager",
+                "Added: rename a citation key project-wide from the reference manager",
+                "Changed: BibTeX parsing now uses the biblatex crate for better edge-case handling",
             ] {
                 body.append(&bullet_row(item));
             }
