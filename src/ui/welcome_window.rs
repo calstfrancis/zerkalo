@@ -7,7 +7,7 @@ use libadwaita as adw;
 use adw::prelude::*;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-const RELEASE_NAME: &str = "Firm Ground";
+const RELEASE_NAME: &str = "Steady Hand";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -125,13 +125,15 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
-                "Added: click a citation or LSP completion popup row to insert it immediately",
-                "Removed: citation hover preview",
-                "Fixed: preview pane no longer drifts or jumps while typing",
                 "Added: Hayagriva YAML bibliography support alongside BibTeX (read-only)",
                 "Added: custom CSL style support — point the style switcher at any .csl file",
                 "Added: export a cited-only bibliography from the reference manager",
                 "Added: rename a citation key project-wide from the reference manager",
+                "Added: click a citation or LSP completion popup row to insert it immediately",
+                "Fixed: several data-loss and crash bugs — Replace All wiping the preamble, wrong-tab saves, template dialog overwrites, and compiler panics/text corruption on non-ASCII input",
+                "Fixed: preview pane no longer drifts or jumps while typing",
+                "Fixed: library \"created\" dates now reflect actual file creation time",
+                "Fixed: snapshot writes are now atomic and survive a crash or power loss",
             ] {
                 body.append(&bullet_row(item));
             }

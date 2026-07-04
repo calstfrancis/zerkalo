@@ -30,7 +30,8 @@
       <li>New from Template — dialog generates a complete Typst preamble</li>
       <li>Import from LaTeX, DOCX, or PDF via pandoc</li>
       <li>Export to PDF, HTML, DOCX, ODT, or LaTeX; Ctrl+Shift+E for instant PDF export</li>
-      <li>Citation style switcher — APA, Chicago, GOST 7.32, and more</li>
+      <li>Citation style switcher — APA, Chicago, GOST 7.32, and more, plus custom CSL styles</li>
+      <li>BibTeX and Hayagriva YAML bibliography support, with cited-only bibliography export and project-wide citation key rename</li>
       <li>Compile on save with live preview; scroll position preserved across recompiles</li>
       <li>Auto-save to recovery file on idle; periodic save every 30 seconds</li>
       <li>Git sync — commit and push to all remotes in one click</li>
@@ -38,7 +39,7 @@
     <p>Sidebar:</p>
     <ul>
       <li>Document outline with cursor-tracking highlight</li>
-      <li>File tree, citation panel (single-click insert), plan scratchpad, and section notes</li>
+      <li>File tree, citation panel (click-to-insert), plan scratchpad, and section notes</li>
       <li>Symbol insert panel for Cyrillic, Greek, Hebrew, and Sanskrit</li>
       <li>Snapshot history with diff view and restore</li>
     </ul>
@@ -66,6 +67,16 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.15.0" date="2026-07-04">
+      <description>
+        <p>0.15.0 "Steady Hand" — citation management, data-loss fixes, correctness pass.</p>
+        <ul>
+          <li>Added: Hayagriva YAML bibliography support, custom CSL styles, cited-only bibliography export, project-wide citation key rename, click-to-insert completions</li>
+          <li>Fixed: several data-loss and crash bugs — Replace All wiping the preamble, wrong-tab saves, template dialog overwrites, compiler panics and text corruption on non-ASCII input, a preview scroll memory leak, wrong upgrade defaults, silently-discarded git rebase failures, and an LSP multi-header parsing bug</li>
+          <li>Fixed: preview pane drift while typing, incorrect library "created" dates, non-atomic snapshot writes, and missing mandated heading numbering on style switch</li>
+        </ul>
+      </description>
+    </release>
     <release type="development" version="0.14.4-dev3" date="2026-07-04">
       <description>
         <p>0.14.4-dev3 — completion click-to-insert, preview jump fixes.</p>
