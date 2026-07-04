@@ -808,20 +808,6 @@ impl PreviewPane {
     fn load_pixbufs_from_bytes(&self, pages: &[Vec<u8>]) {
         let is_first = *self.first_load.borrow();
 
-        // Capture vertical scroll fraction before replacing content (recompiles only).
-        let saved_v_frac: Option<f64> = if !is_first {
-            let adj = self.img_scroll.vadjustment();
-            let range = adj.upper() - adj.lower();
-            let page = adj.page_size();
-            if range > page {
-                Some((adj.value() + page / 2.0) / range)
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
         let mut pixbufs = Vec::new();
         for png_bytes in pages {
             let gbytes = glib::Bytes::from(png_bytes.as_slice());
@@ -834,7 +820,7 @@ impl PreviewPane {
         *self.page_pixbufs.borrow_mut() = pixbufs;
 
         if is_first {
-            self.refit_drawing_area_centered(saved_v_frac);
+            self.refit_drawing_area_centered(None);
             *self.first_load.borrow_mut() = false;
             if *self.auto_fit.borrow() {
                 let pane = self.clone();
@@ -854,9 +840,14 @@ impl PreviewPane {
                 self.update_zoom_label(z);
                 if let Some(f) = self.on_zoom_changed.borrow().as_ref() { f(z); }
             }
-            self.refit_drawing_area_centered(saved_v_frac);
+            // Don't restore scroll position by fraction here — recompiles happen on
+            // every keystroke, and the document's total height changes as the user
+            // types, so a fraction-based restore visibly drifts the viewport even
+            // though the user never scrolled. Leaving the adjustment untouched keeps
+            // the same pixel offset (GTK clamps it automatically if content shrank).
+            self.refit_drawing_area_centered(None);
         } else {
-            self.refit_drawing_area_centered(saved_v_frac);
+            self.refit_drawing_area_centered(None);
         }
 
         self.fire_page_changed();

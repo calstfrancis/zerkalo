@@ -125,12 +125,13 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
+                "Added: click a citation or LSP completion popup row to insert it immediately",
+                "Removed: citation hover preview",
+                "Fixed: preview pane no longer drifts or jumps while typing",
                 "Added: Hayagriva YAML bibliography support alongside BibTeX (read-only)",
                 "Added: custom CSL style support — point the style switcher at any .csl file",
-                "Added: citation hover preview shows the formatted reference for @key / #cite",
                 "Added: export a cited-only bibliography from the reference manager",
                 "Added: rename a citation key project-wide from the reference manager",
-                "Changed: BibTeX parsing now uses the biblatex crate for better edge-case handling",
             ] {
                 body.append(&bullet_row(item));
             }

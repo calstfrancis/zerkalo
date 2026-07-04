@@ -28,7 +28,7 @@ impl BibPopup {
 
         let list_box = ListBox::new();
         list_box.set_selection_mode(SelectionMode::Browse);
-        list_box.set_activate_on_single_click(false);
+        list_box.set_activate_on_single_click(true);
         list_box.set_focusable(true);
 
         let scroll = ScrolledWindow::new();

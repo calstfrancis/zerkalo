@@ -66,6 +66,16 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release type="development" version="0.14.4-dev3" date="2026-07-04">
+      <description>
+        <p>0.14.4-dev3 — completion click-to-insert, preview jump fixes.</p>
+        <ul>
+          <li>Added: click a completion popup row to insert it immediately</li>
+          <li>Removed: citation hover preview</li>
+          <li>Fixed: preview pane no longer drifts/jumps while typing</li>
+        </ul>
+      </description>
+    </release>
     <release type="development" version="0.14.4-dev2" date="2026-07-03">
       <description>
         <p>0.14.4-dev2 — citation management improvements.</p>

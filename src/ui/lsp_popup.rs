@@ -28,7 +28,7 @@ impl LspPopup {
 
         let list_box = ListBox::new();
         list_box.set_selection_mode(SelectionMode::Browse);
-        list_box.set_activate_on_single_click(false);
+        list_box.set_activate_on_single_click(true);
 
         let scroll = ScrolledWindow::new();
         scroll.set_child(Some(&list_box));
