@@ -15,6 +15,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 - **Preview pane jumped around while typing** — two causes, both fixed: (1) after every auto-recompile, scroll position was restored by *fraction*, but the document's total height changes as you type, so the viewport visibly drifted even though nothing was scrolled; (2) a cursor-to-preview sync feature scrolled the preview to match the editor cursor's heading on every keystroke, which could jump to the wrong page (e.g. the bibliography) — this sync has been removed. The preview now only moves via its own scrollbar or the page-navigation buttons.
+- **Library "created" dates were always the import timestamp** — a filesystem-creation-time correction pass existed but was never invoked, so every document in the library showed its import date as "created" regardless of when the file actually existed on disk; now runs on startup after the initial library scan
+- **Snapshot writes could leave a corrupt file on crash or power loss** — snapshots were written directly to their final path; a write is now staged to a temp file and renamed into place atomically
+- **Switching heading style didn't apply mandated numbering** — styles that require specific heading numbering (IEEE, GOST 7.32, Vancouver) only got it if the document already had numbering explicitly configured; switching from a style with no numbering now correctly applies the mandated format
 
 ## [0.14.4-dev2] — citation management improvements
 

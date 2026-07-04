@@ -184,14 +184,15 @@ impl Library {
                 .unwrap_or_else(|| path_str.clone())
         });
         let now = Utc::now().to_rfc3339();
-        let fs_modified = std::fs::metadata(path)
-            .ok()
+        let meta = std::fs::metadata(path).ok();
+        let fs_modified = meta.as_ref()
             .and_then(|m| m.modified().ok())
-            .map(|t| {
-                let dt: chrono::DateTime<Utc> = t.into();
-                dt.to_rfc3339()
-            })
+            .map(|t| { let dt: chrono::DateTime<Utc> = t.into(); dt.to_rfc3339() })
             .unwrap_or_else(|| now.clone());
+        let fs_created = meta.as_ref()
+            .and_then(|m| m.created().ok())
+            .map(|t| { let dt: chrono::DateTime<Utc> = t.into(); dt.to_rfc3339() })
+            .unwrap_or_else(|| fs_modified.clone());
 
         let existing: Option<i64> = self
             .conn
@@ -212,7 +213,7 @@ impl Library {
             self.conn.execute(
                 "INSERT INTO documents (path, title, created_at, modified_at)
                  VALUES (?1, ?2, ?3, ?4)",
-                params![path_str, title, now, fs_modified],
+                params![path_str, title, fs_created, fs_modified],
             )?;
             Ok(self.conn.last_insert_rowid())
         }
@@ -238,6 +239,37 @@ impl Library {
             params![now, path_str],
         )?;
         Ok(())
+    }
+
+    /// Correct created_at for existing documents using filesystem creation time.
+    /// Runs once at startup in the background thread after initial scan.
+    pub fn fix_created_dates_from_fs(&mut self) {
+        let paths: Vec<(i64, String)> = {
+            let mut stmt = match self.conn.prepare("SELECT id, path FROM documents") {
+                Ok(s) => s,
+                Err(_) => return,
+            };
+            stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+                .into_iter()
+                .flatten()
+                .filter_map(|r| r.ok())
+                .collect()
+        };
+        for (id, path_str) in paths {
+            let path = std::path::Path::new(&path_str);
+            if let Ok(meta) = std::fs::metadata(path) {
+                let fs_created = meta.created()
+                    .or_else(|_| meta.modified())
+                    .map(|t| { let dt: chrono::DateTime<Utc> = t.into(); dt.to_rfc3339() })
+                    .ok();
+                if let Some(created) = fs_created {
+                    self.conn.execute(
+                        "UPDATE documents SET created_at = ?1 WHERE id = ?2",
+                        rusqlite::params![created, id],
+                    ).ok();
+                }
+            }
+        }
     }
 
     pub fn documents(

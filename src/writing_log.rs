@@ -116,3 +116,81 @@ fn log_path() -> PathBuf {
         });
     base.join("zerkalo").join("writing_log.json")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn session(date: &str, words: i32) -> WritingSession {
+        WritingSession { date: date.to_string(), file: PathBuf::from("main.typ"), words_added: words, duration_secs: 60 }
+    }
+
+    #[test]
+    fn count_words_splits_on_whitespace() {
+        assert_eq!(count_words("hello   world\nfoo"), 3);
+        assert_eq!(count_words(""), 0);
+        assert_eq!(count_words("   "), 0);
+    }
+
+    #[test]
+    fn total_today_sums_only_todays_sessions() {
+        let today = today_str();
+        let log = WritingLog { sessions: vec![
+            session(&today, 100),
+            session(&today, 50),
+            session("2000-01-01", 999),
+        ]};
+        assert_eq!(log.total_today(), 150);
+    }
+
+    #[test]
+    fn total_today_zero_when_no_sessions_today() {
+        let log = WritingLog { sessions: vec![session("2000-01-01", 999)] };
+        assert_eq!(log.total_today(), 0);
+    }
+
+    #[test]
+    fn total_this_week_excludes_sessions_before_week_start() {
+        let log = WritingLog { sessions: vec![
+            session(&today_str(), 40),
+            session("2000-01-01", 999),
+        ]};
+        assert_eq!(log.total_this_week(), 40);
+    }
+
+    #[test]
+    fn streak_days_counts_consecutive_active_days_including_today() {
+        let today = chrono::Local::now().date_naive();
+        let d0 = today.format("%Y-%m-%d").to_string();
+        let d1 = today.pred_opt().unwrap().format("%Y-%m-%d").to_string();
+        let d2 = today.pred_opt().unwrap().pred_opt().unwrap().format("%Y-%m-%d").to_string();
+        let log = WritingLog { sessions: vec![session(&d0, 10), session(&d1, 5), session(&d2, 5)] };
+        assert_eq!(log.streak_days(), 3);
+    }
+
+    #[test]
+    fn streak_days_survives_zero_words_today_by_counting_from_yesterday() {
+        let today = chrono::Local::now().date_naive();
+        let d1 = today.pred_opt().unwrap().format("%Y-%m-%d").to_string();
+        let log = WritingLog { sessions: vec![session(&d1, 5)] };
+        assert_eq!(log.streak_days(), 1);
+    }
+
+    #[test]
+    fn streak_days_breaks_on_gap() {
+        let today = chrono::Local::now().date_naive();
+        let d0 = today.format("%Y-%m-%d").to_string();
+        let d2 = today.pred_opt().unwrap().pred_opt().unwrap().format("%Y-%m-%d").to_string();
+        // Yesterday (d1) is missing, so the streak should stop at today.
+        let log = WritingLog { sessions: vec![session(&d0, 10), session(&d2, 5)] };
+        assert_eq!(log.streak_days(), 1);
+    }
+
+    #[test]
+    fn streak_days_ignores_sessions_with_zero_words() {
+        let today = chrono::Local::now().date_naive();
+        let d0 = today.format("%Y-%m-%d").to_string();
+        let log = WritingLog { sessions: vec![session(&d0, 0)] };
+        assert_eq!(log.streak_days(), 0);
+    }
+}

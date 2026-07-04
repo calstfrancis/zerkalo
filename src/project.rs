@@ -38,3 +38,41 @@ fn collect_recursive(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn collect_typ_files_finds_nested_typ_files_only() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("main.typ"), "content").unwrap();
+        std::fs::write(dir.path().join("notes.md"), "not typst").unwrap();
+        std::fs::create_dir(dir.path().join("chapters")).unwrap();
+        std::fs::write(dir.path().join("chapters/ch1.typ"), "content").unwrap();
+
+        let files = collect_typ_files(dir.path());
+        let names: Vec<String> = files.iter()
+            .map(|f| f.strip_prefix(dir.path()).unwrap().to_string_lossy().to_string())
+            .collect();
+        assert_eq!(names, vec!["chapters/ch1.typ", "main.typ"]);
+    }
+
+    #[test]
+    fn collect_typ_files_skips_hidden_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("main.typ"), "content").unwrap();
+        std::fs::create_dir(dir.path().join(".hidden")).unwrap();
+        std::fs::write(dir.path().join(".hidden/secret.typ"), "content").unwrap();
+
+        let files = collect_typ_files(dir.path());
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].file_name().unwrap(), "main.typ");
+    }
+
+    #[test]
+    fn collect_typ_files_empty_dir_returns_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(collect_typ_files(dir.path()).is_empty());
+    }
+}

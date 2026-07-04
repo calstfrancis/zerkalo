@@ -162,3 +162,55 @@ fn keybindings_path() -> PathBuf {
     let base = shellexpand::tilde("~/.config/zerkalo").into_owned();
     PathBuf::from(base).join("keybindings.toml")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_key_extracts_modifiers_and_key() {
+        let (ctrl, shift, alt, key) = parse_key("ctrl+shift+p").unwrap();
+        assert!(ctrl);
+        assert!(shift);
+        assert!(!alt);
+        assert_eq!(key, "p");
+    }
+
+    #[test]
+    fn parse_key_single_key_no_modifiers() {
+        let (ctrl, shift, alt, key) = parse_key("f1").unwrap();
+        assert!(!ctrl && !shift && !alt);
+        assert_eq!(key, "f1");
+    }
+
+    #[test]
+    fn parse_key_accepts_control_alias() {
+        let (ctrl, _, _, _) = parse_key("control+s").unwrap();
+        assert!(ctrl);
+    }
+
+    #[test]
+    fn parse_key_is_case_insensitive_for_modifiers() {
+        let (ctrl, shift, alt, key) = parse_key("CTRL+SHIFT+ALT+K").unwrap();
+        assert!(ctrl && shift && alt);
+        assert_eq!(key, "k");
+    }
+
+    #[test]
+    fn default_keybindings_match_documented_defaults() {
+        let kb = Keybindings::default();
+        assert_eq!(kb.save, "ctrl+s");
+        assert_eq!(kb.command_palette, "ctrl+k");
+        assert_eq!(kb.shortcuts_help, "ctrl+shift+h");
+    }
+
+    #[test]
+    fn keybindings_deserialize_with_partial_toml_and_defaults() {
+        let toml_str = "save = \"ctrl+alt+s\"\n";
+        let kb: Keybindings = toml::from_str(toml_str).unwrap();
+        assert_eq!(kb.save, "ctrl+alt+s");
+        // Fields absent from the TOML fall back to their serde defaults.
+        assert_eq!(kb.quit, "ctrl+q");
+        assert_eq!(kb.command_palette, "ctrl+k");
+    }
+}

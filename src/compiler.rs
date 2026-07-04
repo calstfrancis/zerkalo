@@ -227,7 +227,13 @@ mod tests {
     use super::*;
 
     fn write_temp_typ(content: &str) -> std::path::PathBuf {
-        let path = std::path::PathBuf::from("/tmp/zerkalo_test_compile.typ");
+        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let path = std::path::PathBuf::from(format!(
+            "/tmp/zerkalo_test_compile_{}_{}.typ",
+            std::process::id(),
+            n
+        ));
         std::fs::write(&path, content).unwrap();
         path
     }

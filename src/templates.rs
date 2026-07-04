@@ -225,3 +225,63 @@ pub fn slugify(name: &str) -> String {
         .collect::<Vec<_>>()
         .join("-")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn slugify_lowercases_and_hyphenates_spaces() {
+        assert_eq!(slugify("My Great Essay"), "my-great-essay");
+    }
+
+    #[test]
+    fn slugify_collapses_consecutive_separators() {
+        assert_eq!(slugify("Foo___Bar  Baz"), "foo-bar-baz");
+    }
+
+    #[test]
+    fn slugify_strips_leading_trailing_separators() {
+        assert_eq!(slugify("  -Hello-  "), "hello");
+    }
+
+    #[test]
+    fn slugify_empty_input_is_empty() {
+        assert_eq!(slugify(""), "");
+    }
+
+    #[test]
+    fn builtin_templates_have_unique_labels_and_root_files() {
+        let templates = builtin_templates();
+        assert_eq!(templates.len(), 4);
+        let labels: Vec<&str> = templates.iter().map(|t| t.label()).collect();
+        let mut unique = labels.clone();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(labels.len(), unique.len(), "labels should be unique");
+        for t in &templates {
+            assert_eq!(t.root_file(), "main.typ");
+        }
+    }
+
+    #[test]
+    fn builtin_template_generate_writes_files_and_substitutes_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let templates = builtin_templates();
+        let essay = templates.iter().find(|t| t.label() == "Essay").unwrap();
+        essay.generate(dir.path(), "My Project").unwrap();
+
+        let main_content = std::fs::read_to_string(dir.path().join("main.typ")).unwrap();
+        assert!(main_content.contains("My Project"), "project name should replace __NAME__ placeholder");
+        assert!(!main_content.contains("__NAME__"));
+        assert!(dir.path().join("bibliography.bib").exists());
+    }
+
+    #[test]
+    fn user_templates_empty_when_config_dir_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("XDG_CONFIG_HOME", dir.path());
+        assert!(user_templates().is_empty());
+        std::env::remove_var("XDG_CONFIG_HOME");
+    }
+}

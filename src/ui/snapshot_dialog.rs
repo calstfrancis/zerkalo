@@ -10,7 +10,7 @@ use gtk4::{
 use libadwaita as adw;
 use adw::prelude::*;
 
-const MAX_SNAPSHOTS: usize = 50;
+const MAX_SNAPSHOTS: usize = 100;
 
 // ── Snapshot paths ────────────────────────────────────────────────────────────
 
@@ -35,7 +35,10 @@ pub fn save_snapshot(project_root: &Path, file_path: &Path, content: &str) {
 
     let ts = chrono::Local::now().format("%Y%m%dT%H%M%S%.3f").to_string();
     let snap_path = dir.join(format!("{ts}.typ"));
-    let _ = std::fs::write(&snap_path, content);
+    let tmp_path = dir.join(format!("{ts}.typ.tmp"));
+    if std::fs::write(&tmp_path, content).is_ok() {
+        let _ = std::fs::rename(&tmp_path, &snap_path);
+    }
 
     // Prune oldest if over limit
     if let Ok(entries) = std::fs::read_dir(&dir) {

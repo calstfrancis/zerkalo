@@ -367,3 +367,83 @@ fn lossy_combined(out: &std::process::Output) -> String {
     let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
     if !stderr.is_empty() { stderr } else { stdout }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_local_path_recognizes_absolute_and_relative_paths() {
+        assert!(is_local_path("/home/user/repo"));
+        assert!(is_local_path("~/repo"));
+        assert!(is_local_path("./repo"));
+        assert!(is_local_path("../repo"));
+    }
+
+    #[test]
+    fn is_local_path_rejects_urls() {
+        assert!(!is_local_path("https://github.com/foo/bar.git"));
+        assert!(!is_local_path("git@github.com:foo/bar.git"));
+    }
+
+    #[test]
+    fn craft_message_no_changes() {
+        let msg = craft_message(&[]);
+        assert!(msg.starts_with("Auto-save: "));
+    }
+
+    #[test]
+    fn craft_message_single_file() {
+        let msg = craft_message(&["main.typ".to_string()]);
+        assert!(msg.starts_with("Edited main.typ: "));
+    }
+
+    #[test]
+    fn craft_message_multiple_files_lists_up_to_five() {
+        let files: Vec<String> = (1..=7).map(|i| format!("f{i}.typ")).collect();
+        let msg = craft_message(&files);
+        assert!(msg.starts_with("Edits to f1.typ, f2.typ, f3.typ, f4.typ, f5.typ (+2)"), "got: {msg}");
+    }
+
+    #[test]
+    fn craft_message_exactly_five_files_no_suffix() {
+        let files: Vec<String> = (1..=5).map(|i| format!("f{i}.typ")).collect();
+        let msg = craft_message(&files);
+        assert!(msg.starts_with("Edits to f1.typ, f2.typ, f3.typ, f4.typ, f5.typ\n"), "got: {msg}");
+        assert!(!msg.contains('+'));
+    }
+
+    #[test]
+    fn inject_token_into_url_github_https() {
+        let result = inject_token_into_url("https://github.com/user/repo.git", "abc123").unwrap();
+        assert_eq!(result, "https://abc123@github.com/user/repo.git");
+    }
+
+    #[test]
+    fn inject_token_into_url_generic_https_strips_existing_user() {
+        let result = inject_token_into_url("https://olduser@example.com/repo.git", "tok").unwrap();
+        assert_eq!(result, "https://tok@example.com/repo.git");
+    }
+
+    #[test]
+    fn inject_token_into_url_empty_token_returns_none() {
+        assert!(inject_token_into_url("https://github.com/user/repo.git", "").is_none());
+    }
+
+    #[test]
+    fn inject_token_into_url_non_https_returns_none() {
+        assert!(inject_token_into_url("git@github.com:user/repo.git", "tok").is_none());
+    }
+
+    #[test]
+    fn is_auth_error_detects_common_auth_failures() {
+        assert!(is_auth_error("remote: Authentication failed"));
+        assert!(is_auth_error("fatal: could not read Username for 'https://...'"));
+        assert!(is_auth_error("received 403 Forbidden"));
+    }
+
+    #[test]
+    fn is_auth_error_false_for_unrelated_errors() {
+        assert!(!is_auth_error("fatal: not a git repository"));
+    }
+}

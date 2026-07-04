@@ -109,3 +109,101 @@ fn detect_root(files: &[PathBuf], imports: &HashMap<PathBuf, Vec<PathBuf>>) -> O
         .max_by_key(|f| std::fs::metadata(f).map(|m| m.len()).unwrap_or(0))
         .cloned()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_imports_finds_import_and_include() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("chapter.typ"), "content").unwrap();
+        let main = dir.path().join("main.typ");
+        std::fs::write(
+            &main,
+            "#import \"chapter.typ\": *\n#include \"chapter.typ\"\n",
+        ).unwrap();
+
+        let imports = parse_imports(&main);
+        let expected = std::fs::canonicalize(dir.path().join("chapter.typ")).unwrap();
+        assert_eq!(imports.len(), 2, "both #import and #include should match, no dedup here");
+        assert!(imports.iter().all(|p| p == &expected));
+    }
+
+    #[test]
+    fn parse_imports_ignores_nonexistent_targets() {
+        let dir = tempfile::tempdir().unwrap();
+        let main = dir.path().join("main.typ");
+        std::fs::write(&main, "#import \"missing.typ\": *\n").unwrap();
+        assert!(parse_imports(&main).is_empty());
+    }
+
+    #[test]
+    fn parse_imports_missing_file_returns_empty() {
+        let path = std::path::PathBuf::from("/tmp/zerkalo-nonexistent-file-xyz.typ");
+        assert!(parse_imports(&path).is_empty());
+    }
+
+    #[test]
+    fn detect_root_picks_the_only_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("solo.typ");
+        std::fs::write(&f, "content").unwrap();
+        let files = vec![f.clone()];
+        let imports = HashMap::new();
+        assert_eq!(detect_root(&files, &imports), Some(f));
+    }
+
+    #[test]
+    fn detect_root_returns_none_for_no_files() {
+        assert_eq!(detect_root(&[], &HashMap::new()), None);
+    }
+
+    #[test]
+    fn detect_root_picks_the_file_not_imported_by_others() {
+        let dir = tempfile::tempdir().unwrap();
+        let main = dir.path().join("main.typ");
+        let chapter = dir.path().join("chapter.typ");
+        std::fs::write(&main, "x").unwrap();
+        std::fs::write(&chapter, "y").unwrap();
+
+        let files = vec![main.clone(), chapter.clone()];
+        let mut imports = HashMap::new();
+        imports.insert(main.clone(), vec![chapter.clone()]);
+        imports.insert(chapter.clone(), vec![]);
+
+        assert_eq!(detect_root(&files, &imports), Some(main));
+    }
+
+    #[test]
+    fn detect_root_falls_back_to_largest_file_on_cycle() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("a.typ");
+        let b = dir.path().join("b.typ");
+        std::fs::write(&a, "short").unwrap();
+        std::fs::write(&b, "much much longer content here").unwrap();
+
+        let files = vec![a.clone(), b.clone()];
+        let mut imports = HashMap::new();
+        imports.insert(a.clone(), vec![b.clone()]);
+        imports.insert(b.clone(), vec![a.clone()]);
+
+        assert_eq!(detect_root(&files, &imports), Some(b));
+    }
+
+    #[test]
+    fn candidate_roots_excludes_imported_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let main = dir.path().join("main.typ");
+        let chapter = dir.path().join("chapter.typ");
+        std::fs::write(&main, "x").unwrap();
+        std::fs::write(&chapter, "y").unwrap();
+
+        let mut imports = HashMap::new();
+        imports.insert(main.clone(), vec![chapter.clone()]);
+        imports.insert(chapter.clone(), vec![]);
+
+        let model = ProjectModel { root: dir.path().to_path_buf(), root_file: None, imports };
+        assert_eq!(model.candidate_roots(), vec![main]);
+    }
+}

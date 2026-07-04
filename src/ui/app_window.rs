@@ -89,6 +89,7 @@ impl AppWindow {
                     Library::open_in_memory()
                 });
                 lib.import_directory(&work_dir_bg).ok();
+                lib.fix_created_dates_from_fs();
                 sender.send(lib).ok();
             });
             receiver.attach(None, move |lib| {
