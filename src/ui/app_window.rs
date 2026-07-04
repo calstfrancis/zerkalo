@@ -1722,12 +1722,12 @@ impl AppWindow {
                     dlg.preselect_font(&f);
                 }
                 if let Some(p) = super::template_dialog::parse_paper(&current_content) {
-                    dlg.preselect_paper(&p);
+                    dlg.preselect_paper(&p, "", "");
                 }
                 if let Some(s) = super::template_dialog::parse_spacing(&current_content) {
                     dlg.preselect_spacing(&s);
                 }
-                dlg.preselect_margin(super::template_dialog::parse_margin(&current_content));
+                dlg.preselect_margin(super::template_dialog::parse_margin(&current_content), "");
                 dlg.preselect_toc(
                     super::template_dialog::parse_has_toc(&current_content),
                     super::template_dialog::parse_toc_depth(&current_content),
@@ -3729,12 +3729,12 @@ impl AppWindow {
                         dlg.preselect_font(&f);
                     }
                     if let Some(p) = super::template_dialog::parse_paper(&current_content) {
-                        dlg.preselect_paper(&p);
+                        dlg.preselect_paper(&p, "", "");
                     }
                     if let Some(s) = super::template_dialog::parse_spacing(&current_content) {
                         dlg.preselect_spacing(&s);
                     }
-                    dlg.preselect_margin(super::template_dialog::parse_margin(&current_content));
+                    dlg.preselect_margin(super::template_dialog::parse_margin(&current_content), "");
                     dlg.preselect_toc(
                         super::template_dialog::parse_has_toc(&current_content),
                         super::template_dialog::parse_toc_depth(&current_content),

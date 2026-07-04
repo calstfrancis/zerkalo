@@ -32,6 +32,7 @@ const CITATION_STYLES: &[(&str, &str)] = &[
     ("IEEE", "ieee"),
     ("GOST R 7.0-5 (numeric)", "gost-r-705"),
     ("Vancouver", "vancouver"),
+    ("LaTeX Look", "latex"),
 ];
 
 const PAPER_SIZES: &[(&str, &str)] = &[
@@ -40,12 +41,16 @@ const PAPER_SIZES: &[(&str, &str)] = &[
     ("A5", "a5"),
     ("Legal", "us-legal"),
     ("Executive", "executive"),
+    ("Custom…", "custom"),
 ];
 
 const MARGIN_PRESETS: &[&str] = &[
     "Normal (1\" / 1.25\")",
     "Narrow (0.5\" all)",
     "Wide (1\" / 2\")",
+    "LaTeX (1.75\" all)",
+    "Ross (1.25\" / 33% right)",
+    "Custom…",
 ];
 
 const PAGE_NUM_OPTIONS: &[&str] = &[
@@ -88,6 +93,7 @@ const ACADEMIC_FONTS: &[&str] = &[
     "Linux Libertine O",
     "GOST type B",
     "Monospace",
+    "New Computer Modern",
     "Other…",
 ];
 
@@ -232,6 +238,19 @@ const TEMPLATE_PRESETS: &[TemplatePreset] = &[
         body_kind: BodyKind::Cv,
     },
     TemplatePreset {
+        name: "LaTeX Look",
+        description: "Computer Modern typography · wide 1.75\" margins · tight leading · US Letter",
+        style_idx: 11,  // LaTeX Look
+        paper_idx: 0,   // US Letter
+        margin_idx: 3,  // LaTeX (1.75" all)
+        spacing_idx: 0, // ignored — LaTeX Look sets its own leading/spacing
+        page_num_pos: 0, // bottom center
+        include_toc: false,
+        include_abstract: false,
+        include_keywords: false,
+        body_kind: BodyKind::Academic,
+    },
+    TemplatePreset {
         name: "CV — Classic",
         description: "Minimal timeless résumé · clean lines, no colour · A4",
         style_idx: 2,   // 2 = classic in CV context
@@ -268,7 +287,10 @@ pub(crate) struct TemplateSettings {
     date: String,
     style_idx: usize,
     paper_idx: usize,
+    custom_paper_w: String,
+    custom_paper_h: String,
     margin_idx: usize,
+    custom_margin: String,
     font: String,
     font_size: String,
     spacing: String,
@@ -306,7 +328,13 @@ pub struct SidecarSettings {
     pub font:               String,
     pub font_size:          String,
     pub paper:              String,
+    #[serde(default)]
+    pub custom_paper_w:     String,
+    #[serde(default)]
+    pub custom_paper_h:     String,
     pub margin:             u32,
+    #[serde(default)]
+    pub custom_margin:      String,
     pub spacing:            String,
     pub page_numbers:       u32,
     #[serde(default)]
@@ -344,7 +372,10 @@ pub struct TemplateDialog {
     style_row: adw::ComboRow,
     font_row: adw::ComboRow,
     paper_row: adw::ComboRow,
+    custom_paper_w_row: adw::SpinRow,
+    custom_paper_h_row: adw::SpinRow,
     margin_row: adw::ComboRow,
+    custom_margin_row: adw::SpinRow,
     spacing_row: adw::ComboRow,
     toc_row: adw::SwitchRow,
     toc_depth_row: adw::ComboRow,
@@ -355,6 +386,7 @@ pub struct TemplateDialog {
     heading_numbering_row: adw::SwitchRow,
     heading_format_row: adw::ComboRow,
     font_size_row: adw::ComboRow,
+    custom_font_size_row: adw::SpinRow,
     // metadata fields
     title_row: adw::EntryRow,
     subtitle_row: adw::EntryRow,
@@ -480,12 +512,46 @@ impl TemplateDialog {
         paper_row.set_selected(0);
         page_group.add(&paper_row);
 
+        let custom_paper_w_row = adw::SpinRow::with_range(50.0, 1200.0, 1.0);
+        custom_paper_w_row.set_title("Custom Width (mm)");
+        custom_paper_w_row.set_value(210.0);
+        custom_paper_w_row.set_visible(false);
+        page_group.add(&custom_paper_w_row);
+
+        let custom_paper_h_row = adw::SpinRow::with_range(50.0, 1200.0, 1.0);
+        custom_paper_h_row.set_title("Custom Height (mm)");
+        custom_paper_h_row.set_value(297.0);
+        custom_paper_h_row.set_visible(false);
+        page_group.add(&custom_paper_h_row);
+
+        let paper_row_c = paper_row.clone();
+        let cpw = custom_paper_w_row.clone();
+        let cph = custom_paper_h_row.clone();
+        let custom_paper_idx = (PAPER_SIZES.len() - 1) as u32;
+        paper_row_c.connect_selected_notify(move |r| {
+            let is_custom = r.selected() == custom_paper_idx;
+            cpw.set_visible(is_custom);
+            cph.set_visible(is_custom);
+        });
+
         let margin_model = gtk4::StringList::new(MARGIN_PRESETS);
         let margin_row = adw::ComboRow::new();
         margin_row.set_title("Margins");
         margin_row.set_model(Some(&margin_model));
         margin_row.set_selected(0);
         page_group.add(&margin_row);
+
+        let custom_margin_row = adw::SpinRow::with_range(0.1, 5.0, 0.05);
+        custom_margin_row.set_title("Custom Margin (in, all sides)");
+        custom_margin_row.set_digits(2);
+        custom_margin_row.set_value(1.0);
+        custom_margin_row.set_visible(false);
+        page_group.add(&custom_margin_row);
+
+        let margin_row_c = margin_row.clone();
+        let cmr = custom_margin_row.clone();
+        let custom_margin_idx = (MARGIN_PRESETS.len() - 1) as u32;
+        margin_row_c.connect_selected_notify(move |r| cmr.set_visible(r.selected() == custom_margin_idx));
 
         let pnum_model = gtk4::StringList::new(PAGE_NUM_OPTIONS);
         let pnum_row = adw::ComboRow::new();
@@ -526,12 +592,23 @@ impl TemplateDialog {
         let other_idx = (font_count - 1) as u32;
         font_row_c.connect_selected_notify(move |r| cfr.set_visible(r.selected() == other_idx));
 
-        let font_size_model = gtk4::StringList::new(&["10 pt", "11 pt", "12 pt", "14 pt"]);
+        let font_size_model = gtk4::StringList::new(&["10 pt", "11 pt", "12 pt", "14 pt", "Custom…"]);
         let font_size_row = adw::ComboRow::new();
         font_size_row.set_title("Font Size");
         font_size_row.set_model(Some(&font_size_model));
         font_size_row.set_selected(2); // 12pt default
         typo_group.add(&font_size_row);
+
+        let custom_font_size_row = adw::SpinRow::with_range(6.0, 72.0, 1.0);
+        custom_font_size_row.set_title("Custom Size (pt)");
+        custom_font_size_row.set_value(12.0);
+        custom_font_size_row.set_visible(false);
+        typo_group.add(&custom_font_size_row);
+
+        let font_size_row_c = font_size_row.clone();
+        let cfs = custom_font_size_row.clone();
+        const CUSTOM_FONT_SIZE_IDX: u32 = 4;
+        font_size_row_c.connect_selected_notify(move |r| cfs.set_visible(r.selected() == CUSTOM_FONT_SIZE_IDX));
 
         let spacing_labels: Vec<&str> = SPACING_OPTIONS.iter().map(|(n, _)| *n).collect();
         let spacing_model = gtk4::StringList::new(&spacing_labels);
@@ -931,10 +1008,14 @@ impl TemplateDialog {
         let w_date = date_row.clone();
         let w_style = style_row.clone();
         let w_paper = paper_row.clone();
+        let w_custom_paper_w = custom_paper_w_row.clone();
+        let w_custom_paper_h = custom_paper_h_row.clone();
         let w_margin = margin_row.clone();
+        let w_custom_margin = custom_margin_row.clone();
         let w_font = font_row.clone();
         let w_custom_font = custom_font_row.clone();
         let w_font_size = font_size_row.clone();
+        let w_custom_font_size = custom_font_size_row.clone();
         let w_spacing = spacing_row.clone();
         let w_pnum = pnum_row.clone();
         let w_header = header_row.clone();
@@ -963,9 +1044,7 @@ impl TemplateDialog {
                 available_fonts_inner.get(font_idx).cloned().unwrap_or_else(|| "Times New Roman".to_string())
             };
 
-            let font_size = match w_font_size.selected() {
-                0 => "10pt", 1 => "11pt", 3 => "14pt", _ => "12pt",
-            }.to_string();
+            let font_size = resolve_font_size(w_font_size.selected(), w_custom_font_size.value());
 
             let toc_depth = match w_toc_depth.selected() {
                 0 => 1u32,
@@ -983,7 +1062,10 @@ impl TemplateDialog {
                 date: w_date.text().to_string(),
                 style_idx: w_style.selected() as usize,
                 paper_idx: w_paper.selected() as usize,
+                custom_paper_w: (w_custom_paper_w.value() as i64).to_string(),
+                custom_paper_h: (w_custom_paper_h.value() as i64).to_string(),
                 margin_idx: w_margin.selected() as usize,
+                custom_margin: format!("{:.2}", w_custom_margin.value()),
                 font,
                 font_size,
                 spacing: SPACING_OPTIONS
@@ -1072,10 +1154,14 @@ impl TemplateDialog {
         let a_date = date_row.clone();
         let a_style = style_row.clone();
         let a_paper = paper_row.clone();
+        let a_custom_paper_w = custom_paper_w_row.clone();
+        let a_custom_paper_h = custom_paper_h_row.clone();
         let a_margin = margin_row.clone();
+        let a_custom_margin = custom_margin_row.clone();
         let a_font = font_row.clone();
         let a_custom_font = custom_font_row.clone();
         let a_font_size = font_size_row.clone();
+        let a_custom_font_size = custom_font_size_row.clone();
         let a_spacing = spacing_row.clone();
         let a_pnum = pnum_row.clone();
         let a_header = header_row.clone();
@@ -1102,9 +1188,7 @@ impl TemplateDialog {
             } else {
                 available_fonts_inner.get(font_idx).cloned().unwrap_or_else(|| "Times New Roman".to_string())
             };
-            let font_size = match a_font_size.selected() {
-                0 => "10pt", 1 => "11pt", 3 => "14pt", _ => "12pt",
-            }.to_string();
+            let font_size = resolve_font_size(a_font_size.selected(), a_custom_font_size.value());
             let toc_depth = match a_toc_depth.selected() { 0 => 1u32, 2 => 3, _ => 2 };
             let settings = TemplateSettings {
                 title: a_title.text().to_string(),
@@ -1116,7 +1200,10 @@ impl TemplateDialog {
                 date: a_date.text().to_string(),
                 style_idx: a_style.selected() as usize,
                 paper_idx: a_paper.selected() as usize,
+                custom_paper_w: (a_custom_paper_w.value() as i64).to_string(),
+                custom_paper_h: (a_custom_paper_h.value() as i64).to_string(),
                 margin_idx: a_margin.selected() as usize,
+                custom_margin: format!("{:.2}", a_custom_margin.value()),
                 font,
                 font_size,
                 spacing: SPACING_OPTIONS
@@ -1201,10 +1288,14 @@ impl TemplateDialog {
             let p_date = date_row.clone();
             let p_style = style_row.clone();
             let p_paper = paper_row.clone();
+            let p_custom_paper_w = custom_paper_w_row.clone();
+            let p_custom_paper_h = custom_paper_h_row.clone();
             let p_margin = margin_row.clone();
+            let p_custom_margin = custom_margin_row.clone();
             let p_font = font_row.clone();
             let p_custom_font = custom_font_row.clone();
             let p_font_size = font_size_row.clone();
+            let p_custom_font_size = custom_font_size_row.clone();
             let p_spacing = spacing_row.clone();
             let p_pnum = pnum_row.clone();
             let p_header = header_row.clone();
@@ -1232,9 +1323,7 @@ impl TemplateDialog {
                 } else {
                     available_fonts_inner.get(font_idx).cloned().unwrap_or_else(|| "Times New Roman".to_string())
                 };
-                let font_size = match p_font_size.selected() {
-                    0 => "10pt", 1 => "11pt", 3 => "14pt", _ => "12pt",
-                }.to_string();
+                let font_size = resolve_font_size(p_font_size.selected(), p_custom_font_size.value());
                 let toc_depth = match p_toc_depth.selected() { 0 => 1u32, 2 => 3, _ => 2 };
                 let settings = TemplateSettings {
                     title: p_title.text().to_string(),
@@ -1246,7 +1335,10 @@ impl TemplateDialog {
                     date: p_date.text().to_string(),
                     style_idx: p_style.selected() as usize,
                     paper_idx: p_paper.selected() as usize,
+                    custom_paper_w: (p_custom_paper_w.value() as i64).to_string(),
+                    custom_paper_h: (p_custom_paper_h.value() as i64).to_string(),
                     margin_idx: p_margin.selected() as usize,
+                    custom_margin: format!("{:.2}", p_custom_margin.value()),
                     font,
                     font_size,
                     spacing: SPACING_OPTIONS
@@ -1330,7 +1422,9 @@ impl TemplateDialog {
 
         Self {
             window, on_create, on_apply, on_lock_identity, on_advanced_toggle, apply_btn,
-            style_row, font_row, font_size_row, paper_row, margin_row, spacing_row,
+            style_row, font_row, font_size_row, custom_font_size_row,
+            paper_row, custom_paper_w_row, custom_paper_h_row,
+            margin_row, custom_margin_row, spacing_row,
             toc_row, toc_depth_row, abstract_row, abstract_text_row,
             keywords_row, keywords_text_row, heading_numbering_row, heading_format_row,
             title_row, subtitle_row, author_row, affil_row, course_row, professor_row, date_row,
@@ -1417,10 +1511,14 @@ impl TemplateDialog {
     }
 
     /// Pre-select paper size by its Typst key (e.g. "us-letter", "a4").
-    pub fn preselect_paper(&self, paper_key: &str) {
+    pub fn preselect_paper(&self, paper_key: &str, custom_w: &str, custom_h: &str) {
         for (i, (_, key)) in PAPER_SIZES.iter().enumerate() {
             if *key == paper_key {
                 self.paper_row.set_selected(i as u32);
+                if paper_key == "custom" {
+                    if let Ok(w) = custom_w.parse::<f64>() { self.custom_paper_w_row.set_value(w); }
+                    if let Ok(h) = custom_h.parse::<f64>() { self.custom_paper_h_row.set_value(h); }
+                }
                 return;
             }
         }
@@ -1436,10 +1534,13 @@ impl TemplateDialog {
         }
     }
 
-    /// Pre-select the margin preset by index (0=Normal, 1=Narrow, 2=Wide).
-    pub fn preselect_margin(&self, idx: usize) {
+    /// Pre-select the margin preset by index (0=Normal, 1=Narrow, 2=Wide, 3=LaTeX, 4=Ross).
+    pub fn preselect_margin(&self, idx: usize, custom_margin: &str) {
         if idx < MARGIN_PRESETS.len() {
             self.margin_row.set_selected(idx as u32);
+            if idx == MARGIN_PRESETS.len() - 1 {
+                if let Ok(v) = custom_margin.parse::<f64>() { self.custom_margin_row.set_value(v); }
+            }
         }
     }
 
@@ -1504,7 +1605,19 @@ impl TemplateDialog {
     }
 
     pub fn preselect_font_size(&self, size: &str) {
-        let idx = match size { "10pt" => 0u32, "11pt" => 1, "14pt" => 3, _ => 2 };
+        let idx = match size {
+            "10pt" => 0u32,
+            "11pt" => 1,
+            "12pt" => 2,
+            "14pt" => 3,
+            other => {
+                let digits: String = other.chars().take_while(|c| c.is_ascii_digit() || *c == '.').collect();
+                if let Ok(v) = digits.parse::<f64>() {
+                    self.custom_font_size_row.set_value(v);
+                }
+                4
+            }
+        };
         self.font_size_row.set_selected(idx);
     }
 
@@ -1562,9 +1675,9 @@ impl TemplateDialog {
         self.preselect_style(&s.style);
         if !s.font.is_empty()      { self.preselect_font(&s.font); }
         if !s.font_size.is_empty() { self.preselect_font_size(&s.font_size); }
-        if !s.paper.is_empty()     { self.preselect_paper(&s.paper); }
+        if !s.paper.is_empty()     { self.preselect_paper(&s.paper, &s.custom_paper_w, &s.custom_paper_h); }
         if !s.spacing.is_empty()   { self.preselect_spacing(&s.spacing); }
-        self.preselect_margin(s.margin as usize);
+        self.preselect_margin(s.margin as usize, &s.custom_margin);
         self.preselect_page_numbers(s.page_numbers);
         self.preselect_header(s.header_style);
         self.preselect_metadata(&s.title, &s.subtitle, &s.author, &s.affiliation, &s.course, &s.professor, &s.date);
@@ -1630,7 +1743,10 @@ pub fn build_sidecar(t: &TemplateSettings) -> SidecarSettings {
         font:              t.font.clone(),
         font_size:         t.font_size.clone(),
         paper:             PAPER_SIZES.get(t.paper_idx).map(|(_, k)| k.to_string()).unwrap_or_default(),
+        custom_paper_w:    t.custom_paper_w.clone(),
+        custom_paper_h:    t.custom_paper_h.clone(),
         margin:            t.margin_idx as u32,
+        custom_margin:     t.custom_margin.clone(),
         spacing:           t.spacing.clone(),
         page_numbers:      t.page_num_pos,
         header_style:      t.header_style,
@@ -1672,7 +1788,10 @@ pub fn sidecar_to_settings(sc: &SidecarSettings) -> TemplateSettings {
         date: sc.date.clone(),
         style_idx,
         paper_idx,
+        custom_paper_w: sc.custom_paper_w.clone(),
+        custom_paper_h: sc.custom_paper_h.clone(),
         margin_idx: sc.margin as usize,
+        custom_margin: sc.custom_margin.clone(),
         font: sc.font.clone(),
         font_size: sc.font_size.clone(),
         spacing: sc.spacing.clone(),
@@ -1890,14 +2009,21 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
     });
 
     // GOST 7.32 mandates A4, specific margins, and 14 pt body text regardless of form selection.
-    let (paper, mt, mb, ml, mr, font_size) = if style_key == "gost-r-705" {
+    let (paper_line, mt, mb, ml, mr, font_size) = if style_key == "gost-r-705" {
         let size = if s.font_size.is_empty() { "14pt" } else { &s.font_size };
-        ("a4", "20mm", "20mm", "30mm", "15mm", size)
+        ("paper: \"a4\",".to_string(), "20mm".to_string(), "20mm".to_string(), "30mm".to_string(), "15mm".to_string(), size)
     } else {
         let p = PAPER_SIZES.get(s.paper_idx).map(|(_, k)| *k).unwrap_or("us-letter");
-        let (mt, mb, ml, mr) = margin_values(s.margin_idx);
+        let paper_line = if p == "custom" {
+            let w = if s.custom_paper_w.is_empty() { "210" } else { &s.custom_paper_w };
+            let h = if s.custom_paper_h.is_empty() { "297" } else { &s.custom_paper_h };
+            format!("width: {w}mm,\n  height: {h}mm,")
+        } else {
+            format!("paper: \"{p}\",")
+        };
+        let (mt, mb, ml, mr) = margin_values(s.margin_idx, &s.custom_margin);
         let size = if s.font_size.is_empty() { "12pt" } else { &s.font_size };
-        (p, mt, mb, ml, mr, size)
+        (paper_line, mt, mb, ml, mr, size)
     };
 
     let mut out = String::new();
@@ -1931,7 +2057,7 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
     // Page setup
     let page_num_code = page_num_block(s.page_num_pos);
     let _ = writeln!(out, "#set page(");
-    let _ = writeln!(out, "  paper: \"{paper}\",");
+    let _ = writeln!(out, "  {paper_line}");
     let _ = writeln!(out, "  margin: (top: {mt}, bottom: {mb}, left: {ml}, right: {mr}),");
     if !page_num_code.is_empty() {
         let _ = writeln!(out, "  {page_num_code}");
@@ -1940,8 +2066,17 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
     let _ = writeln!(out);
 
     // Typography
-    let _ = writeln!(out, "#set text(font: \"{}\", size: {font_size}, lang: \"en\")", typst_str(&s.font));
-    let _ = writeln!(out, "#set par(leading: {}, spacing: 1.2em, first-line-indent: 1em, justify: true)", s.spacing);
+    // "LaTeX Look" mandates Computer Modern and its own tighter paragraph rhythm
+    // (leading, spacing, first-line-indent), regardless of the font/spacing fields.
+    if style_key == "latex" {
+        let _ = writeln!(out, "#set text(font: \"New Computer Modern\", size: {font_size}, lang: \"en\")");
+        let _ = writeln!(out, "#set par(leading: 0.55em, spacing: 0.55em, first-line-indent: 1.8em, justify: true)");
+        let _ = writeln!(out, "#show raw: set text(font: \"New Computer Modern Mono\")");
+        let _ = writeln!(out, "#show math.equation: set text(weight: \"regular\")");
+    } else {
+        let _ = writeln!(out, "#set text(font: \"{}\", size: {font_size}, lang: \"en\")", typst_str(&s.font));
+        let _ = writeln!(out, "#set par(leading: {}, spacing: 1.2em, first-line-indent: 1em, justify: true)", s.spacing);
+    }
     let _ = writeln!(out);
 
     // Heading styles (with counter display injected when numbering is enabled)
@@ -2430,6 +2565,7 @@ pub fn rebuild_title_page_for_style(content: &str, new_style_key: &str) -> Strin
         date: parse_meta(content, "date"),
         // Remaining fields are not used by generate_title_page
         style_idx: 0, paper_idx: 0, margin_idx: 0,
+        custom_paper_w: String::new(), custom_paper_h: String::new(), custom_margin: String::new(),
         font: String::new(), font_size: String::new(), spacing: String::new(), page_num_pos: 0, header_style: 0,
         include_toc: false, toc_depth: 2,
         include_abstract: false, abstract_text: String::new(),
@@ -2445,11 +2581,32 @@ pub fn rebuild_title_page_for_style(content: &str, new_style_key: &str) -> Strin
     replace_title_page(content, &fake)
 }
 
-fn margin_values(idx: usize) -> (&'static str, &'static str, &'static str, &'static str) {
+fn margin_values(idx: usize, custom_in: &str) -> (String, String, String, String) {
     match idx {
-        1 => ("0.5in", "0.5in", "0.5in", "0.5in"),
-        2 => ("1in", "1in", "2in", "2in"),
-        _ => ("1in", "1in", "1.25in", "1.25in"),
+        1 => ("0.5in".into(), "0.5in".into(), "0.5in".into(), "0.5in".into()),
+        2 => ("1in".into(), "1in".into(), "2in".into(), "2in".into()),
+        3 => ("1.75in".into(), "1.75in".into(), "1.75in".into(), "1.75in".into()),
+        // Right margin is a relative length — Typst resolves 33% against the
+        // page width directly, so this stays correct across paper sizes.
+        4 => ("1.25in".into(), "1.25in".into(), "1.25in".into(), "33%".into()),
+        5 => {
+            let v = if custom_in.is_empty() { "1" } else { custom_in };
+            let m = format!("{v}in");
+            (m.clone(), m.clone(), m.clone(), m)
+        }
+        _ => ("1in".into(), "1in".into(), "1.25in".into(), "1.25in".into()),
+    }
+}
+
+/// Resolves the Font Size ComboRow selection to a Typst size string, reading
+/// the custom SpinRow's value when "Custom…" (index 4) is selected.
+fn resolve_font_size(selected: u32, custom_pt: f64) -> String {
+    match selected {
+        0 => "10pt".to_string(),
+        1 => "11pt".to_string(),
+        3 => "14pt".to_string(),
+        4 => format!("{}pt", custom_pt as i64),
+        _ => "12pt".to_string(),
     }
 }
 
@@ -2662,6 +2819,11 @@ pub fn heading_styles(style_key: &str) -> &'static str {
   #text(it.body)
 ]"#
         }
+        "latex" => {
+            r#"
+// LaTeX-look heading spacing
+#show heading: set block(above: 1.4em, below: 1em)"#
+        }
         "apa" | "harvard" => {
             // APA 7 §2.27; Harvard follows same hierarchy
             r#"
@@ -2867,7 +3029,10 @@ fn generate_preset_preview(idx: usize) -> Result<Vec<u8>, String> {
         date: "2026".to_string(),
         style_idx: p.style_idx as usize,
         paper_idx: p.paper_idx as usize,
+        custom_paper_w: String::new(),
+        custom_paper_h: String::new(),
         margin_idx: p.margin_idx as usize,
+        custom_margin: String::new(),
         font: "Times New Roman".to_string(),
         font_size: "12pt".to_string(),
         spacing,
@@ -3184,8 +3349,9 @@ pub fn parse_spacing(content: &str) -> Option<String> {
     last_found
 }
 
-/// Detect the margin preset index (0=Normal, 1=Narrow, 2=Wide) from the content.
-/// Reads the left-margin value from `#set page(margin: (...))` and maps it to a preset.
+/// Detect the margin preset index (0=Normal, 1=Narrow, 2=Wide, 3=LaTeX, 4=Ross)
+/// from the content. Reads the left/right-margin values from
+/// `#set page(margin: (...))` (generated on one line) and maps them to a preset.
 pub fn parse_margin(content: &str) -> usize {
     let mut in_page = false;
     let mut in_margin = false;
@@ -3203,8 +3369,18 @@ pub fn parse_margin(content: &str) -> usize {
                         .take_while(|c| !matches!(c, ',' | ')'))
                         .collect();
                     let val = val.trim();
+                    // Ross's distinctive percentage right margin is checked first
+                    // since its left value (1.25in) is otherwise identical to Normal's.
+                    if let Some(rpos) = t.find("right:") {
+                        let rafter = t[rpos + 6..].trim_start();
+                        let rval: String = rafter.chars()
+                            .take_while(|c| !matches!(c, ',' | ')'))
+                            .collect();
+                        if rval.trim().contains('%') { return 4; }
+                    }
                     if val.starts_with("0.5") { return 1; }
                     if val.starts_with("2in") || val == "2in" { return 2; }
+                    if val.starts_with("1.75in") { return 3; }
                     return 0; // Normal (1.25in) or unrecognised
                 }
                 paren_depth += t.chars().filter(|&c| c == '(').count() as i32;
@@ -3237,7 +3413,10 @@ pub fn default_import_preamble() -> String {
         date: String::new(),
         style_idx: 1,    // Chicago (Notes-Bib) — common humanities default
         paper_idx: 0,    // US Letter
+        custom_paper_w: String::new(),
+        custom_paper_h: String::new(),
         margin_idx: 0,   // Normal (1" / 1.25")
+        custom_margin: String::new(),
         font: "Times New Roman".to_string(),
         font_size: "12pt".to_string(),
         spacing: "0.9em".to_string(),
@@ -3818,6 +3997,49 @@ mod tests {
     use super::*;
 
     #[test]
+    fn custom_paper_and_margin_generate_expected_typst() {
+        let settings = TemplateSettings {
+            title: "Custom Test".to_string(),
+            subtitle: String::new(),
+            author: "Author".to_string(),
+            affiliation: String::new(),
+            course: String::new(),
+            professor: String::new(),
+            date: String::new(),
+            style_idx: 1,
+            paper_idx: 5,
+            custom_paper_w: "150".to_string(),
+            custom_paper_h: "200".to_string(),
+            margin_idx: 5,
+            custom_margin: "1.4".to_string(),
+            font: "Times New Roman".to_string(),
+            font_size: "13pt".to_string(),
+            spacing: "0.9em".to_string(),
+            page_num_pos: 0,
+            header_style: 0,
+            include_toc: false,
+            toc_depth: 2,
+            include_abstract: false,
+            abstract_text: String::new(),
+            include_keywords: false,
+            keywords: String::new(),
+            heading_numbering: false,
+            numbering_format: String::new(),
+            languages: Vec::new(),
+            packages: Vec::new(),
+            dropcap_font: String::new(),
+            dropcap_lines: 3,
+            body_kind: BodyKind::Academic,
+            bib_path: None,
+        };
+        let src = generate_typst_template(&settings);
+        assert!(src.contains("width: 150mm"));
+        assert!(src.contains("height: 200mm"));
+        assert!(src.contains("margin: (top: 1.4in, bottom: 1.4in, left: 1.4in, right: 1.4in)"));
+        assert!(src.contains("size: 13pt"));
+    }
+
+    #[test]
     fn parse_font_inline() {
         let doc = "#set text(font: \"Times New Roman\", size: 12pt)\n";
         assert_eq!(parse_font(doc), Some("Times New Roman".to_string()));
@@ -3898,6 +4120,7 @@ mod tests {
             include_keywords: false, keywords: String::new(),
             languages: vec![], packages: vec![], dropcap_font: String::new(), dropcap_lines: 3, body_kind: BodyKind::Academic,
             font_size: "12pt".into(), heading_numbering: false, numbering_format: String::new(),
+            custom_paper_w: String::new(), custom_paper_h: String::new(), custom_margin: String::new(),
             bib_path: None,
         };
         let doc = generate_typst_template(&settings);
@@ -3923,6 +4146,7 @@ mod tests {
             include_keywords: false, keywords: String::new(),
             languages: vec![], packages: vec![], dropcap_font: String::new(), dropcap_lines: 3, body_kind: BodyKind::Academic,
             font_size: "12pt".into(), heading_numbering: false, numbering_format: String::new(),
+            custom_paper_w: String::new(), custom_paper_h: String::new(), custom_margin: String::new(),
             bib_path: None,
         };
         let doc = generate_typst_template(&settings);
@@ -4052,6 +4276,7 @@ Body text.\n";
             dropcap_lines: 3,
             body_kind: BodyKind::Academic,
             font_size: "12pt".into(), heading_numbering: false, numbering_format: String::new(),
+            custom_paper_w: String::new(), custom_paper_h: String::new(), custom_margin: String::new(),
             bib_path: None,
         };
         let old_doc = generate_typst_template(&settings);
@@ -4108,6 +4333,7 @@ Body text.\n";
             dropcap_lines: 3,
             body_kind: BodyKind::Academic,
             font_size: "12pt".into(), heading_numbering: false, numbering_format: String::new(),
+            custom_paper_w: String::new(), custom_paper_h: String::new(), custom_margin: String::new(),
             bib_path: Some(std::path::PathBuf::from("/home/user/refs.bib")),
         };
 
@@ -4241,6 +4467,7 @@ Body text.\n";
             dropcap_lines: 3,
             body_kind: BodyKind::Academic,
             font_size: "12pt".into(), heading_numbering: false, numbering_format: String::new(),
+            custom_paper_w: String::new(), custom_paper_h: String::new(), custom_margin: String::new(),
             bib_path: None,
         };
         let original = generate_typst_template(&settings);
@@ -4293,6 +4520,7 @@ Body text.\n";
             include_keywords: false, keywords: String::new(),
             languages: vec![], packages: vec![], dropcap_font: String::new(), dropcap_lines: 3, body_kind: BodyKind::Academic,
             font_size: "12pt".into(), heading_numbering: false, numbering_format: String::new(),
+            custom_paper_w: String::new(), custom_paper_h: String::new(), custom_margin: String::new(),
             bib_path: Some(std::path::PathBuf::from("refs.bib")),
         };
         let existing = generate_typst_template(&settings);
@@ -4321,6 +4549,7 @@ Body text.\n";
             include_keywords: false, keywords: String::new(),
             languages: vec![], packages: vec![], dropcap_font: String::new(), dropcap_lines: 3, body_kind: BodyKind::Academic,
             font_size: "12pt".into(), heading_numbering: false, numbering_format: String::new(),
+            custom_paper_w: String::new(), custom_paper_h: String::new(), custom_margin: String::new(),
             bib_path: None,
         };
         let fresh = generate_typst_template(&fresh_settings);

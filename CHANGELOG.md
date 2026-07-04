@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.15.1-dev2] — LaTeX Look template, custom page settings
+
+### Added
+- **"LaTeX Look" template preset** — Computer Modern typography (body + code), tight leading and paragraph spacing, wide margins, and increased heading spacing, matching the classic LaTeX document look
+- **Two new margin presets** — "LaTeX (1.75\" all)" and "Ross (1.25\" / 33% right)"; Ross's right margin is a true 1/3-page-width relative length, so it stays correct at any paper size
+- **Custom page size, margins, and font size** — the Paper Size, Margins, and Font Size dropdowns in "New from Template" / "Update Template Settings" now each have a "Custom…" option revealing precise width/height (mm), margin (in), and font size (pt) fields; custom values round-trip correctly through the per-document sidecar
+
+---
+
 ## [0.15.1-dev1] — preview word-jump, theming and UI-consistency pass
 
 ### Added
