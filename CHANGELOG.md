@@ -5,6 +5,39 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.15.0] "Steady Hand" — citation management, data-loss fixes, correctness pass
+
+### Added
+- **Hayagriva YAML bibliography support** — `.yaml`/`.yml` bibliography files are now recognized alongside `.bib`, in the bib-file picker, project auto-detect, and citation completion/browsing (read-only for now — adding new entries still requires a `.bib` file)
+- **Custom CSL style support** — a new "Custom (CSL file)" entry in the style switcher lets you point at any `.csl` file (configured in Settings) instead of being limited to the 8 built-in styles
+- **Export cited-only bibliography** — new button in the reference manager exports only the `.bib` entries actually cited in the current document
+- **Citation key rename** — rename a key from the reference manager and it updates the `.bib` file plus every `@key`/`#cite(<key>)` occurrence across the whole project
+- **Click-to-insert in completion popups** — clicking a row in the citation (`@`) or LSP (`#`) completion popup now inserts it immediately, matching Tab/Enter
+
+### Changed
+- Replaced the hand-rolled BibTeX parser with the `biblatex` crate, fixing edge cases with `@string` macros and nested braces
+
+### Fixed
+- **Replace All in Simple Mode wiped document preamble**, permanently destroying `#set`/`#show`/bibliography declarations
+- **Close-tab Save dialog saved the wrong tab**, silently losing a background tab's unsaved changes
+- **Update Template Settings dialog overwrote edits made while it was open**
+- **Compiler panicked on non-ASCII documents with errors** when a diagnostic span landed inside a multibyte codepoint
+- **Bold/italic toggle corrupted selection on non-ASCII text** (accented letters, Cyrillic, CJK)
+- **Autocorrect could corrupt text on fast typing**
+- **Preview scroll signal accumulated O(N) closures across compiles**, degrading scroll performance and growing memory over long sessions
+- **Upgrading users got wrong word-wrap and compile-on-save defaults**
+- **Failed `git rebase --abort` was silently discarded**, leaving the repo in mid-rebase state with no indication
+- **LSP reader broke on servers sending multiple headers**, silently losing diagnostics and completions
+- **Preview pane jumped around while typing** — scroll-by-fraction drifted as document height changed, and cursor-to-preview sync could jump to the wrong page; sync removed, scroll-by-fraction fixed
+- **Library "created" dates were always the import timestamp** — the filesystem-creation-time correction pass existed but was never invoked
+- **Snapshot writes could leave a corrupt file on crash or power loss** — now staged to a temp file and renamed into place atomically
+- **Switching heading style didn't apply mandated numbering** for styles that require it (IEEE, GOST 7.32, Vancouver) unless numbering was already explicitly configured
+
+### Removed
+- **Citation hover preview** — removed; it was more distracting than useful
+
+---
+
 ## [0.14.4-dev3] — completion click-to-insert, preview jump fixes
 
 ### Added
