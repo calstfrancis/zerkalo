@@ -21,6 +21,7 @@ impl SyncDialog {
             .transient_for(parent)
             .modal(true)
             .default_width(440)
+            .default_height(240)
             .resizable(false)
             .build();
 

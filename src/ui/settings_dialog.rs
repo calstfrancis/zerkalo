@@ -54,6 +54,7 @@ impl SettingsDialog {
         let work_dir_btn = Button::from_icon_name("document-open-symbolic");
         work_dir_btn.set_valign(Align::Center);
         work_dir_btn.add_css_class("flat");
+        work_dir_btn.set_tooltip_text(Some("Browse for a folder"));
         let work_dir_row_c = work_dir_row.clone();
         let win_c = window.clone();
         work_dir_btn.connect_clicked(move |_| {
@@ -79,6 +80,7 @@ impl SettingsDialog {
         let output_dir_btn = Button::from_icon_name("document-open-symbolic");
         output_dir_btn.set_valign(Align::Center);
         output_dir_btn.add_css_class("flat");
+        output_dir_btn.set_tooltip_text(Some("Browse for a folder"));
         let output_dir_row_c = output_dir_row.clone();
         let win_c2 = window.clone();
         output_dir_btn.connect_clicked(move |_| {
@@ -341,6 +343,7 @@ impl SettingsDialog {
                             l2.set_xalign(0.0);
                             let rb = Button::from_icon_name("list-remove-symbolic");
                             rb.add_css_class("flat");
+                            rb.set_tooltip_text(Some("Remove this language"));
                             let sl3 = sl2.clone();
                             let lb3 = lb2.clone();
                             rb.connect_clicked(move |_| {

@@ -2207,18 +2207,17 @@ impl EditorPane {
             self.lsp_status_label.set_markup("");
             return;
         }
-        let is_dark = adw::StyleManager::default().is_dark();
         let lower = status.to_lowercase();
         let dot_color = if status.contains('✗') || lower.contains("error") || lower.contains("failed") {
-            if is_dark { "#ff7b63" } else { "#c01c28" }
+            crate::ui::theme::lookup_color_hex(&self.lsp_status_label, "error_color", "#c01c28")
         } else if status.contains('↻') || lower.contains("loading") || lower.contains("indexing")
             || lower.contains("starting") || lower.contains("connecting")
         {
-            "#e5a50a"
+            crate::ui::theme::lookup_color_hex(&self.lsp_status_label, "warning_color", "#e5a50a")
         } else if status.contains('●') || lower.contains("ready") || lower.contains("connected") {
-            if is_dark { "#57e389" } else { "#26a269" }
+            crate::ui::theme::lookup_color_hex(&self.lsp_status_label, "success_color", "#26a269")
         } else {
-            if is_dark { "#888888" } else { "#666666" }
+            crate::ui::theme::muted_fg_hex(&self.lsp_status_label)
         };
         let plain: String = status.chars()
             .filter(|c| !matches!(*c, '●' | '✗' | '↻'))

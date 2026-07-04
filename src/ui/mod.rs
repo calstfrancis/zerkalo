@@ -26,3 +26,5 @@ pub mod setup_wizard;
 pub mod snapshot_dialog;
 pub mod welcome_window;
 pub mod library_window;
+pub mod theme;
+pub mod styles;

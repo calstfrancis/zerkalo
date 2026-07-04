@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use gtk4::prelude::*;
+use libadwaita as adw;
 use gtk4::{
     Box as GtkBox, Label, ListBox, ListBoxRow, Orientation,
     ScrolledWindow, SelectionMode, Separator, TextTag, TextView, WrapMode,
@@ -51,14 +52,15 @@ impl HistoryPanel {
 
         // Diff view with color tags
         let diff_buf = gtk4::TextBuffer::new(None);
+        let colors = crate::ui::theme::diff_colors();
         let tag_removed = TextTag::new(Some("removed"));
-        tag_removed.set_property("background", "#5c1f1f");
-        tag_removed.set_property("foreground", "#ff9999");
+        tag_removed.set_property("background", colors.removed_bg);
+        tag_removed.set_property("foreground", colors.removed_fg);
         let tag_added = TextTag::new(Some("added"));
-        tag_added.set_property("background", "#1a3a1a");
-        tag_added.set_property("foreground", "#99dd99");
+        tag_added.set_property("background", colors.added_bg);
+        tag_added.set_property("foreground", colors.added_fg);
         let tag_hunk = TextTag::new(Some("hunk"));
-        tag_hunk.set_property("foreground", "#7aa8d6");
+        tag_hunk.set_property("foreground", colors.hunk_fg);
         diff_buf.tag_table().add(&tag_removed);
         diff_buf.tag_table().add(&tag_added);
         diff_buf.tag_table().add(&tag_hunk);

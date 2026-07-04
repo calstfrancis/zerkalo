@@ -11,7 +11,7 @@ use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{
     Align, Box as GtkBox, Button, DrawingArea, EventControllerKey, GestureClick, Label,
-    Orientation, Overlay, ScrolledWindow, Separator, Spinner, Stack,
+    Orientation, Overlay, ScrolledWindow, Spinner, Stack,
 };
 use std::time::Instant;
 
@@ -46,6 +46,7 @@ pub struct PreviewPane {
     on_zoom_changed: Rc<RefCell<Option<Box<dyn Fn(f64)>>>>,
     on_page_changed: Rc<RefCell<Option<Box<dyn Fn(usize, usize)>>>>,
     on_click_jump: Rc<RefCell<Option<Box<dyn Fn(usize, f64)>>>>,
+    on_word_click_jump: Rc<RefCell<Option<Box<dyn Fn(usize, f64, f64)>>>>,
     page_pixbufs: Rc<RefCell<Vec<Pixbuf>>>,
     watch_active: Rc<RefCell<bool>>,
     compile_gen: Rc<RefCell<u64>>,
@@ -54,8 +55,6 @@ pub struct PreviewPane {
     first_load: Rc<RefCell<bool>>,
     zoom_osd: Label,
     osd_timer: Rc<RefCell<Option<glib::SourceId>>>,
-    zoom_label: Label,
-    page_label: Label,
 }
 
 impl PreviewPane {
@@ -140,63 +139,11 @@ impl PreviewPane {
         preview_overlay.set_vexpand(true);
         root_widget.append(&preview_overlay);
 
-        // ── Zoom control bar ──────────────────────────────────────────────────
-        let zoom_bar = GtkBox::new(Orientation::Horizontal, 0);
-        zoom_bar.set_hexpand(true);
+        // The zoom%/page# controls live in app_window.rs's preview_toolbar,
+        // wired via on_zoom_changed/on_page_changed — this pane only owns the
+        // floating auto-hide zoom_osd, to avoid two toolbars stacking here.
 
-        let page_label = Label::new(Some(""));
-        page_label.add_css_class("caption");
-        page_label.add_css_class("dim-label");
-        page_label.set_margin_start(8);
-        page_label.set_margin_end(4);
-        page_label.set_visible(false);
-        zoom_bar.append(&page_label);
-
-        let zoom_spacer = GtkBox::new(Orientation::Horizontal, 0);
-        zoom_spacer.set_hexpand(true);
-        zoom_bar.append(&zoom_spacer);
-
-        let zoom_minus_btn = Button::with_label("\u{2212}");
-        zoom_minus_btn.add_css_class("flat");
-        zoom_minus_btn.add_css_class("caption");
-        zoom_minus_btn.set_tooltip_text(Some("Zoom out (−10%)"));
-        zoom_minus_btn.set_margin_top(2);
-        zoom_minus_btn.set_margin_bottom(2);
-        zoom_bar.append(&zoom_minus_btn);
-
-        let zoom_label = Label::new(Some("100%"));
-        zoom_label.add_css_class("caption");
-        zoom_label.add_css_class("dim-label");
-        zoom_label.set_width_chars(5);
-        zoom_label.set_xalign(0.5);
-        zoom_label.set_margin_start(2);
-        zoom_label.set_margin_end(2);
-        zoom_bar.append(&zoom_label);
-
-        let zoom_plus_btn = Button::with_label("+");
-        zoom_plus_btn.add_css_class("flat");
-        zoom_plus_btn.add_css_class("caption");
-        zoom_plus_btn.set_tooltip_text(Some("Zoom in (+10%)"));
-        zoom_plus_btn.set_margin_top(2);
-        zoom_plus_btn.set_margin_bottom(2);
-        zoom_bar.append(&zoom_plus_btn);
-
-        let zoom_sep = Separator::new(Orientation::Horizontal);
-        root_widget.append(&zoom_sep);
-        root_widget.append(&zoom_bar);
-
-        let css_provider = gtk4::CssProvider::new();
-        css_provider.load_from_data(
-            ".zoom-osd { background: alpha(@window_bg_color, 0.85); \
-             border-radius: 6px; padding: 4px 10px; \
-             font-size: 0.85em; font-weight: bold; \
-             box-shadow: 0 1px 4px alpha(black, 0.3); }"
-        );
-        gtk4::style_context_add_provider_for_display(
-            &gtk4::gdk::Display::default().unwrap(),
-            &css_provider,
-            gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
-        );
+        // .zoom-osd CSS lives in ui::styles::load_global_css(), loaded once at app startup.
 
         let page_pixbufs: Rc<RefCell<Vec<Pixbuf>>> = Rc::new(RefCell::new(Vec::new()));
 
@@ -247,40 +194,51 @@ impl PreviewPane {
 
         let on_click_jump: Rc<RefCell<Option<Box<dyn Fn(usize, f64)>>>> =
             Rc::new(RefCell::new(None));
+        let on_word_click_jump: Rc<RefCell<Option<Box<dyn Fn(usize, f64, f64)>>>> =
+            Rc::new(RefCell::new(None));
 
-        // Ctrl+Click → click-to-jump callback
+        // Ctrl+Click → jump to the nearby line; Double-click → jump to the exact word
         {
             let on_click_jump_c = on_click_jump.clone();
+            let on_word_click_jump_c = on_word_click_jump.clone();
             let page_pixbufs_c = page_pixbufs.clone();
             let zoom_c = zoom_draw2.clone();
             let scroll_c = img_scroll.clone();
             let gesture = GestureClick::new();
             gesture.set_button(1);
-            gesture.connect_pressed(move |g, _n, x, y| {
+            gesture.connect_pressed(move |g, n_press, x, y| {
                 let state = g.current_event_state();
-                if !state.contains(gtk4::gdk::ModifierType::CONTROL_MASK) {
+                let is_double = n_press == 2;
+                let is_ctrl_click = state.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
+                if !is_double && !is_ctrl_click {
                     return;
                 }
-                let _ = x;
                 let zoom = *zoom_c.borrow();
                 let adj_val = scroll_c.vadjustment().value();
                 let doc_y = y + adj_val;
                 let pbs = page_pixbufs_c.borrow();
                 let mut cum_y = 0.0f64;
                 let mut clicked_page = pbs.len().saturating_sub(1);
+                let mut clicked_rel_x = 0.5f64;
                 let mut clicked_rel_y = 1.0f64;
                 for (i, pb) in pbs.iter().enumerate() {
+                    let raw_w = pb.width() as f64 * zoom;
                     let raw_h = pb.height() as f64 * zoom;
                     let page_h = raw_h + 20.0;
                     if doc_y < cum_y + page_h {
                         clicked_page = i;
+                        clicked_rel_x = if raw_w > 0.0 { (x / raw_w).clamp(0.0, 1.0) } else { 0.5 };
                         clicked_rel_y = if raw_h > 0.0 { ((doc_y - cum_y) / raw_h).clamp(0.0, 1.0) } else { 0.0 };
                         break;
                     }
                     cum_y += page_h;
                 }
                 drop(pbs);
-                if let Some(f) = on_click_jump_c.borrow().as_ref() {
+                if is_double {
+                    if let Some(f) = on_word_click_jump_c.borrow().as_ref() {
+                        f(clicked_page, clicked_rel_x, clicked_rel_y);
+                    }
+                } else if let Some(f) = on_click_jump_c.borrow().as_ref() {
                     f(clicked_page, clicked_rel_y);
                 }
             });
@@ -310,6 +268,7 @@ impl PreviewPane {
             on_zoom_changed: Rc::new(RefCell::new(None)),
             on_page_changed: Rc::new(RefCell::new(None)),
             on_click_jump,
+            on_word_click_jump,
             page_pixbufs,
             watch_active: Rc::new(RefCell::new(false)),
             compile_gen: Rc::new(RefCell::new(0)),
@@ -318,8 +277,6 @@ impl PreviewPane {
             first_load: Rc::new(RefCell::new(true)),
             zoom_osd,
             osd_timer: Rc::new(RefCell::new(None)),
-            zoom_label: zoom_label.clone(),
-            page_label: page_label.clone(),
         };
 
         // Refit to width whenever the scroll viewport width changes (window resize).
@@ -387,25 +344,6 @@ impl PreviewPane {
             pane.img_scroll.add_controller(key_ctrl);
         }
 
-        // ── Zoom step buttons ─────────────────────────────────────────────────
-        {
-            let pane_minus = pane.clone();
-            zoom_minus_btn.connect_clicked(move |_| {
-                let z = (pane_minus.zoom() - 0.10).max(0.25);
-                let z = (z * 100.0).round() / 100.0;
-                pane_minus.set_zoom(z);
-                pane_minus.update_zoom_label(z);
-            });
-        }
-        {
-            let pane_plus = pane.clone();
-            zoom_plus_btn.connect_clicked(move |_| {
-                let z = (pane_plus.zoom() + 0.10).min(4.0);
-                let z = (z * 100.0).round() / 100.0;
-                pane_plus.set_zoom(z);
-                pane_plus.update_zoom_label(z);
-            });
-        }
 
         // Wire cancel button once
         let gen_c = pane.compile_gen.clone();
@@ -427,13 +365,9 @@ impl PreviewPane {
         pane
     }
 
-    fn update_zoom_label(&self, zoom: f64) {
-        self.zoom_label.set_text(&format!("{:.0}%", zoom * 100.0));
-    }
-
-    fn show_zoom_osd(&self, zoom: f64) {
-        self.update_zoom_label(zoom);
+    pub fn show_zoom_osd(&self, zoom: f64) {
         self.zoom_osd.set_text(&format!("{:.0}%", zoom * 100.0));
+        self.zoom_osd.remove_css_class("osd-hidden");
         self.zoom_osd.set_visible(true);
         if let Some(id) = self.osd_timer.borrow_mut().take() {
             id.remove();
@@ -443,7 +377,12 @@ impl PreviewPane {
         let source = glib::timeout_add_local_once(
             std::time::Duration::from_millis(1500),
             move || {
-                osd_c.set_visible(false);
+                osd_c.add_css_class("osd-hidden");
+                let osd_fade = osd_c.clone();
+                glib::timeout_add_local_once(
+                    std::time::Duration::from_millis(220),
+                    move || osd_fade.set_visible(false),
+                );
                 *timer_c.borrow_mut() = None;
             },
         );
@@ -510,7 +449,6 @@ impl PreviewPane {
         self.refit_drawing_area_centered(v_frac);
 
         let actual = *self.zoom.borrow();
-        self.update_zoom_label(actual);
         if let Some(f) = self.on_zoom_changed.borrow().as_ref() {
             f(actual);
         }
@@ -527,7 +465,6 @@ impl PreviewPane {
             let z = ((scroll_w - 16.0) / pb_w).clamp(0.25, 4.0);
             *self.zoom.borrow_mut() = z;
             self.refit_drawing_area_centered(None);
-            self.update_zoom_label(z);
             if let Some(f) = self.on_zoom_changed.borrow().as_ref() { f(z); }
         }
     }
@@ -568,6 +505,10 @@ impl PreviewPane {
 
     pub fn set_on_click_jump(&self, f: impl Fn(usize, f64) + 'static) {
         *self.on_click_jump.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn set_on_word_click_jump(&self, f: impl Fn(usize, f64, f64) + 'static) {
+        *self.on_word_click_jump.borrow_mut() = Some(Box::new(f));
     }
 
     #[allow(dead_code)]
@@ -623,13 +564,9 @@ impl PreviewPane {
         let current = self.current_page_idx();
         let total = self.page_count();
         if total > 0 {
-            self.page_label.set_text(&format!("Page {} / {}", current + 1, total));
-            self.page_label.set_visible(true);
             if let Some(f) = self.on_page_changed.borrow().as_ref() {
                 f(current, total);
             }
-        } else {
-            self.page_label.set_visible(false);
         }
     }
 
@@ -837,7 +774,6 @@ impl PreviewPane {
             if pb_w > 0.0 && scroll_w > 16.0 {
                 let z = ((scroll_w - 16.0) / pb_w).clamp(0.25, 4.0);
                 *self.zoom.borrow_mut() = z;
-                self.update_zoom_label(z);
                 if let Some(f) = self.on_zoom_changed.borrow().as_ref() { f(z); }
             }
             // Don't restore scroll position by fraction here — recompiles happen on
@@ -889,7 +825,7 @@ impl PreviewPane {
     }
 }
 
-pub fn extract_page_text_via_pdftotext(pane: &PreviewPane, page: usize, _y_start: f64, _y_end: f64) -> Option<String> {
+fn ensure_pdf_path(pane: &PreviewPane) -> Option<PathBuf> {
     let root = pane.root_file.borrow().clone()?;
     let stem = root.file_stem()?.to_str()?.to_string();
     let pdf_path = pane.output_dir().join(format!("{stem}.pdf"));
@@ -898,6 +834,11 @@ pub fn extract_page_text_via_pdftotext(pane: &PreviewPane, page: usize, _y_start
         let bytes = crate::compiler::compile_to_pdf_bytes(&root, &snapshots, &std::collections::HashMap::new()).ok()?;
         std::fs::write(&pdf_path, bytes).ok()?;
     }
+    Some(pdf_path)
+}
+
+pub fn extract_page_text_via_pdftotext(pane: &PreviewPane, page: usize, _y_start: f64, _y_end: f64) -> Option<String> {
+    let pdf_path = ensure_pdf_path(pane)?;
     let page_str = (page + 1).to_string();
     let out = crate::git_sync::host_command("pdftotext")
         .args(["-layout", "-f", &page_str, "-l", &page_str,
@@ -908,5 +849,91 @@ pub fn extract_page_text_via_pdftotext(pane: &PreviewPane, page: usize, _y_start
     } else {
         None
     }
+}
+
+struct PdfWord {
+    x_min: f64,
+    y_min: f64,
+    x_max: f64,
+    y_max: f64,
+    text: String,
+}
+
+fn unescape_xml(s: &str) -> String {
+    s.replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+}
+
+/// Runs `pdftotext -bbox` on a single page and finds the word nearest the given
+/// fractional (rel_x, rel_y) click position, returning it together with its
+/// immediate neighbors as a short phrase — specific enough to disambiguate a
+/// single common word when searched for in the source buffer.
+pub fn extract_word_at_position(pane: &PreviewPane, page: usize, rel_x: f64, rel_y: f64) -> Option<String> {
+    let pdf_path = ensure_pdf_path(pane)?;
+    let page_str = (page + 1).to_string();
+    let out = crate::git_sync::host_command("pdftotext")
+        .args(["-bbox", "-f", &page_str, "-l", &page_str,
+               pdf_path.to_str().unwrap_or(""), "-"])
+        .output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let xml = String::from_utf8_lossy(&out.stdout);
+
+    let page_re = regex::Regex::new(r#"<page width="([0-9.]+)" height="([0-9.]+)">"#).ok()?;
+    let caps = page_re.captures(&xml)?;
+    let page_w: f64 = caps[1].parse().ok()?;
+    let page_h: f64 = caps[2].parse().ok()?;
+
+    let word_re = regex::Regex::new(
+        r#"<word xMin="([0-9.]+)" yMin="([0-9.]+)" xMax="([0-9.]+)" yMax="([0-9.]+)">([^<]*)</word>"#,
+    ).ok()?;
+    let words: Vec<PdfWord> = word_re
+        .captures_iter(&xml)
+        .filter_map(|c| {
+            Some(PdfWord {
+                x_min: c[1].parse().ok()?,
+                y_min: c[2].parse().ok()?,
+                x_max: c[3].parse().ok()?,
+                y_max: c[4].parse().ok()?,
+                text: unescape_xml(&c[5]),
+            })
+        })
+        .filter(|w| !w.text.trim().is_empty())
+        .collect();
+    if words.is_empty() {
+        return None;
+    }
+
+    let px = rel_x * page_w;
+    let py = rel_y * page_h;
+    let target_idx = words
+        .iter()
+        .enumerate()
+        .min_by(|(_, a), (_, b)| {
+            let da = bbox_distance(a, px, py);
+            let db = bbox_distance(b, px, py);
+            da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .map(|(i, _)| i)?;
+
+    let mut phrase_words = Vec::new();
+    if target_idx > 0 {
+        phrase_words.push(words[target_idx - 1].text.as_str());
+    }
+    phrase_words.push(words[target_idx].text.as_str());
+    if target_idx + 1 < words.len() {
+        phrase_words.push(words[target_idx + 1].text.as_str());
+    }
+    Some(phrase_words.join(" "))
+}
+
+fn bbox_distance(w: &PdfWord, px: f64, py: f64) -> f64 {
+    let dx = if px < w.x_min { w.x_min - px } else if px > w.x_max { px - w.x_max } else { 0.0 };
+    let dy = if py < w.y_min { w.y_min - py } else if py > w.y_max { py - w.y_max } else { 0.0 };
+    dx * dx + dy * dy
 }
 

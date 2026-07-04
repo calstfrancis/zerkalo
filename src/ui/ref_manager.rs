@@ -481,6 +481,7 @@ fn open_new_entry_dialog(parent: Option<&gtk4::Window>, panel: RefManager) {
     let dialog = adw::Window::builder()
         .title("New Bibliography Entry")
         .default_width(440)
+        .default_height(500)
         .modal(true)
         .resizable(false)
         .build();
