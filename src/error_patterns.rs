@@ -98,3 +98,70 @@ fn append_to_line(source: &str, line_idx: usize, suffix: &str) -> Option<String>
     line.push_str(suffix);
     Some(lines.join("\n"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn match_fix_is_case_insensitive() {
+        let fix = match_fix("Error: Expected Closing Brace").unwrap();
+        assert_eq!(fix.pattern, "expected closing brace");
+    }
+
+    #[test]
+    fn match_fix_returns_none_for_unknown_error() {
+        assert!(match_fix("some completely unrelated error").is_none());
+    }
+
+    #[test]
+    fn match_fix_finds_first_matching_pattern() {
+        let fix = match_fix("error: unknown variable: foo").unwrap();
+        assert_eq!(fix.pattern, "unknown variable");
+    }
+
+    #[test]
+    fn fix_add_closing_brace_appends_to_correct_line() {
+        let src = "#let x = {\nfoo\nbar";
+        let fixed = fix_add_closing_brace(src, 2).unwrap();
+        assert_eq!(fixed, "#let x = {\nfoo\nbar}");
+    }
+
+    #[test]
+    fn fix_add_closing_bracket_out_of_range_returns_none() {
+        let src = "one line only";
+        assert!(fix_add_closing_bracket(src, 5).is_none());
+    }
+
+    #[test]
+    fn fix_add_closing_paren_appends_paren() {
+        let src = "#foo(1, 2";
+        assert_eq!(fix_add_closing_paren(src, 0).unwrap(), "#foo(1, 2)");
+    }
+
+    #[test]
+    fn fix_add_let_binding_extracts_var_name_from_hash_token() {
+        let src = "line one\n#unknown-var + 1\nline three";
+        let fixed = fix_add_let_binding(src, 1).unwrap();
+        assert!(fixed.contains("#let unknown-var = \"\""), "got: {fixed}");
+        // Inserted before the offending line, so the original line still follows it.
+        assert!(fixed.contains("#unknown-var + 1"));
+    }
+
+    #[test]
+    fn fix_add_let_binding_falls_back_to_variable_when_no_hash_token() {
+        let src = "plain text with no hash token";
+        let fixed = fix_add_let_binding(src, 0).unwrap();
+        assert!(fixed.contains("#let variable = \"\""), "got: {fixed}");
+    }
+
+    #[test]
+    fn all_patterns_with_fix_fn_actually_fix_something() {
+        for p in PATTERNS {
+            if let Some(f) = p.fix_fn {
+                let result = f("some line\nanother line", 0);
+                assert!(result.is_some(), "fix for '{}' returned None on valid input", p.pattern);
+            }
+        }
+    }
+}

@@ -3439,8 +3439,25 @@ fn replace_margin_line(block: &str, new_margin: &str) -> String {
     result
 }
 
+/// Heading numbering that a style mandates when the document doesn't already
+/// have numbering explicitly configured. Mirrors `preselect_style`'s defaults
+/// so switching an existing document's style behaves the same as creating one.
+fn mandated_heading_numbering(style_key: &str) -> Option<&'static str> {
+    match style_key {
+        "ieee" => Some("I.A.1."),
+        "gost-r-705" | "vancouver" => Some("1."),
+        _ => None,
+    }
+}
+
 fn update_template_block_headings(block: &str, new_style_key: &str) -> String {
-    let (num_on, num_fmt) = extract_heading_numbering(block);
+    let (mut num_on, mut num_fmt) = extract_heading_numbering(block);
+    if !num_on {
+        if let Some(mandated_fmt) = mandated_heading_numbering(new_style_key) {
+            num_on = true;
+            num_fmt = mandated_fmt.to_string();
+        }
+    }
     let raw = inject_heading_numbering(
         heading_styles(new_style_key).trim_start_matches('\n'),
         num_on,
@@ -3538,6 +3555,9 @@ fn update_template_block_headings(block: &str, new_style_key: &str) -> String {
         result.push('\n');
         result.push_str(new_heading_code);
         result.push('\n');
+        if num_on {
+            result.push_str(&format!("\n#set heading(numbering: \"{num_fmt}\")\n"));
+        }
         if new_style_key == "ieee" {
             result.push_str("\n#set page(columns: 2)\n");
         }
@@ -3550,9 +3570,14 @@ fn update_template_block_headings(block: &str, new_style_key: &str) -> String {
         update_page_settings_for_style(&result, new_style_key)
     } else {
         // No heading section found — insert before TEMPLATE_END
+        let numbering_line = if num_on {
+            format!("\n#set heading(numbering: \"{num_fmt}\")\n")
+        } else {
+            String::new()
+        };
         let with_headings = annotated.replace(
             TEMPLATE_END,
-            &format!("{new_heading_code}\n\n{TEMPLATE_END}"),
+            &format!("{new_heading_code}{numbering_line}\n\n{TEMPLATE_END}"),
         );
         update_page_settings_for_style(&with_headings, new_style_key)
     }
