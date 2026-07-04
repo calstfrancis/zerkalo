@@ -425,26 +425,13 @@ impl AppWindow {
             });
         }
 
-        // Wire cursor movement → outline auto-select and preview scroll
-        // preview_pane_ref is populated after preview_pane is created below.
-        let preview_pane_for_heading: Rc<RefCell<Option<PreviewPane>>> =
-            Rc::new(RefCell::new(None));
+        // Wire cursor movement → outline auto-select.
+        // Preview scrolling is intentionally NOT driven by cursor movement — the
+        // preview should only move via its own scrollbar or page-nav buttons.
         {
             let op = outline_panel.clone();
-            let ep = editor_pane.clone();
-            let pp_ref = preview_pane_for_heading.clone();
             editor_pane.set_on_cursor_heading(move |path, heading_line| {
                 op.select_for_line(&path, heading_line);
-                if let Some(ref pp) = *pp_ref.borrow() {
-                    let total = ep.active_line_count().max(1);
-                    let page_count = pp.page_count();
-                    if page_count > 0 {
-                        let page_idx = ((heading_line as f64 / total as f64)
-                            * page_count as f64) as usize;
-                        let page_idx = page_idx.min(page_count - 1);
-                        pp.scroll_to_page(page_idx);
-                    }
-                }
             });
         }
 
@@ -643,7 +630,6 @@ impl AppWindow {
             effective_output_dir,
             extra_compiler_args,
         );
-        *preview_pane_for_heading.borrow_mut() = Some(preview_pane.clone());
         let error_panel = ErrorPanel::new();
         error_panel.widget().set_visible(false);
 

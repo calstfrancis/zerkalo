@@ -5,6 +5,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.14.4-dev3] — completion click-to-insert, preview jump fixes
+
+### Added
+- **Click-to-insert in completion popups** — clicking a row in the citation (`@`) or LSP (`#`) completion popup now inserts it immediately, matching Tab/Enter (previously only double-click or keyboard confirmed a selection)
+
+### Removed
+- **Citation hover preview** — removed; it was more distracting than useful
+
+### Fixed
+- **Preview pane jumped around while typing** — two causes, both fixed: (1) after every auto-recompile, scroll position was restored by *fraction*, but the document's total height changes as you type, so the viewport visibly drifted even though nothing was scrolled; (2) a cursor-to-preview sync feature scrolled the preview to match the editor cursor's heading on every keystroke, which could jump to the wrong page (e.g. the bibliography) — this sync has been removed. The preview now only moves via its own scrollbar or the page-navigation buttons.
+
 ## [0.14.4-dev2] — citation management improvements
 
 ### Added

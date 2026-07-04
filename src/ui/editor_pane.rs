@@ -4481,81 +4481,6 @@ impl EditorPane {
             view.add_controller(motion);
         }
 
-        // ── Citation hover preview — hover over @key or #cite(<key>) ──────────
-        {
-            let bib_entries_hover = self.bib_entries.clone();
-            let view_cite_hover = view.clone();
-            let active_cite_popup: Rc<RefCell<Option<Popover>>> = Rc::new(RefCell::new(None));
-
-            let motion = EventControllerMotion::new();
-            motion.connect_motion(move |_, x, y| {
-                if active_cite_popup.borrow().is_some() {
-                    return;
-                }
-
-                let (bx, by) = view_cite_hover.window_to_buffer_coords(
-                    TextWindowType::Widget, x as i32, y as i32,
-                );
-                let Some(iter) = view_cite_hover.iter_at_location(bx, by) else { return };
-
-                let line_start = {
-                    let mut it = iter.clone();
-                    it.set_line_offset(0);
-                    it
-                };
-                let mut line_end = line_start.clone();
-                line_end.forward_to_line_end();
-                let line_text = line_start.text(&line_end).to_string();
-                let char_offset = iter.line_offset() as usize;
-
-                let Some(key) = cite_key_at_offset(&line_text, char_offset) else { return };
-
-                let entry = bib_entries_hover.borrow().iter().find(|e| e.key == key).cloned();
-                let Some(entry) = entry else { return };
-
-                let popover = Popover::new();
-                popover.set_parent(&view_cite_hover);
-                popover.set_has_arrow(true);
-                popover.set_autohide(true);
-                popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
-
-                let vbox = GtkBox::new(Orientation::Vertical, 2);
-                vbox.set_margin_top(8);
-                vbox.set_margin_bottom(8);
-                vbox.set_margin_start(10);
-                vbox.set_margin_end(10);
-
-                let citation_lbl = Label::new(None);
-                citation_lbl.set_markup(&format!(
-                    "<b>{}</b>",
-                    glib::markup_escape_text(&crate::bibliography::format_author_year(&entry))
-                ));
-                citation_lbl.set_xalign(0.0);
-                citation_lbl.set_wrap(true);
-                citation_lbl.set_max_width_chars(50);
-                vbox.append(&citation_lbl);
-
-                if !entry.title.is_empty() {
-                    let title_lbl = Label::new(Some(&entry.title));
-                    title_lbl.set_xalign(0.0);
-                    title_lbl.set_wrap(true);
-                    title_lbl.set_max_width_chars(50);
-                    title_lbl.add_css_class("dim-label");
-                    title_lbl.add_css_class("caption");
-                    vbox.append(&title_lbl);
-                }
-
-                popover.set_child(Some(&vbox));
-                *active_cite_popup.borrow_mut() = Some(popover.clone());
-                let ap_closed = active_cite_popup.clone();
-                popover.connect_closed(move |_| {
-                    *ap_closed.borrow_mut() = None;
-                });
-                popover.popup();
-            });
-            view.add_controller(motion);
-        }
-
         // Suppress GTK's built-in focus-in cursor snap.
         // GtkTextView calls scroll_mark_onscreen(insert) when it gains keyboard
         // focus, which can violently snap the viewport to the cursor's OLD position
@@ -5765,29 +5690,6 @@ fn insert_completion_text(
     *mark.borrow_mut() = None;
     view.grab_focus();
     *completing.borrow_mut() = false;
-}
-
-/// Finds a citation key (`@key` shorthand or `<key>` inside `#cite(...)`) whose
-/// span contains `char_offset` in `line_text`. Used by the hover-preview popup.
-fn cite_key_at_offset(line_text: &str, char_offset: usize) -> Option<String> {
-    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    let re = RE.get_or_init(|| {
-        regex::Regex::new(r"@([A-Za-z][\w:.-]*)|<([A-Za-z][\w:.-]*)>").unwrap()
-    });
-
-    let byte_offset = line_text
-        .char_indices()
-        .nth(char_offset)
-        .map(|(b, _)| b)
-        .unwrap_or(line_text.len());
-
-    for caps in re.captures_iter(line_text) {
-        let m = caps.get(0).unwrap();
-        if m.start() <= byte_offset && byte_offset < m.end() {
-            return caps.get(1).or_else(|| caps.get(2)).map(|g| g.as_str().to_string());
-        }
-    }
-    None
 }
 
 fn do_bib_complete(
