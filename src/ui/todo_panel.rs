@@ -6,7 +6,7 @@ use std::time::Duration;
 use gtk4::prelude::*;
 use gtk4::{
     Box as GtkBox, Button, CheckButton, Entry, Label, ListBox, ListBoxRow, Orientation,
-    Paned, ScrolledWindow, SelectionMode,
+    Paned, ScrolledWindow, Separator, SelectionMode,
 };
 
 // ── Serialised item format ─────────────────────────────────────────────────────
@@ -186,6 +186,19 @@ impl TodoList {
         let items = self.items.borrow();
         let open_count = items.iter().filter(|i| !i.done).count();
 
+        if items.is_empty() {
+            let row = ListBoxRow::new();
+            row.set_selectable(false);
+            row.set_activatable(false);
+            let lbl = Label::new(Some("No to-dos yet.\nAdd one with the + button below."));
+            lbl.add_css_class("dim-label");
+            lbl.set_justify(gtk4::Justification::Center);
+            lbl.set_margin_top(16);
+            lbl.set_margin_bottom(16);
+            row.set_child(Some(&lbl));
+            self.list_box.append(&row);
+        }
+
         for (idx, item) in items.iter().enumerate() {
             if idx == open_count && !items[idx..].is_empty() {
                 // Completed separator
@@ -304,6 +317,7 @@ impl TodoPanel {
         global_title.add_css_class("heading");
         global_header.append(&global_title);
         global_section.append(&global_header);
+        global_section.append(&Separator::new(Orientation::Horizontal));
 
         let global_list = TodoList::new();
         global_section.append(global_list.widget());
@@ -333,6 +347,7 @@ impl TodoPanel {
         file_header_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
         file_header.append(&file_header_label);
         file_section.append(&file_header);
+        file_section.append(&Separator::new(Orientation::Horizontal));
 
         let file_list = TodoList::new();
         file_section.append(file_list.widget());

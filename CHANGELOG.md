@@ -5,6 +5,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.15.1-dev1] — preview word-jump, theming and UI-consistency pass
+
+### Added
+- **Double-click a word in the preview to jump to it in the source** — reads PDF word bounding boxes to find the clicked word and selects it in the editor, complementing the existing Ctrl+Click paragraph jump
+
+### Fixed
+- **Diff colors in commit history and file snapshots were unreadable in light mode** — they were hardcoded for dark backgrounds only
+- **Categories/tags with no assigned color all rendered as the same hardcoded blue** — they now get a distinct, stable palette color instead
+- **The preview area showed two redundant, stacked zoom/page toolbars** — removed the pane's internal duplicate controls; the floating zoom indicator now flashes for toolbar-button clicks too, not just keyboard shortcuts
+- Non-resizable "New Bibliography Entry" and "Link to GitHub" dialogs had no default height and could size themselves awkwardly
+- Library selection highlight was visually identical to the keyboard focus ring
+
+### Changed
+- Consolidated all static app-wide CSS, previously scattered across four files, into a single `ui/styles.rs`
+- LSP status indicator and compile-mode colors now resolve live from the active theme instead of hardcoded/branched hex values
+- Minor consistency polish across panels: matching page-transition animations, dialog tooltips, separators, margins, and swatch sizes
+
+---
+
 ## [0.15.0] "Steady Hand" — citation management, data-loss fixes, correctness pass
 
 ### Added

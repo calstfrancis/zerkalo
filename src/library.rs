@@ -501,14 +501,18 @@ impl Library {
         Ok(())
     }
 
-    pub fn get_category_color(&self, name: &str) -> String {
+    /// Returns the saved color for a category, or `None` if it has never had
+    /// one assigned. Callers decide the fallback (e.g. a palette color keyed
+    /// off the category name) rather than baking in a single fixed color.
+    pub fn get_category_color(&self, name: &str) -> Option<String> {
         self.conn
             .query_row(
                 "SELECT color_hex FROM categories WHERE name=?1",
                 params![name],
-                |r| r.get(0),
+                |r| r.get::<_, Option<String>>(0),
             )
-            .unwrap_or_else(|_| "#3584e4".to_string())
+            .ok()
+            .flatten()
     }
 
     pub fn set_category_color(&mut self, name: &str, color: &str) -> SqlResult<()> {
@@ -528,9 +532,13 @@ impl Library {
         Ok(())
     }
 
-    pub fn all_categories_with_colors(&self) -> SqlResult<Vec<(String, String)>> {
+    /// Categories that appear on at least one document, paired with their saved
+    /// color if one has been assigned. `None` means the caller should pick a
+    /// fallback (e.g. a palette color keyed off the category name), so that
+    /// distinct uncolored categories don't all render identically.
+    pub fn all_categories_with_colors(&self) -> SqlResult<Vec<(String, Option<String>)>> {
         let mut stmt = self.conn.prepare(
-            "SELECT DISTINCT d.category, COALESCE(c.color_hex, '#3584e4')
+            "SELECT DISTINCT d.category, c.color_hex
              FROM documents d
              LEFT JOIN categories c ON c.name = d.category
              WHERE d.category IS NOT NULL AND d.deleted = 0

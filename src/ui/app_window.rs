@@ -2180,6 +2180,7 @@ impl AppWindow {
         let style_btn_for_switch = style_btn.clone();
         let editor_pane_for_switch_delta = editor_pane.clone();
         let cs_stack = gtk4::Stack::new();
+        cs_stack.set_transition_type(gtk4::StackTransitionType::Crossfade);
         let cs_stack_for_switch = cs_stack.clone();
         let cs_stack_for_open = cs_stack.clone();
         let style_btn_for_cv_switch = style_btn.clone();
@@ -2945,23 +2946,27 @@ impl AppWindow {
         zoom_out_btn.connect_clicked(move |_| {
             let new_z = (preview_for_zoom_out.zoom() - 0.25).max(0.25);
             preview_for_zoom_out.set_zoom(new_z);
+            preview_for_zoom_out.show_zoom_osd(new_z);
         });
 
         let preview_for_zoom_in = preview_pane.clone();
         zoom_in_btn.connect_clicked(move |_| {
             let new_z = (preview_for_zoom_in.zoom() + 0.25).min(4.0);
             preview_for_zoom_in.set_zoom(new_z);
+            preview_for_zoom_in.show_zoom_osd(new_z);
         });
 
         // Fit width / fit page buttons
         let preview_for_fw = preview_pane.clone();
         fit_width_btn.connect_clicked(move |_| {
             preview_for_fw.fit_width();
+            preview_for_fw.show_zoom_osd(preview_for_fw.zoom());
         });
 
         let preview_for_fp = preview_pane.clone();
         fit_page_btn.connect_clicked(move |_| {
             preview_for_fp.fit_page();
+            preview_for_fp.show_zoom_osd(preview_for_fp.zoom());
         });
 
         // Page navigation wiring
@@ -2998,6 +3003,23 @@ impl AppWindow {
                     &editor_for_jump,
                     &window_for_jump,
                     page,
+                    rel_y,
+                );
+            });
+        }
+
+        // ── Preview double-click-word-to-jump wiring ─────────────────────────
+        {
+            let editor_for_word_jump = editor_pane.clone();
+            let window_for_word_jump = window.clone();
+            let preview_for_word_jump = preview_pane.clone();
+            preview_pane.set_on_word_click_jump(move |page, rel_x, rel_y| {
+                handle_preview_word_jump(
+                    &preview_for_word_jump,
+                    &editor_for_word_jump,
+                    &window_for_word_jump,
+                    page,
+                    rel_x,
                     rel_y,
                 );
             });
@@ -5135,6 +5157,30 @@ fn handle_preview_click_jump(
     }
 }
 
+fn handle_preview_word_jump(
+    preview: &super::preview_pane::PreviewPane,
+    editor: &super::editor_pane::EditorPane,
+    window: &adw::ApplicationWindow,
+    page: usize,
+    rel_x: f64,
+    rel_y: f64,
+) {
+    match super::preview_pane::extract_word_at_position(preview, page, rel_x, rel_y) {
+        Some(phrase) if !phrase.trim().is_empty() => {
+            editor.jump_to_text(&phrase);
+        }
+        Some(_) => {}
+        None => {
+            show_alert(window, "Jump to Word",
+                "Could not extract text from the preview. Make sure pdftotext \
+                 (poppler-utils) is installed and the document has been compiled at least once.\
+                 \n\n  apt install poppler-utils\
+                 \n  dnf install poppler-utils\
+                 \n  zypper install poppler-tools");
+        }
+    }
+}
+
 fn format_file_mtime(mtime: std::time::SystemTime) -> String {
     let Ok(dur) = std::time::SystemTime::now().duration_since(mtime) else {
         return "unknown".to_string();
@@ -5512,162 +5558,7 @@ fn post_process_pdf_import(text: &str, title: &str) -> String {
 }
 
 fn load_app_css() {
-    let css = gtk4::CssProvider::new();
-    css.load_from_data(
-        ".navigation-sidebar > row:hover:not(:selected) { \
-            background-color: alpha(@accent_color, 0.08); \
-        } \
-        .navigation-sidebar > row:selected { \
-            background-color: @accent_bg_color; \
-            color: @accent_fg_color; \
-        } \
-        .linked > toggle:checked, \
-        .linked > button:checked { \
-            background-color: @accent_bg_color; \
-            color: @accent_fg_color; \
-        } \
-        .paned > separator { \
-            min-width: 5px; \
-            min-height: 5px; \
-            transition: background-color 150ms ease; \
-        } \
-        .paned > separator:hover { \
-            background-color: alpha(@accent_color, 0.45); \
-            -gtk-icon-source: -gtk-icontheme(\"col-resize-symbolic\"); \
-        } \
-        .zerkalo-sidebar { \
-            transition: opacity 250ms; \
-        } \
-        .zerkalo-sidebar entry, \
-        .zerkalo-sidebar button, \
-        .zerkalo-sidebar label { \
-            min-width: 0; \
-        } \
-        window.zen-writing .zerkalo-sidebar { \
-            opacity: 0.3; \
-        } \
-        window.zen-writing textview text { \
-            padding-left: 40px; \
-            padding-right: 40px; \
-        } \
-        window.high-contrast textview { \
-            color: #ffffff; \
-            background-color: #000000; \
-        } \
-        window.high-contrast textview text { \
-            color: #ffffff; \
-        } \
-        textview.view { \
-            caret-color: @accent_color; \
-        } \
-        textview text .current-line { \
-            background-color: alpha(@accent_color, 0.10); \
-        } \
-        notebook tab button.circular { \
-            min-width: 20px; \
-            min-height: 20px; \
-            padding: 2px; \
-        } \
-        .modified-dot { \
-            color: @accent_color; \
-            font-size: 8px; \
-        } \
-        .statusbar-sep { \
-            opacity: 0.25; \
-        } \
-        .status-toggle label { \
-            opacity: 0.7; \
-        } \
-        .status-toggle:focus label, \
-        .status-toggle:hover label { \
-            opacity: 1.0; \
-        } \
-        .compile-progress { \
-            min-height: 3px; \
-            padding: 0; \
-            border-radius: 0; \
-        } \
-        .table-grid-cell { \
-            min-width: 0; \
-            min-height: 0; \
-            padding: 1px; \
-            border-radius: 2px; \
-            border: 1px solid alpha(@borders, 0.6); \
-            background-color: alpha(@card_bg_color, 0.5); \
-        } \
-        .table-grid-cell:hover { \
-            background-color: alpha(@accent_color, 0.15); \
-            border-color: alpha(@accent_color, 0.4); \
-        } \
-        .table-grid-cell-selected { \
-            background-color: alpha(@accent_color, 0.25); \
-            border-color: @accent_color; \
-        } \
-        notebook stack { transition: opacity 120ms ease; } \
-        notebook > stack { transition: all 150ms ease; } \
-        revealer > * { transition: opacity 200ms ease; } \
-        notebook > header > tabs > tab { \
-            transition: background-color 120ms ease; \
-        } \
-        notebook > header > tabs > tab:not(:checked):hover { \
-            background-color: alpha(@window_fg_color, 0.06); \
-            transition: background-color 120ms ease; \
-        } \
-        notebook header.top { \
-            box-shadow: inset -16px 0 12px -8px alpha(@window_bg_color, 0.7); \
-        } \
-        @keyframes pulse-opacity { \
-            0%   { opacity: 1.0; } \
-            50%  { opacity: 0.45; } \
-            100% { opacity: 1.0; } \
-        } \
-        .compiling-pulse { \
-            animation: pulse-opacity 1.2s ease-in-out infinite; \
-        } \
-        .compile-mode-manual { \
-            color: #e5a50a; \
-        } \
-        .compile-mode-auto { \
-            color: @success_color; \
-        } \
-        .session-delta-positive { \
-            color: @success_color; \
-        } \
-        .format-bar { \
-            transition: opacity 120ms ease; \
-        } \
-        .breadcrumb-bar { \
-            -gtk-icon-shadow: none; \
-        } \
-        .breadcrumb-scroll-fade { \
-            box-shadow: inset 16px 0 12px -8px alpha(@window_bg_color, 0.7); \
-        } \
-        notebook > header > tabs > tab.reorderable-page:hover { \
-            background-color: alpha(@accent_color, 0.08); \
-        } \
-        notebook > header > tabs > tab.dragged-tab { \
-            opacity: 0.7; \
-            background-color: alpha(@accent_color, 0.15); \
-        } \
-        @keyframes shake { \
-            0%   { margin-left: 0px; } \
-            20%  { margin-left: -6px; } \
-            40%  { margin-left: 5px; } \
-            60%  { margin-left: -4px; } \
-            80%  { margin-left: 3px; } \
-            100% { margin-left: 0px; } \
-        } \
-        .shake-banner { \
-            animation: shake 0.5s ease-in-out; \
-        }",
-    );
-    if let Some(display) = gtk4::gdk::Display::default() {
-        gtk4::style_context_add_provider_for_display(
-            &display,
-            &css,
-            gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
-        );
-    }
+    crate::ui::styles::load_global_css();
 
     // If GNOME "Reduce Animations" is enabled, strip transitions so vestibular
     // disorder users aren't affected by the error revealer slide and sidebar fade.

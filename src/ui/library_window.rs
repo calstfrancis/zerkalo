@@ -19,6 +19,14 @@ const TAG_COLORS: &[&str] = &[
     "#3584e4", "#33d17a", "#f6d32d", "#ff7800", "#e01b24", "#9141ac", "#dc8add", "#986a44",
 ];
 
+/// Deterministic palette color for a category/tag name that has never had one
+/// explicitly assigned, so distinct uncolored categories still look distinct
+/// instead of all silently defaulting to the same blue.
+fn stable_palette_color(name: &str) -> &'static str {
+    let hash = name.bytes().fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
+    TAG_COLORS[hash as usize % TAG_COLORS.len()]
+}
+
 #[derive(Clone, Debug, PartialEq)]
 enum ViewMode {
     List,
@@ -50,8 +58,6 @@ pub struct LibraryWindow {
 
 impl LibraryWindow {
     pub fn new(_app: &adw::Application, library: Rc<RefCell<Library>>, work_dir: PathBuf) -> Self {
-        load_library_css();
-
         let window = adw::Window::new();
         window.set_title(Some("Library — Zerkalo"));
         window.set_default_width(900);
@@ -167,6 +173,7 @@ impl LibraryWindow {
 
         let doc_list_stack = Stack::new();
         doc_list_stack.set_vexpand(true);
+        doc_list_stack.set_transition_type(gtk4::StackTransitionType::Crossfade);
         doc_list_stack.add_named(&doc_scroll, Some("docs"));
         doc_list_stack.add_named(&empty_box, Some("empty"));
         right.set_content(Some(&doc_list_stack));
@@ -760,6 +767,10 @@ impl LibraryWindow {
             .all_categories_with_colors()
             .unwrap_or_default()
             .into_iter()
+            .map(|(name, color)| {
+                let color = color.unwrap_or_else(|| stable_palette_color(&name).to_string());
+                (name, color)
+            })
             .collect();
         let twc = self.library.borrow().all_tags_with_counts().unwrap_or_default();
         let total_tags = twc.len();
@@ -836,7 +847,7 @@ impl LibraryWindow {
                 let sep = Label::new(Some("·"));
                 sep.add_css_class("dim-label");
                 hbox.append(&sep);
-                let color = cat_colors.get(cat).map(|s| s.as_str()).unwrap_or("#3584e4");
+                let color = cat_colors.get(cat).map(|s| s.as_str()).unwrap_or_else(|| stable_palette_color(cat));
                 let chip = Label::new(Some(cat));
                 chip.add_css_class("caption");
                 apply_cat_color(&chip, color);
@@ -946,7 +957,7 @@ impl LibraryWindow {
 
             let chips = GtkBox::new(Orientation::Horizontal, 4);
             if let Some(cat) = &doc.category {
-                let color = cat_colors.get(cat).map(|s| s.as_str()).unwrap_or("#3584e4");
+                let color = cat_colors.get(cat).map(|s| s.as_str()).unwrap_or_else(|| stable_palette_color(cat));
                 let chip = Label::new(Some(cat));
                 chip.add_css_class("caption");
                 apply_cat_color(&chip, color);
@@ -1854,7 +1865,12 @@ impl LibraryWindow {
         let initial_color = doc
             .category
             .as_ref()
-            .map(|c| self.library.borrow().get_category_color(c))
+            .and_then(|c| {
+                self.library
+                    .borrow()
+                    .get_category_color(c)
+                    .or_else(|| Some(stable_palette_color(c).to_string()))
+            })
             .unwrap_or_else(|| TAG_COLORS[0].to_string());
         let selected_color: Rc<RefCell<String>> = Rc::new(RefCell::new(initial_color));
         for color in TAG_COLORS {
@@ -1947,7 +1963,7 @@ impl LibraryWindow {
         let new_color: Rc<RefCell<String>> = Rc::new(RefCell::new(TAG_COLORS[0].to_string()));
         for color in TAG_COLORS {
             let btn = Button::new();
-            btn.set_size_request(18, 18);
+            btn.set_size_request(20, 20);
             apply_color_css(&btn, color);
             let sel = new_color.clone();
             let c = color.to_string();
@@ -2858,63 +2874,6 @@ fn apply_cat_color(widget: &impl IsA<gtk4::Widget>, bg_hex: &str) {
         .as_ref()
         .style_context()
         .add_provider(&provider, gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION);
-}
-
-fn load_library_css() {
-    let provider = gtk4::CssProvider::new();
-    provider.load_from_data(
-        ".category-chip {
-            background: alpha(@accent_color, 0.15);
-            color: @accent_color;
-            border-radius: 4px;
-            padding: 1px 6px;
-            font-size: 0.8em;
-        }
-        .tag-chip {
-            background: alpha(@window_fg_color, 0.12);
-            border-radius: 4px;
-            padding: 1px 6px;
-            font-size: 0.75em;
-        }
-        .sidebar-header {
-            font-size: 0.75em;
-            font-weight: bold;
-            color: alpha(@window_fg_color, 0.55);
-            padding: 8px 12px 2px 12px;
-        }
-        .doc-title {
-            font-weight: 600;
-        }
-        .selected-doc {
-            outline: 2px solid @accent_color;
-            outline-offset: -2px;
-            background: alpha(@accent_color, 0.08);
-        }
-        .pinned-doc {
-            border-left: 2px solid @accent_color;
-            padding-left: 6px;
-        }
-        .compact-active {
-            font-weight: bold;
-        }
-        .count-badge {
-            min-width: 24px;
-            border-radius: 8px;
-            background: alpha(@window_fg_color, 0.08);
-            padding: 0 4px;
-            font-size: 0.8em;
-        }
-        .chip-active {
-            background: alpha(@accent_color, 0.25);
-        }",
-    );
-    if let Some(display) = gtk4::gdk::Display::default() {
-        gtk4::style_context_add_provider_for_display(
-            &display,
-            &provider,
-            gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
-        );
-    }
 }
 
 fn extract_cite_keys(typ_path: &std::path::Path) -> std::collections::HashSet<String> {

@@ -125,15 +125,11 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
-                "Added: Hayagriva YAML bibliography support alongside BibTeX (read-only)",
-                "Added: custom CSL style support — point the style switcher at any .csl file",
-                "Added: export a cited-only bibliography from the reference manager",
-                "Added: rename a citation key project-wide from the reference manager",
-                "Added: click a citation or LSP completion popup row to insert it immediately",
-                "Fixed: several data-loss and crash bugs — Replace All wiping the preamble, wrong-tab saves, template dialog overwrites, and compiler panics/text corruption on non-ASCII input",
-                "Fixed: preview pane no longer drifts or jumps while typing",
-                "Fixed: library \"created\" dates now reflect actual file creation time",
-                "Fixed: snapshot writes are now atomic and survive a crash or power loss",
+                "Added: double-click a word in the preview to jump to it in the source",
+                "Fixed: diff colors in commit history and file snapshots were unreadable in light mode",
+                "Fixed: categories/tags with no assigned color all rendered as the same blue",
+                "Fixed: the preview area showed two redundant, stacked zoom/page toolbars",
+                "Changed: LSP status and compile-mode colors now resolve live from the active theme",
             ] {
                 body.append(&bullet_row(item));
             }

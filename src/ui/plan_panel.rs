@@ -40,9 +40,9 @@ impl PlanPanel {
         let scroll = ScrolledWindow::new();
         scroll.set_vexpand(true);
         scroll.set_hexpand(true);
-        scroll.set_margin_start(6);
-        scroll.set_margin_end(6);
-        scroll.set_margin_bottom(6);
+        scroll.set_margin_start(8);
+        scroll.set_margin_end(8);
+        scroll.set_margin_bottom(8);
         scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
 
         let text_view = TextView::new();

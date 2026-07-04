@@ -67,6 +67,16 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release type="development" version="0.15.1-dev1" date="2026-07-04">
+      <description>
+        <p>0.15.1-dev1 — preview word-jump, theming and UI-consistency pass.</p>
+        <ul>
+          <li>Added: double-click a word in the preview to jump to it in the source</li>
+          <li>Fixed: diff colors unreadable in light mode, uncolored categories all rendering as the same blue, a redundant duplicate zoom/page toolbar in the preview area</li>
+          <li>Changed: consolidated app-wide CSS into one file; LSP status and compile-mode colors now resolve live from the active theme</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.15.0" date="2026-07-04">
       <description>
         <p>0.15.0 "Steady Hand" — citation management, data-loss fixes, correctness pass.</p>

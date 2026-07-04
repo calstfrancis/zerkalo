@@ -106,6 +106,7 @@ impl OutlinePanel {
 
         let stack = Stack::new();
         stack.set_vexpand(true);
+        stack.set_transition_type(gtk4::StackTransitionType::Crossfade);
 
         // ── Outline page ─────────────────────────────────────────────────────
 
@@ -341,6 +342,19 @@ impl OutlinePanel {
                 row.set_child(Some(&row_box));
                 self.list_box.append(&row);
             }
+        }
+
+        if positions_vec.is_empty() {
+            let row = ListBoxRow::new();
+            row.set_selectable(false);
+            row.set_activatable(false);
+            let lbl = gtk4::Label::new(Some("No headings found.\nUse = Heading syntax to build an outline."));
+            lbl.add_css_class("dim-label");
+            lbl.set_justify(gtk4::Justification::Center);
+            lbl.set_margin_top(16);
+            lbl.set_margin_bottom(16);
+            row.set_child(Some(&lbl));
+            self.list_box.append(&row);
         }
 
         *self.row_positions.borrow_mut() = positions_vec;
