@@ -126,6 +126,9 @@ impl WelcomeWindow {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
                 "Added: double-click a word in the preview to jump to it in the source",
+                "Added: \"LaTeX Look\" template preset with Computer Modern typography",
+                "Added: \"LaTeX\" and \"Ross\" margin presets, including a true 1/3-page relative margin",
+                "Added: custom page size, margins, and font size in New from Template / Update Template Settings",
                 "Fixed: diff colors in commit history and file snapshots were unreadable in light mode",
                 "Fixed: categories/tags with no assigned color all rendered as the same blue",
                 "Fixed: the preview area showed two redundant, stacked zoom/page toolbars",
