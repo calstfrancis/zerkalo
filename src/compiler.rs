@@ -12,6 +12,15 @@ use typst::utils::LazyHash;
 use typst::{Library, LibraryExt, World as TypstWorld};
 use typst_kit::fonts::{FontSearcher, FontSlot, Fonts};
 
+/// A panic anywhere else while holding one of these cache locks would otherwise
+/// poison it permanently, turning one unrelated crash into "compiling is broken
+/// until restart". The cached data itself can't be corrupted mid-insert (the
+/// lock only ever guards a plain `HashMap::insert`/`get`), so recovering the
+/// inner value on poison is safe.
+fn poisoned_lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 // ── Static globals: fonts only — library is built per-compile with inputs ─────
 
 static FONTS: OnceLock<(LazyHash<FontBook>, Vec<FontSlot>)> = OnceLock::new();
@@ -106,7 +115,7 @@ impl typst::World for ZerkaloWorld {
 
     fn source(&self, id: FileId) -> FileResult<Source> {
         {
-            let cache = self.source_cache.lock().unwrap();
+            let cache = poisoned_lock(&self.source_cache);
             if let Some(result) = cache.get(&id) {
                 return result.clone();
             }
@@ -119,13 +128,13 @@ impl typst::World for ZerkaloWorld {
                 .map(|text| Source::new(id, text))
                 .map_err(|_| FileError::NotFound(path))
         });
-        self.source_cache.lock().unwrap().insert(id, result.clone());
+        poisoned_lock(&self.source_cache).insert(id, result.clone());
         result
     }
 
     fn file(&self, id: FileId) -> FileResult<Bytes> {
         {
-            let cache = self.file_cache.lock().unwrap();
+            let cache = poisoned_lock(&self.file_cache);
             if let Some(result) = cache.get(&id) {
                 return result.clone();
             }
@@ -135,7 +144,7 @@ impl typst::World for ZerkaloWorld {
                 .map(|b| Bytes::new(b))
                 .map_err(|_| FileError::NotFound(path))
         });
-        self.file_cache.lock().unwrap().insert(id, result.clone());
+        poisoned_lock(&self.file_cache).insert(id, result.clone());
         result
     }
 

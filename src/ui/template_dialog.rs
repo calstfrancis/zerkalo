@@ -118,10 +118,28 @@ const LANGUAGES: &[(&str, &str, &str)] = &[
 
 const EXTRA_PACKAGES: &[(&str, &str, &str)] = &[
     ("pkg_droplet", "Droplet", "Large decorative first-letter (dropcap)"),
-    ("pkg_codly", "Codly", "Beautiful code listings with syntax highlighting"),
-    ("pkg_showybox", "Showybox", "Coloured callout and theorem boxes"),
-    ("pkg_gentle", "Gentle Clues", "Admonition blocks: note, tip, warning, important"),
-    ("pkg_tablex", "Tablex", "Advanced tables with merged cells and styling"),
+    ("pkg_codly", "Codly",
+        "Enhanced code-block presentation — line numbers, syntax highlighting, and inline \
+         annotations. Enabled once with #show: codly-init.with(); every code block after that \
+         is styled automatically, and #codly(...) lets you tweak numbering, radius, and colors."),
+    ("pkg_showybox", "Showybox",
+        "Coloured, bordered callout boxes with optional titles, footers, and shadows. \
+         Call #showybox(title: \"...\")[content] anywhere to wrap content in a styled box — \
+         useful for asides, examples, or highlighted notes."),
+    ("pkg_gentle", "Gentle Clues",
+        "Predefined admonition blocks — note, tip, warning, important, and more — each with \
+         its own icon and colour. Use #note[...], #tip[...], #warning[...] directly, or pass \
+         title: \"...\" to override the heading."),
+    ("pkg_tablex", "Tablex",
+        "Advanced tables with merged cells (colspan/rowspan), repeating headers across pages, \
+         and per-cell/line styling via #tablex(...), used like Typst's built-in #table() but \
+         with finer control. Most of this was upstreamed into native tables in Typst 0.11+, so \
+         plain #table() may already suffice."),
+    ("pkg_marginalia", "Marginalia",
+        "Configurable margin notes with smart positioning, plus matching wide-blocks. After \
+         #show: marginalia.setup.with(...), use #note[...] for an annotation placed in the \
+         margin, #wideblock[...] to let content spill into the margin, and #notefigure(...) \
+         for a captioned figure positioned there."),
 ];
 
 // ── Template presets ──────────────────────────────────────────────────────────
@@ -749,7 +767,11 @@ impl TemplateDialog {
         // ── Droplet: ExpanderRow with font + lines children ───────────────────
         let dropcap_expander = adw::ExpanderRow::new();
         dropcap_expander.set_title("Droplet");
-        dropcap_expander.set_subtitle("Large decorative first-letter (dropcap)");
+        dropcap_expander.set_subtitle(
+            "Large decorative first-letter for an opening paragraph. Wraps it automatically \
+             around the rest of the paragraph's text — no markup needed beyond enabling it here."
+        );
+        dropcap_expander.set_subtitle_lines(0);
         dropcap_expander.set_show_enable_switch(true);
         dropcap_expander.set_enable_expansion(false);
         pkg_group.add(&dropcap_expander);
@@ -797,6 +819,7 @@ impl TemplateDialog {
             let sw = adw::SwitchRow::new();
             sw.set_title(name);
             sw.set_subtitle(desc);
+            sw.set_subtitle_lines(0);
             sw.set_active(false);
             pkg_group.add(&sw);
             pkg_switches.push((key.to_string(), sw));
@@ -2714,6 +2737,10 @@ fn package_import(key: &str) -> Option<&'static str> {
         "pkg_showybox" => Some("#import \"@preview/showybox:2.0.4\": showybox"),
         "pkg_gentle" => Some("#import \"@preview/gentle-clues:1.2.0\": *"),
         "pkg_tablex" => Some("#import \"@preview/tablex:0.0.9\": tablex, cellx"),
+        "pkg_marginalia" => Some(
+            "#import \"@preview/marginalia:0.3.1\" as marginalia: note, notefigure, wideblock\n\
+             #show: marginalia.setup.with()",
+        ),
         "pkg_drafting" => Some("#import \"@preview/drafting:0.2.2\": *"),
         _ => None,
     }

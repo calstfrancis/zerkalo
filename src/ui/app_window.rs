@@ -24,7 +24,7 @@ use super::docs_browser::DocsBrowser;
 use super::editor_pane::{EditorPane, strip_typst_markup, strip_zerkalo_blocks};
 use super::file_tree::FileTree;
 use super::font_manager::FontManager;
-use super::error_panel::{parse_typst_errors, CompileError, ErrorPanel, Severity};
+use super::error_panel::{enrich_error_message, parse_typst_errors, CompileError, ErrorPanel, Severity};
 use super::export_dialog::ExportDialog;
 use super::help_window::HelpWindow;
 use super::citation_panel::CitationPanel;
@@ -2517,16 +2517,16 @@ impl AppWindow {
                     let errors = parse_typst_errors(stderr, &root_for_compile);
                     let err_count = errors.iter().filter(|e| matches!(e.severity, Severity::Error)).count();
                     let warn_count = errors.len() - err_count;
-                    let diags: Vec<(std::path::PathBuf, u32, bool)> = errors
+                    let diags: Vec<(std::path::PathBuf, u32, bool, String)> = errors
                         .iter()
-                        .map(|e| (e.file.clone(), e.line, matches!(e.severity, Severity::Error)))
+                        .map(|e| (e.file.clone(), e.line, matches!(e.severity, Severity::Error), e.message.clone()))
                         .collect();
                     editor_for_diag.mark_diagnostics(&diags);
-                    let error_lines: Vec<usize> = errors.iter()
+                    let error_lines: Vec<(std::path::PathBuf, u32)> = errors.iter()
                         .filter(|e| matches!(e.severity, Severity::Error))
-                        .map(|e| e.line as usize)
+                        .map(|e| (e.file.clone(), e.line))
                         .collect();
-                    editor_for_diag.mark_error_lines(error_lines);
+                    editor_for_diag.mark_error_lines(&error_lines);
                     editor_for_diag.set_diag_summary(err_count as u32, warn_count as u32);
                     // Update window title with error count
                     let title = match (err_count, warn_count) {
@@ -2566,29 +2566,17 @@ impl AppWindow {
             });
         }
 
-        // Try-Fix: read current source, close unmatched delimiters, apply via buffer user-action
+        // Try-Fix: look up the matching pattern for this error's message and apply
+        // its fix at the reported line, via an undoable buffer replace.
         {
             let editor_for_fix = editor_pane.clone();
-            error_panel.set_on_try_fix(move |path, _line| {
+            error_panel.set_on_try_fix(move |path, line, message| {
                 let Some(content) = editor_for_fix.get_active_content() else { return };
-                let mut depth_brace = 0i32;
-                let mut depth_paren = 0i32;
-                let mut depth_bracket = 0i32;
-                for ch in content.chars() {
-                    match ch {
-                        '{' => depth_brace += 1, '}' => depth_brace -= 1,
-                        '(' => depth_paren += 1, ')' => depth_paren -= 1,
-                        '[' => depth_bracket += 1, ']' => depth_bracket -= 1,
-                        _ => {}
-                    }
-                }
-                let mut suffix = String::new();
-                for _ in 0..depth_brace.max(0) { suffix.push('}'); }
-                for _ in 0..depth_paren.max(0) { suffix.push(')'); }
-                for _ in 0..depth_bracket.max(0) { suffix.push(']'); }
-                if !suffix.is_empty() {
-                    let fixed = format!("{content}\n{suffix}");
-                    editor_for_fix.set_active_content_undoable(&fixed);
+                let Some(fix) = crate::error_patterns::match_fix(&message) else { return };
+                let Some(fix_fn) = fix.fix_fn else { return };
+                let line_idx = (line as usize).saturating_sub(1);
+                if let Some(patched) = fix_fn(&content, line_idx) {
+                    editor_for_fix.set_active_content_undoable(&patched);
                 }
                 let _ = path;
             });
@@ -2775,24 +2763,31 @@ impl AppWindow {
                     *lsp_diags_for_poll.borrow_mut() = true;
                     let errors: Vec<CompileError> = raw_diags
                         .into_iter()
-                        .map(|d| CompileError {
-                            file: d.file,
-                            line: d.line,
-                            col: d.col,
-                            message: d.message,
-                            severity: match d.severity {
+                        .map(|d| {
+                            let severity = match d.severity {
                                 DiagSeverity::Error => Severity::Error,
                                 _ => Severity::Warning,
-                            },
+                            };
+                            let message = if matches!(severity, Severity::Error) {
+                                enrich_error_message(&d.message)
+                            } else {
+                                d.message
+                            };
+                            CompileError { file: d.file, line: d.line, col: d.col, message, severity }
                         })
                         .collect();
-                    let diag_marks: Vec<(std::path::PathBuf, u32, bool)> = errors
+                    let diag_marks: Vec<(std::path::PathBuf, u32, bool, String)> = errors
                         .iter()
-                        .map(|e| (e.file.clone(), e.line, matches!(e.severity, Severity::Error)))
+                        .map(|e| (e.file.clone(), e.line, matches!(e.severity, Severity::Error), e.message.clone()))
                         .collect();
-                    let err_count = diag_marks.iter().filter(|(_, _, is_err)| *is_err).count() as u32;
-                    let warn_count = diag_marks.iter().filter(|(_, _, is_err)| !*is_err).count() as u32;
+                    let err_count = diag_marks.iter().filter(|(_, _, is_err, _)| *is_err).count() as u32;
+                    let warn_count = diag_marks.iter().filter(|(_, _, is_err, _)| !*is_err).count() as u32;
                     editor_for_lsp_diag.mark_diagnostics(&diag_marks);
+                    let error_lines: Vec<(std::path::PathBuf, u32)> = errors.iter()
+                        .filter(|e| matches!(e.severity, Severity::Error))
+                        .map(|e| (e.file.clone(), e.line))
+                        .collect();
+                    editor_for_lsp_diag.mark_error_lines(&error_lines);
                     error_panel_for_lsp.show_errors(errors);
                     error_panel_for_lsp.widget().set_visible(true);
                     editor_for_lsp_diag.set_diag_summary(err_count, warn_count);
