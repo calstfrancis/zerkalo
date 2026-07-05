@@ -14,6 +14,7 @@ use crate::lsp::CompletionItem;
 pub struct LspPopup {
     popover: Popover,
     list_box: ListBox,
+    scroll: ScrolledWindow,
     items: Rc<RefCell<Vec<CompletionItem>>>,
     filter_prefix: Rc<RefCell<String>>,
     on_complete: Rc<RefCell<Option<Box<dyn Fn(CompletionItem)>>>>,
@@ -76,7 +77,7 @@ impl LspPopup {
             });
         }
 
-        let p = Self { popover, list_box, items, filter_prefix, on_complete };
+        let p = Self { popover, list_box, scroll, items, filter_prefix, on_complete };
 
         // Double-click (or Enter key on the list) triggers completion
         {
@@ -230,6 +231,7 @@ impl LspPopup {
         let next_pos = (pos + delta).clamp(0, visible.len() as i32 - 1) as usize;
         if let Some(row) = self.list_box.row_at_index(visible[next_pos]) {
             self.list_box.select_row(Some(&row));
+            scroll_row_into_view(&self.scroll, &self.list_box, &row);
         }
     }
 
@@ -282,6 +284,21 @@ impl LspPopup {
         row_box.append(&text_col);
         row.set_child(Some(&row_box));
         self.list_box.append(&row);
+    }
+}
+
+fn scroll_row_into_view(scroll: &ScrolledWindow, list_box: &ListBox, row: &ListBoxRow) {
+    let adj = scroll.vadjustment();
+    if let Some(bounds) = row.compute_bounds(list_box) {
+        let row_top = bounds.y() as f64;
+        let row_bottom = row_top + bounds.height() as f64;
+        let page_top = adj.value();
+        let page_bottom = page_top + adj.page_size();
+        if row_top < page_top {
+            adj.set_value(row_top);
+        } else if row_bottom > page_bottom {
+            adj.set_value(row_bottom - adj.page_size());
+        }
     }
 }
 
