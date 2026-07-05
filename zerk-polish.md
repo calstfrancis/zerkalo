@@ -259,14 +259,59 @@ After saving settings, compare `new_cfg.work_dir` to `old_cfg.work_dir`. If chan
 
 ## Phase 7 — Predictable Compilation Errors
 
-*(planned — not yet detailed)*
+### Diagnosis
 
-Areas to investigate: error panel update timing, error dot placement accuracy, LSP error vs compiler error reconciliation, empty-error-on-save flicker.
+1. **Hover-over-error tooltip matched a fabricated string, not the real message** — `editor_pane.rs`'s hover popup built `"Error on line N in file.typ"` instead of reading the actual diagnostic, then ran `error_patterns::match_fix` against that fake string. The "Fix It" suggestion almost never appeared.
+2. **Error panel's "Fix" button only recognized one pattern, which had no fix function** — `is_quick_fixable` checked only for `"unexpected end of file"`, while the patterns that *do* have real fixes (unclosed brace/bracket/paren, unknown variable) never showed a Fix button.
+3. **The Fix button, when it did show, always ran a blind whole-document heuristic** — regardless of which pattern actually matched, `app_window.rs` always balanced delimiters across the entire buffer instead of applying the targeted fix for the reported error.
+4. **LSP-sourced errors skipped `enrich_error_message`** — only stderr-parsed compile errors got the plain-language "→ ..." explanations; LSP diagnostics showed raw Typst wording.
+5. **Error-line highlight (`zerkalo-error-line`) was gated to whichever tab was active at compile time, using line numbers pooled across every open file** — a multi-file project could highlight the wrong line in the wrong tab, and switching to a background tab with an error showed no highlight until the next compile happened while that tab was focused. The gutter dot (a separate, correctly-per-file mechanism) didn't have this bug, so the two disagreed.
+6. **A poisoned compiler-cache mutex could break compilation for the rest of the session** — `ZerkaloWorld`'s source/file caches (`compiler.rs`) used `Mutex::lock().unwrap()`; any unrelated panic while a lock was held would turn every subsequent compile into an immediate crash.
+
+### Fixes
+
+- Extended `mark_diagnostics`'s tuple to carry the real message (`(PathBuf, u32, bool, String)`) so the hover popup reads the actual diagnostic.
+- `is_quick_fixable` and the Fix button now check `error_patterns::match_fix(&err.message).is_some_and(|f| f.fix_fn.is_some())`, and the click handler calls the matched `fix_fn` at the correct line instead of a generic heuristic.
+- Moved the whole-document delimiter-balancing logic into `error_patterns.rs` as a real `fix_fn` (`fix_unclosed_delimiters`) for the `"unexpected end of file"` pattern, removing the duplicated ad-hoc version from `app_window.rs`.
+- LSP diagnostics now run through `enrich_error_message` (made `pub`) before display.
+- `mark_error_lines` now takes `&[(PathBuf, u32)]` and applies the highlight per-file across every open tab, not just the active one; it's now also called from the LSP diagnostics path (previously only from compile-stderr).
+- Added `poisoned_lock()` helper in `compiler.rs`: `mutex.lock().unwrap_or_else(|e| e.into_inner())`. Safe because the guarded value is a plain cache `HashMap` that's never left half-written.
+- Added a few more `enrich_error_message` / `error_patterns::PATTERNS` entries for common beginner mistakes: `missing argument`, `unexpected argument`, `expected X, found Y` (verified against typst's own source for exact wording).
+
+### What is already correct
+
+- The error panel's dedup, repeat-count "Stuck?" badge, export-log, and search filter were already solid — untouched.
+- No compile-start/compile-done flicker was found; the panel only changes state once per compile result.
 
 ---
 
 ## Phase 8 — Visual Polish
 
-*(planned — not yet detailed)*
+### Diagnosis
 
-Areas to investigate: spacing and margin consistency, card/compact library visual refinement, status bar layout, welcome window, colour scheme coherence.
+Investigated `editor_pane.rs` (status bar), `library_window.rs` (card/compact views, empty state), `welcome_window.rs`. Concrete, verified issues:
+
+1. **Status bar mixed two separator idioms** — `editor_pane.rs`: a real `Separator` with `.statusbar-sep` (opacity 0.25) sat next to two `Label("│")` at opacity 0.4 — different thickness and shade side by side.
+2. **`search` toggle's label was missing the 3px top/bottom margins** every sibling toggle (`gost`, `autocorrect`, `focus`, `format bar`) had, so it sat a few px taller than the row around it.
+3. **"SIMPLE" was not actually centered** — the comment claimed a left `hexpand` spacer centered it, but there was no matching right-side spacer, so it always sat flush against whatever was to its right instead of centered in the free space.
+4. **Goal-ring progress indicator used hardcoded RGBA** (grey track, green/teal fills) instead of theme colors — never matched the user's accent color.
+5. **Library's empty state was two plain `dim-label` stacked labels**, not an `AdwStatusPage` — no icon, no heading weight, breaking libadwaita convention.
+6. **Welcome window's ASCII layout diagram had no size safety margin** for narrow windows (fixed-width monospace block in an `hscrollbar_policy(Never)` scroller).
+
+Two items considered and *not* changed after inspection: the library's fixed `TAG_COLORS` / `tag_heat_color()` palettes looked at first like theme violations, but they're deliberately meaningful fixed hues (a hot/warm/cool usage heatmap, and user-assignable tag colors) — same category as the intentional diagnostic/spellcheck tag exception, not a bug. Card-vs-compact title indent differing was judged an inherent, reasonable difference between a decorated card view and a dense list view, not a defect.
+
+### Fixes
+
+- Replaced both `Label("│")` separators with real `Separator` widgets styled `.statusbar-sep`, matching the existing one.
+- Added the missing 3px margins to `search_label`.
+- Added a `right_spacer` (matching `hexpand` `GtkBox`) after the SIMPLE button, so it now centers in the space between the left and right widget groups instead of hugging the right side.
+- `goal_ring`'s Cairo draw function now queries `window_fg_color` / `accent_color` / `success_color` from the widget's style context each frame (same pattern as `apply_comment_highlights`), replacing the hardcoded grey/green/teal.
+- Replaced the library's hand-rolled empty-state box with `adw::StatusPage` (icon + title + description), keeping the existing dynamic "Nothing here yet" / "Try a different search" text via `set_description`.
+- Added `.caption` to the welcome diagram to shrink its footprint.
+
+Verified by running the actual app under Xvfb + screenshotting: separators render as clean consistent lines, SIMPLE sits with visibly even spacing on both sides, and the Library empty state now shows a large folder icon with a proper bold heading — confirmed visually, not just by reading code.
+
+### What is already correct
+
+- All static CSS is centralized in `styles.rs` and already uses theme-named colors (`@accent_color`, `@success_color`, etc.) for every class selector — the drift this file exists to prevent is genuinely avoided there.
+- `high-contrast` mode's hardcoded black/white is an intentional accessibility override, not a theme-hardcoding bug.
