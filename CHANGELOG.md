@@ -5,6 +5,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.15.1-dev4] — Marginalia package, error-handling reliability pass
+
+### Added
+- **Marginalia package** — new "Marginalia" toggle in the Packages tab adds configurable margin notes (`#note[...]`), wide-blocks that spill into the margin (`#wideblock[...]`), and captioned margin figures (`#notefigure(...)`)
+- **Substantial package descriptions** — every entry in the Packages tab (Droplet, Codly, Showybox, Gentle Clues, Tablex, Marginalia) now explains what the package does and the basic syntax to use it, instead of a one-line label; descriptions can now wrap to multiple lines
+
+### Fixed
+- **Hover-over-error tooltip never showed real fix suggestions** — it was matching a fabricated placeholder string ("Error on line N in file.typ") against the fix-pattern list instead of the actual compiler/LSP message, so the "Fix It" suggestion almost never appeared. It now reads the real diagnostic message.
+- **Error panel's "Fix" button only ever appeared for one error type, and always applied a blind whole-document fix** — it's now available for every error pattern that has a real targeted fix (missing closing brace/bracket/paren, unknown variable, unclosed delimiters) and applies the fix at the correct line instead of guessing across the whole file.
+- **LSP-reported errors skipped the plain-language explanations** that compiler errors already got (e.g. "the bibliography key was not found — check that…"); both sources are now enriched consistently.
+- **Error-line highlight could apply to the wrong file, or never appear on background tabs** — the subtle red paragraph highlight behind an error line was applied only to whichever tab happened to be active at compile time, using line numbers pooled across every open file. A multi-file project could highlight the wrong line in the wrong tab, and switching to a background tab with an error never showed the highlight at all. It's now applied per-file across every open tab, matching how the gutter dot already worked, and LSP-only diagnostics now get the same highlight compiler errors did.
+- **A poisoned compiler cache lock could break compilation for the rest of the session** — `ZerkaloWorld`'s source/file caches used `Mutex::lock().unwrap()`, so any unrelated panic while a lock was held would turn every future compile into an immediate crash instead of a normal error. The locks now recover from poisoning (the cached data can't be left in a half-written state, so this is safe).
+
+### Improved
+- **More error messages now get plain-language explanations** — "missing argument", "unexpected argument", and "expected X, found Y" type-mismatch errors (some of the most common mistakes for newer Typst users) now explain what went wrong and how to fix it, matching the treatment already given to bibliography, font, and package errors.
+
+---
+
 ## [0.15.1-dev3] — dropcap color picker
 
 ### Added

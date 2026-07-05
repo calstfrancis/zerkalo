@@ -50,6 +50,21 @@ pub static PATTERNS: &[ErrorFix] = &[
     ErrorFix {
         pattern: "unexpected end of file",
         description: "A block or expression is not closed — check for missing `}`, `]`, or `)`",
+        fix_fn: Some(fix_unclosed_delimiters),
+    },
+    ErrorFix {
+        pattern: "missing argument",
+        description: "A required value wasn't passed to a function — check its parentheses for a missing value",
+        fix_fn: None,
+    },
+    ErrorFix {
+        pattern: "unexpected argument",
+        description: "An extra or misspelled argument was passed to a function — check argument names and commas",
+        fix_fn: None,
+    },
+    ErrorFix {
+        pattern: ", found ",
+        description: "A value has the wrong type here — try wrapping it in [brackets] for content or \"quotes\" for text",
         fix_fn: None,
     },
 ];
@@ -90,6 +105,33 @@ fn fix_add_let_binding(source: &str, line_idx: usize) -> Option<String> {
     let mut new_lines: Vec<String> = lines.iter().map(|l| l.to_string()).collect();
     new_lines.insert(line_idx, insertion);
     Some(new_lines.join("\n"))
+}
+
+/// Whole-document delimiter balance is the only reliable signal for "unexpected
+/// end of file" — the missing closer can be anywhere above the reported line,
+/// so (unlike the other fixes here) this ignores `_line_idx` and appends any
+/// outstanding closers to the end of the document.
+fn fix_unclosed_delimiters(source: &str, _line_idx: usize) -> Option<String> {
+    let mut depth_brace = 0i32;
+    let mut depth_paren = 0i32;
+    let mut depth_bracket = 0i32;
+    for ch in source.chars() {
+        match ch {
+            '{' => depth_brace += 1, '}' => depth_brace -= 1,
+            '(' => depth_paren += 1, ')' => depth_paren -= 1,
+            '[' => depth_bracket += 1, ']' => depth_bracket -= 1,
+            _ => {}
+        }
+    }
+    let mut suffix = String::new();
+    for _ in 0..depth_brace.max(0) { suffix.push('}'); }
+    for _ in 0..depth_paren.max(0) { suffix.push(')'); }
+    for _ in 0..depth_bracket.max(0) { suffix.push(']'); }
+    if suffix.is_empty() {
+        None
+    } else {
+        Some(format!("{source}\n{suffix}"))
+    }
 }
 
 fn append_to_line(source: &str, line_idx: usize, suffix: &str) -> Option<String> {
@@ -157,11 +199,44 @@ mod tests {
 
     #[test]
     fn all_patterns_with_fix_fn_actually_fix_something() {
+        // Has an unclosed brace so `fix_unclosed_delimiters` also succeeds here;
+        // the other fixes don't care about delimiter balance.
         for p in PATTERNS {
             if let Some(f) = p.fix_fn {
-                let result = f("some line\nanother line", 0);
+                let result = f("#let x = {\nsome line\nanother line", 0);
                 assert!(result.is_some(), "fix for '{}' returned None on valid input", p.pattern);
             }
         }
+    }
+
+    #[test]
+    fn fix_unclosed_delimiters_appends_missing_closers() {
+        let src = "#let x = {\nfoo(bar[baz";
+        let fixed = fix_unclosed_delimiters(src, 0).unwrap();
+        assert_eq!(fixed, "#let x = {\nfoo(bar[baz\n})]");
+    }
+
+    #[test]
+    fn fix_unclosed_delimiters_returns_none_when_balanced() {
+        assert!(fix_unclosed_delimiters("#let x = (1 + 2)", 0).is_none());
+    }
+
+    #[test]
+    fn match_fix_finds_missing_argument() {
+        let fix = match_fix("error: missing argument: caption").unwrap();
+        assert_eq!(fix.pattern, "missing argument");
+        assert!(fix.fix_fn.is_none());
+    }
+
+    #[test]
+    fn match_fix_finds_unexpected_argument() {
+        let fix = match_fix("error: unexpected argument").unwrap();
+        assert_eq!(fix.pattern, "unexpected argument");
+    }
+
+    #[test]
+    fn match_fix_finds_type_mismatch() {
+        let fix = match_fix("error: expected content, found string").unwrap();
+        assert_eq!(fix.pattern, ", found ");
     }
 }

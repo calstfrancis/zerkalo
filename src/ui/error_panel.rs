@@ -89,7 +89,7 @@ pub fn parse_typst_errors(stderr: &str, project_root: &Path) -> Vec<CompileError
 
 // ── Error enrichment ─────────────────────────────────────────────────────────
 
-fn enrich_error_message(msg: &str) -> String {
+pub fn enrich_error_message(msg: &str) -> String {
     if msg.contains("does not exist in the document") && (msg.contains('<') || msg.contains('@')) {
         return format!(
             "{msg}\n\
@@ -143,11 +143,35 @@ fn enrich_error_message(msg: &str) -> String {
              \x20 or change it in 'Update Template Settings' (Layout → Body Font)."
         );
     }
+    if msg.starts_with("missing argument") {
+        return format!(
+            "{msg}\n\
+             → A function is missing a required value. Check the function's\n\
+             \x20 parentheses for a missing value, e.g. #image(\"file.png\") needs a path."
+        );
+    }
+    if msg.starts_with("unexpected argument") {
+        return format!(
+            "{msg}\n\
+             → A function was given a value it doesn't accept — usually an extra\n\
+             \x20 argument, a misspelled named argument (e.g. 'colour:' instead of\n\
+             \x20 'fill:'), or a missing comma between two arguments."
+        );
+    }
+    if msg.starts_with("expected") && msg.contains(", found ") {
+        return format!(
+            "{msg}\n\
+             → A value has the wrong type for where it's used. Common fixes:\n\
+             \x20 wrap plain words in [brackets] for content, or in \"quotes\" for text;\n\
+             \x20 remove quotes around a number if one is expected."
+        );
+    }
     msg.to_string()
 }
 
 fn is_quick_fixable(err: &CompileError) -> bool {
-    err.message.contains("unexpected end of file")
+    crate::error_patterns::match_fix(&err.message)
+        .is_some_and(|fix| fix.fix_fn.is_some())
 }
 
 fn current_time_hhmm() -> String {
@@ -176,7 +200,7 @@ pub struct ErrorPanel {
     live_label: Label,
     collapsed: Rc<Cell<bool>>,
     on_jump: Rc<RefCell<Option<Box<dyn Fn(PathBuf, u32)>>>>,
-    on_try_fix: Rc<RefCell<Option<Box<dyn Fn(PathBuf, u32)>>>>,
+    on_try_fix: Rc<RefCell<Option<Box<dyn Fn(PathBuf, u32, String)>>>>,
     on_export_done: Rc<RefCell<Option<Box<dyn Fn(String)>>>>,
     last_errors_key: Rc<RefCell<String>>,
     repeat_count: Rc<Cell<u32>>,
@@ -463,7 +487,7 @@ impl ErrorPanel {
         *self.on_jump.borrow_mut() = Some(Box::new(f));
     }
 
-    pub fn set_on_try_fix(&self, f: impl Fn(PathBuf, u32) + 'static) {
+    pub fn set_on_try_fix(&self, f: impl Fn(PathBuf, u32, String) + 'static) {
         *self.on_try_fix.borrow_mut() = Some(Box::new(f));
     }
 
@@ -769,9 +793,10 @@ impl ErrorPanel {
             let on_fix = self.on_try_fix.clone();
             let file_f = err.file.clone();
             let line_f = err.line;
+            let msg_f = err.message.clone();
             fix_btn.connect_clicked(move |_| {
                 if let Some(f) = on_fix.borrow().as_ref() {
-                    f(file_f.clone(), line_f);
+                    f(file_f.clone(), line_f, msg_f.clone());
                 }
             });
             btn_box.append(&fix_btn);
@@ -793,5 +818,34 @@ impl ErrorPanel {
         }
 
         self.list_box.append(&row);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn enrich_missing_argument_explains_required_value() {
+        let out = enrich_error_message("missing argument: caption");
+        assert!(out.contains("required value"), "got: {out}");
+    }
+
+    #[test]
+    fn enrich_unexpected_argument_explains_extra_or_misspelled() {
+        let out = enrich_error_message("unexpected argument");
+        assert!(out.contains("misspelled named argument"), "got: {out}");
+    }
+
+    #[test]
+    fn enrich_type_mismatch_explains_wrapping() {
+        let out = enrich_error_message("expected content, found string");
+        assert!(out.contains("[brackets]"), "got: {out}");
+    }
+
+    #[test]
+    fn enrich_leaves_unknown_messages_unchanged() {
+        let out = enrich_error_message("some completely novel error text");
+        assert_eq!(out, "some completely novel error text");
     }
 }

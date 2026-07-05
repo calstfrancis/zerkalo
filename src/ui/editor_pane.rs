@@ -219,7 +219,7 @@ pub struct EditorPane {
     goal_celebrating: Rc<Cell<bool>>,
     lsp_status_label: Label,
     diag_label: Label,
-    last_diagnostics: Rc<RefCell<Vec<(PathBuf, u32, bool)>>>,
+    last_diagnostics: Rc<RefCell<Vec<(PathBuf, u32, bool, String)>>>,
     cursor_label: Label,
     section_wc_label: Label,
     breadcrumb_label: Label,
@@ -1964,8 +1964,8 @@ impl EditorPane {
     // ── Inline diagnostic marks ───────────────────────────────────────────────
 
     /// Apply underline squiggles for the given diagnostics. Each entry is
-    /// (file, 1-based line, is_error). Call after compile or LSP diagnostics.
-    pub fn mark_diagnostics(&self, diagnostics: &[(PathBuf, u32, bool)]) {
+    /// (file, 1-based line, is_error, message). Call after compile or LSP diagnostics.
+    pub fn mark_diagnostics(&self, diagnostics: &[(PathBuf, u32, bool, String)]) {
         *self.last_diagnostics.borrow_mut() = diagnostics.to_vec();
         // Collect buffer/widget refs while holding borrow, then drop it before GTK ops.
         // GTK buffer ops (apply_tag, create_source_mark) fire synchronous signals that
@@ -1982,9 +1982,9 @@ impl EditorPane {
             buffer.remove_tag_by_name("zerkalo-diag-warning", &buf_start, &buf_end);
             buffer.remove_source_marks(&buf_start, &buf_end, Some("zerkalo-error"));
             buffer.remove_source_marks(&buf_start, &buf_end, Some("zerkalo-warning"));
-            let has_errors = diagnostics.iter().any(|(f, _, is_err)| f == path && *is_err);
+            let has_errors = diagnostics.iter().any(|(f, _, is_err, _)| f == path && *is_err);
             diag_dot.set_visible(has_errors);
-            for (err_file, err_line, is_error) in diagnostics {
+            for (err_file, err_line, is_error, _msg) in diagnostics {
                 if err_file != path {
                     continue;
                 }
@@ -2018,8 +2018,10 @@ impl EditorPane {
         }
     }
 
-    pub fn mark_error_lines(&self, lines: Vec<usize>) {
-        let active_path = self.get_active_path();
+    /// Highlight each (file, 1-based line) with a subtle red paragraph background.
+    /// Applied to every open tab whose file matches, not just the active one, so
+    /// switching to a background tab shows the same highlight the gutter dot promised.
+    pub fn mark_error_lines(&self, lines: &[(PathBuf, u32)]) {
         let tabs: Vec<(PathBuf, Buffer)> = {
             let state = self.state.borrow();
             state.tabs.iter().map(|(p, t)| (p.clone(), t.buffer.clone())).collect()
@@ -2028,14 +2030,15 @@ impl EditorPane {
             let (start, end) = buffer.bounds();
             ensure_error_line_tag(buffer);
             buffer.remove_tag_by_name("zerkalo-error-line", &start, &end);
-            if active_path.as_ref() == Some(path) {
-                for &line in &lines {
-                    let line_idx = (line as i32).saturating_sub(1);
-                    if let Some(line_start) = buffer.iter_at_line(line_idx) {
-                        let mut line_end = line_start.clone();
-                        line_end.forward_to_line_end();
-                        buffer.apply_tag_by_name("zerkalo-error-line", &line_start, &line_end);
-                    }
+            for (err_file, line) in lines {
+                if err_file != path {
+                    continue;
+                }
+                let line_idx = (*line as i32).saturating_sub(1);
+                if let Some(line_start) = buffer.iter_at_line(line_idx) {
+                    let mut line_end = line_start.clone();
+                    line_end.forward_to_line_end();
+                    buffer.apply_tag_by_name("zerkalo-error-line", &line_start, &line_end);
                 }
             }
         }
@@ -4406,15 +4409,18 @@ impl EditorPane {
                     .unwrap_or(false);
                 if !has_error_tag { return; }
 
-                let error_msg: Option<String> = diags.iter()
-                    .find(|(_, ln, _)| *ln == line_1based)
-                    .map(|(path, ln, _)| format!("Error on line {ln} in {}", path.file_name().and_then(|n| n.to_str()).unwrap_or("?")));
-                let Some(msg) = error_msg else { return };
+                let full_msg: Option<String> = diags.iter()
+                    .find(|(_, ln, _, _)| *ln == line_1based)
+                    .map(|(_, _, _, msg)| msg.clone());
+                let Some(full_msg) = full_msg else { return };
+                // Show only the headline (first line); the fix description below
+                // already carries the actionable part of any enrichment text.
+                let msg = full_msg.lines().next().unwrap_or(&full_msg).to_string();
 
                 // Only create a new popup if none is showing (avoid flicker)
                 if active_popup_c.borrow().is_some() { return; }
 
-                let fix = crate::error_patterns::match_fix(&msg);
+                let fix = crate::error_patterns::match_fix(&full_msg);
 
                 let popover = Popover::new();
                 popover.set_parent(&view_hover);
