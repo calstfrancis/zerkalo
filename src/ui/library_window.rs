@@ -1989,8 +1989,10 @@ impl LibraryWindow {
                     checks_c.borrow().iter().map(|(id, _)| *id).collect();
                 for tag in &all_tags {
                     if !current_checks.contains(&tag.id) {
+                        // any tag missing from current_checks was just created by the
+                        // BibTeX author import above, so it applies to this document
                         let check = CheckButton::with_label(&tag.name);
-                        check.set_active(false);
+                        check.set_active(true);
                         let r = ListBoxRow::new();
                         r.set_selectable(false);
                         r.set_child(Some(&check));

@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.15.1-dev3] — dropcap color picker
+
+### Added
+- **Dropcap color picker** — the Droplet package settings now include a Color dropdown (Ink Black, Vermilion Red, Lapis Blue, Illuminated Gold, Verdigris Green) so the decorative first letter can match an illuminated-manuscript palette; the choice round-trips through the sidecar and is parsed back from the document's `#let dropcap = dropcap.with(...)` line
+
+---
+
 ## [0.15.1-dev2] — LaTeX Look template, custom page settings
 
 ### Added

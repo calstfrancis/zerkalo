@@ -1743,6 +1743,9 @@ impl AppWindow {
                 if let Some(f) = super::template_dialog::parse_dropcap_font(&current_content) {
                     dlg.preselect_dropcap_font(&f);
                 }
+                if let Some(c) = super::template_dialog::parse_dropcap_color(&current_content) {
+                    dlg.preselect_dropcap_color(&c);
+                }
             }
             if let Some(doc_abstract) = super::template_dialog::parse_abstract_from_doc(&current_content) {
                 dlg.override_abstract_text(&doc_abstract);
@@ -3749,6 +3752,9 @@ impl AppWindow {
                     );
                     if let Some(f) = super::template_dialog::parse_dropcap_font(&current_content) {
                         dlg.preselect_dropcap_font(&f);
+                    }
+                    if let Some(c) = super::template_dialog::parse_dropcap_color(&current_content) {
+                        dlg.preselect_dropcap_color(&c);
                     }
                 }
                 // If the user edited the abstract directly in the .typ file, that wins

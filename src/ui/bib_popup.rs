@@ -14,6 +14,7 @@ use crate::bibliography::{format_author_year, BibEntry};
 pub struct BibPopup {
     popover: Popover,
     list_box: ListBox,
+    scroll: ScrolledWindow,
     entries: Rc<RefCell<Vec<BibEntry>>>,
     on_complete: Rc<RefCell<Option<Box<dyn Fn(String)>>>>,
     filtered_keys: Rc<RefCell<Vec<String>>>,
@@ -54,6 +55,7 @@ impl BibPopup {
             let filtered_kc = filtered_keys.clone();
             let list_kc = list_box.clone();
             let popover_kc = popover.clone();
+            let scroll_kc = scroll.clone();
 
             let kc = EventControllerKey::new();
             kc.connect_key_pressed(move |_, key, _, _mods| {
@@ -81,6 +83,7 @@ impl BibPopup {
                         let cur = list_kc.selected_row().map(|r| r.index()).unwrap_or(-1);
                         if let Some(row) = list_kc.row_at_index(cur + 1) {
                             list_kc.select_row(Some(&row));
+                            scroll_row_into_view(&scroll_kc, &list_kc, &row);
                         }
                         glib::Propagation::Stop
                     }
@@ -88,6 +91,7 @@ impl BibPopup {
                         let cur = list_kc.selected_row().map(|r| r.index()).unwrap_or(1);
                         if let Some(row) = list_kc.row_at_index((cur - 1).max(0)) {
                             list_kc.select_row(Some(&row));
+                            scroll_row_into_view(&scroll_kc, &list_kc, &row);
                         }
                         glib::Propagation::Stop
                     }
@@ -115,6 +119,7 @@ impl BibPopup {
         Self {
             popover,
             list_box,
+            scroll,
             entries,
             on_complete,
             filtered_keys,
@@ -197,6 +202,7 @@ impl BibPopup {
         let next_idx = (current_idx + delta).max(0);
         if let Some(row) = self.list_box.row_at_index(next_idx) {
             self.list_box.select_row(Some(&row));
+            scroll_row_into_view(&self.scroll, &self.list_box, &row);
         }
     }
 
@@ -251,6 +257,21 @@ impl BibPopup {
 
         row.set_child(Some(&row_box));
         self.list_box.append(&row);
+    }
+}
+
+fn scroll_row_into_view(scroll: &ScrolledWindow, list_box: &ListBox, row: &ListBoxRow) {
+    let adj = scroll.vadjustment();
+    if let Some(bounds) = row.compute_bounds(list_box) {
+        let row_top = bounds.y() as f64;
+        let row_bottom = row_top + bounds.height() as f64;
+        let page_top = adj.value();
+        let page_bottom = page_top + adj.page_size();
+        if row_top < page_top {
+            adj.set_value(row_top);
+        } else if row_bottom > page_bottom {
+            adj.set_value(row_bottom - adj.page_size());
+        }
     }
 }
 

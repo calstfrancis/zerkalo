@@ -78,6 +78,15 @@ const SPACING_OPTIONS: &[(&str, &str)] = &[
     ("Double", "1.2em"),
 ];
 
+// (display label, Typst color value used as the dropcap's `fill:` argument)
+const DROPCAP_COLORS: &[(&str, &str)] = &[
+    ("Ink Black (default)", ""),
+    ("Vermilion Red", "rgb(\"#a3231f\")"),
+    ("Lapis Blue", "rgb(\"#1e3a6e\")"),
+    ("Illuminated Gold", "rgb(\"#b8860b\")"),
+    ("Verdigris Green", "rgb(\"#2f6d5c\")"),
+];
+
 // (display label, Typst numbering pattern)
 const NUMBERING_FORMATS: &[(&str, &str)] = &[
     ("Decimal  1.  1.1.  1.1.1.", "1."),
@@ -308,6 +317,7 @@ pub(crate) struct TemplateSettings {
     packages: Vec<String>,
     dropcap_font: String,
     dropcap_lines: u32,
+    dropcap_color: String,
     body_kind: BodyKind,
     bib_path: Option<PathBuf>,
 }
@@ -353,6 +363,8 @@ pub struct SidecarSettings {
     pub dropcap_font:       String,
     #[serde(default = "default_dropcap_lines")]
     pub dropcap_lines:      u32,
+    #[serde(default)]
+    pub dropcap_color:      String,
     pub bib_path:           Option<String>,
     pub body_kind:          String,
 }
@@ -403,6 +415,7 @@ pub struct TemplateDialog {
     dropcap_expander: adw::ExpanderRow,
     dropcap_font_row: adw::ComboRow,
     dropcap_lines_row: adw::ComboRow,
+    dropcap_color_row: adw::ComboRow,
 }
 
 impl TemplateDialog {
@@ -771,6 +784,14 @@ impl TemplateDialog {
         dropcap_lines_row.set_selected(1); // 3 lines default
         dropcap_expander.add_row(&dropcap_lines_row);
 
+        let dropcap_color_labels: Vec<&str> = DROPCAP_COLORS.iter().map(|(l, _)| *l).collect();
+        let dropcap_color_row = adw::ComboRow::new();
+        dropcap_color_row.set_title("Color");
+        dropcap_color_row.set_subtitle("Ink color for the large first letter");
+        dropcap_color_row.set_model(Some(&gtk4::StringList::new(&dropcap_color_labels)));
+        dropcap_color_row.set_selected(0);
+        dropcap_expander.add_row(&dropcap_color_row);
+
         // ── Other extra packages ──────────────────────────────────────────────
         for (key, name, desc) in EXTRA_PACKAGES.iter().filter(|(k, _, _)| *k != "pkg_droplet") {
             let sw = adw::SwitchRow::new();
@@ -1031,6 +1052,7 @@ impl TemplateDialog {
         let w_pkgs = pkg_switches.clone();
         let w_dropcap_font = dropcap_font_row.clone();
         let w_dropcap_lines = dropcap_lines_row.clone();
+        let w_dropcap_color = dropcap_color_row.clone();
         let w_body_kind = body_kind_state.clone();
         let w_bib_path = bib_path.clone();
 
@@ -1108,6 +1130,10 @@ impl TemplateDialog {
                     String::new()
                 },
                 dropcap_lines: w_dropcap_lines.selected() + 2,
+                dropcap_color: DROPCAP_COLORS
+                    .get(w_dropcap_color.selected() as usize)
+                    .map(|(_, v)| v.to_string())
+                    .unwrap_or_default(),
                 body_kind: *w_body_kind.borrow(),
                 bib_path: w_bib_path.borrow().clone(),
             };
@@ -1177,6 +1203,7 @@ impl TemplateDialog {
         let a_pkgs = pkg_switches.clone();
         let a_dropcap_font = dropcap_font_row.clone();
         let a_dropcap_lines = dropcap_lines_row.clone();
+        let a_dropcap_color = dropcap_color_row.clone();
         let a_body_kind = body_kind_state.clone();
         let a_bib_path = bib_path.clone();
         apply_btn.connect_clicked(move |_| {
@@ -1244,6 +1271,10 @@ impl TemplateDialog {
                     String::new()
                 },
                 dropcap_lines: a_dropcap_lines.selected() + 2,
+                dropcap_color: DROPCAP_COLORS
+                    .get(a_dropcap_color.selected() as usize)
+                    .map(|(_, v)| v.to_string())
+                    .unwrap_or_default(),
                 body_kind: *a_body_kind.borrow(),
                 bib_path: a_bib_path.borrow().clone(),
             };
@@ -1311,6 +1342,7 @@ impl TemplateDialog {
             let p_pkgs = pkg_switches.clone();
             let p_dropcap_font = dropcap_font_row.clone();
             let p_dropcap_lines = dropcap_lines_row.clone();
+            let p_dropcap_color = dropcap_color_row.clone();
             let p_body_kind = body_kind_state.clone();
             let p_bib_path = bib_path.clone();
             let p_win = window.clone();
@@ -1379,6 +1411,10 @@ impl TemplateDialog {
                         String::new()
                     },
                     dropcap_lines: p_dropcap_lines.selected() + 2,
+                    dropcap_color: DROPCAP_COLORS
+                        .get(p_dropcap_color.selected() as usize)
+                        .map(|(_, v)| v.to_string())
+                        .unwrap_or_default(),
                     body_kind: *p_body_kind.borrow(),
                     bib_path: p_bib_path.borrow().clone(),
                 };
@@ -1429,7 +1465,7 @@ impl TemplateDialog {
             keywords_row, keywords_text_row, heading_numbering_row, heading_format_row,
             title_row, subtitle_row, author_row, affil_row, course_row, professor_row, date_row,
             bib_path, pnum_row, header_row, lang_switches, pkg_switches,
-            dropcap_expander, dropcap_font_row, dropcap_lines_row,
+            dropcap_expander, dropcap_font_row, dropcap_lines_row, dropcap_color_row,
         }
     }
 
@@ -1497,6 +1533,11 @@ impl TemplateDialog {
     pub fn preselect_dropcap_lines(&self, lines: u32) {
         let idx = lines.saturating_sub(2).min(4);
         self.dropcap_lines_row.set_selected(idx);
+    }
+
+    pub fn preselect_dropcap_color(&self, color: &str) {
+        let idx = DROPCAP_COLORS.iter().position(|(_, v)| *v == color).unwrap_or(0);
+        self.dropcap_color_row.set_selected(idx as u32);
     }
 
     /// Pre-select the body font by name.
@@ -1692,6 +1733,7 @@ impl TemplateDialog {
         self.preselect_packages(&s.packages);
         self.preselect_dropcap_font(&s.dropcap_font);
         self.preselect_dropcap_lines(s.dropcap_lines);
+        self.preselect_dropcap_color(&s.dropcap_color);
         if let Some(ref p) = s.bib_path {
             if !p.is_empty() {
                 *self.bib_path.borrow_mut() = Some(PathBuf::from(p));
@@ -1762,6 +1804,7 @@ pub fn build_sidecar(t: &TemplateSettings) -> SidecarSettings {
         packages:          t.packages.clone(),
         dropcap_font:      t.dropcap_font.clone(),
         dropcap_lines:     t.dropcap_lines,
+        dropcap_color:     t.dropcap_color.clone(),
         bib_path:          t.bib_path.as_ref().map(|p| p.to_string_lossy().into_owned()),
         body_kind:         match t.body_kind { BodyKind::Book => "book".into(), BodyKind::Cv => "cv".into(), BodyKind::Academic => "academic".into() },
     }
@@ -1809,6 +1852,7 @@ pub fn sidecar_to_settings(sc: &SidecarSettings) -> TemplateSettings {
         packages: sc.packages.clone(),
         dropcap_font: sc.dropcap_font.clone(),
         dropcap_lines: sc.dropcap_lines,
+        dropcap_color: sc.dropcap_color.clone(),
         body_kind: if sc.body_kind == "book" { BodyKind::Book } else if sc.body_kind == "cv" { BodyKind::Cv } else { BodyKind::Academic },
         bib_path: sc.bib_path.as_ref().map(|s| std::path::PathBuf::from(s)),
     }
@@ -2043,10 +2087,12 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
     if s.packages.contains(&"pkg_droplet".to_string()) {
         let has_font = !s.dropcap_font.is_empty();
         let has_height = s.dropcap_lines != 3;
-        if has_font || has_height {
+        let has_color = !s.dropcap_color.is_empty();
+        if has_font || has_height || has_color {
             let mut args = Vec::new();
             if has_font  { args.push(format!("font: \"{}\"", typst_str(&s.dropcap_font))); }
             if has_height { args.push(format!("height: {}", s.dropcap_lines)); }
+            if has_color { args.push(format!("fill: {}", s.dropcap_color)); }
             let _ = writeln!(out, "#let dropcap = dropcap.with({})", args.join(", "));
         }
     }
@@ -2572,6 +2618,7 @@ pub fn rebuild_title_page_for_style(content: &str, new_style_key: &str) -> Strin
         include_keywords: false, keywords: String::new(),
         heading_numbering: false, numbering_format: String::new(),
         languages: vec![], packages: vec![], dropcap_font: String::new(), dropcap_lines: 3,
+        dropcap_color: String::new(),
         body_kind: BodyKind::Academic,
         bib_path: None,
     };
@@ -3052,6 +3099,7 @@ fn generate_preset_preview(idx: usize) -> Result<Vec<u8>, String> {
         packages: Vec::new(),
         dropcap_font: String::new(),
         dropcap_lines: 3,
+        dropcap_color: String::new(),
         body_kind: p.body_kind,
         bib_path: None,
     };
@@ -3284,6 +3332,24 @@ pub fn parse_dropcap_font(content: &str) -> Option<String> {
     None
 }
 
+pub fn parse_dropcap_color(content: &str) -> Option<String> {
+    for line in content.lines() {
+        let t = line.trim();
+        if t.starts_with("#let dropcap = dropcap.with(") {
+            if let Some(start) = t.find("fill:") {
+                let after = t[start + 5..].trim_start();
+                let value: String = after
+                    .chars()
+                    .take_while(|c| *c != ',' && *c != ')')
+                    .collect();
+                let value = value.trim().to_string();
+                if !value.is_empty() { return Some(value); }
+            }
+        }
+    }
+    None
+}
+
 /// Parse `size: Xpt` from `#set text(…)` in document content.
 pub fn parse_font_size(content: &str) -> Option<String> {
     let mut last_found: Option<String> = None;
@@ -3434,6 +3500,7 @@ pub fn default_import_preamble() -> String {
         packages: vec![],
         dropcap_font: String::new(),
         dropcap_lines: 3,
+        dropcap_color: String::new(),
         body_kind: BodyKind::default(),
         bib_path: None,
     };
@@ -4029,6 +4096,7 @@ mod tests {
             packages: Vec::new(),
             dropcap_font: String::new(),
             dropcap_lines: 3,
+            dropcap_color: String::new(),
             body_kind: BodyKind::Academic,
             bib_path: None,
         };
@@ -4118,7 +4186,7 @@ mod tests {
             page_num_pos: 0, header_style: 0, include_toc: false, toc_depth: 2,
             include_abstract: false, abstract_text: String::new(),
             include_keywords: false, keywords: String::new(),
-            languages: vec![], packages: vec![], dropcap_font: String::new(), dropcap_lines: 3, body_kind: BodyKind::Academic,
+            languages: vec![], packages: vec![], dropcap_font: String::new(), dropcap_lines: 3, dropcap_color: String::new(), body_kind: BodyKind::Academic,
             font_size: "12pt".into(), heading_numbering: false, numbering_format: String::new(),
             custom_paper_w: String::new(), custom_paper_h: String::new(), custom_margin: String::new(),
             bib_path: None,
@@ -4144,7 +4212,7 @@ mod tests {
             page_num_pos: 0, header_style: 0, include_toc: false, toc_depth: 2,
             include_abstract: false, abstract_text: String::new(),
             include_keywords: false, keywords: String::new(),
-            languages: vec![], packages: vec![], dropcap_font: String::new(), dropcap_lines: 3, body_kind: BodyKind::Academic,
+            languages: vec![], packages: vec![], dropcap_font: String::new(), dropcap_lines: 3, dropcap_color: String::new(), body_kind: BodyKind::Academic,
             font_size: "12pt".into(), heading_numbering: false, numbering_format: String::new(),
             custom_paper_w: String::new(), custom_paper_h: String::new(), custom_margin: String::new(),
             bib_path: None,
@@ -4274,6 +4342,7 @@ Body text.\n";
             packages: vec![],
             dropcap_font: String::new(),
             dropcap_lines: 3,
+            dropcap_color: String::new(),
             body_kind: BodyKind::Academic,
             font_size: "12pt".into(), heading_numbering: false, numbering_format: String::new(),
             custom_paper_w: String::new(), custom_paper_h: String::new(), custom_margin: String::new(),
@@ -4331,6 +4400,7 @@ Body text.\n";
             packages: vec!["pkg_codly".to_string()],
             dropcap_font: String::new(),
             dropcap_lines: 3,
+            dropcap_color: String::new(),
             body_kind: BodyKind::Academic,
             font_size: "12pt".into(), heading_numbering: false, numbering_format: String::new(),
             custom_paper_w: String::new(), custom_paper_h: String::new(), custom_margin: String::new(),
@@ -4465,6 +4535,7 @@ Body text.\n";
             packages: vec![],
             dropcap_font: String::new(),
             dropcap_lines: 3,
+            dropcap_color: String::new(),
             body_kind: BodyKind::Academic,
             font_size: "12pt".into(), heading_numbering: false, numbering_format: String::new(),
             custom_paper_w: String::new(), custom_paper_h: String::new(), custom_margin: String::new(),
@@ -4518,7 +4589,7 @@ Body text.\n";
             page_num_pos: 0, header_style: 0, include_toc: false, toc_depth: 2,
             include_abstract: false, abstract_text: String::new(),
             include_keywords: false, keywords: String::new(),
-            languages: vec![], packages: vec![], dropcap_font: String::new(), dropcap_lines: 3, body_kind: BodyKind::Academic,
+            languages: vec![], packages: vec![], dropcap_font: String::new(), dropcap_lines: 3, dropcap_color: String::new(), body_kind: BodyKind::Academic,
             font_size: "12pt".into(), heading_numbering: false, numbering_format: String::new(),
             custom_paper_w: String::new(), custom_paper_h: String::new(), custom_margin: String::new(),
             bib_path: Some(std::path::PathBuf::from("refs.bib")),
@@ -4547,7 +4618,7 @@ Body text.\n";
             page_num_pos: 0, header_style: 0, include_toc: false, toc_depth: 2,
             include_abstract: false, abstract_text: String::new(),
             include_keywords: false, keywords: String::new(),
-            languages: vec![], packages: vec![], dropcap_font: String::new(), dropcap_lines: 3, body_kind: BodyKind::Academic,
+            languages: vec![], packages: vec![], dropcap_font: String::new(), dropcap_lines: 3, dropcap_color: String::new(), body_kind: BodyKind::Academic,
             font_size: "12pt".into(), heading_numbering: false, numbering_format: String::new(),
             custom_paper_w: String::new(), custom_paper_h: String::new(), custom_margin: String::new(),
             bib_path: None,
