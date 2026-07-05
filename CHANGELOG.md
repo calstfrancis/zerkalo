@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.15.1-dev6] — Robust document import (LaTeX, Word, Markdown, ODT)
+
+### Added
+- **Markdown (.md) and OpenDocument Text (.odt) import** — ☰ → Import now covers LaTeX, Word, Markdown, and ODT via pandoc, all sharing one code path instead of duplicated per-format handlers.
+
+### Fixed
+- **Document import (LaTeX/DOCX/Markdown/ODT) froze the UI** — the pandoc subprocess ran synchronously on the GTK main thread; it now runs on a background thread with the app remaining responsive during conversion.
+- **Embedded images in DOCX/ODT were silently dropped on import** — pandoc is now run with `--extract-media`, and invoked with the input file's directory as its working directory using bare relative filenames so the generated `#image(...)` paths are relative (verified: passing absolute paths made pandoc emit OS-absolute image paths, which Typst's root-relative path resolution can't follow — a real bug caught by manually running the exact pandoc invocation before shipping it).
+- **Re-importing a file could silently overwrite an existing same-named document** — the output path now gets a `(1)`, `(2)`, ... suffix on collision, matching the existing "Untitled 2.typ" convention used elsewhere.
+- **An old pandoc without Typst-writer support produced a raw, confusing error** — common failure signatures (e.g. "unknown writer: typst") are now translated into a plain-language message.
+
+---
+
 ## [0.15.1-dev5] — Visual polish pass (status bar, goal ring, library empty state)
 
 ### Fixed

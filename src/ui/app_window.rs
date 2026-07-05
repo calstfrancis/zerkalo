@@ -226,8 +226,6 @@ impl AppWindow {
             menu_help_item,
             menu_writing_stats_item,
             menu_about_item,
-            menu_import_latex_item,
-            menu_import_docx_item,
             menu_import_pdf_item,
         } = build_hamburger_menu_items();
 
@@ -1377,22 +1375,23 @@ impl AppWindow {
         // ── Menu: Import (picker dialog) ───────────────────────────────────
 
         let window_for_import = window.clone();
+        let editor_for_import = editor_pane.clone();
         let menu_popover_for_import = menu_popover.clone();
-        let latex_item_for_dlg = menu_import_latex_item.clone();
-        let docx_item_for_dlg = menu_import_docx_item.clone();
+        let work_dir_for_import = project_root.clone();
+        let config_for_import = current_config.clone();
         let pdf_item_for_dlg = menu_import_pdf_item.clone();
         menu_import_item.connect_clicked(move |_| {
             menu_popover_for_import.popdown();
 
             let dlg = adw::Window::new();
-            dlg.set_title(Some("Import File"));
+            dlg.set_title(Some("Import"));
             dlg.set_default_width(280);
             dlg.set_modal(true);
             dlg.set_transient_for(Some(&window_for_import));
             dlg.set_deletable(true);
 
             let header_dlg = adw::HeaderBar::new();
-            let title_lbl = gtk4::Label::new(Some("Import File"));
+            let title_lbl = gtk4::Label::new(Some("Import"));
             title_lbl.add_css_class("heading");
             header_dlg.set_title_widget(Some(&title_lbl));
 
@@ -1408,16 +1407,28 @@ impl AppWindow {
                 row.add_suffix(&gtk4::Image::from_icon_name("go-next-symbolic"));
                 row
             };
-            let latex_row = make_row("text-x-generic-symbolic", "LaTeX (.tex)");
-            let docx_row = make_row("x-office-document-symbolic", "Word (.docx)");
-            let pdf_row = make_row("application-pdf-symbolic", "PDF (.pdf)");
 
             let group = adw::PreferencesGroup::new();
-            group.add(&latex_row);
-            group.add(&docx_row);
-            group.add(&pdf_row);
             group.set_margin_start(12);
             group.set_margin_end(12);
+
+            // One row per pandoc-based format, all routed through import_via_pandoc.
+            for fmt in IMPORT_FORMATS {
+                let row = make_row(fmt.icon, fmt.label);
+                group.add(&row);
+                let dlg_c = dlg.clone();
+                let win_c = window_for_import.clone();
+                let ep_c = editor_for_import.clone();
+                let work_dir_c = work_dir_for_import.clone();
+                let cfg_c = config_for_import.clone();
+                row.connect_activated(move |_| {
+                    dlg_c.close();
+                    import_via_pandoc(&win_c, &ep_c, &work_dir_c, &cfg_c, fmt);
+                });
+            }
+
+            let pdf_row = make_row("application-pdf-symbolic", "PDF (.pdf)");
+            group.add(&pdf_row);
             row_box.append(&group);
 
             let vbox = GtkBox::new(Orientation::Vertical, 0);
@@ -1425,19 +1436,8 @@ impl AppWindow {
             vbox.append(&row_box);
             dlg.set_content(Some(&vbox));
 
-            // Wire each row to forward-click the hidden original import buttons
-            let latex_trigger = latex_item_for_dlg.clone();
-            let dlg_c = dlg.clone();
-            latex_row.connect_activated(move |_| {
-                dlg_c.close();
-                latex_trigger.emit_clicked();
-            });
-            let docx_trigger = docx_item_for_dlg.clone();
-            let dlg_c = dlg.clone();
-            docx_row.connect_activated(move |_| {
-                dlg_c.close();
-                docx_trigger.emit_clicked();
-            });
+            // PDF import uses a different pipeline (pdftotext, no structure to
+            // preserve), so it stays as its own forward-clicked hidden button.
             let pdf_trigger = pdf_item_for_dlg.clone();
             let dlg_c = dlg.clone();
             pdf_row.connect_activated(move |_| {
@@ -1446,130 +1446,6 @@ impl AppWindow {
             });
 
             dlg.present();
-        });
-
-        // ── Menu: Import LaTeX ──────────────────────────────────────────────
-
-        let window_for_latex = window.clone();
-        let editor_for_latex = editor_pane.clone();
-        let menu_popover_for_latex = menu_popover.clone();
-        let work_dir_for_latex = project_root.clone();
-        let config_for_latex = current_config.clone();
-        menu_import_latex_item.connect_clicked(move |_| {
-            menu_popover_for_latex.popdown();
-            let dialog = gtk4::FileDialog::new();
-            dialog.set_title("Import LaTeX File");
-            let filter = gtk4::FileFilter::new();
-            filter.set_name(Some("LaTeX files (*.tex)"));
-            filter.add_pattern("*.tex");
-            let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
-            filters.append(&filter);
-            dialog.set_filters(Some(&filters));
-            dialog.set_initial_folder(Some(&gtk4::gio::File::for_path(&work_dir_for_latex)));
-            let win2 = window_for_latex.clone();
-            let ep2 = editor_for_latex.clone();
-            let cfg2 = config_for_latex.clone();
-            let win_ref = win2.clone();
-            dialog.open(Some(&win_ref), None::<&gtk4::gio::Cancellable>, move |result| {
-                if let Ok(file) = result {
-                    if let Some(input_path) = file.path() {
-                        let stem = input_path.file_stem().and_then(|s| s.to_str()).unwrap_or("output").to_string();
-                        let out_path = input_path.with_file_name(format!("{stem}.typ"));
-                        let output = crate::git_sync::host_command("pandoc")
-                            .arg(&input_path)
-                            .arg("-f").arg("latex")
-                            .arg("-t").arg("typst")
-                            .arg("--standalone")
-                            .arg("-o").arg(&out_path)
-                            .output();
-                        match output {
-                            Ok(o) if o.status.success() => {
-                                if let Ok(raw) = std::fs::read_to_string(&out_path) {
-                                    let bib_path = cfg2.borrow().bib_path.clone();
-                                    let processed = post_process_latex_import(&raw, bib_path.as_deref());
-                                    let _ = std::fs::write(&out_path, &processed);
-                                    ep2.open_file(out_path, &processed);
-                                }
-                            }
-                            Ok(o) => {
-                                let msg = String::from_utf8_lossy(&o.stderr);
-                                show_alert(&win2, "Import Failed", &format!("pandoc error:\n{}", msg.lines().take(5).collect::<Vec<_>>().join("\n")));
-                            }
-                            Err(_) => {
-                                show_alert(&win2, "Import Failed",
-                                    "pandoc was not found. Install it to use LaTeX import:\n\
-                                     \n  zypper install pandoc\
-                                     \n  apt   install pandoc\
-                                     \n  brew  install pandoc\
-                                     \n  dnf   install pandoc\
-                                     \nVersion 3.1 or later is required.");
-                            }
-                        }
-                    }
-                }
-            });
-        });
-
-        // ── Menu: Import DOCX ──────────────────────────────────────────────
-
-        let window_for_docx = window.clone();
-        let editor_for_docx = editor_pane.clone();
-        let menu_popover_for_docx = menu_popover.clone();
-        let work_dir_for_docx = project_root.clone();
-        let config_for_docx = current_config.clone();
-        menu_import_docx_item.connect_clicked(move |_| {
-            menu_popover_for_docx.popdown();
-            let dialog = gtk4::FileDialog::new();
-            dialog.set_title("Import DOCX File");
-            let filter = gtk4::FileFilter::new();
-            filter.set_name(Some("Word documents (*.docx)"));
-            filter.add_pattern("*.docx");
-            let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
-            filters.append(&filter);
-            dialog.set_filters(Some(&filters));
-            dialog.set_initial_folder(Some(&gtk4::gio::File::for_path(&work_dir_for_docx)));
-            let win2 = window_for_docx.clone();
-            let ep2 = editor_for_docx.clone();
-            let cfg2 = config_for_docx.clone();
-            let win_ref = win2.clone();
-            dialog.open(Some(&win_ref), None::<&gtk4::gio::Cancellable>, move |result| {
-                if let Ok(file) = result {
-                    if let Some(input_path) = file.path() {
-                        let stem = input_path.file_stem().and_then(|s| s.to_str()).unwrap_or("output").to_string();
-                        let out_path = input_path.with_file_name(format!("{stem}.typ"));
-                        let output = crate::git_sync::host_command("pandoc")
-                            .arg(&input_path)
-                            .arg("-f").arg("docx")
-                            .arg("-t").arg("typst")
-                            .arg("--standalone")
-                            .arg("-o").arg(&out_path)
-                            .output();
-                        match output {
-                            Ok(o) if o.status.success() => {
-                                if let Ok(raw) = std::fs::read_to_string(&out_path) {
-                                    let bib_path = cfg2.borrow().bib_path.clone();
-                                    let processed = post_process_latex_import(&raw, bib_path.as_deref());
-                                    let _ = std::fs::write(&out_path, &processed);
-                                    ep2.open_file(out_path, &processed);
-                                }
-                            }
-                            Ok(o) => {
-                                let msg = String::from_utf8_lossy(&o.stderr);
-                                show_alert(&win2, "Import Failed", &format!("pandoc error:\n{}", msg.lines().take(5).collect::<Vec<_>>().join("\n")));
-                            }
-                            Err(_) => {
-                                show_alert(&win2, "Import Failed",
-                                    "pandoc was not found. Install it to use DOCX import:\n\
-                                     \n  zypper install pandoc\
-                                     \n  apt   install pandoc\
-                                     \n  brew  install pandoc\
-                                     \n  dnf   install pandoc\
-                                     \nVersion 3.1 or later is required.");
-                            }
-                        }
-                    }
-                }
-            });
         });
 
         // ── Menu: Import PDF ───────────────────────────────────────────────
@@ -5321,6 +5197,191 @@ fn strip_pandoc_preamble(content: &str) -> String {
     if result.ends_with('\n') { result } else { result + "\n" }
 }
 
+// ── Document import via pandoc (LaTeX, Word, Markdown, OpenDocument Text) ──────
+
+struct ImportFormat {
+    label: &'static str,
+    icon: &'static str,
+    pattern: &'static str,
+    filter_name: &'static str,
+    pandoc_from: &'static str,
+}
+
+const IMPORT_FORMATS: &[ImportFormat] = &[
+    ImportFormat {
+        label: "LaTeX (.tex)",
+        icon: "text-x-generic-symbolic",
+        pattern: "*.tex",
+        filter_name: "LaTeX files (*.tex)",
+        pandoc_from: "latex",
+    },
+    ImportFormat {
+        label: "Word (.docx)",
+        icon: "x-office-document-symbolic",
+        pattern: "*.docx",
+        filter_name: "Word documents (*.docx)",
+        pandoc_from: "docx",
+    },
+    ImportFormat {
+        label: "Markdown (.md)",
+        icon: "text-x-generic-symbolic",
+        pattern: "*.md",
+        filter_name: "Markdown files (*.md)",
+        pandoc_from: "markdown",
+    },
+    ImportFormat {
+        label: "OpenDocument Text (.odt)",
+        icon: "x-office-document-symbolic",
+        pattern: "*.odt",
+        filter_name: "OpenDocument Text (*.odt)",
+        pandoc_from: "odt",
+    },
+];
+
+/// If `path` already exists, find the next free "`stem` (N).typ" instead of
+/// silently overwriting it — mirrors the "Untitled 2.typ" collision-avoidance
+/// convention in `library_window.rs::create_new_from_template`.
+fn unique_typ_path(path: std::path::PathBuf) -> std::path::PathBuf {
+    if !path.exists() {
+        return path;
+    }
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("output").to_string();
+    let dir = path.parent().map(|p| p.to_path_buf()).unwrap_or_default();
+    let mut n = 1;
+    loop {
+        let candidate = dir.join(format!("{stem} ({n}).typ"));
+        if !candidate.exists() {
+            return candidate;
+        }
+        n += 1;
+    }
+}
+
+/// Translate a couple of common pandoc failure signatures into a plain-language
+/// message; anything else falls back to the raw stderr (first 5 lines).
+fn describe_pandoc_failure(stderr: &str) -> String {
+    let lower = stderr.to_lowercase();
+    if lower.contains("unknown writer") || lower.contains("unrecognized output format")
+        || lower.contains("unknown output format")
+    {
+        return "Your pandoc version doesn't support Typst output. Zerkalo needs \
+                pandoc 3.1 or later — you have an older version installed."
+            .to_string();
+    }
+    format!("pandoc error:\n{}", stderr.lines().take(5).collect::<Vec<_>>().join("\n"))
+}
+
+/// Shared entry point for all pandoc-based document import (LaTeX/DOCX/Markdown/ODT).
+/// Runs pandoc on a background thread so a large document doesn't freeze the UI,
+/// extracts embedded media instead of silently dropping it, and never overwrites
+/// an existing `.typ` file at the destination path.
+fn import_via_pandoc(
+    window: &adw::ApplicationWindow,
+    editor: &EditorPane,
+    work_dir: &std::path::Path,
+    cfg: &Rc<RefCell<Config>>,
+    fmt: &'static ImportFormat,
+) {
+    let dialog = gtk4::FileDialog::new();
+    dialog.set_title(&format!("Import {}", fmt.label));
+    let filter = gtk4::FileFilter::new();
+    filter.set_name(Some(fmt.filter_name));
+    filter.add_pattern(fmt.pattern);
+    let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
+    filters.append(&filter);
+    dialog.set_filters(Some(&filters));
+    dialog.set_initial_folder(Some(&gtk4::gio::File::for_path(work_dir)));
+
+    let win = window.clone();
+    let ep = editor.clone();
+    let cfg = cfg.clone();
+    let win_ref = win.clone();
+    dialog.open(Some(&win_ref), None::<&gtk4::gio::Cancellable>, move |result| {
+        let Ok(file) = result else { return };
+        let Some(input_path) = file.path() else { return };
+
+        let stem = input_path.file_stem().and_then(|s| s.to_str()).unwrap_or("output").to_string();
+        let out_path = unique_typ_path(input_path.with_file_name(format!("{stem}.typ")));
+        // Typst resolves `/`-rooted paths against the project root, not the OS
+        // filesystem — so pandoc must be run with cwd = the input's directory and
+        // given bare relative names, or `--extract-media`/`-o` with absolute paths
+        // makes it emit `#image("/abs/os/path...")`, which won't resolve as an
+        // image path inside the document (verified against a real pandoc run).
+        let out_stem = out_path.file_stem().and_then(|s| s.to_str()).unwrap_or(&stem).to_string();
+        let out_name = out_path.file_name().and_then(|s| s.to_str()).unwrap_or("output.typ").to_string();
+        let media_name = format!("{out_stem}_media");
+        let input_dir = input_path.parent().map(|p| p.to_path_buf()).unwrap_or_default();
+
+        let (tx, rx) = std::sync::mpsc::sync_channel::<std::io::Result<std::process::Output>>(1);
+        let input_name = input_path.file_name().and_then(|s| s.to_str()).unwrap_or("input").to_string();
+        std::thread::spawn(move || {
+            // `.current_dir()` on the outer Command only moves `flatpak-spawn`'s own
+            // cwd inside the sandbox, not the host pandoc process's — flatpak-spawn
+            // needs an explicit `--directory=`, the same reason git_sync's git_cmd
+            // uses `-C <repo>` instead of relying on `.current_dir()`.
+            let mut cmd = if crate::git_sync::in_flatpak() {
+                let mut c = std::process::Command::new("flatpak-spawn");
+                c.arg("--host").arg(format!("--directory={}", input_dir.display())).arg("pandoc");
+                c
+            } else {
+                let mut c = std::process::Command::new("pandoc");
+                c.current_dir(&input_dir);
+                c
+            };
+            let result = cmd
+                .arg(&input_name)
+                .arg("-f").arg(fmt.pandoc_from)
+                .arg("-t").arg("typst")
+                .arg("--standalone")
+                .arg(format!("--extract-media={media_name}"))
+                .arg("-o").arg(&out_name)
+                .output();
+            tx.send(result).ok();
+        });
+
+        let rx = Rc::new(rx);
+        let win = win.clone();
+        let ep = ep.clone();
+        let cfg = cfg.clone();
+        let out_path = out_path.clone();
+        glib::timeout_add_local(Duration::from_millis(100), move || {
+            use std::sync::mpsc::TryRecvError;
+            match rx.try_recv() {
+                Ok(output) => {
+                    match output {
+                        Ok(o) if o.status.success() => {
+                            if let Ok(raw) = std::fs::read_to_string(&out_path) {
+                                let bib_path = cfg.borrow().bib_path.clone();
+                                let processed = post_process_latex_import(&raw, bib_path.as_deref());
+                                let _ = std::fs::write(&out_path, &processed);
+                                ep.open_file(out_path.clone(), &processed);
+                            }
+                        }
+                        Ok(o) => {
+                            let msg = String::from_utf8_lossy(&o.stderr);
+                            show_alert(&win, "Import Failed", &describe_pandoc_failure(&msg));
+                        }
+                        Err(_) => {
+                            show_alert(&win, "Import Failed", &format!(
+                                "pandoc was not found. Install it to use {} import:\n\
+                                 \n  zypper install pandoc\
+                                 \n  apt   install pandoc\
+                                 \n  brew  install pandoc\
+                                 \n  dnf   install pandoc\
+                                 \nVersion 3.1 or later is required.",
+                                fmt.label
+                            ));
+                        }
+                    }
+                    glib::ControlFlow::Break
+                }
+                Err(TryRecvError::Empty) => glib::ControlFlow::Continue,
+                Err(TryRecvError::Disconnected) => glib::ControlFlow::Break,
+            }
+        });
+    });
+}
+
 fn post_process_latex_import(content: &str, bib_path: Option<&std::path::Path>) -> String {
     // ── Phase 1: single-pass classifier ───────────────────────────────────────
     //
@@ -5603,8 +5664,6 @@ struct HamburgerItems {
     menu_help_item: Button,
     menu_writing_stats_item: Button,
     menu_about_item: Button,
-    menu_import_latex_item: Button,
-    menu_import_docx_item: Button,
     menu_import_pdf_item: Button,
 }
 
@@ -5630,8 +5689,6 @@ fn build_hamburger_menu_items() -> HamburgerItems {
         menu_help_item:            make_menu_item("Keyboard Shortcuts & Help",   Some("Ctrl+?")),
         menu_writing_stats_item:   make_menu_item("Writing Stats",               None),
         menu_about_item:           make_menu_item("About Zerkalo",               None),
-        menu_import_latex_item:    make_menu_item("Import LaTeX File…",          None),
-        menu_import_docx_item:     make_menu_item("Import DOCX File…",           None),
         menu_import_pdf_item:      make_menu_item("Import PDF File…",            None),
     }
 }
@@ -5921,7 +5978,42 @@ fn update_draft_toggle_label(btn: &gtk4::ToggleButton, is_draft: bool) {
 
 #[cfg(test)]
 mod tests {
-    use super::{post_process_latex_import, strip_pandoc_preamble};
+    use super::{describe_pandoc_failure, post_process_latex_import, strip_pandoc_preamble, unique_typ_path};
+
+    // ── document import helpers ───────────────────────────────────────────────
+
+    #[test]
+    fn unique_typ_path_passes_through_when_free() {
+        let dir = std::env::temp_dir().join(format!("zerkalo-test-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("nonexistent.typ");
+        assert_eq!(unique_typ_path(path.clone()), path);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn unique_typ_path_suffixes_on_collision() {
+        let dir = std::env::temp_dir().join(format!("zerkalo-test-collide-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let taken = dir.join("essay.typ");
+        std::fs::write(&taken, "").unwrap();
+        let result = unique_typ_path(taken.clone());
+        assert_eq!(result, dir.join("essay (1).typ"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn describe_pandoc_failure_recognizes_unknown_writer() {
+        let msg = describe_pandoc_failure("Error: Unknown writer: typst");
+        assert!(msg.contains("pandoc 3.1 or later"), "got: {msg}");
+    }
+
+    #[test]
+    fn describe_pandoc_failure_falls_back_to_raw_stderr() {
+        let msg = describe_pandoc_failure("some other pandoc error\nline two");
+        assert!(msg.starts_with("pandoc error:\n"), "got: {msg}");
+        assert!(msg.contains("some other pandoc error"));
+    }
 
     // ── post_process_latex_import ─────────────────────────────────────────────
 
