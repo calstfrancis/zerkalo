@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.15.1-dev5] — Visual polish pass (status bar, goal ring, library empty state)
+
+### Fixed
+- **Status bar had two inconsistent separator styles** (a real `Separator` next to plain "│" labels) and one toggle's label sat a few pixels off from its siblings — unified to one style, aligned margins.
+- **The "SIMPLE" status-bar toggle wasn't actually centered** despite the code intending it to be — a spacer was missing on one side; it now centers correctly in the free space.
+- **The word-count goal ring used hardcoded colors** that never matched the user's accent color — now pulled from the active theme.
+- **Library's empty state was two plain labels with no icon** — replaced with a proper `AdwStatusPage`, matching libadwaita convention used everywhere else in the app.
+
+### Improved
+- Welcome window's ASCII layout diagram is slightly smaller, reducing overflow risk on narrower windows.
+
+---
+
 ## [0.15.1-dev4] — Marginalia package, error-handling reliability pass
 
 ### Added

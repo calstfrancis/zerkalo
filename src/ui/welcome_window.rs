@@ -94,6 +94,7 @@ impl WelcomeWindow {
             ));
             diagram.add_css_class("monospace");
             diagram.add_css_class("dim-label");
+            diagram.add_css_class("caption");
             diagram.set_xalign(0.0);
             diagram.set_margin_top(4);
             diagram.set_margin_bottom(4);

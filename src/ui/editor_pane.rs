@@ -367,6 +367,8 @@ impl EditorPane {
         search_label.add_css_class("dim-label");
         search_label.add_css_class("caption");
         search_label.set_use_markup(true);
+        search_label.set_margin_top(3);
+        search_label.set_margin_bottom(3);
         let search_btn = Button::new();
         search_btn.set_child(Some(&search_label));
         search_btn.add_css_class("flat");
@@ -478,12 +480,19 @@ impl EditorPane {
         simple_mode_btn.update_property(&[gtk4::accessible::Property::Label("Toggle simple mode")]);
         status_bar.append(&simple_mode_btn);
 
-        let sep1 = Label::new(Some("│"));
-        sep1.add_css_class("dim-label");
-        sep1.add_css_class("caption");
-        sep1.set_opacity(0.4);
-        sep1.set_margin_start(2);
-        sep1.set_margin_end(2);
+        // Matching right spacer: with left_spacer above, this centers SIMPLE in
+        // the space between the left widget group and the right widget group,
+        // rather than letting it get pushed flush against the right group.
+        let right_spacer = GtkBox::new(Orientation::Horizontal, 0);
+        right_spacer.set_hexpand(true);
+        status_bar.append(&right_spacer);
+
+        let sep1 = gtk4::Separator::new(Orientation::Vertical);
+        sep1.add_css_class("statusbar-sep");
+        sep1.set_margin_start(6);
+        sep1.set_margin_end(6);
+        sep1.set_margin_top(6);
+        sep1.set_margin_bottom(6);
         status_bar.append(&sep1);
 
         let section_wc_label = Label::new(None);
@@ -508,12 +517,12 @@ impl EditorPane {
         wc_btn.set_tooltip_text(Some("Document statistics"));
         status_bar.append(&wc_btn);
 
-        let sep2 = Label::new(Some("│"));
-        sep2.add_css_class("dim-label");
-        sep2.add_css_class("caption");
-        sep2.set_opacity(0.4);
-        sep2.set_margin_start(2);
-        sep2.set_margin_end(2);
+        let sep2 = gtk4::Separator::new(Orientation::Vertical);
+        sep2.add_css_class("statusbar-sep");
+        sep2.set_margin_start(6);
+        sep2.set_margin_end(6);
+        sep2.set_margin_top(6);
+        sep2.set_margin_bottom(6);
         status_bar.append(&sep2);
 
         let session_delta_label = Label::new(None);
@@ -537,26 +546,39 @@ impl EditorPane {
         {
             let frac_rc = goal_fraction.clone();
             let cel_rc = goal_celebrating.clone();
+            let ring_widget = goal_ring.clone();
             goal_ring.set_draw_func(move |_da, cr, w, h| {
                 let cx = w as f64 / 2.0;
                 let cy = h as f64 / 2.0;
                 let radius = (w.min(h) as f64 / 2.0) - 2.0;
                 let celebrating = cel_rc.get();
+
+                // Query theme colors on every draw so a theme/accent switch is
+                // reflected immediately, matching the pattern in apply_comment_highlights.
+                #[allow(deprecated)]
+                let ctx = ring_widget.style_context();
+                #[allow(deprecated)]
+                let track = ctx.lookup_color("window_fg_color")
+                    .unwrap_or(gtk4::gdk::RGBA::new(0.5, 0.5, 0.5, 1.0));
+                #[allow(deprecated)]
+                let accent = ctx.lookup_color("accent_color")
+                    .unwrap_or(gtk4::gdk::RGBA::new(0.2, 0.4, 0.9, 1.0));
+                #[allow(deprecated)]
+                let success = ctx.lookup_color("success_color")
+                    .unwrap_or(gtk4::gdk::RGBA::new(0.2, 0.8, 0.2, 1.0));
+
                 cr.set_line_width(if celebrating { 3.5 } else { 2.5 });
-                cr.set_source_rgba(0.5, 0.5, 0.5, 0.2);
+                cr.set_source_rgba(track.red() as f64, track.green() as f64, track.blue() as f64, 0.2);
                 cr.arc(cx, cy, radius, 0.0, 2.0 * std::f64::consts::PI);
                 let _ = cr.stroke();
                 let frac = frac_rc.get();
                 if frac > 0.0 {
                     let end_angle = -std::f64::consts::FRAC_PI_2 + frac * 2.0 * std::f64::consts::PI;
+                    let progress = if frac >= 1.0 || celebrating { &success } else { &accent };
                     if celebrating {
                         cr.set_line_width(3.5);
-                        cr.set_source_rgba(0.1, 1.0, 0.1, 1.0);
-                    } else if frac >= 1.0 {
-                        cr.set_source_rgba(0.2, 0.8, 0.2, 0.9);
-                    } else {
-                        cr.set_source_rgba(0.2, 0.7, 0.5, 0.9);
                     }
+                    cr.set_source_rgba(progress.red() as f64, progress.green() as f64, progress.blue() as f64, 0.9);
                     cr.arc(cx, cy, radius, -std::f64::consts::FRAC_PI_2, end_angle);
                     let _ = cr.stroke();
                 }

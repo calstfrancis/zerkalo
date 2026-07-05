@@ -53,7 +53,7 @@ pub struct LibraryWindow {
     stats_label: Label,
     bottom_filter_list: ListBox,
     doc_list_stack: Stack,
-    empty_subtitle: Label,
+    empty_page: adw::StatusPage,
 }
 
 impl LibraryWindow {
@@ -159,23 +159,17 @@ impl LibraryWindow {
         doc_list.set_selection_mode(gtk4::SelectionMode::None);
         doc_scroll.set_child(Some(&doc_list));
 
-        let empty_box = GtkBox::new(Orientation::Vertical, 8);
-        empty_box.set_halign(Align::Center);
-        empty_box.set_valign(Align::Center);
-        empty_box.set_vexpand(true);
-        let empty_title = Label::new(Some("No documents"));
-        empty_title.add_css_class("dim-label");
-        let empty_subtitle = Label::new(Some("Nothing here yet"));
-        empty_subtitle.add_css_class("dim-label");
-        empty_subtitle.add_css_class("caption");
-        empty_box.append(&empty_title);
-        empty_box.append(&empty_subtitle);
+        let empty_page = adw::StatusPage::new();
+        empty_page.set_icon_name(Some("folder-open-symbolic"));
+        empty_page.set_title("No documents");
+        empty_page.set_description(Some("Nothing here yet"));
+        empty_page.set_vexpand(true);
 
         let doc_list_stack = Stack::new();
         doc_list_stack.set_vexpand(true);
         doc_list_stack.set_transition_type(gtk4::StackTransitionType::Crossfade);
         doc_list_stack.add_named(&doc_scroll, Some("docs"));
-        doc_list_stack.add_named(&empty_box, Some("empty"));
+        doc_list_stack.add_named(&empty_page, Some("empty"));
         right.set_content(Some(&doc_list_stack));
 
         // ── Bulk-action bottom bar ──────────────────────────────────────────
@@ -263,7 +257,7 @@ impl LibraryWindow {
             stats_label,
             bottom_filter_list,
             doc_list_stack,
-            empty_subtitle,
+            empty_page,
         };
 
         lw.populate_filter_list();
@@ -751,11 +745,11 @@ impl LibraryWindow {
             .unwrap_or_default();
 
         if docs.is_empty() {
-            self.empty_subtitle.set_text(if !search.is_empty() {
+            self.empty_page.set_description(Some(if !search.is_empty() {
                 "Try a different search"
             } else {
                 "Nothing here yet"
-            });
+            }));
             self.doc_list_stack.set_visible_child_name("empty");
             return;
         }
