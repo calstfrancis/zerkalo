@@ -126,13 +126,12 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
-                "Added: double-click a word in the preview to jump to it in the source",
-                "Added: \"LaTeX Look\" template preset with Computer Modern typography",
-                "Added: \"LaTeX\" and \"Ross\" margin presets, including a true 1/3-page relative margin",
-                "Added: custom page size, margins, and font size in New from Template / Update Template Settings",
-                "Fixed: diff colors in commit history and file snapshots were unreadable in light mode",
-                "Fixed: categories/tags with no assigned color all rendered as the same blue",
-                "Fixed: the preview area showed two redundant, stacked zoom/page toolbars",
+                "Added: import documents from LaTeX, Word, Markdown, ODT, HTML, EPUB, RTF, and PDF via ☰ → Import",
+                "Added: drag-and-drop import, batch/folder import, and Paste as Document (Ctrl+Shift+V)",
+                "Added: Import History with retry, undo, search, and a preview dialog before anything is written",
+                "Added: dropcap color picker and the Marginalia package (margin notes, wide-blocks)",
+                "Fixed: error messages are now far more readable, with working Fix It suggestions and accurate error-line highlighting",
+                "Changed: status bar, word-count goal ring, and library empty state visual polish pass",
                 "Changed: LSP status and compile-mode colors now resolve live from the active theme",
             ] {
                 body.append(&bullet_row(item));
