@@ -9,6 +9,7 @@ mod config;
 mod error;
 mod fonts;
 mod git_sync;
+mod import_log;
 mod keybindings;
 mod lsp;
 mod project;

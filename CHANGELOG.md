@@ -5,6 +5,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.15.1-dev7] — Import system: batch, drag-drop, history, and more
+
+### Added
+- **HTML and EPUB import** — join LaTeX/Word/Markdown/ODT in the ☰ → Import picker, via the same shared pandoc pipeline.
+- **Drag-and-drop document import** — drop a `.tex`/`.docx`/`.md`/`.odt`/`.html`/`.epub`/`.pdf` file onto the editor to import it directly, no picker dialog needed.
+- **Import Folder…** — convert every matching file in a folder in one go (format + destination chosen once, applied to all; each file still gets its own entry in Import History).
+- **Import progress and cancellation** — importing now shows an "Importing…" toast with a Cancel button that actually kills the pandoc process, instead of leaving the UI with no feedback until the file opens.
+- **Import preview dialog** — after conversion, a read-only preview of the generated Typst appears before anything is written, with a choice of destination ("This project" or next to the source file) and Import/Discard buttons — previously the file was written and opened immediately with no way to review or redirect it.
+- **Bibliography auto-detect after import** — if no bibliography is configured yet and a `.bib`/`.yaml`/`.yml` file sits next to the just-imported document, a toast offers to set it.
+- **Import History** — a small persisted log (`src/import_log.rs`) of past import attempts, reached via a clock icon in the Import dialog; shows source, format, timestamp, success/failure, and a "reveal in file manager" action for successful imports whose output still exists.
+- **Smarter PDF import** — short, isolated lines in `pdftotext` output are now promoted to `== Heading`s instead of the whole document coming through as an undifferentiated wall of text.
+- **RTF import** — one more format in the same pandoc pipeline.
+- **Paste as Document** — paste plain text (e.g. copied prose) directly into a new Typst document via the same markdown pandoc path, without saving a file first.
+- **Multi-select in the single-file import picker** — pick several files at once from a format row; more than one routes through the same sequential batch pipeline "Import Folder…" uses.
+- **"Include subfolders" for folder import** — an optional recursive scan, skipping hidden directories and any `_media` folder pandoc itself generated.
+- **Bounded-parallel batch import** — folder/multi-file import now runs up to 2 pandoc conversions at once (previously strictly one at a time), with a single progress toast updated as each file finishes.
+- **Retry, delete, and clear actions in Import History** — a failed import can be retried without re-picking the file/format; individual entries or the whole history can be removed.
+- **Conversion-quality summary in the preview dialog** — a line above the preview text reporting word/heading/image/citation count, plus an equation count flagging math that may need manual review.
+- **Undo action on successful import** — the post-import toast includes an "Undo" button that closes the tab and deletes the just-written file.
+- **Citation-without-bibliography nudge** — if a converted document cites sources but no `.bib` was found nearby, a toast suggests exporting a Zotero/Mendeley/EndNote library to `.bib` (this is a nudge, not extraction — proprietary citation-manager field codes in DOCX/ODT aren't something pandoc's CLI can export on its own).
+
+---
+
 ## [0.15.1-dev6] — Robust document import (LaTeX, Word, Markdown, ODT)
 
 ### Added
