@@ -68,6 +68,7 @@ pub struct AppWindow {
     #[allow(dead_code)]
     library: Rc<RefCell<Library>>,
     library_window: LibraryWindow,
+    menu_import_item: Button,
 }
 
 impl AppWindow {
@@ -3983,6 +3984,7 @@ impl AppWindow {
             compile_btn,
             library,
             library_window,
+            menu_import_item,
         }
     }
 
@@ -4086,6 +4088,11 @@ impl AppWindow {
         let palette_for_key = palette.clone();
         let editor_for_palette_key = editor.clone();
         let error_panel_for_key = self.error_panel.clone();
+        let menu_import_item_for_key = self.menu_import_item.clone();
+        let window_for_paste_key = self.window.clone();
+        let editor_for_paste_key = self.editor_pane.clone();
+        let work_dir_for_paste_key = self.project_root.clone();
+        let toast_overlay_for_paste_key = self.toast_overlay.clone();
 
         controller.connect_key_pressed(move |_, key, _, modifier| {
             use gtk4::gdk::ModifierType;
@@ -4131,6 +4138,30 @@ impl AppWindow {
                     if error_panel_for_key.grab_first_focus() {
                         return glib::Propagation::Stop;
                     }
+                }
+            }
+            // Ctrl+Shift+I — open the Import picker
+            {
+                use gtk4::gdk::Key;
+                if ctrl && shift && !alt && key == Key::i {
+                    menu_import_item_for_key.emit_clicked();
+                    return glib::Propagation::Stop;
+                }
+            }
+            // Ctrl+Shift+V — Paste as Document
+            {
+                use gtk4::gdk::Key;
+                if ctrl && shift && !alt && key == Key::v {
+                    // AppWindow doesn't keep the shared `Rc<RefCell<Config>>` from
+                    // `new()` around as a field, so load a fresh copy here — any
+                    // setting relevant to import (e.g. bib_path) is written to
+                    // disk immediately when changed, so this stays current.
+                    let cfg = Rc::new(RefCell::new(Config::load().unwrap_or_default()));
+                    paste_as_document(
+                        &window_for_paste_key, &editor_for_paste_key, &work_dir_for_paste_key,
+                        &cfg, &toast_overlay_for_paste_key,
+                    );
+                    return glib::Propagation::Stop;
                 }
             }
             if matches_binding(&kb.find, ctrl, shift, alt, key) {
@@ -5341,11 +5372,23 @@ fn show_import_history_dialog(
     cfg: &Rc<RefCell<Config>>,
     toast_overlay: &adw::ToastOverlay,
 ) {
+    show_import_history_dialog_filtered(window, editor, work_dir, cfg, toast_overlay, false);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn show_import_history_dialog_filtered(
+    window: &adw::ApplicationWindow,
+    editor: &EditorPane,
+    work_dir: &std::path::Path,
+    cfg: &Rc<RefCell<Config>>,
+    toast_overlay: &adw::ToastOverlay,
+    initial_failed_only: bool,
+) {
     let log = crate::import_log::ImportLog::load();
 
     let dlg = adw::Window::new();
     dlg.set_title(Some("Import History"));
-    dlg.set_default_size(480, 420);
+    dlg.set_default_size(480, 460);
     dlg.set_transient_for(Some(window));
     dlg.set_modal(true);
 
@@ -5387,6 +5430,22 @@ fn show_import_history_dialog(
         });
     }
 
+    let failed_only_btn = gtk4::ToggleButton::new();
+    failed_only_btn.set_icon_name("dialog-warning-symbolic");
+    failed_only_btn.set_tooltip_text(Some("Show only failed imports"));
+    failed_only_btn.add_css_class("flat");
+    failed_only_btn.set_active(initial_failed_only);
+    header.pack_end(&failed_only_btn);
+
+    let search_entry = gtk4::SearchEntry::new();
+    search_entry.set_placeholder_text(Some("Filter by filename, format, or message…"));
+    search_entry.set_margin_start(12);
+    search_entry.set_margin_end(12);
+    search_entry.set_margin_top(8);
+
+    let outer_box = GtkBox::new(Orientation::Vertical, 0);
+    outer_box.append(&search_entry);
+
     let list_box = gtk4::ListBox::new();
     list_box.add_css_class("boxed-list");
     list_box.set_selection_mode(gtk4::SelectionMode::None);
@@ -5398,6 +5457,11 @@ fn show_import_history_dialog(
         let name = record.source.file_name().and_then(|n| n.to_str()).unwrap_or("?");
         row.set_title(name);
         row.set_subtitle(&format!("{} · {} · {}", record.date, record.format, record.message));
+        row.set_widget_name(&format!(
+            "{}|{} {} {}",
+            if record.success { "ok" } else { "fail" },
+            name, record.format, record.message
+        ).to_lowercase());
 
         let prefix = if record.success {
             let img = gtk4::Image::from_icon_name("emblem-ok-symbolic");
@@ -5471,6 +5535,35 @@ fn show_import_history_dialog(
         list_box.append(&row);
     }
 
+    let search_text: Rc<RefCell<String>> = Rc::new(RefCell::new(String::new()));
+    {
+        let search_text_c = search_text.clone();
+        let failed_only_c = failed_only_btn.clone();
+        list_box.set_filter_func(move |row| {
+            let wn = row.widget_name().to_string();
+            let Some((status, text)) = wn.split_once('|') else { return true };
+            if failed_only_c.is_active() && status != "fail" {
+                return false;
+            }
+            let query = search_text_c.borrow();
+            query.is_empty() || text.contains(query.as_str())
+        });
+    }
+    {
+        let lb = list_box.clone();
+        let search_text_c = search_text.clone();
+        search_entry.connect_search_changed(move |e| {
+            *search_text_c.borrow_mut() = e.text().to_lowercase();
+            lb.invalidate_filter();
+        });
+    }
+    {
+        let lb = list_box.clone();
+        failed_only_btn.connect_toggled(move |_| {
+            lb.invalidate_filter();
+        });
+    }
+
     let scroll = ScrolledWindow::new();
     scroll.set_vexpand(true);
     scroll.set_child(Some(&list_box));
@@ -5478,10 +5571,11 @@ fn show_import_history_dialog(
     scroll.set_margin_end(12);
     scroll.set_margin_top(8);
     scroll.set_margin_bottom(12);
+    outer_box.append(&scroll);
 
     let toolbar_view = adw::ToolbarView::new();
     toolbar_view.add_top_bar(&header);
-    toolbar_view.set_content(Some(&scroll));
+    toolbar_view.set_content(Some(&outer_box));
     dlg.set_content(Some(&toolbar_view));
     dlg.present();
 }
@@ -5517,6 +5611,27 @@ fn describe_pandoc_failure(stderr: &str) -> String {
             .to_string();
     }
     format!("pandoc error:\n{}", stderr.lines().take(5).collect::<Vec<_>>().join("\n"))
+}
+
+/// Best-effort detection of Zotero/Mendeley/EndNote field codes inside a
+/// `.docx`'s `word/document.xml` — these citation managers store citations as
+/// proprietary custom-XML field codes that pandoc's docx reader doesn't
+/// understand, so such citations silently convert to nothing rather than a
+/// Typst `@key`, unlike plain typed citations. Requires `unzip`; if it's
+/// missing or the file can't be read, this just reports no signatures found
+/// rather than blocking the import on a missing optional tool.
+fn docx_has_citation_manager_fields(path: &std::path::Path) -> bool {
+    let Ok(output) = crate::git_sync::host_command("unzip")
+        .arg("-p").arg(path).arg("word/document.xml")
+        .output()
+    else {
+        return false;
+    };
+    if !output.status.success() {
+        return false;
+    }
+    let xml = String::from_utf8_lossy(&output.stdout).to_lowercase();
+    xml.contains("zotero") || xml.contains("mendeley") || xml.contains("endnote")
 }
 
 /// Build the base pandoc invocation for converting `input_name` (a bare
@@ -5715,6 +5830,7 @@ fn show_import_preview_dialog(
     temp_out_path: std::path::PathBuf,
     media_name: String,
     work_dir: std::path::PathBuf,
+    pandoc_warnings: String,
 ) {
     let input_dir = input_path.parent().map(|p| p.to_path_buf()).unwrap_or_default();
     let out_name = temp_out_path.file_name().and_then(|s| s.to_str()).unwrap_or("output.typ").to_string();
@@ -5759,6 +5875,45 @@ fn show_import_preview_dialog(
     summary_lbl.set_margin_bottom(6);
     summary_lbl.set_wrap(true);
     outer.append(&summary_lbl);
+
+    let warning_lines: Vec<&str> = pandoc_warnings.lines().filter(|l| !l.trim().is_empty()).collect();
+    if !warning_lines.is_empty() {
+        let warn_lbl = gtk4::Label::new(Some(&format!(
+            "pandoc reported {} warning{} during conversion:\n{}",
+            warning_lines.len(),
+            if warning_lines.len() == 1 { "" } else { "s" },
+            warning_lines.iter().take(5).copied().collect::<Vec<&str>>().join("\n"),
+        )));
+        warn_lbl.add_css_class("warning");
+        warn_lbl.add_css_class("caption");
+        warn_lbl.set_halign(Align::Start);
+        warn_lbl.set_xalign(0.0);
+        warn_lbl.set_margin_start(16);
+        warn_lbl.set_margin_end(16);
+        warn_lbl.set_margin_bottom(6);
+        warn_lbl.set_wrap(true);
+        outer.append(&warn_lbl);
+    }
+
+    let is_docx = input_path.extension().and_then(|e| e.to_str())
+        .map(|e| e.eq_ignore_ascii_case("docx")).unwrap_or(false);
+    if is_docx && count_citations(&processed) == 0 && docx_has_citation_manager_fields(&input_path) {
+        let zotero_lbl = gtk4::Label::new(Some(
+            "This document appears to use Zotero/Mendeley/EndNote-linked citations, \
+             which pandoc can't read directly — that's likely why no citations \
+             converted. In Word, use your citation manager's \"Unlink Citations\" \
+             (or equivalent) first, then re-import.",
+        ));
+        zotero_lbl.add_css_class("warning");
+        zotero_lbl.add_css_class("caption");
+        zotero_lbl.set_halign(Align::Start);
+        zotero_lbl.set_xalign(0.0);
+        zotero_lbl.set_margin_start(16);
+        zotero_lbl.set_margin_end(16);
+        zotero_lbl.set_margin_bottom(6);
+        zotero_lbl.set_wrap(true);
+        outer.append(&zotero_lbl);
+    }
 
     let tv = gtk4::TextView::new();
     tv.set_editable(false);
@@ -5901,10 +6056,58 @@ fn import_via_pandoc(
     });
 }
 
+/// Entry point for single-file pandoc import (from the picker, drag-drop,
+/// multi-select, or Retry). Warns first if this exact source was already
+/// imported successfully before, in case the user picked the wrong file or
+/// forgot they'd already converted it; otherwise proceeds immediately.
+fn run_pandoc_import(
+    window: &adw::ApplicationWindow,
+    editor: &EditorPane,
+    cfg: &Rc<RefCell<Config>>,
+    toast_overlay: &adw::ToastOverlay,
+    work_dir: &std::path::Path,
+    input_path: std::path::PathBuf,
+    fmt: &'static ImportFormat,
+) {
+    let log = crate::import_log::ImportLog::load();
+    let prior = log.records.iter().rev().find(|r| r.success && r.source == input_path).cloned();
+
+    let Some(prior) = prior else {
+        run_pandoc_import_confirmed(window, editor, cfg, toast_overlay, work_dir, input_path, fmt);
+        return;
+    };
+
+    let dlg = adw::MessageDialog::new(
+        Some(window),
+        Some("Already Imported"),
+        Some(&format!(
+            "You already imported this file on {}. Import it again?",
+            prior.date
+        )),
+    );
+    dlg.add_response("cancel", "Cancel");
+    dlg.add_response("ok", "Import Anyway");
+    dlg.set_response_appearance("ok", adw::ResponseAppearance::Suggested);
+    dlg.set_default_response(Some("cancel"));
+    dlg.set_close_response("cancel");
+
+    let win = window.clone();
+    let ep = editor.clone();
+    let cfg = cfg.clone();
+    let toast_overlay = toast_overlay.clone();
+    let work_dir = work_dir.to_path_buf();
+    dlg.connect_response(None, move |_, resp| {
+        if resp == "ok" {
+            run_pandoc_import_confirmed(&win, &ep, &cfg, &toast_overlay, &work_dir, input_path.clone(), fmt);
+        }
+    });
+    dlg.present();
+}
+
 /// Spawns pandoc for a single input file and wires up progress/cancel/result
 /// handling. Split out from `import_via_pandoc` so batch/folder import (which
 /// already has its file list, no picker dialog needed) can call it directly.
-fn run_pandoc_import(
+fn run_pandoc_import_confirmed(
     window: &adw::ApplicationWindow,
     editor: &EditorPane,
     cfg: &Rc<RefCell<Config>>,
@@ -5973,6 +6176,7 @@ fn run_pandoc_import(
     }
     toast_overlay.add_toast(toast.clone());
 
+    let started = std::time::Instant::now();
     let child_poll = child.clone();
     let win = window.clone();
     let ep = editor.clone();
@@ -6005,6 +6209,7 @@ fn run_pandoc_import(
                             &win, &ep, &cfg, &toast_overlay,
                             input_path.clone(), fmt.label, processed,
                             out_path.clone(), media_name.clone(), work_dir.clone(),
+                            stderr_text.clone(),
                         );
                     } else {
                         show_alert(&win, "Import Failed", "pandoc reported success but the output file could not be read.");
@@ -6019,7 +6224,13 @@ fn run_pandoc_import(
                 }
                 glib::ControlFlow::Break
             }
-            Ok(None) => glib::ControlFlow::Continue,
+            Ok(None) => {
+                let secs = started.elapsed().as_secs();
+                if secs > 0 {
+                    toast.set_title(&format!("Importing {}… ({secs}s)", fmt.label));
+                }
+                glib::ControlFlow::Continue
+            }
             Err(_) => {
                 drop(guard);
                 toast.dismiss();
@@ -6069,16 +6280,43 @@ fn prompt_paste_filename(
     toast_overlay: &adw::ToastOverlay,
     text: String,
 ) {
-    let dlg = adw::MessageDialog::new(Some(window), Some("Paste as Document"), Some("Name the new document:"));
+    let has_open_doc = editor.get_active_path().is_some();
+
+    let dlg = adw::MessageDialog::new(Some(window), Some("Paste as Document"), None);
     dlg.add_response("cancel", "Cancel");
     dlg.add_response("ok", "Import");
     dlg.set_response_appearance("ok", adw::ResponseAppearance::Suggested);
     dlg.set_default_response(Some("ok"));
     dlg.set_close_response("cancel");
 
+    let container = GtkBox::new(Orientation::Vertical, 10);
+
+    let dest_row = adw::ComboRow::new();
     let entry = Entry::new();
     entry.set_placeholder_text(Some("Untitled"));
-    dlg.set_extra_child(Some(&entry));
+
+    if has_open_doc {
+        dest_row.set_title("Destination");
+        dest_row.set_model(Some(&gtk4::StringList::new(&[
+            "Insert into the current document",
+            "Create a new document",
+        ])));
+        dest_row.set_selected(0);
+        container.append(&dest_row);
+        entry.set_visible(false);
+        {
+            let entry_c = entry.clone();
+            dest_row.connect_selected_notify(move |row| {
+                entry_c.set_visible(row.selected() == 1);
+            });
+        }
+    } else {
+        let lbl = Label::new(Some("Name the new document:"));
+        lbl.set_halign(Align::Start);
+        container.append(&lbl);
+    }
+    container.append(&entry);
+    dlg.set_extra_child(Some(&container));
 
     let win = window.clone();
     let editor = editor.clone();
@@ -6088,9 +6326,10 @@ fn prompt_paste_filename(
     let entry_c = entry.clone();
     dlg.connect_response(None, move |_, resp| {
         if resp != "ok" { return; }
+        let insert_at_cursor = has_open_doc && dest_row.selected() == 0;
         let name = entry_c.text().to_string();
         let stem = if name.trim().is_empty() { "Untitled".to_string() } else { name.trim().to_string() };
-        run_pandoc_import_from_stdin(&win, &editor, &cfg, &toast_overlay, &work_dir_c, text.clone(), &stem);
+        run_pandoc_import_from_stdin(&win, &editor, &cfg, &toast_overlay, &work_dir_c, text.clone(), &stem, insert_at_cursor);
     });
     dlg.present();
 }
@@ -6105,6 +6344,7 @@ fn run_pandoc_import_from_stdin(
     work_dir: &std::path::Path,
     text: String,
     stem: &str,
+    insert_at_cursor: bool,
 ) {
     let out_path = unique_typ_path(work_dir.join(format!("{stem}.typ")));
     let out_name = out_path.file_name().and_then(|s| s.to_str()).unwrap_or("output.typ").to_string();
@@ -6165,11 +6405,21 @@ fn run_pandoc_import_from_stdin(
                 let mut log = crate::import_log::ImportLog::load();
                 if status.success() {
                     if let Ok(raw) = std::fs::read_to_string(&out_path) {
-                        let bib_path = cfg.borrow().bib_path.clone();
-                        let processed = post_process_latex_import(&raw, bib_path.as_deref());
-                        let _ = std::fs::write(&out_path, &processed);
-                        ep.open_file(out_path.clone(), &processed);
-                        log.record(source_label.clone(), "Paste as Document", Some(out_path.clone()), true, "Imported successfully");
+                        if insert_at_cursor {
+                            // Body only — no Zerkalo preamble, since this is
+                            // going into a document that (if templated) already
+                            // has one.
+                            let body = strip_pandoc_preamble(&raw);
+                            let _ = std::fs::remove_file(&out_path);
+                            ep.insert_at_cursor(&body);
+                            log.record(source_label.clone(), "Paste as Document", None, true, "Inserted at cursor");
+                        } else {
+                            let bib_path = cfg.borrow().bib_path.clone();
+                            let processed = post_process_latex_import(&raw, bib_path.as_deref());
+                            let _ = std::fs::write(&out_path, &processed);
+                            ep.open_file(out_path.clone(), &processed);
+                            log.record(source_label.clone(), "Paste as Document", Some(out_path.clone()), true, "Imported successfully");
+                        }
                     } else {
                         show_alert(&win, "Import Failed", "pandoc reported success but the output file could not be read.");
                         log.record(source_label.clone(), "Paste as Document", None, false, "Output file unreadable");
@@ -6327,14 +6577,10 @@ fn import_folder_via_pandoc(
 /// Processes one file from the batch queue, then recurses for the next once
 /// pandoc exits — sequential by design, to avoid many concurrent pandoc
 /// processes and many simultaneous "Importing…" toasts.
-#[allow(clippy::too_many_arguments)]
-/// Up to this many pandoc processes run at once during batch/folder import.
-const MAX_CONCURRENT_IMPORTS: usize = 2;
-
-/// Entry point for batch import: starts up to `MAX_CONCURRENT_IMPORTS` workers
-/// pulling from a shared queue, each recursing into the next file on its own
-/// completion — bounded parallelism rather than strictly one-at-a-time, with
-/// one shared progress toast updated as files finish.
+/// Entry point for batch import: starts up to `cfg.batch_import_concurrency`
+/// workers pulling from a shared queue, each recursing into the next file on
+/// its own completion — bounded parallelism rather than strictly one-at-a-time,
+/// with one shared progress toast updated as files finish.
 #[allow(clippy::too_many_arguments)]
 fn run_batch_import_queue(
     window: adw::ApplicationWindow,
@@ -6351,6 +6597,7 @@ fn run_batch_import_queue(
     let done = Rc::new(std::cell::Cell::new(0usize));
     let failed = Rc::new(std::cell::Cell::new(0usize));
     let active = Rc::new(std::cell::Cell::new(0usize));
+    let written: Rc<RefCell<Vec<std::path::PathBuf>>> = Rc::new(RefCell::new(Vec::new()));
 
     let progress = adw::Toast::new(&format!("Importing… (0 of {total} done)"));
     progress.set_priority(adw::ToastPriority::High);
@@ -6358,12 +6605,13 @@ fn run_batch_import_queue(
     toast_overlay.add_toast(progress.clone());
     let progress = Rc::new(progress);
 
-    let n_workers = MAX_CONCURRENT_IMPORTS.min(total.max(1));
+    let concurrency = cfg.borrow().batch_import_concurrency.max(1) as usize;
+    let n_workers = concurrency.min(total.max(1));
     for _ in 0..n_workers {
         run_next_batch_worker(
             window.clone(), editor.clone(), cfg.clone(), toast_overlay.clone(),
             work_dir.clone(), dest_this_project, queue.clone(), fmt,
-            done.clone(), failed.clone(), active.clone(), total, progress.clone(),
+            done.clone(), failed.clone(), active.clone(), total, progress.clone(), written.clone(),
         );
     }
 }
@@ -6383,19 +6631,48 @@ fn run_next_batch_worker(
     active: Rc<std::cell::Cell<usize>>,
     total: usize,
     progress: Rc<adw::Toast>,
+    written: Rc<RefCell<Vec<std::path::PathBuf>>>,
 ) {
     let Some(input_path) = queue.borrow_mut().pop_front() else {
         // No more work for this worker slot. Once every worker has reached
         // this point (none still active), the batch is finished.
         if active.get() == 0 {
             progress.dismiss();
-            let summary = if failed.get() > 0 {
+            let has_failures = failed.get() > 0;
+            let has_successes = done.get() > 0;
+            let summary = if has_failures {
                 format!("Imported {} of {} files ({} failed)", done.get(), total, failed.get())
             } else {
                 format!("Imported {} of {} files", done.get(), total)
             };
             let toast = adw::Toast::new(&summary);
             toast.set_timeout(5);
+            if has_successes {
+                // Only one action button fits on a toast — undoing the batch is
+                // the more time-sensitive action when there's something to undo.
+                toast.set_button_label(Some("Undo All"));
+                let editor_c = editor.clone();
+                let written_c = written.clone();
+                let fmt_label = fmt.label;
+                toast.connect_button_clicked(move |_| {
+                    let mut log = crate::import_log::ImportLog::load();
+                    for path in written_c.borrow().iter() {
+                        editor_c.close_file_if_open(path);
+                        let _ = std::fs::remove_file(path);
+                        log.record(path.clone(), fmt_label, None, false, "Undone by user (batch)");
+                    }
+                });
+            } else if has_failures {
+                toast.set_button_label(Some("View Failures"));
+                let win_c = window.clone();
+                let ep_c = editor.clone();
+                let work_dir_c = work_dir.clone();
+                let cfg_c = cfg.clone();
+                let toast_overlay_c = toast_overlay.clone();
+                toast.connect_button_clicked(move |_| {
+                    show_import_history_dialog_filtered(&win_c, &ep_c, &work_dir_c, &cfg_c, &toast_overlay_c, true);
+                });
+            }
             toast_overlay.add_toast(toast);
         }
         return;
@@ -6419,7 +6696,7 @@ fn run_next_batch_worker(
             failed.set(failed.get() + 1);
             active.set(active.get() - 1);
             show_alert(&window, "Import Failed", "pandoc was not found. Install it to use folder import.");
-            run_next_batch_worker(window, editor, cfg, toast_overlay, work_dir, dest_this_project, queue, fmt, done, failed, active, total, progress);
+            run_next_batch_worker(window, editor, cfg, toast_overlay, work_dir, dest_this_project, queue, fmt, done, failed, active, total, progress, written);
             return;
         }
     };
@@ -6453,7 +6730,8 @@ fn run_next_batch_worker(
                             let _ = std::fs::remove_file(&out_path);
                         }
                         let mut log = crate::import_log::ImportLog::load();
-                        log.record(input_path.clone(), fmt.label, Some(final_path), true, "Imported successfully (batch)");
+                        log.record(input_path.clone(), fmt.label, Some(final_path.clone()), true, "Imported successfully (batch)");
+                        written.borrow_mut().push(final_path);
                         done.set(done.get() + 1);
                     } else {
                         let mut log = crate::import_log::ImportLog::load();
@@ -6472,7 +6750,7 @@ fn run_next_batch_worker(
                 run_next_batch_worker(
                     window.clone(), editor.clone(), cfg.clone(), toast_overlay.clone(),
                     work_dir.clone(), dest_this_project, queue.clone(), fmt,
-                    done.clone(), failed.clone(), active.clone(), total, progress.clone(),
+                    done.clone(), failed.clone(), active.clone(), total, progress.clone(), written.clone(),
                 );
                 glib::ControlFlow::Break
             }
@@ -6849,7 +7127,7 @@ fn build_hamburger_menu_items() -> HamburgerItems {
         menu_export_item:          make_menu_item("Export…",                     None),
         menu_export_web_item:      make_menu_item("Export for Web…",             None),
         menu_print_item:           make_menu_item("Print PDF",                   Some("Ctrl+P")),
-        menu_import_item:          make_menu_item("Import…",                     None),
+        menu_import_item:          make_menu_item("Import…",                     Some("Ctrl+Shift+I")),
         menu_docs_item:            make_menu_item("Browse Documents…",           None),
         menu_fonts_item:           make_menu_item("Font Management…",            None),
         menu_settings_item:        make_menu_item("Settings",                    None),

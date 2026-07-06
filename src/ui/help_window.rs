@@ -195,6 +195,9 @@ fn shortcuts_blocks() -> Vec<Block<'static>> {
         Block::H2("Autocomplete"),
         Block::Code("@                   Citation popup (requires a .bib file)\n#                   LSP function/keyword popup (requires tinymist)\nTab / Return        Accept selected item\nEsc                 Dismiss popup\n↑ / ↓               Navigate completion list"),
         Block::Gap,
+        Block::H2("Import"),
+        Block::Code("Ctrl+Shift+I        Open the Import picker (LaTeX/Word/Markdown/ODT/HTML/EPUB/RTF/PDF)\nCtrl+Shift+V        Paste as Document (converts clipboard text via pandoc)\nDrag & drop         Drop a document file onto the editor to import it directly"),
+        Block::Gap,
         Block::H2("Git & Window"),
         Block::Code("Ctrl+Shift+S        Commit & push (git sync)\nCtrl+Shift+H        Show keyboard shortcuts (dynamic)\nCtrl+R              Refresh file tree\nCtrl+Q              Quit\nCtrl+?              Open this help window\nSidebar button      Toggle left sidebar\nInsert button       Toggle insert snippets panel\nPop-out button      Open preview in a separate window"),
     ]

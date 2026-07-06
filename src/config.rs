@@ -87,6 +87,8 @@ pub struct Config {
     pub preview_split: i32,
     #[serde(default)]
     pub developer_mode: bool,
+    #[serde(default = "default_batch_import_concurrency")]
+    pub batch_import_concurrency: u32,
     #[serde(default)]
     pub last_export_format: u32,
     #[serde(default)]
@@ -135,6 +137,7 @@ fn default_line_spacing() -> u32 { 2 }
 fn default_sidebar_width() -> i32 { 220 }
 fn default_preview_split() -> i32 { 600 }
 fn default_auto_save_idle_ms() -> u64 { 30_000 }
+fn default_batch_import_concurrency() -> u32 { 2 }
 
 impl Default for Config {
     fn default() -> Self {
@@ -164,6 +167,7 @@ impl Default for Config {
             sidebar_width: default_sidebar_width(),
             preview_split: default_preview_split(),
             developer_mode: false,
+            batch_import_concurrency: default_batch_import_concurrency(),
             last_export_format: 0,
             compile_on_save: false,
             manual_compile_only: false,

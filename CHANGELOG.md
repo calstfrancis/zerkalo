@@ -5,6 +5,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.15.1-dev8] — Import system: duplicates, undo-all, DOCX citation detection
+
+### Added
+- **Keyboard shortcuts** — Ctrl+Shift+I opens the Import picker; Ctrl+Shift+V pastes clipboard text as a document, same as the "Paste as Document" row.
+- **Duplicate-import warning** — re-importing a file already imported successfully now confirms first ("You already imported this on {date}. Import it again?").
+- **Configurable batch concurrency** — Settings → Advanced → "Simultaneous imports" controls how many files Import Folder converts at once (previously a fixed 2).
+- **Search and "failed only" filter in Import History**, plus a "View Failures" action on the batch-import summary toast that opens History pre-filtered.
+- **Undo All for batch import** — the batch summary toast offers to undo every file just written in one action, alongside the existing single-file Undo.
+- **Pandoc warnings surfaced on success** — previously discarded once a conversion succeeded; now shown in the import preview dialog if pandoc reported any.
+- **Paste as Document can insert at the cursor** — when a document is already open, choose "Insert into the current document" instead of always creating a new file; inserts just the converted body (no Zerkalo preamble), since the destination document already has one if it needs one.
+- **Zotero/Mendeley/EndNote detection for DOCX** — if a `.docx` converts with zero citations but its `word/document.xml` contains citation-manager field-code signatures, the preview dialog explains why (these proprietary fields aren't something pandoc's docx reader can follow) and suggests using the citation manager's "Unlink Citations" first.
+- **Elapsed time on the "Importing…" toast** — so a long conversion doesn't look stalled.
+
+---
+
 ## [0.15.1-dev7] — Import system: batch, drag-drop, history, and more
 
 ### Added
