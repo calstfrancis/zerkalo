@@ -427,6 +427,12 @@ impl SettingsDialog {
         dev_mode_row.set_active(current.developer_mode);
         dev_group.add(&dev_mode_row);
 
+        let batch_concurrency_row = adw::SpinRow::with_range(1.0, 5.0, 1.0);
+        batch_concurrency_row.set_title("Simultaneous imports");
+        batch_concurrency_row.set_subtitle("How many documents Import Folder converts at once");
+        batch_concurrency_row.set_value(current.batch_import_concurrency as f64);
+        dev_group.add(&batch_concurrency_row);
+
         let sync_group = adw::PreferencesGroup::new();
         sync_group.set_title("GitHub Sync");
         sync_group.set_description(Some("Personal Access Token for pushing to GitHub. Generate one at github.com → Settings → Developer settings → Personal access tokens → Fine-grained."));
@@ -494,6 +500,7 @@ impl SettingsDialog {
             let spell_autocorrect_row = spell_autocorrect_row.clone();
             let selected_langs = selected_langs.clone();
             let dev_mode_row = dev_mode_row.clone();
+            let batch_concurrency_row = batch_concurrency_row.clone();
             let token_row = token_row.clone();
             let recent_files_cur = current.recent_files.clone();
             let recent_projects_cur = current.recent_projects.clone();
@@ -591,6 +598,7 @@ impl SettingsDialog {
                     sidebar_width: sidebar_width_cur,
                     preview_split: preview_split_cur,
                     developer_mode: dev_mode_row.is_active(),
+                    batch_import_concurrency: batch_concurrency_row.value() as u32,
                     last_export_format: last_export_format_cur,
                     recent_searches: recent_searches_cur.clone(),
                     active_profile: active_profile_cur.clone(),
