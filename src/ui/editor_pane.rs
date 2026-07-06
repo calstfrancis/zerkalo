@@ -195,6 +195,7 @@ pub struct EditorPane {
     on_modified_changed: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
     on_file_dirty: Rc<RefCell<Option<Box<dyn Fn(PathBuf, bool)>>>>,
     on_image_drop: Rc<RefCell<Option<Box<dyn Fn(PathBuf)>>>>,
+    on_document_drop: Rc<RefCell<Option<Box<dyn Fn(PathBuf)>>>>,
     on_delete_file: Rc<RefCell<Option<Box<dyn Fn(PathBuf)>>>>,
     on_page_switch: Rc<RefCell<Option<Box<dyn Fn(String, PathBuf)>>>>,
     on_file_opened: Rc<RefCell<Option<Box<dyn Fn(PathBuf, String)>>>>,
@@ -1011,6 +1012,7 @@ impl EditorPane {
         let on_modified_changed: Rc<RefCell<Option<Box<dyn Fn(bool)>>>> = Rc::new(RefCell::new(None));
         let on_file_dirty: Rc<RefCell<Option<Box<dyn Fn(PathBuf, bool)>>>> = Rc::new(RefCell::new(None));
         let on_image_drop: Rc<RefCell<Option<Box<dyn Fn(PathBuf)>>>> = Rc::new(RefCell::new(None));
+        let on_document_drop: Rc<RefCell<Option<Box<dyn Fn(PathBuf)>>>> = Rc::new(RefCell::new(None));
         let on_delete_file: Rc<RefCell<Option<Box<dyn Fn(PathBuf)>>>> = Rc::new(RefCell::new(None));
         let on_page_switch: Rc<RefCell<Option<Box<dyn Fn(String, PathBuf)>>>> =
             Rc::new(RefCell::new(None));
@@ -1087,6 +1089,7 @@ impl EditorPane {
             on_modified_changed,
             on_file_dirty,
             on_image_drop,
+            on_document_drop,
             on_delete_file,
             on_page_switch,
             on_file_opened,
@@ -2127,6 +2130,10 @@ impl EditorPane {
         *self.on_image_drop.borrow_mut() = Some(Box::new(f));
     }
 
+    pub fn set_on_document_drop(&self, f: impl Fn(PathBuf) + 'static) {
+        *self.on_document_drop.borrow_mut() = Some(Box::new(f));
+    }
+
     pub fn set_on_delete_file(&self, f: impl Fn(PathBuf) + 'static) {
         *self.on_delete_file.borrow_mut() = Some(Box::new(f));
     }
@@ -2601,13 +2608,14 @@ impl EditorPane {
         view.set_left_margin(left_margin);
         view.set_right_margin(8);
 
-        // ── Image drag-and-drop ───────────────────────────────────────────────
+        // ── Image / document drag-and-drop ────────────────────────────────────
         {
             let drop = DropTarget::new(
                 gtk4::gdk::FileList::static_type(),
                 gtk4::gdk::DragAction::COPY,
             );
             let on_drop_cb = self.on_image_drop.clone();
+            let on_doc_drop_cb = self.on_document_drop.clone();
             drop.connect_drop(move |_, value, _, _| {
                 if let Ok(file_list) = value.get::<gtk4::gdk::FileList>() {
                     for file in file_list.files() {
@@ -2615,6 +2623,12 @@ impl EditorPane {
                             let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
                             if matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "svg" | "gif" | "webp") {
                                 if let Some(f) = on_drop_cb.borrow().as_ref() { f(p); }
+                                return true;
+                            }
+                            if matches!(ext.as_str(),
+                                "tex" | "docx" | "md" | "markdown" | "odt" | "html" | "htm" | "epub" | "rtf" | "pdf"
+                            ) {
+                                if let Some(f) = on_doc_drop_cb.borrow().as_ref() { f(p); }
                                 return true;
                             }
                         }
@@ -4677,7 +4691,6 @@ impl EditorPane {
         }
     }
 
-    #[allow(dead_code)]
     pub fn close_file_if_open(&self, path: &PathBuf) {
         if self.state.borrow().tabs.contains_key(path) {
             self.close_file(path);
