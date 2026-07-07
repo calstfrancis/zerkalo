@@ -7,7 +7,7 @@ use libadwaita as adw;
 use adw::prelude::*;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-const RELEASE_NAME: &str = "Steady Hand";
+const RELEASE_NAME: &str = "Open Harbor";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -127,9 +127,9 @@ impl WelcomeWindow {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
                 "Added: import documents from LaTeX, Word, Markdown, ODT, HTML, EPUB, RTF, and PDF via ☰ → Import",
-                "Added: drag-and-drop import, batch/folder import, and Paste as Document (Ctrl+Shift+V)",
-                "Added: Import History with retry, undo, search, and a preview dialog before anything is written",
-                "Added: dropcap color picker and the Marginalia package (margin notes, wide-blocks)",
+                "Added: drag-and-drop import, batch/folder import, and Paste as Document (Ctrl+Shift+I / Ctrl+Shift+V)",
+                "Added: Import History with retry, undo, search, duplicate warnings, and a preview dialog before anything is written",
+                "Added: dropcap color picker and the Marginalia package (margin notes, wide-blocks, captioned margin figures)",
                 "Fixed: error messages are now far more readable, with working Fix It suggestions and accurate error-line highlighting",
                 "Changed: status bar, word-count goal ring, and library empty state visual polish pass",
                 "Changed: LSP status and compile-mode colors now resolve live from the active theme",
