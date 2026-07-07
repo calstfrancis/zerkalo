@@ -67,6 +67,14 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release type="development" version="0.16.1-dev3" date="2026-07-07">
+      <description>
+        <p>0.16.1-dev3 — CV — Two-Column header spacing fix.</p>
+        <ul>
+          <li>Fixed: the gap between the name and contact line in the CV — Two-Column header now matches a plain hand-written CV's spacing exactly, without loosening the spacing anywhere else in the document</li>
+        </ul>
+      </description>
+    </release>
     <release type="development" version="0.16.1-dev2" date="2026-07-07">
       <description>
         <p>0.16.1-dev2 — CV — Two-Column formatting fidelity.</p>

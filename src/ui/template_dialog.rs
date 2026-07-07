@@ -2529,7 +2529,7 @@ fn generate_cv_template(s: &TemplateSettings) -> String {
     let _ = writeln!(out, "] else if CV_STYLE == \"sidebar\" [");
     let _ = writeln!(out, "  #align(center)[");
     let _ = writeln!(out, "    #text(size: 20pt, weight: \"bold\")[#cv-name]");
-    let _ = writeln!(out, "    #v(2pt)");
+    let _ = writeln!(out, "    #v(21pt)");
     let _ = writeln!(out, "    #cv-location · #mylink(\"mailto:\" + cv-email, cv-email) · #cv-phone · #mylink(\"https://\" + cv-links, cv-links)");
     let _ = writeln!(out, "  ]");
     let _ = writeln!(out, "  #v(10pt)");

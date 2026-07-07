@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.16.1-dev3] — CV — Two-Column header spacing fix
+
+### Fixed
+- **CV — Two-Column header spacing** — the gap between the name and the contact line was noticeably tighter than a plain hand-written CV's, because the blank line that produces that gap in a hand-written document falls back to Typst's default paragraph spacing, which this template overrides to stay compact everywhere else. Calibrated the header's own spacing instead of touching the shared paragraph spacing (which would have loosened the gap between dates and bullet points throughout the rest of the CV).
+
+---
+
 ## [0.16.1-dev2] — CV — Two-Column formatting fidelity
 
 ### Changed
