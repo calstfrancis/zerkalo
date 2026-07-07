@@ -28,7 +28,7 @@
     <p>Document workflow:</p>
     <ul>
       <li>New from Template — dialog generates a complete Typst preamble</li>
-      <li>Import from LaTeX, DOCX, or PDF via pandoc</li>
+      <li>Import from LaTeX, Word, Markdown, ODT, HTML, EPUB, RTF, or PDF via pandoc — drag-and-drop, batch/folder import, Paste as Document, and an Import History with retry, undo, and search</li>
       <li>Export to PDF, HTML, DOCX, ODT, or LaTeX; Ctrl+Shift+E for instant PDF export</li>
       <li>Citation style switcher — APA, Chicago, GOST 7.32, and more, plus custom CSL styles</li>
       <li>BibTeX and Hayagriva YAML bibliography support, with cited-only bibliography export and project-wide citation key rename</li>
@@ -67,6 +67,18 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.16.0" date="2026-07-07">
+      <description>
+        <p>0.16.0 "Open Harbor" — universal document import, readable errors, visual polish.</p>
+        <ul>
+          <li>Added: import documents from LaTeX, Word, Markdown, ODT, HTML, EPUB, RTF, and PDF via ☰ → Import, drag-and-drop, or Paste as Document</li>
+          <li>Added: batch/folder import, preview-before-commit dialog, and an Import History with retry, undo, search, duplicate warnings, and citation-manager detection for DOCX</li>
+          <li>Added: dropcap color picker, the Marginalia package, "LaTeX Look" template preset, and custom page/margin/font-size fields</li>
+          <li>Fixed: error messages are now genuinely readable — working Fix It suggestions, accurate error-line highlighting, and plain-language explanations for common mistakes</li>
+          <li>Fixed: status bar, word-count goal ring, and library empty-state visual polish; unreadable diff colors and uncolored tag/category chips</li>
+        </ul>
+      </description>
+    </release>
     <release type="development" version="0.15.1-dev2" date="2026-07-04">
       <description>
         <p>0.15.1-dev2 — LaTeX Look template, custom page settings.</p>

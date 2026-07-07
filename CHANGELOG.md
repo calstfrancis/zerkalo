@@ -5,18 +5,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.15.1-dev8] — Import system: duplicates, undo-all, DOCX citation detection
+## [0.16.0] "Open Harbor" — universal document import, readable errors, visual polish
 
 ### Added
-- **Keyboard shortcuts** — Ctrl+Shift+I opens the Import picker; Ctrl+Shift+V pastes clipboard text as a document, same as the "Paste as Document" row.
-- **Duplicate-import warning** — re-importing a file already imported successfully now confirms first ("You already imported this on {date}. Import it again?").
-- **Configurable batch concurrency** — Settings → Advanced → "Simultaneous imports" controls how many files Import Folder converts at once (previously a fixed 2).
-- **Search and "failed only" filter in Import History**, plus a "View Failures" action on the batch-import summary toast that opens History pre-filtered.
-- **Undo All for batch import** — the batch summary toast offers to undo every file just written in one action, alongside the existing single-file Undo.
-- **Pandoc warnings surfaced on success** — previously discarded once a conversion succeeded; now shown in the import preview dialog if pandoc reported any.
-- **Paste as Document can insert at the cursor** — when a document is already open, choose "Insert into the current document" instead of always creating a new file; inserts just the converted body (no Zerkalo preamble), since the destination document already has one if it needs one.
-- **Zotero/Mendeley/EndNote detection for DOCX** — if a `.docx` converts with zero citations but its `word/document.xml` contains citation-manager field-code signatures, the preview dialog explains why (these proprietary fields aren't something pandoc's docx reader can follow) and suggests using the citation manager's "Unlink Citations" first.
-- **Elapsed time on the "Importing…" toast** — so a long conversion doesn't look stalled.
+- **Universal document import** — LaTeX, Word, Markdown, OpenDocument Text, HTML, EPUB, RTF, and PDF, all via ☰ → Import, drag-and-drop, or Paste as Document (Ctrl+Shift+V and Ctrl+Shift+I). Batch/folder import runs several conversions at once (concurrency configurable in Settings), with a preview-before-commit dialog (destination choice, conversion-quality summary, surfaced pandoc warnings) and an Import History with retry, single/batch undo, search, duplicate-import warnings, and Zotero/Mendeley/EndNote citation-field detection for DOCX.
+- **Dropcap color picker** and the **Marginalia package** (margin notes, wide-blocks, captioned margin figures), plus substantial in-app descriptions for every optional package in the Packages tab.
+- **"LaTeX Look" template preset**, new "LaTeX" and "Ross" margin presets, and custom page size/margin/font-size fields in New from Template / Update Template Settings.
+- **Double-click a word in the preview** to jump to it in the source, complementing the existing Ctrl+Click paragraph jump.
+
+### Fixed
+- **Error messages are now genuinely readable** — the hover Fix It suggestion was silently broken (matching a fabricated string instead of the real diagnostic), the panel's Fix button only ever worked for one error type, and error-line highlighting could land on the wrong file or never appear on background tabs. All three are fixed, plus plain-language explanations for common Typst mistakes (missing/unexpected arguments, type mismatches) and a poisoned compiler-cache lock that could break compilation for the rest of a session.
+- **Visual inconsistencies** — mismatched status-bar separators, an off-center SIMPLE toggle, a hardcoded goal-ring color, and a plain-label library empty state are all fixed or polished; diff colors and uncolored tag/category chips that were unreadable or indistinguishable are fixed.
+- **The in-app "What's New" dialog had gone stale for several builds** and never mentioned any of the above — now current, and will be kept current going forward.
+
+### Changed
+- Consolidated all app-wide CSS into a single file; LSP status and compile-mode colors now resolve live from the active theme instead of hardcoded values.
 
 ---
 
