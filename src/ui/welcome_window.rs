@@ -126,13 +126,13 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
+                "Fixed: CV — Two-Column header spacing now matches a plain hand-written CV exactly, without loosening spacing anywhere else in the document",
                 "Changed: CV — Two-Column now matches a plain hand-written CV exactly — no rule under section headings, dates stack below the title/company line, Skills/Software/Interests render as real bullet lists, and awards omit the dash when there's no separate awarding body to name",
                 "Added: \"CV — Two-Column\" résumé template — sidebar (Education, Skills, Interests, Awards) beside a main column (Experience, Presentations & Publications, Extracurricular)",
                 "Added: new CV helper functions available in every style — #mylink for clickable links, #taglist for plain item lists, #presentation for talks and publications",
                 "Added: universal document import — LaTeX, Word, Markdown, ODT, HTML, EPUB, RTF, and PDF via ☰ → Import, drag-and-drop, batch/folder import, and Paste as Document",
                 "Added: Import History with retry, undo, search, duplicate warnings, and a preview dialog before anything is written",
                 "Fixed: error messages are now far more readable, with working Fix It suggestions and accurate error-line highlighting",
-                "Changed: status bar, word-count goal ring, and library empty state visual polish pass",
             ] {
                 body.append(&bullet_row(item));
             }
