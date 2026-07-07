@@ -67,6 +67,16 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release type="development" version="0.16.1-dev1" date="2026-07-07">
+      <description>
+        <p>0.16.1-dev1 — CV — Two-Column template.</p>
+        <ul>
+          <li>Added: "CV — Two-Column" résumé preset — sidebar (Education, Skills, Interests, Awards) beside a main column (Experience, Presentations &amp; Publications, Extracurricular)</li>
+          <li>Added: new CV helper functions available in every style — #mylink for clickable links, #taglist for plain item lists, #presentation for talks and publications</li>
+          <li>Added: a fourth "Two-Column" option in the status-bar CV style switcher</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.16.0" date="2026-07-07">
       <description>
         <p>0.16.0 "Open Harbor" — universal document import, readable errors, visual polish.</p>

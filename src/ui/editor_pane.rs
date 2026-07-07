@@ -878,7 +878,7 @@ impl EditorPane {
         let cv_style_popover_box = GtkBox::new(Orientation::Vertical, 2);
         cv_style_popover_box.set_margin_top(4); cv_style_popover_box.set_margin_bottom(4);
         cv_style_popover_box.set_margin_start(4); cv_style_popover_box.set_margin_end(4);
-        for label in &["Modern", "Academic", "Classic"] {
+        for label in &["Modern", "Academic", "Classic", "Two-Column"] {
             let row = Button::with_label(label);
             row.add_css_class("flat");
             row.add_css_class("caption");
@@ -1159,7 +1159,7 @@ impl EditorPane {
         // Wire CV style buttons
         {
             let mut child_opt = cv_style_popover_box.first_child();
-            for style in &["modern", "academic", "classic"] {
+            for style in &["modern", "academic", "classic", "sidebar"] {
                 let Some(child) = child_opt else { break };
                 let next = child.next_sibling();
                 let Some(btn) = child.downcast_ref::<Button>() else {
@@ -2334,6 +2334,7 @@ impl EditorPane {
         let display = match style.as_str() {
             "academic" => "Academic",
             "classic"  => "Classic",
+            "sidebar"  => "Two-Column",
             _          => "Modern",
         };
         self.cv_style_label.set_text(display);
@@ -2366,6 +2367,7 @@ impl EditorPane {
         let display = match style {
             "academic" => "Academic",
             "classic"  => "Classic",
+            "sidebar"  => "Two-Column",
             _          => "Modern",
         };
         self.cv_style_label.set_text(display);

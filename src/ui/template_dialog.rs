@@ -290,6 +290,19 @@ const TEMPLATE_PRESETS: &[TemplatePreset] = &[
         include_keywords: false,
         body_kind: BodyKind::Cv,
     },
+    TemplatePreset {
+        name: "CV — Two-Column",
+        description: "Sidebar + main column résumé · Education, Skills & Awards beside Experience · A4",
+        style_idx: 3,   // 3 = sidebar in CV context
+        paper_idx: 1,   // A4
+        margin_idx: 1,  // Narrow
+        spacing_idx: 0, // Single
+        page_num_pos: 4, // None
+        include_toc: false,
+        include_abstract: false,
+        include_keywords: false,
+        body_kind: BodyKind::Cv,
+    },
 ];
 
 // ── Body kind ─────────────────────────────────────────────────────────────────
@@ -2271,6 +2284,7 @@ fn generate_cv_template(s: &TemplateSettings) -> String {
     let cv_style = match s.style_idx {
         1 => "academic",
         2 => "classic",
+        3 => "sidebar",
         _ => "modern",
     };
     let paper = PAPER_SIZES.get(s.paper_idx).map(|(_, k)| *k).unwrap_or("a4");
@@ -2295,7 +2309,7 @@ fn generate_cv_template(s: &TemplateSettings) -> String {
     let _ = writeln!(out, "#set text(font: \"{font}\", size: {font_size}, lang: \"en\")", font = typst_str(font));
     let _ = writeln!(out, "#set par(spacing: 0.55em, leading: 0.65em)");
     let _ = writeln!(out);
-    let _ = writeln!(out, "// Change CV_STYLE to switch theme: \"modern\" | \"academic\" | \"classic\"");
+    let _ = writeln!(out, "// Change CV_STYLE to switch theme: \"modern\" | \"academic\" | \"classic\" | \"sidebar\"");
     let _ = writeln!(out, "#let CV_STYLE = \"{cv_style}\"");
     let _ = writeln!(out);
 
@@ -2420,6 +2434,27 @@ fn generate_cv_template(s: &TemplateSettings) -> String {
     let _ = writeln!(out, "}}");
     let _ = writeln!(out);
 
+    // #mylink — clickable link, underlined and coloured to match the CV's accent
+    let _ = writeln!(out, "#let mylink(url, label) = link(url)[#underline(text(fill: cv-accent, label))]");
+    let _ = writeln!(out);
+
+    // #taglist — plain comma/dot-separated list with no category label (Interests, Software, etc.)
+    let _ = writeln!(out, "#let taglist(items) = {{");
+    let _ = writeln!(out, "  text(fill: cv-muted)[#items.join(\"  ·  \")]");
+    let _ = writeln!(out, "  v(0.15em)");
+    let _ = writeln!(out, "}}");
+    let _ = writeln!(out);
+
+    // #presentation — talks, papers, and publications: role, venue, quoted title, date
+    let _ = writeln!(out, "#let presentation(role, venue, title, years) = {{");
+    let _ = writeln!(out, "  grid(columns: (1fr, auto),");
+    let _ = writeln!(out, "    [*#role* #h(0.25em)#venue, #text(style: \"italic\")[\"#title\"]],");
+    let _ = writeln!(out, "    text(fill: cv-muted, style: \"italic\")[#years],");
+    let _ = writeln!(out, "  )");
+    let _ = writeln!(out, "  v(0.35em)");
+    let _ = writeln!(out, "}}");
+    let _ = writeln!(out);
+
     let _ = writeln!(out, "{TEMPLATE_END}");
     let _ = writeln!(out);
 
@@ -2454,6 +2489,17 @@ fn generate_cv_template(s: &TemplateSettings) -> String {
     let _ = writeln!(out, "  ]");
     let _ = writeln!(out, "  #v(0.45em)");
     let _ = writeln!(out, "  #line(length: 100%, stroke: 1pt)");
+    // Sidebar header: centered name, clickable email/portfolio links, thin rule
+    let _ = writeln!(out, "] else if CV_STYLE == \"sidebar\" [");
+    let _ = writeln!(out, "  #align(center)[");
+    let _ = writeln!(out, "    #text(size: 22pt, weight: \"bold\", tracking: 0.5pt)[#cv-name]");
+    let _ = writeln!(out, "    #v(0.3em)");
+    let _ = writeln!(out, "    #text(size: 9.5pt, fill: cv-muted)[");
+    let _ = writeln!(out, "      #mylink(\"mailto:\" + cv-email, cv-email) #h(0.5em)·#h(0.5em) #cv-phone #h(0.5em)·#h(0.5em) #cv-location #h(0.5em)·#h(0.5em) #mylink(\"https://\" + cv-links, cv-links)");
+    let _ = writeln!(out, "    ]");
+    let _ = writeln!(out, "  ]");
+    let _ = writeln!(out, "  #v(0.4em)");
+    let _ = writeln!(out, "  #line(length: 100%, stroke: 0.5pt)");
     // Classic header: centered name, muted contact, thin rule
     let _ = writeln!(out, "] else [");
     let _ = writeln!(out, "  #align(center)[");
@@ -2471,6 +2517,11 @@ fn generate_cv_template(s: &TemplateSettings) -> String {
     // ── Document body ────────────────────────────────────────────────────────
     let _ = writeln!(out, "// ── Document body ─────────────────────────────────────────────────────");
     let _ = writeln!(out);
+
+    if cv_style == "sidebar" {
+        return generate_cv_sidebar_body(out);
+    }
+
     let _ = writeln!(out, "#section(\"Experience\")[");
     let _ = writeln!(out, "  #job(");
     let _ = writeln!(out, "    \"Senior Engineer\",");
@@ -2507,6 +2558,88 @@ fn generate_cv_template(s: &TemplateSettings) -> String {
     let _ = writeln!(out, "    desc: [Brief description of the award and why it was given.]");
     let _ = writeln!(out, "  )");
     let _ = writeln!(out, "]");
+
+    out
+}
+
+// ── CV: two-column sidebar layout ─────────────────────────────────────────────
+// A distinct body shape from the single-column styles above: sidebar (education,
+// skills, interests, awards) beside a main column (experience, presentations,
+// extracurricular). Reuses the same #section/#job/#edu/#skill/#award/#taglist/
+// #presentation helpers already written into the TEMPLATE block, so switching
+// CV_STYLE afterwards still recolors it correctly.
+fn generate_cv_sidebar_body(mut out: String) -> String {
+    let _ = writeln!(out, "// Toggle optional sections per application");
+    let _ = writeln!(out, "#let show-presentations = true");
+    let _ = writeln!(out, "#let show-extracurricular = true");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "#grid(");
+    let _ = writeln!(out, "  columns: (1fr, 2fr),");
+    let _ = writeln!(out, "  gutter: 24pt,");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "  // ── Left: sidebar ──────────────────────────────────────────────────");
+    let _ = writeln!(out, "  [");
+    let _ = writeln!(out, "    #section(\"Education\")[");
+    let _ = writeln!(out, "      #edu(");
+    let _ = writeln!(out, "        \"B.Sc. Computer Science\",");
+    let _ = writeln!(out, "        \"University Name\",");
+    let _ = writeln!(out, "        \"2015–2019\",");
+    let _ = writeln!(out, "      )");
+    let _ = writeln!(out, "    ]");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "    #section(\"Skills\")[");
+    let _ = writeln!(out, "      #skill(\"Languages\", (\"Rust\", \"Python\", \"TypeScript\"))");
+    let _ = writeln!(out, "      #skill(\"Software\", (\"Git\", \"Docker\", \"PostgreSQL\"))");
+    let _ = writeln!(out, "    ]");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "    #section(\"Interests\")[");
+    let _ = writeln!(out, "      #taglist((\"Interest one\", \"Interest two\", \"Interest three\"))");
+    let _ = writeln!(out, "    ]");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "    #section(\"Awards\")[");
+    let _ = writeln!(out, "      #award(");
+    let _ = writeln!(out, "        \"Award Name\",");
+    let _ = writeln!(out, "        \"Awarding Organisation\",");
+    let _ = writeln!(out, "        \"2023\",");
+    let _ = writeln!(out, "        desc: [Brief description of the award and why it was given.]");
+    let _ = writeln!(out, "      )");
+    let _ = writeln!(out, "    ]");
+    let _ = writeln!(out, "  ],");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "  // ── Right: main column ─────────────────────────────────────────────");
+    let _ = writeln!(out, "  [");
+    let _ = writeln!(out, "    #section(\"Experience\")[");
+    let _ = writeln!(out, "      #job(");
+    let _ = writeln!(out, "        \"Job Title\",");
+    let _ = writeln!(out, "        \"Organization Name\",");
+    let _ = writeln!(out, "        \"Month Year – present\",");
+    let _ = writeln!(out, "        [Responsibility or accomplishment.]");
+    let _ = writeln!(out, "      )");
+    let _ = writeln!(out, "    ]");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "    #if show-presentations [");
+    let _ = writeln!(out, "      #section(\"Presentations & Publications\")[");
+    let _ = writeln!(out, "        #presentation(");
+    let _ = writeln!(out, "          \"Presenter\",");
+    let _ = writeln!(out, "          \"Conference Name\",");
+    let _ = writeln!(out, "          \"Title of presentation\",");
+    let _ = writeln!(out, "          \"Month Year\",");
+    let _ = writeln!(out, "        )");
+    let _ = writeln!(out, "      ]");
+    let _ = writeln!(out, "    ]");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "    #if show-extracurricular [");
+    let _ = writeln!(out, "      #section(\"Extracurricular\")[");
+    let _ = writeln!(out, "        #job(");
+    let _ = writeln!(out, "          \"Role Title\",");
+    let _ = writeln!(out, "          \"Organization Name\",");
+    let _ = writeln!(out, "          \"Year – present\",");
+    let _ = writeln!(out, "          [Description of role or achievement.]");
+    let _ = writeln!(out, "        )");
+    let _ = writeln!(out, "      ]");
+    let _ = writeln!(out, "    ]");
+    let _ = writeln!(out, "  ],");
+    let _ = writeln!(out, ")");
 
     out
 }
@@ -4089,6 +4222,35 @@ pub fn replace_title_page(existing: &str, new_template: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sidebar_cv_uses_two_column_layout_and_new_helpers() {
+        let settings = TemplateSettings {
+            title: String::new(), subtitle: String::new(),
+            author: "Jane Doe".to_string(), affiliation: String::new(),
+            course: String::new(), professor: String::new(), date: String::new(),
+            style_idx: 3, paper_idx: 1,
+            custom_paper_w: String::new(), custom_paper_h: String::new(),
+            margin_idx: 1, custom_margin: String::new(),
+            font: "Linux Libertine".to_string(), font_size: "10.5pt".to_string(),
+            spacing: "0.65em".to_string(), page_num_pos: 4, header_style: 0,
+            include_toc: false, toc_depth: 2,
+            include_abstract: false, abstract_text: String::new(),
+            include_keywords: false, keywords: String::new(),
+            heading_numbering: false, numbering_format: String::new(),
+            languages: Vec::new(), packages: Vec::new(),
+            dropcap_font: String::new(), dropcap_lines: 3, dropcap_color: String::new(),
+            body_kind: BodyKind::Cv, bib_path: None,
+        };
+        let src = generate_typst_template(&settings);
+        assert!(src.contains("#let CV_STYLE = \"sidebar\""));
+        assert!(src.contains("#let mylink(url, label)"));
+        assert!(src.contains("#let taglist(items)"));
+        assert!(src.contains("#let presentation(role, venue, title, years)"));
+        assert!(src.contains("columns: (1fr, 2fr)"));
+        assert!(src.contains("#taglist((\"Interest one\""));
+        assert!(src.contains("#presentation("));
+    }
 
     #[test]
     fn custom_paper_and_margin_generate_expected_typst() {

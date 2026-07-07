@@ -25,7 +25,8 @@ assets/icons/
 Reference Documents/
 
 # Working documents (local only)
-We Awaken In Christ's Body.typ
+*.typ
+!templates/**/*.typ
 
 # Plans / future work (local only)
 future-plans.md
