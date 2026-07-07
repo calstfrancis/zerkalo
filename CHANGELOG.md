@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.16.1-dev2] — CV — Two-Column formatting fidelity
+
+### Changed
+- **CV — Two-Column template now matches a plain hand-written CV's formatting exactly**: no rule under section headings (native heading style instead), dates stack below the title/company line (beside it only for modern/academic/classic), Skills/Software/Interests render as real bullet lists, and awards omit the dash entirely when there's no separate awarding body to name (`#award(title, none, years)`). The header layout, spacing, and link colour (plain blue) now mirror a plain reference document precisely, so importing an existing hand-written CV into this template is a seamless, near-lossless conversion.
+
+---
+
 ## [0.16.1-dev1] — CV — Two-Column template
 
 ### Added

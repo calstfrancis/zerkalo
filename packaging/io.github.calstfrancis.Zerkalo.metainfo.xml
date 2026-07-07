@@ -67,6 +67,14 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release type="development" version="0.16.1-dev2" date="2026-07-07">
+      <description>
+        <p>0.16.1-dev2 — CV — Two-Column formatting fidelity.</p>
+        <ul>
+          <li>Changed: CV — Two-Column now matches a plain hand-written CV exactly — no rule under section headings, dates stack below the title/company line, Skills/Software/Interests render as real bullet lists, and awards omit the dash when there's no separate awarding body to name</li>
+        </ul>
+      </description>
+    </release>
     <release type="development" version="0.16.1-dev1" date="2026-07-07">
       <description>
         <p>0.16.1-dev1 — CV — Two-Column template.</p>

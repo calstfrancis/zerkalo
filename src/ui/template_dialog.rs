@@ -292,10 +292,10 @@ const TEMPLATE_PRESETS: &[TemplatePreset] = &[
     },
     TemplatePreset {
         name: "CV — Two-Column",
-        description: "Sidebar + main column résumé · Education, Skills & Awards beside Experience · A4",
+        description: "Minimalist, rule-free résumé · sidebar (Education, Skills & Awards) beside a main Experience column · A4",
         style_idx: 3,   // 3 = sidebar in CV context
         paper_idx: 1,   // A4
-        margin_idx: 1,  // Narrow
+        margin_idx: 0,  // Normal (1.5cm x/y for CVs)
         spacing_idx: 0, // Single
         page_num_pos: 4, // None
         include_toc: false,
@@ -2324,26 +2324,31 @@ fn generate_cv_template(s: &TemplateSettings) -> String {
     let _ = writeln!(out, "// ── CV helper functions ─────────────────────────────────────────────────");
     let _ = writeln!(out);
 
-    // #section
+    // #section — sidebar style uses a plain native heading (no rule, no manual
+    // spacing) to match a hand-written CV's `== Heading` exactly.
     let _ = writeln!(out, "#let section(title, body) = {{");
-    let _ = writeln!(out, "  v(0.9em)");
-    let _ = writeln!(out, "  if CV_STYLE == \"modern\" [");
-    let _ = writeln!(out, "    #grid(columns: (4pt, 1fr), gutter: 0.45em,");
-    let _ = writeln!(out, "      box(height: 0.9em, fill: cv-accent, radius: 1pt),");
-    let _ = writeln!(out, "      text(weight: \"bold\", size: 9.5pt, fill: cv-accent, tracking: 1pt)[#upper(title)],");
-    let _ = writeln!(out, "    )");
-    let _ = writeln!(out, "    #v(-0.5em)");
-    let _ = writeln!(out, "    #line(length: 100%, stroke: 0.4pt + cv-accent)");
-    let _ = writeln!(out, "  ] else if CV_STYLE == \"academic\" [");
-    let _ = writeln!(out, "    #text(weight: \"bold\", size: 10pt)[#smallcaps(upper(title))]");
-    let _ = writeln!(out, "    #v(-0.45em)");
-    let _ = writeln!(out, "    #line(length: 100%, stroke: 1pt)");
-    let _ = writeln!(out, "  ] else [");
-    let _ = writeln!(out, "    #text(weight: \"bold\", style: \"italic\")[#title]");
-    let _ = writeln!(out, "    #v(-0.4em)");
-    let _ = writeln!(out, "    #line(length: 100%, stroke: 0.5pt)");
-    let _ = writeln!(out, "  ]");
-    let _ = writeln!(out, "  v(0.4em)");
+    let _ = writeln!(out, "  if CV_STYLE == \"sidebar\" {{");
+    let _ = writeln!(out, "    heading(level: 2)[#title]");
+    let _ = writeln!(out, "  }} else {{");
+    let _ = writeln!(out, "    v(0.9em)");
+    let _ = writeln!(out, "    if CV_STYLE == \"modern\" [");
+    let _ = writeln!(out, "      #grid(columns: (4pt, 1fr), gutter: 0.45em,");
+    let _ = writeln!(out, "        box(height: 0.9em, fill: cv-accent, radius: 1pt),");
+    let _ = writeln!(out, "        text(weight: \"bold\", size: 9.5pt, fill: cv-accent, tracking: 1pt)[#upper(title)],");
+    let _ = writeln!(out, "      )");
+    let _ = writeln!(out, "      #v(-0.5em)");
+    let _ = writeln!(out, "      #line(length: 100%, stroke: 0.4pt + cv-accent)");
+    let _ = writeln!(out, "    ] else if CV_STYLE == \"academic\" [");
+    let _ = writeln!(out, "      #text(weight: \"bold\", size: 10pt)[#smallcaps(upper(title))]");
+    let _ = writeln!(out, "      #v(-0.45em)");
+    let _ = writeln!(out, "      #line(length: 100%, stroke: 1pt)");
+    let _ = writeln!(out, "    ] else [");
+    let _ = writeln!(out, "      #text(weight: \"bold\", style: \"italic\")[#title]");
+    let _ = writeln!(out, "      #v(-0.4em)");
+    let _ = writeln!(out, "      #line(length: 100%, stroke: 0.5pt)");
+    let _ = writeln!(out, "    ]");
+    let _ = writeln!(out, "    v(0.4em)");
+    let _ = writeln!(out, "  }}");
     let _ = writeln!(out, "  body");
     let _ = writeln!(out, "}}");
     let _ = writeln!(out);
@@ -2360,6 +2365,10 @@ fn generate_cv_template(s: &TemplateSettings) -> String {
     let _ = writeln!(out, "      [*#title* #h(0.3em)#text(style: \"italic\")[#company]],");
     let _ = writeln!(out, "      text(style: \"italic\", fill: cv-muted)[#years],");
     let _ = writeln!(out, "    )");
+    let _ = writeln!(out, "  }} else if CV_STYLE == \"sidebar\" {{");
+    let _ = writeln!(out, "    [*#title* --- #company]");
+    let _ = writeln!(out, "    linebreak()");
+    let _ = writeln!(out, "    text(style: \"italic\")[#years]");
     let _ = writeln!(out, "  }} else {{");
     let _ = writeln!(out, "    grid(columns: (1fr, auto),");
     let _ = writeln!(out, "      [*#title* #h(0.25em)#text(fill: cv-muted)[—]#h(0.25em)#company],");
@@ -2384,13 +2393,20 @@ fn generate_cv_template(s: &TemplateSettings) -> String {
     let _ = writeln!(out, "      [*#degree* #h(0.3em)#text(style: \"italic\")[#institution]],");
     let _ = writeln!(out, "      text(style: \"italic\", fill: cv-muted)[#years],");
     let _ = writeln!(out, "    )");
+    let _ = writeln!(out, "  }} else if CV_STYLE == \"sidebar\" {{");
+    let _ = writeln!(out, "    [*#degree*]");
+    let _ = writeln!(out, "    linebreak()");
+    let _ = writeln!(out, "    if note != none {{ note; linebreak() }}");
+    let _ = writeln!(out, "    [#institution]");
+    let _ = writeln!(out, "    linebreak()");
+    let _ = writeln!(out, "    [#years]");
     let _ = writeln!(out, "  }} else {{");
     let _ = writeln!(out, "    grid(columns: (1fr, auto),");
     let _ = writeln!(out, "      [*#degree* #h(0.25em)#text(fill: cv-muted)[—]#h(0.25em)#institution],");
     let _ = writeln!(out, "      text(fill: cv-muted, style: \"italic\")[#years],");
     let _ = writeln!(out, "    )");
     let _ = writeln!(out, "  }}");
-    let _ = writeln!(out, "  if note != none {{ v(0.15em); note }}");
+    let _ = writeln!(out, "  if CV_STYLE != \"sidebar\" and note != none {{ v(0.15em); note }}");
     let _ = writeln!(out, "  v(0.45em)");
     let _ = writeln!(out, "}}");
     let _ = writeln!(out);
@@ -2405,6 +2421,9 @@ fn generate_cv_template(s: &TemplateSettings) -> String {
     let _ = writeln!(out, "    #v(0.15em)");
     let _ = writeln!(out, "  ] else if CV_STYLE == \"academic\" [");
     let _ = writeln!(out, "    *#category:* #items.join(\", \") \\");
+    let _ = writeln!(out, "  ] else if CV_STYLE == \"sidebar\" [");
+    let _ = writeln!(out, "    #text(weight: \"bold\")[#category]");
+    let _ = writeln!(out, "    #list(..items.map(item => [#item]))");
     let _ = writeln!(out, "  ] else [");
     let _ = writeln!(out, "    #text(style: \"italic\")[#category:] #h(0.3em)#items.join(\", \") \\");
     let _ = writeln!(out, "  ]");
@@ -2423,6 +2442,10 @@ fn generate_cv_template(s: &TemplateSettings) -> String {
     let _ = writeln!(out, "      [*#title* #h(0.3em)#text(style: \"italic\")[#org]],");
     let _ = writeln!(out, "      text(style: \"italic\", fill: cv-muted)[#years],");
     let _ = writeln!(out, "    )");
+    let _ = writeln!(out, "  }} else if CV_STYLE == \"sidebar\" {{");
+    let _ = writeln!(out, "    if org != none {{ [*#title* --- #org] }} else {{ [*#title*] }}");
+    let _ = writeln!(out, "    linebreak()");
+    let _ = writeln!(out, "    [#years]");
     let _ = writeln!(out, "  }} else {{");
     let _ = writeln!(out, "    grid(columns: (1fr, auto),");
     let _ = writeln!(out, "      [*#title* #h(0.25em)#text(fill: cv-muted)[—]#h(0.25em)#org],");
@@ -2434,23 +2457,35 @@ fn generate_cv_template(s: &TemplateSettings) -> String {
     let _ = writeln!(out, "}}");
     let _ = writeln!(out);
 
-    // #mylink — clickable link, underlined and coloured to match the CV's accent
-    let _ = writeln!(out, "#let mylink(url, label) = link(url)[#underline(text(fill: cv-accent, label))]");
+    // #mylink — clickable link, underlined; sidebar uses a plain blue to match a
+    // hand-written CV's link colour, other styles pick up the CV's own accent.
+    let _ = writeln!(out, "#let mylink(url, label) = link(url)[#underline(text(fill: if CV_STYLE == \"sidebar\" {{ blue }} else {{ cv-accent }}, label))]");
     let _ = writeln!(out);
 
-    // #taglist — plain comma/dot-separated list with no category label (Interests, Software, etc.)
+    // #taglist — plain list with no category label (Interests, Software, etc.);
+    // sidebar renders real bullet points, other styles a single dot-joined line.
     let _ = writeln!(out, "#let taglist(items) = {{");
-    let _ = writeln!(out, "  text(fill: cv-muted)[#items.join(\"  ·  \")]");
-    let _ = writeln!(out, "  v(0.15em)");
+    let _ = writeln!(out, "  if CV_STYLE == \"sidebar\" {{");
+    let _ = writeln!(out, "    list(..items.map(item => [#item]))");
+    let _ = writeln!(out, "  }} else {{");
+    let _ = writeln!(out, "    text(fill: cv-muted)[#items.join(\"  ·  \")]");
+    let _ = writeln!(out, "    v(0.15em)");
+    let _ = writeln!(out, "  }}");
     let _ = writeln!(out, "}}");
     let _ = writeln!(out);
 
     // #presentation — talks, papers, and publications: role, venue, quoted title, date
     let _ = writeln!(out, "#let presentation(role, venue, title, years) = {{");
-    let _ = writeln!(out, "  grid(columns: (1fr, auto),");
-    let _ = writeln!(out, "    [*#role* #h(0.25em)#venue, #text(style: \"italic\")[\"#title\"]],");
-    let _ = writeln!(out, "    text(fill: cv-muted, style: \"italic\")[#years],");
-    let _ = writeln!(out, "  )");
+    let _ = writeln!(out, "  if CV_STYLE == \"sidebar\" {{");
+    let _ = writeln!(out, "    [*#role* #h(0.25em)#venue, #text(style: \"italic\")[\"#title\"]]");
+    let _ = writeln!(out, "    linebreak()");
+    let _ = writeln!(out, "    text(style: \"italic\")[#years]");
+    let _ = writeln!(out, "  }} else {{");
+    let _ = writeln!(out, "    grid(columns: (1fr, auto),");
+    let _ = writeln!(out, "      [*#role* #h(0.25em)#venue, #text(style: \"italic\")[\"#title\"]],");
+    let _ = writeln!(out, "      text(fill: cv-muted, style: \"italic\")[#years],");
+    let _ = writeln!(out, "    )");
+    let _ = writeln!(out, "  }}");
     let _ = writeln!(out, "  v(0.35em)");
     let _ = writeln!(out, "}}");
     let _ = writeln!(out);
@@ -2489,17 +2524,17 @@ fn generate_cv_template(s: &TemplateSettings) -> String {
     let _ = writeln!(out, "  ]");
     let _ = writeln!(out, "  #v(0.45em)");
     let _ = writeln!(out, "  #line(length: 100%, stroke: 1pt)");
-    // Sidebar header: centered name, clickable email/portfolio links, thin rule
+    // Sidebar header: matches a plain hand-written CV — 20pt name, tight gap,
+    // location-first contact line in the default ink colour, one thin rule after.
     let _ = writeln!(out, "] else if CV_STYLE == \"sidebar\" [");
     let _ = writeln!(out, "  #align(center)[");
-    let _ = writeln!(out, "    #text(size: 22pt, weight: \"bold\", tracking: 0.5pt)[#cv-name]");
-    let _ = writeln!(out, "    #v(0.3em)");
-    let _ = writeln!(out, "    #text(size: 9.5pt, fill: cv-muted)[");
-    let _ = writeln!(out, "      #mylink(\"mailto:\" + cv-email, cv-email) #h(0.5em)·#h(0.5em) #cv-phone #h(0.5em)·#h(0.5em) #cv-location #h(0.5em)·#h(0.5em) #mylink(\"https://\" + cv-links, cv-links)");
-    let _ = writeln!(out, "    ]");
+    let _ = writeln!(out, "    #text(size: 20pt, weight: \"bold\")[#cv-name]");
+    let _ = writeln!(out, "    #v(2pt)");
+    let _ = writeln!(out, "    #cv-location · #mylink(\"mailto:\" + cv-email, cv-email) · #cv-phone · #mylink(\"https://\" + cv-links, cv-links)");
     let _ = writeln!(out, "  ]");
-    let _ = writeln!(out, "  #v(0.4em)");
-    let _ = writeln!(out, "  #line(length: 100%, stroke: 0.5pt)");
+    let _ = writeln!(out, "  #v(10pt)");
+    let _ = writeln!(out, "  #line(length: 100%)");
+    let _ = writeln!(out, "  #v(5pt)");
     // Classic header: centered name, muted contact, thin rule
     let _ = writeln!(out, "] else [");
     let _ = writeln!(out, "  #align(center)[");
@@ -2511,8 +2546,10 @@ fn generate_cv_template(s: &TemplateSettings) -> String {
     let _ = writeln!(out, "  #line(length: 100%, stroke: 0.5pt)");
     let _ = writeln!(out, "]");
     let _ = writeln!(out);
-    let _ = writeln!(out, "#v(0.6em)");
-    let _ = writeln!(out);
+    if cv_style != "sidebar" {
+        let _ = writeln!(out, "#v(0.6em)");
+        let _ = writeln!(out);
+    }
 
     // ── Document body ────────────────────────────────────────────────────────
     let _ = writeln!(out, "// ── Document body ─────────────────────────────────────────────────────");
