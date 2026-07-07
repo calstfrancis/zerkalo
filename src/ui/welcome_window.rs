@@ -126,13 +126,13 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
-                "Added: import documents from LaTeX, Word, Markdown, ODT, HTML, EPUB, RTF, and PDF via ☰ → Import",
-                "Added: drag-and-drop import, batch/folder import, and Paste as Document (Ctrl+Shift+I / Ctrl+Shift+V)",
+                "Added: \"CV — Two-Column\" résumé template — sidebar (Education, Skills, Interests, Awards) beside a main column (Experience, Presentations & Publications, Extracurricular)",
+                "Added: new CV helper functions available in every style — #mylink for clickable links, #taglist for plain item lists, #presentation for talks and publications",
+                "Added: a fourth \"Two-Column\" option in the status-bar CV style switcher",
+                "Added: universal document import — LaTeX, Word, Markdown, ODT, HTML, EPUB, RTF, and PDF via ☰ → Import, drag-and-drop, batch/folder import, and Paste as Document",
                 "Added: Import History with retry, undo, search, duplicate warnings, and a preview dialog before anything is written",
-                "Added: dropcap color picker and the Marginalia package (margin notes, wide-blocks, captioned margin figures)",
                 "Fixed: error messages are now far more readable, with working Fix It suggestions and accurate error-line highlighting",
                 "Changed: status bar, word-count goal ring, and library empty state visual polish pass",
-                "Changed: LSP status and compile-mode colors now resolve live from the active theme",
             ] {
                 body.append(&bullet_row(item));
             }

@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.16.1-dev1] — CV — Two-Column template
+
+### Added
+- **CV — Two-Column template** — a new résumé preset with an Education/Skills/Interests/Awards sidebar beside an Experience/Presentations/Extracurricular main column, selectable from New from Template alongside CV — Modern/Academic/Classic.
+- **New CV helper functions**, available in every CV style: `#mylink(url, label)` for underlined clickable links, `#taglist(items)` for a plain list without a category label (Interests, etc.), and `#presentation(role, venue, title, years)` for talks/publications entries.
+- The status-bar CV style switcher gained a fourth "Two-Column" option.
+
+---
+
 ## [0.16.0] "Open Harbor" — universal document import, readable errors, visual polish
 
 ### Added
