@@ -91,47 +91,6 @@
         </ul>
       </description>
     </release>
-    <release type="development" version="0.16.1-dev6" date="2026-07-08">
-      <description>
-        <p>0.16.1-dev6 — Skrizhal CV element integration.</p>
-        <ul>
-          <li>Fixed: CV — Two-Column (and other sidebar-style CVs) rendered Education entries with a differently-cased category (e.g. "education" instead of "Education") crammed onto one line instead of the intended stacked degree/school/dates layout — category matching is now case-insensitive throughout</li>
-          <li>Added: in CV mode, the citation panel connects to a Skrizhal CV-element YAML database instead of a bibliography — panel header and search swap to CV Elements, and selecting an entry inserts #cv-entry("key")</li>
-          <li>Added: "Skrizhal" launch button in CV mode opens the installed Skrizhal flatpak directly</li>
-          <li>Added: "!" autocomplete for CV entries, mirroring the existing "@" citation autocomplete</li>
-          <li>Added: cv_elements_path setting (global and per-project), watched and reloaded automatically on change, now editable from Settings → Extras</li>
-          <li>Added: backward compatibility for CV documents created before the #cv-section rewrite — legacy #job/#edu/#skill/#award/#presentation helpers are re-injected when detected</li>
-          <li>Improved: find bar highlights the current match and scrolls to center reliably</li>
-          <li>Improved: changelog window layout and settings dialog resizing</li>
-        </ul>
-      </description>
-    </release>
-    <release type="development" version="0.16.1-dev3" date="2026-07-07">
-      <description>
-        <p>0.16.1-dev3 — CV — Two-Column header spacing fix.</p>
-        <ul>
-          <li>Fixed: the gap between the name and contact line in the CV — Two-Column header now matches a plain hand-written CV's spacing exactly, without loosening the spacing anywhere else in the document</li>
-        </ul>
-      </description>
-    </release>
-    <release type="development" version="0.16.1-dev2" date="2026-07-07">
-      <description>
-        <p>0.16.1-dev2 — CV — Two-Column formatting fidelity.</p>
-        <ul>
-          <li>Changed: CV — Two-Column now matches a plain hand-written CV exactly — no rule under section headings, dates stack below the title/company line, Skills/Software/Interests render as real bullet lists, and awards omit the dash when there's no separate awarding body to name</li>
-        </ul>
-      </description>
-    </release>
-    <release type="development" version="0.16.1-dev1" date="2026-07-07">
-      <description>
-        <p>0.16.1-dev1 — CV — Two-Column template.</p>
-        <ul>
-          <li>Added: "CV — Two-Column" résumé preset — sidebar (Education, Skills, Interests, Awards) beside a main column (Experience, Presentations &amp; Publications, Extracurricular)</li>
-          <li>Added: new CV helper functions available in every style — #mylink for clickable links, #taglist for plain item lists, #presentation for talks and publications</li>
-          <li>Added: a fourth "Two-Column" option in the status-bar CV style switcher</li>
-        </ul>
-      </description>
-    </release>
     <release version="0.16.0" date="2026-07-07">
       <description>
         <p>0.16.0 "Open Harbor" — universal document import, readable errors, visual polish.</p>
