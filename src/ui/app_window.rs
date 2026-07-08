@@ -642,13 +642,14 @@ impl AppWindow {
         // cv-helpers.typ's content is static (embedded), so a one-time
         // virtual-file override is correct; the actual data path is stored
         // and re-read fresh on every compile (see set_cv_elements_path) so
-        // edits made in Skrizhal while Zerkalo is open aren't stale.
-        if effective_cv_elements.is_some() {
-            preview_pane.set_buffer_snapshot(
-                project_root.join("cv-helpers.typ"),
-                CV_HELPERS_TYPST.to_string(),
-            );
-        }
+        // edits made in Skrizhal while Zerkalo is open aren't stale. Injected
+        // unconditionally (not gated on a Skrizhal file being configured)
+        // since CV templates now unconditionally `#import` it — cv-data
+        // degrades to an empty dict, and cv-section shows "No entries yet."
+        preview_pane.set_buffer_snapshot(
+            project_root.join("cv-helpers.typ"),
+            CV_HELPERS_TYPST.to_string(),
+        );
         preview_pane.set_cv_elements_path(effective_cv_elements.clone());
         let error_panel = ErrorPanel::new();
         error_panel.widget().set_visible(false);
@@ -1476,6 +1477,31 @@ impl AppWindow {
         // so the import machinery below — which shows in-progress/result toasts —
         // can capture it too.
         let toast_overlay = adw::ToastOverlay::new();
+
+        // ── Citation panel: "Skrizhal" button launches the actual app ────────
+        {
+            let toast_for_skrizhal = toast_overlay.clone();
+            citation_panel.set_on_open_skrizhal(move || {
+                let installed = crate::git_sync::host_command("flatpak")
+                    .args(["info", "io.github.calstfrancis.Skrizhal"])
+                    .output()
+                    .map(|o| o.status.success())
+                    .unwrap_or(false);
+                if !installed {
+                    toast_for_skrizhal.add_toast(adw::Toast::new(
+                        "Skrizhal isn't installed — see calstfrancis.github.io/flatpak",
+                    ));
+                    return;
+                }
+                let result = crate::git_sync::host_command("flatpak")
+                    .args(["run", "io.github.calstfrancis.Skrizhal"])
+                    .spawn();
+                if let Err(e) = result {
+                    tracing::warn!("Couldn't launch Skrizhal: {e}");
+                    toast_for_skrizhal.add_toast(adw::Toast::new("Couldn't open Skrizhal"));
+                }
+            });
+        }
 
         let window_for_import = window.clone();
         let editor_for_import = editor_pane.clone();
@@ -7334,15 +7360,21 @@ fn show_doc_stats(
 
 fn show_changelog(parent: &impl IsA<gtk4::Window>) {
     const CHANGELOG: &str = include_str!("../../CHANGELOG.md");
+    const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
     let win = adw::Window::new();
     win.set_title(Some("Changelog — Zerkalo"));
-    win.set_default_width(660);
-    win.set_default_height(600);
+    win.set_default_width(720);
+    win.set_default_height(680);
     win.set_transient_for(Some(parent));
     win.set_modal(false);
 
     let header = adw::HeaderBar::new();
+    let title_widget = adw::WindowTitle::new(
+        "Changelog",
+        &format!("You're on v{CURRENT_VERSION}"),
+    );
+    header.set_title_widget(Some(&title_widget));
 
     let body = gtk4::Box::new(Orientation::Vertical, 4);
     body.set_margin_start(24);
@@ -7350,37 +7382,59 @@ fn show_changelog(parent: &impl IsA<gtk4::Window>) {
     body.set_margin_top(16);
     body.set_margin_bottom(24);
 
+    let mut first_heading = true;
     for line in CHANGELOG.lines() {
         let trimmed = line.trim();
-        if trimmed.starts_with("## [") {
-            // "## [0.12.32] — 2026-06-08"
-            let inner = trimmed.trim_start_matches("## [").replace(']', "");
-            let lbl = gtk4::Label::new(Some(&inner));
-            lbl.add_css_class("title-3");
-            lbl.set_xalign(0.0);
-            lbl.set_margin_top(16);
-            lbl.set_margin_bottom(2);
-            // Ellipsize prevents long titles from setting a large minimum width
-            // that propagates through the Clamp and forces the window wider.
-            lbl.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-            body.append(&lbl);
-        } else if trimmed.starts_with("### ") {
-            let text = trimmed.trim_start_matches("### ");
+        if let Some(inner) = trimmed.strip_prefix("## [") {
+            // "## [0.16.1-dev4] — Skrizhal CV element integration"
+            // Version and title are split onto their own rows — a version
+            // tag is always short (never needs eliding), and the title can
+            // then wrap freely instead of being cut off with "…".
+            let (version, rest) = match inner.split_once(']') {
+                Some((v, r)) => (v, r.trim()),
+                None => (inner.trim_end_matches(']'), ""),
+            };
+            let title = rest.strip_prefix("— ").unwrap_or(rest);
+
+            let heading_row = gtk4::Box::new(Orientation::Horizontal, 8);
+            heading_row.set_margin_top(if first_heading { 0 } else { 22 });
+            first_heading = false;
+
+            let ver_lbl = gtk4::Label::new(Some(version));
+            ver_lbl.add_css_class("monospace");
+            ver_lbl.add_css_class("dim-label");
+            ver_lbl.add_css_class("caption-heading");
+            ver_lbl.set_xalign(0.0);
+            heading_row.append(&ver_lbl);
+
+            if version == CURRENT_VERSION {
+                let badge = gtk4::Label::new(Some("· Current"));
+                badge.add_css_class("caption-heading");
+                badge.add_css_class("accent");
+                heading_row.append(&badge);
+            }
+            body.append(&heading_row);
+
+            if !title.is_empty() {
+                let title_lbl = gtk4::Label::new(Some(title));
+                title_lbl.add_css_class("title-3");
+                title_lbl.set_xalign(0.0);
+                title_lbl.set_wrap(true);
+                title_lbl.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
+                title_lbl.set_margin_bottom(2);
+                body.append(&title_lbl);
+            }
+        } else if let Some(text) = trimmed.strip_prefix("### ") {
             let lbl = gtk4::Label::new(Some(text));
             lbl.add_css_class("heading");
             lbl.set_xalign(0.0);
-            lbl.set_margin_top(6);
+            lbl.set_margin_top(8);
             lbl.set_margin_start(4);
-            lbl.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+            lbl.set_margin_bottom(2);
+            lbl.set_wrap(true);
             body.append(&lbl);
-        } else if trimmed.starts_with("- ") {
-            let content = trimmed.trim_start_matches("- ");
+        } else if let Some(content) = trimmed.strip_prefix("- ") {
             body.append(&changelog_bullet(content));
-        } else if trimmed == "---" {
-            let sep = gtk4::Separator::new(Orientation::Horizontal);
-            sep.set_margin_top(8);
-            sep.set_margin_bottom(4);
-            body.append(&sep);
         }
     }
 
@@ -7388,7 +7442,7 @@ fn show_changelog(parent: &impl IsA<gtk4::Window>) {
     scroll.set_vexpand(true);
     scroll.set_hscrollbar_policy(gtk4::PolicyType::Never);
     let clamp = adw::Clamp::new();
-    clamp.set_maximum_size(640);
+    clamp.set_maximum_size(700);
     clamp.set_child(Some(&body));
     scroll.set_child(Some(&clamp));
 

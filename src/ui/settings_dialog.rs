@@ -21,9 +21,11 @@ impl SettingsDialog {
             .title("Settings")
             .transient_for(parent)
             .modal(true)
-            .default_width(480)
-            .default_height(520)
-            .resizable(false)
+            .default_width(560)
+            .default_height(700)
+            .width_request(420)
+            .height_request(400)
+            .resizable(true)
             .build();
 
         let on_save: Rc<RefCell<Option<Box<dyn Fn(Config)>>>> = Rc::new(RefCell::new(None));
@@ -279,6 +281,45 @@ impl SettingsDialog {
         csl_row.add_suffix(&csl_browse_btn);
         bib_group.add(&csl_row);
 
+        // CV Elements (Skrizhal)
+        let cv_group = adw::PreferencesGroup::new();
+        cv_group.set_title("CV Elements");
+        cv_group.set_description(Some(
+            "Used in CV mode instead of the bibliography above — a Skrizhal YAML file of jobs, degrees, awards, etc.",
+        ));
+
+        let cv_row = adw::EntryRow::new();
+        cv_row.set_title("Skrizhal file");
+        if let Some(ref p) = current.cv_elements_path {
+            cv_row.set_text(p.to_str().unwrap_or(""));
+        }
+
+        let cv_browse_btn = Button::from_icon_name("document-open-symbolic");
+        cv_browse_btn.set_valign(Align::Center);
+        cv_browse_btn.add_css_class("flat");
+        let cv_row_browse = cv_row.clone();
+        let window_browse_cv = window.clone();
+        cv_browse_btn.connect_clicked(move |_| {
+            let row = cv_row_browse.clone();
+            let fd = gtk4::FileDialog::new();
+            let filter = gtk4::FileFilter::new();
+            filter.set_name(Some("YAML files (*.yaml, *.yml)"));
+            filter.add_pattern("*.yaml");
+            filter.add_pattern("*.yml");
+            let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
+            filters.append(&filter);
+            fd.set_filters(Some(&filters));
+            fd.open(Some(&window_browse_cv), None::<&gtk4::gio::Cancellable>, move |result| {
+                if let Ok(file) = result {
+                    if let Some(path) = file.path() {
+                        row.set_text(path.to_str().unwrap_or(""));
+                    }
+                }
+            });
+        });
+        cv_row.add_suffix(&cv_browse_btn);
+        cv_group.add(&cv_row);
+
         // Spell check
         let spell_group = adw::PreferencesGroup::new();
         spell_group.set_title("Spell Check");
@@ -458,6 +499,7 @@ impl SettingsDialog {
 
         let page_extras = adw::PreferencesPage::new();
         page_extras.add(&bib_group);
+        page_extras.add(&cv_group);
         page_extras.add(&spell_group);
         notebook.append_page(&page_extras, Some(&Label::new(Some("Extras"))));
 
@@ -486,6 +528,7 @@ impl SettingsDialog {
             let work_dir_row = work_dir_row.clone();
             let output_dir_row = output_dir_row.clone();
             let bib_row = bib_row.clone();
+            let cv_row = cv_row.clone();
             let theme_row = theme_row.clone();
             let font_btn = font_btn.clone();
             let debounce_spin = debounce_spin.clone();
@@ -502,9 +545,6 @@ impl SettingsDialog {
             let dev_mode_row = dev_mode_row.clone();
             let batch_concurrency_row = batch_concurrency_row.clone();
             let token_row = token_row.clone();
-            // No Settings row yet — Skrizhal CV mode config is per-project
-            // only (`.zerkalo/config.toml`) for now, so just preserve it.
-            let cv_elements_path_cur = current.cv_elements_path.clone();
             let recent_files_cur = current.recent_files.clone();
             let recent_projects_cur = current.recent_projects.clone();
             let recent_searches_cur = current.recent_searches.clone();
@@ -539,6 +579,12 @@ impl SettingsDialog {
                     None
                 } else {
                     Some(PathBuf::from(bib_path_text))
+                };
+                let cv_elements_path_text = cv_row.text().trim().to_string();
+                let cv_elements_path: Option<PathBuf> = if cv_elements_path_text.is_empty() {
+                    None
+                } else {
+                    Some(PathBuf::from(cv_elements_path_text))
                 };
                 let custom_csl_path_text = csl_row.text().trim().to_string();
                 let custom_csl_path: Option<PathBuf> = if custom_csl_path_text.is_empty() {
@@ -579,7 +625,7 @@ impl SettingsDialog {
                     recent_files: recent_files_cur.clone(),
                     recent_projects: recent_projects_cur.clone(),
                     bib_path,
-                    cv_elements_path: cv_elements_path_cur.clone(),
+                    cv_elements_path,
                     custom_csl_path,
                     debounce_ms: debounce_spin.value() as u64,
                     auto_compile: btn_auto.is_active(),
