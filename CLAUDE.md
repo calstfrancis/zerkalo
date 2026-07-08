@@ -16,15 +16,18 @@
 ### On every build
 1. Update `Cargo.toml` version to the next dev number
 2. Update `CHANGELOG.md` — add entry at top for the new rc version
-3. Update `packaging/io.github.calstfrancis.Zerkalo.metainfo.xml` — add release entry
-4. Update What's New in `src/ui/welcome_window.rs` to reflect current features
-5. Push to GitHub (needed so the source is current for collaborators and CI)
-6. Run `flatpak-builder --force-clean --user --install build-flatpak packaging/io.github.calstfrancis.Zerkalo.yml`
+3. Update What's New in `src/ui/welcome_window.rs` to reflect current features
+4. Push to GitHub (needed so the source is current for collaborators and CI)
+5. Run `flatpak-builder --force-clean --user --install build-flatpak packaging/io.github.calstfrancis.Zerkalo.yml`
+- **Do not** add a `metainfo.xml` `<release>` entry for dev builds — only at actual release time (see root `Projects/CLAUDE.md`'s Release workflow), matching Rubric/Gost/Kopilka/Skrizhal. This used to be a Zerkalo-only exception and caused a real bug: AppStream's version comparison treats `0.16.1-dev6` as *higher* than `0.16.1` (it has no concept of pre-release ordering, unlike semver — confirmed via `appstreamcli compare-versions`), so `flatpak info` displayed the wrong "Version" for the app any time a same-base-version dev entry existed alongside the clean release entry. Reordering entries in the file doesn't fix this — the comparison, not document order, decides. Fixed by removing the interim `0.16.1-devN` entries and stopping future ones.
 
 ### Flatpak build
 - The flatpak manifest (`packaging/io.github.calstfrancis.Zerkalo.yml`) sources the `zerkalo` module with `type: git`, `branch: main` — permanently, for both dev builds and releases. Matches Rubric/Kopilka's manifests exactly; no tag-pinning, no switch-back step. `publish-flatpak.sh` pushes `main` right before running `flatpak-builder`, so the build always picks up the latest commit regardless of dev/release.
 - (History: this used to toggle between `type: dir` and a release-tag-pinned `type: git` around the release step, requiring a manual switch-back afterward — that got missed once after v0.15.0, silently rebuilding the stale release for a while. Simplified to the permanent-branch pattern the other apps already use, removing the failure mode entirely instead of just remembering to revert it.)
 - `skrizhal-core`'s git dependency in `Cargo.toml` requires the `calstfrancis/skrizhal` GitHub repo to stay **public** — CI (and this flatpak build) can't authenticate to a private repo to fetch it. If it's ever made private again, CI will fail at the dependency-fetch step with "failed to authenticate when downloading repository."
+
+### GitHub Releases — dev tags must not create them
+- `.github/workflows/release.yml` triggers only on `v[0-9]+.[0-9]+.[0-9]+` (matching Rubric/Gost), **not** a bare `v*`. A loose `v*` pattern makes every pushed dev tag (`v0.16.1-dev1`, `v0.16.1-dev2`, …) create a public GitHub Release — this actually happened for months before being caught (dozens of dev-build "releases" publicly listed on the repo's Releases page). Keep the restrictive pattern; don't loosen it back to `v*`.
 
 ### Release names
 - Every release gets a name. Choose a two-word name: an adjective + a noun (e.g. "Amber Tide", "Silent Forge", "Iron Coast"). Pick something that evokes the theme of the main changes in the release, or just something that sounds good. Avoid clichés.
