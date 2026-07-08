@@ -2005,10 +2005,159 @@ pub fn apply_body_splice(existing: &str, fresh: &str) -> String {
             } else {
                 old_body.to_string()
             };
-            format!("{}{}", &fresh[..fresh_p], updated_body)
+
+            // CV documents created before the Skrizhal `#cv-section` rewrite
+            // have a body that calls #job/#edu/#award/#presentation directly
+            // — functions the regenerated preamble no longer defines on its
+            // own. Re-inject them so settings changes (font, paper, margin,
+            // ...) on these older documents keep compiling instead of
+            // breaking on "unknown function".
+            let preamble_needs_legacy_helpers =
+                existing[..old_p].contains("#let job(") && !fresh[..fresh_p].contains("#let job(");
+            let fresh_preamble = if preamble_needs_legacy_helpers {
+                inject_legacy_cv_helpers(&fresh[..fresh_p])
+            } else {
+                fresh[..fresh_p].to_string()
+            };
+
+            format!("{fresh_preamble}{updated_body}")
         }
         _ => fresh.to_string(),
     }
+}
+
+/// Re-inserts the pre-Skrizhal `#job`/`#edu`/`#skill`/`#award`/`#presentation`
+/// helper definitions into a freshly generated CV preamble, right before the
+/// `// ZERKALO-TEMPLATE-END` marker — see `apply_body_splice`.
+fn inject_legacy_cv_helpers(fresh_preamble: &str) -> String {
+    let Some(end_pos) = fresh_preamble.find(TEMPLATE_END) else {
+        return fresh_preamble.to_string();
+    };
+    format!(
+        "{}{}\n{}",
+        &fresh_preamble[..end_pos],
+        legacy_cv_helpers_block(),
+        &fresh_preamble[end_pos..]
+    )
+}
+
+fn legacy_cv_helpers_block() -> String {
+    let mut out = String::new();
+    let _ = writeln!(out, "// #job — kept for documents created before #cv-section existed");
+    let _ = writeln!(out, "#let job(title, company, years, desc) = {{");
+    let _ = writeln!(out, "  if CV_STYLE == \"modern\" {{");
+    let _ = writeln!(out, "    grid(columns: (1fr, auto),");
+    let _ = writeln!(out, "      [*#title* #h(0.3em)#text(fill: cv-accent, size: 9.5pt)[#company]],");
+    let _ = writeln!(out, "      text(size: 9pt, fill: cv-dim, style: \"italic\")[#years],");
+    let _ = writeln!(out, "    )");
+    let _ = writeln!(out, "  }} else if CV_STYLE == \"academic\" {{");
+    let _ = writeln!(out, "    grid(columns: (1fr, auto),");
+    let _ = writeln!(out, "      [*#title* #h(0.3em)#text(style: \"italic\")[#company]],");
+    let _ = writeln!(out, "      text(style: \"italic\", fill: cv-muted)[#years],");
+    let _ = writeln!(out, "    )");
+    let _ = writeln!(out, "  }} else if CV_STYLE == \"sidebar\" {{");
+    let _ = writeln!(out, "    [*#title* --- #company]");
+    let _ = writeln!(out, "    linebreak()");
+    let _ = writeln!(out, "    text(style: \"italic\")[#years]");
+    let _ = writeln!(out, "  }} else {{");
+    let _ = writeln!(out, "    grid(columns: (1fr, auto),");
+    let _ = writeln!(out, "      [*#title* #h(0.25em)#text(fill: cv-muted)[—]#h(0.25em)#company],");
+    let _ = writeln!(out, "      text(fill: cv-muted, style: \"italic\")[#years],");
+    let _ = writeln!(out, "    )");
+    let _ = writeln!(out, "  }}");
+    let _ = writeln!(out, "  v(0.2em)");
+    let _ = writeln!(out, "  desc");
+    let _ = writeln!(out, "  v(0.5em)");
+    let _ = writeln!(out, "}}");
+    let _ = writeln!(out);
+
+    let _ = writeln!(out, "#let edu(degree, institution, years, note: none) = {{");
+    let _ = writeln!(out, "  if CV_STYLE == \"modern\" {{");
+    let _ = writeln!(out, "    grid(columns: (1fr, auto),");
+    let _ = writeln!(out, "      [*#degree* #h(0.3em)#text(fill: cv-accent, size: 9.5pt)[#institution]],");
+    let _ = writeln!(out, "      text(size: 9pt, fill: cv-dim, style: \"italic\")[#years],");
+    let _ = writeln!(out, "    )");
+    let _ = writeln!(out, "  }} else if CV_STYLE == \"academic\" {{");
+    let _ = writeln!(out, "    grid(columns: (1fr, auto),");
+    let _ = writeln!(out, "      [*#degree* #h(0.3em)#text(style: \"italic\")[#institution]],");
+    let _ = writeln!(out, "      text(style: \"italic\", fill: cv-muted)[#years],");
+    let _ = writeln!(out, "    )");
+    let _ = writeln!(out, "  }} else if CV_STYLE == \"sidebar\" {{");
+    let _ = writeln!(out, "    [*#degree*]");
+    let _ = writeln!(out, "    linebreak()");
+    let _ = writeln!(out, "    if note != none {{ note; linebreak() }}");
+    let _ = writeln!(out, "    [#institution]");
+    let _ = writeln!(out, "    linebreak()");
+    let _ = writeln!(out, "    [#years]");
+    let _ = writeln!(out, "  }} else {{");
+    let _ = writeln!(out, "    grid(columns: (1fr, auto),");
+    let _ = writeln!(out, "      [*#degree* #h(0.25em)#text(fill: cv-muted)[—]#h(0.25em)#institution],");
+    let _ = writeln!(out, "      text(fill: cv-muted, style: \"italic\")[#years],");
+    let _ = writeln!(out, "    )");
+    let _ = writeln!(out, "  }}");
+    let _ = writeln!(out, "  if CV_STYLE != \"sidebar\" and note != none {{ v(0.15em); note }}");
+    let _ = writeln!(out, "  v(0.45em)");
+    let _ = writeln!(out, "}}");
+    let _ = writeln!(out);
+
+    let _ = writeln!(out, "#let skill(category, items) = {{");
+    let _ = writeln!(out, "  if CV_STYLE == \"modern\" [");
+    let _ = writeln!(out, "    #grid(columns: (6em, 1fr),");
+    let _ = writeln!(out, "      text(fill: cv-accent, weight: \"bold\", size: 9pt, tracking: 0.5pt)[#upper(category)],");
+    let _ = writeln!(out, "      text(fill: cv-muted)[#items.join(\"  ·  \")],");
+    let _ = writeln!(out, "    )");
+    let _ = writeln!(out, "    #v(0.15em)");
+    let _ = writeln!(out, "  ] else if CV_STYLE == \"academic\" [");
+    let _ = writeln!(out, "    *#category:* #items.join(\", \") \\");
+    let _ = writeln!(out, "  ] else if CV_STYLE == \"sidebar\" [");
+    let _ = writeln!(out, "    #text(weight: \"bold\")[#category]");
+    let _ = writeln!(out, "    #list(..items.map(item => [#item]))");
+    let _ = writeln!(out, "  ] else [");
+    let _ = writeln!(out, "    #text(style: \"italic\")[#category:] #h(0.3em)#items.join(\", \") \\");
+    let _ = writeln!(out, "  ]");
+    let _ = writeln!(out, "}}");
+    let _ = writeln!(out);
+
+    let _ = writeln!(out, "#let award(title, org, years, desc: none) = {{");
+    let _ = writeln!(out, "  if CV_STYLE == \"modern\" {{");
+    let _ = writeln!(out, "    grid(columns: (1fr, auto),");
+    let _ = writeln!(out, "      [*#title* #h(0.3em)#text(fill: cv-accent, size: 9.5pt)[#org]],");
+    let _ = writeln!(out, "      text(size: 9pt, fill: cv-dim, style: \"italic\")[#years],");
+    let _ = writeln!(out, "    )");
+    let _ = writeln!(out, "  }} else if CV_STYLE == \"academic\" {{");
+    let _ = writeln!(out, "    grid(columns: (1fr, auto),");
+    let _ = writeln!(out, "      [*#title* #h(0.3em)#text(style: \"italic\")[#org]],");
+    let _ = writeln!(out, "      text(style: \"italic\", fill: cv-muted)[#years],");
+    let _ = writeln!(out, "    )");
+    let _ = writeln!(out, "  }} else if CV_STYLE == \"sidebar\" {{");
+    let _ = writeln!(out, "    if org != none {{ [*#title* --- #org] }} else {{ [*#title*] }}");
+    let _ = writeln!(out, "    linebreak()");
+    let _ = writeln!(out, "    [#years]");
+    let _ = writeln!(out, "  }} else {{");
+    let _ = writeln!(out, "    grid(columns: (1fr, auto),");
+    let _ = writeln!(out, "      [*#title* #h(0.25em)#text(fill: cv-muted)[—]#h(0.25em)#org],");
+    let _ = writeln!(out, "      text(fill: cv-muted, style: \"italic\")[#years],");
+    let _ = writeln!(out, "    )");
+    let _ = writeln!(out, "  }}");
+    let _ = writeln!(out, "  if desc != none {{ v(0.15em); desc }}");
+    let _ = writeln!(out, "  v(0.45em)");
+    let _ = writeln!(out, "}}");
+    let _ = writeln!(out);
+
+    let _ = writeln!(out, "#let presentation(role, venue, title, years) = {{");
+    let _ = writeln!(out, "  if CV_STYLE == \"sidebar\" {{");
+    let _ = writeln!(out, "    [*#role* #h(0.25em)#venue, #text(style: \"italic\")[\"#title\"]]");
+    let _ = writeln!(out, "    linebreak()");
+    let _ = writeln!(out, "    text(style: \"italic\")[#years]");
+    let _ = writeln!(out, "  }} else {{");
+    let _ = writeln!(out, "    grid(columns: (1fr, auto),");
+    let _ = writeln!(out, "      [*#role* #h(0.25em)#venue, #text(style: \"italic\")[\"#title\"]],");
+    let _ = writeln!(out, "      text(fill: cv-muted, style: \"italic\")[#years],");
+    let _ = writeln!(out, "    )");
+    let _ = writeln!(out, "  }}");
+    let _ = writeln!(out, "  v(0.35em)");
+    let _ = writeln!(out, "}}");
+    out
 }
 
 fn bib_title_for_style(style_key: &str) -> &'static str {
@@ -2320,8 +2469,16 @@ fn generate_cv_template(s: &TemplateSettings) -> String {
     let _ = writeln!(out, "#let cv-dim    = if CV_STYLE == \"modern\" {{ rgb(\"#888888\") }} else {{ luma(130) }}");
     let _ = writeln!(out);
 
+    // ── Skrizhal CV data ──────────────────────────────────────────────────────
+    // #cv-section pulls entries from your Skrizhal CV-element file (see
+    // Settings → Extras → CV Elements) and formats them for CV_STYLE above —
+    // no need to hand-write each job/degree/award as Typst source.
+    let _ = writeln!(out, "// ── Skrizhal CV data ─────────────────────────────────────────────────────");
+    let _ = writeln!(out, "#import \"cv-helpers.typ\": cv-section");
+    let _ = writeln!(out);
+
     // ── Helper functions ─────────────────────────────────────────────────────
-    let _ = writeln!(out, "// ── CV helper functions ─────────────────────────────────────────────────");
+    let _ = writeln!(out, "// ── Layout helpers ───────────────────────────────────────────────────────");
     let _ = writeln!(out);
 
     // #section — sidebar style uses a plain native heading (no rule, no manual
@@ -2353,117 +2510,14 @@ fn generate_cv_template(s: &TemplateSettings) -> String {
     let _ = writeln!(out, "}}");
     let _ = writeln!(out);
 
-    // #job
-    let _ = writeln!(out, "#let job(title, company, years, desc) = {{");
-    let _ = writeln!(out, "  if CV_STYLE == \"modern\" {{");
-    let _ = writeln!(out, "    grid(columns: (1fr, auto),");
-    let _ = writeln!(out, "      [*#title* #h(0.3em)#text(fill: cv-accent, size: 9.5pt)[#company]],");
-    let _ = writeln!(out, "      text(size: 9pt, fill: cv-dim, style: \"italic\")[#years],");
-    let _ = writeln!(out, "    )");
-    let _ = writeln!(out, "  }} else if CV_STYLE == \"academic\" {{");
-    let _ = writeln!(out, "    grid(columns: (1fr, auto),");
-    let _ = writeln!(out, "      [*#title* #h(0.3em)#text(style: \"italic\")[#company]],");
-    let _ = writeln!(out, "      text(style: \"italic\", fill: cv-muted)[#years],");
-    let _ = writeln!(out, "    )");
-    let _ = writeln!(out, "  }} else if CV_STYLE == \"sidebar\" {{");
-    let _ = writeln!(out, "    [*#title* --- #company]");
-    let _ = writeln!(out, "    linebreak()");
-    let _ = writeln!(out, "    text(style: \"italic\")[#years]");
-    let _ = writeln!(out, "  }} else {{");
-    let _ = writeln!(out, "    grid(columns: (1fr, auto),");
-    let _ = writeln!(out, "      [*#title* #h(0.25em)#text(fill: cv-muted)[—]#h(0.25em)#company],");
-    let _ = writeln!(out, "      text(fill: cv-muted, style: \"italic\")[#years],");
-    let _ = writeln!(out, "    )");
-    let _ = writeln!(out, "  }}");
-    let _ = writeln!(out, "  v(0.2em)");
-    let _ = writeln!(out, "  desc");
-    let _ = writeln!(out, "  v(0.5em)");
-    let _ = writeln!(out, "}}");
-    let _ = writeln!(out);
-
-    // #edu
-    let _ = writeln!(out, "#let edu(degree, institution, years, note: none) = {{");
-    let _ = writeln!(out, "  if CV_STYLE == \"modern\" {{");
-    let _ = writeln!(out, "    grid(columns: (1fr, auto),");
-    let _ = writeln!(out, "      [*#degree* #h(0.3em)#text(fill: cv-accent, size: 9.5pt)[#institution]],");
-    let _ = writeln!(out, "      text(size: 9pt, fill: cv-dim, style: \"italic\")[#years],");
-    let _ = writeln!(out, "    )");
-    let _ = writeln!(out, "  }} else if CV_STYLE == \"academic\" {{");
-    let _ = writeln!(out, "    grid(columns: (1fr, auto),");
-    let _ = writeln!(out, "      [*#degree* #h(0.3em)#text(style: \"italic\")[#institution]],");
-    let _ = writeln!(out, "      text(style: \"italic\", fill: cv-muted)[#years],");
-    let _ = writeln!(out, "    )");
-    let _ = writeln!(out, "  }} else if CV_STYLE == \"sidebar\" {{");
-    let _ = writeln!(out, "    [*#degree*]");
-    let _ = writeln!(out, "    linebreak()");
-    let _ = writeln!(out, "    if note != none {{ note; linebreak() }}");
-    let _ = writeln!(out, "    [#institution]");
-    let _ = writeln!(out, "    linebreak()");
-    let _ = writeln!(out, "    [#years]");
-    let _ = writeln!(out, "  }} else {{");
-    let _ = writeln!(out, "    grid(columns: (1fr, auto),");
-    let _ = writeln!(out, "      [*#degree* #h(0.25em)#text(fill: cv-muted)[—]#h(0.25em)#institution],");
-    let _ = writeln!(out, "      text(fill: cv-muted, style: \"italic\")[#years],");
-    let _ = writeln!(out, "    )");
-    let _ = writeln!(out, "  }}");
-    let _ = writeln!(out, "  if CV_STYLE != \"sidebar\" and note != none {{ v(0.15em); note }}");
-    let _ = writeln!(out, "  v(0.45em)");
-    let _ = writeln!(out, "}}");
-    let _ = writeln!(out);
-
-    // #skill
-    let _ = writeln!(out, "#let skill(category, items) = {{");
-    let _ = writeln!(out, "  if CV_STYLE == \"modern\" [");
-    let _ = writeln!(out, "    #grid(columns: (6em, 1fr),");
-    let _ = writeln!(out, "      text(fill: cv-accent, weight: \"bold\", size: 9pt, tracking: 0.5pt)[#upper(category)],");
-    let _ = writeln!(out, "      text(fill: cv-muted)[#items.join(\"  ·  \")],");
-    let _ = writeln!(out, "    )");
-    let _ = writeln!(out, "    #v(0.15em)");
-    let _ = writeln!(out, "  ] else if CV_STYLE == \"academic\" [");
-    let _ = writeln!(out, "    *#category:* #items.join(\", \") \\");
-    let _ = writeln!(out, "  ] else if CV_STYLE == \"sidebar\" [");
-    let _ = writeln!(out, "    #text(weight: \"bold\")[#category]");
-    let _ = writeln!(out, "    #list(..items.map(item => [#item]))");
-    let _ = writeln!(out, "  ] else [");
-    let _ = writeln!(out, "    #text(style: \"italic\")[#category:] #h(0.3em)#items.join(\", \") \\");
-    let _ = writeln!(out, "  ]");
-    let _ = writeln!(out, "}}");
-    let _ = writeln!(out);
-
-    // #award
-    let _ = writeln!(out, "#let award(title, org, years, desc: none) = {{");
-    let _ = writeln!(out, "  if CV_STYLE == \"modern\" {{");
-    let _ = writeln!(out, "    grid(columns: (1fr, auto),");
-    let _ = writeln!(out, "      [*#title* #h(0.3em)#text(fill: cv-accent, size: 9.5pt)[#org]],");
-    let _ = writeln!(out, "      text(size: 9pt, fill: cv-dim, style: \"italic\")[#years],");
-    let _ = writeln!(out, "    )");
-    let _ = writeln!(out, "  }} else if CV_STYLE == \"academic\" {{");
-    let _ = writeln!(out, "    grid(columns: (1fr, auto),");
-    let _ = writeln!(out, "      [*#title* #h(0.3em)#text(style: \"italic\")[#org]],");
-    let _ = writeln!(out, "      text(style: \"italic\", fill: cv-muted)[#years],");
-    let _ = writeln!(out, "    )");
-    let _ = writeln!(out, "  }} else if CV_STYLE == \"sidebar\" {{");
-    let _ = writeln!(out, "    if org != none {{ [*#title* --- #org] }} else {{ [*#title*] }}");
-    let _ = writeln!(out, "    linebreak()");
-    let _ = writeln!(out, "    [#years]");
-    let _ = writeln!(out, "  }} else {{");
-    let _ = writeln!(out, "    grid(columns: (1fr, auto),");
-    let _ = writeln!(out, "      [*#title* #h(0.25em)#text(fill: cv-muted)[—]#h(0.25em)#org],");
-    let _ = writeln!(out, "      text(fill: cv-muted, style: \"italic\")[#years],");
-    let _ = writeln!(out, "    )");
-    let _ = writeln!(out, "  }}");
-    let _ = writeln!(out, "  if desc != none {{ v(0.15em); desc }}");
-    let _ = writeln!(out, "  v(0.45em)");
-    let _ = writeln!(out, "}}");
-    let _ = writeln!(out);
-
     // #mylink — clickable link, underlined; sidebar uses a plain blue to match a
     // hand-written CV's link colour, other styles pick up the CV's own accent.
     let _ = writeln!(out, "#let mylink(url, label) = link(url)[#underline(text(fill: if CV_STYLE == \"sidebar\" {{ blue }} else {{ cv-accent }}, label))]");
     let _ = writeln!(out);
 
-    // #taglist — plain list with no category label (Interests, Software, etc.);
-    // sidebar renders real bullet points, other styles a single dot-joined line.
+    // #taglist — plain list with no category label (Interests, etc., that
+    // aren't backed by a Skrizhal category); sidebar renders real bullet
+    // points, other styles a single dot-joined line.
     let _ = writeln!(out, "#let taglist(items) = {{");
     let _ = writeln!(out, "  if CV_STYLE == \"sidebar\" {{");
     let _ = writeln!(out, "    list(..items.map(item => [#item]))");
@@ -2471,22 +2525,6 @@ fn generate_cv_template(s: &TemplateSettings) -> String {
     let _ = writeln!(out, "    text(fill: cv-muted)[#items.join(\"  ·  \")]");
     let _ = writeln!(out, "    v(0.15em)");
     let _ = writeln!(out, "  }}");
-    let _ = writeln!(out, "}}");
-    let _ = writeln!(out);
-
-    // #presentation — talks, papers, and publications: role, venue, quoted title, date
-    let _ = writeln!(out, "#let presentation(role, venue, title, years) = {{");
-    let _ = writeln!(out, "  if CV_STYLE == \"sidebar\" {{");
-    let _ = writeln!(out, "    [*#role* #h(0.25em)#venue, #text(style: \"italic\")[\"#title\"]]");
-    let _ = writeln!(out, "    linebreak()");
-    let _ = writeln!(out, "    text(style: \"italic\")[#years]");
-    let _ = writeln!(out, "  }} else {{");
-    let _ = writeln!(out, "    grid(columns: (1fr, auto),");
-    let _ = writeln!(out, "      [*#role* #h(0.25em)#venue, #text(style: \"italic\")[\"#title\"]],");
-    let _ = writeln!(out, "      text(fill: cv-muted, style: \"italic\")[#years],");
-    let _ = writeln!(out, "    )");
-    let _ = writeln!(out, "  }}");
-    let _ = writeln!(out, "  v(0.35em)");
     let _ = writeln!(out, "}}");
     let _ = writeln!(out);
 
@@ -2559,41 +2597,36 @@ fn generate_cv_template(s: &TemplateSettings) -> String {
         return generate_cv_sidebar_body(out);
     }
 
+    let _ = writeln!(out, "// Toggle optional sections per application");
+    let _ = writeln!(out, "#let show-presentations = true");
+    let _ = writeln!(out, "#let show-extracurricular = true");
+    let _ = writeln!(out);
     let _ = writeln!(out, "#section(\"Experience\")[");
-    let _ = writeln!(out, "  #job(");
-    let _ = writeln!(out, "    \"Senior Engineer\",");
-    let _ = writeln!(out, "    \"Company Name\",");
-    let _ = writeln!(out, "    \"2022–present\",");
-    let _ = writeln!(out, "    [Description of role and key accomplishments.]");
-    let _ = writeln!(out, "  )");
-    let _ = writeln!(out, "  #job(");
-    let _ = writeln!(out, "    \"Engineer\",");
-    let _ = writeln!(out, "    \"Previous Company\",");
-    let _ = writeln!(out, "    \"2019–2022\",");
-    let _ = writeln!(out, "    [Description of your work and contributions.]");
-    let _ = writeln!(out, "  )");
+    let _ = writeln!(out, "  #cv-section(category: (\"Employment\", \"Ministry Position\"), style: CV_STYLE)");
     let _ = writeln!(out, "]");
     let _ = writeln!(out);
     let _ = writeln!(out, "#section(\"Education\")[");
-    let _ = writeln!(out, "  #edu(");
-    let _ = writeln!(out, "    \"B.Sc. Computer Science\",");
-    let _ = writeln!(out, "    \"University Name\",");
-    let _ = writeln!(out, "    \"2015–2019\",");
-    let _ = writeln!(out, "  )");
+    let _ = writeln!(out, "  #cv-section(category: \"Education\", style: CV_STYLE)");
     let _ = writeln!(out, "]");
     let _ = writeln!(out);
     let _ = writeln!(out, "#section(\"Skills\")[");
-    let _ = writeln!(out, "  #skill(\"Languages\", (\"Rust\", \"Python\", \"TypeScript\"))");
-    let _ = writeln!(out, "  #skill(\"Tools\", (\"GTK4\", \"PostgreSQL\", \"Docker\"))");
+    let _ = writeln!(out, "  #cv-section(category: \"Language Skill\", style: CV_STYLE, mode: \"tags\")");
     let _ = writeln!(out, "]");
     let _ = writeln!(out);
     let _ = writeln!(out, "#section(\"Awards & Honours\")[");
-    let _ = writeln!(out, "  #award(");
-    let _ = writeln!(out, "    \"Award Name\",");
-    let _ = writeln!(out, "    \"Awarding Organisation\",");
-    let _ = writeln!(out, "    \"2023\",");
-    let _ = writeln!(out, "    desc: [Brief description of the award and why it was given.]");
-    let _ = writeln!(out, "  )");
+    let _ = writeln!(out, "  #cv-section(category: (\"Award\", \"Certification\"), style: CV_STYLE)");
+    let _ = writeln!(out, "]");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "#if show-presentations [");
+    let _ = writeln!(out, "  #section(\"Presentations & Publications\")[");
+    let _ = writeln!(out, "    #cv-section(category: (\"Publication\", \"Presentation\"), style: CV_STYLE)");
+    let _ = writeln!(out, "  ]");
+    let _ = writeln!(out, "]");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "#if show-extracurricular [");
+    let _ = writeln!(out, "  #section(\"Extracurricular\")[");
+    let _ = writeln!(out, "    #cv-section(category: (\"Service\", \"Committee Appointment\", \"Volunteer\", \"Project\"), style: CV_STYLE)");
+    let _ = writeln!(out, "  ]");
     let _ = writeln!(out, "]");
 
     out
@@ -2602,9 +2635,9 @@ fn generate_cv_template(s: &TemplateSettings) -> String {
 // ── CV: two-column sidebar layout ─────────────────────────────────────────────
 // A distinct body shape from the single-column styles above: sidebar (education,
 // skills, interests, awards) beside a main column (experience, presentations,
-// extracurricular). Reuses the same #section/#job/#edu/#skill/#award/#taglist/
-// #presentation helpers already written into the TEMPLATE block, so switching
-// CV_STYLE afterwards still recolors it correctly.
+// extracurricular). Reuses the same #section/#taglist helpers and #cv-section
+// import already written into the TEMPLATE block, so switching CV_STYLE
+// afterwards still recolors it correctly.
 fn generate_cv_sidebar_body(mut out: String) -> String {
     let _ = writeln!(out, "// Toggle optional sections per application");
     let _ = writeln!(out, "#let show-presentations = true");
@@ -2617,16 +2650,11 @@ fn generate_cv_sidebar_body(mut out: String) -> String {
     let _ = writeln!(out, "  // ── Left: sidebar ──────────────────────────────────────────────────");
     let _ = writeln!(out, "  [");
     let _ = writeln!(out, "    #section(\"Education\")[");
-    let _ = writeln!(out, "      #edu(");
-    let _ = writeln!(out, "        \"B.Sc. Computer Science\",");
-    let _ = writeln!(out, "        \"University Name\",");
-    let _ = writeln!(out, "        \"2015–2019\",");
-    let _ = writeln!(out, "      )");
+    let _ = writeln!(out, "      #cv-section(category: \"Education\", style: CV_STYLE)");
     let _ = writeln!(out, "    ]");
     let _ = writeln!(out);
     let _ = writeln!(out, "    #section(\"Skills\")[");
-    let _ = writeln!(out, "      #skill(\"Languages\", (\"Rust\", \"Python\", \"TypeScript\"))");
-    let _ = writeln!(out, "      #skill(\"Software\", (\"Git\", \"Docker\", \"PostgreSQL\"))");
+    let _ = writeln!(out, "      #cv-section(category: \"Language Skill\", style: CV_STYLE, mode: \"tags\")");
     let _ = writeln!(out, "    ]");
     let _ = writeln!(out);
     let _ = writeln!(out, "    #section(\"Interests\")[");
@@ -2634,45 +2662,25 @@ fn generate_cv_sidebar_body(mut out: String) -> String {
     let _ = writeln!(out, "    ]");
     let _ = writeln!(out);
     let _ = writeln!(out, "    #section(\"Awards\")[");
-    let _ = writeln!(out, "      #award(");
-    let _ = writeln!(out, "        \"Award Name\",");
-    let _ = writeln!(out, "        \"Awarding Organisation\",");
-    let _ = writeln!(out, "        \"2023\",");
-    let _ = writeln!(out, "        desc: [Brief description of the award and why it was given.]");
-    let _ = writeln!(out, "      )");
+    let _ = writeln!(out, "      #cv-section(category: (\"Award\", \"Certification\"), style: CV_STYLE)");
     let _ = writeln!(out, "    ]");
     let _ = writeln!(out, "  ],");
     let _ = writeln!(out);
     let _ = writeln!(out, "  // ── Right: main column ─────────────────────────────────────────────");
     let _ = writeln!(out, "  [");
     let _ = writeln!(out, "    #section(\"Experience\")[");
-    let _ = writeln!(out, "      #job(");
-    let _ = writeln!(out, "        \"Job Title\",");
-    let _ = writeln!(out, "        \"Organization Name\",");
-    let _ = writeln!(out, "        \"Month Year – present\",");
-    let _ = writeln!(out, "        [Responsibility or accomplishment.]");
-    let _ = writeln!(out, "      )");
+    let _ = writeln!(out, "      #cv-section(category: (\"Employment\", \"Ministry Position\"), style: CV_STYLE)");
     let _ = writeln!(out, "    ]");
     let _ = writeln!(out);
     let _ = writeln!(out, "    #if show-presentations [");
     let _ = writeln!(out, "      #section(\"Presentations & Publications\")[");
-    let _ = writeln!(out, "        #presentation(");
-    let _ = writeln!(out, "          \"Presenter\",");
-    let _ = writeln!(out, "          \"Conference Name\",");
-    let _ = writeln!(out, "          \"Title of presentation\",");
-    let _ = writeln!(out, "          \"Month Year\",");
-    let _ = writeln!(out, "        )");
+    let _ = writeln!(out, "        #cv-section(category: (\"Publication\", \"Presentation\"), style: CV_STYLE)");
     let _ = writeln!(out, "      ]");
     let _ = writeln!(out, "    ]");
     let _ = writeln!(out);
     let _ = writeln!(out, "    #if show-extracurricular [");
     let _ = writeln!(out, "      #section(\"Extracurricular\")[");
-    let _ = writeln!(out, "        #job(");
-    let _ = writeln!(out, "          \"Role Title\",");
-    let _ = writeln!(out, "          \"Organization Name\",");
-    let _ = writeln!(out, "          \"Year – present\",");
-    let _ = writeln!(out, "          [Description of role or achievement.]");
-    let _ = writeln!(out, "        )");
+    let _ = writeln!(out, "        #cv-section(category: (\"Service\", \"Committee Appointment\", \"Volunteer\", \"Project\"), style: CV_STYLE)");
     let _ = writeln!(out, "      ]");
     let _ = writeln!(out, "    ]");
     let _ = writeln!(out, "  ],");
@@ -4283,10 +4291,186 @@ mod tests {
         assert!(src.contains("#let CV_STYLE = \"sidebar\""));
         assert!(src.contains("#let mylink(url, label)"));
         assert!(src.contains("#let taglist(items)"));
-        assert!(src.contains("#let presentation(role, venue, title, years)"));
+        assert!(src.contains("#import \"cv-helpers.typ\": cv-section"));
         assert!(src.contains("columns: (1fr, 2fr)"));
         assert!(src.contains("#taglist((\"Interest one\""));
-        assert!(src.contains("#presentation("));
+        assert!(src.contains("#cv-section(category: (\"Publication\", \"Presentation\"), style: CV_STYLE)"));
+    }
+
+    #[test]
+    fn all_cv_styles_compile_with_skrizhal_data() {
+        use std::collections::HashMap;
+
+        // One entry per shape (job/edu/award/presentation/tag) so every
+        // #cv-section call in the generated template hits real data instead
+        // of just the "No entries yet." empty state.
+        let cv_data = r#"
+pastor-role:
+  category: Ministry Position
+  title: Youth Pastor
+  organization: Hope United Church
+  location: Springfield
+  date: 2023-01/2025-06
+  description:
+    - Led weekly youth group
+mdiv:
+  category: Education
+  title: Master of Divinity
+  organization: Atlantic School of Theology
+  date: 2020/2023
+deans-list:
+  category: Award
+  title: Dean's List
+  organization: Springfield Seminary
+  date: 2020
+  description:
+    - Top of cohort
+conference-talk:
+  category: Presentation
+  title: Faith and Community
+  organization: Annual Ministry Conference
+  date: 2024
+  role: Panelist
+volunteer-role:
+  category: Volunteer
+  title: Food Bank Coordinator
+  organization: Springfield Food Bank
+  date: 2019/2022
+french:
+  category: Language Skill
+  title: French (conversational)
+"#;
+
+        fn settings_with_style(style_idx: usize) -> TemplateSettings {
+            TemplateSettings {
+                title: String::new(), subtitle: String::new(),
+                author: "Jane Doe".to_string(), affiliation: String::new(),
+                course: String::new(), professor: String::new(), date: String::new(),
+                style_idx, paper_idx: 1,
+                custom_paper_w: String::new(), custom_paper_h: String::new(),
+                margin_idx: 1, custom_margin: String::new(),
+                font: "Linux Libertine".to_string(), font_size: "10.5pt".to_string(),
+                spacing: "0.65em".to_string(), page_num_pos: 4, header_style: 0,
+                include_toc: false, toc_depth: 2,
+                include_abstract: false, abstract_text: String::new(),
+                include_keywords: false, keywords: String::new(),
+                heading_numbering: false, numbering_format: String::new(),
+                languages: Vec::new(), packages: Vec::new(),
+                dropcap_font: String::new(), dropcap_lines: 3, dropcap_color: String::new(),
+                body_kind: BodyKind::Cv, bib_path: None,
+            }
+        }
+
+        for style_idx in 0..=3 {
+            let settings = settings_with_style(style_idx);
+            let src = generate_typst_template(&settings);
+
+            static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let path = std::path::PathBuf::from(format!(
+                "/tmp/zerkalo_test_cv_style_{}_{}.typ",
+                std::process::id(),
+                n
+            ));
+            std::fs::write(&path, &src).unwrap();
+
+            let cv_helpers_src = include_str!("../../templates/cv-helpers.typ");
+            let mut overrides = HashMap::new();
+            overrides.insert(
+                std::path::PathBuf::from("/tmp/cv-helpers.typ"),
+                cv_helpers_src.to_string(),
+            );
+            let mut inputs = HashMap::new();
+            inputs.insert("skrizhal-cv-data".to_string(), cv_data.to_string());
+
+            let result = crate::compiler::compile_to_pdf_bytes(&path, &overrides, &inputs);
+            assert!(
+                result.is_ok(),
+                "CV style_idx={style_idx} should compile: {:?}",
+                result.err()
+            );
+            assert!(result.unwrap().starts_with(b"%PDF-"));
+
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+
+    #[test]
+    fn regenerating_legacy_cv_document_keeps_it_compiling() {
+        use std::collections::HashMap;
+
+        // Simulates a CV created before the #cv-section rewrite: its body
+        // hand-calls #job/#edu/#award directly, and its (now-stale) preamble
+        // still defines them. Changing font/paper/margin on a document like
+        // this regenerates the preamble from scratch via generate_typst_template
+        // — which, post-rewrite, no longer defines those functions — then
+        // splices it onto the OLD body via apply_body_splice. Without the
+        // legacy-helper reinjection this produces "unknown function: job".
+        let settings = TemplateSettings {
+            title: String::new(), subtitle: String::new(),
+            author: "Jane Doe".to_string(), affiliation: String::new(),
+            course: String::new(), professor: String::new(), date: String::new(),
+            style_idx: 0, paper_idx: 1,
+            custom_paper_w: String::new(), custom_paper_h: String::new(),
+            margin_idx: 1, custom_margin: String::new(),
+            font: "Linux Libertine".to_string(), font_size: "10.5pt".to_string(),
+            spacing: "0.65em".to_string(), page_num_pos: 4, header_style: 0,
+            include_toc: false, toc_depth: 2,
+            include_abstract: false, abstract_text: String::new(),
+            include_keywords: false, keywords: String::new(),
+            heading_numbering: false, numbering_format: String::new(),
+            languages: Vec::new(), packages: Vec::new(),
+            dropcap_font: String::new(), dropcap_lines: 3, dropcap_color: String::new(),
+            body_kind: BodyKind::Cv, bib_path: None,
+        };
+
+        // generate_typst_template only ever produces the current (post-rewrite)
+        // shape now, so build the "old document" fixture the same way
+        // apply_body_splice would recognize a genuinely legacy one: current
+        // preamble + the legacy helper block manually re-added, matching what
+        // a document saved before the rewrite actually looks like on disk.
+        let current_preamble = generate_typst_template(&settings);
+        assert!(!current_preamble.contains("#let job("), "fresh templates should no longer define #job");
+        let idx = current_preamble.find("// ── Document body").unwrap();
+        let legacy_preamble = inject_legacy_cv_helpers(&current_preamble[..idx]);
+        assert!(legacy_preamble.contains("#let job("), "test fixture must look legacy");
+        let legacy_body = "// ── Document body ─────────────────────────────────────────────────────\n\n\
+            #job(\"Youth Pastor\", \"Hope United Church\", \"2023 – present\", [Led weekly youth group])\n";
+        let legacy_doc = format!("{legacy_preamble}{legacy_body}");
+
+        // Regenerate (as a font change would) and splice onto the legacy body.
+        let fresh = generate_typst_template(&settings);
+        let spliced = apply_body_splice(&legacy_doc, &fresh);
+        assert!(
+            spliced.contains("#let job("),
+            "splice must reinject legacy helpers so the old body still resolves"
+        );
+
+        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let path = std::path::PathBuf::from(format!(
+            "/tmp/zerkalo_test_legacy_cv_{}_{}.typ",
+            std::process::id(),
+            n
+        ));
+        std::fs::write(&path, &spliced).unwrap();
+
+        let cv_helpers_src = include_str!("../../templates/cv-helpers.typ");
+        let mut overrides = HashMap::new();
+        overrides.insert(
+            std::path::PathBuf::from("/tmp/cv-helpers.typ"),
+            cv_helpers_src.to_string(),
+        );
+
+        let result = crate::compiler::compile_to_pdf_bytes(&path, &overrides, &HashMap::new());
+        assert!(
+            result.is_ok(),
+            "regenerated legacy CV document should still compile: {:?}",
+            result.err()
+        );
+        assert!(result.unwrap().starts_with(b"%PDF-"));
+
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]

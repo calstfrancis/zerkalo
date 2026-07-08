@@ -27,8 +27,10 @@ pub struct CitationPanel {
     on_insert: InsertCb,
     on_choose_bib: ChooseCb,
     on_choose_cv: ChooseCb,
+    on_open_skrizhal: ChooseCb,
     choose_btn: Button,
     bib_name_label: Label,
+    skrizhal_btn: Button,
     bib_filename: Rc<RefCell<Option<String>>>,
     cv_filename: Rc<RefCell<Option<String>>>,
 }
@@ -56,6 +58,16 @@ impl CitationPanel {
         bib_name_label.set_ellipsize(gtk4::pango::EllipsizeMode::Middle);
         bib_name_label.set_visible(false);
         header_box.append(&bib_name_label);
+
+        // In CV mode, replaces bib_name_label — opens the actual Skrizhal
+        // app to edit the YAML database, rather than just naming the file.
+        let skrizhal_btn = Button::with_label("Skrizhal");
+        skrizhal_btn.add_css_class("flat");
+        skrizhal_btn.set_hexpand(true);
+        skrizhal_btn.set_halign(Align::Start);
+        skrizhal_btn.set_tooltip_text(Some("Open Skrizhal to edit CV elements"));
+        skrizhal_btn.set_visible(false);
+        header_box.append(&skrizhal_btn);
 
         let choose_btn = Button::from_icon_name("document-open-symbolic");
         choose_btn.add_css_class("flat");
@@ -91,6 +103,7 @@ impl CitationPanel {
         let on_insert: InsertCb = Rc::new(RefCell::new(None));
         let on_choose_bib: ChooseCb = Rc::new(RefCell::new(None));
         let on_choose_cv: ChooseCb = Rc::new(RefCell::new(None));
+        let on_open_skrizhal: ChooseCb = Rc::new(RefCell::new(None));
         let bib_entries: Rc<RefCell<Vec<BibEntry>>> = Rc::new(RefCell::new(Vec::new()));
         let cv_entries: Rc<RefCell<Vec<skrizhal_core::CvEntry>>> = Rc::new(RefCell::new(Vec::new()));
         let cv_mode: Rc<Cell<bool>> = Rc::new(Cell::new(false));
@@ -127,6 +140,13 @@ impl CitationPanel {
             });
         }
 
+        {
+            let cb = on_open_skrizhal.clone();
+            skrizhal_btn.connect_clicked(move |_| {
+                if let Some(f) = cb.borrow().as_ref() { f(); }
+            });
+        }
+
         let panel = Self {
             widget,
             list,
@@ -138,8 +158,10 @@ impl CitationPanel {
             on_insert,
             on_choose_bib,
             on_choose_cv,
+            on_open_skrizhal,
             choose_btn,
             bib_name_label,
+            skrizhal_btn,
             bib_filename: Rc::new(RefCell::new(None)),
             cv_filename: Rc::new(RefCell::new(None)),
         };
@@ -189,7 +211,8 @@ impl CitationPanel {
             self.choose_btn.update_property(&[gtk4::accessible::Property::Label(
                 "Choose CV element file",
             )]);
-            self.refresh_filename_label(self.cv_filename.borrow().as_deref());
+            self.bib_name_label.set_visible(false);
+            self.skrizhal_btn.set_visible(true);
         } else {
             self.title_label.set_text("Citations");
             self.search.set_placeholder_text(Some("Search by key, author, title…"));
@@ -197,6 +220,7 @@ impl CitationPanel {
             self.choose_btn.update_property(&[gtk4::accessible::Property::Label(
                 "Choose bibliography file",
             )]);
+            self.skrizhal_btn.set_visible(false);
             self.refresh_filename_label(self.bib_filename.borrow().as_deref());
         }
         let query = self.search.text();
@@ -215,6 +239,10 @@ impl CitationPanel {
         *self.on_choose_cv.borrow_mut() = Some(Box::new(f));
     }
 
+    pub fn set_on_open_skrizhal(&self, f: impl Fn() + 'static) {
+        *self.on_open_skrizhal.borrow_mut() = Some(Box::new(f));
+    }
+
     pub fn set_bib_filename(&self, name: Option<&str>) {
         *self.bib_filename.borrow_mut() = name.map(str::to_string);
         if !self.cv_mode.get() {
@@ -224,9 +252,10 @@ impl CitationPanel {
 
     pub fn set_cv_filename(&self, name: Option<&str>) {
         *self.cv_filename.borrow_mut() = name.map(str::to_string);
-        if self.cv_mode.get() {
-            self.refresh_filename_label(name);
-        }
+        self.skrizhal_btn.set_tooltip_text(Some(&match name {
+            Some(n) => format!("Open Skrizhal to edit CV elements ({n})"),
+            None => "Open Skrizhal to edit CV elements".to_string(),
+        }));
     }
 
     fn refresh_filename_label(&self, name: Option<&str>) {

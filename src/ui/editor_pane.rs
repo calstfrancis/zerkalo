@@ -1217,6 +1217,7 @@ impl EditorPane {
             ep.find_bar.set_on_reveal_changed(move |revealed| {
                 set_toggle_label(&sl, "search", revealed);
                 if !revealed {
+                    ep_focus.clear_search_highlight();
                     ep_focus.grab_focus();
                 }
             });
@@ -1828,8 +1829,36 @@ impl EditorPane {
         let end = buffer.iter_at_offset(end_off);
         // Place insertion cursor at start so next forward search skips past current match
         buffer.select_range(&end, &start);
-        view.scroll_to_iter(&mut start.clone(), 0.1, false, 0.0, 0.5);
+
+        // A bright background tag makes the current match obvious even where the
+        // native selection color is low-contrast against the editor theme.
+        ensure_search_tag(&buffer);
+        let (buf_start, buf_end) = buffer.bounds();
+        buffer.remove_tag_by_name("zerkalo-search-current", &buf_start, &buf_end);
+        buffer.apply_tag_by_name("zerkalo-search-current", &start, &end);
+
+        // scroll_to_iter can silently no-op if the view hasn't validated line
+        // heights for this part of the buffer yet (a known GTK timing issue) —
+        // deferring to the next idle iteration, after layout has settled, and
+        // scrolling via a mark (which survives that iteration) makes this
+        // reliable. use_align + yalign 0.5 centers the match instead of just
+        // nudging it into view at the edge.
+        let mark = buffer.create_mark(None::<&str>, &start, true);
+        let view_idle = view.clone();
+        let buffer_idle = buffer.clone();
+        glib::idle_add_local_once(move || {
+            view_idle.scroll_to_mark(&mark, 0.0, true, 0.0, 0.5);
+            buffer_idle.delete_mark(&mark);
+        });
+
         self.find_bar.set_result(&format!("{} of {}", idx + 1, matches.len()));
+    }
+
+    pub fn clear_search_highlight(&self) {
+        if let Some((_, buffer)) = self.active_view_buffer() {
+            let (start, end) = buffer.bounds();
+            buffer.remove_tag_by_name("zerkalo-search-current", &start, &end);
+        }
     }
 
     pub fn do_replace_one(&self, find: &str, replace: &str) {
@@ -5222,6 +5251,19 @@ fn ensure_diag_tags(buffer: &Buffer) {
         tag.set_underline(gtk4::pango::Underline::SingleLine);
         tag.set_underline_rgba(Some(&gtk4::gdk::RGBA::new(0.85, 0.72, 0.1, 1.0)));
         table.add(&tag);
+    }
+}
+
+fn ensure_search_tag(buffer: &Buffer) {
+    let table = buffer.tag_table();
+    if table.lookup("zerkalo-search-current").is_none() {
+        let tag = TextTag::new(Some("zerkalo-search-current"));
+        tag.set_background_rgba(Some(&gtk4::gdk::RGBA::new(1.0, 0.6, 0.0, 0.65)));
+        tag.set_foreground_rgba(Some(&gtk4::gdk::RGBA::new(0.0, 0.0, 0.0, 1.0)));
+        table.add(&tag);
+        // Newly-added tags already get top priority, but make it explicit so
+        // it stays visible even if another tag is added after this one later.
+        tag.set_priority(table.size() - 1);
     }
 }
 

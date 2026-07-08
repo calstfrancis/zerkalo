@@ -18,8 +18,7 @@ assets/icons/
 *.pdf
 *.png
 # But track the app screenshot
-!packaging/zerkalo-screenshot.png
-!zerkalo.png
+!screenshots/*.png
 
 # Reference style guide PDFs/EPUBs (local only)
 Reference Documents/
@@ -27,6 +26,7 @@ Reference Documents/
 # Working documents (local only)
 *.typ
 !templates/**/*.typ
+!screenshots/demo-main.typ
 
 # Plans / future work (local only)
 future-plans.md

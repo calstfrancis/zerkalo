@@ -67,13 +67,17 @@
     </screenshot>
   </screenshots>
   <releases>
-    <release type="development" version="0.16.1-dev4" date="2026-07-08">
+    <release type="development" version="0.16.1-dev5" date="2026-07-08">
       <description>
-        <p>0.16.1-dev4 — Skrizhal CV element integration.</p>
+        <p>0.16.1-dev5 — Skrizhal CV element integration.</p>
         <ul>
-          <li>Added: in CV mode, the citation panel connects to a Skrizhal CV-element YAML database instead of a bibliography — panel header, search, and "choose file" all swap to CV Elements, and selecting an entry inserts #cv-entry("key")</li>
+          <li>Added: in CV mode, the citation panel connects to a Skrizhal CV-element YAML database instead of a bibliography — panel header and search swap to CV Elements, and selecting an entry inserts #cv-entry("key")</li>
+          <li>Added: "Skrizhal" launch button in CV mode opens the installed Skrizhal flatpak directly</li>
           <li>Added: "!" autocomplete for CV entries, mirroring the existing "@" citation autocomplete</li>
-          <li>Added: cv_elements_path setting (global and per-project), watched and reloaded automatically on change</li>
+          <li>Added: cv_elements_path setting (global and per-project), watched and reloaded automatically on change, now editable from Settings → Extras</li>
+          <li>Added: backward compatibility for CV documents created before the #cv-section rewrite — legacy #job/#edu/#skill/#award/#presentation helpers are re-injected when detected</li>
+          <li>Improved: find bar highlights the current match and scrolls to center reliably</li>
+          <li>Improved: changelog window layout and settings dialog resizing</li>
         </ul>
       </description>
     </release>

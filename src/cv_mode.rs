@@ -11,14 +11,19 @@ pub const CV_HELPERS_TYPST: &str = include_str!("../templates/cv-helpers.typ");
 /// thumbnails, etc.) needs for CV mode — the live-preview path gets the same
 /// data via `PreviewPane::set_cv_elements_path`'s fresh-read-per-compile
 /// mechanism instead, since it compiles repeatedly.
+///
+/// `cv-helpers.typ` is injected unconditionally, even with no Skrizhal file
+/// configured — CV templates unconditionally `#import` it, and `cv-data`
+/// degrades to an empty dict, so leaving it out here would fail every export
+/// of a CV document that hasn't been pointed at a Skrizhal file yet.
 pub fn cv_mode_compile_extras(
     project_root: &Path,
     cv_elements_path: Option<&Path>,
 ) -> (HashMap<PathBuf, String>, HashMap<String, String>) {
     let mut overrides = HashMap::new();
     let mut sys_inputs = HashMap::new();
+    overrides.insert(project_root.join("cv-helpers.typ"), CV_HELPERS_TYPST.to_string());
     if let Some(cv_path) = cv_elements_path {
-        overrides.insert(project_root.join("cv-helpers.typ"), CV_HELPERS_TYPST.to_string());
         match std::fs::read_to_string(cv_path) {
             Ok(yaml) => {
                 sys_inputs.insert("skrizhal-cv-data".to_string(), yaml);

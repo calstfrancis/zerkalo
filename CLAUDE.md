@@ -22,9 +22,11 @@
 6. Run `flatpak-builder --force-clean --user --install build-flatpak packaging/io.github.calstfrancis.Zerkalo.yml`
 
 ### Flatpak build
-- The flatpak manifest sources from the **local directory** (`type: dir`) — no push needed before building
-- Still push to GitHub as part of the build flow so the repo stays current
-- On release: switch manifest source back to `type: git` for the published build, then switch back to `type: dir` after
+- The flatpak manifest (`packaging/io.github.calstfrancis.Zerkalo.yml`) should normally sit at `type: dir`, `path: ..` for the `zerkalo` module source — this builds from local/pushed source, no pinned tag.
+- Still push to GitHub as part of the build flow so the repo stays current.
+- **On release, this is a two-part step — do not do the first half without the second:**
+  1. Before running `publish-flatpak.sh`: switch the `zerkalo` module's source to `type: git`, `tag: vX.Y.Z` (the release tag just pushed).
+  2. **Immediately after the release build/publish finishes, switch it back to `type: dir`, `path: ..` and commit that.** Forgetting this step is silent and easy to miss: the manifest keeps pointing at the old release tag, so every subsequent dev build quietly rebuilds the stale release instead of current source (this happened after the v0.15.0 release — dev builds kept installing 0.15.0 for a while before anyone noticed). Before ending a release session, run `git diff packaging/io.github.calstfrancis.Zerkalo.yml` and confirm it shows `type: dir`, not `type: git`.
 
 ### Release names
 - Every release gets a name. Choose a two-word name: an adjective + a noun (e.g. "Amber Tide", "Silent Forge", "Iron Coast"). Pick something that evokes the theme of the main changes in the release, or just something that sounds good. Avoid clichés.

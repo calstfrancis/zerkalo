@@ -5,12 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.16.1-dev4] — Skrizhal CV element integration
+## [0.16.1-dev5] — Skrizhal CV element integration
 
 ### Added
-- **Skrizhal CV element integration** — when a document is in CV mode, the citation panel connects to a [Skrizhal](https://github.com/calstfrancis/skrizhal) CV-element YAML database instead of a bibliography: the panel header, search placeholder, and "choose file" button all swap to CV Elements, and clicking or double-clicking an entry inserts `#cv-entry("key")` at the cursor.
+- **Skrizhal CV element integration** — when a document is in CV mode, the citation panel connects to a [Skrizhal](https://github.com/calstfrancis/skrizhal) CV-element YAML database instead of a bibliography: the panel header and search placeholder swap to CV Elements, and clicking or double-clicking an entry inserts `#cv-entry("key")` at the cursor.
+- **"Skrizhal" launch button** — in CV mode, the citation panel's file-name label is replaced with a button that launches the installed Skrizhal flatpak directly to edit the CV-element database, with a toast if it isn't installed.
 - **`!` autocomplete for CV entries** — mirrors the existing `@` citation autocomplete: type `!` followed by a key, title, organization, or tag fragment to get a filtered popup, with Tab/Enter to insert and arrow keys to navigate.
-- New `cv_elements_path` setting (global and per-project override, like `bib_path`) points Zerkalo at a Skrizhal YAML file; the file is watched and reloaded automatically on change.
+- New `cv_elements_path` setting (global and per-project override, like `bib_path`) points Zerkalo at a Skrizhal YAML file; the file is watched and reloaded automatically on change. Now also editable directly from Settings → Extras.
+- Backward compatibility: CV documents created before the Skrizhal `#cv-section` rewrite (which called `#job`/`#edu`/`#skill`/`#award`/`#presentation` directly) keep compiling after a template settings change — the legacy helper functions are re-injected into the regenerated preamble when detected.
+- `cv-helpers.typ` is now injected into every CV document's preview compile unconditionally, not just when a Skrizhal file is configured, since CV templates unconditionally `#import` it.
+- Find bar: the current search match is now highlighted with a bright background tag (in addition to the selection), and scrolls to center reliably via a buffer mark instead of occasionally no-op'ing on unvalidated line heights.
+- Changelog window: entries now show the version and title on separate rows (so long titles wrap instead of eliding) and tag the currently-running version with a "Current" badge.
+- Settings dialog is now resizable, with a larger default size to fit the new CV Elements row.
+- Release screenshots moved from tracked root-level `zerkalo.png` / `packaging/zerkalo-screenshot.png` to a `screenshots/` directory, attached to GitHub Releases automatically via CI.
 
 ## [0.16.1-dev3] — CV — Two-Column header spacing fix
 
