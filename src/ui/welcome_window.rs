@@ -126,6 +126,7 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
+                "Fixed: CV — Two-Column (and other sidebar-style CVs) rendered Education entries with a differently-cased category (e.g. \"education\" instead of \"Education\") crammed onto one line instead of the intended stacked degree/school/dates layout",
                 "Added: in CV mode, the citation panel connects to a Skrizhal CV-element YAML database instead of a bibliography, with \"!\" autocomplete for CV entries alongside the existing \"@\" citation autocomplete",
                 "Added: \"Skrizhal\" button in CV mode launches the installed Skrizhal app directly to edit your CV elements",
                 "Added: older CV documents keep compiling after a template settings change, even if they still use the pre-Skrizhal #job/#edu/#skill/#award/#presentation functions",

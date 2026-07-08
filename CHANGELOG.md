@@ -5,7 +5,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.16.1-dev5] — Skrizhal CV element integration
+## [0.16.1-dev6] — Skrizhal CV element integration
+
+### Fixed
+- **CV — Two-Column (and other sidebar-style CVs): Education entries with a differently-cased
+  category** (e.g. Skrizhal's free-text category field saved as `education` instead of
+  `Education`) **rendered degree and school crammed onto one line** instead of the intended
+  degree / school / dates stacked layout — the category dispatch in `cv-helpers.typ` matched
+  case-sensitively, so anything not spelled exactly `Education` silently fell back to the generic
+  job-shape renderer. Category matching (both which shape an entry renders as, and which
+  `#cv-section` it's included in) is now case-insensitive throughout, matching skrizhal-core's own
+  case-insensitive category lookup.
 
 ### Added
 - **Skrizhal CV element integration** — when a document is in CV mode, the citation panel connects to a [Skrizhal](https://github.com/calstfrancis/skrizhal) CV-element YAML database instead of a bibliography: the panel header and search placeholder swap to CV Elements, and clicking or double-clicking an entry inserts `#cv-entry("key")` at the cursor.
