@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.16.1-dev4] — Skrizhal CV element integration
+
+### Added
+- **Skrizhal CV element integration** — when a document is in CV mode, the citation panel connects to a [Skrizhal](https://github.com/calstfrancis/skrizhal) CV-element YAML database instead of a bibliography: the panel header, search placeholder, and "choose file" button all swap to CV Elements, and clicking or double-clicking an entry inserts `#cv-entry("key")` at the cursor.
+- **`!` autocomplete for CV entries** — mirrors the existing `@` citation autocomplete: type `!` followed by a key, title, organization, or tag fragment to get a filtered popup, with Tab/Enter to insert and arrow keys to navigate.
+- New `cv_elements_path` setting (global and per-project override, like `bib_path`) points Zerkalo at a Skrizhal YAML file; the file is watched and reloaded automatically on change.
+
 ## [0.16.1-dev3] — CV — Two-Column header spacing fix
 
 ### Fixed

@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use gtk4::prelude::*;
@@ -10,17 +10,27 @@ use gtk4::{
 use crate::bibliography::BibEntry;
 
 type InsertCb = Rc<RefCell<Option<Box<dyn Fn(String)>>>>;
-type ChooseBibCb = Rc<RefCell<Option<Box<dyn Fn()>>>>;
+type ChooseCb = Rc<RefCell<Option<Box<dyn Fn()>>>>;
 
+/// The panel connects to either a bibliography or a Skrizhal CV-element
+/// database, never both at once — `cv_mode` mirrors the active document's
+/// CV mode (`EditorPane::set_cv_mode`) and swaps which list is shown.
 #[derive(Clone)]
 pub struct CitationPanel {
     widget: GtkBox,
     list: ListBox,
     search: SearchEntry,
-    entries: Rc<RefCell<Vec<BibEntry>>>,
+    title_label: Label,
+    bib_entries: Rc<RefCell<Vec<BibEntry>>>,
+    cv_entries: Rc<RefCell<Vec<skrizhal_core::CvEntry>>>,
+    cv_mode: Rc<Cell<bool>>,
     on_insert: InsertCb,
-    on_choose_bib: ChooseBibCb,
+    on_choose_bib: ChooseCb,
+    on_choose_cv: ChooseCb,
+    choose_btn: Button,
     bib_name_label: Label,
+    bib_filename: Rc<RefCell<Option<String>>>,
+    cv_filename: Rc<RefCell<Option<String>>>,
 }
 
 impl CitationPanel {
@@ -33,10 +43,10 @@ impl CitationPanel {
         header_box.set_margin_top(6);
         header_box.set_margin_bottom(6);
 
-        let title = Label::new(Some("Citations"));
-        title.set_xalign(0.0);
-        title.add_css_class("heading");
-        header_box.append(&title);
+        let title_label = Label::new(Some("Citations"));
+        title_label.set_xalign(0.0);
+        title_label.add_css_class("heading");
+        header_box.append(&title_label);
 
         let bib_name_label = Label::new(None);
         bib_name_label.add_css_class("dim-label");
@@ -79,31 +89,60 @@ impl CitationPanel {
         widget.append(&scroll);
 
         let on_insert: InsertCb = Rc::new(RefCell::new(None));
-        let on_choose_bib: ChooseBibCb = Rc::new(RefCell::new(None));
-        let entries: Rc<RefCell<Vec<BibEntry>>> = Rc::new(RefCell::new(Vec::new()));
+        let on_choose_bib: ChooseCb = Rc::new(RefCell::new(None));
+        let on_choose_cv: ChooseCb = Rc::new(RefCell::new(None));
+        let bib_entries: Rc<RefCell<Vec<BibEntry>>> = Rc::new(RefCell::new(Vec::new()));
+        let cv_entries: Rc<RefCell<Vec<skrizhal_core::CvEntry>>> = Rc::new(RefCell::new(Vec::new()));
+        let cv_mode: Rc<Cell<bool>> = Rc::new(Cell::new(false));
 
         // Wire activation once on the list — fires on double-click and Enter.
-        // Row's widget_name holds the citation key set during rebuild_list.
+        // Row's widget_name holds the citation/CV key set during rebuild_list;
+        // the insert text format depends on which mode was active at build time.
         {
             let cb = on_insert.clone();
+            let cv_mode_ra = cv_mode.clone();
             list.connect_row_activated(move |_, row| {
                 let key = row.widget_name().to_string();
                 if !key.is_empty() {
+                    let text = if cv_mode_ra.get() {
+                        format!("#cv-entry(\"{key}\")")
+                    } else {
+                        format!("@{key}")
+                    };
                     if let Some(f) = cb.borrow().as_ref() {
-                        f(key);
+                        f(text);
                     }
                 }
             });
         }
 
         {
-            let cb = on_choose_bib.clone();
+            let cb_bib = on_choose_bib.clone();
+            let cb_cv = on_choose_cv.clone();
+            let cv_mode_cb = cv_mode.clone();
             choose_btn.connect_clicked(move |_| {
-                if let Some(f) = cb.borrow().as_ref() { f(); }
+                if cv_mode_cb.get() {
+                    if let Some(f) = cb_cv.borrow().as_ref() { f(); }
+                } else if let Some(f) = cb_bib.borrow().as_ref() { f(); }
             });
         }
 
-        let panel = Self { widget, list, search, entries, on_insert, on_choose_bib, bib_name_label };
+        let panel = Self {
+            widget,
+            list,
+            search,
+            title_label,
+            bib_entries,
+            cv_entries,
+            cv_mode,
+            on_insert,
+            on_choose_bib,
+            on_choose_cv,
+            choose_btn,
+            bib_name_label,
+            bib_filename: Rc::new(RefCell::new(None)),
+            cv_filename: Rc::new(RefCell::new(None)),
+        };
 
         {
             let p = panel.clone();
@@ -120,7 +159,46 @@ impl CitationPanel {
     }
 
     pub fn load_bib(&self, entries: Vec<BibEntry>) {
-        *self.entries.borrow_mut() = entries;
+        *self.bib_entries.borrow_mut() = entries;
+        if !self.cv_mode.get() {
+            let query = self.search.text();
+            self.rebuild_list(query.as_str());
+        }
+    }
+
+    pub fn load_cv_entries(&self, entries: Vec<skrizhal_core::CvEntry>) {
+        *self.cv_entries.borrow_mut() = entries;
+        if self.cv_mode.get() {
+            let query = self.search.text();
+            self.rebuild_list(query.as_str());
+        }
+    }
+
+    /// Swaps the panel between citation mode and CV-element mode — the
+    /// active document's `#doc-kind: cv` front matter drives this, not a
+    /// user toggle (see `EditorPane::set_cv_mode`).
+    pub fn set_cv_mode(&self, active: bool) {
+        if self.cv_mode.get() == active {
+            return;
+        }
+        self.cv_mode.set(active);
+        if active {
+            self.title_label.set_text("CV Elements");
+            self.search.set_placeholder_text(Some("Search by key, title, tag…"));
+            self.choose_btn.set_tooltip_text(Some("Choose CV element file (.yaml)"));
+            self.choose_btn.update_property(&[gtk4::accessible::Property::Label(
+                "Choose CV element file",
+            )]);
+            self.refresh_filename_label(self.cv_filename.borrow().as_deref());
+        } else {
+            self.title_label.set_text("Citations");
+            self.search.set_placeholder_text(Some("Search by key, author, title…"));
+            self.choose_btn.set_tooltip_text(Some("Choose bibliography file (.bib, .yaml)"));
+            self.choose_btn.update_property(&[gtk4::accessible::Property::Label(
+                "Choose bibliography file",
+            )]);
+            self.refresh_filename_label(self.bib_filename.borrow().as_deref());
+        }
         let query = self.search.text();
         self.rebuild_list(query.as_str());
     }
@@ -133,7 +211,25 @@ impl CitationPanel {
         *self.on_choose_bib.borrow_mut() = Some(Box::new(f));
     }
 
+    pub fn set_on_choose_cv(&self, f: impl Fn() + 'static) {
+        *self.on_choose_cv.borrow_mut() = Some(Box::new(f));
+    }
+
     pub fn set_bib_filename(&self, name: Option<&str>) {
+        *self.bib_filename.borrow_mut() = name.map(str::to_string);
+        if !self.cv_mode.get() {
+            self.refresh_filename_label(name);
+        }
+    }
+
+    pub fn set_cv_filename(&self, name: Option<&str>) {
+        *self.cv_filename.borrow_mut() = name.map(str::to_string);
+        if self.cv_mode.get() {
+            self.refresh_filename_label(name);
+        }
+    }
+
+    fn refresh_filename_label(&self, name: Option<&str>) {
         match name {
             Some(n) => {
                 self.bib_name_label.set_text(n);
@@ -150,20 +246,19 @@ impl CitationPanel {
             self.list.remove(&child);
         }
 
+        if self.cv_mode.get() {
+            self.rebuild_cv_list(filter);
+        } else {
+            self.rebuild_bib_list(filter);
+        }
+    }
+
+    fn rebuild_bib_list(&self, filter: &str) {
         let filter_lower = filter.to_lowercase();
-        let entries = self.entries.borrow();
+        let entries = self.bib_entries.borrow();
 
         if entries.is_empty() {
-            let row = ListBoxRow::new();
-            row.set_selectable(false);
-            row.set_activatable(false);
-            let lbl = Label::new(Some("No bibliography loaded.\nSet a .bib file in Settings."));
-            lbl.add_css_class("dim-label");
-            lbl.set_justify(gtk4::Justification::Center);
-            lbl.set_margin_top(16);
-            lbl.set_margin_bottom(16);
-            row.set_child(Some(&lbl));
-            self.list.append(&row);
+            self.append_placeholder("No bibliography loaded.\nSet a .bib file in Settings.");
             return;
         }
 
@@ -179,7 +274,6 @@ impl CitationPanel {
 
             let row = ListBoxRow::new();
             row.set_activatable(true);
-            // Store the key as widget name so connect_row_activated can retrieve it
             row.set_widget_name(&entry.key);
             row.set_tooltip_text(Some(&format!("Double-click or Enter to insert @{}", entry.key)));
 
@@ -189,7 +283,6 @@ impl CitationPanel {
             box_.set_margin_top(5);
             box_.set_margin_bottom(5);
 
-            // First line: bold key + dim "· author (year)"
             let top = GtkBox::new(Orientation::Horizontal, 4);
             let key_lbl = Label::new(None);
             key_lbl.set_markup(&format!(
@@ -215,7 +308,6 @@ impl CitationPanel {
             top.append(&meta_lbl);
             box_.append(&top);
 
-            // Second line: italic title
             if !entry.title.is_empty() {
                 let title_lbl = Label::new(None);
                 title_lbl.set_markup(&format!(
@@ -234,15 +326,103 @@ impl CitationPanel {
         }
 
         if shown == 0 {
-            let row = ListBoxRow::new();
-            row.set_selectable(false);
-            row.set_activatable(false);
-            let lbl = Label::new(Some("No matching entries"));
-            lbl.add_css_class("dim-label");
-            lbl.set_margin_top(16);
-            lbl.set_margin_bottom(16);
-            row.set_child(Some(&lbl));
-            self.list.append(&row);
+            self.append_placeholder("No matching entries");
         }
+    }
+
+    fn rebuild_cv_list(&self, filter: &str) {
+        let filter_lower = filter.to_lowercase();
+        let entries = self.cv_entries.borrow();
+
+        if entries.is_empty() {
+            self.append_placeholder("No CV elements loaded.\nSet a Skrizhal file in Settings.");
+            return;
+        }
+
+        let mut shown = 0usize;
+        for entry in entries.iter() {
+            if !filter_lower.is_empty() {
+                let haystack = format!(
+                    "{} {} {} {}",
+                    entry.key,
+                    entry.title,
+                    entry.organization.as_deref().unwrap_or(""),
+                    entry.tags.join(" ")
+                )
+                .to_lowercase();
+                if !haystack.contains(&filter_lower) {
+                    continue;
+                }
+            }
+
+            let row = ListBoxRow::new();
+            row.set_activatable(true);
+            row.set_widget_name(&entry.key);
+            row.set_tooltip_text(Some(&format!(
+                "Double-click or Enter to insert #cv-entry(\"{}\")",
+                entry.key
+            )));
+
+            let box_ = GtkBox::new(Orientation::Vertical, 2);
+            box_.set_margin_start(8);
+            box_.set_margin_end(8);
+            box_.set_margin_top(5);
+            box_.set_margin_bottom(5);
+
+            let top = GtkBox::new(Orientation::Horizontal, 4);
+            let title_lbl = Label::new(None);
+            let title_text = if entry.title.is_empty() { entry.key.as_str() } else { &entry.title };
+            title_lbl.set_markup(&format!(
+                "<b>{}</b>",
+                glib::markup_escape_text(title_text)
+            ));
+            title_lbl.set_xalign(0.0);
+            title_lbl.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+
+            let meta_str = match (&entry.organization, &entry.date) {
+                (Some(org), Some(date)) => format!(" · {org} ({date})"),
+                (Some(org), None) => format!(" · {org}"),
+                (None, Some(date)) => format!(" · ({date})"),
+                (None, None) => String::new(),
+            };
+            let meta_lbl = Label::new(Some(&meta_str));
+            meta_lbl.add_css_class("dim-label");
+            meta_lbl.add_css_class("caption");
+            meta_lbl.set_xalign(0.0);
+            meta_lbl.set_hexpand(true);
+            meta_lbl.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+            top.append(&title_lbl);
+            top.append(&meta_lbl);
+            box_.append(&top);
+
+            let sub_str = format!("{} · {}", entry.category, entry.key);
+            let sub_lbl = Label::new(Some(&sub_str));
+            sub_lbl.set_xalign(0.0);
+            sub_lbl.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+            sub_lbl.add_css_class("caption");
+            sub_lbl.add_css_class("dim-label");
+            box_.append(&sub_lbl);
+
+            row.set_child(Some(&box_));
+            self.list.append(&row);
+            shown += 1;
+        }
+
+        if shown == 0 {
+            self.append_placeholder("No matching entries");
+        }
+    }
+
+    fn append_placeholder(&self, text: &str) {
+        let row = ListBoxRow::new();
+        row.set_selectable(false);
+        row.set_activatable(false);
+        let lbl = Label::new(Some(text));
+        lbl.add_css_class("dim-label");
+        lbl.set_justify(gtk4::Justification::Center);
+        lbl.set_margin_top(16);
+        lbl.set_margin_bottom(16);
+        row.set_child(Some(&lbl));
+        self.list.append(&row);
     }
 }

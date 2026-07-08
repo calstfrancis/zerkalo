@@ -62,11 +62,21 @@
   <content_rating type="oars-1.1"/>
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/calstfrancis/zerkalo/main/packaging/zerkalo.png</image>
+      <image>https://raw.githubusercontent.com/calstfrancis/zerkalo/main/screenshots/zerkalo-main.png</image>
       <caption>Zerkalo editing a Typst document with live preview</caption>
     </screenshot>
   </screenshots>
   <releases>
+    <release type="development" version="0.16.1-dev4" date="2026-07-08">
+      <description>
+        <p>0.16.1-dev4 — Skrizhal CV element integration.</p>
+        <ul>
+          <li>Added: in CV mode, the citation panel connects to a Skrizhal CV-element YAML database instead of a bibliography — panel header, search, and "choose file" all swap to CV Elements, and selecting an entry inserts #cv-entry("key")</li>
+          <li>Added: "!" autocomplete for CV entries, mirroring the existing "@" citation autocomplete</li>
+          <li>Added: cv_elements_path setting (global and per-project), watched and reloaded automatically on change</li>
+        </ul>
+      </description>
+    </release>
     <release type="development" version="0.16.1-dev3" date="2026-07-07">
       <description>
         <p>0.16.1-dev3 — CV — Two-Column header spacing fix.</p>

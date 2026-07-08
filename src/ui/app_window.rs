@@ -41,6 +41,8 @@ use super::snapshot_dialog::{SnapshotDialog, save_snapshot};
 use super::library_window::LibraryWindow;
 use crate::library::Library;
 
+use crate::cv_mode::CV_HELPERS_TYPST;
+
 pub struct AppWindow {
     window: adw::ApplicationWindow,
     editor_pane: EditorPane,
@@ -113,6 +115,12 @@ impl AppWindow {
 
         let proj_cfg = crate::config::ProjectConfig::load(&project_root).unwrap_or_default();
         let effective_bib = proj_cfg.bib_path.clone().or_else(|| config.bib_path.clone());
+        // CV mode: resolved cv_elements_path wins over bib_path for this document
+        // (a CV isn't also a cited academic paper) — see cv_helpers.rs.
+        let effective_cv_elements = proj_cfg
+            .cv_elements_path
+            .clone()
+            .or_else(|| config.cv_elements_path.clone());
         let effective_output_dir = proj_cfg.output_dir.clone();
         let extra_compiler_args = proj_cfg.compiler_args.clone();
 
@@ -630,6 +638,18 @@ impl AppWindow {
             effective_output_dir,
             extra_compiler_args,
         );
+        // CV mode: make #cv-entry/#cv-section available at compile time.
+        // cv-helpers.typ's content is static (embedded), so a one-time
+        // virtual-file override is correct; the actual data path is stored
+        // and re-read fresh on every compile (see set_cv_elements_path) so
+        // edits made in Skrizhal while Zerkalo is open aren't stale.
+        if effective_cv_elements.is_some() {
+            preview_pane.set_buffer_snapshot(
+                project_root.join("cv-helpers.typ"),
+                CV_HELPERS_TYPST.to_string(),
+            );
+        }
+        preview_pane.set_cv_elements_path(effective_cv_elements.clone());
         let error_panel = ErrorPanel::new();
         error_panel.widget().set_visible(false);
 
@@ -903,11 +923,50 @@ impl AppWindow {
             }
         }
 
-        // ── Citation panel: insert @key at cursor ─────────────────────────────
+        // ── CV entries loading & watch ───────────────────────────────────────
+
+        if let Some(ref cvp) = effective_cv_elements {
+            let entries = skrizhal_core::load_file(cvp).unwrap_or_default();
+            if !entries.is_empty() {
+                tracing::info!("Loaded {} CV entries from {}", entries.len(), cvp.display());
+            }
+            editor_pane.set_cv_entries(entries.clone());
+            citation_panel.load_cv_entries(entries);
+            citation_panel.set_cv_filename(cvp.file_name().and_then(|n| n.to_str()));
+
+            let editor_for_cv = editor_pane.clone();
+            let citation_for_cv = citation_panel.clone();
+            let cv_for_watch = cvp.clone();
+            let last_mtime: Rc<RefCell<Option<SystemTime>>> = Rc::new(RefCell::new(
+                std::fs::metadata(&cv_for_watch)
+                    .and_then(|m| m.modified())
+                    .ok(),
+            ));
+            glib::timeout_add_local(Duration::from_secs(5), move || {
+                let current = std::fs::metadata(&cv_for_watch)
+                    .and_then(|m| m.modified())
+                    .ok();
+                let changed = match (*last_mtime.borrow(), current) {
+                    (Some(old), Some(new)) => old != new,
+                    (None, Some(_)) => true,
+                    _ => false,
+                };
+                if changed {
+                    *last_mtime.borrow_mut() = current;
+                    let entries = skrizhal_core::load_file(&cv_for_watch).unwrap_or_default();
+                    tracing::info!("Reloaded {} CV entries", entries.len());
+                    editor_for_cv.set_cv_entries(entries.clone());
+                    citation_for_cv.load_cv_entries(entries);
+                }
+                glib::ControlFlow::Continue
+            });
+        }
+
+        // ── Citation panel: insert @key / #cv-entry("key") at cursor ──────────
 
         {
             let ep = editor_pane.clone();
-            citation_panel.set_on_insert(move |key| ep.insert_at_cursor(&format!("@{key}")));
+            citation_panel.set_on_insert(move |text| ep.insert_at_cursor(&text));
         }
 
         // ── Citation panel: choose bib file button ────────────────────────────
@@ -943,6 +1002,42 @@ impl AppWindow {
                             cp.set_bib_filename(path.file_name().and_then(|n| n.to_str()));
                             rm.load_bib(&path);
                             cfg.borrow_mut().bib_path = Some(path);
+                            let _ = cfg.borrow().save();
+                        }
+                    }
+                });
+            });
+        }
+
+        // ── Citation panel: choose Skrizhal CV element file button ────────────
+
+        {
+            let win_for_cv = window.clone();
+            let ep_for_cv = editor_pane.clone();
+            let cp_for_cv = citation_panel.clone();
+            let cfg_for_cv = current_config.clone();
+            citation_panel.set_on_choose_cv(move || {
+                let dialog = gtk4::FileDialog::new();
+                dialog.set_title("Choose Skrizhal CV Element File");
+                let filter = gtk4::FileFilter::new();
+                filter.set_name(Some("YAML files (*.yaml, *.yml)"));
+                filter.add_pattern("*.yaml");
+                filter.add_pattern("*.yml");
+                let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
+                filters.append(&filter);
+                dialog.set_filters(Some(&filters));
+                let win = win_for_cv.clone();
+                let ep = ep_for_cv.clone();
+                let cp = cp_for_cv.clone();
+                let cfg = cfg_for_cv.clone();
+                dialog.open(Some(&win), None::<&gtk4::gio::Cancellable>, move |result| {
+                    if let Ok(file) = result {
+                        if let Some(path) = file.path() {
+                            let entries = skrizhal_core::load_file(&path).unwrap_or_default();
+                            ep.set_cv_entries(entries.clone());
+                            cp.load_cv_entries(entries);
+                            cp.set_cv_filename(path.file_name().and_then(|n| n.to_str()));
+                            cfg.borrow_mut().cv_elements_path = Some(path);
                             let _ = cfg.borrow().save();
                         }
                     }
@@ -1334,6 +1429,7 @@ impl AppWindow {
         let menu_popover_for_export = menu_popover.clone();
         let current_config_for_export = current_config.clone();
         let project_root_for_export = project_root.clone();
+        let cv_elements_for_export = effective_cv_elements.clone();
         menu_export_item.connect_clicked(move |_| {
             menu_popover_for_export.popdown();
             let initial_fmt = current_config_for_export.borrow().last_export_format;
@@ -1343,6 +1439,7 @@ impl AppWindow {
                 preview_for_export.root_file_path(),
                 preview_for_export.output_dir(),
                 project_root_for_export.clone(),
+                cv_elements_for_export.clone(),
                 initial_fmt,
                 move |fmt| {
                     let mut cfg = cfg_for_save.borrow_mut();
@@ -2101,6 +2198,7 @@ impl AppWindow {
         let style_btn_for_cv_open = style_btn.clone();
 
         let editor_pane_cv_switch = editor_pane.clone();
+        let citation_panel_for_switch = citation_panel.clone();
         let configured_root_for_switch = configured_root.clone();
         let proj_mode_for_switch = proj_mode_active.clone();
         // Track per-file content hashes so tab switches don't recompile unchanged files.
@@ -2161,6 +2259,7 @@ impl AppWindow {
                 .map(|k| k == "cv")
                 .unwrap_or(false);
             editor_pane_cv_switch.set_cv_mode(is_cv);
+            citation_panel_for_switch.set_cv_mode(is_cv);
             if is_cv {
                 editor_pane_cv_switch.update_cv_style_label(&content);
             }
@@ -2242,6 +2341,7 @@ impl AppWindow {
         let title_widget_for_open = file_title_widget.clone();
         let ep_for_open = editor_pane.clone();
         let ep_cv_for_open = editor_pane.clone();
+        let citation_panel_for_open = citation_panel.clone();
         editor_pane.set_on_file_opened(move |path, content| {
             // Track initial word count for this file (first open only)
             let mut starts = file_start_words_for_open.borrow_mut();
@@ -2258,6 +2358,7 @@ impl AppWindow {
                 .map(|k| k == "cv")
                 .unwrap_or(false);
             ep_cv_for_open.set_cv_mode(is_cv);
+            citation_panel_for_open.set_cv_mode(is_cv);
             if is_cv { ep_cv_for_open.update_cv_style_label(&content); }
             style_btn_for_cv_open.set_visible(!is_cv);
             cs_stack_for_open.set_visible_child_name(if is_cv { "cv" } else { "normal" });

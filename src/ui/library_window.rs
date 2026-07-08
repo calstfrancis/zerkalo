@@ -2627,6 +2627,12 @@ impl LibraryWindow {
             let dest = match res.ok().and_then(|f| f.path()) { Some(p) => p, None => return };
             let dest = if dest.extension().is_none() { dest.with_extension("pdf") } else { dest };
 
+            // CV mode gap (see skrizhal/plan.md Phase 3a): LibraryWindow has no
+            // Config reference and this can export any document in the
+            // library, not just the active one, so there's no
+            // effective_cv_elements to resolve here yet — a CV-mode
+            // document exported this way (rather than via the main Export
+            // dialog, which is covered) won't resolve #cv-entry/#cv-section.
             let (tx, rx) = std::sync::mpsc::sync_channel::<Result<Vec<u8>, String>>(1);
             let src_for_thread = src.clone();
             std::thread::spawn(move || {

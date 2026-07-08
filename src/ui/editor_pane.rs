@@ -17,7 +17,7 @@ use sourceview5::{Buffer, LanguageManager, MarkAttributes, StyleSchemeManager, V
 
 use crate::bibliography::BibEntry;
 use crate::lsp::CompletionItem;
-use super::bib_popup::BibPopup;
+use super::bib_popup::{BibPopup, PopupEntry, PopupSource};
 use super::font_manager::FontManager;
 use super::find_bar::FindBar;
 use super::lsp_popup::LspPopup;
@@ -203,6 +203,7 @@ pub struct EditorPane {
     on_cursor_heading: Rc<RefCell<Option<Box<dyn Fn(PathBuf, u32)>>>>,
     on_cursor_moved: Rc<RefCell<Option<Box<dyn Fn(PathBuf, u32, u32)>>>>,
     bib_entries: Rc<RefCell<Vec<BibEntry>>>,
+    cv_entries: Rc<RefCell<Vec<skrizhal_core::CvEntry>>>,
     font_provider: Rc<CssProvider>,
     font_size: Rc<RefCell<u32>>,
     font_family: Rc<RefCell<String>>,
@@ -1097,6 +1098,7 @@ impl EditorPane {
             on_cursor_heading,
             on_cursor_moved,
             bib_entries: Rc::new(RefCell::new(Vec::new())),
+            cv_entries: Rc::new(RefCell::new(Vec::new())),
             font_provider: Rc::new(font_provider),
             font_size,
             font_family,
@@ -1557,6 +1559,10 @@ impl EditorPane {
 
     pub fn set_bib_entries(&self, entries: Vec<BibEntry>) {
         *self.bib_entries.borrow_mut() = entries;
+    }
+
+    pub fn set_cv_entries(&self, entries: Vec<skrizhal_core::CvEntry>) {
+        *self.cv_entries.borrow_mut() = entries;
     }
 
     pub fn apply_font_size(&self, size: u32) {
@@ -3243,9 +3249,9 @@ impl EditorPane {
             });
         }
 
-        // ── @-citation autocomplete ───────────────────────────────────────────
+        // ── @-citation / !-cv-entry autocomplete ──────────────────────────────
 
-        let bib_popup = BibPopup::new(&view, self.bib_entries.clone());
+        let bib_popup = BibPopup::new(&view, self.bib_entries.clone(), self.cv_entries.clone());
         let ac_mark: Rc<RefCell<Option<gtk4::TextMark>>> = Rc::new(RefCell::new(None));
         let completing: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
         let bib_active_for_open = self.bib_active.clone();
@@ -3255,7 +3261,7 @@ impl EditorPane {
         let mark_complete = ac_mark.clone();
         let completing_complete = completing.clone();
         let popup_complete = bib_popup.clone();
-        bib_popup.set_on_complete(move |key| {
+        bib_popup.set_on_complete(move |entry| {
             *completing_complete.borrow_mut() = true;
             let mark_opt = mark_complete.borrow().clone();
             if let Some(ref m) = mark_opt {
@@ -3263,7 +3269,7 @@ impl EditorPane {
                 let mut end = buf_complete.iter_at_offset(buf_complete.cursor_position());
                 buf_complete.begin_user_action();
                 buf_complete.delete(&mut start, &mut end);
-                buf_complete.insert_at_cursor(&format!("@{key}"));
+                buf_complete.insert_at_cursor(&entry.insert_text());
                 buf_complete.end_user_action();
                 buf_complete.delete_mark(m);
             }
@@ -3278,6 +3284,7 @@ impl EditorPane {
         let mark_ac = ac_mark.clone();
         let completing_ac = completing.clone();
         let bib_active_ac = bib_active_for_open.clone();
+        let cv_mode_ac = self.cv_mode.clone();
         buffer.connect_changed(move |buf| {
             if *completing_ac.borrow() {
                 return;
@@ -3285,15 +3292,17 @@ impl EditorPane {
             let cursor_pos = buf.cursor_position();
             let cursor_iter = buf.iter_at_offset(cursor_pos);
             let mut temp = cursor_iter.clone();
-            let mut found_at = false;
+            let mut found_trigger = false;
+            let mut trigger_char = '@';
             let mut at_iter = cursor_iter.clone();
             loop {
                 if !temp.backward_char() {
                     break;
                 }
                 let ch = temp.char();
-                if ch == '@' {
-                    found_at = true;
+                if ch == '@' || (ch == '!' && cv_mode_ac.get()) {
+                    found_trigger = true;
+                    trigger_char = ch;
                     at_iter = temp.clone();
                     break;
                 }
@@ -3301,7 +3310,7 @@ impl EditorPane {
                     break;
                 }
             }
-            if !found_at {
+            if !found_trigger {
                 *bib_active_ac.borrow_mut() = false;
                 dismiss_popup(buf, &popup_ac, &mark_ac);
                 return;
@@ -3321,7 +3330,7 @@ impl EditorPane {
                 return;
             }
             let query = buf.text(&at_iter, &cursor_iter, false);
-            let query = query.trim_start_matches('@');
+            let query = query.trim_start_matches(trigger_char);
             {
                 let mut mark_ref = mark_ac.borrow_mut();
                 match mark_ref.as_ref() {
@@ -3341,7 +3350,8 @@ impl EditorPane {
             // above=false: popup uses PositionType::Bottom, its top lands at wy_bottom (cursor bottom)
             let above = wy_bottom > view_h / 2;
             let wy = if above { wy_top } else { wy_bottom };
-            popup_ac.show_filtered(query, wx, wy, above);
+            let source = if trigger_char == '!' { PopupSource::Cv } else { PopupSource::Bib };
+            popup_ac.show_filtered(query, wx, wy, above, source);
             *bib_active_ac.borrow_mut() = popup_ac.is_visible();
         });
 
@@ -3575,21 +3585,21 @@ impl EditorPane {
                 }
                 Key::Tab => {
                     let chosen = bib_popup_key
-                        .selected_key()
-                        .or_else(|| bib_popup_key.first_filtered_key());
-                    if let Some(k) = chosen {
+                        .selected_entry()
+                        .or_else(|| bib_popup_key.first_filtered_entry());
+                    if let Some(entry) = chosen {
                         *bib_active_key.borrow_mut() = false;
                         do_bib_complete(
-                            &buf_key, &mark_key, &completing_key, &bib_popup_key, &view_key, &k,
+                            &buf_key, &mark_key, &completing_key, &bib_popup_key, &view_key, &entry,
                         );
                     }
                     glib::Propagation::Stop
                 }
                 Key::Return => {
-                    if let Some(k) = bib_popup_key.selected_key() {
+                    if let Some(entry) = bib_popup_key.selected_entry() {
                         *bib_active_key.borrow_mut() = false;
                         do_bib_complete(
-                            &buf_key, &mark_key, &completing_key, &bib_popup_key, &view_key, &k,
+                            &buf_key, &mark_key, &completing_key, &bib_popup_key, &view_key, &entry,
                         );
                         glib::Propagation::Stop
                     } else {
@@ -5740,9 +5750,9 @@ fn do_bib_complete(
     completing: &Rc<RefCell<bool>>,
     popup: &BibPopup,
     view: &View,
-    key: &str,
+    entry: &PopupEntry,
 ) {
-    insert_completion_text(buf, mark, completing, view, &format!("@{key}"));
+    insert_completion_text(buf, mark, completing, view, &entry.insert_text());
     popup.hide();
 }
 

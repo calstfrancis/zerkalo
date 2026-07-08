@@ -51,6 +51,11 @@ pub struct PreviewPane {
     watch_active: Rc<RefCell<bool>>,
     compile_gen: Rc<RefCell<u64>>,
     buffer_snapshot: Rc<RefCell<HashMap<PathBuf, String>>>,
+    /// CV mode's Skrizhal `cv-elements.yaml` path, if any — re-read fresh on
+    /// every compile (see `set_cv_elements_path`) rather than cached, so
+    /// edits made in Skrizhal while Zerkalo is open show up without a
+    /// restart. `None` means not in CV mode for this document.
+    cv_elements_path: Rc<RefCell<Option<PathBuf>>>,
     draft_mode: Rc<RefCell<bool>>,
     first_load: Rc<RefCell<bool>>,
     zoom_osd: Label,
@@ -273,6 +278,7 @@ impl PreviewPane {
             watch_active: Rc::new(RefCell::new(false)),
             compile_gen: Rc::new(RefCell::new(0)),
             buffer_snapshot: Rc::new(RefCell::new(HashMap::new())),
+            cv_elements_path: Rc::new(RefCell::new(None)),
             draft_mode: Rc::new(RefCell::new(false)),
             first_load: Rc::new(RefCell::new(true)),
             zoom_osd,
@@ -404,6 +410,28 @@ impl PreviewPane {
 
     pub fn set_buffer_snapshot(&self, path: PathBuf, text: String) {
         self.buffer_snapshot.borrow_mut().insert(path, text);
+    }
+
+    /// Sets (or clears, with `None`) the CV mode data path — see
+    /// `effective_cv_elements` in `app_window.rs`. Re-read fresh on every
+    /// compile via `cv_data_sys_input`, not cached here.
+    pub fn set_cv_elements_path(&self, path: Option<PathBuf>) {
+        *self.cv_elements_path.borrow_mut() = path;
+    }
+
+    /// Reads `cv_elements_path` fresh (if set) and returns the
+    /// `skrizhal-cv-data` sys.input entry for it, logging (not failing) on
+    /// a read error so a moved/deleted CV file doesn't break compilation —
+    /// it just leaves `#cv-entry`/`#cv-section` seeing no data.
+    fn cv_data_sys_input(&self) -> Option<(String, String)> {
+        let path = self.cv_elements_path.borrow().clone()?;
+        match std::fs::read_to_string(&path) {
+            Ok(yaml) => Some(("skrizhal-cv-data".to_string(), yaml)),
+            Err(e) => {
+                tracing::warn!("CV mode: couldn't read {}: {e}", path.display());
+                None
+            }
+        }
     }
 
     pub fn set_draft_mode(&self, draft: bool) {
@@ -678,6 +706,9 @@ impl PreviewPane {
         if draft {
             sys_inputs.insert("draft".to_string(), "true".to_string());
         }
+        if let Some((k, v)) = self.cv_data_sys_input() {
+            sys_inputs.insert(k, v);
+        }
         std::thread::spawn(move || {
             let t0 = std::time::Instant::now();
             let result = crate::compiler::compile_to_png_bytes(&root, pixel_per_pt, &snapshots, &sys_inputs);
@@ -831,7 +862,11 @@ fn ensure_pdf_path(pane: &PreviewPane) -> Option<PathBuf> {
     let pdf_path = pane.output_dir().join(format!("{stem}.pdf"));
     if !pdf_path.exists() {
         let snapshots = pane.buffer_snapshot.borrow().clone();
-        let bytes = crate::compiler::compile_to_pdf_bytes(&root, &snapshots, &std::collections::HashMap::new()).ok()?;
+        let mut sys_inputs = std::collections::HashMap::new();
+        if let Some((k, v)) = pane.cv_data_sys_input() {
+            sys_inputs.insert(k, v);
+        }
+        let bytes = crate::compiler::compile_to_pdf_bytes(&root, &snapshots, &sys_inputs).ok()?;
         std::fs::write(&pdf_path, bytes).ok()?;
     }
     Some(pdf_path)

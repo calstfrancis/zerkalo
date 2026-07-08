@@ -42,6 +42,7 @@ impl ExportDialog {
         root_file: Option<PathBuf>,
         output_dir: PathBuf,
         project_root: PathBuf,
+        cv_elements_path: Option<PathBuf>,
         initial_format: u32,
         on_save_format: impl Fn(u32) + 'static,
     ) -> Self {
@@ -137,6 +138,7 @@ impl ExportDialog {
 
         // Wire install button → open Setup Wizard
         let parent_clone = parent.clone();
+        let project_root_for_cv = project_root.clone();
         install_btn.connect_clicked(move |_| {
             let wizard = super::setup_wizard::SetupWizard::new(&parent_clone, &project_root);
             wizard.present();
@@ -188,6 +190,10 @@ impl ExportDialog {
                 let input_owned = input.clone();
                 let export_dir_owned = export_dir.clone();
                 let selected_owned = selected.clone();
+                let (cv_overrides_owned, cv_sys_inputs_owned) = crate::cv_mode::cv_mode_compile_extras(
+                    &project_root_for_cv,
+                    cv_elements_path.as_deref(),
+                );
 
                 std::thread::spawn(move || {
                     // Ensure the output directory exists before writing anything.
@@ -212,8 +218,8 @@ impl ExportDialog {
                                 // PDF via embedded compiler — runs in-process, no host tool needed.
                                 match crate::compiler::compile_to_pdf_bytes(
                                     &input_owned,
-                                    &std::collections::HashMap::new(),
-                                    &std::collections::HashMap::new(),
+                                    &cv_overrides_owned,
+                                    &cv_sys_inputs_owned,
                                 ) {
                                     Ok(bytes) => std::fs::write(&out_path, &bytes)
                                         .map_err(|e| format!("Write error: {e}")),

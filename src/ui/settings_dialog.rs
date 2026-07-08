@@ -502,6 +502,9 @@ impl SettingsDialog {
             let dev_mode_row = dev_mode_row.clone();
             let batch_concurrency_row = batch_concurrency_row.clone();
             let token_row = token_row.clone();
+            // No Settings row yet — Skrizhal CV mode config is per-project
+            // only (`.zerkalo/config.toml`) for now, so just preserve it.
+            let cv_elements_path_cur = current.cv_elements_path.clone();
             let recent_files_cur = current.recent_files.clone();
             let recent_projects_cur = current.recent_projects.clone();
             let recent_searches_cur = current.recent_searches.clone();
@@ -576,6 +579,7 @@ impl SettingsDialog {
                     recent_files: recent_files_cur.clone(),
                     recent_projects: recent_projects_cur.clone(),
                     bib_path,
+                    cv_elements_path: cv_elements_path_cur.clone(),
                     custom_csl_path,
                     debounce_ms: debounce_spin.value() as u64,
                     auto_compile: btn_auto.is_active(),
