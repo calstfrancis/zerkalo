@@ -10,18 +10,90 @@ use gtk4::{
 
 use crate::bibliography::{format_author_year, BibEntry};
 
+/// Which source `show_filtered` should search — selected by which trigger
+/// character opened the popup (`@` vs `!`, see editor_pane.rs).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum PopupSource {
+    Bib,
+    Cv,
+}
+
+/// One matched item, from either source. Keeping this as an enum (rather
+/// than, say, having `BibPopup` juggle two separate widget-building code
+/// paths) means `show_filtered`/`append_row` only need to handle one shape
+/// of "thing with a key, a search haystack, and a couple of display lines"
+/// regardless of which source it came from.
+#[derive(Clone)]
+pub enum PopupEntry {
+    Bib(BibEntry),
+    Cv(skrizhal_core::CvEntry),
+}
+
+impl PopupEntry {
+    fn key(&self) -> &str {
+        match self {
+            PopupEntry::Bib(e) => &e.key,
+            PopupEntry::Cv(e) => &e.key,
+        }
+    }
+
+    /// The text inserted into the document on selection — `@key` for a
+    /// citation, `#cv-entry("key")` for a CV entry (a string argument, not
+    /// a label: see skrizhal/plan.md's Phase 3a correction).
+    pub fn insert_text(&self) -> String {
+        match self {
+            PopupEntry::Bib(e) => format!("@{}", e.key),
+            PopupEntry::Cv(e) => format!("#cv-entry(\"{}\")", e.key),
+        }
+    }
+
+    fn search_haystack(&self) -> String {
+        match self {
+            PopupEntry::Bib(e) => format!("{} {} {}", e.key, e.author, e.title),
+            PopupEntry::Cv(e) => format!(
+                "{} {} {} {}",
+                e.key,
+                e.title,
+                e.organization.as_deref().unwrap_or(""),
+                e.tags.join(" ")
+            ),
+        }
+    }
+
+    /// Whether the query is a prefix of whatever field users are most
+    /// likely to actually search by — used to float better matches to the
+    /// top rather than just relying on match order.
+    fn is_prefix_match(&self, q: &str) -> bool {
+        match self {
+            PopupEntry::Bib(e) => {
+                e.key.to_lowercase().starts_with(q) || e.author.to_lowercase().starts_with(q)
+            }
+            PopupEntry::Cv(e) => {
+                e.key.to_lowercase().starts_with(q) || e.title.to_lowercase().starts_with(q)
+            }
+        }
+    }
+}
+
+type OnCompleteCb = Rc<RefCell<Option<Box<dyn Fn(PopupEntry)>>>>;
+
 #[derive(Clone)]
 pub struct BibPopup {
     popover: Popover,
     list_box: ListBox,
     scroll: ScrolledWindow,
-    entries: Rc<RefCell<Vec<BibEntry>>>,
-    on_complete: Rc<RefCell<Option<Box<dyn Fn(String)>>>>,
-    filtered_keys: Rc<RefCell<Vec<String>>>,
+    bib_entries: Rc<RefCell<Vec<BibEntry>>>,
+    cv_entries: Rc<RefCell<Vec<skrizhal_core::CvEntry>>>,
+    on_complete: OnCompleteCb,
+    filtered_entries: Rc<RefCell<Vec<PopupEntry>>>,
 }
 
 impl BibPopup {
-    pub fn new(parent: &impl IsA<gtk4::Widget>, entries: Rc<RefCell<Vec<BibEntry>>>) -> Self {
+    pub fn new(
+        parent: &impl IsA<gtk4::Widget>,
+        bib_entries: Rc<RefCell<Vec<BibEntry>>>,
+        cv_entries: Rc<RefCell<Vec<skrizhal_core::CvEntry>>>,
+    ) -> Self {
         let popover = Popover::new();
         popover.set_has_arrow(false);
         popover.set_autohide(false);
@@ -45,14 +117,13 @@ impl BibPopup {
         outer.append(&scroll);
         popover.set_child(Some(&outer));
 
-        let on_complete: Rc<RefCell<Option<Box<dyn Fn(String)>>>> =
-            Rc::new(RefCell::new(None));
-        let filtered_keys: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
+        let on_complete: OnCompleteCb = Rc::new(RefCell::new(None));
+        let filtered_entries: Rc<RefCell<Vec<PopupEntry>>> = Rc::new(RefCell::new(Vec::new()));
 
         // Key controller on the list_box so Tab/Return work when popup has focus
         {
             let on_complete_kc = on_complete.clone();
-            let filtered_kc = filtered_keys.clone();
+            let filtered_kc = filtered_entries.clone();
             let list_kc = list_box.clone();
             let popover_kc = popover.clone();
             let scroll_kc = scroll.clone();
@@ -65,12 +136,12 @@ impl BibPopup {
                         let idx = list_kc.selected_row()
                             .map(|r| r.index() as usize)
                             .unwrap_or(0);
-                        let k = filtered_kc.borrow().get(idx).cloned()
+                        let entry = filtered_kc.borrow().get(idx).cloned()
                             .or_else(|| filtered_kc.borrow().first().cloned());
-                        if let Some(k) = k {
+                        if let Some(entry) = entry {
                             popover_kc.popdown();
                             if let Some(f) = on_complete_kc.borrow().as_ref() {
-                                f(k);
+                                f(entry);
                             }
                         }
                         glib::Propagation::Stop
@@ -103,15 +174,15 @@ impl BibPopup {
 
         // Double-click (or Enter when list has focus) triggers insertion
         {
-            let filtered_ra = filtered_keys.clone();
+            let filtered_ra = filtered_entries.clone();
             let on_complete_ra = on_complete.clone();
             let popover_ra = popover.clone();
             list_box.connect_row_activated(move |_, row| {
                 let idx = row.index() as usize;
-                let k = filtered_ra.borrow().get(idx).cloned();
-                if let Some(k) = k {
+                let entry = filtered_ra.borrow().get(idx).cloned();
+                if let Some(entry) = entry {
                     popover_ra.popdown();
-                    if let Some(f) = on_complete_ra.borrow().as_ref() { f(k); }
+                    if let Some(f) = on_complete_ra.borrow().as_ref() { f(entry); }
                 }
             });
         }
@@ -120,43 +191,46 @@ impl BibPopup {
             popover,
             list_box,
             scroll,
-            entries,
+            bib_entries,
+            cv_entries,
             on_complete,
-            filtered_keys,
+            filtered_entries,
         }
     }
 
-    pub fn set_on_complete(&self, f: impl Fn(String) + 'static) {
+    pub fn set_on_complete(&self, f: impl Fn(PopupEntry) + 'static) {
         *self.on_complete.borrow_mut() = Some(Box::new(f));
     }
 
-    pub fn show_filtered(&self, query: &str, x: i32, y: i32, above: bool) {
+    pub fn show_filtered(&self, query: &str, x: i32, y: i32, above: bool, source: PopupSource) {
         self.clear_rows();
-        self.filtered_keys.borrow_mut().clear();
+        self.filtered_entries.borrow_mut().clear();
 
         // Collect matched entries into owned data and release the borrow before
         // any GTK widget ops — popover.popup() / select_row / append_row can
         // cascade through signals back into Zerkalo code that tries to borrow
         // entries again, causing a BorrowError panic.
         let q = query.to_lowercase();
-        let shown: Vec<BibEntry> = {
-            let entries = self.entries.borrow();
-            let mut matched: Vec<&BibEntry> = entries
-                .iter()
-                .filter(|e| {
-                    if q.is_empty() {
-                        return true;
-                    }
-                    let haystack = format!("{} {} {}", e.key, e.author, e.title).to_lowercase();
-                    haystack.contains(&q)
-                })
-                .collect();
-            matched.sort_by_key(|e| {
-                let k = e.key.to_lowercase();
-                let a = e.author.to_lowercase();
-                if k.starts_with(&q) || a.starts_with(&q) { 0u8 } else { 1u8 }
-            });
-            matched.into_iter().cloned().collect()
+        let shown: Vec<PopupEntry> = {
+            let mut matched: Vec<PopupEntry> = match source {
+                PopupSource::Bib => self
+                    .bib_entries
+                    .borrow()
+                    .iter()
+                    .cloned()
+                    .map(PopupEntry::Bib)
+                    .collect(),
+                PopupSource::Cv => self
+                    .cv_entries
+                    .borrow()
+                    .iter()
+                    .cloned()
+                    .map(PopupEntry::Cv)
+                    .collect(),
+            };
+            matched.retain(|e| q.is_empty() || e.search_haystack().to_lowercase().contains(&q));
+            matched.sort_by_key(|e| if e.is_prefix_match(&q) { 0u8 } else { 1u8 });
+            matched
         };
 
         if shown.is_empty() {
@@ -167,7 +241,7 @@ impl BibPopup {
         }
 
         for entry in &shown {
-            self.filtered_keys.borrow_mut().push(entry.key.clone());
+            self.filtered_entries.borrow_mut().push(entry.clone());
             self.append_row(entry);
         }
 
@@ -193,8 +267,8 @@ impl BibPopup {
         self.popover.is_visible()
     }
 
-    pub fn first_filtered_key(&self) -> Option<String> {
-        self.filtered_keys.borrow().first().cloned()
+    pub fn first_filtered_entry(&self) -> Option<PopupEntry> {
+        self.filtered_entries.borrow().first().cloned()
     }
 
     pub fn move_selection(&self, delta: i32) {
@@ -206,10 +280,10 @@ impl BibPopup {
         }
     }
 
-    pub fn selected_key(&self) -> Option<String> {
+    pub fn selected_entry(&self) -> Option<PopupEntry> {
         let row = self.list_box.selected_row()?;
         let idx = row.index() as usize;
-        self.filtered_keys.borrow().get(idx).cloned()
+        self.filtered_entries.borrow().get(idx).cloned()
     }
 
     fn clear_rows(&self) {
@@ -218,7 +292,7 @@ impl BibPopup {
         }
     }
 
-    fn append_row(&self, entry: &BibEntry) {
+    fn append_row(&self, entry: &PopupEntry) {
         let row = ListBoxRow::new();
         row.set_activatable(true);
 
@@ -228,27 +302,58 @@ impl BibPopup {
         row_box.set_margin_start(10);
         row_box.set_margin_end(10);
 
-        // Primary label: "Smith et al., 2019" — what academics search by
-        let citation_lbl = Label::new(None);
-        citation_lbl.set_markup(&format!(
-            "<b>{}</b>",
-            glib::markup_escape_text(&format_author_year(entry))
-        ));
-        citation_lbl.set_halign(Align::Start);
-        citation_lbl.set_xalign(0.0);
-        row_box.append(&citation_lbl);
+        match entry {
+            PopupEntry::Bib(e) => {
+                // Primary label: "Smith et al., 2019" — what academics search by
+                let citation_lbl = Label::new(None);
+                citation_lbl.set_markup(&format!(
+                    "<b>{}</b>",
+                    glib::markup_escape_text(&format_author_year(e))
+                ));
+                citation_lbl.set_halign(Align::Start);
+                citation_lbl.set_xalign(0.0);
+                row_box.append(&citation_lbl);
 
-        if !entry.title.is_empty() {
-            let title_lbl = Label::new(Some(&truncate(&entry.title, 50)));
-            title_lbl.set_halign(Align::Start);
-            title_lbl.set_xalign(0.0);
-            title_lbl.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-            title_lbl.add_css_class("dim-label");
-            title_lbl.add_css_class("caption");
-            row_box.append(&title_lbl);
+                if !e.title.is_empty() {
+                    let title_lbl = Label::new(Some(&truncate(&e.title, 50)));
+                    title_lbl.set_halign(Align::Start);
+                    title_lbl.set_xalign(0.0);
+                    title_lbl.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+                    title_lbl.add_css_class("dim-label");
+                    title_lbl.add_css_class("caption");
+                    row_box.append(&title_lbl);
+                }
+            }
+            PopupEntry::Cv(e) => {
+                // Primary label: the entry's title — what a CV author
+                // searches by, mirroring the bib popup's author-year primary.
+                let title_lbl = Label::new(None);
+                let title_text = if e.title.is_empty() { e.key.as_str() } else { &e.title };
+                title_lbl.set_markup(&format!(
+                    "<b>{}</b>",
+                    glib::markup_escape_text(&truncate(title_text, 50))
+                ));
+                title_lbl.set_halign(Align::Start);
+                title_lbl.set_xalign(0.0);
+                row_box.append(&title_lbl);
+
+                let subtitle_parts: Vec<&str> = [e.organization.as_deref(), e.date.as_deref()]
+                    .into_iter()
+                    .flatten()
+                    .collect();
+                if !subtitle_parts.is_empty() {
+                    let sub_lbl = Label::new(Some(&truncate(&subtitle_parts.join(" · "), 50)));
+                    sub_lbl.set_halign(Align::Start);
+                    sub_lbl.set_xalign(0.0);
+                    sub_lbl.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+                    sub_lbl.add_css_class("dim-label");
+                    sub_lbl.add_css_class("caption");
+                    row_box.append(&sub_lbl);
+                }
+            }
         }
 
-        let key_lbl = Label::new(Some(&format!("@{}", entry.key)));
+        let key_lbl = Label::new(Some(entry.key()));
         key_lbl.set_halign(Align::Start);
         key_lbl.set_xalign(0.0);
         key_lbl.add_css_class("caption");

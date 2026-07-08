@@ -47,6 +47,13 @@ pub struct Config {
     pub recent_projects: Vec<PathBuf>,
     #[serde(default)]
     pub bib_path: Option<PathBuf>,
+    /// Path to a Skrizhal `cv-elements.yaml`. When resolved (here or via
+    /// `ProjectConfig`), the document is in "CV mode": the citation panel and
+    /// `!`/`@` popup switch to browsing/inserting CV entries instead of
+    /// bibliography citations, and `cv-helpers.typ`'s `#cv-entry`/`#cv-section`
+    /// become available at compile time.
+    #[serde(default)]
+    pub cv_elements_path: Option<PathBuf>,
     #[serde(default)]
     pub custom_csl_path: Option<PathBuf>,
     #[serde(default = "default_debounce_ms")]
@@ -147,6 +154,7 @@ impl Default for Config {
             recent_files: Vec::new(),
             recent_projects: Vec::new(),
             bib_path: None,
+            cv_elements_path: None,
             custom_csl_path: None,
             debounce_ms: 800,
             auto_compile: true,
@@ -244,6 +252,9 @@ pub struct ProjectConfig {
     /// Overrides global bib_path for this project.
     #[serde(default)]
     pub bib_path: Option<PathBuf>,
+    /// Overrides global cv_elements_path for this project.
+    #[serde(default)]
+    pub cv_elements_path: Option<PathBuf>,
     /// Extra arguments appended to `typst compile`.
     #[serde(default)]
     pub compiler_args: Vec<String>,
@@ -304,6 +315,24 @@ mod tests {
         let toml_str = toml::to_string(&cfg).expect("serialize");
         let loaded: Config = toml::from_str(&toml_str).expect("deserialize");
         assert_eq!(loaded.bib_path, cfg.bib_path);
+    }
+
+    #[test]
+    fn config_with_cv_elements_path_round_trip() {
+        let mut cfg = Config::default();
+        cfg.cv_elements_path = Some(PathBuf::from("/home/user/cv-elements.yaml"));
+        let toml_str = toml::to_string(&cfg).expect("serialize");
+        let loaded: Config = toml::from_str(&toml_str).expect("deserialize");
+        assert_eq!(loaded.cv_elements_path, cfg.cv_elements_path);
+    }
+
+    #[test]
+    fn project_config_cv_elements_path_round_trip() {
+        let mut cfg = ProjectConfig::default();
+        cfg.cv_elements_path = Some(PathBuf::from("cv-elements.yaml"));
+        let toml_str = toml::to_string(&cfg).expect("serialize");
+        let loaded: ProjectConfig = toml::from_str(&toml_str).expect("deserialize");
+        assert_eq!(loaded.cv_elements_path, cfg.cv_elements_path);
     }
 }
 

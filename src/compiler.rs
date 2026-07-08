@@ -291,6 +291,52 @@ mod tests {
         let result = compile_to_png_bytes(&path, 1.0, &HashMap::new(), &inputs);
         assert!(result.is_ok(), "doc with sys.inputs should compile: {:?}", result.err());
     }
+
+    /// Phase 3a milestone (see skrizhal/plan.md): a CV-mode document —
+    /// `cv-helpers.typ` injected as a virtual override next to the root
+    /// file (exactly how `app_window.rs`'s `effective_cv_elements` wiring
+    /// does it) and CV data passed via `skrizhal-cv-data` sys.inputs —
+    /// compiles and renders `#cv-entry`/`#cv-section` correctly.
+    #[test]
+    fn compile_cv_entry_and_section_with_skrizhal_helpers() {
+        let path = write_temp_typ(
+            "#import \"cv-helpers.typ\": cv-entry, cv-section\n\
+             #cv-entry(\"hope-united-2025\")\n\
+             #cv-section(category: \"Education\")\n\
+             #cv-entry(\"nonexistent-key\")",
+        );
+
+        let cv_helpers_src = include_str!("../templates/cv-helpers.typ");
+        let mut overrides = HashMap::new();
+        overrides.insert(
+            std::path::PathBuf::from("/tmp/cv-helpers.typ"),
+            cv_helpers_src.to_string(),
+        );
+
+        let cv_data = r#"
+hope-united-2025:
+  category: Ministry Position
+  title: Student Minister
+  organization: Hope United Church
+  location: Halifax, NS
+  date: 2025-09/2026-04
+  tags: [ministry, current]
+  description:
+    - Preaching and worship leadership on a rotating basis
+mdiv-2024:
+  category: Education
+  title: Master of Divinity
+  organization: Atlantic School of Theology
+  date: 2023/
+"#;
+        let mut inputs = HashMap::new();
+        inputs.insert("skrizhal-cv-data".to_string(), cv_data.to_string());
+
+        let result = compile_to_pdf_bytes(&path, &overrides, &inputs);
+        assert!(result.is_ok(), "CV-mode document should compile: {:?}", result.err());
+        let bytes = result.unwrap();
+        assert!(bytes.starts_with(b"%PDF-"), "output should be valid PDF");
+    }
 }
 
 /// Compile `root_file` in-process and return PNG bytes for each page.

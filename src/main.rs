@@ -6,6 +6,7 @@ mod compiler;
 mod error_patterns;
 mod file_watcher;
 mod config;
+mod cv_mode;
 mod error;
 mod fonts;
 mod git_sync;

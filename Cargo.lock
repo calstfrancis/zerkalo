@@ -2868,6 +2868,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_yaml_ng"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b4db627b98b36d4203a7b458cf3573730f2bb591b28871d916dfa9efabfd41f"
+dependencies = [
+ "indexmap",
+ "itoa",
+ "ryu",
+ "serde",
+ "unsafe-libyaml",
+]
+
+[[package]]
 name = "sharded-slab"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2930,6 +2943,16 @@ checksum = "8c31071dedf532758ecf3fed987cdb4bd9509f900e026ab684b4ecb81ea49841"
 dependencies = [
  "bytemuck",
  "read-fonts",
+]
+
+[[package]]
+name = "skrizhal-core"
+version = "0.3.0"
+source = "git+https://github.com/calstfrancis/skrizhal?tag=v0.3.0#538bcf141eca860ed0050ee0277b2d62c4a18dd8"
+dependencies = [
+ "serde",
+ "serde_yaml_ng",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -4453,7 +4476,7 @@ dependencies = [
 
 [[package]]
 name = "zerkalo"
-version = "0.16.1-dev3"
+version = "0.16.1-dev4"
 dependencies = [
  "biblatex",
  "chrono",
@@ -4468,6 +4491,7 @@ dependencies = [
  "serde",
  "serde_json",
  "shellexpand",
+ "skrizhal-core",
  "sourceview5",
  "tempfile",
  "thiserror 1.0.69",
