@@ -1,5 +1,6 @@
 # Rust / Cargo
 /target/
+.cargo/
 
 # Editor swap/backup files
 *.swp
@@ -27,6 +28,7 @@ Reference Documents/
 *.typ
 !templates/**/*.typ
 !screenshots/demo-main.typ
+!screenshots/example_template_one.typ
 
 # Plans / future work (local only)
 future-plans.md
