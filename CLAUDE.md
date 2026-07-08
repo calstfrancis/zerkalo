@@ -22,11 +22,9 @@
 6. Run `flatpak-builder --force-clean --user --install build-flatpak packaging/io.github.calstfrancis.Zerkalo.yml`
 
 ### Flatpak build
-- The flatpak manifest (`packaging/io.github.calstfrancis.Zerkalo.yml`) should normally sit at `type: dir`, `path: ..` for the `zerkalo` module source — this builds from local/pushed source, no pinned tag.
-- Still push to GitHub as part of the build flow so the repo stays current.
-- **On release, this is a two-part step — do not do the first half without the second:**
-  1. Before running `publish-flatpak.sh`: switch the `zerkalo` module's source to `type: git`, `tag: vX.Y.Z` (the release tag just pushed).
-  2. **Immediately after the release build/publish finishes, switch it back to `type: dir`, `path: ..` and commit that.** Forgetting this step is silent and easy to miss: the manifest keeps pointing at the old release tag, so every subsequent dev build quietly rebuilds the stale release instead of current source (this happened after the v0.15.0 release — dev builds kept installing 0.15.0 for a while before anyone noticed). Before ending a release session, run `git diff packaging/io.github.calstfrancis.Zerkalo.yml` and confirm it shows `type: dir`, not `type: git`.
+- The flatpak manifest (`packaging/io.github.calstfrancis.Zerkalo.yml`) sources the `zerkalo` module with `type: git`, `branch: main` — permanently, for both dev builds and releases. Matches Rubric/Kopilka's manifests exactly; no tag-pinning, no switch-back step. `publish-flatpak.sh` pushes `main` right before running `flatpak-builder`, so the build always picks up the latest commit regardless of dev/release.
+- (History: this used to toggle between `type: dir` and a release-tag-pinned `type: git` around the release step, requiring a manual switch-back afterward — that got missed once after v0.15.0, silently rebuilding the stale release for a while. Simplified to the permanent-branch pattern the other apps already use, removing the failure mode entirely instead of just remembering to revert it.)
+- `skrizhal-core`'s git dependency in `Cargo.toml` requires the `calstfrancis/skrizhal` GitHub repo to stay **public** — CI (and this flatpak build) can't authenticate to a private repo to fetch it. If it's ever made private again, CI will fail at the dependency-fetch step with "failed to authenticate when downloading repository."
 
 ### Release names
 - Every release gets a name. Choose a two-word name: an adjective + a noun (e.g. "Amber Tide", "Silent Forge", "Iron Coast"). Pick something that evokes the theme of the main changes in the release, or just something that sounds good. Avoid clichés.
