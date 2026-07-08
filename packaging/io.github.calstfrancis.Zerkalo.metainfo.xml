@@ -36,6 +36,13 @@
       <li>Auto-save to recovery file on idle; periodic save every 30 seconds</li>
       <li>Git sync — commit and push to all remotes in one click</li>
     </ul>
+    <p>CV mode:</p>
+    <ul>
+      <li>Four résumé templates — Modern, Academic, Classic, and Two-Column (sidebar + main column) — selectable from New from Template or the status-bar style switcher</li>
+      <li>Skrizhal integration — the citation panel connects to a Skrizhal CV-element YAML database instead of a bibliography; type ! for fuzzy autocomplete over jobs, education, awards, and more</li>
+      <li>One-click "Skrizhal" button launches the companion app to edit your CV elements</li>
+      <li>Older CV documents keep compiling across template settings changes even if they predate the Skrizhal integration</li>
+    </ul>
     <p>Sidebar:</p>
     <ul>
       <li>Document outline with cursor-tracking highlight</li>
@@ -67,6 +74,23 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.16.1" date="2026-07-08">
+      <description>
+        <p>0.16.1 "Even Column" — CV — Two-Column template, Skrizhal integration.</p>
+        <ul>
+          <li>Added: "CV — Two-Column" résumé template — sidebar (Education, Skills, Interests, Awards) beside a main column (Experience, Presentations &amp; Publications, Extracurricular)</li>
+          <li>Added: new CV helper functions available in every style — #mylink for clickable links, #taglist for plain item lists, #presentation for talks and publications</li>
+          <li>Added: in CV mode, the citation panel connects to a Skrizhal CV-element YAML database instead of a bibliography — panel header and search swap to CV Elements, and selecting an entry inserts #cv-entry("key")</li>
+          <li>Added: "Skrizhal" launch button in CV mode opens the installed Skrizhal flatpak directly</li>
+          <li>Added: "!" autocomplete for CV entries, mirroring the existing "@" citation autocomplete</li>
+          <li>Changed: CV — Two-Column now matches a plain hand-written CV exactly — no rule under section headings, dates stack below the title/company line, Skills/Software/Interests render as real bullet lists, and awards omit the dash when there's no separate awarding body to name</li>
+          <li>Improved: find bar highlights the current match and scrolls to center reliably; changelog window layout; settings dialog resizing</li>
+          <li>Fixed: CV — Two-Column (and other sidebar-style CVs) rendered Education entries with a differently-cased category ("education" instead of "Education") crammed onto one line instead of the intended stacked degree/school/dates layout — category matching is now case-insensitive throughout</li>
+          <li>Fixed: CV — Two-Column header spacing now matches a plain hand-written CV's exactly</li>
+          <li>Fixed: CV documents created before the Skrizhal #cv-section rewrite keep compiling after a template settings change</li>
+        </ul>
+      </description>
+    </release>
     <release type="development" version="0.16.1-dev6" date="2026-07-08">
       <description>
         <p>0.16.1-dev6 — Skrizhal CV element integration.</p>

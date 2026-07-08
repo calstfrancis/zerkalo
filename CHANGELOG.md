@@ -5,7 +5,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.16.1-dev6] — Skrizhal CV element integration
+## [0.16.1] "Even Column" — CV — Two-Column template, Skrizhal integration
+
+### Added
+- **CV — Two-Column template** — a new résumé preset with an Education/Skills/Interests/Awards sidebar beside an Experience/Presentations/Extracurricular main column, selectable from New from Template alongside CV — Modern/Academic/Classic.
+- **New CV helper functions**, available in every CV style: `#mylink(url, label)` for underlined clickable links, `#taglist(items)` for a plain list without a category label (Interests, etc.), and `#presentation(role, venue, title, years)` for talks/publications entries.
+- The status-bar CV style switcher gained a fourth "Two-Column" option.
+- **Skrizhal CV element integration** — when a document is in CV mode, the citation panel connects to a [Skrizhal](https://github.com/calstfrancis/skrizhal) CV-element YAML database instead of a bibliography: the panel header and search placeholder swap to CV Elements, and clicking or double-clicking an entry inserts `#cv-entry("key")` at the cursor.
+- **"Skrizhal" launch button** — in CV mode, the citation panel's file-name label is replaced with a button that launches the installed Skrizhal flatpak directly to edit the CV-element database, with a toast if it isn't installed.
+- **`!` autocomplete for CV entries** — mirrors the existing `@` citation autocomplete: type `!` followed by a key, title, organization, or tag fragment to get a filtered popup, with Tab/Enter to insert and arrow keys to navigate.
+- New `cv_elements_path` setting (global and per-project override, like `bib_path`) points Zerkalo at a Skrizhal YAML file; the file is watched and reloaded automatically on change, and is editable directly from Settings → Extras.
+
+### Changed
+- **CV — Two-Column template now matches a plain hand-written CV's formatting exactly**: no rule under section headings (native heading style instead), dates stack below the title/company line (beside it only for modern/academic/classic), Skills/Software/Interests render as real bullet lists, and awards omit the dash entirely when there's no separate awarding body to name (`#award(title, none, years)`). The header layout, spacing, and link colour (plain blue) now mirror a plain reference document precisely, so importing an existing hand-written CV into this template is a seamless, near-lossless conversion.
+- Find bar: the current search match is now highlighted with a bright background tag (in addition to the selection), and scrolls to center reliably via a buffer mark instead of occasionally no-op'ing on unvalidated line heights.
+- Changelog window: entries now show the version and title on separate rows (so long titles wrap instead of eliding) and tag the currently-running version with a "Current" badge.
+- Settings dialog is now resizable, with a larger default size to fit the new CV Elements row.
+- Release screenshots moved from tracked root-level `zerkalo.png` / `packaging/zerkalo-screenshot.png` to a `screenshots/` directory, attached to GitHub Releases automatically via CI.
 
 ### Fixed
 - **CV — Two-Column (and other sidebar-style CVs): Education entries with a differently-cased
@@ -16,39 +32,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   job-shape renderer. Category matching (both which shape an entry renders as, and which
   `#cv-section` it's included in) is now case-insensitive throughout, matching skrizhal-core's own
   case-insensitive category lookup.
-
-### Added
-- **Skrizhal CV element integration** — when a document is in CV mode, the citation panel connects to a [Skrizhal](https://github.com/calstfrancis/skrizhal) CV-element YAML database instead of a bibliography: the panel header and search placeholder swap to CV Elements, and clicking or double-clicking an entry inserts `#cv-entry("key")` at the cursor.
-- **"Skrizhal" launch button** — in CV mode, the citation panel's file-name label is replaced with a button that launches the installed Skrizhal flatpak directly to edit the CV-element database, with a toast if it isn't installed.
-- **`!` autocomplete for CV entries** — mirrors the existing `@` citation autocomplete: type `!` followed by a key, title, organization, or tag fragment to get a filtered popup, with Tab/Enter to insert and arrow keys to navigate.
-- New `cv_elements_path` setting (global and per-project override, like `bib_path`) points Zerkalo at a Skrizhal YAML file; the file is watched and reloaded automatically on change. Now also editable directly from Settings → Extras.
-- Backward compatibility: CV documents created before the Skrizhal `#cv-section` rewrite (which called `#job`/`#edu`/`#skill`/`#award`/`#presentation` directly) keep compiling after a template settings change — the legacy helper functions are re-injected into the regenerated preamble when detected.
-- `cv-helpers.typ` is now injected into every CV document's preview compile unconditionally, not just when a Skrizhal file is configured, since CV templates unconditionally `#import` it.
-- Find bar: the current search match is now highlighted with a bright background tag (in addition to the selection), and scrolls to center reliably via a buffer mark instead of occasionally no-op'ing on unvalidated line heights.
-- Changelog window: entries now show the version and title on separate rows (so long titles wrap instead of eliding) and tag the currently-running version with a "Current" badge.
-- Settings dialog is now resizable, with a larger default size to fit the new CV Elements row.
-- Release screenshots moved from tracked root-level `zerkalo.png` / `packaging/zerkalo-screenshot.png` to a `screenshots/` directory, attached to GitHub Releases automatically via CI.
-
-## [0.16.1-dev3] — CV — Two-Column header spacing fix
-
-### Fixed
 - **CV — Two-Column header spacing** — the gap between the name and the contact line was noticeably tighter than a plain hand-written CV's, because the blank line that produces that gap in a hand-written document falls back to Typst's default paragraph spacing, which this template overrides to stay compact everywhere else. Calibrated the header's own spacing instead of touching the shared paragraph spacing (which would have loosened the gap between dates and bullet points throughout the rest of the CV).
-
----
-
-## [0.16.1-dev2] — CV — Two-Column formatting fidelity
-
-### Changed
-- **CV — Two-Column template now matches a plain hand-written CV's formatting exactly**: no rule under section headings (native heading style instead), dates stack below the title/company line (beside it only for modern/academic/classic), Skills/Software/Interests render as real bullet lists, and awards omit the dash entirely when there's no separate awarding body to name (`#award(title, none, years)`). The header layout, spacing, and link colour (plain blue) now mirror a plain reference document precisely, so importing an existing hand-written CV into this template is a seamless, near-lossless conversion.
-
----
-
-## [0.16.1-dev1] — CV — Two-Column template
-
-### Added
-- **CV — Two-Column template** — a new résumé preset with an Education/Skills/Interests/Awards sidebar beside an Experience/Presentations/Extracurricular main column, selectable from New from Template alongside CV — Modern/Academic/Classic.
-- **New CV helper functions**, available in every CV style: `#mylink(url, label)` for underlined clickable links, `#taglist(items)` for a plain list without a category label (Interests, etc.), and `#presentation(role, venue, title, years)` for talks/publications entries.
-- The status-bar CV style switcher gained a fourth "Two-Column" option.
+- Backward compatibility: CV documents created before the Skrizhal `#cv-section` rewrite (which called `#job`/`#edu`/`#skill`/`#award`/`#presentation` directly) keep compiling after a template settings change — the legacy helper functions are re-injected into the regenerated preamble when detected.
+- `cv-helpers.typ` is now injected into every CV document's preview compile unconditionally, not just when a Skrizhal file is configured, since CV templates unconditionally `#import` it — previously this failed to compile for any CV document that hadn't been pointed at a Skrizhal file yet.
 
 ---
 
