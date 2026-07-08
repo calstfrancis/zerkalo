@@ -55,11 +55,18 @@
 // Which visual shape a category renders as. Unrecognized categories fall
 // back to the generic "job" shape (title / organization / date / bullets),
 // which fits most freeform categories fine.
+//
+// Case-insensitive: Skrizhal's category field is free-text (with a
+// suggestion popover, not a hard enum), and skrizhal-core's own registry
+// lookup is deliberately case-insensitive so a hand-typed "education"
+// still resolves — this needs to match that leniency, or a
+// differently-cased category silently renders with the wrong shape.
 #let cv-shape-for-category(category) = {
-  if category == "Education" { "edu" }
-  else if category in ("Award", "Certification") { "award" }
-  else if category in ("Publication", "Presentation") { "presentation" }
-  else if category == "Language Skill" { "tag" }
+  let c = lower(category)
+  if c == "education" { "edu" }
+  else if c in ("award", "certification") { "award" }
+  else if c in ("publication", "presentation") { "presentation" }
+  else if c == "language skill" { "tag" }
   else { "job" }
 }
 
@@ -229,12 +236,16 @@
 // comma/bullet line of titles instead of full entry cards — for tag-shaped
 // categories like Language Skill.
 #let cv-section(category: none, tag: none, data: cv-data, style: "modern", mode: "entries") = {
+  // Lower-cased once so an entry's differently-cased category (see
+  // cv-shape-for-category) doesn't get silently excluded from the section
+  // it actually belongs in.
   let categories = if category == none { none }
-    else if type(category) == array { category }
-    else { (category,) }
+    else if type(category) == array { category.map(lower) }
+    else { (lower(category),) }
   let keys = data.keys().filter(k => {
     let entry = data.at(k)
-    let category-ok = categories == none or entry.at("category", default: none) in categories
+    let entry-category = entry.at("category", default: none)
+    let category-ok = categories == none or (entry-category != none and lower(entry-category) in categories)
     let entry-tags = entry.at("tags", default: ())
     let tag-ok = tag == none or tag in entry-tags
     category-ok and tag-ok
