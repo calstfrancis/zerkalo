@@ -89,7 +89,19 @@ fn cv_cheatsheet_blocks() -> Vec<Block<'static>> {
     vec![
         Block::H1("CV / Résumé Helper Reference"),
         Block::Gap,
-        Block::H2("CV Helper Functions"),
+        Block::H2("Skrizhal CV Elements (recommended)"),
+        Block::Body("Point Settings → Extras → CV Elements at a Skrizhal YAML file (or click the \"Skrizhal\" button in the citation panel to open the companion app and create one). Then type ! in the editor for fuzzy autocomplete over your jobs, education, awards, and more — selecting an entry inserts #cv-entry(\"key\") at the cursor."),
+        Block::Code(
+            "#cv-section(category: \"Education\", style: CV_STYLE)\n\
+             #cv-section(category: (\"Employment\", \"Ministry Position\"), style: CV_STYLE)\n\
+             #cv-section(category: \"Language Skill\", style: CV_STYLE, mode: \"tags\")\n\
+             \n\
+             #cv-entry(\"hope-united-2025\")   ← renders one entry by its Skrizhal key"
+        ),
+        Block::Body("Category matching is case-insensitive, so a hand-typed \"education\" matches the same section as \"Education\"."),
+        Block::Gap,
+        Block::H2("Manual CV Helper Functions (older documents)"),
+        Block::Body("Documents created before Skrizhal integration existed may still call these directly instead of #cv-section — both keep working."),
         Block::Code(
             "#job(\"Job Title\", \"Company\", \"2022–present\",\n\
              \x20 [Description of role and accomplishments.])\n\
@@ -110,8 +122,8 @@ fn cv_cheatsheet_blocks() -> Vec<Block<'static>> {
         ),
         Block::Gap,
         Block::H2("Switching Style"),
-        Block::Body("Use the CV Style button in the format bar to switch between Modern, Academic, and Classic. This rewrites the #let CV_STYLE line in the document."),
-        Block::Code("// @zerkalo-cv-style: modern   ← marker read by Zerkalo\n#let CV_STYLE = \"modern\"       ← change to \"academic\" or \"classic\""),
+        Block::Body("Use the CV Style button in the format bar to switch between Modern, Academic, Classic, and Two-Column. This rewrites the #let CV_STYLE line in the document."),
+        Block::Code("// @zerkalo-cv-style: modern   ← marker read by Zerkalo\n#let CV_STYLE = \"modern\"       ← change to \"academic\", \"classic\", or \"sidebar\" (Two-Column)"),
         Block::Gap,
         Block::H2("Adding Sections"),
         Block::Body("Use #section to create any custom section. The heading style adapts to CV_STYLE automatically."),
