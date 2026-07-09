@@ -134,8 +134,10 @@ impl WelcomeWindow {
                 "Added: \"CV — Two-Column\" résumé template — sidebar (Education, Skills, Interests, Awards) beside a main column (Experience, Presentations & Publications, Extracurricular)",
                 "Added: universal document import — LaTeX, Word, Markdown, ODT, HTML, EPUB, RTF, and PDF via ☰ → Import, drag-and-drop, batch/folder import, and Paste as Document",
                 "Added: Academic Letter preset now generates an actual letter — date, recipient block, salutation, and signed closing — instead of a reskinned essay",
+                "Added: \"CV — Two-Column\" gained a full-width Profile section for a professional summary, above the sidebar/main-column split",
                 "Changed: New from Template presets get a distinct running header (APA shows a running title, GOST and Book/Long-form show the current section/chapter, LaTeX Look shows Author · Title)",
                 "Fixed: CV preset previews in New from Template (Modern/Academic/Classic/Two-Column) now actually render, instead of silently failing to compile",
+                "Fixed: template previews and CV documents rendered in the wrong font — the embedded Typst compiler's bundled fonts weren't enabled, so \"Times New Roman\" silently fell back to a mono font on most systems; now renders in Libertinus Serif reliably regardless of what's installed on your machine",
             ] {
                 body.append(&bullet_row(item));
             }
