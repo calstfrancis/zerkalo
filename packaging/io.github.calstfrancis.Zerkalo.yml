@@ -17,6 +17,7 @@ finish-args:
   - --share=network
   - --talk-name=org.freedesktop.portal.Desktop
   - --talk-name=org.freedesktop.Flatpak
+  - --talk-name=org.freedesktop.secrets
   - --socket=ssh-auth
 
 build-options:

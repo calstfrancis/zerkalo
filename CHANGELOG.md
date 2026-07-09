@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.17.0-dev1] — Sign in with GitHub, one-click repo creation
+
+### Added
+- **Sign in with GitHub (device flow)** — the setup wizard and Settings → GitHub Sync now offer a "Sign in with GitHub" button instead of requiring a hand-generated Personal Access Token. Approve the sign-in with a short code at github.com/login/device; the resulting token is stored in the system keyring instead of plaintext config.
+- **Create & Link a repository from within Zerkalo** — the setup wizard can create a new GitHub repository (name + public/private) via the GitHub API and link it as `origin` in one step, instead of requiring you to create the repo manually on github.com first and paste its URL back in. Pasting an existing repo's URL remains available as a fallback.
+- Settings → GitHub Sync shows connection status ("Connected as `<username>`") with Sign in / Disconnect actions.
+
+### Changed
+- GitHub tokens are now stored in the system keyring (via the `keyring` crate) rather than in plaintext in `config.toml`. Existing plaintext tokens are migrated into the keyring automatically on first load after upgrading.
+
+---
+
 ## [0.16.1] "Even Column" — CV — Two-Column template, Skrizhal integration
 
 ### Added

@@ -1,9 +1,11 @@
 use std::path::Path;
 
 use gtk4::prelude::*;
-use gtk4::{Align, Box as GtkBox, Button, Label, LinkButton, Orientation, ScrolledWindow, Separator};
+use gtk4::{Align, Box as GtkBox, Button, Label, LinkButton, Orientation, ScrolledWindow, Separator, Switch};
 use libadwaita as adw;
 use adw::prelude::*;
+
+use super::github_signin;
 
 pub struct SetupWizard {
     window: adw::Window,
@@ -42,7 +44,7 @@ impl SetupWizard {
         body.append(&git_identity_group());
 
         // ── Section 2: GitHub repository ──────────────────────────────────
-        body.append(&github_repo_group(work_dir));
+        body.append(&github_repo_group(&window, work_dir));
 
         // ── Section 3: Backup remote ───────────────────────────────────────
         body.append(&backup_remote_group(work_dir));
@@ -174,7 +176,7 @@ fn git_identity_group() -> adw::PreferencesGroup {
     group
 }
 
-fn github_repo_group(work_dir: &Path) -> adw::PreferencesGroup {
+fn github_repo_group(parent: &adw::Window, work_dir: &Path) -> adw::PreferencesGroup {
     let work_dir = work_dir.to_path_buf();
 
     let group = adw::PreferencesGroup::new();
@@ -186,7 +188,7 @@ fn github_repo_group(work_dir: &Path) -> adw::PreferencesGroup {
     let is_repo = git2::Repository::discover(&work_dir).is_ok();
     let remote_url = get_git_remote(&work_dir);
 
-    // Row 1: repo status
+    // ── Row: repo status ────────────────────────────────────────────────
     let repo_row = adw::ActionRow::new();
     repo_row.set_title("Local repository");
     if is_repo {
@@ -213,7 +215,29 @@ fn github_repo_group(work_dir: &Path) -> adw::PreferencesGroup {
     }
     group.add(&repo_row);
 
-    // Row 2: remote URL entry
+    // ── Row: GitHub account ─────────────────────────────────────────────
+    let account_row = adw::ActionRow::new();
+    account_row.set_title("GitHub Account");
+    let has_token = crate::secret_store::load_github_token().is_some();
+    account_row.set_subtitle(if has_token { "Connected" } else { "Not connected" });
+
+    let signin_btn = Button::with_label(if has_token { "Reconnect" } else { "Sign in with GitHub" });
+    signin_btn.set_valign(Align::Center);
+    signin_btn.add_css_class("suggested-action");
+    {
+        let parent = parent.clone();
+        let row_c = account_row.clone();
+        signin_btn.connect_clicked(move |_| {
+            let row_c2 = row_c.clone();
+            github_signin::present(&parent, move |username| {
+                row_c2.set_subtitle(&format!("Connected as {username}"));
+            });
+        });
+    }
+    account_row.add_suffix(&signin_btn);
+    group.add(&account_row);
+
+    // ── Row: remote URL, shared by "Create & Link" and manual paste ─────
     let remote_entry = adw::EntryRow::new();
     remote_entry.set_title("Remote URL (GitHub)");
     if let Some(ref url) = remote_url {
@@ -231,15 +255,20 @@ fn github_repo_group(work_dir: &Path) -> adw::PreferencesGroup {
             status_lbl.add_css_class("success");
         }
         None => {
-            status_lbl.set_label("No remote set. Paste the URL from GitHub, then click Apply.");
+            status_lbl.set_label("No remote set — create a repository below, or paste an existing URL.");
             status_lbl.add_css_class("dim-label");
         }
     }
+    group.add(&remote_entry);
+
+    let suffix_box = GtkBox::new(Orientation::Vertical, 6);
+    suffix_box.set_margin_top(8);
+    suffix_box.set_margin_bottom(4);
+    suffix_box.append(&status_lbl);
 
     let apply_btn = Button::with_label("Apply");
     apply_btn.set_halign(Align::End);
     apply_btn.add_css_class("suggested-action");
-
     {
         let entry_c = remote_entry.clone();
         let lbl_c = status_lbl.clone();
@@ -265,21 +294,14 @@ fn github_repo_group(work_dir: &Path) -> adw::PreferencesGroup {
         });
     }
 
-    group.add(&remote_entry);
-
-    let suffix_box = GtkBox::new(Orientation::Vertical, 6);
-    suffix_box.set_margin_top(8);
-    suffix_box.set_margin_bottom(4);
-    suffix_box.append(&status_lbl);
-
     let btn_row = GtkBox::new(Orientation::Horizontal, 8);
     btn_row.set_halign(Align::End);
-    let new_repo_link = LinkButton::with_label(
+    let existing_repo_link = LinkButton::with_label(
         "https://github.com/new",
-        "Create repo on GitHub ↗",
+        "Already have a repo? Paste its URL ↗",
     );
-    new_repo_link.add_css_class("flat");
-    btn_row.append(&new_repo_link);
+    existing_repo_link.add_css_class("flat");
+    btn_row.append(&existing_repo_link);
     btn_row.append(&apply_btn);
     suffix_box.append(&btn_row);
 
@@ -287,6 +309,99 @@ fn github_repo_group(work_dir: &Path) -> adw::PreferencesGroup {
     wrapper.set_activatable(false);
     wrapper.add_suffix(&suffix_box);
     group.add(&wrapper);
+
+    // ── Row: create a repository via the GitHub API ────────────────────
+    let create_row = adw::EntryRow::new();
+    create_row.set_title("New repository name");
+    let default_name = work_dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("zerkalo-project")
+        .to_string();
+    create_row.set_text(&default_name);
+    group.add(&create_row);
+
+    let private_switch = Switch::new();
+    private_switch.set_active(true);
+    private_switch.set_valign(Align::Center);
+    let private_label = Label::new(Some("Private"));
+
+    let create_status_lbl = Label::new(None);
+    create_status_lbl.set_xalign(0.0);
+    create_status_lbl.set_margin_top(4);
+    create_status_lbl.add_css_class("dim-label");
+    create_status_lbl.set_label("Creates a repository on your GitHub account and links it here.");
+
+    let create_btn = Button::with_label("Create & Link");
+    create_btn.set_halign(Align::End);
+    create_btn.add_css_class("suggested-action");
+    {
+        let name_c = create_row.clone();
+        let private_c = private_switch.clone();
+        let status_c = create_status_lbl.clone();
+        let wdir = work_dir.clone();
+        let remote_entry_c = remote_entry.clone();
+        let remote_status_c = status_lbl.clone();
+        create_btn.connect_clicked(move |btn| {
+            let Some(token) = crate::secret_store::load_github_token() else {
+                status_c.set_label("Sign in with GitHub first.");
+                status_c.remove_css_class("success");
+                status_c.add_css_class("error");
+                return;
+            };
+            let name = name_c.text().trim().to_string();
+            if name.is_empty() {
+                status_c.set_label("Enter a repository name.");
+                return;
+            }
+            let private = private_c.is_active();
+            btn.set_sensitive(false);
+            status_c.remove_css_class("error");
+            status_c.set_label("Creating repository…");
+
+            match crate::github_auth::create_repo(&token, &name, private) {
+                Ok(clone_url) => match set_git_remote(&wdir, &clone_url) {
+                    Ok(()) => {
+                        status_c.set_label(&format!("✓ Created and linked: {clone_url}"));
+                        status_c.add_css_class("success");
+                        remote_entry_c.set_text(&clone_url);
+                        remote_status_c.set_label(&format!("✓ Remote: {clone_url}"));
+                        remote_status_c.remove_css_class("dim-label");
+                        remote_status_c.add_css_class("success");
+                    }
+                    Err(e) => {
+                        status_c.set_label(&format!("Repository created, but linking failed: {e}"));
+                        status_c.add_css_class("error");
+                    }
+                },
+                Err(e) => {
+                    status_c.set_label(&format!("Error: {e}"));
+                    status_c.add_css_class("error");
+                }
+            }
+            btn.set_sensitive(true);
+        });
+    }
+
+    let private_box = GtkBox::new(Orientation::Horizontal, 6);
+    private_box.set_halign(Align::End);
+    private_box.append(&private_label);
+    private_box.append(&private_switch);
+
+    let create_suffix = GtkBox::new(Orientation::Vertical, 6);
+    create_suffix.set_margin_top(8);
+    create_suffix.set_margin_bottom(4);
+    create_suffix.append(&create_status_lbl);
+    let create_btn_row = GtkBox::new(Orientation::Horizontal, 8);
+    create_btn_row.set_halign(Align::End);
+    create_btn_row.append(&private_box);
+    create_btn_row.append(&create_btn);
+    create_suffix.append(&create_btn_row);
+
+    let create_wrapper = adw::ActionRow::new();
+    create_wrapper.set_activatable(false);
+    create_wrapper.add_suffix(&create_suffix);
+    group.add(&create_wrapper);
 
     group
 }

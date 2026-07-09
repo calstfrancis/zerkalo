@@ -2081,7 +2081,7 @@ impl AppWindow {
             let win = window_for_sync.clone();
             let btn = sync_btn_ref.clone();
             let toasts = toast_for_sync_closure.clone();
-            let token = config_for_sync.borrow().github_token.clone();
+            let token = crate::secret_store::load_github_token();
             let cfg_rc = config_for_sync.clone();
 
             if !git_sync::has_remote(&root) {
@@ -4820,9 +4820,7 @@ fn show_github_token_dialog(
         let tok = entry_save.text().to_string();
         if tok.is_empty() { return; }
 
-        // Update in-memory config so the retry uses the new token immediately.
-        current_config.borrow_mut().github_token = Some(tok.clone());
-        let _ = current_config.borrow().save();
+        let _ = crate::secret_store::save_github_token(&tok);
 
         btn.set_sensitive(false);
         dialog_save.close();
