@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.17.0-dev3] — Sign in with GitHub, CV Mode, easier onboarding
+## [0.17.0-dev4] — Sign in with GitHub, CV Mode, template gallery polish
 
 ### Added
 - **Sign in with GitHub (device flow)** — the setup wizard and Settings → GitHub Sync now offer a "Sign in with GitHub" button instead of requiring a hand-generated Personal Access Token. Approve the sign-in with a short code at github.com/login/device; the resulting token is stored in the system keyring instead of plaintext config.
@@ -13,10 +13,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Settings → GitHub Sync shows connection status ("Connected as `<username>`") with Sign in / Disconnect actions.
 - **CV Mode toggle** in the New from Template / Update Template Settings dialog — switch it on to show only the CV templates, hide Sections/Packages (irrelevant to a résumé), and reveal a prominent, explained Skrizhal CV Elements file picker. Auto-enables itself when reopening template settings on a document that's already a CV.
 - **Skrizhal now appears in onboarding** — added to the setup wizard's Tools checklist alongside git/pandoc/hunspell, with an explanation of what it does and install instructions, instead of being mentioned nowhere until you stumbled into Settings → Extras.
+- **Academic Letter preset now generates an actual letter** — date, recipient block, salutation, and a signed closing — instead of reusing the generic essay title-page-and-Introduction body it shared with every other academic preset.
 
 ### Changed
 - GitHub tokens are now stored in the system keyring (via the `keyring` crate) rather than in plaintext in `config.toml`. Existing plaintext tokens are migrated into the keyring automatically on first load after upgrading.
 - Reworked the Help/Cheatsheet/FAQ reference panel's visual hierarchy — larger, accent-colored headings, tighter section spacing, and inline `code` highlighting for key names, shortcuts, and function calls (including the `!` CV autocomplete trigger, which was previously easy to miss in the CV/Résumé Helper Reference).
+- **CV Mode toggle** in New from Template is now a compact "CV" label + switch in the header bar instead of a full-width bar with the label and switch pinned to opposite ends of the window. The Skrizhal CV Elements file picker moved out of its own cramped bar and into the Template tab's left column, alongside the preset list.
+- **New from Template presets now set a running header**, giving each preset a more distinct look instead of all defaulting to none: Research Article (APA) shows the title (its running head), GOST Technical Report and Book / Long-form show the current section/chapter, and LaTeX Look shows Author · Title.
+- Removed the old static Blank/Essay/Journal-Thesis/Theological-Journal template system (`src/templates.rs`'s `BuiltinTemplate`/`UserTemplate`/`AnyTemplate`, and their `templates/` files) — it was never wired into the UI and had been fully superseded by the New from Template preset gallery.
+
+### Fixed
+- **CV preset previews in New from Template never actually rendered** — CV — Modern/Academic/Classic/Two-Column all `#import "cv-helpers.typ"`, but the gallery's preview renderer didn't provide it (it relied on a file at `/tmp/cv-helpers.typ` that nothing ever wrote), so every CV preset silently failed to compile and showed a blank preview pane.
 
 ---
 
