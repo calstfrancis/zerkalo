@@ -130,14 +130,14 @@ To remove:
 
 ## Building manually
 
-Runtime dependencies: GTK4 ≥ 4.10, libadwaita ≥ 1.4, GtkSourceView 5.
+Runtime dependencies: GTK4 ≥ 4.10, libadwaita ≥ 1.4, GtkSourceView 5, libgit2, OpenSSL, D-Bus.
 
 ```bash
 # openSUSE
-zypper install gtk4-devel libadwaita-devel gtksourceview5-devel
+zypper install gtk4-devel libadwaita-devel gtksourceview5-devel libgit2-devel openssl-devel dbus-1-devel pkgconf-pkg-config gcc
 
 # Debian / Ubuntu
-apt install libgtk-4-dev libadwaita-1-dev libgtksourceview-5-dev
+apt install libgtk-4-dev libadwaita-1-dev libgtksourceview-5-dev libgit2-dev libssl-dev libdbus-1-dev pkg-config gcc
 ```
 
 ```bash
