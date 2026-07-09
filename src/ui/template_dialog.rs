@@ -153,13 +153,14 @@ struct TemplatePreset {
     margin_idx: u32,
     spacing_idx: u32,
     page_num_pos: u32,
+    header_idx: u32,
     include_toc: bool,
     include_abstract: bool,
     include_keywords: bool,
     body_kind: BodyKind,
 }
 
-// Indices reference CITATION_STYLES, PAPER_SIZES, MARGIN_PRESETS, SPACING_OPTIONS, PAGE_NUM_OPTIONS.
+// Indices reference CITATION_STYLES, PAPER_SIZES, MARGIN_PRESETS, SPACING_OPTIONS, PAGE_NUM_OPTIONS, HEADER_OPTIONS.
 const TEMPLATE_PRESETS: &[TemplatePreset] = &[
     TemplatePreset {
         name: "Generic Academic",
@@ -169,6 +170,7 @@ const TEMPLATE_PRESETS: &[TemplatePreset] = &[
         margin_idx: 0,  // Normal
         spacing_idx: 1, // 1.5em
         page_num_pos: 0, // bottom center
+        header_idx: 0,  // None — the plain baseline preset
         include_toc: false,
         include_abstract: false,
         include_keywords: false,
@@ -176,12 +178,13 @@ const TEMPLATE_PRESETS: &[TemplatePreset] = &[
     },
     TemplatePreset {
         name: "Research Article (APA)",
-        description: "APA 7th · US Letter · double-spaced · abstract & keywords",
+        description: "APA 7th · US Letter · double-spaced · running head · abstract & keywords",
         style_idx: 4,   // APA 7th
         paper_idx: 0,
         margin_idx: 0,
         spacing_idx: 2, // Double (2.0em)
         page_num_pos: 3, // top right
+        header_idx: 1,  // Title — APA's running head
         include_toc: false,
         include_abstract: true,
         include_keywords: true,
@@ -189,12 +192,13 @@ const TEMPLATE_PRESETS: &[TemplatePreset] = &[
     },
     TemplatePreset {
         name: "GOST R 7.0-5 Technical Report",
-        description: "A4 · GOST margins · 1.5-line · ToC included",
+        description: "A4 · GOST margins · 1.5-line · section header · ToC included",
         style_idx: 9,   // GOST R 7.0-5
         paper_idx: 1,   // A4
         margin_idx: 0,
         spacing_idx: 1, // 1.5em
         page_num_pos: 0, // bottom center
+        header_idx: 3,  // Current section — matches a technical report's running reference
         include_toc: true,
         include_abstract: false,
         include_keywords: false,
@@ -202,12 +206,13 @@ const TEMPLATE_PRESETS: &[TemplatePreset] = &[
     },
     TemplatePreset {
         name: "IEEE Conference Paper",
-        description: "IEEE · US Letter · narrow margins · single-spaced · abstract",
+        description: "IEEE · US Letter · narrow margins · single-spaced · two columns · abstract",
         style_idx: 8,   // IEEE
         paper_idx: 0,
         margin_idx: 1,  // Narrow
         spacing_idx: 0, // Single
         page_num_pos: 0, // bottom center
+        header_idx: 0,  // None — two-column layout carries the visual identity
         include_toc: false,
         include_abstract: true,
         include_keywords: true,
@@ -215,25 +220,27 @@ const TEMPLATE_PRESETS: &[TemplatePreset] = &[
     },
     TemplatePreset {
         name: "Academic Letter",
-        description: "Formal letter layout · US Letter · single-spaced · no page numbers",
+        description: "Actual letter layout — date, recipient, salutation, signature block · US Letter · single-spaced, no page numbers or header",
         style_idx: 0,   // SBL (minimal heading impact)
         paper_idx: 0,
         margin_idx: 0,
         spacing_idx: 0, // Single
         page_num_pos: 4, // None
+        header_idx: 0,  // None — a letter doesn't carry a running header
         include_toc: false,
         include_abstract: false,
         include_keywords: false,
-        body_kind: BodyKind::Academic,
+        body_kind: BodyKind::Letter,
     },
     TemplatePreset {
         name: "Book / Long-form",
-        description: "Chapter structure · TOC · wide margins · Chicago footnotes",
+        description: "Chapter structure · TOC · wide margins · chapter-title header · Chicago footnotes",
         style_idx: 1,   // Chicago (Notes-Bib) — footnotes suit prose
         paper_idx: 0,   // US Letter
         margin_idx: 2,  // Wide (1" / 2")
         spacing_idx: 1, // 1.5em
         page_num_pos: 0, // bottom center
+        header_idx: 3,  // Current section — tracks the chapter title down the page
         include_toc: true,
         include_abstract: false,
         include_keywords: false,
@@ -247,6 +254,7 @@ const TEMPLATE_PRESETS: &[TemplatePreset] = &[
         margin_idx: 1,  // Narrow
         spacing_idx: 0, // Single
         page_num_pos: 4, // None
+        header_idx: 0,  // unused — CVs don't route through header_block
         include_toc: false,
         include_abstract: false,
         include_keywords: false,
@@ -260,6 +268,7 @@ const TEMPLATE_PRESETS: &[TemplatePreset] = &[
         margin_idx: 0,  // Normal
         spacing_idx: 0, // Single
         page_num_pos: 0, // bottom center
+        header_idx: 0,  // unused — CVs don't route through header_block
         include_toc: false,
         include_abstract: false,
         include_keywords: false,
@@ -267,12 +276,13 @@ const TEMPLATE_PRESETS: &[TemplatePreset] = &[
     },
     TemplatePreset {
         name: "LaTeX Look",
-        description: "Computer Modern typography · wide 1.75\" margins · tight leading · US Letter",
+        description: "Computer Modern typography · wide 1.75\" margins · tight leading · author/title header · US Letter",
         style_idx: 11,  // LaTeX Look
         paper_idx: 0,   // US Letter
         margin_idx: 3,  // LaTeX (1.75" all)
         spacing_idx: 0, // ignored — LaTeX Look sets its own leading/spacing
         page_num_pos: 0, // bottom center
+        header_idx: 7,  // Author · Title — evokes a classic LaTeX book/report running head
         include_toc: false,
         include_abstract: false,
         include_keywords: false,
@@ -286,6 +296,7 @@ const TEMPLATE_PRESETS: &[TemplatePreset] = &[
         margin_idx: 0,  // Normal
         spacing_idx: 0, // Single
         page_num_pos: 0, // bottom center
+        header_idx: 0,  // unused — CVs don't route through header_block
         include_toc: false,
         include_abstract: false,
         include_keywords: false,
@@ -299,6 +310,7 @@ const TEMPLATE_PRESETS: &[TemplatePreset] = &[
         margin_idx: 0,  // Normal (1.5cm x/y for CVs)
         spacing_idx: 0, // Single
         page_num_pos: 4, // None
+        header_idx: 0,  // unused — CVs don't route through header_block
         include_toc: false,
         include_abstract: false,
         include_keywords: false,
@@ -308,12 +320,13 @@ const TEMPLATE_PRESETS: &[TemplatePreset] = &[
 
 // ── Body kind ─────────────────────────────────────────────────────────────────
 
-#[derive(Clone, Copy, Default, PartialEq)]
+#[derive(Clone, Copy, Default, PartialEq, Debug)]
 enum BodyKind {
     #[default]
     Academic,
     Book,
     Cv,
+    Letter,
 }
 
 // ── Settings struct ───────────────────────────────────────────────────────────
@@ -479,6 +492,8 @@ impl TemplateDialog {
         preview_code_btn.add_css_class("flat");
         preview_code_btn.set_tooltip_text(Some("Preview the Typst preamble that will be generated"));
         header.pack_start(&preview_code_btn);
+        // pack_end calls apply in reverse visual order, so this ends up
+        // leftmost of the end-aligned group: [CV toggle] [Apply/Create]
         let create_btn = Button::with_label("Create Document");
         create_btn.add_css_class("suggested-action");
         create_btn.add_css_class("pill");
@@ -488,6 +503,18 @@ impl TemplateDialog {
         apply_btn.add_css_class("pill");
         apply_btn.set_visible(false);
         header.pack_end(&apply_btn);
+
+        // Compact CV Mode toggle — just the label and switch side by side,
+        // not a separate full-width bar with the two ends of the window apart.
+        let cv_switch = Switch::new();
+        cv_switch.set_valign(Align::Center);
+        cv_switch.set_tooltip_text(Some("Show only CV templates and CV-relevant settings"));
+        let cv_title_lbl = Label::new(Some("CV"));
+        let cv_toggle_box = GtkBox::new(Orientation::Horizontal, 6);
+        cv_toggle_box.set_valign(Align::Center);
+        cv_toggle_box.append(&cv_title_lbl);
+        cv_toggle_box.append(&cv_switch);
+        header.pack_end(&cv_toggle_box);
 
         let notebook = Notebook::new();
         notebook.set_tab_pos(PositionType::Left);
@@ -860,6 +887,54 @@ impl TemplateDialog {
         let gallery_rows: Rc<RefCell<Vec<(adw::ActionRow, BodyKind)>>> =
             Rc::new(RefCell::new(Vec::new()));
 
+        // ── Skrizhal CV Elements group — lives in the Template tab's left
+        // column alongside the preset list, shown only in CV Mode, instead of
+        // a separate bar that cramped the rest of the dialog.
+        let cv_elements_group = adw::PreferencesGroup::new();
+        cv_elements_group.set_title("Skrizhal CV Elements");
+        cv_elements_group.set_description(Some(
+            "A Skrizhal YAML file of jobs, degrees, awards, etc. — used to fill in this CV \
+             instead of a bibliography.",
+        ));
+        cv_elements_group.set_visible(false);
+
+        let cv_elements_row = adw::EntryRow::new();
+        cv_elements_row.set_title("Skrizhal file");
+        let cv_browse_btn = Button::from_icon_name("document-open-symbolic");
+        cv_browse_btn.set_valign(Align::Center);
+        cv_browse_btn.add_css_class("flat");
+        cv_elements_row.add_suffix(&cv_browse_btn);
+        cv_elements_group.add(&cv_elements_row);
+
+        {
+            let row_c = cv_elements_row.clone();
+            let win_c = window.clone();
+            let path_c = cv_elements_path.clone();
+            let on_change_c = on_cv_elements_change.clone();
+            cv_browse_btn.connect_clicked(move |_| {
+                let row2 = row_c.clone();
+                let path2 = path_c.clone();
+                let on_change2 = on_change_c.clone();
+                let fd = gtk4::FileDialog::new();
+                let filter = gtk4::FileFilter::new();
+                filter.set_name(Some("YAML files (*.yaml, *.yml)"));
+                filter.add_pattern("*.yaml");
+                filter.add_pattern("*.yml");
+                let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
+                filters.append(&filter);
+                fd.set_filters(Some(&filters));
+                fd.open(Some(&win_c), None::<&gtk4::gio::Cancellable>, move |result| {
+                    if let Ok(file) = result {
+                        if let Some(path) = file.path() {
+                            row2.set_text(path.to_str().unwrap_or(""));
+                            *path2.borrow_mut() = Some(path.clone());
+                            if let Some(f) = on_change2.borrow().as_ref() { f(path); }
+                        }
+                    }
+                });
+            });
+        }
+
         // ── Templates gallery ─────────────────────────────────────────────────
         let gallery_outer = {
             let gallery_outer = GtkBox::new(Orientation::Horizontal, 0);
@@ -874,6 +949,7 @@ impl TemplateDialog {
             ));
             let left_box = pref_tab_box();
             left_box.append(&gallery_group);
+            left_box.append(&cv_elements_group);
             let left_scroll = ScrolledWindow::new();
             left_scroll.set_width_request(300);
             left_scroll.set_vexpand(true);
@@ -921,6 +997,7 @@ impl TemplateDialog {
             let g_margin = margin_row.clone();
             let g_spacing = spacing_row.clone();
             let g_pnum = pnum_row.clone();
+            let g_header = header_row.clone();
             let g_toc = toc_row.clone();
             let g_abstract = abstract_row.clone();
             let g_keywords = keywords_row.clone();
@@ -937,6 +1014,7 @@ impl TemplateDialog {
                 let g_margin_c = g_margin.clone();
                 let g_spacing_c = g_spacing.clone();
                 let g_pnum_c = g_pnum.clone();
+                let g_header_c = g_header.clone();
                 let g_toc_c = g_toc.clone();
                 let g_abstract_c = g_abstract.clone();
                 let g_keywords_c = g_keywords.clone();
@@ -954,6 +1032,7 @@ impl TemplateDialog {
                     g_margin_c.set_selected(p.margin_idx);
                     g_spacing_c.set_selected(p.spacing_idx);
                     g_pnum_c.set_selected(p.page_num_pos);
+                    g_header_c.set_selected(p.header_idx);
                     g_toc_c.set_active(p.include_toc);
                     g_abstract_c.set_active(p.include_abstract);
                     g_keywords_c.set_active(p.include_keywords);
@@ -1016,6 +1095,7 @@ impl TemplateDialog {
                 g_margin.set_selected(p.margin_idx);
                 g_spacing.set_selected(p.spacing_idx);
                 g_pnum.set_selected(p.page_num_pos);
+                g_header.set_selected(p.header_idx);
                 g_toc.set_active(p.include_toc);
                 g_abstract.set_active(p.include_abstract);
                 g_keywords.set_active(p.include_keywords);
@@ -1053,81 +1133,6 @@ impl TemplateDialog {
         notebook.prepend_page(&gallery_outer, Some(&tab_label("Template")));
         notebook.set_hexpand(true);
 
-        // ── CV Mode toggle bar ────────────────────────────────────────────────
-        let cv_switch = Switch::new();
-        cv_switch.set_valign(Align::Center);
-
-        let cv_title_lbl = Label::new(Some("CV Mode"));
-        cv_title_lbl.add_css_class("heading");
-        cv_title_lbl.set_xalign(0.0);
-        let cv_desc_lbl = Label::new(Some("Show only CV templates and CV-relevant settings"));
-        cv_desc_lbl.add_css_class("caption");
-        cv_desc_lbl.add_css_class("dim-label");
-        cv_desc_lbl.set_xalign(0.0);
-        let cv_label_box = GtkBox::new(Orientation::Vertical, 0);
-        cv_label_box.append(&cv_title_lbl);
-        cv_label_box.append(&cv_desc_lbl);
-
-        let cv_mode_bar = GtkBox::new(Orientation::Horizontal, 12);
-        cv_mode_bar.set_margin_start(16);
-        cv_mode_bar.set_margin_end(16);
-        cv_mode_bar.set_margin_top(8);
-        cv_mode_bar.set_margin_bottom(8);
-        cv_mode_bar.append(&cv_label_box);
-        let cv_mode_spacer = GtkBox::new(Orientation::Horizontal, 0);
-        cv_mode_spacer.set_hexpand(true);
-        cv_mode_bar.append(&cv_mode_spacer);
-        cv_mode_bar.append(&cv_switch);
-
-        // ── Skrizhal CV Elements bar — prominent, shown only in CV Mode ───────
-        let cv_elements_group = adw::PreferencesGroup::new();
-        cv_elements_group.set_title("Skrizhal CV Elements");
-        cv_elements_group.set_description(Some(
-            "A Skrizhal YAML file of jobs, degrees, awards, etc. — used to fill in this CV \
-             instead of a bibliography.",
-        ));
-        cv_elements_group.set_margin_start(16);
-        cv_elements_group.set_margin_end(16);
-        cv_elements_group.set_margin_bottom(8);
-        cv_elements_group.set_visible(false);
-
-        let cv_elements_row = adw::EntryRow::new();
-        cv_elements_row.set_title("Skrizhal file");
-        let cv_browse_btn = Button::from_icon_name("document-open-symbolic");
-        cv_browse_btn.set_valign(Align::Center);
-        cv_browse_btn.add_css_class("flat");
-        cv_elements_row.add_suffix(&cv_browse_btn);
-        cv_elements_group.add(&cv_elements_row);
-
-        {
-            let row_c = cv_elements_row.clone();
-            let win_c = window.clone();
-            let path_c = cv_elements_path.clone();
-            let on_change_c = on_cv_elements_change.clone();
-            cv_browse_btn.connect_clicked(move |_| {
-                let row2 = row_c.clone();
-                let path2 = path_c.clone();
-                let on_change2 = on_change_c.clone();
-                let fd = gtk4::FileDialog::new();
-                let filter = gtk4::FileFilter::new();
-                filter.set_name(Some("YAML files (*.yaml, *.yml)"));
-                filter.add_pattern("*.yaml");
-                filter.add_pattern("*.yml");
-                let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
-                filters.append(&filter);
-                fd.set_filters(Some(&filters));
-                fd.open(Some(&win_c), None::<&gtk4::gio::Cancellable>, move |result| {
-                    if let Ok(file) = result {
-                        if let Some(path) = file.path() {
-                            row2.set_text(path.to_str().unwrap_or(""));
-                            *path2.borrow_mut() = Some(path.clone());
-                            if let Some(f) = on_change2.borrow().as_ref() { f(path); }
-                        }
-                    }
-                });
-            });
-        }
-
         // ── Wire the toggle: filter gallery, hide Sections/Packages, reveal Skrizhal bar
         {
             let rows = gallery_rows.clone();
@@ -1148,8 +1153,6 @@ impl TemplateDialog {
         // ── Layout ───────────────────────────────────────────────────────────
         let toolbar_view = adw::ToolbarView::new();
         toolbar_view.add_top_bar(&header);
-        toolbar_view.add_top_bar(&cv_mode_bar);
-        toolbar_view.add_top_bar(&cv_elements_group);
         toolbar_view.set_content(Some(&notebook));
         window.set_content(Some(&toolbar_view));
 
@@ -1971,7 +1974,7 @@ pub fn build_sidecar(t: &TemplateSettings) -> SidecarSettings {
         dropcap_lines:     t.dropcap_lines,
         dropcap_color:     t.dropcap_color.clone(),
         bib_path:          t.bib_path.as_ref().map(|p| p.to_string_lossy().into_owned()),
-        body_kind:         match t.body_kind { BodyKind::Book => "book".into(), BodyKind::Cv => "cv".into(), BodyKind::Academic => "academic".into() },
+        body_kind:         match t.body_kind { BodyKind::Book => "book".into(), BodyKind::Cv => "cv".into(), BodyKind::Letter => "letter".into(), BodyKind::Academic => "academic".into() },
     }
 }
 
@@ -2018,7 +2021,7 @@ pub fn sidecar_to_settings(sc: &SidecarSettings) -> TemplateSettings {
         dropcap_font: sc.dropcap_font.clone(),
         dropcap_lines: sc.dropcap_lines,
         dropcap_color: sc.dropcap_color.clone(),
-        body_kind: if sc.body_kind == "book" { BodyKind::Book } else if sc.body_kind == "cv" { BodyKind::Cv } else { BodyKind::Academic },
+        body_kind: if sc.body_kind == "book" { BodyKind::Book } else if sc.body_kind == "cv" { BodyKind::Cv } else if sc.body_kind == "letter" { BodyKind::Letter } else { BodyKind::Academic },
         bib_path: sc.bib_path.as_ref().map(|s| std::path::PathBuf::from(s)),
     }
 }
@@ -2479,8 +2482,13 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
     let _ = writeln!(out, "{TEMPLATE_END}");
     let _ = writeln!(out);
 
-    // Title block (style-specific)
-    let _ = write!(out, "{}", generate_title_page(style_key, s));
+    // Title block (style-specific) — letters get a letterhead instead of a title page
+    let title_block = if matches!(s.body_kind, BodyKind::Letter) {
+        generate_letter_header(s)
+    } else {
+        generate_title_page(style_key, s)
+    };
+    let _ = write!(out, "{title_block}");
 
     // Abstract
     if s.include_abstract {
@@ -2549,6 +2557,19 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
                 let _ = writeln!(out, "// Set your .bib file path in Settings > Extras, then regenerate.");
                 let _ = writeln!(out, "// #bibliography(\"refs.bib\", style: \"{bib}\")");
             }
+        }
+        BodyKind::Letter => {
+            let _ = writeln!(out, "// ── Document body – DO NOT DELETE or Zerkalo template system will break");
+            let _ = writeln!(out, "// ── Document body ───────────────────────────────────────────────────");
+            let _ = writeln!(out);
+            let _ = writeln!(out, "Start writing your letter here...");
+            let _ = writeln!(out);
+            let _ = writeln!(out, "#v(2em)");
+            let _ = writeln!(out, "Sincerely,");
+            let _ = writeln!(out);
+            let _ = writeln!(out, "#v(2.5em)");
+            let _ = writeln!(out, "#doc-author");
+            let _ = writeln!(out, "#if doc-affil != \"\" [\\ #doc-affil]");
         }
         BodyKind::Cv => { /* dispatched to generate_cv_template() above */ }
     }
@@ -2924,6 +2945,45 @@ fn generate_title_page(style_key: &str, s: &TemplateSettings) -> String {
             let _ = writeln!(out);
         }
     }
+
+    out
+}
+
+/// Letterhead for `BodyKind::Letter` — no separate title page. Straight into
+/// a date, a recipient block, and a salutation, the way an actual letter opens.
+fn generate_letter_header(s: &TemplateSettings) -> String {
+    let mut out = String::new();
+    let _ = writeln!(out, "// ── Title block ─────────────────────────────────────────────────────");
+    let _ = writeln!(out, "// Edit these variables to update the letterhead:");
+    let _ = writeln!(out, "#let doc-title = \"{}\"", typst_str(if s.title.is_empty() { "Untitled" } else { &s.title }));
+    let _ = writeln!(out, "#let doc-subtitle = \"{}\"", typst_str(&s.subtitle));
+    let _ = writeln!(out, "#let doc-author = \"{}\"", typst_str(&s.author));
+    let _ = writeln!(out, "#let doc-affil = \"{}\"", typst_str(&s.affiliation));
+    let _ = writeln!(out, "#let doc-course = \"{}\"", typst_str(&s.course));
+    let _ = writeln!(out, "#let doc-professor = \"{}\"", typst_str(&s.professor));
+    let date_val = if s.date.is_empty() {
+        Local::now().format("%B %-d, %Y").to_string()
+    } else {
+        s.date.clone()
+    };
+    let _ = writeln!(out, "#let doc-date = \"{}\"", typst_str(&date_val));
+    if let Some(hdr) = header_block(s.header_style) {
+        let _ = writeln!(out, "{hdr}");
+    }
+    let _ = writeln!(out);
+
+    let _ = writeln!(out, "#if doc-date != \"\" [#doc-date]");
+    let _ = writeln!(out, "#v(1.5em)");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "Recipient Name \\");
+    let _ = writeln!(out, "Recipient Title \\");
+    let _ = writeln!(out, "Recipient Institution \\");
+    let _ = writeln!(out, "Street Address \\");
+    let _ = writeln!(out, "City, State ZIP");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "#v(1em)");
+    let _ = writeln!(out, "Dear Recipient Name,");
+    let _ = writeln!(out);
 
     out
 }
@@ -3418,7 +3478,7 @@ fn generate_preset_preview(idx: usize) -> Result<Vec<u8>, String> {
         font_size: "12pt".to_string(),
         spacing,
         page_num_pos: p.page_num_pos,
-        header_style: 0,
+        header_style: p.header_idx,
         include_toc: false,
         toc_depth: 2,
         include_abstract: p.include_abstract,
@@ -3440,12 +3500,20 @@ fn generate_preset_preview(idx: usize) -> Result<Vec<u8>, String> {
 
     let mut preamble = generate_typst_template(&settings);
 
-    // For CVs the template already contains full content — no body to append.
-    if matches!(p.body_kind, BodyKind::Cv) {
+    // For CVs and letters the template already contains full content — no body to append.
+    if matches!(p.body_kind, BodyKind::Cv | BodyKind::Letter) {
         let tmp_dir = std::env::temp_dir();
         let typ_path = tmp_dir.join(format!("zerkalo_tmpl_preview_{idx}.typ"));
         std::fs::write(&typ_path, &preamble).map_err(|e| e.to_string())?;
-        return crate::compiler::compile_to_png_bytes(&typ_path, 1.5, &std::collections::HashMap::new(), &std::collections::HashMap::new())
+        // CV templates `#import "cv-helpers.typ"` — inject it as a virtual
+        // override next to the preview file rather than relying on a real
+        // file existing at that path (nothing else in the app writes one
+        // there, so every CV preset preview failed to compile before this).
+        let mut overrides = std::collections::HashMap::new();
+        if matches!(p.body_kind, BodyKind::Cv) {
+            overrides.insert(tmp_dir.join("cv-helpers.typ"), crate::cv_mode::CV_HELPERS_TYPST.to_string());
+        }
+        return crate::compiler::compile_to_png_bytes(&typ_path, 1.5, &overrides, &std::collections::HashMap::new())
             .map(|pages| {
                 let png = pages.into_iter().next().unwrap_or_default();
                 let _ = std::fs::write(&cache_path, &png);
@@ -3456,12 +3524,12 @@ fn generate_preset_preview(idx: usize) -> Result<Vec<u8>, String> {
     // Replace the starter body with richer sample content
     let body = match p.body_kind {
         BodyKind::Book => PREVIEW_BOOK_BODY,
-        BodyKind::Academic | BodyKind::Cv => PREVIEW_ACADEMIC_BODY,
+        BodyKind::Academic | BodyKind::Cv | BodyKind::Letter => PREVIEW_ACADEMIC_BODY,
     };
     // Strip everything from the first chapter/section marker onward and append rich body
     let marker = match p.body_kind {
         BodyKind::Book => "// ── Chapters",
-        BodyKind::Academic | BodyKind::Cv => "// ── Document body",
+        BodyKind::Academic | BodyKind::Cv | BodyKind::Letter => "// ── Document body",
     };
     if let Some(pos) = preamble.find(marker) {
         preamble.truncate(pos);
@@ -4398,6 +4466,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn every_gallery_preset_preview_compiles() {
+        // Regression coverage for the New from Template gallery: every preset
+        // (including the CV ones, whose preview previously always failed —
+        // they `#import "cv-helpers.typ"` but generate_preset_preview passed
+        // an empty override map, so nothing ever provided that file) must
+        // actually render, or the gallery silently shows a blank preview.
+        for (idx, p) in TEMPLATE_PRESETS.iter().enumerate() {
+            let result = generate_preset_preview(idx);
+            assert!(result.is_ok(), "preset {idx} ({}) should preview: {:?}", p.name, result.err());
+            assert!(!result.unwrap().is_empty(), "preset {idx} ({}) produced an empty preview", p.name);
+        }
+    }
+
+    #[test]
     fn sidebar_cv_uses_two_column_layout_and_new_helpers() {
         let settings = TemplateSettings {
             title: String::new(), subtitle: String::new(),
@@ -5167,5 +5249,69 @@ Body text.\n";
         // When neither document has body markers, get the full fresh doc
         assert!(result.contains("ZERKALO-TEMPLATE-BEGIN"), "has template markers");
         assert!(result.contains("doc-title = \"Fresh\""), "fresh title present");
+    }
+
+    #[test]
+    fn letter_body_kind_produces_letterhead_not_title_page() {
+        let settings = TemplateSettings {
+            title: "Re: Recommendation".to_string(), subtitle: String::new(),
+            author: "Jane Doe".to_string(), affiliation: "Springfield Seminary".to_string(),
+            course: String::new(), professor: String::new(), date: String::new(),
+            style_idx: 0, paper_idx: 0, margin_idx: 0,
+            custom_paper_w: String::new(), custom_paper_h: String::new(), custom_margin: String::new(),
+            font: "Times New Roman".to_string(), font_size: "12pt".to_string(),
+            spacing: "0.65em".to_string(), page_num_pos: 4, header_style: 0,
+            include_toc: false, toc_depth: 2,
+            include_abstract: false, abstract_text: String::new(),
+            include_keywords: false, keywords: String::new(),
+            heading_numbering: false, numbering_format: String::new(),
+            languages: Vec::new(), packages: Vec::new(),
+            dropcap_font: String::new(), dropcap_lines: 3, dropcap_color: String::new(),
+            body_kind: BodyKind::Letter, bib_path: None,
+        };
+        let src = generate_typst_template(&settings);
+
+        assert!(src.contains("Dear Recipient Name,"), "salutation present");
+        assert!(src.contains("Sincerely,"), "closing present");
+        assert!(src.contains("#doc-author"), "signature references the author");
+        assert!(src.contains("// ── Document body"), "Simple Mode marker present");
+        assert!(!src.contains("#counter(page).update(1)"),
+            "letters skip the separate-title-page cover, unlike Academic/Book");
+
+        let path = std::path::PathBuf::from(format!(
+            "/tmp/zerkalo_test_letter_{}.typ",
+            std::process::id()
+        ));
+        std::fs::write(&path, &src).unwrap();
+        let result = crate::compiler::compile_to_pdf_bytes(
+            &path,
+            &std::collections::HashMap::new(),
+            &std::collections::HashMap::new(),
+        );
+        assert!(result.is_ok(), "letter template should compile: {:?}", result.err());
+        assert!(result.unwrap().starts_with(b"%PDF-"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn sidecar_round_trips_letter_body_kind() {
+        let settings = TemplateSettings {
+            title: String::new(), subtitle: String::new(), author: String::new(),
+            affiliation: String::new(), course: String::new(), professor: String::new(), date: String::new(),
+            style_idx: 0, paper_idx: 0, margin_idx: 0,
+            custom_paper_w: String::new(), custom_paper_h: String::new(), custom_margin: String::new(),
+            font: String::new(), font_size: String::new(), spacing: String::new(),
+            page_num_pos: 4, header_style: 0, include_toc: false, toc_depth: 2,
+            include_abstract: false, abstract_text: String::new(),
+            include_keywords: false, keywords: String::new(),
+            heading_numbering: false, numbering_format: String::new(),
+            languages: Vec::new(), packages: Vec::new(),
+            dropcap_font: String::new(), dropcap_lines: 3, dropcap_color: String::new(),
+            body_kind: BodyKind::Letter, bib_path: None,
+        };
+        let sc = build_sidecar(&settings);
+        assert_eq!(sc.body_kind, "letter");
+        let round_tripped = sidecar_to_settings(&sc);
+        assert_eq!(round_tripped.body_kind, BodyKind::Letter);
     }
 }
