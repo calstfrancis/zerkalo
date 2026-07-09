@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.17.0-dev5] — Sign in with GitHub, CV Mode, template gallery polish
+## [0.17.0] "Clear Glass" — Sign in with GitHub, CV Mode, reliable font rendering
 
 ### Added
 - **Sign in with GitHub (device flow)** — the setup wizard and Settings → GitHub Sync now offer a "Sign in with GitHub" button instead of requiring a hand-generated Personal Access Token. Approve the sign-in with a short code at github.com/login/device; the resulting token is stored in the system keyring instead of plaintext config.
