@@ -34,7 +34,7 @@
       <li>BibTeX and Hayagriva YAML bibliography support, with cited-only bibliography export and project-wide citation key rename</li>
       <li>Compile on save with live preview; scroll position preserved across recompiles</li>
       <li>Auto-save to recovery file on idle; periodic save every 30 seconds</li>
-      <li>Git sync — commit and push to all remotes in one click</li>
+      <li>Git sync — commit and push to all remotes in one click; sign in with GitHub via device flow, or create and link a new repository without leaving the app</li>
     </ul>
     <p>CV mode:</p>
     <ul>
@@ -74,6 +74,23 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.17.0" date="2026-07-09">
+      <description>
+        <p>0.17.0 "Clear Glass" — Sign in with GitHub, CV Mode, reliable font rendering.</p>
+        <ul>
+          <li>Added: "Sign in with GitHub" — connect with a short device code instead of hand-generating a Personal Access Token; tokens are now stored in the system keyring instead of plaintext config</li>
+          <li>Added: create and link a new GitHub repository from the setup wizard, without visiting github.com first</li>
+          <li>Added: "CV Mode" toggle in the template dialog — shows only CV templates and CV-relevant settings, with the Skrizhal CV Elements file picker alongside the preset list</li>
+          <li>Added: Academic Letter preset now generates an actual letter — date, recipient block, salutation, and signed closing — instead of a reskinned essay</li>
+          <li>Added: "CV — Two-Column" gained a full-width Profile section for a professional summary, above the sidebar/main-column split</li>
+          <li>Added: Skrizhal now appears in the setup wizard's Tools checklist, with an explanation of what it does and how to install it</li>
+          <li>Changed: New from Template presets get a distinct running header — APA shows a running title, GOST and Book/Long-form show the current section/chapter, LaTeX Look shows Author · Title</li>
+          <li>Changed: reworked the Help/Cheatsheet/FAQ reference panel's visual hierarchy for readability</li>
+          <li>Fixed: CV preset previews in New from Template (Modern/Academic/Classic/Two-Column) now actually render, instead of silently failing to compile</li>
+          <li>Fixed: template previews and CV documents rendered in the wrong font on most systems — the embedded Typst compiler's bundled fonts weren't enabled, so requested fonts silently fell back to a mono font; now renders reliably regardless of what's installed on the host system</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.16.1" date="2026-07-08">
       <description>
         <p>0.16.1 "Even Column" — CV — Two-Column template, Skrizhal integration.</p>

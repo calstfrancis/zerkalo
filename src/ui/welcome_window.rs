@@ -7,7 +7,7 @@ use libadwaita as adw;
 use adw::prelude::*;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-const RELEASE_NAME: &str = "Even Column";
+const RELEASE_NAME: &str = "Clear Glass";
 
 pub struct WelcomeWindow {
     window: adw::Window,
