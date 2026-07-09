@@ -215,35 +215,60 @@ fn github_repo_group(parent: &adw::Window, work_dir: &Path) -> adw::PreferencesG
     }
     group.add(&repo_row);
 
-    // ── Row: GitHub account ─────────────────────────────────────────────
+    // ── Declare all remaining widgets up front, so the sign-in handler ──
+    // can reach into the "create repository" section below it.
+
+    // GitHub account row
     let account_row = adw::ActionRow::new();
     account_row.set_title("GitHub Account");
     let has_token = crate::secret_store::load_github_token().is_some();
     account_row.set_subtitle(if has_token { "Connected" } else { "Not connected" });
 
+    let signup_link = LinkButton::with_label(
+        "https://github.com/signup",
+        "Don't have an account? Create one (free) ↗",
+    );
+    signup_link.add_css_class("flat");
+    signup_link.add_css_class("caption");
+
     let signin_btn = Button::with_label(if has_token { "Reconnect" } else { "Sign in with GitHub" });
     signin_btn.set_valign(Align::Center);
     signin_btn.add_css_class("suggested-action");
-    {
-        let parent = parent.clone();
-        let row_c = account_row.clone();
-        signin_btn.connect_clicked(move |_| {
-            let row_c2 = row_c.clone();
-            github_signin::present(&parent, move |username| {
-                row_c2.set_subtitle(&format!("Connected as {username}"));
-            });
-        });
-    }
-    account_row.add_suffix(&signin_btn);
-    group.add(&account_row);
 
-    // ── Row: remote URL, shared by "Create & Link" and manual paste ─────
+    // Create-a-repository section (the primary path)
+    let create_row = adw::EntryRow::new();
+    create_row.set_title("New repository name");
+    let default_name = work_dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("zerkalo-project")
+        .to_string();
+    create_row.set_text(&default_name);
+
+    let private_switch = Switch::new();
+    private_switch.set_active(true);
+    private_switch.set_valign(Align::Center);
+    let private_label = Label::new(Some("Private"));
+
+    let create_status_lbl = Label::new(None);
+    create_status_lbl.set_xalign(0.0);
+    create_status_lbl.set_margin_top(4);
+    create_status_lbl.add_css_class("dim-label");
+    create_status_lbl.set_label(if has_token {
+        "Creates a repository on your GitHub account and links it here."
+    } else {
+        "Sign in with GitHub above, then create a repository here."
+    });
+
+    let create_btn = Button::with_label("Create & Link");
+    create_btn.set_halign(Align::End);
+    create_btn.add_css_class("suggested-action");
+
+    // Fallback: paste an existing repo's URL (demoted behind an expander)
     let remote_entry = adw::EntryRow::new();
     remote_entry.set_title("Remote URL (GitHub)");
     if let Some(ref url) = remote_url {
         remote_entry.set_text(url);
-    } else {
-        remote_entry.set_text("");
     }
 
     let status_lbl = Label::new(None);
@@ -255,86 +280,39 @@ fn github_repo_group(parent: &adw::Window, work_dir: &Path) -> adw::PreferencesG
             status_lbl.add_css_class("success");
         }
         None => {
-            status_lbl.set_label("No remote set — create a repository below, or paste an existing URL.");
+            status_lbl.set_label("Paste the URL of a repository you already created on GitHub.");
             status_lbl.add_css_class("dim-label");
         }
     }
-    group.add(&remote_entry);
-
-    let suffix_box = GtkBox::new(Orientation::Vertical, 6);
-    suffix_box.set_margin_top(8);
-    suffix_box.set_margin_bottom(4);
-    suffix_box.append(&status_lbl);
 
     let apply_btn = Button::with_label("Apply");
     apply_btn.set_halign(Align::End);
     apply_btn.add_css_class("suggested-action");
+
+    // ── Wire up the sign-in button now that create_row/create_status_lbl exist ──
     {
-        let entry_c = remote_entry.clone();
-        let lbl_c = status_lbl.clone();
-        let wdir = work_dir.clone();
-        apply_btn.connect_clicked(move |_| {
-            let url = entry_c.text().to_string();
-            if url.is_empty() {
-                lbl_c.set_label("Please enter a repository URL.");
-                return;
-            }
-            match set_git_remote(&wdir, &url) {
-                Ok(()) => {
-                    lbl_c.set_label(&format!("✓ Remote set: {url}"));
-                    lbl_c.remove_css_class("error");
-                    lbl_c.add_css_class("success");
-                }
-                Err(e) => {
-                    lbl_c.set_label(&format!("Error: {e}"));
-                    lbl_c.remove_css_class("success");
-                    lbl_c.add_css_class("error");
-                }
-            }
+        let parent = parent.clone();
+        let row_c = account_row.clone();
+        let signin_btn_c = signin_btn.clone();
+        let create_row_c = create_row.clone();
+        let create_status_c = create_status_lbl.clone();
+        signin_btn.connect_clicked(move |_| {
+            let row_c2 = row_c.clone();
+            let signin_btn_c2 = signin_btn_c.clone();
+            let create_row_c2 = create_row_c.clone();
+            let create_status_c2 = create_status_c.clone();
+            github_signin::present(&parent, move |username| {
+                row_c2.set_subtitle(&format!("Connected as {username}"));
+                signin_btn_c2.set_label("Reconnect");
+                create_status_c2.set_label("Connected! Pick a name below and click Create & Link to finish.");
+                create_status_c2.remove_css_class("dim-label");
+                create_status_c2.add_css_class("success");
+                create_row_c2.grab_focus();
+            });
         });
     }
 
-    let btn_row = GtkBox::new(Orientation::Horizontal, 8);
-    btn_row.set_halign(Align::End);
-    let existing_repo_link = LinkButton::with_label(
-        "https://github.com/new",
-        "Already have a repo? Paste its URL ↗",
-    );
-    existing_repo_link.add_css_class("flat");
-    btn_row.append(&existing_repo_link);
-    btn_row.append(&apply_btn);
-    suffix_box.append(&btn_row);
-
-    let wrapper = adw::ActionRow::new();
-    wrapper.set_activatable(false);
-    wrapper.add_suffix(&suffix_box);
-    group.add(&wrapper);
-
-    // ── Row: create a repository via the GitHub API ────────────────────
-    let create_row = adw::EntryRow::new();
-    create_row.set_title("New repository name");
-    let default_name = work_dir
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("zerkalo-project")
-        .to_string();
-    create_row.set_text(&default_name);
-    group.add(&create_row);
-
-    let private_switch = Switch::new();
-    private_switch.set_active(true);
-    private_switch.set_valign(Align::Center);
-    let private_label = Label::new(Some("Private"));
-
-    let create_status_lbl = Label::new(None);
-    create_status_lbl.set_xalign(0.0);
-    create_status_lbl.set_margin_top(4);
-    create_status_lbl.add_css_class("dim-label");
-    create_status_lbl.set_label("Creates a repository on your GitHub account and links it here.");
-
-    let create_btn = Button::with_label("Create & Link");
-    create_btn.set_halign(Align::End);
-    create_btn.add_css_class("suggested-action");
+    // ── Wire up "Create & Link" ─────────────────────────────────────────
     {
         let name_c = create_row.clone();
         let private_c = private_switch.clone();
@@ -383,6 +361,43 @@ fn github_repo_group(parent: &adw::Window, work_dir: &Path) -> adw::PreferencesG
         });
     }
 
+    // ── Wire up manual "paste URL" apply ────────────────────────────────
+    {
+        let entry_c = remote_entry.clone();
+        let lbl_c = status_lbl.clone();
+        let wdir = work_dir.clone();
+        apply_btn.connect_clicked(move |_| {
+            let url = entry_c.text().to_string();
+            if url.is_empty() {
+                lbl_c.set_label("Please enter a repository URL.");
+                return;
+            }
+            match set_git_remote(&wdir, &url) {
+                Ok(()) => {
+                    lbl_c.set_label(&format!("✓ Remote set: {url}"));
+                    lbl_c.remove_css_class("error");
+                    lbl_c.add_css_class("success");
+                }
+                Err(e) => {
+                    lbl_c.set_label(&format!("Error: {e}"));
+                    lbl_c.remove_css_class("success");
+                    lbl_c.add_css_class("error");
+                }
+            }
+        });
+    }
+
+    // ── Layout, in guided order ──────────────────────────────────────────
+
+    let account_suffix = GtkBox::new(Orientation::Vertical, 4);
+    account_suffix.set_halign(Align::End);
+    account_suffix.append(&signin_btn);
+    account_suffix.append(&signup_link);
+    account_row.add_suffix(&account_suffix);
+    group.add(&account_row);
+
+    group.add(&create_row);
+
     let private_box = GtkBox::new(Orientation::Horizontal, 6);
     private_box.set_halign(Align::End);
     private_box.append(&private_label);
@@ -402,6 +417,28 @@ fn github_repo_group(parent: &adw::Window, work_dir: &Path) -> adw::PreferencesG
     create_wrapper.set_activatable(false);
     create_wrapper.add_suffix(&create_suffix);
     group.add(&create_wrapper);
+
+    let fallback_expander = adw::ExpanderRow::new();
+    fallback_expander.set_title("Already have a repository?");
+    fallback_expander.set_subtitle("Paste its URL instead of creating a new one");
+    fallback_expander.add_row(&remote_entry);
+
+    let fallback_suffix_box = GtkBox::new(Orientation::Vertical, 6);
+    fallback_suffix_box.set_margin_top(8);
+    fallback_suffix_box.set_margin_bottom(4);
+    fallback_suffix_box.set_margin_start(12);
+    fallback_suffix_box.set_margin_end(12);
+    fallback_suffix_box.append(&status_lbl);
+    let fallback_btn_row = GtkBox::new(Orientation::Horizontal, 8);
+    fallback_btn_row.set_halign(Align::End);
+    fallback_btn_row.append(&apply_btn);
+    fallback_suffix_box.append(&fallback_btn_row);
+    let fallback_wrapper = adw::ActionRow::new();
+    fallback_wrapper.set_activatable(false);
+    fallback_wrapper.add_suffix(&fallback_suffix_box);
+    fallback_expander.add_row(&fallback_wrapper);
+
+    group.add(&fallback_expander);
 
     group
 }
@@ -520,6 +557,13 @@ fn optional_tools_group() -> adw::PreferencesGroup {
     group.add(&tool_row("hunspell", "hunspell", "Spellcheck — optional", &distro, ToolKind::Package {
         apt: "hunspell", dnf: "hunspell", pacman: "hunspell", zypper: "hunspell",
     }));
+    group.add(&tool_row(
+        "Skrizhal",
+        "",
+        "Optional companion app for CV Mode — a structured YAML database of jobs, degrees, and awards you can reuse across résumés",
+        &distro,
+        ToolKind::Flatpak { app_id: "io.github.calstfrancis.Skrizhal" },
+    ));
 
     group
 }
@@ -573,6 +617,7 @@ enum ToolKind<'a> {
     Package { apt: &'a str, dnf: &'a str, pacman: &'a str, zypper: &'a str },
     #[allow(dead_code)]
     Cargo { crate_name: &'a str },
+    Flatpak { app_id: &'a str },
     Bundled,
 }
 
@@ -592,8 +637,19 @@ fn install_hint(distro: &Distro, kind: &ToolKind) -> String {
                 format!("Install Rust first (rustup.rs), then: cargo install {crate_name}")
             }
         }
+        ToolKind::Flatpak { app_id } => format!(
+            "flatpak remote-add --user calstfrancis https://calstfrancis.github.io/flatpak/calstfrancis.flatpakrepo\nflatpak install calstfrancis {app_id}"
+        ),
         ToolKind::Bundled => String::new(),
     }
+}
+
+fn flatpak_installed(app_id: &str) -> bool {
+    crate::git_sync::host_command("flatpak")
+        .args(["info", app_id])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
 }
 
 fn tool_row(
@@ -604,8 +660,16 @@ fn tool_row(
     kind: ToolKind,
 ) -> adw::ActionRow {
     let is_bundled = matches!(kind, ToolKind::Bundled);
+    let flatpak_app_id: Option<String> = match &kind {
+        ToolKind::Flatpak { app_id } => Some(app_id.to_string()),
+        _ => None,
+    };
     let hint = install_hint(distro, &kind);
-    let ok = is_bundled || check_command(cmd);
+    let ok = if let Some(app_id) = &flatpak_app_id {
+        flatpak_installed(app_id)
+    } else {
+        is_bundled || check_command(cmd)
+    };
     let cmd = cmd.to_string();
 
     let row = adw::ActionRow::new();
@@ -658,10 +722,16 @@ fn tool_row(
         verify_btn.add_css_class("caption");
         {
             let cmd = cmd.clone();
+            let flatpak_app_id = flatpak_app_id.clone();
             let status = status_lbl.clone();
             let rev = revealer.clone();
             verify_btn.connect_clicked(move |_| {
-                if check_command(&cmd) {
+                let found = if let Some(app_id) = &flatpak_app_id {
+                    flatpak_installed(app_id)
+                } else {
+                    check_command(&cmd)
+                };
+                if found {
                     status.set_label("✓");
                     status.remove_css_class("error");
                     status.add_css_class("success");

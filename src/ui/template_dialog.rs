@@ -9,7 +9,7 @@ use chrono::Local;
 use gtk4::prelude::*;
 use gtk4::{
     Align, Box as GtkBox, Button, Label, Notebook, Orientation, Overlay, Picture, PolicyType,
-    PositionType, ScrolledWindow, Separator, Spinner,
+    PositionType, ScrolledWindow, Separator, Spinner, Switch,
 };
 use gtk4::glib;
 use libadwaita as adw;
@@ -17,6 +17,7 @@ use adw::prelude::*;
 
 type OnCreateCb = Rc<RefCell<Option<Box<dyn Fn(PathBuf)>>>>;
 type OnApplyCb  = Rc<RefCell<Option<Box<dyn Fn(String, SidecarSettings)>>>>;
+type OnCvElementsCb = Rc<RefCell<Option<Box<dyn Fn(PathBuf)>>>>;
 
 // ── Static data tables ────────────────────────────────────────────────────────
 
@@ -307,7 +308,7 @@ const TEMPLATE_PRESETS: &[TemplatePreset] = &[
 
 // ── Body kind ─────────────────────────────────────────────────────────────────
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, PartialEq)]
 enum BodyKind {
     #[default]
     Academic,
@@ -447,6 +448,10 @@ pub struct TemplateDialog {
     dropcap_font_row: adw::ComboRow,
     dropcap_lines_row: adw::ComboRow,
     dropcap_color_row: adw::ComboRow,
+    cv_switch: Switch,
+    cv_elements_row: adw::EntryRow,
+    cv_elements_path: Rc<RefCell<Option<PathBuf>>>,
+    on_cv_elements_change: OnCvElementsCb,
 }
 
 impl TemplateDialog {
@@ -463,6 +468,8 @@ impl TemplateDialog {
         let on_apply: OnApplyCb = Rc::new(RefCell::new(None));
         let on_lock_identity: OnLockCb = Rc::new(RefCell::new(None));
         let on_advanced_toggle: OnAdvancedToggleCb = Rc::new(RefCell::new(None));
+        let on_cv_elements_change: OnCvElementsCb = Rc::new(RefCell::new(None));
+        let cv_elements_path: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
 
         let header = adw::HeaderBar::new();
         let cancel_btn = Button::with_label("Cancel");
@@ -743,7 +750,8 @@ impl TemplateDialog {
 
         let tab3_box = pref_tab_box();
         tab3_box.append(&sec_group);
-        notebook.append_page(&tab_scroll(tab3_box), Some(&tab_label("Sections")));
+        let tab3_scroll = tab_scroll(tab3_box);
+        notebook.append_page(&tab3_scroll, Some(&tab_label("Sections")));
 
         // ── Tab 4: Languages ─────────────────────────────────────────────────
         let lang_group = adw::PreferencesGroup::new();
@@ -840,11 +848,17 @@ impl TemplateDialog {
 
         let tab5_box = pref_tab_box();
         tab5_box.append(&pkg_group);
-        notebook.append_page(&tab_scroll(tab5_box), Some(&tab_label("Packages")));
+        let tab5_scroll = tab_scroll(tab5_box);
+        notebook.append_page(&tab5_scroll, Some(&tab_label("Packages")));
 
         // Tracks which body kind was most recently chosen via the gallery
         let body_kind_state: Rc<RefCell<BodyKind>> =
             Rc::new(RefCell::new(BodyKind::Academic));
+
+        // Every gallery row alongside its preset's body kind, so CV Mode can
+        // filter which rows are visible without rebuilding the gallery.
+        let gallery_rows: Rc<RefCell<Vec<(adw::ActionRow, BodyKind)>>> =
+            Rc::new(RefCell::new(Vec::new()));
 
         // ── Templates gallery ─────────────────────────────────────────────────
         let gallery_outer = {
@@ -990,6 +1004,7 @@ impl TemplateDialog {
                 });
 
                 gallery_group.add(&row);
+                gallery_rows.borrow_mut().push((row, preset.body_kind));
             }
 
             // Auto-preview the first preset when the gallery opens
@@ -1038,9 +1053,103 @@ impl TemplateDialog {
         notebook.prepend_page(&gallery_outer, Some(&tab_label("Template")));
         notebook.set_hexpand(true);
 
+        // ── CV Mode toggle bar ────────────────────────────────────────────────
+        let cv_switch = Switch::new();
+        cv_switch.set_valign(Align::Center);
+
+        let cv_title_lbl = Label::new(Some("CV Mode"));
+        cv_title_lbl.add_css_class("heading");
+        cv_title_lbl.set_xalign(0.0);
+        let cv_desc_lbl = Label::new(Some("Show only CV templates and CV-relevant settings"));
+        cv_desc_lbl.add_css_class("caption");
+        cv_desc_lbl.add_css_class("dim-label");
+        cv_desc_lbl.set_xalign(0.0);
+        let cv_label_box = GtkBox::new(Orientation::Vertical, 0);
+        cv_label_box.append(&cv_title_lbl);
+        cv_label_box.append(&cv_desc_lbl);
+
+        let cv_mode_bar = GtkBox::new(Orientation::Horizontal, 12);
+        cv_mode_bar.set_margin_start(16);
+        cv_mode_bar.set_margin_end(16);
+        cv_mode_bar.set_margin_top(8);
+        cv_mode_bar.set_margin_bottom(8);
+        cv_mode_bar.append(&cv_label_box);
+        let cv_mode_spacer = GtkBox::new(Orientation::Horizontal, 0);
+        cv_mode_spacer.set_hexpand(true);
+        cv_mode_bar.append(&cv_mode_spacer);
+        cv_mode_bar.append(&cv_switch);
+
+        // ── Skrizhal CV Elements bar — prominent, shown only in CV Mode ───────
+        let cv_elements_group = adw::PreferencesGroup::new();
+        cv_elements_group.set_title("Skrizhal CV Elements");
+        cv_elements_group.set_description(Some(
+            "A Skrizhal YAML file of jobs, degrees, awards, etc. — used to fill in this CV \
+             instead of a bibliography.",
+        ));
+        cv_elements_group.set_margin_start(16);
+        cv_elements_group.set_margin_end(16);
+        cv_elements_group.set_margin_bottom(8);
+        cv_elements_group.set_visible(false);
+
+        let cv_elements_row = adw::EntryRow::new();
+        cv_elements_row.set_title("Skrizhal file");
+        let cv_browse_btn = Button::from_icon_name("document-open-symbolic");
+        cv_browse_btn.set_valign(Align::Center);
+        cv_browse_btn.add_css_class("flat");
+        cv_elements_row.add_suffix(&cv_browse_btn);
+        cv_elements_group.add(&cv_elements_row);
+
+        {
+            let row_c = cv_elements_row.clone();
+            let win_c = window.clone();
+            let path_c = cv_elements_path.clone();
+            let on_change_c = on_cv_elements_change.clone();
+            cv_browse_btn.connect_clicked(move |_| {
+                let row2 = row_c.clone();
+                let path2 = path_c.clone();
+                let on_change2 = on_change_c.clone();
+                let fd = gtk4::FileDialog::new();
+                let filter = gtk4::FileFilter::new();
+                filter.set_name(Some("YAML files (*.yaml, *.yml)"));
+                filter.add_pattern("*.yaml");
+                filter.add_pattern("*.yml");
+                let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
+                filters.append(&filter);
+                fd.set_filters(Some(&filters));
+                fd.open(Some(&win_c), None::<&gtk4::gio::Cancellable>, move |result| {
+                    if let Ok(file) = result {
+                        if let Some(path) = file.path() {
+                            row2.set_text(path.to_str().unwrap_or(""));
+                            *path2.borrow_mut() = Some(path.clone());
+                            if let Some(f) = on_change2.borrow().as_ref() { f(path); }
+                        }
+                    }
+                });
+            });
+        }
+
+        // ── Wire the toggle: filter gallery, hide Sections/Packages, reveal Skrizhal bar
+        {
+            let rows = gallery_rows.clone();
+            let tab3 = tab3_scroll.clone();
+            let tab5 = tab5_scroll.clone();
+            let elements_group = cv_elements_group.clone();
+            cv_switch.connect_active_notify(move |sw| {
+                let cv_on = sw.is_active();
+                for (row, kind) in rows.borrow().iter() {
+                    row.set_visible(if cv_on { *kind == BodyKind::Cv } else { *kind != BodyKind::Cv });
+                }
+                tab3.set_visible(!cv_on);
+                tab5.set_visible(!cv_on);
+                elements_group.set_visible(cv_on);
+            });
+        }
+
         // ── Layout ───────────────────────────────────────────────────────────
         let toolbar_view = adw::ToolbarView::new();
         toolbar_view.add_top_bar(&header);
+        toolbar_view.add_top_bar(&cv_mode_bar);
+        toolbar_view.add_top_bar(&cv_elements_group);
         toolbar_view.set_content(Some(&notebook));
         window.set_content(Some(&toolbar_view));
 
@@ -1502,11 +1611,30 @@ impl TemplateDialog {
             title_row, subtitle_row, author_row, affil_row, course_row, professor_row, date_row,
             bib_path, pnum_row, header_row, lang_switches, pkg_switches,
             dropcap_expander, dropcap_font_row, dropcap_lines_row, dropcap_color_row,
+            cv_switch, cv_elements_row, cv_elements_path, on_cv_elements_change,
         }
     }
 
     pub fn set_bib_path(&self, path: Option<PathBuf>) {
         *self.bib_path.borrow_mut() = path;
+    }
+
+    /// Turns CV Mode on/off, which filters the gallery to CV-only (or
+    /// non-CV-only) presets, hides the Sections/Packages tabs, and reveals
+    /// the Skrizhal CV Elements selector.
+    pub fn preselect_cv_mode(&self, active: bool) {
+        self.cv_switch.set_active(active);
+    }
+
+    pub fn set_cv_elements_path(&self, path: Option<PathBuf>) {
+        if let Some(ref p) = path {
+            self.cv_elements_row.set_text(p.to_str().unwrap_or(""));
+        }
+        *self.cv_elements_path.borrow_mut() = path;
+    }
+
+    pub fn set_on_cv_elements_change(&self, f: impl Fn(PathBuf) + 'static) {
+        *self.on_cv_elements_change.borrow_mut() = Some(Box::new(f));
     }
 
     pub fn set_on_advanced_toggle(&self, f: impl Fn(bool) + 'static) {
@@ -1749,6 +1877,7 @@ impl TemplateDialog {
     /// Pre-fill all dialog fields from a sidecar. Called when opening
     /// "Update Template Settings" for a document that has a sidecar file.
     pub fn preselect_from_sidecar(&self, s: &SidecarSettings) {
+        self.preselect_cv_mode(s.body_kind == "cv");
         self.preselect_style(&s.style);
         if !s.font.is_empty()      { self.preselect_font(&s.font); }
         if !s.font_size.is_empty() { self.preselect_font_size(&s.font_size); }
