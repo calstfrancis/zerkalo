@@ -108,7 +108,10 @@ pub struct Config {
     pub active_profile: CompileProfile,
     #[serde(default = "default_auto_save_idle_ms")]
     pub auto_save_idle_ms: u64,
-    #[serde(default)]
+    /// Legacy plaintext PAT field, kept only so old config files still
+    /// deserialize. Migrated into the system keyring on load and never
+    /// written back out — see `Config::load` and `crate::secret_store`.
+    #[serde(default, skip_serializing)]
     pub github_token: Option<String>,
     #[serde(default)]
     pub locked_author: String,
@@ -227,7 +230,15 @@ impl Config {
     pub fn load() -> Result<Self> {
         let path = Self::config_file()?;
         let text = std::fs::read_to_string(&path)?;
-        Ok(toml::from_str(&text)?)
+        let mut cfg: Self = toml::from_str(&text)?;
+        if let Some(tok) = cfg.github_token.take() {
+            if crate::secret_store::save_github_token(&tok).is_ok() {
+                let _ = cfg.save();
+            } else {
+                cfg.github_token = Some(tok);
+            }
+        }
+        Ok(cfg)
     }
 
     pub fn save(&self) -> Result<()> {

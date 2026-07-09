@@ -126,15 +126,11 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
-                "Fixed: CV — Two-Column (and other sidebar-style CVs) rendered Education entries with a differently-cased category (e.g. \"education\" instead of \"Education\") crammed onto one line instead of the intended stacked degree/school/dates layout",
+                "Added: \"Sign in with GitHub\" — connect your account with a short device code instead of generating a Personal Access Token by hand",
+                "Added: create and link a new GitHub repository from the setup wizard, without leaving the app or visiting github.com first",
                 "Added: in CV mode, the citation panel connects to a Skrizhal CV-element YAML database instead of a bibliography, with \"!\" autocomplete for CV entries alongside the existing \"@\" citation autocomplete",
                 "Added: \"Skrizhal\" button in CV mode launches the installed Skrizhal app directly to edit your CV elements",
-                "Added: older CV documents keep compiling after a template settings change, even if they still use the pre-Skrizhal #job/#edu/#skill/#award/#presentation functions",
-                "Improved: the find bar highlights the current match and scrolls reliably to center it",
-                "Fixed: CV — Two-Column header spacing now matches a plain hand-written CV exactly, without loosening spacing anywhere else in the document",
-                "Changed: CV — Two-Column now matches a plain hand-written CV exactly — no rule under section headings, dates stack below the title/company line, Skills/Software/Interests render as real bullet lists, and awards omit the dash when there's no separate awarding body to name",
                 "Added: \"CV — Two-Column\" résumé template — sidebar (Education, Skills, Interests, Awards) beside a main column (Experience, Presentations & Publications, Extracurricular)",
-                "Added: new CV helper functions available in every style — #mylink for clickable links, #taglist for plain item lists, #presentation for talks and publications",
                 "Added: universal document import — LaTeX, Word, Markdown, ODT, HTML, EPUB, RTF, and PDF via ☰ → Import, drag-and-drop, batch/folder import, and Paste as Document",
                 "Added: Import History with retry, undo, search, duplicate warnings, and a preview dialog before anything is written",
             ] {

@@ -476,14 +476,47 @@ impl SettingsDialog {
 
         let sync_group = adw::PreferencesGroup::new();
         sync_group.set_title("GitHub Sync");
-        sync_group.set_description(Some("Personal Access Token for pushing to GitHub. Generate one at github.com → Settings → Developer settings → Personal access tokens → Fine-grained."));
-        let token_row = adw::EntryRow::new();
-        token_row.set_title("Personal Access Token");
-        token_row.set_show_apply_button(false);
-        if let Some(tok) = &current.github_token {
-            token_row.set_text(tok);
+        sync_group.set_description(Some("Sign in with GitHub to push your work when you click Sync."));
+
+        let account_row = adw::ActionRow::new();
+        account_row.set_title("Account");
+        let has_token = crate::secret_store::load_github_token().is_some();
+        account_row.set_subtitle(if has_token { "Connected" } else { "Not connected" });
+
+        let account_btn_box = GtkBox::new(Orientation::Horizontal, 6);
+        account_btn_box.set_valign(Align::Center);
+
+        let signin_btn = Button::with_label(if has_token { "Reconnect" } else { "Sign in with GitHub" });
+        signin_btn.add_css_class("suggested-action");
+        {
+            let parent_win = window.clone();
+            let row_c = account_row.clone();
+            signin_btn.connect_clicked(move |_| {
+                let row_c2 = row_c.clone();
+                super::github_signin::present(&parent_win, move |username| {
+                    row_c2.set_subtitle(&format!("Connected as {username}"));
+                });
+            });
         }
-        sync_group.add(&token_row);
+        account_btn_box.append(&signin_btn);
+
+        let disconnect_btn = Button::with_label("Disconnect");
+        disconnect_btn.add_css_class("destructive-action");
+        disconnect_btn.set_visible(has_token);
+        {
+            let row_c = account_row.clone();
+            let signin_c = signin_btn.clone();
+            disconnect_btn.connect_clicked(move |btn| {
+                crate::secret_store::delete_github_token();
+                row_c.set_subtitle("Not connected");
+                signin_c.set_label("Sign in with GitHub");
+                btn.set_visible(false);
+            });
+        }
+        account_btn_box.append(&disconnect_btn);
+
+        account_row.add_suffix(&account_btn_box);
+        sync_group.add(&account_row);
 
         let page_general = adw::PreferencesPage::new();
         page_general.add(&folders_group);
@@ -544,7 +577,6 @@ impl SettingsDialog {
             let selected_langs = selected_langs.clone();
             let dev_mode_row = dev_mode_row.clone();
             let batch_concurrency_row = batch_concurrency_row.clone();
-            let token_row = token_row.clone();
             let recent_files_cur = current.recent_files.clone();
             let recent_projects_cur = current.recent_projects.clone();
             let recent_searches_cur = current.recent_searches.clone();
@@ -617,8 +649,6 @@ impl SettingsDialog {
                     2 => 6u32,
                     _ => 2u32,
                 };
-                let token_text = token_row.text().trim().to_string();
-                let github_token = if token_text.is_empty() { None } else { Some(token_text) };
                 Config {
                     work_dir,
                     output_dir,
@@ -653,7 +683,7 @@ impl SettingsDialog {
                     recent_searches: recent_searches_cur.clone(),
                     active_profile: active_profile_cur.clone(),
                     auto_save_idle_ms: auto_save_idle_ms_cur,
-                    github_token,
+                    github_token: None,
                     locked_author: locked_author_cur.clone(),
                     locked_affiliation: locked_affiliation_cur.clone(),
                     simple_mode: simple_mode_cur,
