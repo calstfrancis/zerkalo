@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.17.0-dev2] — Sign in with GitHub, CV Mode, easier onboarding
+## [0.17.0-dev3] — Sign in with GitHub, CV Mode, easier onboarding
 
 ### Added
 - **Sign in with GitHub (device flow)** — the setup wizard and Settings → GitHub Sync now offer a "Sign in with GitHub" button instead of requiring a hand-generated Personal Access Token. Approve the sign-in with a short code at github.com/login/device; the resulting token is stored in the system keyring instead of plaintext config.
@@ -16,6 +16,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 - GitHub tokens are now stored in the system keyring (via the `keyring` crate) rather than in plaintext in `config.toml`. Existing plaintext tokens are migrated into the keyring automatically on first load after upgrading.
+- Reworked the Help/Cheatsheet/FAQ reference panel's visual hierarchy — larger, accent-colored headings, tighter section spacing, and inline `code` highlighting for key names, shortcuts, and function calls (including the `!` CV autocomplete trigger, which was previously easy to miss in the CV/Résumé Helper Reference).
 
 ---
 
