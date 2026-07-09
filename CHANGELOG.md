@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.17.0-dev4] — Sign in with GitHub, CV Mode, template gallery polish
+## [0.17.0-dev5] — Sign in with GitHub, CV Mode, template gallery polish
 
 ### Added
 - **Sign in with GitHub (device flow)** — the setup wizard and Settings → GitHub Sync now offer a "Sign in with GitHub" button instead of requiring a hand-generated Personal Access Token. Approve the sign-in with a short code at github.com/login/device; the resulting token is stored in the system keyring instead of plaintext config.
@@ -14,6 +14,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **CV Mode toggle** in the New from Template / Update Template Settings dialog — switch it on to show only the CV templates, hide Sections/Packages (irrelevant to a résumé), and reveal a prominent, explained Skrizhal CV Elements file picker. Auto-enables itself when reopening template settings on a document that's already a CV.
 - **Skrizhal now appears in onboarding** — added to the setup wizard's Tools checklist alongside git/pandoc/hunspell, with an explanation of what it does and install instructions, instead of being mentioned nowhere until you stumbled into Settings → Extras.
 - **Academic Letter preset now generates an actual letter** — date, recipient block, salutation, and a signed closing — instead of reusing the generic essay title-page-and-Introduction body it shared with every other academic preset.
+- **CV — Two-Column now has a Profile section** — a full-width professional-summary paragraph above the sidebar/main-column split, editable via the `cv-summary` variable.
 
 ### Changed
 - GitHub tokens are now stored in the system keyring (via the `keyring` crate) rather than in plaintext in `config.toml`. Existing plaintext tokens are migrated into the keyring automatically on first load after upgrading.
@@ -24,6 +25,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 - **CV preset previews in New from Template never actually rendered** — CV — Modern/Academic/Classic/Two-Column all `#import "cv-helpers.typ"`, but the gallery's preview renderer didn't provide it (it relied on a file at `/tmp/cv-helpers.typ` that nothing ever wrote), so every CV preset silently failed to compile and showed a blank preview pane.
+- **Template previews (and CV documents defaulting to "Linux Libertine") rendered in the wrong font** — Zerkalo never enabled the embedded-Typst-compiler's `embed-fonts` feature, so none of Typst's bundled fonts (Libertinus Serif, New Computer Modern, DejaVu Sans Mono) were actually available, and the requested font — "Times New Roman" or "Linux Libertine", neither an exact match to anything on disk — silently fell back to whatever font Typst's FontBook picked for an unknown family, usually a mono font. Now ships with `embed-fonts` enabled and points previews/CV defaults at "Libertinus Serif", which is guaranteed to render correctly regardless of what fonts the host system has installed.
 
 ---
 

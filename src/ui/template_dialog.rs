@@ -304,7 +304,7 @@ const TEMPLATE_PRESETS: &[TemplatePreset] = &[
     },
     TemplatePreset {
         name: "CV — Two-Column",
-        description: "Minimalist, rule-free résumé · sidebar (Education, Skills & Awards) beside a main Experience column · A4",
+        description: "Minimalist, rule-free résumé · full-width Profile summary above a sidebar (Education, Skills & Awards) beside a main Experience column · A4",
         style_idx: 3,   // 3 = sidebar in CV context
         paper_idx: 1,   // A4
         margin_idx: 0,  // Normal (1.5cm x/y for CVs)
@@ -2592,7 +2592,14 @@ fn generate_cv_template(s: &TemplateSettings) -> String {
         2 => ("2.5cm", "2.5cm"),
         _ => ("1.5cm", "1.5cm"),
     };
-    let font = if s.font.is_empty() || s.font == "Times New Roman" { "Linux Libertine" } else { &s.font };
+    // "Linux Libertine" isn't an exact font-family match on any system (the
+    // installed/embedded equivalent is named "Libertinus Serif"), so Typst
+    // couldn't find it and silently fell back to whatever font its FontBook
+    // picked for unknown families — often a mono font, never what was
+    // intended. "Libertinus Serif" is embedded directly in the Typst
+    // compiler (see typst-kit's `embed-fonts` feature), so it renders
+    // correctly regardless of what fonts the host system has installed.
+    let font = if s.font.is_empty() || s.font == "Times New Roman" { "Libertinus Serif" } else { &s.font };
     let font_size = if s.font_size.is_empty() { "10.5pt" } else { &s.font_size };
     let name = if s.author.is_empty() { "Your Name" } else { &s.author };
 
@@ -2792,6 +2799,13 @@ fn generate_cv_sidebar_body(mut out: String) -> String {
     let _ = writeln!(out, "// Toggle optional sections per application");
     let _ = writeln!(out, "#let show-presentations = true");
     let _ = writeln!(out, "#let show-extracurricular = true");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "// A brief professional summary, full-width above the two columns");
+    let _ = writeln!(out, "#let cv-summary = \"A brief 2\u{2013}3 sentence professional summary goes here \u{2014} your background, key strengths, and what you're looking for next.\"");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "#section(\"Profile\")[");
+    let _ = writeln!(out, "  #cv-summary");
+    let _ = writeln!(out, "]");
     let _ = writeln!(out);
     let _ = writeln!(out, "#grid(");
     let _ = writeln!(out, "  columns: (1fr, 2fr),");
@@ -3474,7 +3488,13 @@ fn generate_preset_preview(idx: usize) -> Result<Vec<u8>, String> {
         custom_paper_h: String::new(),
         margin_idx: p.margin_idx as usize,
         custom_margin: String::new(),
-        font: "Times New Roman".to_string(),
+        // "Times New Roman" doesn't exist as an exact font-family match on
+        // Linux (no exact-match file, and it isn't one of Typst's embedded
+        // fonts either), so Typst can't find it and falls back to whatever
+        // font its FontBook happens to pick for unknown families — visibly
+        // wrong in the gallery preview. "Libertinus Serif" is embedded
+        // directly in the Typst compiler, so it always renders correctly.
+        font: "Libertinus Serif".to_string(),
         font_size: "12pt".to_string(),
         spacing,
         page_num_pos: p.page_num_pos,
@@ -4506,6 +4526,14 @@ mod tests {
         assert!(src.contains("columns: (1fr, 2fr)"));
         assert!(src.contains("#taglist((\"Interest one\""));
         assert!(src.contains("#cv-section(category: (\"Publication\", \"Presentation\"), style: CV_STYLE)"));
+
+        // Profile summary sits full-width above the two-column grid (not the
+        // unrelated #grid(...) inside the shared #section helper's "modern"
+        // branch, which appears earlier in the preamble regardless of style).
+        let profile_pos = src.find("#section(\"Profile\")").expect("Profile section present");
+        let grid_pos = src.find("columns: (1fr, 2fr)").expect("two-column grid present");
+        assert!(profile_pos < grid_pos, "Profile summary should come before the two-column grid");
+        assert!(src.contains("#let cv-summary ="));
     }
 
     #[test]

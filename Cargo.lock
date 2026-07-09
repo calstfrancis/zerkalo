@@ -4078,6 +4078,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tar",
+ "typst-assets",
  "typst-library",
  "typst-syntax",
  "typst-timing",
@@ -5077,7 +5078,7 @@ dependencies = [
 
 [[package]]
 name = "zerkalo"
-version = "0.17.0-dev4"
+version = "0.17.0-dev5"
 dependencies = [
  "biblatex",
  "chrono",
