@@ -83,3 +83,29 @@ pub fn muted_fg_hex(widget: &impl IsA<gtk4::Widget>) -> String {
         _ => "#888888".to_string(),
     }
 }
+
+/// Colors for the rich-text reference panel (Cheatsheet/Help/FAQ tabs), which
+/// render via `TextTag` and so can't consume `@accent_color` etc. from CSS
+/// directly — resolved from the widget's style context with theme-aware
+/// fallbacks for use before the widget is realized.
+pub struct RefColors {
+    pub accent: String,
+    pub code_bg: &'static str,
+    pub inline_bg: &'static str,
+    pub inline_fg: String,
+}
+
+pub fn ref_colors(widget: &impl IsA<gtk4::Widget>) -> RefColors {
+    let dark = is_dark();
+    let accent = lookup_color_hex(
+        widget,
+        "accent_color",
+        if dark { "#78aeff" } else { "#3584e4" },
+    );
+    RefColors {
+        accent: accent.clone(),
+        code_bg: if dark { "#2a2d33" } else { "#f0eeec" },
+        inline_bg: if dark { "#3a3e46" } else { "#e8e6e3" },
+        inline_fg: accent,
+    }
+}

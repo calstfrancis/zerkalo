@@ -5,6 +5,8 @@ use gtk4::{
 use libadwaita::prelude::*;
 use libadwaita as adw;
 
+use super::theme;
+
 // ── Rich-text section DSL ─────────────────────────────────────────────────────
 
 pub(crate) enum Block<'a> {
@@ -31,10 +33,10 @@ fn overview_blocks() -> Vec<Block<'static>> {
         Block::Code("Left sidebar   Document outline, symbols, files, refs, history\nEditor         Tabbed, syntax-highlighted Typst editor\nFind bar       Persistent search/replace at editor bottom\nPreview        Live rendered output — use +/− to zoom\nError panel    Compile errors and LSP diagnostics"),
         Block::Gap,
         Block::H2("Git sync"),
-        Block::Body("Click the sync button (⟳) or press Ctrl+Shift+G to commit all changes and push. On first sync, Zerkalo will ask for a remote URL."),
+        Block::Body("Click the sync button (⟳) or press `Ctrl+Shift+G` to commit all changes and push. On first sync, Zerkalo will ask for a remote URL."),
         Block::Gap,
         Block::H2("Multi-file projects"),
-        Block::Body("For longer works — journals, theses, books — use ≡ → New Project… to create a folder with a starter template. One file is the compilation root (marked ★ in the file tree and shown in the status bar). Right-click any file to set it as root, or to insert an #include / #import directive at the cursor. See the Projects tab for a full walkthrough."),
+        Block::Body("For longer works — journals, theses, books — use ≡ → New Project… to create a folder with a starter template. One file is the compilation root (marked ★ in the file tree and shown in the status bar). Right-click any file to set it as root, or to insert an `#include` / `#import` directive at the cursor. See the Projects tab for a full walkthrough."),
         Block::Gap,
         Block::H2("Preview & Cheatsheet"),
         Block::Body("The toggle button (?) in the preview toolbar switches the right panel between the live preview and a two-tab reference view (Cheatsheet + Help). Compilation continues in the background regardless."),
@@ -44,22 +46,22 @@ fn overview_blocks() -> Vec<Block<'static>> {
 fn projects_blocks() -> Vec<Block<'static>> {
     vec![
         Block::H1("Multi-file Projects"),
-        Block::Body("A project is a folder that holds several .typ files compiled together. One file — the compilation root — is the entry point. It #include-s the others. Zerkalo tracks which file is the root, shows it in the file tree and status bar, and always compiles from it."),
+        Block::Body("A project is a folder that holds several .typ files compiled together. One file — the compilation root — is the entry point. It `#include`-s the others. Zerkalo tracks which file is the root, shows it in the file tree and status bar, and always compiles from it."),
         Block::Gap,
         Block::H2("Creating a project"),
         Block::Body("Open the hamburger menu (≡) → New Project… The wizard asks for a project name and a template:"),
         Block::Code("Blank              Empty main.typ — start from scratch\nEssay              main.typ + bibliography.bib\nJournal / Thesis   main.typ, title.typ, ch01-introduction.typ, bibliography.bib\nTheological Journal  main.typ, front-matter.typ, article-01.typ, bibliography.bib"),
-        Block::Body("Zerkalo creates a subfolder inside your work folder, writes the starter files, records the compilation root in .zerkalo/config.toml, and opens the project."),
+        Block::Body("Zerkalo creates a subfolder inside your work folder, writes the starter files, records the compilation root in `.zerkalo/config.toml`, and opens the project."),
         Block::Gap,
         Block::H2("The compilation root"),
-        Block::Body("The root is the .typ file you pass to the Typst compiler — typically main.typ. All #include and #import paths are resolved relative to its directory."),
+        Block::Body("The root is the .typ file you pass to the Typst compiler — typically `main.typ`. All `#include` and `#import` paths are resolved relative to its directory."),
         Block::Gap,
         Block::Body("Zerkalo shows the root in two places:"),
         Block::Code("File tree   ★ icon on the root file row\nStatus bar  \"Root: filename.typ\" chip at the bottom left"),
         Block::Gap,
         Block::Body("To change the root, right-click any file in the file tree and choose Set as Compilation Root. Or click the status bar chip — a popover lists all candidate roots (files not included by any other) so you can switch without leaving the editor."),
         Block::Gap,
-        Block::Body("Zerkalo auto-detects the root on project open by scanning the import graph. The override is saved to .zerkalo/config.toml so it persists."),
+        Block::Body("Zerkalo auto-detects the root on project open by scanning the import graph. The override is saved to `.zerkalo/config.toml` so it persists."),
         Block::Gap,
         Block::H2("File tree"),
         Block::Body("The file tree shows all .typ files in the project folder. Subdirectories are shown as collapsible headers — click the arrow to expand or collapse."),
@@ -72,25 +74,26 @@ fn projects_blocks() -> Vec<Block<'static>> {
         Block::H2("Including files in your document"),
         Block::Body("Typst uses two directives for multi-file documents:"),
         Block::Code("#include \"chapter1.typ\"        Include the file's content inline\n#import \"macros.typ\": my-fn   Import a specific function or variable"),
-        Block::Body("The quickest way to insert these: right-click the file in the file tree → Insert #include or Insert #import. The path is automatically relative to the compilation root's directory."),
+        Block::Body("The quickest way to insert these: right-click the file in the file tree → Insert `#include` or Insert `#import`. The path is automatically relative to the compilation root's directory."),
         Block::Gap,
         Block::H2("Project config (.zerkalo/config.toml)"),
-        Block::Body("Each project can have a .zerkalo/config.toml that overrides global settings for that folder:"),
+        Block::Body("Each project can have a `.zerkalo/config.toml` that overrides global settings for that folder:"),
         Block::Code("[project]\nroot_file   = \"main.typ\"     # compilation root\nbib_path    = \"refs.bib\"     # bibliography override\nfile_order  = [              # file tree display order\n  \"main.typ\",\n  \"ch01-introduction.typ\",\n  \"bibliography.bib\",\n]"),
-        Block::Body("Zerkalo writes root_file and file_order automatically. You can edit bib_path or other fields by hand."),
+        Block::Body("Zerkalo writes `root_file` and `file_order` automatically. You can edit `bib_path` or other fields by hand."),
         Block::Gap,
         Block::H2("Workflow example — theological journal"),
         Block::Code("my-journal/\n  main.typ             ← compilation root (★)\n  front-matter.typ     ← #include \"front-matter.typ\"\n  article-01.typ       ← #include \"article-01.typ\"\n  bibliography.bib\n  .zerkalo/\n    config.toml"),
-        Block::Body("Open the project folder in Zerkalo. The ★ appears on main.typ. Edit article-01.typ directly — every save re-compiles from main.typ so the preview always shows the full document."),
+        Block::Body("Open the project folder in Zerkalo. The ★ appears on `main.typ`. Edit article-01.typ directly — every save re-compiles from main.typ so the preview always shows the full document."),
     ]
 }
 
 fn cv_cheatsheet_blocks() -> Vec<Block<'static>> {
     vec![
         Block::H1("CV / Résumé Helper Reference"),
+        Block::Body("Quick start: type `!` anywhere in the editor to search your CV entries and insert one."),
         Block::Gap,
         Block::H2("Skrizhal CV Elements (recommended)"),
-        Block::Body("Point Settings → Extras → CV Elements at a Skrizhal YAML file (or click the \"Skrizhal\" button in the citation panel to open the companion app and create one). Then type ! in the editor for fuzzy autocomplete over your jobs, education, awards, and more — selecting an entry inserts #cv-entry(\"key\") at the cursor."),
+        Block::Body("Point Settings → Extras → CV Elements at a Skrizhal YAML file (or click the \"Skrizhal\" button in the citation panel to open the companion app and create one). Then type `!` in the editor for fuzzy autocomplete over your jobs, education, awards, and more — selecting an entry inserts `#cv-entry(\"key\")` at the cursor."),
         Block::Code(
             "#cv-section(category: \"Education\", style: CV_STYLE)\n\
              #cv-section(category: (\"Employment\", \"Ministry Position\"), style: CV_STYLE)\n\
@@ -101,7 +104,7 @@ fn cv_cheatsheet_blocks() -> Vec<Block<'static>> {
         Block::Body("Category matching is case-insensitive, so a hand-typed \"education\" matches the same section as \"Education\"."),
         Block::Gap,
         Block::H2("Manual CV Helper Functions (older documents)"),
-        Block::Body("Documents created before Skrizhal integration existed may still call these directly instead of #cv-section — both keep working."),
+        Block::Body("Documents created before Skrizhal integration existed may still call these directly instead of `#cv-section` — both keep working."),
         Block::Code(
             "#job(\"Job Title\", \"Company\", \"2022–present\",\n\
              \x20 [Description of role and accomplishments.])\n\
@@ -122,11 +125,11 @@ fn cv_cheatsheet_blocks() -> Vec<Block<'static>> {
         ),
         Block::Gap,
         Block::H2("Switching Style"),
-        Block::Body("Use the CV Style button in the format bar to switch between Modern, Academic, Classic, and Two-Column. This rewrites the #let CV_STYLE line in the document."),
+        Block::Body("Use the CV Style button in the format bar to switch between Modern, Academic, Classic, and Two-Column. This rewrites the `#let CV_STYLE` line in the document."),
         Block::Code("// @zerkalo-cv-style: modern   ← marker read by Zerkalo\n#let CV_STYLE = \"modern\"       ← change to \"academic\", \"classic\", or \"sidebar\" (Two-Column)"),
         Block::Gap,
         Block::H2("Adding Sections"),
-        Block::Body("Use #section to create any custom section. The heading style adapts to CV_STYLE automatically."),
+        Block::Body("Use `#section` to create any custom section. The heading style adapts to `CV_STYLE` automatically."),
         Block::Code("#section(\"Publications\")[\n  ...\n]\n#section(\"Volunteer Work\")[\n  ...\n]"),
         Block::Gap,
         Block::H2("Personal Details"),
@@ -223,13 +226,13 @@ fn faq_blocks() -> Vec<Block<'static>> {
         Block::Body("Open ≡ → New Project… Enter a name, pick a template (Blank, Essay, Journal / Thesis, or Theological Journal), and click Create. Zerkalo makes a subfolder in your work folder, writes the starter files, and opens the project with the root set automatically."),
         Block::Gap,
         Block::H2("What is the compilation root and why does it matter?"),
-        Block::Body("Typst compiles from a single entry-point file. The root is that file — usually main.typ. It #include-s the other chapters. If the wrong file is the root, you'll either get a blank preview or a single-chapter compile instead of the full document."),
+        Block::Body("Typst compiles from a single entry-point file. The root is that file — usually `main.typ`. It `#include`-s the other chapters. If the wrong file is the root, you'll either get a blank preview or a single-chapter compile instead of the full document."),
         Block::Gap,
         Block::H2("What does the ★ mean in the file tree?"),
         Block::Body("It marks the current compilation root — the file Zerkalo passes to the Typst compiler. To move it, right-click any other file → Set as Compilation Root."),
         Block::Gap,
         Block::H2("How do I add a new chapter?"),
-        Block::Body("1. Click + in the file tree header to create the new .typ file.\n2. Right-click it → Insert #include — this pastes #include \"filename.typ\" at the cursor in the active editor.\n3. Move the cursor to the right position in main.typ first so the include lands in the right place."),
+        Block::Body("1. Click + in the file tree header to create the new .typ file.\n2. Right-click it → Insert `#include` — this pastes #include \"filename.typ\" at the cursor in the active editor.\n3. Move the cursor to the right position in `main.typ` first so the include lands in the right place."),
         Block::Gap,
         Block::H2("The root chip in the status bar is missing"),
         Block::Body("The chip only appears when a project has a detected or configured root file. For a single-file document in the flat work folder, no root chip is shown — there's nothing to switch between. Open a multi-file project folder (or create one with New Project…) and it will appear."),
@@ -238,7 +241,7 @@ fn faq_blocks() -> Vec<Block<'static>> {
         Block::Body("Zerkalo has a built-in Typst compiler — no external binary is needed. If the preview is blank, check the error panel at the bottom. The panel shows the file, line number, and a plain-English explanation of the problem."),
         Block::Gap,
         Block::H2("Changing the style gives a compile error"),
-        Block::Body("If you see 'expected string or function' after changing a style, your document may have a conflicting #show heading rule outside the template block. Fix it by opening 'Update Template Settings' (sidebar button or ≡ menu) and re-applying your style. That rewrites the formatting section cleanly."),
+        Block::Body("If you see 'expected string or function' after changing a style, your document may have a conflicting `#show heading` rule outside the template block. Fix it by opening 'Update Template Settings' (sidebar button or ≡ menu) and re-applying your style. That rewrites the formatting section cleanly."),
         Block::Gap,
         Block::H2("The style dropdown doesn't seem to do anything"),
         Block::Body("For template documents (created with 'New from Template' or imported via File → Import), styles are applied inside the template block. If the heading appearance doesn't change, open the error panel — a compile error is likely preventing the preview from updating. The button label always shows just the style name; it no longer includes the filename."),
@@ -247,7 +250,7 @@ fn faq_blocks() -> Vec<Block<'static>> {
         Block::Body("Use 'Update Template Settings' (sidebar button or ≡ → Update Template Settings…). Switch to the Sections tab and toggle Table of Contents, Abstract, or Keywords on. Click 'Apply to Current' — Zerkalo will insert or remove those sections in the document body."),
         Block::Gap,
         Block::H2("Citation keys show as errors"),
-        Block::Body("Citations require a .bib file. Either:\n1. Add this line to your document:\n   #bibliography(\"refs.bib\", style: \"chicago-author-date\")\n   (adjusting the filename and style to match your setup)\n2. Or set the bib_path in Settings so Zerkalo can find the file automatically."),
+        Block::Body("Citations require a .bib file. Either:\n1. Add this line to your document:\n   `#bibliography(\"refs.bib\", style: \"chicago-author-date\")`\n   (adjusting the filename and style to match your setup)\n2. Or set the `bib_path` in Settings so Zerkalo can find the file automatically."),
         Block::Gap,
         Block::H2("Imported LaTeX / DOCX file has formatting problems"),
         Block::Body("After import, use 'Update Template Settings' to set the correct style, paper size, and font for your document. The import process preserves the text content and moves all formatting rules into the template block, which Zerkalo controls."),
@@ -260,7 +263,7 @@ fn faq_blocks() -> Vec<Block<'static>> {
         Block::Body("Open Settings from the hamburger menu (≡) and change the Work folder path. The work folder is where Zerkalo looks for your .typ documents (default: ~/Documents/Zerkalo)."),
         Block::Gap,
         Block::H2("Can I use a custom bibliography?"),
-        Block::Body("Yes — set bib_path in Settings or in .zerkalo/config.toml inside the project to point at your .bib file. The path should be absolute or relative to the .typ file being compiled."),
+        Block::Body("Yes — set `bib_path` in Settings or in `.zerkalo/config.toml` inside the project to point at your .bib file. The path should be absolute or relative to the .typ file being compiled."),
         Block::Gap,
         Block::H2("How does auto-compile work?"),
         Block::Body("After each keystroke, Zerkalo starts a debounce timer (default 800 ms). When it fires without further changes, it saves all modified files and compiles using the embedded Typst engine. The delay is configurable in Settings."),
@@ -269,25 +272,25 @@ fn faq_blocks() -> Vec<Block<'static>> {
         Block::Code("~/.local/share/zerkalo/zerkalo.log"),
         Block::Gap,
         Block::H2("How do I set up git sync?"),
-        Block::Body("Git sync works on the work folder as a git repository. Press Ctrl+Shift+S or click the sync button. For GitHub, open the setup wizard or Settings → GitHub Sync and click 'Sign in with GitHub' — approve the short code shown at github.com/login/device, then either create a new repository from within Zerkalo or paste an existing repo's URL. For other hosts (e.g. Gitea), paste the remote URL directly. After that, each sync commits all changes and pushes."),
+        Block::Body("Git sync works on the work folder as a git repository. Press `Ctrl+Shift+S` or click the sync button. For GitHub, open the setup wizard or Settings → GitHub Sync and click 'Sign in with GitHub' — approve the short code shown at github.com/login/device, then either create a new repository from within Zerkalo or paste an existing repo's URL. For other hosts (e.g. Gitea), paste the remote URL directly. After that, each sync commits all changes and pushes."),
         Block::Gap,
         Block::H2("Can I edit the title, author, or date directly in the document?"),
         Block::Body("Yes — template documents store metadata as plain Typst variables near the top of the file:\n  #let doc-title = \"My Paper\"\n  #let doc-author = \"Jane Smith\"\n  #let doc-date = \"5 June 2026\"\nEdit these directly in the editor. When you open 'Update Template Settings' afterwards, Zerkalo reads the values from the document so the dialog will show your edits, not the old saved values."),
         Block::Gap,
         Block::H2("I built from source but changes aren't appearing"),
-        Block::Body("Run cargo build --release first, then bash install.sh. The install script detects a local build and installs it directly. For end users without Rust, the recommended path is to download the .deb or .rpm from the GitHub releases page."),
+        Block::Body("Run `cargo build --release` first, then `bash install.sh`. The install script detects a local build and installs it directly. For end users without Rust, the recommended path is to download the .deb or .rpm from the GitHub releases page."),
         Block::Gap,
         Block::H2("How do compilation profiles work?"),
         Block::Body("The header-bar dropdown next to 'Preview' switches between Final (full 144 dpi) and Draft (72 dpi, fast) profiles. In Draft mode Zerkalo passes sys.inputs.at(\"draft\") = \"true\" so documents can skip slow elements:\n  #if sys.inputs.at(\"draft\", default: \"false\") == \"true\" {\n    // skip heavy rendering in draft\n  }"),
         Block::Gap,
         Block::H2("How do snapshots work?"),
-        Block::Body("Every Ctrl+S saves a timestamped copy of the current file to ~/.local/share/zerkalo/snapshots/<project>/<file>/. The last 50 snapshots per file are kept. Open ☰ → Browse Snapshots… to see the timeline, compare with the current text, and restore any version."),
+        Block::Body("Every `Ctrl+S` saves a timestamped copy of the current file to `~/.local/share/zerkalo/snapshots/<project>/<file>/`. The last 50 snapshots per file are kept. Open ☰ → Browse Snapshots… to see the timeline, compare with the current text, and restore any version."),
         Block::Gap,
         Block::H2("How do I use the project dictionary?"),
-        Block::Body("Right-click a misspelled word and choose 'Add to Project Dictionary' to save it in <work_dir>/.zerkalo/dictionary.dic. This dictionary is project-specific and can be committed to git. 'Add to Dictionary' saves to the global user dictionary at ~/.config/zerkalo/user.dic."),
+        Block::Body("Right-click a misspelled word and choose 'Add to Project Dictionary' to save it in `<work_dir>/.zerkalo/dictionary.dic`. This dictionary is project-specific and can be committed to git. 'Add to Dictionary' saves to the global user dictionary at `~/.config/zerkalo/user.dic`."),
         Block::Gap,
         Block::H2("What is the inline error assistant?"),
-        Block::Body("Hover over red-underlined text in the editor to see the error message. For known patterns (missing brace, unknown variable, etc.) a 'Fix It' button applies the correction automatically. The fix patterns live in src/error_patterns.rs."),
+        Block::Body("Hover over red-underlined text in the editor to see the error message. For known patterns (missing brace, unknown variable, etc.) a 'Fix It' button applies the correction automatically. The fix patterns live in `src/error_patterns.rs`."),
     ]
 }
 
@@ -392,52 +395,80 @@ impl HelpWindow {
 
 pub(crate) fn make_rich_tab(blocks: Vec<Block<'_>>) -> ScrolledWindow {
     let buf = TextBuffer::new(None);
-    let mut iter = buf.end_iter();
 
-    let tag_h1 = buf.create_tag(
-        Some("h1"),
-        &[("weight", &700i32), ("scale", &1.3f64), ("pixels-below-lines", &6i32)],
-    );
-    let tag_h2 = buf.create_tag(
-        Some("h2"),
-        &[("weight", &700i32), ("pixels-above-lines", &8i32), ("pixels-below-lines", &2i32)],
-    );
-    let tag_body = buf.create_tag(
-        Some("body"),
-        &[("pixels-below-lines", &4i32)],
-    );
-    let tag_code = buf.create_tag(
-        Some("code"),
-        &[
-            ("family", &"Monospace"),
-            ("pixels-above-lines", &2i32),
-            ("pixels-below-lines", &2i32),
-            ("left-margin", &16i32),
-        ],
-    );
-
-    let _ = (&tag_h1, &tag_h2, &tag_body, &tag_code);
-
-    for block in blocks {
-        match block {
-            Block::H1(text) => insert_with_tag(&buf, &mut iter, &format!("{text}\n"), "h1"),
-            Block::H2(text) => insert_with_tag(&buf, &mut iter, &format!("{text}\n"), "h2"),
-            Block::Body(text) => insert_with_tag(&buf, &mut iter, &format!("{text}\n"), "body"),
-            Block::Code(text) => insert_with_tag(&buf, &mut iter, &format!("{text}\n"), "code"),
-            Block::Gap => buf.insert(&mut iter, "\n"),
-        }
-    }
-
+    // The view is created before content is inserted so its style context
+    // (attached once mapped) can resolve theme colors for the tags below —
+    // see theme::ref_colors.
     let view = TextView::with_buffer(&buf);
     view.set_editable(false);
     view.set_cursor_visible(false);
     view.set_wrap_mode(WrapMode::WordChar);
     view.set_left_margin(20);
     view.set_right_margin(20);
-    view.set_top_margin(16);
-    view.set_bottom_margin(16);
-    view.set_pixels_above_lines(2);
+    view.set_top_margin(18);
+    view.set_bottom_margin(18);
+    view.set_pixels_above_lines(1);
     view.set_monospace(false);
+
+    let colors = theme::ref_colors(&view);
+
+    buf.create_tag(
+        Some("h1"),
+        &[
+            ("weight", &700i32),
+            ("scale", &1.5f64),
+            ("foreground", &colors.accent.as_str()),
+            ("pixels-above-lines", &2i32),
+            ("pixels-below-lines", &12i32),
+        ],
+    );
+    buf.create_tag(
+        Some("h2"),
+        &[
+            ("weight", &700i32),
+            ("scale", &1.15f64),
+            ("pixels-above-lines", &16i32),
+            ("pixels-below-lines", &6i32),
+        ],
+    );
+    buf.create_tag(
+        Some("body"),
+        &[("scale", &1.0f64), ("pixels-below-lines", &6i32)],
+    );
+    buf.create_tag(
+        Some("code"),
+        &[
+            ("family", &"Monospace"),
+            ("scale", &0.95f64),
+            ("background", &colors.code_bg),
+            ("background-full-height", &true),
+            ("pixels-above-lines", &6i32),
+            ("pixels-below-lines", &6i32),
+            ("left-margin", &16i32),
+            ("right-margin", &12i32),
+        ],
+    );
+    buf.create_tag(
+        Some("inline-code"),
+        &[
+            ("family", &"Monospace"),
+            ("scale", &0.92f64),
+            ("background", &colors.inline_bg),
+            ("foreground", &colors.inline_fg.as_str()),
+            ("weight", &600i32),
+        ],
+    );
+
+    let mut iter = buf.end_iter();
+    for block in blocks {
+        match block {
+            Block::H1(text) => insert_inline(&buf, &mut iter, text, "h1"),
+            Block::H2(text) => insert_inline(&buf, &mut iter, text, "h2"),
+            Block::Body(text) => insert_inline(&buf, &mut iter, text, "body"),
+            Block::Code(text) => insert_with_tag(&buf, &mut iter, &format!("{text}\n"), "code"),
+            Block::Gap => buf.insert(&mut iter, "\n"),
+        }
+    }
 
     let scroll = ScrolledWindow::new();
     scroll.set_hexpand(true);
@@ -453,5 +484,37 @@ fn insert_with_tag(buf: &TextBuffer, iter: &mut TextIter, text: &str, tag_name: 
     let start = buf.iter_at_offset(start_offset);
     if let Some(tag) = buf.tag_table().lookup(tag_name) {
         buf.apply_tag(&tag, &start, iter);
+    }
+}
+
+/// Inserts `text` tagged with `base_tag`, additionally applying the
+/// `inline-code` tag to any `` `backtick-quoted` `` spans within it — lets
+/// prose call out key names, function names, and shortcuts (e.g. the `!`
+/// autocomplete trigger) without a whole separate code block.
+fn insert_inline(buf: &TextBuffer, iter: &mut TextIter, text: &str, base_tag: &str) {
+    let mut in_code = false;
+    for segment in text.split('`') {
+        if segment.is_empty() {
+            in_code = !in_code;
+            continue;
+        }
+        let start_offset = iter.offset();
+        buf.insert(iter, segment);
+        let start = buf.iter_at_offset(start_offset);
+        let tag_table = buf.tag_table();
+        if let Some(tag) = tag_table.lookup(base_tag) {
+            buf.apply_tag(&tag, &start, iter);
+        }
+        if in_code {
+            if let Some(tag) = tag_table.lookup("inline-code") {
+                buf.apply_tag(&tag, &start, iter);
+            }
+        }
+        in_code = !in_code;
+    }
+    buf.insert(iter, "\n");
+    let end = buf.iter_at_offset(iter.offset() - 1);
+    if let Some(tag) = buf.tag_table().lookup(base_tag) {
+        buf.apply_tag(&tag, &end, iter);
     }
 }
