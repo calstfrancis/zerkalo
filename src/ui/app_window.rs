@@ -1735,6 +1735,7 @@ impl AppWindow {
                 let cfg = cfg_for_reapply.borrow();
                 dlg.set_bib_path(cfg.bib_path.clone());
                 dlg.preselect_locked_identity(&cfg.locked_author.clone(), &cfg.locked_affiliation.clone());
+                dlg.set_cv_elements_path(cfg.cv_elements_path.clone());
             }
             {
                 let cfg = cfg_for_reapply.clone();
@@ -1745,10 +1746,21 @@ impl AppWindow {
                     let _ = c.save();
                 });
             }
+            {
+                let cfg = cfg_for_reapply.clone();
+                dlg.set_on_cv_elements_change(move |path| {
+                    let mut c = cfg.borrow_mut();
+                    c.cv_elements_path = Some(path);
+                    let _ = c.save();
+                });
+            }
 
             if let Some(sidecar) = super::template_dialog::load_sidecar(&current_path) {
                 dlg.preselect_from_sidecar(&sidecar);
             } else {
+                dlg.preselect_cv_mode(
+                    super::template_dialog::parse_doc_kind(&current_content).as_deref() == Some("cv"),
+                );
                 dlg.preselect_style(
                     &super::template_dialog::parse_style_key(&current_content)
                         .unwrap_or_default(),
@@ -3770,14 +3782,28 @@ impl AppWindow {
             let win_ut = window.clone();
             let ep_ut = editor_pane.clone();
             let root_ut = project_root.clone();
+            let current_config_for_ut = current_config.clone();
             update_template_btn.connect_clicked(move |_| {
                 let Some(current_path) = ep_ut.get_active_path() else { return };
                 let current_content = ep_ut.get_active_content().unwrap_or_default();
                 let dlg = TemplateDialog::new(&win_ut, &root_ut, false);
 
+                dlg.set_cv_elements_path(current_config_for_ut.borrow().cv_elements_path.clone());
+                {
+                    let cfg = current_config_for_ut.clone();
+                    dlg.set_on_cv_elements_change(move |path| {
+                        let mut c = cfg.borrow_mut();
+                        c.cv_elements_path = Some(path);
+                        let _ = c.save();
+                    });
+                }
+
                 if let Some(sidecar) = super::template_dialog::load_sidecar(&current_path) {
                     dlg.preselect_from_sidecar(&sidecar);
                 } else {
+                    dlg.preselect_cv_mode(
+                        super::template_dialog::parse_doc_kind(&current_content).as_deref() == Some("cv"),
+                    );
                     dlg.preselect_style(
                         &super::template_dialog::parse_style_key(&current_content)
                             .unwrap_or_default(),

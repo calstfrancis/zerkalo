@@ -126,13 +126,13 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
+                "Added: \"CV Mode\" toggle in the template dialog — shows only CV templates and CV-relevant settings, with a prominent Skrizhal CV Elements file picker",
+                "Added: Skrizhal now appears in the setup wizard's Tools checklist, with an explanation of what it does and how to install it",
                 "Added: \"Sign in with GitHub\" — connect your account with a short device code instead of generating a Personal Access Token by hand",
                 "Added: create and link a new GitHub repository from the setup wizard, without leaving the app or visiting github.com first",
                 "Added: in CV mode, the citation panel connects to a Skrizhal CV-element YAML database instead of a bibliography, with \"!\" autocomplete for CV entries alongside the existing \"@\" citation autocomplete",
-                "Added: \"Skrizhal\" button in CV mode launches the installed Skrizhal app directly to edit your CV elements",
                 "Added: \"CV — Two-Column\" résumé template — sidebar (Education, Skills, Interests, Awards) beside a main column (Experience, Presentations & Publications, Extracurricular)",
                 "Added: universal document import — LaTeX, Word, Markdown, ODT, HTML, EPUB, RTF, and PDF via ☰ → Import, drag-and-drop, batch/folder import, and Paste as Document",
-                "Added: Import History with retry, undo, search, duplicate warnings, and a preview dialog before anything is written",
             ] {
                 body.append(&bullet_row(item));
             }
