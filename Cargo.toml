@@ -1,6 +1,6 @@
 [package]
 name = "zerkalo"
-version = "0.18.0-dev4"
+version = "0.18.0-dev5"
 edition = "2021"
 license = "MIT"
 description = "Contemplative Typst editor with live preview, LSP completions, and git sync"

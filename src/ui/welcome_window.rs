@@ -137,6 +137,7 @@ impl WelcomeWindow {
                 "Fixed: editing metadata (Email/Location/Website/etc.) via Update Template Settings on an existing CV could crash with \"unknown variable: section\"",
                 "Fixed: Setup & Onboarding could open 2-3x wider than intended when status labels or install hints were long",
                 "Changed: Setup & Onboarding now shows a progress summary, section icons, and \"Optional\" badges; auto-scrolls to the first unfinished section; previews Default Fonts choices in their own font; and re-checks missing tools when the window regains focus instead of requiring a manual \"Verify\" click",
+                "Fixed: Update Template Settings could still regenerate a CV as Academic and crash with \"unknown variable: section\" if its sidecar had drifted to the wrong kind — the dialog now trusts the document's actual body content over a stale sidecar, and the underlying splice refuses to combine a CV body with a non-CV preamble",
             ] {
                 body.append(&bullet_row(item));
             }
