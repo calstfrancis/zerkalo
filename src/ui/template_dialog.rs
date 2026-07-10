@@ -36,6 +36,28 @@ const CITATION_STYLES: &[(&str, &str)] = &[
     ("LaTeX Look", "latex"),
 ];
 
+// CV mode reuses the same "Style" ComboRow (and the same underlying
+// `style_idx` field) as citation styles above — the raw index is what
+// actually flows through to `generate_cv_template`'s `cv_style` dispatch
+// (0=modern, 1=academic, 2=classic, 3=sidebar/Two-Column), so the two lists
+// must stay index-aligned for their first four entries. This table swaps in
+// CV-relevant names + descriptions for that row while CV Mode is on, instead
+// of showing meaningless citation-style names ("MLA") for what's actually a
+// CV style choice.
+const CV_STYLE_OPTIONS: &[(&str, &str, &str)] = &[
+    ("Modern", "modern", "Clean résumé with colour accents · compact margins"),
+    ("Academic", "academic", "Traditional academic CV with ruled section headers"),
+    ("Classic", "classic", "Minimal timeless résumé · clean lines, no colour"),
+    ("Two-Column", "sidebar", "Full-width Profile summary above a sidebar (Education, Skills & Awards) beside a main Experience column"),
+];
+
+/// Maps a `@zerkalo-cv-style` key ("modern"/"academic"/"classic"/"sidebar")
+/// to its index in both `CV_STYLE_OPTIONS` and the citation-style-aliased
+/// `style_idx` field — see `CV_STYLE_OPTIONS`'s doc comment.
+pub(crate) fn cv_style_index(key: &str) -> Option<usize> {
+    CV_STYLE_OPTIONS.iter().position(|(_, k, _)| *k == key)
+}
+
 const PAPER_SIZES: &[(&str, &str)] = &[
     ("US Letter", "us-letter"),
     ("A4", "a4"),
@@ -578,12 +600,28 @@ impl TemplateDialog {
 
         let style_labels: Vec<&str> = CITATION_STYLES.iter().map(|(n, _)| *n).collect();
         let style_model = gtk4::StringList::new(&style_labels);
+        let cv_style_labels: Vec<&str> = CV_STYLE_OPTIONS.iter().map(|(n, _, _)| *n).collect();
+        let cv_style_model = gtk4::StringList::new(&cv_style_labels);
         let style_row = adw::ComboRow::new();
         style_row.set_title("Style");
         style_row.set_subtitle("Sets heading formatting and bibliography output");
         style_row.set_model(Some(&style_model));
         style_row.set_selected(0);
         style_group.add(&style_row);
+        // While CV Mode is on, this row's model/title/subtitle swap to
+        // CV_STYLE_OPTIONS — see the cv_switch handler below — so re-picking
+        // a CV style here shows real names ("Two-Column") and a description
+        // instead of an unrelated citation style ("MLA").
+        {
+            let cv_switch_c = cv_switch.clone();
+            style_row.connect_selected_notify(move |row| {
+                if cv_switch_c.is_active() {
+                    if let Some((_, _, desc)) = CV_STYLE_OPTIONS.get(row.selected() as usize) {
+                        row.set_subtitle(desc);
+                    }
+                }
+            });
+        }
 
         let tab1_box = pref_tab_box();
         tab1_box.append(&meta_group);
@@ -1179,6 +1217,10 @@ impl TemplateDialog {
             let sans_font_idx = available_fonts.iter()
                 .position(|f| f == &default_fonts_cfg.default_sans_font);
             let serif_font_idx = default_font_idx;
+            let m_style_group = style_group.clone();
+            let m_style_row = style_row.clone();
+            let m_style_model = style_model.clone();
+            let m_cv_style_model = cv_style_model.clone();
             cv_switch.connect_active_notify(move |sw| {
                 let cv_on = sw.is_active();
                 for (row, kind) in rows.borrow().iter() {
@@ -1209,6 +1251,25 @@ impl TemplateDialog {
                     }
                 } else {
                     m_font_row.set_selected(serif_font_idx);
+                }
+
+                // The "Style" row is the same underlying control (and the same
+                // style_idx field) for both citation styles and CV styles — see
+                // CV_STYLE_OPTIONS's doc comment. Swap its model/labels so it
+                // shows real CV style names + a description instead of an
+                // unrelated citation style while CV Mode is on.
+                if cv_on {
+                    m_style_group.set_title("CV Style");
+                    m_style_row.set_model(Some(&m_cv_style_model));
+                    let idx = (m_style_row.selected() as usize).min(CV_STYLE_OPTIONS.len() - 1);
+                    m_style_row.set_selected(idx as u32);
+                    if let Some((_, _, desc)) = CV_STYLE_OPTIONS.get(idx) {
+                        m_style_row.set_subtitle(desc);
+                    }
+                } else {
+                    m_style_group.set_title("Citation & Heading Style");
+                    m_style_row.set_model(Some(&m_style_model));
+                    m_style_row.set_subtitle("Sets heading formatting and bibliography output");
                 }
             });
         }
@@ -1708,6 +1769,15 @@ impl TemplateDialog {
     /// this drops the `#section` helper the preserved body still calls, breaking compilation.
     pub(crate) fn preselect_body_kind(&self, kind: BodyKind) {
         *self.body_kind_state.borrow_mut() = kind;
+    }
+
+    /// Restores the CV style (Modern/Academic/Classic/Two-Column) from the
+    /// document's `@zerkalo-cv-style` marker — `preselect_style`, which
+    /// otherwise drives this same row, only understands citation-style keys
+    /// and leaves the selection untouched for a CV's "cv" `@zerkalo-style`.
+    /// `idx` comes from `cv_style_index`.
+    pub(crate) fn preselect_cv_style_index(&self, idx: usize) {
+        self.style_row.set_selected(idx as u32);
     }
 
     pub fn set_cv_elements_path(&self, path: Option<PathBuf>) {
@@ -2247,6 +2317,25 @@ pub fn apply_body_splice(existing: &str, fresh: &str) -> String {
             let fresh_defines_cv_helpers = fresh_preamble.contains("#let section(");
             if old_body_needs_cv_helpers && !fresh_defines_cv_helpers {
                 return existing.to_string();
+            }
+
+            // Still a CV, but the style changed: "sidebar" (Two-Column) is the
+            // only CV style with a structurally different body — a #grid
+            // columns split written once at generation time, not a runtime
+            // `if CV_STYLE == ...` branch like the header/section helpers. If
+            // the new style crosses that sidebar <-> flat boundary, blindly
+            // preserving the old body (as the bib-style-only `updated_body`
+            // above does) would keep rendering the old column layout forever,
+            // no matter what style is picked in "Update Template Settings" —
+            // regenerate the body to match instead. Mirrors
+            // EditorPane::apply_cv_style's identical fix for the in-document
+            // quick-switcher.
+            let old_cv_style = parse_cv_style(&existing[..old_p]);
+            let new_cv_style = parse_cv_style(&fresh_preamble);
+            if let (Some(old_style), Some(new_style)) = (&old_cv_style, &new_cv_style) {
+                if (old_style == "sidebar") != (new_style == "sidebar") {
+                    return format!("{fresh_preamble}{}", generate_cv_body(new_style));
+                }
             }
 
             format!("{fresh_preamble}{updated_body}")
@@ -4866,6 +4955,78 @@ french:
     }
 
     #[test]
+    fn apply_body_splice_regenerates_cv_body_across_sidebar_boundary() {
+        // Reproduces "Update Template Settings": pick a different CV preset
+        // (e.g. CV — Modern after CV — Two-Column) and click Apply. That path
+        // calls apply_body_splice(existing, fresh) directly — unlike
+        // EditorPane::apply_cv_style's in-document quick-switcher, which has
+        // its own separate fix — so this pins apply_body_splice's own
+        // sidebar-crossing regeneration rather than re-testing the
+        // quick-switcher's.
+        fn cv_settings(style_idx: usize) -> TemplateSettings {
+            TemplateSettings {
+                title: String::new(), subtitle: String::new(),
+                author: "Jane Doe".to_string(), affiliation: String::new(),
+                course: String::new(), professor: String::new(), date: String::new(),
+                style_idx, paper_idx: 1,
+                custom_paper_w: String::new(), custom_paper_h: String::new(),
+                margin_idx: 1, custom_margin: String::new(),
+                font: "Linux Libertine".to_string(), font_size: "10.5pt".to_string(),
+                spacing: "0.65em".to_string(), page_num_pos: 4, header_style: 0,
+                include_toc: false, toc_depth: 2,
+                include_abstract: false, abstract_text: String::new(),
+                include_keywords: false, keywords: String::new(),
+                heading_numbering: false, numbering_format: String::new(),
+                languages: Vec::new(), packages: Vec::new(),
+                dropcap_font: String::new(), dropcap_lines: 3, dropcap_color: String::new(),
+                body_kind: BodyKind::Cv, bib_path: None,
+            }
+        }
+
+        let sidebar_doc = generate_typst_template(&cv_settings(3)); // Two-Column
+        assert!(sidebar_doc.contains("columns: (1fr, 2fr)"));
+
+        // Re-picking "CV — Modern" (style_idx 0) in the dialog and clicking
+        // Apply generates a fresh Modern document, then splices it onto the
+        // existing (still Two-Column-shaped) one.
+        let fresh_modern = generate_typst_template(&cv_settings(0));
+        let spliced = apply_body_splice(&sidebar_doc, &fresh_modern);
+        assert!(spliced.contains("#let CV_STYLE = \"modern\""));
+        assert!(
+            !spliced.contains("columns: (1fr, 2fr)"),
+            "re-picking a non-Two-Column CV preset must drop the old sidebar grid, not preserve it"
+        );
+        assert!(spliced.contains("#section(\"Experience\")["));
+
+        // And the reverse: Modern -> Two-Column must restore the grid.
+        let fresh_sidebar = generate_typst_template(&cv_settings(3));
+        let spliced_back = apply_body_splice(&spliced, &fresh_sidebar);
+        assert!(spliced_back.contains("#let CV_STYLE = \"sidebar\""));
+        assert!(spliced_back.contains("columns: (1fr, 2fr)"));
+
+        use std::collections::HashMap;
+        let cv_helpers_src = include_str!("../../templates/cv-helpers.typ");
+        let mut overrides = HashMap::new();
+        overrides.insert(std::path::PathBuf::from("/tmp/cv-helpers.typ"), cv_helpers_src.to_string());
+        let inputs = HashMap::new();
+
+        for (label, src) in [("modern", &spliced), ("sidebar_again", &spliced_back)] {
+            static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let path = std::path::PathBuf::from(format!(
+                "/tmp/zerkalo_test_apply_splice_cv_style_{label}_{}_{}.typ",
+                std::process::id(),
+                n
+            ));
+            std::fs::write(&path, src).unwrap();
+            let result = crate::compiler::compile_to_pdf_bytes(&path, &overrides, &inputs);
+            assert!(result.is_ok(), "spliced {label} CV should compile: {:?}", result.err());
+            assert!(result.unwrap().starts_with(b"%PDF-"));
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+
+    #[test]
     fn regenerating_legacy_cv_document_keeps_it_compiling() {
         use std::collections::HashMap;
 
@@ -5105,6 +5266,23 @@ french:
     fn parse_paper_basic() {
         let doc = "#set page(paper: \"a4\", margin: (top: 1in))\n";
         assert_eq!(parse_paper(doc), Some("a4".to_string()));
+    }
+
+    #[test]
+    fn cv_style_options_stay_index_aligned_with_generate_cv_template_dispatch() {
+        // generate_cv_template's cv_style match on style_idx is 0=modern,
+        // 1=academic, 2=classic, 3=sidebar (see its `match s.style_idx`).
+        // CV_STYLE_OPTIONS and cv_style_index must agree, since style_idx is
+        // literally the ComboRow's raw selected index either way.
+        assert_eq!(CV_STYLE_OPTIONS[0].1, "modern");
+        assert_eq!(CV_STYLE_OPTIONS[1].1, "academic");
+        assert_eq!(CV_STYLE_OPTIONS[2].1, "classic");
+        assert_eq!(CV_STYLE_OPTIONS[3].1, "sidebar");
+        assert_eq!(cv_style_index("modern"), Some(0));
+        assert_eq!(cv_style_index("academic"), Some(1));
+        assert_eq!(cv_style_index("classic"), Some(2));
+        assert_eq!(cv_style_index("sidebar"), Some(3));
+        assert_eq!(cv_style_index("not-a-style"), None);
     }
 
     #[test]

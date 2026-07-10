@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.18.0-dev5] — Default fonts, CV template fixes
+## [0.18.0-dev6] — Default fonts, CV template fixes
 
 ### Added
 - **Default Fonts step in onboarding** — pick a default sans and serif font in Setup & Onboarding; new documents and template previews use them until you choose something else per-document.
@@ -24,6 +24,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Editing metadata (Email/Location/Website/etc.) via "Update Template Settings" on an existing CV crashed with "unknown variable: section"** — the dialog tracked which template kind (Academic/Book/CV/Letter) to regenerate in a separate piece of state from the CV Mode toggle, and only the toggle got restored when reopening the dialog on an existing document; the template-kind state silently stayed at its Academic default, so Apply regenerated an Academic preamble (which never defines `#section`) onto a preserved CV body that still called it. Now correctly restores the template kind too, from the document's sidecar or its `@zerkalo-kind` marker.
 - **Setup & Onboarding could open 2-3x wider than its intended 640px** — long unwrapped content (status labels showing a full repository URL, the "Unknown distro" install hint joining three package-manager commands) forced GTK to size the window to fit the widest child's natural width. Now clamped and wrapped the same way `WelcomeWindow` already was.
 - **"Update Template Settings" could still regenerate a CV as Academic, crashing with "unknown variable: section"**, on a document whose sidecar had drifted to the wrong kind on an older Zerkalo version — the dev3 fix above only covered the common case, not an already-corrupted sidecar that kept perpetuating itself. The dialog now cross-checks the document's actual body content (does it call `#cv-section(...)`?) and trusts that over a stale sidecar/marker, and `apply_body_splice` itself now refuses to combine a CV body with a non-CV preamble instead of silently writing a document that won't compile.
+- **Re-picking a CV style in "Update Template Settings" didn't actually change the layout** — Apply regenerates a fresh preamble and splices it onto the existing body to avoid clobbering hand edits, but the splice always preserved the old body verbatim, so switching e.g. Two-Column back to Modern kept the old two-column grid. `apply_body_splice` now regenerates the body when the CV style crosses the Two-Column ↔ single-column boundary, in either direction.
+- **CV — Two-Column had no visible description in "Update Template Settings"** — its style picker there is the same "Style" dropdown used for citation styles (SBL/APA/MLA/…) elsewhere in the dialog, so in CV mode it was still showing citation names and a citation-related subtitle instead of CV style names. It now shows Modern/Academic/Classic/Two-Column with a live description matching the current selection, and correctly restores which CV style a reopened document is actually using (it was previously reading the wrong marker and silently defaulting to Modern).
 
 ---
 
