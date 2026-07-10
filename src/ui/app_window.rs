@@ -1765,9 +1765,11 @@ impl AppWindow {
             if let Some(sidecar) = super::template_dialog::load_sidecar(&current_path) {
                 dlg.preselect_from_sidecar(&sidecar);
             } else {
-                dlg.preselect_cv_mode(
-                    super::template_dialog::parse_doc_kind(&current_content).as_deref() == Some("cv"),
-                );
+                let doc_kind = super::template_dialog::parse_doc_kind(&current_content);
+                dlg.preselect_cv_mode(doc_kind.as_deref() == Some("cv"));
+                dlg.preselect_body_kind(super::template_dialog::body_kind_from_key(
+                    doc_kind.as_deref().unwrap_or(""),
+                ));
                 dlg.preselect_style(
                     &super::template_dialog::parse_style_key(&current_content)
                         .unwrap_or_default(),
@@ -3818,9 +3820,11 @@ impl AppWindow {
                 if let Some(sidecar) = super::template_dialog::load_sidecar(&current_path) {
                     dlg.preselect_from_sidecar(&sidecar);
                 } else {
-                    dlg.preselect_cv_mode(
-                        super::template_dialog::parse_doc_kind(&current_content).as_deref() == Some("cv"),
-                    );
+                    let doc_kind = super::template_dialog::parse_doc_kind(&current_content);
+                    dlg.preselect_cv_mode(doc_kind.as_deref() == Some("cv"));
+                    dlg.preselect_body_kind(super::template_dialog::body_kind_from_key(
+                        doc_kind.as_deref().unwrap_or(""),
+                    ));
                     dlg.preselect_style(
                         &super::template_dialog::parse_style_key(&current_content)
                             .unwrap_or_default(),

@@ -61,7 +61,16 @@ impl SetupWizard {
         // ── Section 5: Optional tools ──────────────────────────────────────
         body.append(&optional_tools_group());
 
-        scroll.set_child(Some(&body));
+        // Clamp caps the natural-width request so long content (e.g. the
+        // unwrapped install-hint commands below) can't force the window open
+        // 2-3x wider than intended — matches WelcomeWindow's use of Clamp for
+        // the same reason. Without this, GTK sizes the window to fit the
+        // widest child's natural width even though default_width is 640.
+        let clamp = adw::Clamp::new();
+        clamp.set_maximum_size(580);
+        clamp.set_child(Some(&body));
+
+        scroll.set_child(Some(&clamp));
 
         let outer = GtkBox::new(Orientation::Vertical, 0);
         outer.append(&scroll);
@@ -132,6 +141,7 @@ fn git_identity_group() -> adw::PreferencesGroup {
     let status_lbl = Label::new(None);
     status_lbl.set_xalign(0.0);
     status_lbl.set_margin_top(4);
+    status_lbl.set_wrap(true);
     if !current_name.is_empty() && !current_email.is_empty() {
         status_lbl.set_label("✓ Git identity is set.");
         status_lbl.add_css_class("success");
@@ -262,6 +272,7 @@ fn github_repo_group(parent: &adw::Window, work_dir: &Path) -> adw::PreferencesG
     let create_status_lbl = Label::new(None);
     create_status_lbl.set_xalign(0.0);
     create_status_lbl.set_margin_top(4);
+    create_status_lbl.set_wrap(true);
     create_status_lbl.add_css_class("dim-label");
     create_status_lbl.set_label(if has_token {
         "Creates a repository on your GitHub account and links it here."
@@ -283,6 +294,7 @@ fn github_repo_group(parent: &adw::Window, work_dir: &Path) -> adw::PreferencesG
     let status_lbl = Label::new(None);
     status_lbl.set_xalign(0.0);
     status_lbl.set_margin_top(4);
+    status_lbl.set_wrap(true);
     match &remote_url {
         Some(url) => {
             status_lbl.set_label(&format!("✓ Remote: {url}"));
@@ -495,6 +507,7 @@ fn backup_remote_group(work_dir: &Path) -> adw::PreferencesGroup {
     let status_lbl = Label::new(None);
     status_lbl.set_xalign(0.0);
     status_lbl.set_margin_top(4);
+    status_lbl.set_wrap(true);
     if !current_url.is_empty() {
         status_lbl.set_label(&format!("✓ Backup: {current_url}"));
         status_lbl.add_css_class("success");
@@ -583,6 +596,7 @@ fn default_fonts_group(
     let status_lbl = Label::new(None);
     status_lbl.set_xalign(0.0);
     status_lbl.set_margin_top(4);
+    status_lbl.set_wrap(true);
     if !current_sans.is_empty() || !current_serif.is_empty() {
         status_lbl.set_label(&format!(
             "✓ Sans: {} · Serif: {}",
@@ -783,6 +797,13 @@ fn tool_row(
         hint_lbl.set_selectable(true);
         hint_lbl.add_css_class("monospace");
         hint_lbl.add_css_class("caption");
+        // Some hints are a single long line (the "Unknown" distro fallback
+        // joins three package-manager commands; the flatpak hint embeds a
+        // full URL) — without wrapping, this one label's minimum width forced
+        // the whole window open regardless of the Clamp above.
+        hint_lbl.set_wrap(true);
+        hint_lbl.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
+        hint_lbl.set_max_width_chars(46);
         hint_box.append(&hint_lbl);
 
         let revealer = gtk4::Revealer::new();
