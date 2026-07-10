@@ -148,10 +148,11 @@
       text(style: "italic", fill: p.muted)[#years],
     )
   } else if style == "sidebar" {
-    // Organization Title / Date — organization leads for awards, unlike
-    // the Title / Organization / Date order used for education entries.
-    if org != none { [#org --- *#title*] } else { [*#title*] }
+    // Title / Organization / Date, each its own line — matches the layout
+    // used for education entries.
+    [*#title*]
     linebreak()
+    if org != none { [#org]; linebreak() }
     [#years]
   } else {
     grid(columns: (1fr, auto),

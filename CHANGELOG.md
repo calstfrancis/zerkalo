@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.18.0-dev1] — Default fonts, CV template fixes
+## [0.18.0-dev2] — Default fonts, CV template fixes
 
 ### Added
 - **Default Fonts step in onboarding** — pick a default sans and serif font in Setup & Onboarding; new documents and template previews use them until you choose something else per-document.
@@ -18,6 +18,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 - **Switching CV style away from Two-Column kept the old two-column layout** — the in-document style switcher only changed the `CV_STYLE` label, never regenerating the document body, so a résumé switched from Two-Column to Modern/Academic/Classic (or back) kept rendering with the wrong column structure.
+- **CV — Two-Column's Award entries ran title and organization together on one line** ("Organization — **Title**") while Education entries already stacked title / organization / date on separate lines. Award now uses the same three-line, left-aligned layout as Education, in both current documents and documents created before the Skrizhal rewrite.
 
 ---
 
