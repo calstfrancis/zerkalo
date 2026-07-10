@@ -2319,8 +2319,9 @@ fn legacy_cv_helpers_block() -> String {
     let _ = writeln!(out, "      text(style: \"italic\", fill: cv-muted)[#years],");
     let _ = writeln!(out, "    )");
     let _ = writeln!(out, "  }} else if CV_STYLE == \"sidebar\" {{");
-    let _ = writeln!(out, "    if org != none {{ [*#title* --- #org] }} else {{ [*#title*] }}");
+    let _ = writeln!(out, "    [*#title*]");
     let _ = writeln!(out, "    linebreak()");
+    let _ = writeln!(out, "    if org != none {{ [#org]; linebreak() }}");
     let _ = writeln!(out, "    [#years]");
     let _ = writeln!(out, "  }} else {{");
     let _ = writeln!(out, "    grid(columns: (1fr, auto),");

@@ -132,6 +132,7 @@ impl WelcomeWindow {
                 "Changed: the formatting toolbar now collapses lower-priority controls into a trailing \"more\" menu as the pane narrows, instead of forcing the editor to overflow underneath the sidebar",
                 "Changed: in CV mode, New from Template's Metadata group now shows CV-relevant fields (Email, Location, Phone, Links) instead of academic-paper fields that were silently ignored for CVs",
                 "Fixed: switching CV style away from Two-Column kept the old two-column layout — the style switcher now regenerates the document body, not just the style label",
+                "Fixed: CV — Two-Column's Award entries ran title and organization together on one line, instead of stacking title / organization / date the way Education entries already did",
             ] {
                 body.append(&bullet_row(item));
             }
