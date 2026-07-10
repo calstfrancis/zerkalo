@@ -133,6 +133,9 @@ impl WelcomeWindow {
                 "Changed: in CV mode, New from Template's Metadata group now shows CV-relevant fields (Email, Location, Phone, Links) instead of academic-paper fields that were silently ignored for CVs",
                 "Fixed: switching CV style away from Two-Column kept the old two-column layout — the style switcher now regenerates the document body, not just the style label",
                 "Fixed: CV — Two-Column's Award entries ran title and organization together on one line, instead of stacking title / organization / date the way Education entries already did",
+                "Fixed: a single-line description on any CV entry (Employment, Education, Award, etc.) failed to compile in every CV style, not just Two-Column",
+                "Fixed: editing metadata (Email/Location/Website/etc.) via Update Template Settings on an existing CV could crash with \"unknown variable: section\"",
+                "Fixed: Setup & Onboarding could open 2-3x wider than intended when status labels or install hints were long",
             ] {
                 body.append(&bullet_row(item));
             }

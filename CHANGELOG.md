@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.18.0-dev2] — Default fonts, CV template fixes
+## [0.18.0-dev3] — Default fonts, CV template fixes
 
 ### Added
 - **Default Fonts step in onboarding** — pick a default sans and serif font in Setup & Onboarding; new documents and template previews use them until you choose something else per-document.
@@ -19,6 +19,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 - **Switching CV style away from Two-Column kept the old two-column layout** — the in-document style switcher only changed the `CV_STYLE` label, never regenerating the document body, so a résumé switched from Two-Column to Modern/Academic/Classic (or back) kept rendering with the wrong column structure.
 - **CV — Two-Column's Award entries ran title and organization together on one line** ("Organization — **Title**") while Education entries already stacked title / organization / date on separate lines. Award now uses the same three-line, left-aligned layout as Education, in both current documents and documents created before the Skrizhal rewrite.
+- **A single-line description on any CV entry (Employment, Education, Award, etc.) failed to compile in every CV style**, not just Two-Column — Skrizhal's schema deliberately allows a one-line `description` to be written as a bare scalar instead of a list, but the shared `cv-desc-block` Typst helper assumed it was always an array and called `.map()` on it, crashing with "type string has no method `map`". Now normalizes a scalar description to a single-item list before rendering.
+- **Editing metadata (Email/Location/Website/etc.) via "Update Template Settings" on an existing CV crashed with "unknown variable: section"** — the dialog tracked which template kind (Academic/Book/CV/Letter) to regenerate in a separate piece of state from the CV Mode toggle, and only the toggle got restored when reopening the dialog on an existing document; the template-kind state silently stayed at its Academic default, so Apply regenerated an Academic preamble (which never defines `#section`) onto a preserved CV body that still called it. Now correctly restores the template kind too, from the document's sidecar or its `@zerkalo-kind` marker.
+- **Setup & Onboarding could open 2-3x wider than its intended 640px** — long unwrapped content (status labels showing a full repository URL, the "Unknown distro" install hint joining three package-manager commands) forced GTK to size the window to fit the widest child's natural width. Now clamped and wrapped the same way `WelcomeWindow` already was.
 
 ---
 

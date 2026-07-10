@@ -321,12 +321,23 @@ const TEMPLATE_PRESETS: &[TemplatePreset] = &[
 // ── Body kind ─────────────────────────────────────────────────────────────────
 
 #[derive(Clone, Copy, Default, PartialEq, Debug)]
-enum BodyKind {
+pub(crate) enum BodyKind {
     #[default]
     Academic,
     Book,
     Cv,
     Letter,
+}
+
+/// Maps the "book"/"cv"/"letter" wire vocabulary shared by [`SidecarSettings::body_kind`]
+/// and [`parse_doc_kind`] back to [`BodyKind`] — anything else (including missing/"academic") is Academic.
+pub(crate) fn body_kind_from_key(key: &str) -> BodyKind {
+    match key {
+        "book" => BodyKind::Book,
+        "cv" => BodyKind::Cv,
+        "letter" => BodyKind::Letter,
+        _ => BodyKind::Academic,
+    }
 }
 
 // ── Settings struct ───────────────────────────────────────────────────────────
@@ -465,6 +476,7 @@ pub struct TemplateDialog {
     cv_elements_row: adw::EntryRow,
     cv_elements_path: Rc<RefCell<Option<PathBuf>>>,
     on_cv_elements_change: OnCvElementsCb,
+    body_kind_state: Rc<RefCell<BodyKind>>,
 }
 
 impl TemplateDialog {
@@ -1672,6 +1684,7 @@ impl TemplateDialog {
             bib_path, pnum_row, header_row, lang_switches, pkg_switches,
             dropcap_expander, dropcap_font_row, dropcap_lines_row, dropcap_color_row,
             cv_switch, cv_elements_row, cv_elements_path, on_cv_elements_change,
+            body_kind_state,
         }
     }
 
@@ -1684,6 +1697,17 @@ impl TemplateDialog {
     /// the Skrizhal CV Elements selector.
     pub fn preselect_cv_mode(&self, active: bool) {
         self.cv_switch.set_active(active);
+    }
+
+    /// Restores which template kind (Academic/Book/CV/Letter) "Apply to Current" should
+    /// regenerate — independent of `preselect_cv_mode`, which only drives the Metadata
+    /// group's field labels. Without this, re-opening "Update Template Settings" on an
+    /// existing document leaves the dialog's body-kind state at its `Academic` default
+    /// (it's normally only set by clicking a gallery preset, which this flow skips), so
+    /// Apply regenerates an Academic preamble even for a CV/Book/Letter document — for CVs
+    /// this drops the `#section` helper the preserved body still calls, breaking compilation.
+    pub(crate) fn preselect_body_kind(&self, kind: BodyKind) {
+        *self.body_kind_state.borrow_mut() = kind;
     }
 
     pub fn set_cv_elements_path(&self, path: Option<PathBuf>) {
@@ -1938,6 +1962,7 @@ impl TemplateDialog {
     /// "Update Template Settings" for a document that has a sidecar file.
     pub fn preselect_from_sidecar(&self, s: &SidecarSettings) {
         self.preselect_cv_mode(s.body_kind == "cv");
+        self.preselect_body_kind(body_kind_from_key(&s.body_kind));
         self.preselect_style(&s.style);
         if !s.font.is_empty()      { self.preselect_font(&s.font); }
         if !s.font_size.is_empty() { self.preselect_font_size(&s.font_size); }
@@ -2078,7 +2103,7 @@ pub fn sidecar_to_settings(sc: &SidecarSettings) -> TemplateSettings {
         dropcap_font: sc.dropcap_font.clone(),
         dropcap_lines: sc.dropcap_lines,
         dropcap_color: sc.dropcap_color.clone(),
-        body_kind: if sc.body_kind == "book" { BodyKind::Book } else if sc.body_kind == "cv" { BodyKind::Cv } else if sc.body_kind == "letter" { BodyKind::Letter } else { BodyKind::Academic },
+        body_kind: body_kind_from_key(&sc.body_kind),
         bib_path: sc.bib_path.as_ref().map(|s| std::path::PathBuf::from(s)),
     }
 }
@@ -4888,6 +4913,86 @@ french:
         assert!(result.unwrap().starts_with(b"%PDF-"));
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn updating_template_settings_on_a_cv_must_regenerate_with_cv_body_kind() {
+        use std::collections::HashMap;
+
+        // Reproduces the "Update Template Settings" bug: preselect_from_sidecar
+        // (and the no-sidecar parse_doc_kind fallback) used to only flip
+        // cv_switch — driving the Metadata group's Email/Location/Phone/Links
+        // labels — without ever restoring body_kind_state, which stays at its
+        // BodyKind::Academic default because that state is otherwise only set
+        // by clicking a gallery preset (a step "Update Template Settings"
+        // skips entirely). Apply then regenerated an Academic preamble for a
+        // document whose preserved body still called #section(...) — defined
+        // only by the Cv preamble — producing "unknown variable: section".
+        // body_kind_from_key is what preselect_body_kind now feeds from both
+        // the sidecar and no-sidecar paths; this pins its correctness against
+        // a real compile, not just the string-level assertions above.
+        fn base_settings(body_kind: BodyKind) -> TemplateSettings {
+            TemplateSettings {
+                title: String::new(), subtitle: String::new(),
+                author: "Jane Doe".to_string(), affiliation: String::new(),
+                course: String::new(), professor: String::new(), date: String::new(),
+                style_idx: 0, paper_idx: 1,
+                custom_paper_w: String::new(), custom_paper_h: String::new(),
+                margin_idx: 1, custom_margin: String::new(),
+                font: "Linux Libertine".to_string(), font_size: "10.5pt".to_string(),
+                spacing: "0.65em".to_string(), page_num_pos: 4, header_style: 0,
+                include_toc: false, toc_depth: 2,
+                include_abstract: false, abstract_text: String::new(),
+                include_keywords: false, keywords: String::new(),
+                heading_numbering: false, numbering_format: String::new(),
+                languages: Vec::new(), packages: Vec::new(),
+                dropcap_font: String::new(), dropcap_lines: 3, dropcap_color: String::new(),
+                body_kind, bib_path: None,
+            }
+        }
+
+        // The existing document: a real CV, body preserved as-is (the part
+        // "Apply to Current" never regenerates).
+        let existing_doc = generate_typst_template(&base_settings(BodyKind::Cv));
+        assert!(existing_doc.contains("#section("), "test fixture must be a real CV body");
+
+        let compile = |doc: &str| -> bool {
+            static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let path = std::path::PathBuf::from(format!(
+                "/tmp/zerkalo_test_update_cv_{}_{}.typ",
+                std::process::id(),
+                n
+            ));
+            std::fs::write(&path, doc).unwrap();
+            let cv_helpers_src = include_str!("../../templates/cv-helpers.typ");
+            let mut overrides = HashMap::new();
+            overrides.insert(std::path::PathBuf::from("/tmp/cv-helpers.typ"), cv_helpers_src.to_string());
+            let ok = crate::compiler::compile_to_pdf_bytes(&path, &overrides, &HashMap::new()).is_ok();
+            let _ = std::fs::remove_file(&path);
+            ok
+        };
+
+        // The bug: editing metadata (email/location/website) via "Update
+        // Template Settings" on this CV, with body_kind left stale at its
+        // Academic default (as it was before preselect_body_kind existed).
+        let buggy_fresh = generate_typst_template(&base_settings(body_kind_from_key("")));
+        assert!(!buggy_fresh.contains("#let section("), "Academic preamble should not define #section");
+        let buggy_result = apply_body_splice(&existing_doc, &buggy_fresh);
+        assert!(
+            !compile(&buggy_result),
+            "regenerating a CV's preamble as Academic must reproduce 'unknown variable: section'"
+        );
+
+        // The fix: preselect_body_kind(body_kind_from_key(&sidecar.body_kind))
+        // correctly restores Cv, so Apply regenerates a preamble that still
+        // defines #section for the preserved body to call.
+        let fixed_fresh = generate_typst_template(&base_settings(body_kind_from_key("cv")));
+        let fixed_result = apply_body_splice(&existing_doc, &fixed_fresh);
+        assert!(
+            compile(&fixed_result),
+            "regenerating a CV's preamble with the correctly-restored Cv body_kind must compile"
+        );
     }
 
     #[test]

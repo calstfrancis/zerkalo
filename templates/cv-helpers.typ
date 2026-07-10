@@ -72,8 +72,16 @@
 
 // Bullet list from a Skrizhal `description` field, or `none` if empty —
 // shared by every shape below so each just asks for "the description block".
+//
+// Skrizhal's schema deliberately allows `description` to be a single scalar
+// string as shorthand for a one-line list (see skrizhal-core's `OneOrMany`) —
+// Typst's yaml() reader then hands this a str, not an array, which has no
+// .map() method. Normalize to an array first so a single-line description
+// doesn't crash every CV style (modern/academic/classic/sidebar all share
+// this helper).
 #let cv-desc-block(entry) = {
-  let items = entry.at("description", default: ())
+  let raw = entry.at("description", default: ())
+  let items = if type(raw) == str { (raw,) } else { raw }
   if items.len() == 0 { none } else { list(..items.map(d => [#d])) }
 }
 
