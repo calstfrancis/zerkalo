@@ -136,6 +136,7 @@ impl WelcomeWindow {
                 "Fixed: a single-line description on any CV entry (Employment, Education, Award, etc.) failed to compile in every CV style, not just Two-Column",
                 "Fixed: editing metadata (Email/Location/Website/etc.) via Update Template Settings on an existing CV could crash with \"unknown variable: section\"",
                 "Fixed: Setup & Onboarding could open 2-3x wider than intended when status labels or install hints were long",
+                "Changed: Setup & Onboarding now shows a progress summary, section icons, and \"Optional\" badges; auto-scrolls to the first unfinished section; previews Default Fonts choices in their own font; and re-checks missing tools when the window regains focus instead of requiring a manual \"Verify\" click",
             ] {
                 body.append(&bullet_row(item));
             }
