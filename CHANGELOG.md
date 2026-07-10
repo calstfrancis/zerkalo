@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.18.0-dev3] — Default fonts, CV template fixes
+## [0.18.0-dev4] — Default fonts, CV template fixes
 
 ### Added
 - **Default Fonts step in onboarding** — pick a default sans and serif font in Setup & Onboarding; new documents and template previews use them until you choose something else per-document.
@@ -15,6 +15,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 - The formatting toolbar above the editor now collapses lower-priority controls (size, font, CV style, figure, table, line numbers, pagebreak, headings) into a trailing "more" menu as the pane narrows, instead of forcing the editor to overflow underneath the sidebar.
 - In CV mode, the New from Template Metadata group now shows CV-relevant fields (Email, Location, Phone, Links/Website) instead of academic-paper fields (Subtitle, Course, Professor) that were silently ignored for CVs.
+- **Polished Setup & Onboarding**: an at-a-glance "X of 5 sections set up" progress summary, section icons and "Optional" badges, auto-scroll to the first unfinished section on reopen, a copy button on install-hint commands, live re-checking of missing tools when the window regains focus (no more manual re-clicking "Verify" after installing something), required tools (git) now read more urgently than optional ones (hunspell, Skrizhal), the Default Fonts step previews each option in its own font and defaults to a common font instead of whatever sorts alphabetically first, and "Account & Sync" / "Editor Preferences" subheadings separate the five sections into two groups.
 
 ### Fixed
 - **Switching CV style away from Two-Column kept the old two-column layout** — the in-document style switcher only changed the `CV_STYLE` label, never regenerating the document body, so a résumé switched from Two-Column to Modern/Academic/Classic (or back) kept rendering with the wrong column structure.

@@ -1,7 +1,11 @@
 use std::path::Path;
+use std::rc::Rc;
 
 use gtk4::prelude::*;
-use gtk4::{Align, Box as GtkBox, Button, Label, LinkButton, Orientation, ScrolledWindow, Separator, Switch};
+use gtk4::{
+    Align, Box as GtkBox, Button, Image, Label, LinkButton, Orientation, ScrolledWindow,
+    Separator, SignalListItemFactory, StringObject, Switch,
+};
 use libadwaita as adw;
 use adw::prelude::*;
 
@@ -10,6 +14,13 @@ use super::github_signin;
 pub struct SetupWizard {
     window: adw::Window,
 }
+
+// Preference order for the Default Fonts step's initial selection when
+// nothing has been chosen yet — common, broadly-available names first, so a
+// first-time user doesn't land on whatever happens to sort alphabetically
+// first in their system font list (often an obscure font).
+const SANS_FONT_PRIORITY: &[&str] = &["Noto Sans", "DejaVu Sans", "Cantarell", "Liberation Sans", "Arial", "Inter"];
+const SERIF_FONT_PRIORITY: &[&str] = &["Noto Serif", "Liberation Serif", "DejaVu Serif", "Linux Libertine", "Times New Roman", "Georgia"];
 
 impl SetupWizard {
     pub fn new(
@@ -46,20 +57,74 @@ impl SetupWizard {
         intro.add_css_class("dim-label");
         body.append(&intro);
 
+        // Progress summary — filled in once every section below has reported
+        // whether it's already configured, so there's an at-a-glance answer
+        // to "what's left" instead of having to scan five sections by eye.
+        let summary_lbl = Label::new(None);
+        summary_lbl.set_wrap(true);
+        summary_lbl.set_xalign(0.0);
+        summary_lbl.add_css_class("caption");
+        body.append(&summary_lbl);
+
+        body.append(&subheading_label("Account & Sync"));
+
         // ── Section 1: Git identity ────────────────────────────────────────
-        body.append(&git_identity_group());
+        let (git_group, git_complete) = git_identity_group();
+        body.append(&git_group);
 
         // ── Section 2: GitHub repository ──────────────────────────────────
-        body.append(&github_repo_group(&window, work_dir));
+        let (repo_group, repo_complete) = github_repo_group(&window, work_dir);
+        body.append(&repo_group);
 
         // ── Section 3: Backup remote ───────────────────────────────────────
-        body.append(&backup_remote_group(work_dir));
+        let (backup_group, backup_complete) = backup_remote_group(work_dir);
+        body.append(&backup_group);
+
+        body.append(&subheading_label("Editor Preferences"));
 
         // ── Section 4: Default Fonts ────────────────────────────────────────
-        body.append(&default_fonts_group(current_sans_font, current_serif_font, on_fonts_saved));
+        let (fonts_group, fonts_complete) =
+            default_fonts_group(current_sans_font, current_serif_font, on_fonts_saved);
+        body.append(&fonts_group);
 
         // ── Section 5: Optional tools ──────────────────────────────────────
-        body.append(&optional_tools_group());
+        let (tools_group, tools_complete, tool_rechecks) = optional_tools_group();
+        body.append(&tools_group);
+
+        // Fill in the progress summary now that every section has reported in.
+        let sections: [(&str, bool); 5] = [
+            ("Git Identity", git_complete),
+            ("GitHub Repository", repo_complete),
+            ("Local Backup", backup_complete),
+            ("Default Fonts", fonts_complete),
+            ("Tools", tools_complete),
+        ];
+        let done = sections.iter().filter(|(_, c)| *c).count();
+        if done == sections.len() {
+            summary_lbl.set_label(&format!("✓ All {done} sections set up."));
+            summary_lbl.add_css_class("success");
+        } else {
+            let remaining: Vec<&str> = sections.iter().filter(|(_, c)| !*c).map(|(n, _)| *n).collect();
+            summary_lbl.set_label(&format!(
+                "{done} of {} sections set up — still to do: {}",
+                sections.len(),
+                remaining.join(", "),
+            ));
+            summary_lbl.add_css_class("dim-label");
+        }
+
+        // Auto-scroll to the first incomplete section so reopening the wizard
+        // when only e.g. Tools is left doesn't require scrolling past four
+        // already-configured sections every time.
+        let first_incomplete: Option<adw::PreferencesGroup> = [
+            (&git_group, git_complete),
+            (&repo_group, repo_complete),
+            (&backup_group, backup_complete),
+            (&fonts_group, fonts_complete),
+            (&tools_group, tools_complete),
+        ]
+        .into_iter()
+        .find_map(|(g, c)| if !c { Some(g.clone()) } else { None });
 
         // Clamp caps the natural-width request so long content (e.g. the
         // unwrapped install-hint commands below) can't force the window open
@@ -71,6 +136,36 @@ impl SetupWizard {
         clamp.set_child(Some(&body));
 
         scroll.set_child(Some(&clamp));
+
+        if let Some(target) = first_incomplete {
+            let scroll_c = scroll.clone();
+            window.connect_map(move |_| {
+                let scroll_c2 = scroll_c.clone();
+                let target2 = target.clone();
+                // Deferred one tick: compute_bounds needs the widget tree to
+                // have been allocated at least once, which hasn't happened
+                // yet at the point "map" itself fires.
+                glib::idle_add_local_once(move || {
+                    if let Some(bounds) = target2.compute_bounds(&scroll_c2) {
+                        scroll_c2.vadjustment().set_value(bounds.y() as f64);
+                    }
+                });
+            });
+        }
+
+        // Re-check missing tools whenever the window regains focus, so
+        // installing something in a terminal and alt-tabbing back updates
+        // the status without an extra manual "Verify" click.
+        {
+            let rechecks = tool_rechecks;
+            window.connect_is_active_notify(move |w| {
+                if w.is_active() {
+                    for f in &rechecks {
+                        f();
+                    }
+                }
+            });
+        }
 
         let outer = GtkBox::new(Orientation::Vertical, 0);
         outer.append(&scroll);
@@ -121,14 +216,42 @@ impl SetupWizard {
 
 // ── Section builders ──────────────────────────────────────────────────────────
 
-fn git_identity_group() -> adw::PreferencesGroup {
+fn subheading_label(text: &str) -> Label {
+    let lbl = Label::new(Some(text));
+    lbl.set_xalign(0.0);
+    lbl.add_css_class("heading");
+    lbl.set_margin_top(4);
+    lbl
+}
+
+/// Small icon (+ an "Optional" badge, for sections that aren't required)
+/// shown at the end of a PreferencesGroup's title row — helps the section
+/// list read at a glance instead of as five identical-looking text blocks.
+fn group_header_suffix(icon_name: &str, optional: bool) -> GtkBox {
+    let suffix = GtkBox::new(Orientation::Horizontal, 6);
+    suffix.set_valign(Align::Center);
+    if optional {
+        let badge = Label::new(Some("Optional"));
+        badge.add_css_class("dim-label");
+        badge.add_css_class("caption");
+        suffix.append(&badge);
+    }
+    let icon = Image::from_icon_name(icon_name);
+    icon.add_css_class("dim-label");
+    suffix.append(&icon);
+    suffix
+}
+
+fn git_identity_group() -> (adw::PreferencesGroup, bool) {
     let group = adw::PreferencesGroup::new();
     group.set_title("Git Identity");
     group.set_description(Some(
         "Git records your name and email on every save. Set these once, globally.",
     ));
+    group.set_header_suffix(Some(&group_header_suffix("avatar-default-symbolic", false)));
 
     let (current_name, current_email) = git_identity();
+    let complete = !current_name.is_empty() && !current_email.is_empty();
 
     let name_row = adw::EntryRow::new();
     name_row.set_title("Name");
@@ -142,7 +265,7 @@ fn git_identity_group() -> adw::PreferencesGroup {
     status_lbl.set_xalign(0.0);
     status_lbl.set_margin_top(4);
     status_lbl.set_wrap(true);
-    if !current_name.is_empty() && !current_email.is_empty() {
+    if complete {
         status_lbl.set_label("✓ Git identity is set.");
         status_lbl.add_css_class("success");
     } else {
@@ -192,10 +315,10 @@ fn git_identity_group() -> adw::PreferencesGroup {
     wrapper.add_suffix(&suffix_box);
     group.add(&wrapper);
 
-    group
+    (group, complete)
 }
 
-fn github_repo_group(parent: &adw::Window, work_dir: &Path) -> adw::PreferencesGroup {
+fn github_repo_group(parent: &adw::Window, work_dir: &Path) -> (adw::PreferencesGroup, bool) {
     let work_dir = work_dir.to_path_buf();
 
     let group = adw::PreferencesGroup::new();
@@ -203,9 +326,11 @@ fn github_repo_group(parent: &adw::Window, work_dir: &Path) -> adw::PreferencesG
     group.set_description(Some(
         "Back up your work and collaborate by connecting to a GitHub repository.",
     ));
+    group.set_header_suffix(Some(&group_header_suffix("network-server-symbolic", false)));
 
     let is_repo = git2::Repository::discover(&work_dir).is_ok();
     let remote_url = get_git_remote(&work_dir);
+    let complete = remote_url.is_some();
 
     // ── Row: repo status ────────────────────────────────────────────────
     let repo_row = adw::ActionRow::new();
@@ -461,10 +586,10 @@ fn github_repo_group(parent: &adw::Window, work_dir: &Path) -> adw::PreferencesG
 
     group.add(&fallback_expander);
 
-    group
+    (group, complete)
 }
 
-fn backup_remote_group(work_dir: &Path) -> adw::PreferencesGroup {
+fn backup_remote_group(work_dir: &Path) -> (adw::PreferencesGroup, bool) {
     let work_dir = work_dir.to_path_buf();
 
     let group = adw::PreferencesGroup::new();
@@ -473,9 +598,11 @@ fn backup_remote_group(work_dir: &Path) -> adw::PreferencesGroup {
         "On every sync, push a copy to a second location. Use a mounted drive \
          (pCloud, Nextcloud, USB), an external path, or any git URL.",
     ));
+    group.set_header_suffix(Some(&group_header_suffix("drive-harddisk-symbolic", true)));
 
     let current_url = crate::git_sync::get_remote_url(&work_dir, "backup")
         .unwrap_or_default();
+    let complete = !current_url.is_empty();
 
     let url_row = adw::EntryRow::new();
     url_row.set_title("Path or URL (optional)");
@@ -508,7 +635,7 @@ fn backup_remote_group(work_dir: &Path) -> adw::PreferencesGroup {
     status_lbl.set_xalign(0.0);
     status_lbl.set_margin_top(4);
     status_lbl.set_wrap(true);
-    if !current_url.is_empty() {
+    if complete {
         status_lbl.set_label(&format!("✓ Backup: {current_url}"));
         status_lbl.add_css_class("success");
     } else {
@@ -559,14 +686,58 @@ fn backup_remote_group(work_dir: &Path) -> adw::PreferencesGroup {
 
     group.add(&wrapper);
 
-    group
+    (group, complete)
+}
+
+/// Picks the best initial ComboRow selection: the user's already-chosen font
+/// if it's in the list, else the first name from `priority` that's actually
+/// available, else index 0 as a last resort.
+fn best_font_index(fonts: &[String], current: &str, priority: &[&str]) -> u32 {
+    if let Some(i) = fonts.iter().position(|f| f == current) {
+        return i as u32;
+    }
+    for name in priority {
+        if let Some(i) = fonts.iter().position(|f| f == name) {
+            return i as u32;
+        }
+    }
+    0
+}
+
+/// A list-item factory that renders each font name set in its own font, so
+/// the Sans/Serif dropdowns preview the choice instead of listing plain text.
+fn font_preview_factory() -> SignalListItemFactory {
+    let factory = SignalListItemFactory::new();
+    factory.connect_setup(move |_, obj| {
+        let Some(item) = obj.downcast_ref::<gtk4::ListItem>() else { return };
+        let label = Label::new(None);
+        label.set_xalign(0.0);
+        label.set_margin_start(6);
+        label.set_margin_end(6);
+        label.set_margin_top(4);
+        label.set_margin_bottom(4);
+        item.set_child(Some(&label));
+    });
+    factory.connect_bind(move |_, obj| {
+        let Some(item) = obj.downcast_ref::<gtk4::ListItem>() else { return };
+        let Some(label) = item.child().and_then(|w| w.downcast::<Label>().ok()) else { return };
+        let Some(text) = item.item().and_then(|o| o.downcast::<StringObject>().ok()) else { return };
+        let name = text.string().to_string();
+        label.set_text(&name);
+        let mut desc = gtk4::pango::FontDescription::new();
+        desc.set_family(&name);
+        let attrs = gtk4::pango::AttrList::new();
+        attrs.insert(gtk4::pango::AttrFontDesc::new(&desc));
+        label.set_attributes(Some(&attrs));
+    });
+    factory
 }
 
 fn default_fonts_group(
     current_sans: &str,
     current_serif: &str,
     on_save: impl Fn(String, String) + 'static,
-) -> adw::PreferencesGroup {
+) -> (adw::PreferencesGroup, bool) {
     let group = adw::PreferencesGroup::new();
     group.set_title("Default Fonts");
     group.set_description(Some(
@@ -574,35 +745,35 @@ fn default_fonts_group(
          per-document. Once set, Font Management won't let you disable either one without \
          choosing a replacement here first.",
     ));
+    group.set_header_suffix(Some(&group_header_suffix("font-x-generic-symbolic", true)));
+
+    let complete = !current_sans.is_empty() && !current_serif.is_empty();
 
     let fonts = super::font_manager::FontManager::enabled_fonts();
     let font_labels: Vec<&str> = fonts.iter().map(|s| s.as_str()).collect();
     let font_model = gtk4::StringList::new(&font_labels);
+    let preview_factory = font_preview_factory();
 
     let sans_row = adw::ComboRow::new();
     sans_row.set_title("Sans-serif");
     sans_row.set_model(Some(&font_model));
-    if let Some(i) = fonts.iter().position(|f| f == current_sans) {
-        sans_row.set_selected(i as u32);
-    }
+    sans_row.set_factory(Some(&preview_factory));
+    sans_row.set_list_factory(Some(&preview_factory));
+    sans_row.set_selected(best_font_index(&fonts, current_sans, SANS_FONT_PRIORITY));
 
     let serif_row = adw::ComboRow::new();
     serif_row.set_title("Serif");
     serif_row.set_model(Some(&font_model));
-    if let Some(i) = fonts.iter().position(|f| f == current_serif) {
-        serif_row.set_selected(i as u32);
-    }
+    serif_row.set_factory(Some(&preview_factory));
+    serif_row.set_list_factory(Some(&preview_factory));
+    serif_row.set_selected(best_font_index(&fonts, current_serif, SERIF_FONT_PRIORITY));
 
     let status_lbl = Label::new(None);
     status_lbl.set_xalign(0.0);
     status_lbl.set_margin_top(4);
     status_lbl.set_wrap(true);
-    if !current_sans.is_empty() || !current_serif.is_empty() {
-        status_lbl.set_label(&format!(
-            "✓ Sans: {} · Serif: {}",
-            if current_sans.is_empty() { "(not set)" } else { current_sans },
-            if current_serif.is_empty() { "(not set)" } else { current_serif },
-        ));
+    if complete {
+        status_lbl.set_label(&format!("✓ Sans: {current_sans} · Serif: {current_serif}"));
         status_lbl.add_css_class("success");
     } else {
         status_lbl.set_label("Not set yet — new documents fall back to a built-in font.");
@@ -641,35 +812,58 @@ fn default_fonts_group(
     wrapper.add_suffix(&suffix_box);
     group.add(&wrapper);
 
-    group
+    (group, complete)
 }
 
-fn optional_tools_group() -> adw::PreferencesGroup {
+fn optional_tools_group() -> (adw::PreferencesGroup, bool, Vec<Rc<dyn Fn()>>) {
     let group = adw::PreferencesGroup::new();
     group.set_title("Tools");
     group.set_description(Some(
         "tinymist and pandoc are bundled with Zerkalo. git is required for sync.",
     ));
+    group.set_header_suffix(Some(&group_header_suffix("applications-utilities-symbolic", false)));
 
     let distro = detect_distro();
+    let mut rechecks: Vec<Rc<dyn Fn()>> = Vec::new();
+    let mut required_ok = true;
 
-    group.add(&tool_row("tinymist", "tinymist", "LSP completions — bundled", &distro, ToolKind::Bundled));
-    group.add(&tool_row("pandoc", "pandoc", "Export/import — bundled", &distro, ToolKind::Bundled));
-    group.add(&tool_row("git", "git", "Version control — required for sync", &distro, ToolKind::Package {
+    let (row, ok, recheck) = tool_row("tinymist", "tinymist", "LSP completions — bundled", &distro, ToolKind::Bundled, false);
+    group.add(&row);
+    if let Some(f) = recheck { rechecks.push(f); }
+    let _ = ok;
+
+    let (row, ok, recheck) = tool_row("pandoc", "pandoc", "Export/import — bundled", &distro, ToolKind::Bundled, false);
+    group.add(&row);
+    if let Some(f) = recheck { rechecks.push(f); }
+    let _ = ok;
+
+    let (row, ok, recheck) = tool_row("git", "git", "Version control — required for sync", &distro, ToolKind::Package {
         apt: "git", dnf: "git", pacman: "git", zypper: "git",
-    }));
-    group.add(&tool_row("hunspell", "hunspell", "Spellcheck — optional", &distro, ToolKind::Package {
+    }, true);
+    group.add(&row);
+    if let Some(f) = recheck { rechecks.push(f); }
+    required_ok = required_ok && ok;
+
+    let (row, ok, recheck) = tool_row("hunspell", "hunspell", "Spellcheck — optional", &distro, ToolKind::Package {
         apt: "hunspell", dnf: "hunspell", pacman: "hunspell", zypper: "hunspell",
-    }));
-    group.add(&tool_row(
+    }, false);
+    group.add(&row);
+    if let Some(f) = recheck { rechecks.push(f); }
+    let _ = ok;
+
+    let (row, ok, recheck) = tool_row(
         "Skrizhal",
         "",
         "Optional companion app for CV Mode — a structured YAML database of jobs, degrees, and awards you can reuse across résumés",
         &distro,
         ToolKind::Flatpak { app_id: "io.github.calstfrancis.Skrizhal" },
-    ));
+        false,
+    );
+    group.add(&row);
+    if let Some(f) = recheck { rechecks.push(f); }
+    let _ = ok;
 
-    group
+    (group, required_ok, rechecks)
 }
 
 // ── Distro detection ──────────────────────────────────────────────────────────
@@ -756,13 +950,18 @@ fn flatpak_installed(app_id: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Builds one tool row. Returns the row, whether it's currently OK, and — for
+/// a missing, non-bundled tool — a re-check closure the caller can invoke
+/// later (e.g. when the window regains focus) to refresh its status without
+/// requiring the user to click "Verify" again.
 fn tool_row(
     name: &str,
     cmd: &str,
     purpose: &str,
     distro: &Distro,
     kind: ToolKind,
-) -> adw::ActionRow {
+    required: bool,
+) -> (adw::ActionRow, bool, Option<Rc<dyn Fn()>>) {
     let is_bundled = matches!(kind, ToolKind::Bundled);
     let flatpak_app_id: Option<String> = match &kind {
         ToolKind::Flatpak { app_id } => Some(app_id.to_string()),
@@ -784,7 +983,16 @@ fn tool_row(
         let icon = Label::new(Some("✓"));
         icon.add_css_class("success");
         row.add_suffix(&icon);
+        (row, true, None)
     } else {
+        if required {
+            let badge = Label::new(Some("Required"));
+            badge.add_css_class("error");
+            badge.add_css_class("caption");
+            badge.set_valign(Align::Center);
+            row.add_suffix(&badge);
+        }
+
         let outer = GtkBox::new(Orientation::Vertical, 0);
         outer.set_valign(Align::Center);
 
@@ -792,6 +1000,7 @@ fn tool_row(
         hint_box.set_margin_top(4);
         hint_box.set_margin_bottom(4);
 
+        let hint_row = GtkBox::new(Orientation::Horizontal, 4);
         let hint_lbl = Label::new(Some(&hint));
         hint_lbl.set_xalign(0.0);
         hint_lbl.set_selectable(true);
@@ -803,17 +1012,40 @@ fn tool_row(
         // the whole window open regardless of the Clamp above.
         hint_lbl.set_wrap(true);
         hint_lbl.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
-        hint_lbl.set_max_width_chars(46);
-        hint_box.append(&hint_lbl);
+        hint_lbl.set_max_width_chars(40);
+        hint_lbl.set_hexpand(true);
+        hint_row.append(&hint_lbl);
+
+        let copy_btn = Button::from_icon_name("edit-copy-symbolic");
+        copy_btn.add_css_class("flat");
+        copy_btn.set_valign(Align::Start);
+        copy_btn.set_tooltip_text(Some("Copy command"));
+        {
+            let hint_c = hint.clone();
+            copy_btn.connect_clicked(move |btn| {
+                if let Some(display) = gtk4::gdk::Display::default() {
+                    display.clipboard().set_text(&hint_c);
+                }
+                btn.set_icon_name("object-select-symbolic");
+                let btn2 = btn.clone();
+                glib::timeout_add_local_once(std::time::Duration::from_secs(2), move || {
+                    btn2.set_icon_name("edit-copy-symbolic");
+                });
+            });
+        }
+        hint_row.append(&copy_btn);
+        hint_box.append(&hint_row);
 
         let revealer = gtk4::Revealer::new();
         revealer.set_reveal_child(false);
         revealer.set_transition_type(gtk4::RevealerTransitionType::SlideDown);
         revealer.set_child(Some(&hint_box));
 
-        // Status indicator (✗ → ✓ after verify)
+        // Status indicator (✗ → ✓ after verify). Required-and-missing reads
+        // as an error; optional-and-missing is milder so a missing spellcheck
+        // dictionary doesn't look as alarming as a missing git binary.
         let status_lbl = Label::new(Some("✗"));
-        status_lbl.add_css_class("error");
+        status_lbl.add_css_class(if required { "error" } else { "warning" });
 
         let btn_box = GtkBox::new(Orientation::Horizontal, 4);
         btn_box.set_valign(Align::Center);
@@ -831,12 +1063,13 @@ fn tool_row(
         let verify_btn = Button::with_label("Verify");
         verify_btn.add_css_class("flat");
         verify_btn.add_css_class("caption");
-        {
+
+        let do_verify: Rc<dyn Fn()> = {
             let cmd = cmd.clone();
             let flatpak_app_id = flatpak_app_id.clone();
             let status = status_lbl.clone();
             let rev = revealer.clone();
-            verify_btn.connect_clicked(move |_| {
+            Rc::new(move || {
                 let found = if let Some(app_id) = &flatpak_app_id {
                     flatpak_installed(app_id)
                 } else {
@@ -845,12 +1078,17 @@ fn tool_row(
                 if found {
                     status.set_label("✓");
                     status.remove_css_class("error");
+                    status.remove_css_class("warning");
                     status.add_css_class("success");
                     rev.set_reveal_child(false);
                 } else {
                     status.set_label("✗ not found yet");
                 }
-            });
+            })
+        };
+        {
+            let do_verify_c = do_verify.clone();
+            verify_btn.connect_clicked(move |_| do_verify_c());
         }
 
         btn_box.append(&toggle_btn);
@@ -860,9 +1098,9 @@ fn tool_row(
 
         row.add_suffix(&status_lbl);
         row.add_suffix(&outer);
-    }
 
-    row
+        (row, false, Some(do_verify))
+    }
 }
 
 // ── Git helpers ───────────────────────────────────────────────────────────────
