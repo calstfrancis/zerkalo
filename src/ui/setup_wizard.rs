@@ -12,7 +12,13 @@ pub struct SetupWizard {
 }
 
 impl SetupWizard {
-    pub fn new(parent: &impl IsA<gtk4::Window>, work_dir: &Path) -> Self {
+    pub fn new(
+        parent: &impl IsA<gtk4::Window>,
+        work_dir: &Path,
+        current_sans_font: &str,
+        current_serif_font: &str,
+        on_fonts_saved: impl Fn(String, String) + 'static,
+    ) -> Self {
         let window = adw::Window::builder()
             .title("Setup & Onboarding")
             .transient_for(parent)
@@ -49,7 +55,10 @@ impl SetupWizard {
         // ── Section 3: Backup remote ───────────────────────────────────────
         body.append(&backup_remote_group(work_dir));
 
-        // ── Section 4: Optional tools ──────────────────────────────────────
+        // ── Section 4: Default Fonts ────────────────────────────────────────
+        body.append(&default_fonts_group(current_sans_font, current_serif_font, on_fonts_saved));
+
+        // ── Section 5: Optional tools ──────────────────────────────────────
         body.append(&optional_tools_group());
 
         scroll.set_child(Some(&body));
@@ -535,6 +544,87 @@ fn backup_remote_group(work_dir: &Path) -> adw::PreferencesGroup {
     wrapper.set_activatable(false);
     wrapper.add_suffix(&suffix_box);
 
+    group.add(&wrapper);
+
+    group
+}
+
+fn default_fonts_group(
+    current_sans: &str,
+    current_serif: &str,
+    on_save: impl Fn(String, String) + 'static,
+) -> adw::PreferencesGroup {
+    let group = adw::PreferencesGroup::new();
+    group.set_title("Default Fonts");
+    group.set_description(Some(
+        "New documents and template previews use these until you pick a different font \
+         per-document. Once set, Font Management won't let you disable either one without \
+         choosing a replacement here first.",
+    ));
+
+    let fonts = super::font_manager::FontManager::enabled_fonts();
+    let font_labels: Vec<&str> = fonts.iter().map(|s| s.as_str()).collect();
+    let font_model = gtk4::StringList::new(&font_labels);
+
+    let sans_row = adw::ComboRow::new();
+    sans_row.set_title("Sans-serif");
+    sans_row.set_model(Some(&font_model));
+    if let Some(i) = fonts.iter().position(|f| f == current_sans) {
+        sans_row.set_selected(i as u32);
+    }
+
+    let serif_row = adw::ComboRow::new();
+    serif_row.set_title("Serif");
+    serif_row.set_model(Some(&font_model));
+    if let Some(i) = fonts.iter().position(|f| f == current_serif) {
+        serif_row.set_selected(i as u32);
+    }
+
+    let status_lbl = Label::new(None);
+    status_lbl.set_xalign(0.0);
+    status_lbl.set_margin_top(4);
+    if !current_sans.is_empty() || !current_serif.is_empty() {
+        status_lbl.set_label(&format!(
+            "✓ Sans: {} · Serif: {}",
+            if current_sans.is_empty() { "(not set)" } else { current_sans },
+            if current_serif.is_empty() { "(not set)" } else { current_serif },
+        ));
+        status_lbl.add_css_class("success");
+    } else {
+        status_lbl.set_label("Not set yet — new documents fall back to a built-in font.");
+        status_lbl.add_css_class("dim-label");
+    }
+
+    let apply_btn = Button::with_label("Save");
+    apply_btn.set_halign(Align::End);
+    apply_btn.add_css_class("suggested-action");
+
+    {
+        let fonts_c = fonts.clone();
+        let sans_c = sans_row.clone();
+        let serif_c = serif_row.clone();
+        let lbl_c = status_lbl.clone();
+        apply_btn.connect_clicked(move |_| {
+            let sans = fonts_c.get(sans_c.selected() as usize).cloned().unwrap_or_default();
+            let serif = fonts_c.get(serif_c.selected() as usize).cloned().unwrap_or_default();
+            on_save(sans.clone(), serif.clone());
+            lbl_c.set_label(&format!("✓ Sans: {sans} · Serif: {serif}"));
+            lbl_c.remove_css_class("dim-label");
+            lbl_c.add_css_class("success");
+        });
+    }
+
+    group.add(&sans_row);
+    group.add(&serif_row);
+
+    let suffix_box = GtkBox::new(Orientation::Vertical, 6);
+    suffix_box.set_margin_top(8);
+    suffix_box.set_margin_bottom(4);
+    suffix_box.append(&status_lbl);
+    suffix_box.append(&apply_btn);
+    let wrapper = adw::ActionRow::new();
+    wrapper.set_activatable(false);
+    wrapper.add_suffix(&suffix_box);
     group.add(&wrapper);
 
     group

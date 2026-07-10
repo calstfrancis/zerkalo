@@ -12,6 +12,7 @@ use gtk4::{
     TextSearchFlags, TextTag, TextWindowType, ToggleButton,
 };
 use libadwaita as adw;
+use adw::prelude::*;
 use sourceview5::prelude::*;
 use sourceview5::{Buffer, LanguageManager, MarkAttributes, StyleSchemeManager, View};
 
@@ -879,12 +880,34 @@ impl EditorPane {
         let cv_style_popover_box = GtkBox::new(Orientation::Vertical, 2);
         cv_style_popover_box.set_margin_top(4); cv_style_popover_box.set_margin_bottom(4);
         cv_style_popover_box.set_margin_start(4); cv_style_popover_box.set_margin_end(4);
-        for label in &["Modern", "Academic", "Classic", "Two-Column"] {
-            let row = Button::with_label(label);
+        // Descriptions mirror the CV presets in the "New from Template" gallery
+        // (see TEMPLATE_PRESETS in template_dialog.rs) so switching style here
+        // carries the same explanation as picking it there.
+        const CV_STYLE_DESCRIPTIONS: &[(&str, &str)] = &[
+            ("Modern", "Clean résumé with colour accents, compact margins"),
+            ("Academic", "Traditional academic CV with ruled section headers"),
+            ("Classic", "Minimal timeless résumé, clean lines, no colour"),
+            ("Two-Column", "Profile summary above a sidebar (Education, Skills & Awards) beside a main Experience column"),
+        ];
+        for (label, desc) in CV_STYLE_DESCRIPTIONS {
+            let row = Button::new();
             row.add_css_class("flat");
-            row.add_css_class("caption");
             row.set_halign(gtk4::Align::Start);
-            row.set_size_request(100, -1);
+            row.set_size_request(240, -1);
+            let row_box = GtkBox::new(Orientation::Vertical, 1);
+            row_box.set_margin_top(3);
+            row_box.set_margin_bottom(3);
+            let name_lbl = Label::new(Some(label));
+            name_lbl.set_halign(gtk4::Align::Start);
+            let desc_lbl = Label::new(Some(desc));
+            desc_lbl.add_css_class("dim-label");
+            desc_lbl.add_css_class("caption");
+            desc_lbl.set_halign(gtk4::Align::Start);
+            desc_lbl.set_wrap(true);
+            desc_lbl.set_max_width_chars(30);
+            row_box.append(&name_lbl);
+            row_box.append(&desc_lbl);
+            row.set_child(Some(&row_box));
             cv_style_popover_box.append(&row);
         }
         cv_style_popover.set_child(Some(&cv_style_popover_box));
@@ -994,8 +1017,151 @@ impl EditorPane {
         }
         format_bar.append(&size_bar_btn);
 
+        // ── Overflow menu ─────────────────────────────────────────────────────
+        // The bar above can't shrink below the combined minimum width of every
+        // button it holds, which used to force the editor pane to overflow
+        // underneath the sidebar on narrow windows/splits. An AdwBreakpointBin
+        // (which — unlike a plain GtkBox — is allowed to be allocated smaller
+        // than its child's minimum size once it has breakpoints) wraps the bar
+        // and, as space runs low, moves lower-priority controls out of the bar
+        // and into this popover behind a trailing "more" button instead.
+        let overflow_box = GtkBox::new(Orientation::Vertical, 2);
+        overflow_box.set_margin_top(4);
+        overflow_box.set_margin_bottom(4);
+        overflow_box.set_margin_start(4);
+        overflow_box.set_margin_end(4);
+
+        let overflow_popover = Popover::new();
+        overflow_popover.set_child(Some(&overflow_box));
+        overflow_popover.set_autohide(true);
+
+        let overflow_btn = Button::from_icon_name("pan-down-symbolic");
+        overflow_btn.add_css_class("flat");
+        overflow_btn.set_tooltip_text(Some("More formatting options"));
+        overflow_btn.set_visible(false);
+        overflow_btn.update_property(&[gtk4::accessible::Property::Label("More formatting options")]);
+        {
+            let op = overflow_popover.clone();
+            let ob = overflow_btn.clone();
+            overflow_btn.connect_clicked(move |_| {
+                op.set_parent(&ob);
+                if op.is_visible() { op.popdown(); } else { op.popup(); op.grab_focus(); }
+            });
+        }
+        format_bar.append(&overflow_btn);
+
+        struct OverflowGroup {
+            lead_separator: Option<gtk4::Widget>,
+            controls: Vec<gtk4::Widget>,
+            zone_b: bool,
+        }
+
+        // Collapse priority, least-important-first (mirrors visual order:
+        // zone B — font/size — collapses right-to-left, then zone A —
+        // headings/pagebreak/line-numbers/table/figure/CV style — also
+        // collapses right-to-left).
+        let overflow_groups: Rc<Vec<OverflowGroup>> = Rc::new(vec![
+            OverflowGroup { lead_separator: None, controls: vec![size_bar_btn.clone().upcast()], zone_b: true },
+            OverflowGroup { lead_separator: None, controls: vec![font_bar_btn.clone().upcast()], zone_b: true },
+            OverflowGroup { lead_separator: None, controls: vec![cv_format_section.clone().upcast()], zone_b: false },
+            OverflowGroup { lead_separator: None, controls: vec![figure_btn.clone().upcast()], zone_b: false },
+            OverflowGroup { lead_separator: Some(fb_sep3b.clone().upcast()), controls: vec![table_btn.clone().upcast()], zone_b: false },
+            OverflowGroup { lead_separator: Some(fb_sep3.clone().upcast()), controls: vec![line_numbers_btn.clone().upcast()], zone_b: false },
+            OverflowGroup { lead_separator: Some(fb_sep2.clone().upcast()), controls: vec![pb_btn.clone().upcast()], zone_b: false },
+            OverflowGroup {
+                lead_separator: Some(fb_sep1.clone().upcast()),
+                controls: vec![h1_btn.clone().upcast(), h2_btn.clone().upcast(), h3_btn.clone().upcast()],
+                zone_b: false,
+            },
+        ]);
+
+        // Rolling "insert after" anchors: the current rightmost visible widget
+        // in each zone. Restoring a group pushes its last widget as the new
+        // anchor; collapsing a group pops back to the previous one.
+        let zone_a_anchor_stack: Rc<RefCell<Vec<gtk4::Widget>>> =
+            Rc::new(RefCell::new(vec![italic_btn.clone().upcast()]));
+        let zone_b_anchor_stack: Rc<RefCell<Vec<gtk4::Widget>>> =
+            Rc::new(RefCell::new(vec![fb_spacer.clone().upcast()]));
+        let overflow_stage: Rc<Cell<usize>> = Rc::new(Cell::new(0));
+
+        let set_overflow_stage = {
+            let overflow_groups = overflow_groups.clone();
+            let zone_a_anchor_stack = zone_a_anchor_stack.clone();
+            let zone_b_anchor_stack = zone_b_anchor_stack.clone();
+            let overflow_stage = overflow_stage.clone();
+            let overflow_box = overflow_box.clone();
+            let overflow_btn = overflow_btn.clone();
+            let format_bar = format_bar.clone();
+            move |target: usize| {
+                let target = target.min(overflow_groups.len());
+                let mut stage = overflow_stage.get();
+                while stage < target {
+                    let group = &overflow_groups[stage];
+                    for control in &group.controls {
+                        control.unparent();
+                        overflow_box.append(control);
+                    }
+                    if let Some(sep) = &group.lead_separator {
+                        sep.unparent();
+                    }
+                    let stack = if group.zone_b { &zone_b_anchor_stack } else { &zone_a_anchor_stack };
+                    stack.borrow_mut().pop();
+                    stage += 1;
+                }
+                while stage > target {
+                    stage -= 1;
+                    let group = &overflow_groups[stage];
+                    let stack = if group.zone_b { &zone_b_anchor_stack } else { &zone_a_anchor_stack };
+                    let mut anchor = stack.borrow().last().unwrap().clone();
+                    if let Some(sep) = &group.lead_separator {
+                        format_bar.insert_child_after(sep, Some(&anchor));
+                        anchor = sep.clone();
+                    }
+                    for control in &group.controls {
+                        control.unparent();
+                        format_bar.insert_child_after(control, Some(&anchor));
+                        anchor = control.clone();
+                    }
+                    stack.borrow_mut().push(anchor);
+                }
+                overflow_stage.set(stage);
+                overflow_btn.set_visible(stage > 0);
+            }
+        };
+
+        let format_bar_bin = adw::BreakpointBin::new();
+        format_bar_bin.set_width_request(190);
+        format_bar_bin.set_height_request(38);
+        format_bar_bin.set_hexpand(true);
+        format_bar_bin.set_child(Some(&format_bar));
+
+        // Thresholds are generous on purpose (better to collapse a control
+        // slightly before it's strictly necessary than to risk the bar
+        // overflowing its own bin). Added widest-to-narrowest: AdwBreakpointBin
+        // picks "the last added breakpoint whose condition matches", so at any
+        // given width the narrowest still-matching one — i.e. the deepest
+        // applicable collapse stage — always wins.
+        const OVERFLOW_THRESHOLDS: &[f64] = &[760.0, 700.0, 650.0, 600.0, 550.0, 480.0, 420.0, 360.0];
+        for (i, px) in OVERFLOW_THRESHOLDS.iter().enumerate() {
+            let condition = adw::BreakpointCondition::new_length(
+                adw::BreakpointConditionLengthType::MaxWidth,
+                *px,
+                adw::LengthUnit::Px,
+            );
+            let bp = adw::Breakpoint::new(condition);
+            {
+                let set_stage = set_overflow_stage.clone();
+                bp.connect_apply(move |_| set_stage(i + 1));
+            }
+            {
+                let set_stage = set_overflow_stage.clone();
+                bp.connect_unapply(move |_| set_stage(i));
+            }
+            format_bar_bin.add_breakpoint(bp);
+        }
+
         let format_bar_container = GtkBox::new(Orientation::Vertical, 0);
-        format_bar_container.append(&format_bar);
+        format_bar_container.append(&format_bar_bin);
         format_bar_container.append(&Separator::new(Orientation::Horizontal));
 
         let outer = GtkBox::new(Orientation::Vertical, 0);
@@ -2392,6 +2558,31 @@ impl EditorPane {
             }
         }).collect::<Vec<_>>().join("\n");
         let new_text = if text.ends_with('\n') { format!("{new_text}\n") } else { new_text };
+
+        // "Two-Column" (sidebar) is the only style with a structurally different
+        // body (a #grid columns split, written once at document-creation time —
+        // see generate_cv_sidebar_body). The other three styles re-color/re-font
+        // from the same flat single-column body just by flipping CV_STYLE above,
+        // no regeneration needed. But crossing sidebar<->non-sidebar needs the
+        // body itself rebuilt, or switching *out* of Two-Column would leave the
+        // old two-column grid in place — the body would keep rendering columnar
+        // even though the header now says "Modern"/"Academic"/"Classic".
+        let old_style = super::template_dialog::parse_cv_style(&text);
+        let old_is_sidebar = old_style.as_deref() == Some("sidebar");
+        let new_is_sidebar = style == "sidebar";
+        let new_text = if old_is_sidebar != new_is_sidebar {
+            match new_text.find("// ── Document body") {
+                Some(pos) => {
+                    let mut spliced = new_text[..pos].to_string();
+                    spliced.push_str(&super::template_dialog::generate_cv_body(style));
+                    spliced
+                }
+                None => new_text,
+            }
+        } else {
+            new_text
+        };
+
         buf.begin_user_action();
         let (mut s, mut e) = buf.bounds();
         buf.delete(&mut s, &mut e);

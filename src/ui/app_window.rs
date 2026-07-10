@@ -1361,9 +1361,14 @@ impl AppWindow {
         let window_for_setup = window.clone();
         let root_for_setup = project_root.clone();
         let menu_popover_for_setup = menu_popover.clone();
+        let cfg_for_setup = current_config.clone();
         menu_setup_item.connect_clicked(move |_| {
             menu_popover_for_setup.popdown();
-            super::setup_wizard::SetupWizard::new(&window_for_setup, &root_for_setup).present();
+            let (sans, serif) = font_defaults(&cfg_for_setup);
+            super::setup_wizard::SetupWizard::new(
+                &window_for_setup, &root_for_setup, &sans, &serif,
+                make_font_save_cb(cfg_for_setup.clone()),
+            ).present();
         });
 
         // ── Menu: Backup Remotes ────────────────────────────────────────────
@@ -1466,9 +1471,11 @@ impl AppWindow {
 
         let window_for_fonts = window.clone();
         let menu_popover_for_fonts = menu_popover.clone();
+        let cfg_for_fonts = current_config.clone();
         menu_fonts_item.connect_clicked(move |_| {
             menu_popover_for_fonts.popdown();
-            FontManager::new(&window_for_fonts).present();
+            let cfg = cfg_for_fonts.borrow();
+            FontManager::new(&window_for_fonts, &cfg.default_sans_font, &cfg.default_serif_font).present();
         });
 
         // ── Menu: Import (picker dialog) ───────────────────────────────────
@@ -2699,6 +2706,7 @@ impl AppWindow {
 
         let win_for_welcome = window.clone();
         let root_for_welcome = project_root.clone();
+        let cfg_for_welcome = current_config.clone();
         glib::timeout_add_local(Duration::from_millis(1200), move || {
             if super::welcome_window::WelcomeWindow::should_show() {
                 let is_first_run = super::welcome_window::WelcomeWindow::is_first_run();
@@ -2707,14 +2715,23 @@ impl AppWindow {
                 // Chain: after "Get Started", check if setup wizard is needed.
                 let win_chain = win_for_welcome.clone();
                 let root_chain = root_for_welcome.clone();
+                let cfg_chain = cfg_for_welcome.clone();
                 ww.set_on_dismissed(move || {
                     if super::setup_wizard::SetupWizard::should_show(&root_chain) {
-                        super::setup_wizard::SetupWizard::new(&win_chain, &root_chain).present();
+                        let (sans, serif) = font_defaults(&cfg_chain);
+                        super::setup_wizard::SetupWizard::new(
+                            &win_chain, &root_chain, &sans, &serif,
+                            make_font_save_cb(cfg_chain.clone()),
+                        ).present();
                     }
                 });
                 ww.present();
             } else if super::setup_wizard::SetupWizard::should_show(&root_for_welcome) {
-                super::setup_wizard::SetupWizard::new(&win_for_welcome, &root_for_welcome).present();
+                let (sans, serif) = font_defaults(&cfg_for_welcome);
+                super::setup_wizard::SetupWizard::new(
+                    &win_for_welcome, &root_for_welcome, &sans, &serif,
+                    make_font_save_cb(cfg_for_welcome.clone()),
+                ).present();
             }
             glib::ControlFlow::Break
         });
@@ -4643,6 +4660,20 @@ impl AppWindow {
         });
 
         self.window.present();
+    }
+}
+
+fn font_defaults(cfg: &Rc<RefCell<Config>>) -> (String, String) {
+    let c = cfg.borrow();
+    (c.default_sans_font.clone(), c.default_serif_font.clone())
+}
+
+fn make_font_save_cb(cfg: Rc<RefCell<Config>>) -> impl Fn(String, String) + 'static {
+    move |sans: String, serif: String| {
+        let mut c = cfg.borrow_mut();
+        c.default_sans_font = sans;
+        c.default_serif_font = serif;
+        let _ = c.save();
     }
 }
 
