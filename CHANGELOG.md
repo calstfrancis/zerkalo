@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.18.0-dev4] — Default fonts, CV template fixes
+## [0.18.0-dev5] — Default fonts, CV template fixes
 
 ### Added
 - **Default Fonts step in onboarding** — pick a default sans and serif font in Setup & Onboarding; new documents and template previews use them until you choose something else per-document.
@@ -23,6 +23,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **A single-line description on any CV entry (Employment, Education, Award, etc.) failed to compile in every CV style**, not just Two-Column — Skrizhal's schema deliberately allows a one-line `description` to be written as a bare scalar instead of a list, but the shared `cv-desc-block` Typst helper assumed it was always an array and called `.map()` on it, crashing with "type string has no method `map`". Now normalizes a scalar description to a single-item list before rendering.
 - **Editing metadata (Email/Location/Website/etc.) via "Update Template Settings" on an existing CV crashed with "unknown variable: section"** — the dialog tracked which template kind (Academic/Book/CV/Letter) to regenerate in a separate piece of state from the CV Mode toggle, and only the toggle got restored when reopening the dialog on an existing document; the template-kind state silently stayed at its Academic default, so Apply regenerated an Academic preamble (which never defines `#section`) onto a preserved CV body that still called it. Now correctly restores the template kind too, from the document's sidecar or its `@zerkalo-kind` marker.
 - **Setup & Onboarding could open 2-3x wider than its intended 640px** — long unwrapped content (status labels showing a full repository URL, the "Unknown distro" install hint joining three package-manager commands) forced GTK to size the window to fit the widest child's natural width. Now clamped and wrapped the same way `WelcomeWindow` already was.
+- **"Update Template Settings" could still regenerate a CV as Academic, crashing with "unknown variable: section"**, on a document whose sidecar had drifted to the wrong kind on an older Zerkalo version — the dev3 fix above only covered the common case, not an already-corrupted sidecar that kept perpetuating itself. The dialog now cross-checks the document's actual body content (does it call `#cv-section(...)`?) and trusts that over a stale sidecar/marker, and `apply_body_splice` itself now refuses to combine a CV body with a non-CV preamble instead of silently writing a document that won't compile.
 
 ---
 

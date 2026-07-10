@@ -2234,6 +2234,21 @@ pub fn apply_body_splice(existing: &str, fresh: &str) -> String {
                 fresh[..fresh_p].to_string()
             };
 
+            // Guard against producing a document that can't compile: a preserved
+            // body that still calls #section(...)/#cv-section(...) needs a CV
+            // preamble — the only kind that defines those helpers (via
+            // cv-helpers.typ). If `fresh_preamble` isn't one, the caller's
+            // body-kind state must have disagreed with what the document's body
+            // actually is (see body_looks_like_cv's callers in app_window.rs) —
+            // splicing here would silently write a document that fails to
+            // compile with "unknown function: section". Keep the existing,
+            // working document instead of corrupting it.
+            let old_body_needs_cv_helpers = old_body.contains("#section(") || old_body.contains("#cv-section(");
+            let fresh_defines_cv_helpers = fresh_preamble.contains("#let section(");
+            if old_body_needs_cv_helpers && !fresh_defines_cv_helpers {
+                return existing.to_string();
+            }
+
             format!("{fresh_preamble}{updated_body}")
         }
         _ => fresh.to_string(),
@@ -3806,6 +3821,19 @@ pub fn parse_doc_kind(content: &str) -> Option<String> {
     None
 }
 
+/// The document *body* is the ground truth for whether it's a CV — a sidecar
+/// or `@zerkalo-kind` marker can drift out of sync with the actual content
+/// (e.g. an older Zerkalo version that regenerated the preamble from the
+/// wrong body-kind state once, which then got written back into the sidecar
+/// and kept perpetuating itself), but a body that calls `#cv-section(...)` or
+/// imports `cv-helpers.typ` unambiguously needs a CV preamble regardless of
+/// what any metadata says. "Update Template Settings" checks this after
+/// consulting the sidecar/marker and overrides to CV if it disagrees — see
+/// its two call sites in app_window.rs.
+pub fn body_looks_like_cv(content: &str) -> bool {
+    content.contains("#cv-section(") || content.contains("#import \"cv-helpers.typ\"")
+}
+
 pub fn parse_cv_style(content: &str) -> Option<String> {
     for line in content.lines().take(20) {
         if let Some(rest) = line.trim().strip_prefix("// @zerkalo-cv-style:") {
@@ -4975,13 +5003,22 @@ french:
 
         // The bug: editing metadata (email/location/website) via "Update
         // Template Settings" on this CV, with body_kind left stale at its
-        // Academic default (as it was before preselect_body_kind existed).
+        // Academic default (as it was before preselect_body_kind existed —
+        // or, per body_looks_like_cv's doc comment, a sidecar that drifted
+        // to a non-CV kind on an older Zerkalo version and kept perpetuating
+        // itself). apply_body_splice now guards against this itself, so the
+        // mismatched splice no longer corrupts the document — it falls back
+        // to the existing, still-valid CV untouched.
         let buggy_fresh = generate_typst_template(&base_settings(body_kind_from_key("")));
         assert!(!buggy_fresh.contains("#let section("), "Academic preamble should not define #section");
         let buggy_result = apply_body_splice(&existing_doc, &buggy_fresh);
+        assert_eq!(
+            buggy_result, existing_doc,
+            "splicing an Academic preamble onto a CV body must be refused, keeping the existing document"
+        );
         assert!(
-            !compile(&buggy_result),
-            "regenerating a CV's preamble as Academic must reproduce 'unknown variable: section'"
+            compile(&buggy_result),
+            "the guarded fallback must still be the original, compiling CV"
         );
 
         // The fix: preselect_body_kind(body_kind_from_key(&sidecar.body_kind))

@@ -1803,6 +1803,16 @@ impl AppWindow {
                     dlg.preselect_dropcap_color(&c);
                 }
             }
+            // The body is ground truth for CV-ness: if the sidecar/marker path above
+            // disagrees with what the document's body actually calls (#cv-section, an
+            // import of cv-helpers.typ), trust the body — see body_looks_like_cv's doc
+            // comment. Without this, a document whose sidecar drifted to a non-CV kind
+            // would keep regenerating a non-CV preamble onto its still-CV body forever,
+            // producing a document that fails to compile ("unknown function: section").
+            if super::template_dialog::body_looks_like_cv(&current_content) {
+                dlg.preselect_cv_mode(true);
+                dlg.preselect_body_kind(super::template_dialog::body_kind_from_key("cv"));
+            }
             if let Some(doc_abstract) = super::template_dialog::parse_abstract_from_doc(&current_content) {
                 dlg.override_abstract_text(&doc_abstract);
             }
@@ -3857,6 +3867,16 @@ impl AppWindow {
                     if let Some(c) = super::template_dialog::parse_dropcap_color(&current_content) {
                         dlg.preselect_dropcap_color(&c);
                     }
+                }
+                // The body is ground truth for CV-ness: if the sidecar/marker path above
+                // disagrees with what the document's body actually calls (#cv-section, an
+                // import of cv-helpers.typ), trust the body — see body_looks_like_cv's doc
+                // comment. Without this, a document whose sidecar drifted to a non-CV kind
+                // would keep regenerating a non-CV preamble onto its still-CV body forever,
+                // producing a document that fails to compile ("unknown function: section").
+                if super::template_dialog::body_looks_like_cv(&current_content) {
+                    dlg.preselect_cv_mode(true);
+                    dlg.preselect_body_kind(super::template_dialog::body_kind_from_key("cv"));
                 }
                 // If the user edited the abstract directly in the .typ file, that wins
                 // over what the sidecar recorded last time. Override with doc's text.
