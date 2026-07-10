@@ -140,7 +140,16 @@ impl ExportDialog {
         let parent_clone = parent.clone();
         let project_root_for_cv = project_root.clone();
         install_btn.connect_clicked(move |_| {
-            let wizard = super::setup_wizard::SetupWizard::new(&parent_clone, &project_root);
+            let (sans, serif) = {
+                let c = crate::config::Config::load().unwrap_or_default();
+                (c.default_sans_font, c.default_serif_font)
+            };
+            let wizard = super::setup_wizard::SetupWizard::new(&parent_clone, &project_root, &sans, &serif, |sans, serif| {
+                let mut c = crate::config::Config::load().unwrap_or_default();
+                c.default_sans_font = sans;
+                c.default_serif_font = serif;
+                let _ = c.save();
+            });
             wizard.present();
         });
 

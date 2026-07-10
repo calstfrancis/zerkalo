@@ -126,18 +126,12 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
-                "Added: \"CV Mode\" toggle in the template dialog — shows only CV templates and CV-relevant settings, with the Skrizhal CV Elements file picker alongside the preset list",
-                "Added: Skrizhal now appears in the setup wizard's Tools checklist, with an explanation of what it does and how to install it",
-                "Added: \"Sign in with GitHub\" — connect your account with a short device code instead of generating a Personal Access Token by hand",
-                "Added: create and link a new GitHub repository from the setup wizard, without leaving the app or visiting github.com first",
-                "Added: in CV mode, the citation panel connects to a Skrizhal CV-element YAML database instead of a bibliography, with \"!\" autocomplete for CV entries alongside the existing \"@\" citation autocomplete",
-                "Added: \"CV — Two-Column\" résumé template — sidebar (Education, Skills, Interests, Awards) beside a main column (Experience, Presentations & Publications, Extracurricular)",
-                "Added: universal document import — LaTeX, Word, Markdown, ODT, HTML, EPUB, RTF, and PDF via ☰ → Import, drag-and-drop, batch/folder import, and Paste as Document",
-                "Added: Academic Letter preset now generates an actual letter — date, recipient block, salutation, and signed closing — instead of a reskinned essay",
-                "Added: \"CV — Two-Column\" gained a full-width Profile section for a professional summary, above the sidebar/main-column split",
-                "Changed: New from Template presets get a distinct running header (APA shows a running title, GOST and Book/Long-form show the current section/chapter, LaTeX Look shows Author · Title)",
-                "Fixed: CV preset previews in New from Template (Modern/Academic/Classic/Two-Column) now actually render, instead of silently failing to compile",
-                "Fixed: template previews and CV documents rendered in the wrong font — the embedded Typst compiler's bundled fonts weren't enabled, so \"Times New Roman\" silently fell back to a mono font on most systems; now renders in Libertinus Serif reliably regardless of what's installed on your machine",
+                "Added: Default Fonts step in Setup & Onboarding — pick a default sans and serif font, used for new documents and template previews until you choose something else per-document",
+                "Added: default fonts are soft-locked in Font Management — disabling one is blocked with a warning to pick a replacement first",
+                "Added: descriptions in the in-document CV style switcher (Modern/Academic/Classic/Two-Column), matching the New from Template gallery",
+                "Changed: the formatting toolbar now collapses lower-priority controls into a trailing \"more\" menu as the pane narrows, instead of forcing the editor to overflow underneath the sidebar",
+                "Changed: in CV mode, New from Template's Metadata group now shows CV-relevant fields (Email, Location, Phone, Links) instead of academic-paper fields that were silently ignored for CVs",
+                "Fixed: switching CV style away from Two-Column kept the old two-column layout — the style switcher now regenerates the document body, not just the style label",
             ] {
                 body.append(&bullet_row(item));
             }

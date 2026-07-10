@@ -5,7 +5,8 @@ use std::rc::Rc;
 
 use gtk4::prelude::*;
 use gtk4::{
-    Align, Box as GtkBox, Button, CheckButton, Entry, Label, Orientation, ScrolledWindow, Separator,
+    Align, AlertDialog, Box as GtkBox, Button, CheckButton, Entry, Label, Orientation,
+    ScrolledWindow, Separator,
 };
 use libadwaita as adw;
 use adw::prelude::*;
@@ -17,10 +18,23 @@ pub struct FontManager {
 }
 
 impl FontManager {
-    pub fn new(parent: &adw::ApplicationWindow) -> Self {
+    /// `default_sans`/`default_serif` are the fonts chosen during onboarding
+    /// (Setup & Onboarding -> Default Fonts, persisted on `Config`). Either may
+    /// be empty if the user hasn't set one yet. Disabling either here is
+    /// soft-locked — blocked with a warning explaining they need to pick a
+    /// replacement default first — since template previews and new documents
+    /// fall back to them.
+    pub fn new(parent: &adw::ApplicationWindow, default_sans: &str, default_serif: &str) -> Self {
         let fonts = list_system_fonts();
         let prefs: Rc<RefCell<BTreeMap<String, bool>>> =
             Rc::new(RefCell::new(load_prefs()));
+        let locked_fonts: Rc<Vec<String>> = Rc::new(
+            [default_sans, default_serif]
+                .into_iter()
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string())
+                .collect(),
+        );
 
         // ── Search entry ────────────────────────────────────────────────────
         let search_entry = Entry::new();
@@ -40,6 +54,7 @@ impl FontManager {
         let prefs_for_list = prefs.clone();
         let fonts_for_filter = fonts.clone();
         let list_box_for_rebuild = list_box.clone();
+        let locked_for_list = locked_fonts.clone();
 
         let rebuild: Rc<dyn Fn(&str)> = Rc::new(move |query: &str| {
             while let Some(child) = list_box_for_rebuild.first_child() {
@@ -51,6 +66,7 @@ impl FontManager {
                     continue;
                 }
                 let enabled = prefs_for_list.borrow().get(font).copied().unwrap_or(true);
+                let is_locked = locked_for_list.iter().any(|l| l == font);
                 let row = GtkBox::new(Orientation::Horizontal, 8);
                 row.set_margin_top(3);
                 row.set_margin_bottom(3);
@@ -66,11 +82,34 @@ impl FontManager {
 
                 row.append(&cb);
                 row.append(&lbl);
+                if is_locked {
+                    let lock_icon = Label::new(Some("🔒"));
+                    lock_icon.set_tooltip_text(Some("Default font — set in Setup & Onboarding"));
+                    row.append(&lock_icon);
+                }
                 list_box_for_rebuild.append(&row);
 
                 let prefs_c = prefs_for_list.clone();
                 let font_c = font.clone();
+                let locked_c = locked_for_list.clone();
                 cb.connect_toggled(move |btn| {
+                    if !btn.is_active() && locked_c.iter().any(|l| l == &font_c) {
+                        btn.set_active(true);
+                        let alert = AlertDialog::builder()
+                            .modal(true)
+                            .message("This is a default font")
+                            .detail(format!(
+                                "\"{font_c}\" is set as your default sans or serif font in \
+                                 Setup & Onboarding → Default Fonts. Choose a different default \
+                                 there before disabling it here."
+                            ))
+                            .buttons(["OK"])
+                            .cancel_button(0)
+                            .default_button(0)
+                            .build();
+                        alert.choose(None::<&gtk4::Window>, None::<&gtk4::gio::Cancellable>, |_| {});
+                        return;
+                    }
                     prefs_c.borrow_mut().insert(font_c.clone(), btn.is_active());
                 });
             }
@@ -108,11 +147,29 @@ impl FontManager {
         let fonts_for_none = fonts.clone();
         let rebuild_for_none = rebuild.clone();
         let search_for_none = search_entry.clone();
+        let locked_for_none = locked_fonts.clone();
         disable_all_btn.connect_clicked(move |_| {
             for font in &fonts_for_none {
+                if locked_for_none.iter().any(|l| l == font) {
+                    continue;
+                }
                 prefs_for_none.borrow_mut().insert(font.clone(), false);
             }
             rebuild_for_none(&search_for_none.text());
+            if !locked_for_none.is_empty() {
+                let alert = AlertDialog::builder()
+                    .modal(true)
+                    .message("Default fonts kept enabled")
+                    .detail(format!(
+                        "{} stayed enabled — they're your default fonts (Setup & Onboarding → Default Fonts).",
+                        locked_for_none.join(" and ")
+                    ))
+                    .buttons(["OK"])
+                    .cancel_button(0)
+                    .default_button(0)
+                    .build();
+                alert.choose(None::<&gtk4::Window>, None::<&gtk4::gio::Cancellable>, |_| {});
+            }
         });
 
         let btn_row = GtkBox::new(Orientation::Horizontal, 8);

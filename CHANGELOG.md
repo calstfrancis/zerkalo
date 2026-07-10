@@ -5,6 +5,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.18.0-dev1] — Default fonts, CV template fixes
+
+### Added
+- **Default Fonts step in onboarding** — pick a default sans and serif font in Setup & Onboarding; new documents and template previews use them until you choose something else per-document.
+- **Soft-locked default fonts in Font Management** — disabling a font that's set as your default sans or serif is blocked with a warning explaining you need to choose a replacement first; "Disable All" now skips them too.
+- **Descriptions in the CV style switcher** — the in-document format-bar CV style dropdown (Modern/Academic/Classic/Two-Column) now shows a one-line description for each style, matching the New from Template gallery.
+
+### Changed
+- The formatting toolbar above the editor now collapses lower-priority controls (size, font, CV style, figure, table, line numbers, pagebreak, headings) into a trailing "more" menu as the pane narrows, instead of forcing the editor to overflow underneath the sidebar.
+- In CV mode, the New from Template Metadata group now shows CV-relevant fields (Email, Location, Phone, Links/Website) instead of academic-paper fields (Subtitle, Course, Professor) that were silently ignored for CVs.
+
+### Fixed
+- **Switching CV style away from Two-Column kept the old two-column layout** — the in-document style switcher only changed the `CV_STYLE` label, never regenerating the document body, so a résumé switched from Two-Column to Modern/Academic/Classic (or back) kept rendering with the wrong column structure.
+
+---
+
 ## [0.17.0] "Clear Glass" — Sign in with GitHub, CV Mode, reliable font rendering
 
 ### Added

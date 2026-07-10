@@ -593,6 +593,8 @@ impl SettingsDialog {
             let shown_simple_intro_cur = current.shown_simple_intro;
             let format_bar_visible_cur = current.format_bar_visible;
             let last_used_advanced_cur = current.last_used_advanced;
+            let default_sans_font_cur = current.default_sans_font.clone();
+            let default_serif_font_cur = current.default_serif_font.clone();
             move || {
                 let work_dir_text = work_dir_row.text().trim().to_string();
                 let work_dir = if work_dir_text.is_empty() {
@@ -691,6 +693,8 @@ impl SettingsDialog {
                     format_bar_visible: format_bar_visible_cur,
                     last_used_advanced: last_used_advanced_cur,
                     snippets: Vec::new(),
+                    default_sans_font: default_sans_font_cur.clone(),
+                    default_serif_font: default_serif_font_cur.clone(),
                 }
             }
         };

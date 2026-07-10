@@ -127,6 +127,15 @@ pub struct Config {
     pub last_used_advanced: bool,
     #[serde(default)]
     pub snippets: Vec<Snippet>,
+    /// Chosen during onboarding (Setup & Onboarding -> Default Fonts). Used to
+    /// pre-select the font for new documents (serif for academic/CV-Serif
+    /// styles, sans for CV body kind) and to format template gallery previews.
+    /// FontManager soft-locks these two fonts: disabling either is blocked
+    /// with a warning until the user picks a replacement default first.
+    #[serde(default)]
+    pub default_sans_font: String,
+    #[serde(default)]
+    pub default_serif_font: String,
 }
 
 fn default_work_dir() -> PathBuf {
@@ -193,6 +202,8 @@ impl Default for Config {
             format_bar_visible: true,
             last_used_advanced: false,
             snippets: Vec::new(),
+            default_sans_font: String::new(),
+            default_serif_font: String::new(),
         }
     }
 }

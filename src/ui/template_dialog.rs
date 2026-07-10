@@ -654,7 +654,14 @@ impl TemplateDialog {
         let font_row = adw::ComboRow::new();
         font_row.set_title("Body Font");
         font_row.set_model(Some(&font_model));
-        let default_font_idx = available_fonts.iter().position(|f| f == "Times New Roman")
+        // Onboarding's default serif/sans fonts (Setup & Onboarding -> Default
+        // Fonts) take priority; "Times New Roman" is the fallback for anyone
+        // who hasn't set one. The CV toggle below re-selects to the sans
+        // default while it's on, since résumés commonly go sans-serif.
+        let default_fonts_cfg = crate::config::Config::load().unwrap_or_default();
+        let default_font_idx = available_fonts.iter()
+            .position(|f| f == &default_fonts_cfg.default_serif_font)
+            .or_else(|| available_fonts.iter().position(|f| f == "Times New Roman"))
             .unwrap_or(0) as u32;
         font_row.set_selected(default_font_idx);
         typo_group.add(&font_row);
@@ -1139,6 +1146,27 @@ impl TemplateDialog {
             let tab3 = tab3_scroll.clone();
             let tab5 = tab5_scroll.clone();
             let elements_group = cv_elements_group.clone();
+            // The Metadata group's academic-paper rows aren't relevant to a CV, so in
+            // CV mode Title/Date hide entirely and Subtitle/Affiliation/Course/Professor
+            // are relabeled to CV-relevant fields (Email/Location/Phone/Links) instead
+            // of adding a parallel set of cv_*-only rows — see generate_cv_template's
+            // matching field mapping. The pin buttons hide too: they jointly lock
+            // (author, affiliation) as the persistent default identity for *all* new
+            // documents, and clicking one while affil_row means "Location" would
+            // overwrite that default with a CV-specific value.
+            let m_title = title_row.clone();
+            let m_subtitle = subtitle_row.clone();
+            let m_author = author_row.clone();
+            let m_affil = affil_row.clone();
+            let m_course = course_row.clone();
+            let m_professor = professor_row.clone();
+            let m_date = date_row.clone();
+            let m_author_pin = author_pin.clone();
+            let m_affil_pin = affil_pin.clone();
+            let m_font_row = font_row.clone();
+            let sans_font_idx = available_fonts.iter()
+                .position(|f| f == &default_fonts_cfg.default_sans_font);
+            let serif_font_idx = default_font_idx;
             cv_switch.connect_active_notify(move |sw| {
                 let cv_on = sw.is_active();
                 for (row, kind) in rows.borrow().iter() {
@@ -1147,6 +1175,29 @@ impl TemplateDialog {
                 tab3.set_visible(!cv_on);
                 tab5.set_visible(!cv_on);
                 elements_group.set_visible(cv_on);
+
+                m_title.set_visible(!cv_on);
+                m_date.set_visible(!cv_on);
+                m_author.set_title(if cv_on { "Full Name" } else { "Author" });
+                m_subtitle.set_title(if cv_on { "Email" } else { "Subtitle" });
+                m_affil.set_title(if cv_on { "Location" } else { "Affiliation" });
+                m_course.set_title(if cv_on { "Phone" } else { "Course / Context" });
+                m_professor.set_title(if cv_on { "Links / Website" } else { "Professor / Instructor" });
+                m_author_pin.set_visible(!cv_on);
+                m_affil_pin.set_visible(!cv_on);
+
+                // Résumés commonly go sans-serif; re-select the onboarding-chosen
+                // sans default while CV mode is on, and back to the serif default
+                // (or "Times New Roman") when it's off. Only applies when a sans
+                // default is actually set — otherwise leave the font as-is rather
+                // than jumping to an arbitrary font.
+                if cv_on {
+                    if let Some(i) = sans_font_idx {
+                        m_font_row.set_selected(i as u32);
+                    }
+                } else {
+                    m_font_row.set_selected(serif_font_idx);
+                }
             });
         }
 
@@ -1287,7 +1338,13 @@ impl TemplateDialog {
             };
 
             let content = generate_typst_template(&settings);
-            let title_slug = slug(&settings.title);
+            // Title is hidden (and unused) in CV mode, so default the filename to
+            // the person's name instead of an empty/generic slug.
+            let title_slug = if matches!(settings.body_kind, BodyKind::Cv) {
+                if settings.author.is_empty() { slug("cv") } else { slug(&format!("{} cv", settings.author)) }
+            } else {
+                slug(&settings.title)
+            };
             let sidecar = build_sidecar(&settings);
 
             let dialog = gtk4::FileDialog::new();
@@ -2602,6 +2659,13 @@ fn generate_cv_template(s: &TemplateSettings) -> String {
     let font = if s.font.is_empty() || s.font == "Times New Roman" { "Libertinus Serif" } else { &s.font };
     let font_size = if s.font_size.is_empty() { "10.5pt" } else { &s.font_size };
     let name = if s.author.is_empty() { "Your Name" } else { &s.author };
+    // In CV mode the Metadata group's academic-paper rows are relabeled to
+    // CV-relevant fields (see the cv_switch handler in TemplateDialog::new):
+    // Subtitle -> Email, Course -> Phone, Affiliation -> Location, Professor -> Links.
+    let email = if s.subtitle.is_empty() { "your@email.com" } else { &s.subtitle };
+    let phone = if s.course.is_empty() { "+1 555 000 0000" } else { &s.course };
+    let location = if s.affiliation.is_empty() { "City, Country" } else { &s.affiliation };
+    let links = if s.professor.is_empty() { "github.com/handle" } else { &s.professor };
 
     let mut out = String::new();
     let _ = writeln!(out, "{TEMPLATE_BEGIN}");
@@ -2691,10 +2755,10 @@ fn generate_cv_template(s: &TemplateSettings) -> String {
     // ── Personal details + styled header ────────────────────────────────────
     let _ = writeln!(out, "// ── Personal details ─────────────────────────────────────────────────");
     let _ = writeln!(out, "#let cv-name     = \"{}\"", typst_str(name));
-    let _ = writeln!(out, "#let cv-email    = \"your@email.com\"");
-    let _ = writeln!(out, "#let cv-phone    = \"+1 555 000 0000\"");
-    let _ = writeln!(out, "#let cv-location = \"City, Country\"");
-    let _ = writeln!(out, "#let cv-links    = \"github.com/handle\"");
+    let _ = writeln!(out, "#let cv-email    = \"{}\"", typst_str(email));
+    let _ = writeln!(out, "#let cv-phone    = \"{}\"", typst_str(phone));
+    let _ = writeln!(out, "#let cv-location = \"{}\"", typst_str(location));
+    let _ = writeln!(out, "#let cv-links    = \"{}\"", typst_str(links));
     let _ = writeln!(out);
 
     // Modern header: large tracked name, accent-colored contact row, thick rule
@@ -2741,6 +2805,19 @@ fn generate_cv_template(s: &TemplateSettings) -> String {
     let _ = writeln!(out, "  #line(length: 100%, stroke: 0.5pt)");
     let _ = writeln!(out, "]");
     let _ = writeln!(out);
+    out.push_str(&generate_cv_body(cv_style));
+    out
+}
+
+/// The document body for a CV, dispatched purely on `cv_style` — no personal
+/// details or page setup, so it can be regenerated on its own when the user
+/// switches CV style on an existing document (see `EditorPane::apply_cv_style`)
+/// without touching the preamble. "sidebar" (Two-Column) is the only style
+/// with a structurally different, columnar body; the others share one flat,
+/// single-column body and only differ in the (already CV_STYLE-conditional,
+/// no regeneration needed) header colors/fonts above this point.
+pub fn generate_cv_body(cv_style: &str) -> String {
+    let mut out = String::new();
     if cv_style != "sidebar" {
         let _ = writeln!(out, "#v(0.6em)");
         let _ = writeln!(out);
@@ -3474,13 +3551,31 @@ fn generate_preset_preview(idx: usize) -> Result<Vec<u8>, String> {
         .map(|(_, v)| v.to_string())
         .unwrap_or_else(|| "1.5em".to_string());
 
+    // In CV mode these four rows are relabeled Email/Location/Phone/Links (see
+    // generate_cv_template), so the preview needs CV-shaped sample values here
+    // instead of the academic-paper ones used for every other body kind.
+    let is_cv_preview = matches!(p.body_kind, BodyKind::Cv);
+
+    // Onboarding lets Cal pick default sans/serif fonts (Setup & Onboarding ->
+    // Default Fonts) — previews use those (sans for CVs, serif for everything
+    // else) until a font is picked per-document, same as new documents (see
+    // the CV-switch handler in TemplateDialog::new). Falls back to
+    // "Libertinus Serif" — embedded in the Typst compiler, so it always
+    // renders correctly — when no default is set yet, or the chosen system
+    // font can't be found.
+    let preview_font = {
+        let cfg = crate::config::Config::load().unwrap_or_default();
+        let chosen = if is_cv_preview { cfg.default_sans_font } else { cfg.default_serif_font };
+        if chosen.is_empty() { "Libertinus Serif".to_string() } else { chosen }
+    };
+
     let settings = TemplateSettings {
         title: "Sample Document".to_string(),
-        subtitle: String::new(),
+        subtitle: if is_cv_preview { "jane.doe@example.com".to_string() } else { String::new() },
         author: "Author Name".to_string(),
-        affiliation: "Sample University".to_string(),
-        course: String::new(),
-        professor: String::new(),
+        affiliation: if is_cv_preview { "San Francisco, CA".to_string() } else { "Sample University".to_string() },
+        course: if is_cv_preview { "+1 555 012 3456".to_string() } else { String::new() },
+        professor: if is_cv_preview { "linkedin.com/in/janedoe".to_string() } else { String::new() },
         date: "2026".to_string(),
         style_idx: p.style_idx as usize,
         paper_idx: p.paper_idx as usize,
@@ -3488,13 +3583,7 @@ fn generate_preset_preview(idx: usize) -> Result<Vec<u8>, String> {
         custom_paper_h: String::new(),
         margin_idx: p.margin_idx as usize,
         custom_margin: String::new(),
-        // "Times New Roman" doesn't exist as an exact font-family match on
-        // Linux (no exact-match file, and it isn't one of Typst's embedded
-        // fonts either), so Typst can't find it and falls back to whatever
-        // font its FontBook happens to pick for unknown families — visibly
-        // wrong in the gallery preview. "Libertinus Serif" is embedded
-        // directly in the Typst compiler, so it always renders correctly.
-        font: "Libertinus Serif".to_string(),
+        font: preview_font,
         font_size: "12pt".to_string(),
         spacing,
         page_num_pos: p.page_num_pos,
@@ -4630,6 +4719,94 @@ french:
             );
             assert!(result.unwrap().starts_with(b"%PDF-"));
 
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+
+    #[test]
+    fn switching_cv_style_across_sidebar_boundary_swaps_body_shape() {
+        // Mirrors EditorPane::apply_cv_style's splice: keep the preamble, swap
+        // only the body when crossing the sidebar (Two-Column) <-> flat boundary.
+        fn splice_style(existing: &str, new_style: &str) -> String {
+            let old_is_sidebar = parse_cv_style(existing).as_deref() == Some("sidebar");
+            let new_is_sidebar = new_style == "sidebar";
+            let retagged: String = existing
+                .lines()
+                .map(|line| {
+                    let t = line.trim_start();
+                    if t.starts_with("#let CV_STYLE =") {
+                        format!("#let CV_STYLE = \"{new_style}\"")
+                    } else if t.starts_with("// @zerkalo-cv-style:") {
+                        format!("// @zerkalo-cv-style: {new_style}")
+                    } else {
+                        line.to_string()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            if old_is_sidebar == new_is_sidebar {
+                return retagged;
+            }
+            let pos = retagged.find("// ── Document body").expect("body marker present");
+            format!("{}{}", &retagged[..pos], generate_cv_body(new_style))
+        }
+
+        let sidebar_settings = TemplateSettings {
+            title: String::new(), subtitle: String::new(),
+            author: "Jane Doe".to_string(), affiliation: String::new(),
+            course: String::new(), professor: String::new(), date: String::new(),
+            style_idx: 3, paper_idx: 1,
+            custom_paper_w: String::new(), custom_paper_h: String::new(),
+            margin_idx: 1, custom_margin: String::new(),
+            font: "Linux Libertine".to_string(), font_size: "10.5pt".to_string(),
+            spacing: "0.65em".to_string(), page_num_pos: 4, header_style: 0,
+            include_toc: false, toc_depth: 2,
+            include_abstract: false, abstract_text: String::new(),
+            include_keywords: false, keywords: String::new(),
+            heading_numbering: false, numbering_format: String::new(),
+            languages: Vec::new(), packages: Vec::new(),
+            dropcap_font: String::new(), dropcap_lines: 3, dropcap_color: String::new(),
+            body_kind: BodyKind::Cv, bib_path: None,
+        };
+        let sidebar_src = generate_typst_template(&sidebar_settings);
+        assert!(sidebar_src.contains("columns: (1fr, 2fr)"));
+
+        // Two-Column -> Modern must drop the grid and fall back to the flat body.
+        let modern_src = splice_style(&sidebar_src, "modern");
+        assert!(modern_src.contains("#let CV_STYLE = \"modern\""));
+        assert!(!modern_src.contains("columns: (1fr, 2fr)"), "switching away from Two-Column must remove its grid layout");
+        assert!(modern_src.contains("#section(\"Experience\")["));
+        assert!(modern_src.contains("#section(\"Skills\")["));
+
+        // And back again: Modern -> Two-Column must restore the grid.
+        let sidebar_again_src = splice_style(&modern_src, "sidebar");
+        assert!(sidebar_again_src.contains("#let CV_STYLE = \"sidebar\""));
+        assert!(sidebar_again_src.contains("columns: (1fr, 2fr)"));
+        assert!(sidebar_again_src.contains("#section(\"Profile\")["));
+
+        // Cosmetic-only switches among the flat styles must NOT touch the body.
+        let academic_src = splice_style(&modern_src, "academic");
+        assert!(academic_src.contains("#let CV_STYLE = \"academic\""));
+        assert!(academic_src.contains("#section(\"Experience\")["));
+
+        use std::collections::HashMap;
+        let cv_helpers_src = include_str!("../../templates/cv-helpers.typ");
+        let mut overrides = HashMap::new();
+        overrides.insert(std::path::PathBuf::from("/tmp/cv-helpers.typ"), cv_helpers_src.to_string());
+        let inputs = HashMap::new();
+
+        for (label, src) in [("modern", &modern_src), ("sidebar_again", &sidebar_again_src)] {
+            static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let path = std::path::PathBuf::from(format!(
+                "/tmp/zerkalo_test_cv_style_switch_{label}_{}_{}.typ",
+                std::process::id(),
+                n
+            ));
+            std::fs::write(&path, src).unwrap();
+            let result = crate::compiler::compile_to_pdf_bytes(&path, &overrides, &inputs);
+            assert!(result.is_ok(), "spliced {label} CV should compile: {:?}", result.err());
+            assert!(result.unwrap().starts_with(b"%PDF-"));
             let _ = std::fs::remove_file(&path);
         }
     }
