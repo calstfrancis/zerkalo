@@ -138,6 +138,8 @@ impl WelcomeWindow {
                 "Fixed: Setup & Onboarding could open 2-3x wider than intended when status labels or install hints were long",
                 "Changed: Setup & Onboarding now shows a progress summary, section icons, and \"Optional\" badges; auto-scrolls to the first unfinished section; previews Default Fonts choices in their own font; and re-checks missing tools when the window regains focus instead of requiring a manual \"Verify\" click",
                 "Fixed: Update Template Settings could still regenerate a CV as Academic and crash with \"unknown variable: section\" if its sidecar had drifted to the wrong kind — the dialog now trusts the document's actual body content over a stale sidecar, and the underlying splice refuses to combine a CV body with a non-CV preamble",
+                "Fixed: re-picking a CV style in Update Template Settings didn't change the layout — Apply preserved the old body verbatim, so switching Two-Column back to Modern (or vice versa) kept the old column structure",
+                "Fixed: CV — Two-Column had no visible description in Update Template Settings — its style picker there reused the citation-style dropdown, so it showed citation names instead of CV style names; now shows Modern/Academic/Classic/Two-Column with a live description, and correctly restores which style a reopened CV is actually using",
             ] {
                 body.append(&bullet_row(item));
             }

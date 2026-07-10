@@ -1774,6 +1774,16 @@ impl AppWindow {
                     &super::template_dialog::parse_style_key(&current_content)
                         .unwrap_or_default(),
                 );
+                // A CV document's @zerkalo-style marker is just the literal "cv"
+                // (see generate_cv_template), so preselect_style above can't
+                // recover the actual CV style (Modern/Academic/Classic/
+                // Two-Column) from it — that's tracked separately via
+                // @zerkalo-cv-style.
+                if let Some(cv_style) = super::template_dialog::parse_cv_style(&current_content) {
+                    if let Some(idx) = super::template_dialog::cv_style_index(&cv_style) {
+                        dlg.preselect_cv_style_index(idx);
+                    }
+                }
                 if let Some(f) = super::template_dialog::parse_font(&current_content) {
                     dlg.preselect_font(&f);
                 }
@@ -3839,6 +3849,16 @@ impl AppWindow {
                         &super::template_dialog::parse_style_key(&current_content)
                             .unwrap_or_default(),
                     );
+                    // A CV document's @zerkalo-style marker is just the literal "cv"
+                    // (see generate_cv_template), so preselect_style above can't
+                    // recover the actual CV style (Modern/Academic/Classic/
+                    // Two-Column) from it — that's tracked separately via
+                    // @zerkalo-cv-style.
+                    if let Some(cv_style) = super::template_dialog::parse_cv_style(&current_content) {
+                        if let Some(idx) = super::template_dialog::cv_style_index(&cv_style) {
+                            dlg.preselect_cv_style_index(idx);
+                        }
+                    }
                     if let Some(f) = super::template_dialog::parse_font(&current_content) {
                         dlg.preselect_font(&f);
                     }
