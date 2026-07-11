@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.18.0-dev6] — Default fonts, CV template fixes
+## [0.18.0] "True Type" — Default fonts, CV template fixes, onboarding polish
 
 ### Added
 - **Default Fonts step in onboarding** — pick a default sans and serif font in Setup & Onboarding; new documents and template previews use them until you choose something else per-document.
