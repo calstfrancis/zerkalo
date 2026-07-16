@@ -21,7 +21,7 @@ pub fn host_command(bin: &str) -> Command {
 
 /// Returns a `Command` pre-loaded with `git -C <repo>`, using
 /// `flatpak-spawn --host git` when running inside a flatpak sandbox.
-fn git_cmd(repo_path: &Path) -> Command {
+pub(crate) fn git_cmd(repo_path: &Path) -> Command {
     let mut cmd = if in_flatpak() {
         let mut cmd = Command::new("flatpak-spawn");
         cmd.args(["--host", "git", "-C", path_str(repo_path)]);

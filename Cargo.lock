@@ -5109,6 +5109,7 @@ dependencies = [
  "typst-kit",
  "typst-pdf",
  "typst-render",
+ "url",
 ]
 
 [[package]]

@@ -445,6 +445,12 @@ pub struct SidecarSettings {
     pub dropcap_color:      String,
     pub bib_path:           Option<String>,
     pub body_kind:          String,
+    /// CV style key ("modern"/"academic"/"classic"/"sidebar"), independent of
+    /// `style`'s citation-style keys. Empty on non-CV documents and on
+    /// sidecars saved before this field existed — see `build_sidecar` and
+    /// `preselect_from_sidecar` for the legacy fallback in that case.
+    #[serde(default)]
+    pub cv_style:           String,
 }
 
 // ── Dialog ────────────────────────────────────────────────────────────────────
@@ -2034,6 +2040,16 @@ impl TemplateDialog {
         self.preselect_cv_mode(s.body_kind == "cv");
         self.preselect_body_kind(body_kind_from_key(&s.body_kind));
         self.preselect_style(&s.style);
+        // For CVs, `s.cv_style` (when present) is authoritative over the
+        // `style` aliasing above — see CV_STYLE_OPTIONS' doc comment. Legacy
+        // sidecars saved before this field existed leave it empty, and fall
+        // back to the coincidental CITATION_STYLES-index match `preselect_style`
+        // just performed.
+        if s.body_kind == "cv" && !s.cv_style.is_empty() {
+            if let Some(idx) = cv_style_index(&s.cv_style) {
+                self.preselect_cv_style_index(idx);
+            }
+        }
         if !s.font.is_empty()      { self.preselect_font(&s.font); }
         if !s.font_size.is_empty() { self.preselect_font_size(&s.font_size); }
         if !s.paper.is_empty()     { self.preselect_paper(&s.paper, &s.custom_paper_w, &s.custom_paper_h); }
@@ -2127,16 +2143,32 @@ pub fn build_sidecar(t: &TemplateSettings) -> SidecarSettings {
         dropcap_color:     t.dropcap_color.clone(),
         bib_path:          t.bib_path.as_ref().map(|p| p.to_string_lossy().into_owned()),
         body_kind:         match t.body_kind { BodyKind::Book => "book".into(), BodyKind::Cv => "cv".into(), BodyKind::Letter => "letter".into(), BodyKind::Academic => "academic".into() },
+        // Written only for CV documents, and read back via `cv_style_index`
+        // instead of the `style`/CITATION_STYLES aliasing above — see
+        // CV_STYLE_OPTIONS' doc comment for why `style` alone isn't reliable
+        // for CVs if CITATION_STYLES is ever reordered.
+        cv_style:          if t.body_kind == BodyKind::Cv {
+            CV_STYLE_OPTIONS.get(t.style_idx).map(|(_, k, _)| k.to_string()).unwrap_or_default()
+        } else {
+            String::new()
+        },
     }
 }
 
 /// Reconstructs a [`TemplateSettings`] from a saved [`SidecarSettings`].
 #[allow(dead_code)]
 pub fn sidecar_to_settings(sc: &SidecarSettings) -> TemplateSettings {
-    let style_idx = CITATION_STYLES
-        .iter()
-        .position(|(_, k)| *k == sc.style)
-        .unwrap_or(0);
+    // For CVs, prefer the dedicated `cv_style` field over aliasing through
+    // CITATION_STYLES — falls back to the legacy alias lookup only for
+    // sidecars saved before `cv_style` existed.
+    let style_idx = if sc.body_kind == "cv" && !sc.cv_style.is_empty() {
+        cv_style_index(&sc.cv_style).unwrap_or(0)
+    } else {
+        CITATION_STYLES
+            .iter()
+            .position(|(_, k)| *k == sc.style)
+            .unwrap_or(0)
+    };
     let paper_idx = PAPER_SIZES
         .iter()
         .position(|(_, k)| *k == sc.paper)
@@ -5588,6 +5620,50 @@ Body text.\n";
         assert_eq!(rt.languages, vec!["lang_ru", "lang_he"]);
         assert_eq!(rt.packages, vec!["pkg_codly"]);
         assert_eq!(rt.bib_path, Some(std::path::PathBuf::from("/home/user/refs.bib")));
+    }
+
+    #[test]
+    fn cv_sidecar_round_trips_style_via_dedicated_field_not_citation_styles_alias() {
+        fn cv_settings(style_idx: usize) -> TemplateSettings {
+            TemplateSettings {
+                title: String::new(), subtitle: String::new(),
+                author: "Jane Doe".to_string(), affiliation: String::new(),
+                course: String::new(), professor: String::new(), date: String::new(),
+                style_idx, paper_idx: 1,
+                custom_paper_w: String::new(), custom_paper_h: String::new(),
+                margin_idx: 1, custom_margin: String::new(),
+                font: "Linux Libertine".to_string(), font_size: "10.5pt".to_string(),
+                spacing: "0.65em".to_string(), page_num_pos: 4, header_style: 0,
+                include_toc: false, toc_depth: 2,
+                include_abstract: false, abstract_text: String::new(),
+                include_keywords: false, keywords: String::new(),
+                heading_numbering: false, numbering_format: String::new(),
+                languages: Vec::new(), packages: Vec::new(),
+                dropcap_font: String::new(), dropcap_lines: 3, dropcap_color: String::new(),
+                body_kind: BodyKind::Cv, bib_path: None,
+            }
+        }
+
+        // Two-Column is style_idx 3, which build_sidecar's old behavior aliased
+        // through CITATION_STYLES[3] ("mla").
+        let sc = build_sidecar(&cv_settings(3));
+        assert_eq!(sc.cv_style, "sidebar");
+
+        // Simulate CITATION_STYLES having been reordered since this sidecar was
+        // saved, by corrupting `style` to a citation key that no longer means
+        // "Two-Column" at any index (or means something else entirely). The
+        // dedicated `cv_style` field must still recover the right style_idx.
+        let mut corrupted = sc.clone();
+        corrupted.style = "ieee".to_string(); // would wrongly resolve to index 8 pre-fix
+        let rt = sidecar_to_settings(&corrupted);
+        assert_eq!(rt.style_idx, 3, "cv_style must win over a stale/reordered `style` alias");
+
+        // A legacy sidecar predating this field (cv_style empty) still falls
+        // back to the old CITATION_STYLES-index alias, unchanged behavior.
+        let mut legacy = sc.clone();
+        legacy.cv_style = String::new();
+        let rt_legacy = sidecar_to_settings(&legacy);
+        assert_eq!(rt_legacy.style_idx, 3, "legacy sidecar without cv_style still resolves via style alias");
     }
 
     #[test]

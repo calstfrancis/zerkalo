@@ -39,6 +39,12 @@ impl ProjectModel {
     }
 
     pub fn scan(root: PathBuf) -> Self {
+        // Canonicalize once so every path flowing through (file list, import
+        // targets) is in the same form — parse_imports() canonicalizes each
+        // import target it resolves, so a non-canonical root here would make
+        // `imports.keys()` (raw) and `imports.values()` (canonical) disagree,
+        // causing candidate_roots()/detect_root() to miss real imports.
+        let root = std::fs::canonicalize(&root).unwrap_or(root);
         let files = crate::project::collect_typ_files(&root);
         let imports = build_import_graph(&files);
         let root_file = if let Some(cfg) = crate::config::ProjectConfig::load(&root) {
@@ -189,6 +195,33 @@ mod tests {
         imports.insert(b.clone(), vec![a.clone()]);
 
         assert_eq!(detect_root(&files, &imports), Some(b));
+    }
+
+    #[test]
+    fn scan_through_a_symlinked_root_still_detects_the_correct_compile_root() {
+        // Reproduces the canonicalization mismatch: parse_imports() always
+        // canonicalizes resolved import targets, so scanning via a symlinked
+        // root used to leave `files`/`imports.keys()` in a different (raw)
+        // path form than `imports.values()`, making candidate_roots() think
+        // chapter.typ was never imported by anyone.
+        let real_dir = tempfile::tempdir().unwrap();
+        std::fs::write(real_dir.path().join("chapter.typ"), "content").unwrap();
+        std::fs::write(
+            real_dir.path().join("main.typ"),
+            "#import \"chapter.typ\": *\n",
+        ).unwrap();
+
+        let parent = tempfile::tempdir().unwrap();
+        let link_path = parent.path().join("link");
+        std::os::unix::fs::symlink(real_dir.path(), &link_path).unwrap();
+
+        let model = ProjectModel::scan(link_path.clone());
+        let candidates = model.candidate_roots();
+        assert_eq!(
+            candidates.len(), 1,
+            "chapter.typ should be recognized as imported and excluded; got {candidates:?}"
+        );
+        assert_eq!(candidates[0].file_name().unwrap(), "main.typ");
     }
 
     #[test]

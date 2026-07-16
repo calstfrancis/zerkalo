@@ -357,15 +357,22 @@ fn migrate_for_pandoc(source: &std::path::Path) -> Option<PathBuf> {
     }
 
     // Detect whether heading numbering is active and what format is used.
-    let template_section = {
-        let b = content.find("// ZERKALO-TEMPLATE-BEGIN")?;
-        let e = content.find("// ZERKALO-TEMPLATE-END")?;
-        &content[b..e]
+    // Prefer scanning within the Zerkalo-generated template markers when
+    // present (keeps detection scoped to the known preamble), but fall back
+    // to scanning the whole document when they're missing — e.g. a
+    // hand-edited or older document — rather than aborting the migration
+    // and exporting with the pandoc-incompatible construct still in place.
+    let scan_section: &str = match (
+        content.find("// ZERKALO-TEMPLATE-BEGIN"),
+        content.find("// ZERKALO-TEMPLATE-END"),
+    ) {
+        (Some(b), Some(e)) if b < e => &content[b..e],
+        _ => &content,
     };
     let (num_on, num_fmt) = {
         let mut on = false;
         let mut fmt = String::new();
-        for line in template_section.lines() {
+        for line in scan_section.lines() {
             if let Some(rest) = line.trim().strip_prefix("#set heading(numbering: \"") {
                 if let Some(end) = rest.find('"') {
                     fmt = rest[..end].to_string();
@@ -442,5 +449,71 @@ fn run_command_logged(
         Ok(())
     } else {
         Err("Command failed (see log above)".to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const OLD_CONSTRUCT: &str =
+        "#if it.numbering != none [#context counter(heading).display(it.numbering)#h(0.3em)]";
+
+    fn write_temp(name: &str, content: &str) -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "zerkalo_migrate_test_{name}_{}.typ",
+            std::process::id()
+        ));
+        std::fs::write(&path, content).unwrap();
+        path
+    }
+
+    #[test]
+    fn migrate_for_pandoc_returns_none_when_construct_absent() {
+        let path = write_temp("absent", "#set page(paper: \"a4\")\n");
+        assert!(migrate_for_pandoc(&path).is_none());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn migrate_for_pandoc_migrates_within_template_markers() {
+        let content = format!(
+            "// ZERKALO-TEMPLATE-BEGIN\n#set heading(numbering: \"1.1.\")\n// ZERKALO-TEMPLATE-END\n{OLD_CONSTRUCT}\n"
+        );
+        let path = write_temp("with_markers", &content);
+        let out = migrate_for_pandoc(&path).expect("should migrate");
+        let migrated = std::fs::read_to_string(&out).unwrap();
+        assert!(!migrated.contains(OLD_CONSTRUCT));
+        assert!(migrated.contains("counter(heading).display(\"1.1.\")"));
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&out);
+    }
+
+    #[test]
+    fn migrate_for_pandoc_still_migrates_when_template_markers_are_missing() {
+        // A hand-edited or older document without the ZERKALO-TEMPLATE markers
+        // must still get the pandoc-incompatible construct patched out,
+        // instead of migrate_for_pandoc bailing via `?` and leaving it in place.
+        let content = format!(
+            "#set heading(numbering: \"I.A.1.\")\n{OLD_CONSTRUCT}\n"
+        );
+        let path = write_temp("no_markers", &content);
+        let out = migrate_for_pandoc(&path).expect("should still migrate without markers");
+        let migrated = std::fs::read_to_string(&out).unwrap();
+        assert!(!migrated.contains(OLD_CONSTRUCT));
+        assert!(migrated.contains("counter(heading).display(\"I.A.1.\")"));
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&out);
+    }
+
+    #[test]
+    fn migrate_for_pandoc_without_markers_and_without_numbering_strips_construct_blank() {
+        let content = OLD_CONSTRUCT.to_string();
+        let path = write_temp("no_markers_no_numbering", &content);
+        let out = migrate_for_pandoc(&path).expect("should still migrate");
+        let migrated = std::fs::read_to_string(&out).unwrap();
+        assert!(!migrated.contains(OLD_CONSTRUCT));
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&out);
     }
 }
