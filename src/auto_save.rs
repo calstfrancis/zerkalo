@@ -16,10 +16,58 @@ pub(crate) fn path_key(path: &Path) -> String {
     format!("{hash:016x}")
 }
 
+const MAX_COLLISION_PROBES: u32 = 8;
+
+fn candidate_key(base: &str, n: u32) -> String {
+    if n == 0 { base.to_string() } else { format!("{base}-{n}") }
+}
+
+/// Whether the `.meta` file at `key` (if any) names `original_path`. `None`
+/// means no `.meta` exists there at all.
+fn meta_matches(dir: &Path, key: &str, original_path: &Path) -> Option<bool> {
+    let bytes = std::fs::read(dir.join(format!("{key}.meta"))).ok()?;
+    Some(String::from_utf8_lossy(&bytes) == original_path.to_string_lossy())
+}
+
+/// Resolves the key to save `original_path`'s autosave under: the first
+/// candidate whose `.meta` already names this exact path, or is free.
+/// Guards against a (astronomically unlikely, but previously unguarded)
+/// FNV-1a hash collision between two different paths silently overwriting
+/// each other's autosave under the same key.
+fn key_for_save(dir: &Path, original_path: &Path) -> String {
+    let base = path_key(original_path);
+    for n in 0..MAX_COLLISION_PROBES {
+        let key = candidate_key(&base, n);
+        match meta_matches(dir, &key, original_path) {
+            Some(true) | None => return key,
+            Some(false) => continue,
+        }
+    }
+    // Every probe collided with a different path — vanishingly unlikely.
+    // Fall back to the base key rather than never saving at all.
+    base
+}
+
+/// Resolves the key an existing autosave for `original_path` was saved
+/// under, if any — mirrors key_for_save's probing so save/find/clear agree
+/// on where a given path's autosave actually lives.
+fn key_for_lookup(dir: &Path, original_path: &Path) -> Option<String> {
+    let base = path_key(original_path);
+    for n in 0..MAX_COLLISION_PROBES {
+        let key = candidate_key(&base, n);
+        match meta_matches(dir, &key, original_path) {
+            Some(true) => return Some(key),
+            Some(false) => continue,
+            None => return None,
+        }
+    }
+    None
+}
+
 pub fn save(original_path: &Path, content: &str) {
     let dir = autosave_dir();
     let _ = std::fs::create_dir_all(&dir);
-    let key = path_key(original_path);
+    let key = key_for_save(&dir, original_path);
     // Write to a temp file then rename — rename is atomic on Linux so a crash
     // mid-write leaves the previous good file intact rather than truncating it.
     let tmp = dir.join(format!("{key}.typ.tmp"));
@@ -34,7 +82,7 @@ pub fn save(original_path: &Path, content: &str) {
 /// last manual save of `original_path`.
 pub fn find_recovery(original_path: &Path) -> Option<(String, SystemTime)> {
     let dir = autosave_dir();
-    let key = path_key(original_path);
+    let key = key_for_lookup(&dir, original_path)?;
     let autosave_file = dir.join(format!("{key}.typ"));
     if !autosave_file.exists() {
         return None;
@@ -56,9 +104,10 @@ pub fn find_recovery(original_path: &Path) -> Option<(String, SystemTime)> {
 
 pub fn clear(original_path: &Path) {
     let dir = autosave_dir();
-    let key = path_key(original_path);
-    let _ = std::fs::remove_file(dir.join(format!("{key}.typ")));
-    let _ = std::fs::remove_file(dir.join(format!("{key}.meta")));
+    if let Some(key) = key_for_lookup(&dir, original_path) {
+        let _ = std::fs::remove_file(dir.join(format!("{key}.typ")));
+        let _ = std::fs::remove_file(dir.join(format!("{key}.meta")));
+    }
 }
 
 #[cfg(test)]
@@ -132,5 +181,36 @@ mod tests {
 
         clear(&path);
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn save_probes_past_a_simulated_hash_collision_instead_of_overwriting() {
+        let victim = PathBuf::from("/tmp/zerkalo_test_autosave_collision_victim.typ");
+        let attacker = PathBuf::from("/tmp/zerkalo_test_autosave_collision_attacker.typ");
+        let dir = autosave_dir();
+        let _ = std::fs::create_dir_all(&dir);
+
+        // Simulate victim and attacker hashing to the same base key by
+        // pre-planting victim's .meta/.typ directly under attacker's real key.
+        let attacker_key = path_key(&attacker);
+        std::fs::write(dir.join(format!("{attacker_key}.meta")), victim.to_string_lossy().as_bytes()).unwrap();
+        std::fs::write(dir.join(format!("{attacker_key}.typ")), "victim's content").unwrap();
+
+        save(&attacker, "attacker's content");
+
+        // Victim's slot must be untouched...
+        let victim_content = std::fs::read_to_string(dir.join(format!("{attacker_key}.typ"))).unwrap();
+        assert_eq!(victim_content, "victim's content");
+
+        // ...and the attacker's save must be found under a fallback key.
+        let attacker_result = find_recovery(&attacker);
+        assert!(attacker_result.is_some(), "attacker's autosave should still be findable via a fallback key");
+        assert_eq!(attacker_result.unwrap().0, "attacker's content");
+
+        // Cleanup: remove both the real victim slot and whatever fallback key
+        // the attacker landed on.
+        let _ = std::fs::remove_file(dir.join(format!("{attacker_key}.meta")));
+        let _ = std::fs::remove_file(dir.join(format!("{attacker_key}.typ")));
+        clear(&attacker);
     }
 }

@@ -16,6 +16,7 @@ pub struct PlanPanel {
     is_loading: Rc<RefCell<bool>>,
     header_label: Label,
     work_dir: Rc<PathBuf>,
+    save_gen: Rc<RefCell<u64>>,
 }
 
 impl PlanPanel {
@@ -59,8 +60,9 @@ impl PlanPanel {
         let save_path: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
         let is_loading: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
         let work_dir = Rc::new(work_dir);
+        let save_gen: Rc<RefCell<u64>> = Rc::new(RefCell::new(0));
 
-        let panel = Self { widget, text_view, save_path, is_loading, header_label, work_dir };
+        let panel = Self { widget, text_view, save_path, is_loading, header_label, work_dir, save_gen };
 
         // Load project notes immediately
         let project_plan = panel.work_dir.join("project.plan");
@@ -77,7 +79,15 @@ impl PlanPanel {
                 let text = buf.text(&buf.start_iter(), &buf.end_iter(), false).to_string();
                 let path_opt = p.save_path.borrow().clone();
                 if let Some(path) = path_opt {
+                    // Generation guard (matches notes_panel.rs's save_gen):
+                    // skip this write if a later keystroke has already
+                    // scheduled a newer one, instead of every keystroke
+                    // firing its own unconditional write to disk.
+                    *p.save_gen.borrow_mut() += 1;
+                    let my_gen = *p.save_gen.borrow();
+                    let gen2 = p.save_gen.clone();
                     glib::timeout_add_local_once(Duration::from_millis(400), move || {
+                        if *gen2.borrow() != my_gen { return; }
                         let _ = std::fs::write(&path, &text);
                     });
                 }
