@@ -126,20 +126,17 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
-                "Added: Default Fonts step in Setup & Onboarding — pick a default sans and serif font, used for new documents and template previews until you choose something else per-document",
-                "Added: default fonts are soft-locked in Font Management — disabling one is blocked with a warning to pick a replacement first",
-                "Added: descriptions in the in-document CV style switcher (Modern/Academic/Classic/Two-Column), matching the New from Template gallery",
-                "Changed: the formatting toolbar now collapses lower-priority controls into a trailing \"more\" menu as the pane narrows, instead of forcing the editor to overflow underneath the sidebar",
-                "Changed: in CV mode, New from Template's Metadata group now shows CV-relevant fields (Email, Location, Phone, Links) instead of academic-paper fields that were silently ignored for CVs",
-                "Fixed: switching CV style away from Two-Column kept the old two-column layout — the style switcher now regenerates the document body, not just the style label",
-                "Fixed: CV — Two-Column's Award entries ran title and organization together on one line, instead of stacking title / organization / date the way Education entries already did",
-                "Fixed: a single-line description on any CV entry (Employment, Education, Award, etc.) failed to compile in every CV style, not just Two-Column",
-                "Fixed: editing metadata (Email/Location/Website/etc.) via Update Template Settings on an existing CV could crash with \"unknown variable: section\"",
-                "Fixed: Setup & Onboarding could open 2-3x wider than intended when status labels or install hints were long",
-                "Changed: Setup & Onboarding now shows a progress summary, section icons, and \"Optional\" badges; auto-scrolls to the first unfinished section; previews Default Fonts choices in their own font; and re-checks missing tools when the window regains focus instead of requiring a manual \"Verify\" click",
-                "Fixed: Update Template Settings could still regenerate a CV as Academic and crash with \"unknown variable: section\" if its sidecar had drifted to the wrong kind — the dialog now trusts the document's actual body content over a stale sidecar, and the underlying splice refuses to combine a CV body with a non-CV preamble",
-                "Fixed: re-picking a CV style in Update Template Settings didn't change the layout — Apply preserved the old body verbatim, so switching Two-Column back to Modern (or vice versa) kept the old column structure",
-                "Fixed: CV — Two-Column had no visible description in Update Template Settings — its style picker there reused the citation-style dropdown, so it showed citation names instead of CV style names; now shows Modern/Academic/Classic/Two-Column with a live description, and correctly restores which style a reopened CV is actually using",
+                "Fixed: GitHub sync could send your sign-in token to non-GitHub backup remotes — token use is now scoped to github.com only",
+                "Fixed: cancelling \"Sign in with GitHub\" didn't actually stop the background approval check",
+                "Fixed: renaming a citation key could silently overwrite a different, already-existing key",
+                "Fixed: hyphenated citation keys (e.g. smith-2020) weren't renamed in the document text, only in the bibliography file",
+                "Fixed: snapshot/version history could mix together unrelated files or projects that happened to share a name",
+                "Fixed: a CV's style selector could show the wrong style when reopening Update Template Settings",
+                "Fixed: dragging to reorder files in the sidebar could show a \"rejected\" bounce-back even though the reorder succeeded",
+                "Fixed: exporting to Word/HTML/EPUB/etc. could silently produce broken output for documents missing certain internal markers",
+                "Fixed: autocomplete could get misaligned on lines containing emoji or certain rare symbols before the cursor",
+                "Fixed: quick-fixes for compile errors added an extra blank line, and could convert Windows-style line endings to Unix-style",
+                "Fixed: Settings could silently discard saved snippets when opened and saved",
             ] {
                 body.append(&bullet_row(item));
             }

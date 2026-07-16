@@ -5,6 +5,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.18.1-dev1] — Security, data-integrity, and correctness fixes
+
+### Fixed
+- **GitHub sync could send your sign-in token to non-GitHub remotes** — a backup remote pointing at any HTTPS host (not just github.com) had the token injected into its URL during sync. Token injection is now scoped to github.com only, and is passed via a scoped git config header instead of the URL, so it no longer appears in process listings either.
+- **Cancelling "Sign in with GitHub" didn't actually cancel it** — closing the dialog left the background approval check running; if you approved the code afterward, the account still got silently connected. Cancel now stops it immediately.
+- **Renaming a citation key could silently overwrite a different, already-existing key** with the same new name, deleting it with no warning. Renaming now refuses and shows an error instead.
+- **Hyphenated citation keys** (e.g. `smith-2020`, a normal BibTeX convention) **weren't renamed in the document text**, only in the bibliography file, leaving dangling citations behind.
+- **Snapshot/version history could mix together unrelated files** that happened to share a name in different folders, or unrelated projects whose folders happened to share a name — each now gets its own history.
+- **A CV's style selector could show the wrong style** when reopening "Update Template Settings," depending on unrelated internal list ordering. Style is now tracked independently and always reflects the actual document.
+- **Dragging to reorder files in the sidebar could show a "rejected" bounce-back** even though the reorder actually succeeded.
+- **Exporting to Word/HTML/EPUB/etc. could silently produce broken output** for documents missing certain internal template markers, with no warning that something went wrong.
+- **Autocomplete could get misaligned** on lines containing emoji or certain rare symbols before the cursor.
+- **Quick-fixes for compile errors** added an extra blank line above the inserted text, and could silently convert Windows-style (CRLF) line endings to Unix-style (LF) for the whole file.
+- Settings no longer silently discards saved snippets when you open and save the dialog.
+- A handful of smaller internal robustness fixes: safer autosave-file keying, safer match highlighting in Search and the Command Palette on certain Unicode text, and more reliable git-history/diff lookups when running as a Flatpak.
+
+---
+
 ## [0.18.0] "True Type" — Default fonts, CV template fixes, onboarding polish
 
 ### Added
