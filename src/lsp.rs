@@ -32,7 +32,7 @@ pub struct CompletionItem {
 // ── Client ────────────────────────────────────────────────────────────────────
 
 pub struct LspClient {
-    child: Child,
+    child: Option<Child>,
     stdin: ChildStdin,
     diag_rx: Receiver<Vec<LspDiagnostic>>,
     comp_rx: Receiver<(u64, Vec<CompletionItem>)>,
@@ -71,7 +71,7 @@ impl LspClient {
 
         let root_uri = path_to_uri(root);
         let mut client = Self {
-            child,
+            child: Some(child),
             stdin,
             diag_rx,
             comp_rx,
@@ -88,6 +88,16 @@ impl LspClient {
                 "processId": std::process::id(),
                 "rootUri": root_uri,
                 "capabilities": {
+                    // Explicit about the position encoding we actually send —
+                    // request_completion()'s column is a UTF-16 code-unit
+                    // count (see its caller in editor_pane.rs), matching the
+                    // LSP spec's default, so this is documentation as much as
+                    // negotiation. Without this, some servers assume the
+                    // client speaks the spec's default anyway, but relying on
+                    // an unstated default is fragile if that ever changes.
+                    "general": {
+                        "positionEncodings": ["utf-16"]
+                    },
                     "textDocument": {
                         "publishDiagnostics": {},
                         "completion": {
@@ -201,7 +211,10 @@ impl LspClient {
 
     /// Returns false if the tinymist process has exited.
     pub fn is_alive(&mut self) -> bool {
-        self.child.try_wait().map(|s| s.is_none()).unwrap_or(false)
+        self.child
+            .as_mut()
+            .map(|c| c.try_wait().map(|s| s.is_none()).unwrap_or(false))
+            .unwrap_or(false)
     }
 }
 
@@ -210,6 +223,23 @@ impl Drop for LspClient {
         let id = self.next_id();
         self.send(&json!({"jsonrpc":"2.0","id":id,"method":"shutdown","params":null}));
         self.send(&json!({"jsonrpc":"2.0","method":"exit","params":null}));
+        // Reap the child on a background thread so repeated LSP restarts
+        // (e.g. switching projects) don't accumulate zombie tinymist
+        // processes — without blocking the caller (likely the GTK main
+        // thread) on however long tinymist takes to actually exit. `exit`
+        // above should make it prompt; kill() is a fallback if it doesn't.
+        if let Some(mut child) = self.child.take() {
+            std::thread::spawn(move || {
+                if matches!(child.try_wait(), Ok(Some(_))) {
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(300));
+                if matches!(child.try_wait(), Ok(None)) {
+                    let _ = child.kill();
+                }
+                let _ = child.wait();
+            });
+        }
     }
 }
 
@@ -394,10 +424,54 @@ fn strip_snippet_syntax(s: &str) -> String {
 
 // ── URI helpers ───────────────────────────────────────────────────────────────
 
+// Uses the `url` crate rather than manual string concatenation so paths with
+// spaces or non-ASCII characters (e.g. a home directory with a Unicode
+// username) round-trip correctly — tinymist percent-encodes/decodes URIs per
+// RFC 3986, so a hand-built `file://{path}` without encoding wouldn't match
+// what it sends back in `publishDiagnostics`, silently dropping or
+// misattributing diagnostics for such paths.
 fn path_to_uri(path: &Path) -> String {
-    format!("file://{}", path.to_string_lossy())
+    url::Url::from_file_path(path)
+        .map(|u| u.to_string())
+        .unwrap_or_else(|_| format!("file://{}", path.to_string_lossy()))
 }
 
 fn uri_to_path(uri: &str) -> PathBuf {
-    PathBuf::from(uri.trim_start_matches("file://"))
+    url::Url::parse(uri)
+        .ok()
+        .and_then(|u| u.to_file_path().ok())
+        .unwrap_or_else(|| PathBuf::from(uri.trim_start_matches("file://")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn path_to_uri_percent_encodes_spaces() {
+        let uri = path_to_uri(Path::new("/home/user/My Docs/main.typ"));
+        assert!(uri.contains("%20"), "spaces should be percent-encoded: {uri}");
+        assert!(!uri.contains(' '), "no literal spaces should remain: {uri}");
+    }
+
+    #[test]
+    fn uri_round_trips_path_with_spaces_and_unicode() {
+        let original = Path::new("/home/user/Café Notes/thèse.typ");
+        let uri = path_to_uri(original);
+        let round_tripped = uri_to_path(&uri);
+        assert_eq!(round_tripped, original);
+    }
+
+    #[test]
+    fn uri_round_trips_plain_ascii_path() {
+        let original = Path::new("/home/user/project/main.typ");
+        let uri = path_to_uri(original);
+        assert_eq!(uri_to_path(&uri), original);
+    }
+
+    #[test]
+    fn strip_snippet_syntax_removes_placeholders_and_tabstops() {
+        assert_eq!(strip_snippet_syntax("#heading(${1:level})$0"), "#heading(level)");
+        assert_eq!(strip_snippet_syntax(r"\$5 total"), "$5 total");
+    }
 }

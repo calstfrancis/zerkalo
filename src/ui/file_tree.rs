@@ -486,6 +486,7 @@ impl FileTree {
         let project_root = self.project_root.clone();
         let drag_holder2 = self.drag_source_path.clone();
         let all_files_snapshot = crate::project::collect_typ_files(&self.project_root);
+        let ft_for_dnd = self.clone();
         drop_tgt.connect_drop(move |_, _value, _, _| {
             let src_path = drag_holder2.borrow().clone();
             let Some(src) = src_path else { return false; };
@@ -524,14 +525,12 @@ impl FileTree {
             proj_cfg.file_order = rel_order;
             let _ = proj_cfg.save(&project_root);
 
-            true
-        });
-        // Refresh display after drop completes
-        let ft_for_dnd = self.clone();
-        drop_tgt.connect_drop(move |_, _, _, _| {
+            // Refresh display after the reorder — deferred to idle so this
+            // handler can return its real result first.
             let ft = ft_for_dnd.clone();
             glib::idle_add_local_once(move || ft.refresh());
-            false
+
+            true
         });
         row.add_controller(drop_tgt);
     }

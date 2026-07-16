@@ -22,7 +22,9 @@ type RenameCb = Rc<RefCell<Option<Box<dyn Fn(String, String)>>>>;
 static CITE_RE: OnceLock<Regex> = OnceLock::new();
 
 fn cite_re() -> &'static Regex {
-    CITE_RE.get_or_init(|| Regex::new(r"@([A-Za-z][A-Za-z0-9_:]*)").unwrap())
+    CITE_RE.get_or_init(|| {
+        Regex::new(&format!(r"@({})", crate::bibliography::CITE_KEY_CHARS)).unwrap()
+    })
 }
 
 #[derive(Clone)]

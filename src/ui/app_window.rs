@@ -1822,6 +1822,16 @@ impl AppWindow {
             if super::template_dialog::body_looks_like_cv(&current_content) {
                 dlg.preselect_cv_mode(true);
                 dlg.preselect_body_kind(super::template_dialog::body_kind_from_key("cv"));
+                // The sidecar/marker path above may have left the Style row on a
+                // stale or non-CV-meaningful selection (e.g. a sidecar that drifted
+                // to a non-CV body_kind never calls preselect_cv_style_index at
+                // all). Re-derive it from the body's actual @zerkalo-cv-style marker
+                // now that we know this is really a CV.
+                if let Some(cv_style) = super::template_dialog::parse_cv_style(&current_content) {
+                    if let Some(idx) = super::template_dialog::cv_style_index(&cv_style) {
+                        dlg.preselect_cv_style_index(idx);
+                    }
+                }
             }
             if let Some(doc_abstract) = super::template_dialog::parse_abstract_from_doc(&current_content) {
                 dlg.override_abstract_text(&doc_abstract);
@@ -3897,6 +3907,15 @@ impl AppWindow {
                 if super::template_dialog::body_looks_like_cv(&current_content) {
                     dlg.preselect_cv_mode(true);
                     dlg.preselect_body_kind(super::template_dialog::body_kind_from_key("cv"));
+                    // See the identical fallback earlier in this file (the
+                    // read-only "current document" path) for why this is needed:
+                    // the sidecar/marker path above may have left Style on a
+                    // stale or non-CV-meaningful selection.
+                    if let Some(cv_style) = super::template_dialog::parse_cv_style(&current_content) {
+                        if let Some(idx) = super::template_dialog::cv_style_index(&cv_style) {
+                            dlg.preselect_cv_style_index(idx);
+                        }
+                    }
                 }
                 // If the user edited the abstract directly in the .typ file, that wins
                 // over what the sidecar recorded last time. Override with doc's text.

@@ -3691,7 +3691,17 @@ impl EditorPane {
                     }
 
                     let line = cursor_iter.line() as u32 + 1;
-                    let col = cursor_iter.line_offset() as u32 + 1;
+                    // LSP positions are UTF-16 code units by default (we don't
+                    // advertise a different `general.positionEncodings`), but
+                    // `line_offset()` counts Unicode codepoints — the two only
+                    // agree for text entirely within the Basic Multilingual
+                    // Plane. Count UTF-16 units up to the cursor instead, so
+                    // completions stay aligned on lines with e.g. emoji before
+                    // the cursor.
+                    let mut line_start = cursor_iter.clone();
+                    line_start.set_line_offset(0);
+                    let text_before_cursor = buf.text(&line_start, &cursor_iter, false);
+                    let col = text_before_cursor.encode_utf16().count() as u32 + 1;
 
                     *lsp_gen3.borrow_mut() += 1;
                     let my_gen = *lsp_gen3.borrow();

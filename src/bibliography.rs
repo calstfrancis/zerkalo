@@ -2,6 +2,12 @@ use std::path::Path;
 
 use biblatex::{Bibliography, ChunksExt, DateValue, PermissiveType};
 
+/// Character class for a valid BibTeX citation key, shared by every regex
+/// that matches or renames citation keys (here and in `ui/ref_manager.rs`).
+/// Includes `-` — a normal BibTeX convention (e.g. `smith-2020`) that's easy
+/// to miss since it's not a valid identifier character in most other contexts.
+pub const CITE_KEY_CHARS: &str = "[A-Za-z][A-Za-z0-9_:-]*";
+
 #[derive(Clone, Debug, Default)]
 pub struct BibEntry {
     pub key: String,
@@ -175,8 +181,10 @@ pub fn rename_key_in_bib_file(path: &Path, old_key: &str, new_key: &str) -> std:
 pub fn rename_key_in_text(text: &str, old_key: &str, new_key: &str) -> (String, bool) {
     static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     let re = RE.get_or_init(|| {
-        regex::Regex::new(r#"@([A-Za-z][A-Za-z0-9_:]*)|#cite\(<([^>]+)>\)|#cite\("([^"]+)"\)"#)
-            .unwrap()
+        regex::Regex::new(&format!(
+            r#"@({CITE_KEY_CHARS})|#cite\(<([^>]+)>\)|#cite\("([^"]+)"\)"#
+        ))
+        .unwrap()
     });
 
     let result = re.replace_all(text, |caps: &regex::Captures| {
@@ -368,6 +376,13 @@ mod tests {
         let (out, changed) = rename_key_in_text("#cite(<smith2020>)", "smith2020", "smith2021");
         assert!(changed);
         assert_eq!(out, "#cite(<smith2021>)");
+    }
+
+    #[test]
+    fn rename_key_in_text_handles_hyphenated_keys() {
+        let (out, changed) = rename_key_in_text("See @smith-2020 for details.", "smith-2020", "smith-2021");
+        assert!(changed);
+        assert_eq!(out, "See @smith-2021 for details.");
     }
 
     #[test]

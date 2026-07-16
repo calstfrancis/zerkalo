@@ -199,10 +199,14 @@ fn apply_colored_diff(buf: &gtk4::TextBuffer, diff: &str) {
 }
 
 fn git_log_for_file(root: &PathBuf, file: &PathBuf) -> Vec<(String, String, String)> {
-    let out = crate::git_sync::host_command("git")
+    // Uses git_sync's `-C <repo>` invocation (rather than host_command() +
+    // current_dir()) — under flatpak, current_dir() only sets the sandboxed
+    // flatpak-spawn wrapper's cwd, not the host git process's, so it isn't a
+    // reliable way to point git at the right repo there. `-C` is a host-side
+    // git argument and works regardless.
+    let out = crate::git_sync::git_cmd(root)
         .args(["log", "--follow", "--format=%H|%s|%cd", "--date=short", "--"])
         .arg(file)
-        .current_dir(root)
         .output();
 
     match out {
@@ -221,10 +225,9 @@ fn git_log_for_file(root: &PathBuf, file: &PathBuf) -> Vec<(String, String, Stri
 }
 
 fn git_diff_for_commit(root: &PathBuf, file: &PathBuf, oid: &str) -> String {
-    let out = crate::git_sync::host_command("git")
+    let out = crate::git_sync::git_cmd(root)
         .args(["show", "--stat", "--patch", oid, "--"])
         .arg(file)
-        .current_dir(root)
         .output();
 
     match out {
