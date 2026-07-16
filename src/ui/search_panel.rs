@@ -376,11 +376,21 @@ fn highlight_markup(line: &str, query: &str) -> String {
     let Some(pos) = lower_line.find(&lower_query) else {
         return glib::markup_escape_text(line).to_string();
     };
-    // Byte-safe: only apply when byte lengths are consistent (ASCII queries)
     let end = pos + lower_query.len();
-    if end > line.len() || pos > line.len() {
-        return glib::markup_escape_text(line).to_string();
-    }
+
+    // `pos`/`end` are byte offsets into `lower_line`, not `line` — case
+    // folding can change a character's byte length (Turkish İ, Kelvin sign
+    // K, German ß, …), so they aren't guaranteed to land on char boundaries
+    // in the original (or even be in range) when such characters appear
+    // before or within the match. Clamp into range, then snap outward to
+    // the nearest valid boundary, rather than assuming they already align —
+    // slicing at a non-boundary offset panics.
+    let mut pos = pos.min(line.len());
+    let mut end = end.min(line.len());
+    while pos > 0 && !line.is_char_boundary(pos) { pos -= 1; }
+    while end < line.len() && !line.is_char_boundary(end) { end += 1; }
+    if end < pos { end = pos; }
+
     let before = glib::markup_escape_text(&line[..pos]);
     let matched = glib::markup_escape_text(&line[pos..end]);
     let after = glib::markup_escape_text(&line[end..]);
@@ -446,4 +456,38 @@ fn decode_row_name(name: &str) -> Option<(PathBuf, u32)> {
     let line: u32 = parts.next()?.parse().ok()?;
     let file = PathBuf::from(parts.next()?);
     Some((file, line))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn highlight_markup_wraps_the_match_in_bold() {
+        let out = highlight_markup("hello world", "world");
+        assert_eq!(out, "hello <b>world</b>");
+    }
+
+    #[test]
+    fn highlight_markup_is_case_insensitive() {
+        let out = highlight_markup("Hello World", "world");
+        assert_eq!(out, "Hello <b>World</b>");
+    }
+
+    #[test]
+    fn highlight_markup_does_not_panic_when_lowercasing_shifts_byte_offsets_mid_character() {
+        // "İ" (U+0130) lowercases to "i̇" (i + combining dot above), which is
+        // 1 byte longer — so a byte offset found in the lowercased copy can
+        // land in the middle of "İ"'s 2-byte UTF-8 sequence in the original
+        // string. This used to panic on `line[pos..end]`; now it must not.
+        let line = "stanİ日";
+        let out = highlight_markup(line, "stan");
+        assert!(out.contains("<b>"), "should still produce a highlighted result: {out}");
+    }
+
+    #[test]
+    fn highlight_markup_escapes_html_in_surrounding_text() {
+        let out = highlight_markup("<tag> world", "world");
+        assert!(out.contains("&lt;tag&gt;"));
+    }
 }

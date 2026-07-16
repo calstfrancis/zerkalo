@@ -90,6 +90,7 @@ fn fix_add_closing_paren(source: &str, line_idx: usize) -> Option<String> {
 }
 
 fn fix_add_let_binding(source: &str, line_idx: usize) -> Option<String> {
+    let nl = line_ending(source);
     // Extract the unknown variable name from the line if possible
     let lines: Vec<&str> = source.lines().collect();
     let error_line = lines.get(line_idx)?;
@@ -101,10 +102,12 @@ fn fix_add_let_binding(source: &str, line_idx: usize) -> Option<String> {
         .filter(|n| !n.is_empty())
         .unwrap_or("variable");
 
-    let insertion = format!("#let {var_name} = \"\"  // TODO: define {var_name}\n");
+    // No trailing newline here — new_lines.join(nl) below supplies it, so
+    // adding one here would insert a doubled blank line above the binding.
+    let insertion = format!("#let {var_name} = \"\"  // TODO: define {var_name}");
     let mut new_lines: Vec<String> = lines.iter().map(|l| l.to_string()).collect();
     new_lines.insert(line_idx, insertion);
-    Some(new_lines.join("\n"))
+    Some(new_lines.join(nl))
 }
 
 /// Whole-document delimiter balance is the only reliable signal for "unexpected
@@ -130,15 +133,24 @@ fn fix_unclosed_delimiters(source: &str, _line_idx: usize) -> Option<String> {
     if suffix.is_empty() {
         None
     } else {
-        Some(format!("{source}\n{suffix}"))
+        Some(format!("{source}{}{suffix}", line_ending(source)))
     }
 }
 
 fn append_to_line(source: &str, line_idx: usize, suffix: &str) -> Option<String> {
+    let nl = line_ending(source);
     let mut lines: Vec<String> = source.lines().map(|l| l.to_string()).collect();
     let line = lines.get_mut(line_idx)?;
     line.push_str(suffix);
-    Some(lines.join("\n"))
+    Some(lines.join(nl))
+}
+
+/// Detects whether `source` uses CRLF or LF line endings, so fixes that
+/// rebuild the document from `.lines()` (which strips either style) can
+/// rejoin with the same style instead of silently normalizing the whole
+/// file to LF the moment any quick-fix is applied.
+fn line_ending(source: &str) -> &'static str {
+    if source.contains("\r\n") { "\r\n" } else { "\n" }
 }
 
 #[cfg(test)]
@@ -238,5 +250,34 @@ mod tests {
     fn match_fix_finds_type_mismatch() {
         let fix = match_fix("error: expected content, found string").unwrap();
         assert_eq!(fix.pattern, ", found ");
+    }
+
+    #[test]
+    fn fix_add_let_binding_does_not_insert_a_doubled_blank_line() {
+        let src = "line one\n#unknown-var + 1\nline three";
+        let fixed = fix_add_let_binding(src, 1).unwrap();
+        assert!(!fixed.contains("\n\n"), "should not introduce a blank line: {fixed:?}");
+    }
+
+    #[test]
+    fn append_to_line_preserves_crlf_line_endings() {
+        let src = "#let x = {\r\nfoo\r\nbar";
+        let fixed = fix_add_closing_brace(src, 2).unwrap();
+        assert_eq!(fixed, "#let x = {\r\nfoo\r\nbar}");
+    }
+
+    #[test]
+    fn fix_add_let_binding_preserves_crlf_line_endings() {
+        let src = "line one\r\n#unknown-var + 1\r\nline three";
+        let fixed = fix_add_let_binding(src, 1).unwrap();
+        assert!(fixed.contains("\r\n#let unknown-var"), "got: {fixed:?}");
+        assert!(!fixed.contains("\n\n"), "no doubled blank line: {fixed:?}");
+    }
+
+    #[test]
+    fn fix_unclosed_delimiters_preserves_crlf_line_endings() {
+        let src = "#let x = {\r\nfoo(bar[baz";
+        let fixed = fix_unclosed_delimiters(src, 0).unwrap();
+        assert_eq!(fixed, "#let x = {\r\nfoo(bar[baz\r\n})]");
     }
 }

@@ -194,6 +194,20 @@ fn highlight_match(text: &str, query: &str) -> String {
     let lower_text = text.to_lowercase();
     if let Some(start) = lower_text.find(query) {
         let end = start + query.len();
+
+        // `start`/`end` are byte offsets into `lower_text`, not `text` — case
+        // folding can change a character's byte length (Turkish İ, Kelvin
+        // sign K, German ß, …), so they aren't guaranteed to land on char
+        // boundaries in the original (or even be in range) when such
+        // characters appear before or within the match. Clamp into range,
+        // then snap outward to the nearest valid boundary — slicing at a
+        // non-boundary offset panics.
+        let mut start = start.min(text.len());
+        let mut end = end.min(text.len());
+        while start > 0 && !text.is_char_boundary(start) { start -= 1; }
+        while end < text.len() && !text.is_char_boundary(end) { end += 1; }
+        if end < start { end = start; }
+
         let prefix = glib::markup_escape_text(&text[..start]);
         let matched = glib::markup_escape_text(&text[start..end]);
         let suffix = glib::markup_escape_text(&text[end..]);
@@ -328,4 +342,32 @@ pub fn recent_file_items(files: &[PathBuf]) -> Vec<PaletteItem> {
             })
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn highlight_match_wraps_the_match_in_bold() {
+        // Callers always lowercase `query` before calling this (see filter_items).
+        let out = highlight_match("hello world", "world");
+        assert_eq!(out, "hello <b>world</b>");
+    }
+
+    #[test]
+    fn highlight_match_does_not_panic_when_lowercasing_shifts_byte_offsets_mid_character() {
+        // Same scenario as search_panel's equivalent test: "İ" lowercases to
+        // a longer byte sequence, so a naive byte-offset reuse against the
+        // original string can slice mid-character and panic.
+        let text = "stanİ日";
+        let out = highlight_match(text, "stan");
+        assert!(out.contains("<b>"), "should still produce a highlighted result: {out}");
+    }
+
+    #[test]
+    fn highlight_match_returns_escaped_text_unchanged_when_no_match() {
+        let out = highlight_match("<tag> hello", "zzz");
+        assert_eq!(out, "&lt;tag&gt; hello");
+    }
 }
