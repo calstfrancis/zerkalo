@@ -595,6 +595,7 @@ impl SettingsDialog {
             let last_used_advanced_cur = current.last_used_advanced;
             let default_sans_font_cur = current.default_sans_font.clone();
             let default_serif_font_cur = current.default_serif_font.clone();
+            let snippets_cur = current.snippets.clone();
             move || {
                 let work_dir_text = work_dir_row.text().trim().to_string();
                 let work_dir = if work_dir_text.is_empty() {
@@ -692,7 +693,7 @@ impl SettingsDialog {
                     shown_simple_intro: shown_simple_intro_cur,
                     format_bar_visible: format_bar_visible_cur,
                     last_used_advanced: last_used_advanced_cur,
-                    snippets: Vec::new(),
+                    snippets: snippets_cur.clone(),
                     default_sans_font: default_sans_font_cur.clone(),
                     default_serif_font: default_serif_font_cur.clone(),
                 }

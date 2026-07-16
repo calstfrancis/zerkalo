@@ -5,7 +5,7 @@ fn autosave_dir() -> PathBuf {
     PathBuf::from(shellexpand::tilde("~/.config/zerkalo/autosave").into_owned())
 }
 
-fn path_key(path: &Path) -> String {
+pub(crate) fn path_key(path: &Path) -> String {
     // FNV-1a 64-bit: stable across Rust versions (unlike DefaultHasher).
     let s = path.to_string_lossy();
     let mut hash: u64 = 14695981039346656037u64;

@@ -22,7 +22,7 @@ pub fn host_command(bin: &str) -> Command {
 /// Returns a `Command` pre-loaded with `git -C <repo>`, using
 /// `flatpak-spawn --host git` when running inside a flatpak sandbox.
 fn git_cmd(repo_path: &Path) -> Command {
-    if in_flatpak() {
+    let mut cmd = if in_flatpak() {
         let mut cmd = Command::new("flatpak-spawn");
         cmd.args(["--host", "git", "-C", path_str(repo_path)]);
         cmd
@@ -30,7 +30,11 @@ fn git_cmd(repo_path: &Path) -> Command {
         let mut cmd = Command::new("git");
         cmd.args(["-C", path_str(repo_path)]);
         cmd
-    }
+    };
+    // Force English output so the substring matches in is_auth_error() and the
+    // "nothing to commit" check below are reliable regardless of the user's locale.
+    cmd.env("LANG", "C").env("LC_ALL", "C");
+    cmd
 }
 
 // ── Public types ─────────────────────────────────────────────────────────────
@@ -268,14 +272,20 @@ pub fn sync(repo_path: &Path, github_token: Option<&str>) -> SyncResult {
     let mut auth_failed = false;
 
     for remote in &remotes {
-        let authed_url = github_token
-            .and_then(|_tok| get_remote_url(repo_path, remote))
-            .and_then(|url| inject_token_into_url(&url, github_token.unwrap_or("")));
+        let auth_args: Vec<String> = match github_token {
+            Some(tok) if !tok.is_empty() => {
+                match get_remote_url(repo_path, remote) {
+                    Some(url) if is_github_https(&url) => github_auth_args(tok),
+                    _ => Vec::new(),
+                }
+            }
+            _ => Vec::new(),
+        };
 
         // Pull --rebase before push so diverged histories are handled.
-        let pull_remote = authed_url.as_deref().unwrap_or(remote.as_str());
         if let Ok(pull_out) = git_cmd(repo_path)
-            .args(["pull", "--rebase", pull_remote, &branch])
+            .args(auth_args.clone())
+            .args(["pull", "--rebase", remote.as_str(), &branch])
             .output()
         {
             if !pull_out.status.success() {
@@ -303,9 +313,9 @@ pub fn sync(repo_path: &Path, github_token: Option<&str>) -> SyncResult {
             }
         }
 
-        let push_remote = authed_url.as_deref().unwrap_or(remote.as_str());
         match git_cmd(repo_path)
-            .args(["push", "-u", push_remote, &branch])
+            .args(auth_args.clone())
+            .args(["push", "-u", remote.as_str(), &branch])
             .output() {
             Err(e) => push_errors.push(format!("({remote}) {e}")),
             Ok(o) if !o.status.success() => {
@@ -320,20 +330,38 @@ pub fn sync(repo_path: &Path, github_token: Option<&str>) -> SyncResult {
     SyncResult { committed, pushed, commit_message: msg, error: None, push_errors, auth_failed }
 }
 
-fn inject_token_into_url(url: &str, token: &str) -> Option<String> {
-    if token.is_empty() { return None; }
-    if url.starts_with("https://github.com/") {
-        let rest = &url["https://github.com/".len()..];
-        Some(format!("https://{token}@github.com/{rest}"))
-    } else if url.starts_with("https://") {
-        // Generic HTTPS: insert token@ after https://
-        let rest = &url["https://".len()..];
-        // Remove any existing user@
-        let rest = if let Some(at) = rest.find('@') { &rest[at + 1..] } else { rest };
-        Some(format!("https://{token}@{rest}"))
-    } else {
-        None
+/// Whether `url` is an `https://github.com/...` remote — the only case the
+/// stored OAuth token is authorized for. Never send it to any other host.
+fn is_github_https(url: &str) -> bool {
+    url.starts_with("https://github.com/")
+}
+
+/// Builds `-c http.<url>.extraHeader=...` args that authenticate as `token`,
+/// scoped to `https://github.com/` only. Passed as git config rather than
+/// embedded in the remote URL so the token never appears in argv (visible via
+/// `ps`/`/proc/<pid>/cmdline` for the life of the process) or in `git remote -v`.
+fn github_auth_args(token: &str) -> Vec<String> {
+    let encoded = base64_encode(format!("x-access-token:{token}").as_bytes());
+    vec![
+        "-c".to_string(),
+        format!("http.https://github.com/.extraHeader=AUTHORIZATION: basic {encoded}"),
+    ]
+}
+
+fn base64_encode(input: &[u8]) -> String {
+    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
+    for chunk in input.chunks(3) {
+        let b0 = chunk[0];
+        let b1 = *chunk.get(1).unwrap_or(&0);
+        let b2 = *chunk.get(2).unwrap_or(&0);
+        let n = ((b0 as u32) << 16) | ((b1 as u32) << 8) | (b2 as u32);
+        out.push(ALPHABET[(n >> 18 & 0x3F) as usize] as char);
+        out.push(ALPHABET[(n >> 12 & 0x3F) as usize] as char);
+        out.push(if chunk.len() > 1 { ALPHABET[(n >> 6 & 0x3F) as usize] as char } else { '=' });
+        out.push(if chunk.len() > 2 { ALPHABET[(n & 0x3F) as usize] as char } else { '=' });
     }
+    out
 }
 
 fn is_auth_error(msg: &str) -> bool {
@@ -414,25 +442,27 @@ mod tests {
     }
 
     #[test]
-    fn inject_token_into_url_github_https() {
-        let result = inject_token_into_url("https://github.com/user/repo.git", "abc123").unwrap();
-        assert_eq!(result, "https://abc123@github.com/user/repo.git");
+    fn is_github_https_matches_only_github_com() {
+        assert!(is_github_https("https://github.com/user/repo.git"));
+        assert!(!is_github_https("https://example.com/repo.git"));
+        assert!(!is_github_https("git@github.com:user/repo.git"));
     }
 
     #[test]
-    fn inject_token_into_url_generic_https_strips_existing_user() {
-        let result = inject_token_into_url("https://olduser@example.com/repo.git", "tok").unwrap();
-        assert_eq!(result, "https://tok@example.com/repo.git");
+    fn github_auth_args_scopes_header_to_github_and_never_includes_raw_token() {
+        let args = github_auth_args("abc123");
+        assert_eq!(args[0], "-c");
+        assert!(args[1].starts_with("http.https://github.com/.extraHeader=AUTHORIZATION: basic "));
+        assert!(!args[1].contains("abc123"), "raw token must not appear in argv: {args:?}");
     }
 
     #[test]
-    fn inject_token_into_url_empty_token_returns_none() {
-        assert!(inject_token_into_url("https://github.com/user/repo.git", "").is_none());
-    }
-
-    #[test]
-    fn inject_token_into_url_non_https_returns_none() {
-        assert!(inject_token_into_url("git@github.com:user/repo.git", "tok").is_none());
+    fn base64_encode_matches_known_vectors() {
+        assert_eq!(base64_encode(b"x-access-token:abc123"), "eC1hY2Nlc3MtdG9rZW46YWJjMTIz");
+        assert_eq!(base64_encode(b""), "");
+        assert_eq!(base64_encode(b"a"), "YQ==");
+        assert_eq!(base64_encode(b"ab"), "YWI=");
+        assert_eq!(base64_encode(b"abc"), "YWJj");
     }
 
     #[test]
