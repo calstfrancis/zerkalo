@@ -1,4 +1,6 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{sync_channel, TryRecvError};
+use std::sync::Arc;
 use std::time::Duration;
 
 use gtk4::prelude::*;
@@ -63,10 +65,17 @@ pub fn present(parent: &impl IsA<gtk4::Window>, on_connected: impl Fn(String) + 
     vbox.append(&spinner);
     dialog.set_content(Some(&vbox));
 
+    let cancelled = Arc::new(AtomicBool::new(false));
+
     let dialog_cancel = dialog.clone();
-    cancel_btn.connect_clicked(move |_| dialog_cancel.close());
+    let cancelled_btn = cancelled.clone();
+    cancel_btn.connect_clicked(move |_| {
+        cancelled_btn.store(true, Ordering::Relaxed);
+        dialog_cancel.close();
+    });
 
     let (tx, rx) = sync_channel::<FlowUpdate>(2);
+    let cancelled_thread = cancelled.clone();
     std::thread::spawn(move || {
         let device = match github_auth::request_device_code(github_auth::CLIENT_ID) {
             Ok(d) => d,
@@ -77,7 +86,7 @@ pub fn present(parent: &impl IsA<gtk4::Window>, on_connected: impl Fn(String) + 
         };
         let _ = tx.send(FlowUpdate::Code(device.clone()));
 
-        let result = github_auth::poll_for_access_token(github_auth::CLIENT_ID, &device)
+        let result = github_auth::poll_for_access_token(github_auth::CLIENT_ID, &device, &cancelled_thread)
             .and_then(|token| github_auth::fetch_username(&token).map(|user| (token, user)));
         let _ = tx.send(FlowUpdate::Done(result));
     });
@@ -94,6 +103,11 @@ pub fn present(parent: &impl IsA<gtk4::Window>, on_connected: impl Fn(String) + 
                     open_link.set_visible(true);
                 }
                 Ok(FlowUpdate::Done(Ok((token, username)))) => {
+                    // Guards against the rare race where approval lands just as
+                    // Cancel is clicked — don't save the token or report success.
+                    if cancelled.load(Ordering::Relaxed) {
+                        return glib::ControlFlow::Break;
+                    }
                     if let Err(e) = crate::secret_store::save_github_token(&token) {
                         status_lbl.set_label(&format!("Signed in, but couldn't store the token: {e}"));
                         spinner.set_spinning(false);

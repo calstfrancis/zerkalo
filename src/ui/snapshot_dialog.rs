@@ -14,6 +14,16 @@ const MAX_SNAPSHOTS: usize = 100;
 
 // ── Snapshot paths ────────────────────────────────────────────────────────────
 
+/// Canonicalizes `path` for hashing, falling back to the raw path if it
+/// doesn't exist (e.g. the project root of a not-yet-saved file).
+fn canonical_or_raw(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+/// Snapshot storage is keyed by a hash of the full canonicalized path (via
+/// the same FNV-1a hash `auto_save.rs` uses), not just the basename — two
+/// files named the same in different folders, or two projects whose root
+/// directories share a name, must not share snapshot history.
 pub fn snapshot_dir(project_root: &Path, file_path: &Path) -> PathBuf {
     let base = shellexpand::tilde("~/.local/share/zerkalo/snapshots").into_owned();
     let project_name = project_root
@@ -24,7 +34,11 @@ pub fn snapshot_dir(project_root: &Path, file_path: &Path) -> PathBuf {
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("unnamed");
-    PathBuf::from(base).join(project_name).join(file_stem)
+    let project_hash = crate::auto_save::path_key(&canonical_or_raw(project_root));
+    let file_hash = crate::auto_save::path_key(&canonical_or_raw(file_path));
+    PathBuf::from(base)
+        .join(format!("{project_name}-{project_hash}"))
+        .join(format!("{file_stem}-{file_hash}"))
 }
 
 /// Save a snapshot of `content` for `file_path` under `project_root`.
@@ -362,5 +376,31 @@ impl SnapshotDialog {
 
     pub fn present(&self) {
         self.window.present();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn snapshot_dir_distinguishes_same_named_files_in_different_folders() {
+        let a = snapshot_dir(Path::new("/home/user/proj"), Path::new("/home/user/proj/chapters/intro.typ"));
+        let b = snapshot_dir(Path::new("/home/user/proj"), Path::new("/home/user/proj/assets/intro.typ"));
+        assert_ne!(a, b, "different files with the same stem must not share snapshot storage");
+    }
+
+    #[test]
+    fn snapshot_dir_distinguishes_same_named_project_roots() {
+        let a = snapshot_dir(Path::new("/home/user/work/notes"), Path::new("/home/user/work/notes/main.typ"));
+        let b = snapshot_dir(Path::new("/home/user/other/notes"), Path::new("/home/user/other/notes/main.typ"));
+        assert_ne!(a, b, "different projects sharing a root folder name must not share snapshot storage");
+    }
+
+    #[test]
+    fn snapshot_dir_stable_for_the_same_path() {
+        let a = snapshot_dir(Path::new("/home/user/proj"), Path::new("/home/user/proj/main.typ"));
+        let b = snapshot_dir(Path::new("/home/user/proj"), Path::new("/home/user/proj/main.typ"));
+        assert_eq!(a, b);
     }
 }

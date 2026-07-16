@@ -148,11 +148,19 @@ pub fn parse_bib(content: &str) -> Vec<BibEntry> {
 }
 
 /// Renames a citation key in place in a BibTeX file. Returns an error if the
-/// file can't be read/parsed/written, or if `old_key` isn't present.
+/// file can't be read/parsed/written, if `old_key` isn't present, or if
+/// `new_key` already names a different entry (renaming would silently
+/// clobber it otherwise).
 pub fn rename_key_in_bib_file(path: &Path, old_key: &str, new_key: &str) -> std::io::Result<()> {
     let content = std::fs::read_to_string(path)?;
     let mut bib = Bibliography::parse(&content)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
+    if new_key != old_key && bib.get(new_key).is_some() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            format!("key '{new_key}' already exists"),
+        ));
+    }
     let mut entry = bib.remove(old_key).ok_or_else(|| {
         std::io::Error::new(std::io::ErrorKind::NotFound, format!("key '{old_key}' not found"))
     })?;
@@ -385,6 +393,24 @@ mod tests {
         let entries = load_bib(&path);
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].key, "smith2021");
+    }
+
+    #[test]
+    fn rename_key_in_bib_file_rejects_collision_with_existing_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("refs.bib");
+        let original = "@article{smith2020,\n  author = {John Smith},\n  year = {2020},\n}\n\
+                         @article{smith2021,\n  author = {Jane Smith},\n  year = {2021},\n}\n";
+        std::fs::write(&path, original).unwrap();
+
+        let err = rename_key_in_bib_file(&path, "smith2020", "smith2021").unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::AlreadyExists);
+
+        // The file must be untouched — both entries still present under their original keys.
+        let entries = load_bib(&path);
+        let mut keys: Vec<&str> = entries.iter().map(|e| e.key.as_str()).collect();
+        keys.sort();
+        assert_eq!(keys, vec!["smith2020", "smith2021"]);
     }
 
     #[test]

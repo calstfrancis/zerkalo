@@ -15,6 +15,8 @@ pub enum GithubAuthError {
     Network(#[from] reqwest::Error),
     #[error("Sign-in was cancelled or denied.")]
     AccessDenied,
+    #[error("Sign-in was cancelled.")]
+    Cancelled,
     #[error("The sign-in code expired before it was approved. Try again.")]
     ExpiredToken,
     #[error("GitHub error: {0}")]
@@ -65,18 +67,34 @@ pub fn request_device_code(client_id: &str) -> Result<DeviceCodeResponse, Github
 }
 
 /// Blocks, polling GitHub until the user approves (or denies/expires) the
-/// device code. Intended to run on a background thread — sleeps between
-/// polls per the server-provided interval.
+/// device code, or `cancelled` is set. Intended to run on a background
+/// thread — sleeps between polls per the server-provided interval, checking
+/// `cancelled` every second so a cancel is picked up promptly rather than
+/// only at the next multi-second poll interval.
 pub fn poll_for_access_token(
     client_id: &str,
     device: &DeviceCodeResponse,
+    cancelled: &std::sync::atomic::AtomicBool,
 ) -> Result<String, GithubAuthError> {
+    use std::sync::atomic::Ordering;
+
     let http = client()?;
     let mut interval = Duration::from_secs(device.interval.max(1));
     let deadline = std::time::Instant::now() + Duration::from_secs(device.expires_in);
 
     loop {
-        std::thread::sleep(interval);
+        let mut slept = Duration::ZERO;
+        while slept < interval {
+            if cancelled.load(Ordering::Relaxed) {
+                return Err(GithubAuthError::Cancelled);
+            }
+            let step = Duration::from_secs(1).min(interval - slept);
+            std::thread::sleep(step);
+            slept += step;
+        }
+        if cancelled.load(Ordering::Relaxed) {
+            return Err(GithubAuthError::Cancelled);
+        }
         if std::time::Instant::now() > deadline {
             return Err(GithubAuthError::ExpiredToken);
         }
