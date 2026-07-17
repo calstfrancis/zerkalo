@@ -14,6 +14,22 @@ fn import_regex() -> &'static Regex {
     })
 }
 
+/// Resolves a `.zerkalo/config.toml` `root_file` value against the project
+/// root, rejecting anything that escapes it (an absolute path or a "../"
+/// traversal in a shared/cloned config must not be able to point the
+/// compiler at arbitrary files on disk). Returns `None` if the path is
+/// missing or escapes `root`.
+pub fn resolve_root_file(root: &Path, rel: &Path) -> Option<PathBuf> {
+    let abs = root.join(rel);
+    let canonical_root = std::fs::canonicalize(root).ok()?;
+    let canonical = std::fs::canonicalize(&abs).ok()?;
+    if canonical.starts_with(&canonical_root) {
+        Some(canonical)
+    } else {
+        None
+    }
+}
+
 #[allow(dead_code)]
 pub struct ProjectModel {
     pub root: PathBuf,
@@ -49,9 +65,9 @@ impl ProjectModel {
         let imports = build_import_graph(&files);
         let root_file = if let Some(cfg) = crate::config::ProjectConfig::load(&root) {
             if let Some(rel) = cfg.root_file {
-                // Config wins unconditionally; fall back to detect_root if path is bad
-                let abs = root.join(&rel);
-                if abs.exists() { Some(abs) } else { detect_root(&files, &imports) }
+                // Config wins unconditionally; fall back to detect_root if the
+                // path is bad or escapes the project directory.
+                resolve_root_file(&root, &rel).or_else(|| detect_root(&files, &imports))
             } else {
                 detect_root(&files, &imports)
             }

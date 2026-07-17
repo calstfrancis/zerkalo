@@ -137,6 +137,14 @@ impl WelcomeWindow {
                 "Fixed: autocomplete could get misaligned on lines containing emoji or certain rare symbols before the cursor",
                 "Fixed: quick-fixes for compile errors added an extra blank line, and could convert Windows-style line endings to Unix-style",
                 "Fixed: Settings could silently discard saved snippets when opened and saved",
+                "Fixed: \"Add to Project\"/\"New Document\" dialogs could treat Cancel or Escape as confirming instead of cancelling",
+                "Fixed: clicking Cancel mid-compile could clear real compile errors and show a false \"Compiled successfully\" toast",
+                "Fixed: a malicious project's .zerkalo/config.toml could point the compiler at arbitrary files outside the project",
+                "Fixed: Replace All could silently corrupt file contents when the replacement text contained a $ (e.g. Typst math)",
+                "Fixed: restoring a document from Trash could mark it \"restored\" even though the file was never actually moved back",
+                "Fixed: Settings' spell-check language list could lose its remove buttons or go blank after removing languages",
+                "Fixed: a failed Settings save is now shown as an error instead of silently reported as successful",
+                "Fixed: GitHub repo creation in Setup & Onboarding no longer freezes the window, and confirms before replacing an existing remote",
             ] {
                 body.append(&bullet_row(item));
             }

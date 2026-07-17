@@ -213,10 +213,16 @@ fn git_log_for_file(root: &PathBuf, file: &PathBuf) -> Vec<(String, String, Stri
         Ok(o) => String::from_utf8_lossy(&o.stdout)
             .lines()
             .filter_map(|line| {
-                let mut parts = line.splitn(3, '|');
-                let oid = parts.next()?.to_string();
-                let summary = parts.next()?.to_string();
-                let date = parts.next()?.to_string();
+                // %H (hash) and %cd (date, --date=short) never contain '|', but
+                // %s (subject) can if the commit message itself has one — so
+                // split the date off the end first, then take the hash off the
+                // front, leaving everything in between as the subject.
+                let mut from_end = line.rsplitn(2, '|');
+                let date = from_end.next()?.to_string();
+                let rest = from_end.next()?;
+                let mut from_start = rest.splitn(2, '|');
+                let oid = from_start.next()?.to_string();
+                let summary = from_start.next()?.to_string();
                 Some((oid, summary, date))
             })
             .collect(),

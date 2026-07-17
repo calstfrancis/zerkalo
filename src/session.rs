@@ -26,7 +26,7 @@ impl Session {
             let _ = std::fs::create_dir_all(dir);
         }
         if let Ok(json) = serde_json::to_string_pretty(self) {
-            let _ = std::fs::write(path, json);
+            let _ = crate::error::atomic_write(&path, json.as_bytes());
         }
     }
 }

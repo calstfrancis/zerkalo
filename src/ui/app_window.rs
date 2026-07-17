@@ -1851,53 +1851,18 @@ impl AppWindow {
             let ep = editor_for_reapply.clone();
             let win_for_apply = window_for_reapply.clone();
             let preview_apply = preview_for_reapply.clone();
+            let current_content_for_apply = current_content.clone();
+            let current_path_for_apply = current_path.clone();
             dlg.set_on_apply(move |new_content, sidecar| {
-                let do_apply = {
-                    let nc = new_content.clone();
-                    let sc = sidecar.clone();
-                    let path = current_path.clone();
-                    let ep2 = ep.clone();
-                    let pv = preview_apply.clone();
-                    move || {
-                        // Read the editor buffer fresh at apply time so edits made
-                        // while this non-modal dialog was open are not discarded.
-                        let cc = ep2.get_active_content().unwrap_or_default();
-                        let updated = super::template_dialog::apply_body_splice(&cc, &nc);
-                        super::template_dialog::save_sidecar(&path, &sc);
-                        if let Err(e) = std::fs::write(&path, &updated) {
-                            tracing::error!("Failed to write updated template: {e}");
-                        } else {
-                            ep2.splice_preamble(path.clone(), &updated);
-                            pv.trigger_compile();
-                        }
-                    }
-                };
-
-                if super::template_dialog::has_body_marker(&current_content) {
-                    do_apply();
-                } else {
-                    let confirm = adw::MessageDialog::new(
-                        Some(&win_for_apply),
-                        Some("Replace entire document?"),
-                        Some("This document has no body marker, so the template \
-                              will replace the whole file. Your current text will \
-                              be lost. Make sure you have a backup."),
-                    );
-                    confirm.add_response("cancel", "Cancel");
-                    confirm.add_response("replace", "Replace Document");
-                    confirm.set_response_appearance(
-                        "replace",
-                        adw::ResponseAppearance::Destructive,
-                    );
-                    confirm.set_default_response(Some("cancel"));
-                    confirm.set_close_response("cancel");
-                    confirm.connect_response(None, move |_, id| {
-                        if id == "replace" {
-                            do_apply();
-                        }
-                    });
-                    confirm.present();
-                }
+                apply_template_result(
+                    &win_for_apply,
+                    &ep,
+                    &preview_apply,
+                    current_path_for_apply.clone(),
+                    current_content_for_apply.clone(),
+                    new_content,
+                    sidecar,
+                );
             });
             dlg.present();
         });
@@ -2058,8 +2023,9 @@ impl AppWindow {
             let dialog = SnapshotDialog::new(&window_for_snap, &root_for_snap, &path, &content);
             let ep = editor_for_snap.clone();
             let pp_path = path.clone();
+            let win_for_restore = window_for_snap.clone();
             dialog.set_on_restore(move |text| {
-                ep.set_content(&pp_path, &text);
+                restore_snapshot_with_confirm(&win_for_restore, &ep, &pp_path, text);
             });
             dialog.present();
         });
@@ -2250,7 +2216,8 @@ impl AppWindow {
 
         // ── Multi-file root: configured root persists across tab switches ─────
         let configured_root: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(
-            proj_cfg.root_file.as_ref().map(|r| project_root.join(r))
+            proj_cfg.root_file.as_ref()
+                .and_then(|r| crate::project_model::resolve_root_file(&project_root, r))
         ));
         // Project mode is OFF by default; only use configured_root when it is ON.
         // Shared with the project toggle below.
@@ -2552,6 +2519,13 @@ impl AppWindow {
                 }
             });
             *pulse_timer.borrow_mut() = Some(id);
+        });
+
+        let compile_rev_for_cancel = compile_rev.clone();
+        let compile_btn_for_cancel = compile_btn.clone();
+        preview_pane.set_on_compile_cancelled(move || {
+            compile_btn_for_cancel.remove_css_class("compiling-pulse");
+            compile_rev_for_cancel.set_reveal_child(false);
         });
 
         let compile_rev_for_done = compile_rev.clone();
@@ -3832,6 +3806,7 @@ impl AppWindow {
             let ep_ut = editor_pane.clone();
             let root_ut = project_root.clone();
             let current_config_for_ut = current_config.clone();
+            let preview_ut = preview_pane.clone();
             update_template_btn.connect_clicked(move |_| {
                 let Some(current_path) = ep_ut.get_active_path() else { return };
                 let current_content = ep_ut.get_active_content().unwrap_or_default();
@@ -3936,47 +3911,19 @@ impl AppWindow {
 
                 let ep2 = ep_ut.clone();
                 let win_ut2 = win_ut.clone();
+                let preview_ut2 = preview_ut.clone();
+                let current_content_for_apply = current_content.clone();
+                let current_path_for_apply = current_path.clone();
                 dlg.set_on_apply(move |new_content, sidecar| {
-                    let do_apply = {
-                        let cc = current_content.clone();
-                        let nc = new_content.clone();
-                        let sc = sidecar.clone();
-                        let path = current_path.clone();
-                        let ep3 = ep2.clone();
-                        move || {
-                            let updated = super::template_dialog::apply_body_splice(&cc, &nc);
-                            super::template_dialog::save_sidecar(&path, &sc);
-                            if std::fs::write(&path, &updated).is_ok() {
-                                ep3.splice_preamble(path.clone(), &updated);
-                            }
-                        }
-                    };
-
-                    if super::template_dialog::has_body_marker(&current_content) {
-                        do_apply();
-                    } else {
-                        let confirm = adw::MessageDialog::new(
-                            Some(&win_ut2),
-                            Some("Replace entire document?"),
-                            Some("This document has no body marker, so the template \
-                                  will replace the whole file. Your current text will \
-                                  be lost. Make sure you have a backup."),
-                        );
-                        confirm.add_response("cancel", "Cancel");
-                        confirm.add_response("replace", "Replace Document");
-                        confirm.set_response_appearance(
-                            "replace",
-                            adw::ResponseAppearance::Destructive,
-                        );
-                        confirm.set_default_response(Some("cancel"));
-                        confirm.set_close_response("cancel");
-                        confirm.connect_response(None, move |_, id| {
-                            if id == "replace" {
-                                do_apply();
-                            }
-                        });
-                        confirm.present();
-                    }
+                    apply_template_result(
+                        &win_ut2,
+                        &ep2,
+                        &preview_ut2,
+                        current_path_for_apply.clone(),
+                        current_content_for_apply.clone(),
+                        new_content,
+                        sidecar,
+                    );
                 });
                 dlg.present();
             });
@@ -4301,8 +4248,9 @@ impl AppWindow {
                                 );
                                 let ep = editor_for_pal.clone();
                                 let pp = path.clone();
+                                let win_for_restore = w.clone();
                                 dialog.set_on_restore(move |text| {
-                                    ep.set_content(&pp, &text);
+                                    restore_snapshot_with_confirm(&win_for_restore, &ep, &pp, text);
                                 });
                                 dialog.present();
                             }
@@ -7654,6 +7602,90 @@ fn md_inline_to_pango(s: &str) -> String {
 /// Compile the current root file to PDF and open it with xdg-open for printing.
 /// Writes to a path in ~/.cache/zerkalo/ so the file is always accessible from
 /// the host even when running inside a flatpak sandbox.
+/// Restores snapshot `text` into `path`'s editor buffer, confirming first if
+/// the buffer has unsaved edits that would otherwise be silently discarded.
+fn restore_snapshot_with_confirm(
+    window: &adw::ApplicationWindow,
+    ep: &super::editor_pane::EditorPane,
+    path: &std::path::Path,
+    text: String,
+) {
+    if !ep.is_modified(path) {
+        ep.set_content(path, &text);
+        return;
+    }
+    let alert = AlertDialog::builder()
+        .modal(true)
+        .message("Restore this snapshot?")
+        .detail("You have unsaved changes in this document. Restoring the snapshot will discard them.")
+        .buttons(["Cancel", "Restore"])
+        .cancel_button(0)
+        .default_button(0)
+        .build();
+    let ep = ep.clone();
+    let path = path.to_path_buf();
+    alert.choose(Some(window), None::<&gtk4::gio::Cancellable>, move |result| {
+        if result == Ok(1) {
+            ep.set_content(&path, &text);
+        }
+    });
+}
+
+/// Applies a template dialog's result to `path`, splicing the fresh template
+/// onto the editor buffer's *current* content (read fresh here, not a
+/// snapshot taken when the dialog was opened, so edits made while the
+/// non-modal dialog was open aren't discarded). Confirms first if the
+/// document has no body marker, since applying then replaces the whole file.
+fn apply_template_result(
+    window: &adw::ApplicationWindow,
+    editor: &super::editor_pane::EditorPane,
+    preview: &super::preview_pane::PreviewPane,
+    path: PathBuf,
+    current_content: String,
+    new_content: String,
+    sidecar: super::template_dialog::SidecarSettings,
+) {
+    let do_apply = {
+        let editor = editor.clone();
+        let preview = preview.clone();
+        let path = path.clone();
+        move || {
+            let cc = editor.get_active_content().unwrap_or_default();
+            let updated = super::template_dialog::apply_body_splice(&cc, &new_content);
+            super::template_dialog::save_sidecar(&path, &sidecar);
+            if let Err(e) = std::fs::write(&path, &updated) {
+                tracing::error!("Failed to write updated template: {e}");
+            } else {
+                editor.splice_preamble(path.clone(), &updated);
+                preview.trigger_compile();
+            }
+        }
+    };
+
+    if super::template_dialog::has_body_marker(&current_content) {
+        do_apply();
+    } else {
+        let confirm = adw::MessageDialog::new(
+            Some(window),
+            Some("Replace entire document?"),
+            Some("This document has no body marker, so the template \
+                  will replace the whole file. Your current text will \
+                  be lost. Make sure you have a backup."),
+        );
+        confirm.add_response("cancel", "Cancel");
+        confirm.add_response("replace", "Replace Document");
+        confirm.set_response_appearance("replace", adw::ResponseAppearance::Destructive);
+        confirm.set_default_response(Some("cancel"));
+        confirm.set_close_response("cancel");
+        confirm.connect_response(None, move |_, id| {
+            if id == "replace" {
+                do_apply();
+            }
+        });
+        confirm.present();
+    }
+}
+
 fn print_pdf_from_preview(preview: &super::preview_pane::PreviewPane) {
     let Some(root) = preview.root_file_path() else { return };
     let stem = root

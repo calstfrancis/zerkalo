@@ -560,11 +560,14 @@ impl Library {
         let trash_dir = glib::user_data_dir().join("zerkalo").join("trash");
         std::fs::create_dir_all(&trash_dir).ok();
         let ts = Utc::now().timestamp();
+        // Prefix with doc_id (unique, from the primary key) rather than relying
+        // on timestamp+basename alone, which can collide when two same-named
+        // files are trashed within the same second.
         let filename = doc
             .path
             .file_name()
-            .map(|n| format!("{}-{}", ts, n.to_string_lossy()))
-            .unwrap_or_else(|| format!("{}.typ", ts));
+            .map(|n| format!("{}-{}-{}", ts, doc_id, n.to_string_lossy()))
+            .unwrap_or_else(|| format!("{ts}-{doc_id}.typ"));
         let trash_path = trash_dir.join(&filename);
         if std::fs::rename(&doc.path, &trash_path).is_err() {
             if std::fs::copy(&doc.path, &trash_path).is_ok() {
@@ -591,10 +594,19 @@ impl Library {
             .flatten();
 
         if let (Some(tpath), Some(doc)) = (trash_path, self.doc_by_id(doc_id)?) {
-            let _ = std::fs::rename(&tpath, &doc.path);
+            // Don't clobber a file that now occupies the original path (e.g. a
+            // new document created at the same path after this one was trashed).
+            let dest = if doc.path.exists() {
+                restore_collision_path(&doc.path)
+            } else {
+                doc.path.clone()
+            };
+            if std::fs::rename(&tpath, &dest).is_err() {
+                return Ok(());
+            }
             self.conn.execute(
-                "UPDATE documents SET deleted=0, trash_path=NULL WHERE id=?1",
-                params![doc_id],
+                "UPDATE documents SET deleted=0, trash_path=NULL, path=?1 WHERE id=?2",
+                params![dest.to_string_lossy().to_string(), doc_id],
             )?;
         }
         Ok(())
@@ -990,6 +1002,28 @@ fn search_clause(prefix: &str, param: usize) -> String {
 
 /// Reads the first `#let doc-title = "..."` line from a Typst file.
 /// Falls back to `#let title = "..."` if doc-title isn't found.
+/// Finds a free path near `path` (e.g. `essay.typ` -> `essay (restored).typ`,
+/// then `essay (restored 2).typ`, ...) for use when the original path is
+/// already occupied by a different file.
+fn restore_collision_path(path: &Path) -> PathBuf {
+    let stem = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+    let ext = path.extension().map(|e| e.to_string_lossy().to_string());
+    let dir = path.parent().map(PathBuf::from).unwrap_or_default();
+    let mut n = 1;
+    loop {
+        let label = if n == 1 { "restored".to_string() } else { format!("restored {n}") };
+        let name = match &ext {
+            Some(e) => format!("{stem} ({label}).{e}"),
+            None => format!("{stem} ({label})"),
+        };
+        let candidate = dir.join(name);
+        if !candidate.exists() {
+            return candidate;
+        }
+        n += 1;
+    }
+}
+
 fn extract_typst_title(path: &Path) -> Option<String> {
     let content = std::fs::read_to_string(path).ok()?;
     let mut fallback: Option<String> = None;

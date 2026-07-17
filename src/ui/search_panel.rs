@@ -22,6 +22,7 @@ pub struct SearchPanel {
     recent_searches: Rc<RefCell<Vec<String>>>,
     recent_popover_box: GtkBox,
     count_lbl: Label,
+    search_gen: Rc<RefCell<u64>>,
 }
 
 impl SearchPanel {
@@ -117,6 +118,7 @@ impl SearchPanel {
             recent_searches: Rc::new(RefCell::new(Vec::new())),
             recent_popover_box: recent_popover_box.clone(),
             count_lbl: count_lbl.clone(),
+            search_gen: Rc::new(RefCell::new(0)),
         };
 
         // Replace mode toggle
@@ -153,27 +155,58 @@ impl SearchPanel {
             let replacement = p_rep.replace_entry.text().to_string();
             if query.is_empty() { return; }
             let work_dir = p_rep.work_dir.borrow().clone();
-            let gitignore = load_gitignore(&work_dir);
-            let matches = search_typ_files(&work_dir, &query.to_lowercase(), usize::MAX, &gitignore);
-            let mut files_changed: std::collections::HashSet<PathBuf> = Default::default();
-            for m in &matches {
-                files_changed.insert(m.file.clone());
-            }
-            let mut replaced = 0usize;
-            for file in &files_changed {
-                let Ok(content) = std::fs::read_to_string(file) else { continue };
-                let new_content = content.replace(&query, &replacement);
-                if new_content != content {
-                    let _ = std::fs::write(file, &new_content);
-                    replaced += new_content.matches(&replacement).count();
-                    if let Some(f) = p_rep.on_replace_done.borrow().as_ref() {
-                        f(file.clone());
+            *p_rep.search_gen.borrow_mut() += 1;
+            let my_gen = *p_rep.search_gen.borrow();
+
+            let (tx, rx) = std::sync::mpsc::sync_channel(1);
+            let query_thread = query.clone();
+            std::thread::spawn(move || {
+                let gitignore = load_gitignore(&work_dir);
+                let matches = search_typ_files(&work_dir, &query_thread.to_lowercase(), usize::MAX, &gitignore);
+                let mut files_changed: std::collections::HashSet<PathBuf> = Default::default();
+                for m in &matches {
+                    files_changed.insert(m.file.clone());
+                }
+                let Ok(re) = regex::RegexBuilder::new(&regex::escape(&query_thread))
+                    .case_insensitive(true)
+                    .build()
+                else {
+                    let _ = tx.send(Vec::new());
+                    return;
+                };
+                let mut written: Vec<PathBuf> = Vec::new();
+                for file in &files_changed {
+                    let Ok(content) = std::fs::read_to_string(file) else { continue };
+                    let new_content = re.replace_all(&content, regex::NoExpand(replacement.as_str()));
+                    if new_content != content && std::fs::write(file, new_content.as_bytes()).is_ok() {
+                        written.push(file.clone());
                     }
                 }
-            }
-            p_rep.count_lbl.set_text(&format!("Replaced in {} files", files_changed.len()));
-            p_rep.do_search(&query);
-            let _ = replaced;
+                let _ = tx.send(written);
+            });
+
+            let p_rep = p_rep.clone();
+            glib::timeout_add_local(std::time::Duration::from_millis(50), move || {
+                match rx.try_recv() {
+                    Ok(written) => {
+                        for file in &written {
+                            if let Some(f) = p_rep.on_replace_done.borrow().as_ref() {
+                                f(file.clone());
+                            }
+                        }
+                        p_rep.count_lbl.set_text(&format!("Replaced in {} files", written.len()));
+                        // Only refresh results if no newer search/replace superseded
+                        // this one in the meantime — otherwise this stale query would
+                        // clobber whatever the newer operation already rendered.
+                        if *p_rep.search_gen.borrow() == my_gen {
+                            p_rep.do_search(&query);
+                        }
+                        glib::ControlFlow::Break
+                    }
+                    Err(std::sync::mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => glib::ControlFlow::Break,
+                }
+            });
         });
 
         // Activate result row
@@ -244,6 +277,8 @@ impl SearchPanel {
         while let Some(child) = self.results.first_child() {
             self.results.remove(&child);
         }
+        *self.search_gen.borrow_mut() += 1;
+        let my_gen = *self.search_gen.borrow();
         if query.is_empty() {
             self.count_lbl.set_text("");
             return;
@@ -254,9 +289,32 @@ impl SearchPanel {
         }
         let work_dir = self.work_dir.borrow().clone();
         let query_lower = query.to_lowercase();
-        let gitignore = load_gitignore(&work_dir);
-        let matches = search_typ_files(&work_dir, &query_lower, 200, &gitignore);
 
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        std::thread::spawn(move || {
+            let gitignore = load_gitignore(&work_dir);
+            let matches = search_typ_files(&work_dir, &query_lower, 200, &gitignore);
+            let _ = tx.send(matches);
+        });
+
+        let panel = self.clone();
+        let query = query.to_string();
+        glib::timeout_add_local(std::time::Duration::from_millis(50), move || {
+            if *panel.search_gen.borrow() != my_gen {
+                return glib::ControlFlow::Break;
+            }
+            match rx.try_recv() {
+                Ok(matches) => {
+                    panel.render_results(&query, matches);
+                    glib::ControlFlow::Break
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => glib::ControlFlow::Break,
+            }
+        });
+    }
+
+    fn render_results(&self, query: &str, matches: Vec<Match>) {
         if matches.is_empty() {
             self.count_lbl.set_text("No results");
             let row = ListBoxRow::new();
@@ -399,6 +457,7 @@ fn highlight_markup(line: &str, query: &str) -> String {
 
 // ── File search ───────────────────────────────────────────────────────────────
 
+#[derive(Clone)]
 struct Match {
     file: PathBuf,
     line: u32,

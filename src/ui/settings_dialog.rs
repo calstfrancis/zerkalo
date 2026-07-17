@@ -3,11 +3,47 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use gtk4::prelude::*;
-use gtk4::{Align, Box as GtkBox, Button, Label, ListBox, ListBoxRow, Notebook, Orientation};
+use gtk4::{AlertDialog, Align, Box as GtkBox, Button, Label, ListBox, ListBoxRow, Notebook, Orientation};
 use libadwaita as adw;
 use adw::prelude::*;
 
 use crate::config::{Config, Theme};
+
+/// Clears and rebuilds `lb`'s rows from `selected_langs`, wiring each row's
+/// remove button to mutate the shared list and rebuild again — a plain
+/// function (rather than a closure) so it can call itself for every row
+/// without the self-referential-closure problem that caused rows added after
+/// the first removal to end up without working remove buttons.
+fn rebuild_lang_rows(lb: &ListBox, selected_langs: &Rc<RefCell<Vec<String>>>) {
+    while let Some(row) = lb.row_at_index(0) {
+        lb.remove(&row);
+    }
+    for (i, lang) in selected_langs.borrow().iter().enumerate() {
+        let row = ListBoxRow::new();
+        row.set_activatable(false);
+        let hbox = GtkBox::new(Orientation::Horizontal, 8);
+        hbox.set_margin_start(12);
+        hbox.set_margin_end(8);
+        hbox.set_margin_top(6);
+        hbox.set_margin_bottom(6);
+        let lbl = Label::new(Some(lang));
+        lbl.set_hexpand(true);
+        lbl.set_xalign(0.0);
+        let rm_btn = Button::from_icon_name("list-remove-symbolic");
+        rm_btn.add_css_class("flat");
+        rm_btn.set_tooltip_text(Some("Remove this language"));
+        let sl = selected_langs.clone();
+        let lb2 = lb.clone();
+        rm_btn.connect_clicked(move |_| {
+            sl.borrow_mut().remove(i);
+            rebuild_lang_rows(&lb2, &sl);
+        });
+        hbox.append(&lbl);
+        hbox.append(&rm_btn);
+        row.set_child(Some(&hbox));
+        lb.append(&row);
+    }
+}
 
 pub struct SettingsDialog {
     window: adw::Window,
@@ -342,69 +378,7 @@ impl SettingsDialog {
         let lang_list_box = ListBox::new();
         lang_list_box.add_css_class("boxed-list");
 
-        let rebuild_lang_list = {
-            let lb = lang_list_box.clone();
-            let sl = selected_langs.clone();
-            move || {
-                while let Some(row) = lb.row_at_index(0) {
-                    lb.remove(&row);
-                }
-                for (i, lang) in sl.borrow().iter().enumerate() {
-                    let row = ListBoxRow::new();
-                    row.set_activatable(false);
-                    let hbox = GtkBox::new(Orientation::Horizontal, 8);
-                    hbox.set_margin_start(12);
-                    hbox.set_margin_end(8);
-                    hbox.set_margin_top(6);
-                    hbox.set_margin_bottom(6);
-                    let lbl = Label::new(Some(lang));
-                    lbl.set_hexpand(true);
-                    lbl.set_xalign(0.0);
-                    let rm_btn = Button::from_icon_name("list-remove-symbolic");
-                    rm_btn.add_css_class("flat");
-                    rm_btn.set_tooltip_text(Some("Remove this language"));
-                    let sl2 = sl.clone();
-                    let lb2 = lb.clone();
-                    rm_btn.connect_clicked(move |_| {
-                        sl2.borrow_mut().remove(i);
-                        // trigger rebuild by emitting a fake signal — we do it by
-                        // directly modifying the list since rebuild is a closure we
-                        // can't call recursively here
-                        while let Some(r) = lb2.row_at_index(0) { lb2.remove(&r); }
-                        for (j, l) in sl2.borrow().iter().enumerate() {
-                            let r2 = ListBoxRow::new();
-                            r2.set_activatable(false);
-                            let h2 = GtkBox::new(Orientation::Horizontal, 8);
-                            h2.set_margin_start(12);
-                            h2.set_margin_end(8);
-                            h2.set_margin_top(6);
-                            h2.set_margin_bottom(6);
-                            let l2 = Label::new(Some(l));
-                            l2.set_hexpand(true);
-                            l2.set_xalign(0.0);
-                            let rb = Button::from_icon_name("list-remove-symbolic");
-                            rb.add_css_class("flat");
-                            rb.set_tooltip_text(Some("Remove this language"));
-                            let sl3 = sl2.clone();
-                            let lb3 = lb2.clone();
-                            rb.connect_clicked(move |_| {
-                                sl3.borrow_mut().remove(j);
-                                while let Some(r3) = lb3.row_at_index(0) { lb3.remove(&r3); }
-                            });
-                            h2.append(&l2);
-                            h2.append(&rb);
-                            r2.set_child(Some(&h2));
-                            lb2.append(&r2);
-                        }
-                    });
-                    hbox.append(&lbl);
-                    hbox.append(&rm_btn);
-                    row.set_child(Some(&hbox));
-                    lb.append(&row);
-                }
-            }
-        };
-        rebuild_lang_list();
+        rebuild_lang_rows(&lang_list_box, &selected_langs);
 
         // Add-language row: dropdown + button
         let add_lang_strings: Vec<&str> = available_langs.iter().map(|s| s.as_str()).collect();
@@ -426,23 +400,7 @@ impl SettingsDialog {
                 if let Some(lang) = al.get(idx) {
                     if !sl.borrow().contains(lang) {
                         sl.borrow_mut().push(lang.clone());
-                        // Rebuild rows
-                        while let Some(r) = lb.row_at_index(0) { lb.remove(&r); }
-                        for lang2 in sl.borrow().iter() {
-                            let row = ListBoxRow::new();
-                            row.set_activatable(false);
-                            let hbox = GtkBox::new(Orientation::Horizontal, 8);
-                            hbox.set_margin_start(12);
-                            hbox.set_margin_end(8);
-                            hbox.set_margin_top(6);
-                            hbox.set_margin_bottom(6);
-                            let lbl = Label::new(Some(lang2));
-                            lbl.set_hexpand(true);
-                            lbl.set_xalign(0.0);
-                            hbox.append(&lbl);
-                            row.set_child(Some(&hbox));
-                            lb.append(&row);
-                        }
+                        rebuild_lang_rows(&lb, &sl);
                     }
                 }
             });
@@ -726,7 +684,14 @@ impl SettingsDialog {
         save_btn.connect_clicked(move |_| {
             let new_cfg = bc_save();
             if let Err(e) = new_cfg.save() {
-                eprintln!("Failed to save config: {e}");
+                let alert = AlertDialog::builder()
+                    .modal(true)
+                    .message("Failed to save settings")
+                    .detail(format!("{e}"))
+                    .buttons(["OK"])
+                    .build();
+                alert.choose(Some(&win_save), None::<&gtk4::gio::Cancellable>, |_| {});
+                return;
             }
             win_save.close();
             if let Some(f) = on_save_cb.borrow().as_ref() {

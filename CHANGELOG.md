@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.18.1-dev1] — Security, data-integrity, and correctness fixes
+## [0.18.1-dev2] — Security, data-integrity, and correctness fixes
 
 ### Fixed
 - **GitHub sync could send your sign-in token to non-GitHub remotes** — a backup remote pointing at any HTTPS host (not just github.com) had the token injected into its URL during sync. Token injection is now scoped to github.com only, and is passed via a scoped git config header instead of the URL, so it no longer appears in process listings either.
@@ -20,6 +20,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Quick-fixes for compile errors** added an extra blank line above the inserted text, and could silently convert Windows-style (CRLF) line endings to Unix-style (LF) for the whole file.
 - Settings no longer silently discards saved snippets when you open and save the dialog.
 - A handful of smaller internal robustness fixes: safer autosave-file keying, safer match highlighting in Search and the Command Palette on certain Unicode text, and more reliable git-history/diff lookups when running as a Flatpak.
+- **"Add to Project" and "New Document" dialogs treated Cancel/Escape as confirming** — cancelling out of "Add to Project" with a project row selected silently added the document to it anyway, and dismissing "New Document" with Escape created a blank file on disk. Both now cancel cleanly.
+- **Clicking Cancel mid-compile could clear real compile errors and show a false "Compiled successfully" toast** — Cancel is no longer treated as a successful compile.
+- **A malicious or corrupted project's `.zerkalo/config.toml` could point the compiler at arbitrary files outside the project** (e.g. via `root_file = "../../../etc/passwd"`), reading their contents into the preview just by opening the folder. The configured root is now resolved and bounds-checked against the project directory.
+- **Replace All could silently corrupt file contents when the replacement text contained a `$`** (e.g. replacing into Typst math like `$mu$`) — `$word` in the replacement was being interpreted as a regex capture-group reference and dropped. Replacement text is now always written literally.
+- **Restoring a document from Trash could mark it "restored" in the library even though the file was never actually moved back**, if the restore failed partway (permissions, a same-second name collision) — leaving it unrecoverable from either the Library or Trash. Restore now leaves the document safely in Trash if the move fails.
+- Settings' spell-check language list could lose its "remove" buttons after adding a language, or go blank after removing a second language, until the dialog was reopened.
+- A failed Settings save is now shown as an error dialog instead of only being logged, so a save that didn't actually persist isn't reported as successful.
+- The GitHub repo-creation step in Setup & Onboarding no longer freezes the whole window while it waits on the network, and now asks for confirmation before replacing an already-linked GitHub remote.
 
 ---
 
