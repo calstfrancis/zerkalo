@@ -3,8 +3,8 @@ use std::rc::Rc;
 
 use gtk4::prelude::*;
 use gtk4::{
-    Align, Box as GtkBox, Button, Image, Label, LinkButton, Orientation, ScrolledWindow,
-    Separator, SignalListItemFactory, StringObject, Switch,
+    AlertDialog, Align, Box as GtkBox, Button, Image, Label, LinkButton, Orientation,
+    ScrolledWindow, Separator, SignalListItemFactory, StringObject, Switch,
 };
 use libadwaita as adw;
 use adw::prelude::*;
@@ -466,6 +466,7 @@ fn github_repo_group(parent: &adw::Window, work_dir: &Path) -> (adw::Preferences
         let wdir = work_dir.clone();
         let remote_entry_c = remote_entry.clone();
         let remote_status_c = status_lbl.clone();
+        let win_for_create = parent.clone();
         create_btn.connect_clicked(move |btn| {
             let Some(token) = crate::secret_store::load_github_token() else {
                 status_c.set_label("Sign in with GitHub first.");
@@ -479,31 +480,86 @@ fn github_repo_group(parent: &adw::Window, work_dir: &Path) -> (adw::Preferences
                 return;
             }
             let private = private_c.is_active();
-            btn.set_sensitive(false);
-            status_c.remove_css_class("error");
-            status_c.set_label("Creating repository…");
 
-            match crate::github_auth::create_repo(&token, &name, private) {
-                Ok(clone_url) => match set_git_remote(&wdir, &clone_url) {
-                    Ok(()) => {
-                        status_c.set_label(&format!("✓ Created and linked: {clone_url}"));
-                        status_c.add_css_class("success");
-                        remote_entry_c.set_text(&clone_url);
-                        remote_status_c.set_label(&format!("✓ Remote: {clone_url}"));
-                        remote_status_c.remove_css_class("dim-label");
-                        remote_status_c.add_css_class("success");
-                    }
-                    Err(e) => {
-                        status_c.set_label(&format!("Repository created, but linking failed: {e}"));
-                        status_c.add_css_class("error");
-                    }
-                },
-                Err(e) => {
-                    status_c.set_label(&format!("Error: {e}"));
-                    status_c.add_css_class("error");
+            let go = {
+                let btn = btn.clone();
+                let status_c = status_c.clone();
+                let wdir = wdir.clone();
+                let remote_entry_c = remote_entry_c.clone();
+                let remote_status_c = remote_status_c.clone();
+                move || {
+                    btn.set_sensitive(false);
+                    status_c.remove_css_class("error");
+                    status_c.set_label("Creating repository…");
+
+                    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+                    std::thread::spawn(move || {
+                        let _ = tx.send(crate::github_auth::create_repo(&token, &name, private));
+                    });
+
+                    let btn = btn.clone();
+                    let wdir = wdir.clone();
+                    let status_c = status_c.clone();
+                    let remote_entry_c = remote_entry_c.clone();
+                    let remote_status_c = remote_status_c.clone();
+                    glib::timeout_add_local(std::time::Duration::from_millis(150), move || {
+                        match rx.try_recv() {
+                            Ok(result) => {
+                                match result {
+                                    Ok(clone_url) => match set_git_remote(&wdir, &clone_url) {
+                                        Ok(()) => {
+                                            status_c.set_label(&format!("✓ Created and linked: {clone_url}"));
+                                            status_c.add_css_class("success");
+                                            remote_entry_c.set_text(&clone_url);
+                                            remote_status_c.set_label(&format!("✓ Remote: {clone_url}"));
+                                            remote_status_c.remove_css_class("dim-label");
+                                            remote_status_c.add_css_class("success");
+                                        }
+                                        Err(e) => {
+                                            status_c.set_label(&format!("Repository created, but linking failed: {e}"));
+                                            status_c.add_css_class("error");
+                                        }
+                                    },
+                                    Err(e) => {
+                                        status_c.set_label(&format!("Error: {e}"));
+                                        status_c.add_css_class("error");
+                                    }
+                                }
+                                btn.set_sensitive(true);
+                                glib::ControlFlow::Break
+                            }
+                            Err(std::sync::mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
+                            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                                status_c.set_label("Error: repository creation task ended unexpectedly.");
+                                status_c.add_css_class("error");
+                                btn.set_sensitive(true);
+                                glib::ControlFlow::Break
+                            }
+                        }
+                    });
                 }
+            };
+
+            if has_git_remote(&wdir) {
+                let existing = get_git_remote(&wdir).unwrap_or_default();
+                let confirm = AlertDialog::builder()
+                    .modal(true)
+                    .message("Replace the existing remote?")
+                    .detail(format!(
+                        "This project is already linked to:\n{existing}\n\nCreating a new repository will replace this link. The old repository on GitHub is not deleted, but this project will stop tracking it."
+                    ))
+                    .buttons(["Cancel", "Create New Repository"])
+                    .cancel_button(0)
+                    .default_button(0)
+                    .build();
+                confirm.choose(Some(&win_for_create), None::<&gtk4::gio::Cancellable>, move |result| {
+                    if result == Ok(1) {
+                        go();
+                    }
+                });
+                return;
             }
-            btn.set_sensitive(true);
+            go();
         });
     }
 

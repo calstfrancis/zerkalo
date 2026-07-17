@@ -39,6 +39,7 @@ pub struct PreviewPane {
     zoom: Rc<RefCell<f64>>,
     auto_fit: Rc<RefCell<bool>>,
     on_compile_done: Rc<RefCell<Option<Box<dyn Fn(Option<String>)>>>>,
+    on_compile_cancelled: Rc<RefCell<Option<Box<dyn Fn()>>>>,
     on_compile_time: Rc<RefCell<Option<Box<dyn Fn(u64, Option<usize>)>>>>,
     on_compile_start: Rc<RefCell<Option<Box<dyn Fn()>>>>,
     spin_lbl: Label,
@@ -60,6 +61,7 @@ pub struct PreviewPane {
     first_load: Rc<RefCell<bool>>,
     zoom_osd: Label,
     osd_timer: Rc<RefCell<Option<glib::SourceId>>>,
+    osd_fade_timer: Rc<RefCell<Option<glib::SourceId>>>,
 }
 
 impl PreviewPane {
@@ -266,6 +268,7 @@ impl PreviewPane {
             zoom: zoom_draw2,
             auto_fit: Rc::new(RefCell::new(true)),
             on_compile_done: Rc::new(RefCell::new(None)),
+            on_compile_cancelled: Rc::new(RefCell::new(None)),
             on_compile_time: Rc::new(RefCell::new(None)),
             on_compile_start: Rc::new(RefCell::new(None)),
             spin_lbl: spin_lbl_store,
@@ -283,6 +286,7 @@ impl PreviewPane {
             first_load: Rc::new(RefCell::new(true)),
             zoom_osd,
             osd_timer: Rc::new(RefCell::new(None)),
+            osd_fade_timer: Rc::new(RefCell::new(None)),
         };
 
         // Refit to width whenever the scroll viewport width changes (window resize).
@@ -357,6 +361,7 @@ impl PreviewPane {
         let cancel_c = pane.cancel_btn.clone();
         let stack_c = pane.stack.clone();
         let pixbufs_c = pane.page_pixbufs.clone();
+        let on_cancelled_c = pane.on_compile_cancelled.clone();
         pane.cancel_btn.connect_clicked(move |_| {
             *gen_c.borrow_mut() += 1;
             spinner_c.set_spinning(false);
@@ -365,6 +370,9 @@ impl PreviewPane {
                 stack_c.set_visible_child_name("empty");
             } else {
                 stack_c.set_visible_child_name("ready");
+            }
+            if let Some(f) = on_cancelled_c.borrow().as_ref() {
+                f();
             }
         });
 
@@ -378,17 +386,26 @@ impl PreviewPane {
         if let Some(id) = self.osd_timer.borrow_mut().take() {
             id.remove();
         }
+        if let Some(id) = self.osd_fade_timer.borrow_mut().take() {
+            id.remove();
+        }
         let osd_c = self.zoom_osd.clone();
         let timer_c = self.osd_timer.clone();
+        let fade_timer_c = self.osd_fade_timer.clone();
         let source = glib::timeout_add_local_once(
             std::time::Duration::from_millis(1500),
             move || {
                 osd_c.add_css_class("osd-hidden");
                 let osd_fade = osd_c.clone();
-                glib::timeout_add_local_once(
+                let fade_timer_c2 = fade_timer_c.clone();
+                let fade_source = glib::timeout_add_local_once(
                     std::time::Duration::from_millis(220),
-                    move || osd_fade.set_visible(false),
+                    move || {
+                        osd_fade.set_visible(false);
+                        *fade_timer_c2.borrow_mut() = None;
+                    },
                 );
+                *fade_timer_c.borrow_mut() = Some(fade_source);
                 *timer_c.borrow_mut() = None;
             },
         );
@@ -513,6 +530,10 @@ impl PreviewPane {
 
     pub fn set_on_compile_done(&self, f: impl Fn(Option<String>) + 'static) {
         *self.on_compile_done.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn set_on_compile_cancelled(&self, f: impl Fn() + 'static) {
+        *self.on_compile_cancelled.borrow_mut() = Some(Box::new(f));
     }
 
     pub fn set_on_compile_time(&self, f: impl Fn(u64, Option<usize>) + 'static) {

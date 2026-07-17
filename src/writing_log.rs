@@ -32,7 +32,7 @@ impl WritingLog {
             std::fs::create_dir_all(parent).ok();
         }
         if let Ok(s) = serde_json::to_string_pretty(self) {
-            std::fs::write(path, s).ok();
+            crate::error::atomic_write(&path, s.as_bytes()).ok();
         }
     }
 

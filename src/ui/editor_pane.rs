@@ -5112,6 +5112,11 @@ impl EditorPane {
         None
     }
 
+    /// Whether the tab for `path` has unsaved modifications.
+    pub fn is_modified(&self, path: &std::path::Path) -> bool {
+        self.state.borrow().tabs.get(path).map(|t| t.modified).unwrap_or(false)
+    }
+
     /// Returns (path, content) for every tab that has unsaved modifications.
     pub fn modified_buffers(&self) -> Vec<(PathBuf, String)> {
         let state = self.state.borrow();

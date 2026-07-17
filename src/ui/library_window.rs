@@ -2068,6 +2068,9 @@ impl LibraryWindow {
         );
         dlg.add_response("new", "New Project…");
         dlg.add_response("cancel", "Cancel");
+        dlg.add_response("ok", "Add");
+        dlg.set_response_appearance("ok", adw::ResponseAppearance::Suggested);
+        dlg.set_default_response(Some("ok"));
         dlg.set_close_response("cancel");
 
         let scroll = ScrolledWindow::new();
@@ -2089,7 +2092,7 @@ impl LibraryWindow {
         dlg.connect_response(None, move |_, resp| {
             match resp {
                 "new" => this.create_project_then_add(doc_id),
-                "cancel" => {
+                "ok" => {
                     if let Some(row) = listbox_c.selected_row() {
                         if let Ok(pid) = row.widget_name().to_string().parse::<i64>() {
                             this.library.borrow_mut().add_doc_to_project(pid, doc_id).ok();
@@ -2506,9 +2509,11 @@ impl LibraryWindow {
         };
 
         let dlg = adw::MessageDialog::new(Some(&self.window), Some("New Document"), None);
+        dlg.add_response("cancel", "Cancel");
         dlg.add_response("blank", "Blank Document");
+        dlg.set_response_appearance("blank", adw::ResponseAppearance::Suggested);
         dlg.set_default_response(Some("blank"));
-        dlg.set_close_response("blank");
+        dlg.set_close_response("cancel");
 
         let scroll = ScrolledWindow::new();
         scroll.set_min_content_height(100);

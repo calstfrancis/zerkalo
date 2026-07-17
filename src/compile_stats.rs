@@ -70,6 +70,6 @@ fn flush_to_disk(stats: &CompileStats) {
         let _ = std::fs::create_dir_all(dir);
     }
     if let Ok(json) = serde_json::to_string(stats) {
-        let _ = std::fs::write(path, json);
+        let _ = crate::error::atomic_write(&path, json.as_bytes());
     }
 }

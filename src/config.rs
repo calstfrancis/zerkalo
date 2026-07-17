@@ -257,7 +257,7 @@ impl Config {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
         }
-        std::fs::write(path, toml::to_string(self)?)?;
+        crate::error::atomic_write(&path, toml::to_string(self)?.as_bytes())?;
         Ok(())
     }
 
@@ -368,7 +368,7 @@ impl ProjectConfig {
     pub fn save(&self, project_root: &Path) -> Result<()> {
         let dir = project_root.join(".zerkalo");
         std::fs::create_dir_all(&dir)?;
-        std::fs::write(dir.join("config.toml"), toml::to_string(self)?)?;
+        crate::error::atomic_write(&dir.join("config.toml"), toml::to_string(self)?.as_bytes())?;
         Ok(())
     }
 }
