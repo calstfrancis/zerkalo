@@ -126,6 +126,8 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
+                "New: #cv-profile(\"name\") renders a whole CV profile — every section, in order, with its headings — built in Skrizhal's CV Profiles dialog",
+                "Fixed: a CV elements file containing profiles could leave the ! autocomplete and CV panel completely empty",
                 "Fixed: GitHub sync could send your sign-in token to non-GitHub backup remotes — token use is now scoped to github.com only",
                 "Fixed: cancelling \"Sign in with GitHub\" didn't actually stop the background approval check",
                 "Fixed: renaming a citation key could silently overwrite a different, already-existing key",
