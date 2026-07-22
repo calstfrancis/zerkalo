@@ -927,7 +927,7 @@ impl AppWindow {
         // ── CV entries loading & watch ───────────────────────────────────────
 
         if let Some(ref cvp) = effective_cv_elements {
-            let entries = skrizhal_core::load_file(cvp).unwrap_or_default();
+            let entries = crate::cv_mode::load_cv_entries(cvp);
             if !entries.is_empty() {
                 tracing::info!("Loaded {} CV entries from {}", entries.len(), cvp.display());
             }
@@ -954,7 +954,7 @@ impl AppWindow {
                 };
                 if changed {
                     *last_mtime.borrow_mut() = current;
-                    let entries = skrizhal_core::load_file(&cv_for_watch).unwrap_or_default();
+                    let entries = crate::cv_mode::load_cv_entries(&cv_for_watch);
                     tracing::info!("Reloaded {} CV entries", entries.len());
                     editor_for_cv.set_cv_entries(entries.clone());
                     citation_for_cv.load_cv_entries(entries);
@@ -1034,7 +1034,7 @@ impl AppWindow {
                 dialog.open(Some(&win), None::<&gtk4::gio::Cancellable>, move |result| {
                     if let Ok(file) = result {
                         if let Some(path) = file.path() {
-                            let entries = skrizhal_core::load_file(&path).unwrap_or_default();
+                            let entries = crate::cv_mode::load_cv_entries(&path);
                             ep.set_cv_entries(entries.clone());
                             cp.load_cv_entries(entries);
                             cp.set_cv_filename(path.file_name().and_then(|n| n.to_str()));
