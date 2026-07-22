@@ -5,9 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.18.1-dev2] — Security, data-integrity, and correctness fixes
+## [0.18.1-dev2] — CV profiles, plus security, data-integrity, and correctness fixes
+
+### Added
+- **`#cv-profile("name")` renders a whole CV profile** — every section, in the profile's own order, each with its heading — replacing a hand-assembled run of `#cv-section` calls. Profiles are built in Skrizhal's "CV Profiles" dialog and stored in the same CV elements file; unlike a plain category/tag filter they also carry section order and explicit keep/drop lists, so a one-off exception ("drop that job from *this* CV") doesn't need a single-use tag invented for it. Needed no new compile plumbing — it reads the same `skrizhal-cv-data` sys.input the entries already arrive through.
 
 ### Fixed
+- **`#cv-section` would have rendered Skrizhal's profile block as if it were a CV entry.** It iterated every top-level key in the CV elements file, so the reserved `_profiles` key introduced by Skrizhal 0.4.0 would have been handed to the entry renderer and printed as nonsense. Reserved (`_`-prefixed) keys are now skipped.
 - **GitHub sync could send your sign-in token to non-GitHub remotes** — a backup remote pointing at any HTTPS host (not just github.com) had the token injected into its URL during sync. Token injection is now scoped to github.com only, and is passed via a scoped git config header instead of the URL, so it no longer appears in process listings either.
 - **Cancelling "Sign in with GitHub" didn't actually cancel it** — closing the dialog left the background approval check running; if you approved the code afterward, the account still got silently connected. Cancel now stops it immediately.
 - **Renaming a citation key could silently overwrite a different, already-existing key** with the same new name, deleting it with no warning. Renaming now refuses and shows an error instead.
