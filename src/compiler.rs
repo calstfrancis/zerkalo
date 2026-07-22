@@ -337,6 +337,70 @@ mdiv-2024:
         let bytes = result.unwrap();
         assert!(bytes.starts_with(b"%PDF-"), "output should be valid PDF");
     }
+
+    /// Profiles live under the reserved `_profiles` key in the same data
+    /// file as the entries. Two things are being checked here: that
+    /// `cv-profile` renders, and — via the plain `cv-section` call — that
+    /// the reserved key is *not* mistaken for a CV entry and rendered as
+    /// one, which is exactly what happened before `cv-entry-keys` existed.
+    #[test]
+    fn compile_cv_profile_with_reserved_profiles_key() {
+        let path = write_temp_typ(
+            "#import \"cv-helpers.typ\": cv-profile, cv-section\n\
+             #cv-profile(\"academic\")\n\
+             #cv-section()\n\
+             #cv-profile(\"no-such-profile\")",
+        );
+
+        let cv_helpers_src = include_str!("../templates/cv-helpers.typ");
+        let mut overrides = HashMap::new();
+        overrides.insert(
+            std::path::PathBuf::from("/tmp/cv-helpers.typ"),
+            cv_helpers_src.to_string(),
+        );
+
+        let cv_data = r#"
+old-job:
+  category: Employment
+  title: Earlier Post
+  organization: Example Organization
+  date: 2015/2018
+  order: 1
+new-job:
+  category: Employment
+  title: Later Post
+  organization: Example University
+  date: 2022/2024
+mdiv:
+  category: Education
+  title: Master of Divinity
+  organization: Example School
+  date: 2023/
+dropped-job:
+  category: Employment
+  title: Should Not Appear
+  date: 2019/2020
+_profiles:
+  academic:
+    label: Academic CV
+    sections:
+      - heading: Experience
+        categories: [Employment]
+        exclude: [dropped-job]
+      - heading: Education
+        categories: [Education]
+"#;
+        let mut inputs = HashMap::new();
+        inputs.insert("skrizhal-cv-data".to_string(), cv_data.to_string());
+
+        let result = compile_to_pdf_bytes(&path, &overrides, &inputs);
+        assert!(
+            result.is_ok(),
+            "CV-profile document should compile: {:?}",
+            result.err()
+        );
+        assert!(result.unwrap().starts_with(b"%PDF-"));
+    }
 }
 
 /// Compile `root_file` in-process and return PNG bytes for each page.

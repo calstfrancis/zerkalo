@@ -103,6 +103,14 @@ fn cv_cheatsheet_blocks() -> Vec<Block<'static>> {
         ),
         Block::Body("Category matching is case-insensitive, so a hand-typed \"education\" matches the same section as \"Education\"."),
         Block::Gap,
+        Block::H2("CV Profiles"),
+        Block::Body("A profile is a whole CV saved by name in Skrizhal — an ordered list of sections, each with its own heading, filters, and explicit keep/drop lists. Build one in Skrizhal's \"CV Profiles\" dialog, then render the entire thing with a single call. Use this instead of a hand-assembled run of #cv-section calls when you keep more than one version of your CV, since a profile also stores the section order and the one-off exceptions a filter can't express."),
+        Block::Code(
+            "#cv-profile(\"academic-2026\", style: CV_STYLE)\n\
+             \n\
+             #cv-profile(\"ministry\", style: CV_STYLE, level: 2)   \u{2190} heading level for section titles"
+        ),
+        Block::Gap,
         Block::H2("Manual CV Helper Functions (older documents)"),
         Block::Body("Documents created before Skrizhal integration existed may still call these directly instead of `#cv-section` — both keep working."),
         Block::Code(

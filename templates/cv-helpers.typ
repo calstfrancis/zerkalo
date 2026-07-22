@@ -223,6 +223,14 @@
   cv-entry-render(data.at(key), style: style)
 }
 
+// Every key in the data file that is an actual CV entry.
+//
+// Underscore-prefixed keys are reserved for configuration — `_profiles`
+// today, possibly more later — and are emphatically *not* entries: without
+// this filter `cv-section` would hand the profiles block to the entry
+// renderer and print nonsense into the document.
+#let cv-entry-keys(data) = data.keys().filter(k => not k.starts-with("_"))
+
 // Comma/dot-joined line of entry titles (sidebar style: real bullets) — for
 // tag-shaped categories like Language Skill, where each entry is a single
 // short line rather than a dated card.
@@ -251,7 +259,7 @@
   let categories = if category == none { none }
     else if type(category) == array { category.map(lower) }
     else { (lower(category),) }
-  let keys = data.keys().filter(k => {
+  let keys = cv-entry-keys(data).filter(k => {
     let entry = data.at(k)
     let entry-category = entry.at("category", default: none)
     let category-ok = categories == none or (entry-category != none and lower(entry-category) in categories)
@@ -272,6 +280,74 @@
   } else {
     for k in sorted {
       cv-entry-render(data.at(k), style: style)
+    }
+  }
+}
+
+// Renders a whole named CV profile: every section, in the profile's own
+// order, each with its heading. A profile is stored in the data file under
+// the reserved `_profiles` key and edited in Skrizhal's "CV Profiles"
+// dialog — see skrizhal-core's `profile.rs`, whose `resolve_section` this
+// deliberately mirrors rule for rule.
+//
+// Why this exists at all: `cv-section` filters, and a filter can't express
+// "this CV, in this order, with these entries and not those." A profile
+// adds ordering plus explicit include/exclude, so the one-off exception
+// ("drop that job from this CV only") doesn't require inventing a
+// single-use tag.
+#let cv-profile(name, data: cv-data, style: "modern", level: 2) = {
+  let profiles = data.at("_profiles", default: (:))
+  if name not in profiles {
+    return text(fill: red)[Unknown CV profile: #name]
+  }
+
+  for section in profiles.at(name).at("sections", default: ()) {
+    let categories = section.at("categories", default: ()).map(lower)
+    let tags = section.at("tags", default: ())
+    // `include` is a Typst keyword and cannot be bound as an identifier —
+    // the YAML field is still named `include`, only this local differs.
+    let included = section.at("include", default: ())
+    let excluded = section.at("exclude", default: ())
+
+    // Filters, then explicit includes, then explicit excludes — the same
+    // precedence skrizhal-core applies, so exclude always wins.
+    let keys = cv-entry-keys(data).filter(k => {
+      let entry = data.at(k)
+      let entry-category = entry.at("category", default: none)
+      let category-ok = categories.len() == 0 or (
+        entry-category != none and lower(entry-category) in categories
+      )
+      let entry-tags = entry.at("tags", default: ())
+      let tag-ok = tags.len() == 0 or tags.any(t => t in entry-tags)
+      ((category-ok and tag-ok) or k in included) and k not in excluded
+    })
+
+    // Chronological first, so that the `order` pass below — which is stable —
+    // leaves equally-ordered entries in most-recent-first order, matching
+    // skrizhal-core's tiebreak.
+    let by-date = keys.sorted(key: k => {
+      let d = str(data.at(k).at("date", default: ""))
+      let end = d.split("/").last()
+      if end == "" { "9999" } else { end }
+    }).rev()
+
+    // `order` is an opt-in override: entries carrying one lead, ascending,
+    // and everything else keeps its chronological position behind them.
+    let pinned = by-date.filter(k => data.at(k).at("order", default: none) != none)
+      .sorted(key: k => data.at(k).at("order"))
+    let unpinned = by-date.filter(k => data.at(k).at("order", default: none) == none)
+    let sorted = pinned + unpinned
+
+    let heading-text = section.at("heading", default: "")
+    if heading-text != "" {
+      heading(level: level, heading-text)
+    }
+    if sorted.len() == 0 {
+      text(style: "italic", fill: luma(150))[No entries yet.]
+    } else {
+      for k in sorted {
+        cv-entry-render(data.at(k), style: style)
+      }
     }
   }
 }
