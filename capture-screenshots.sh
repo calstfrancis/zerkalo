@@ -42,6 +42,7 @@ fi
 
 DEMO_HOME=$(mktemp -d /tmp/zerkalo-demo-home.XXXXXX)
 OUT="screenshots/zerkalo-main.png"
+OUT_DARK="screenshots/zerkalo-main-dark.png"
 WINDOW_W=1600
 WINDOW_H=1000
 # The title-page block in example_template_one.typ: from the
@@ -122,14 +123,59 @@ Xvfb ":$DISPLAY_NUM" -screen 0 "${WINDOW_W}x${WINDOW_H}x24" &
 XVFB_PID=$!
 sleep 2
 
-echo "==> Launching Zerkalo against demo data inside the isolated display"
-env -u WAYLAND_DISPLAY GDK_BACKEND=x11 DISPLAY=":$DISPLAY_NUM" "./$BINARY" &
-APP_PID=$!
+# Capture the app once per colour scheme. libadwaita normally resolves
+# light/dark from the desktop's settings portal, which on this machine is
+# answered by a backend that ignores our isolated config and always reports
+# light. ADW_DISABLE_PORTAL=1 makes libadwaita read the GSettings color-scheme
+# key instead, and GSETTINGS_BACKEND=keyfile feeds it a value we write into
+# the throwaway config (XDG_CONFIG_HOME is already redirected there above) —
+# forcing either scheme deterministically without touching the real desktop.
+# Zerkalo's own config defaults to Theme::System, which follows this.
+capture_scheme() {
+  local scheme="$1" out="$2"
+  mkdir -p "$XDG_CONFIG_HOME/glib-2.0/settings"
+  cat > "$XDG_CONFIG_HOME/glib-2.0/settings/keyfile" <<KEYFILE
+[org/gnome/desktop/interface]
+color-scheme='$scheme'
+KEYFILE
 
-echo "==> Waiting for window to render and document to compile"
-sleep 20
+  echo "==> Launching Zerkalo ($scheme) against demo data inside the isolated display"
+  env -u WAYLAND_DISPLAY GDK_BACKEND=x11 ADW_DISABLE_PORTAL=1 GSETTINGS_BACKEND=keyfile \
+    DISPLAY=":$DISPLAY_NUM" "./$BINARY" &
+  APP_PID=$!
 
-echo "==> Capturing screenshot (window is maximized to the display size)"
-DISPLAY=":$DISPLAY_NUM" magick x:root -crop "${WINDOW_W}x${WINDOW_H}+0+0" +repage "$OUT"
+  echo "==> Waiting for window to render and document to compile"
+  sleep 20
 
-echo "Done. Wrote $OUT"
+  echo "==> Capturing screenshot -> $out (window is maximized to the display size)"
+  DISPLAY=":$DISPLAY_NUM" magick x:root -crop "${WINDOW_W}x${WINDOW_H}+0+0" +repage "$out"
+
+  kill "$APP_PID" 2>/dev/null || true
+  wait "$APP_PID" 2>/dev/null || true
+  APP_PID=
+}
+
+capture_scheme default     "$OUT"
+capture_scheme prefer-dark "$OUT_DARK"
+
+echo "Done. Wrote $OUT and $OUT_DARK"
+
+# Publish web-ready copies into the personal website repo, one PNG + WebP per
+# scheme, named as the site expects (<slug>.png/.webp + <slug>-dark.png/.webp).
+# The capture crop already matches the site's image dimensions, so this is a
+# straight convert+copy — no resize. Override the destination with
+# WEBSITE_DIR=/path ./capture-screenshots.sh; if it doesn't exist the export is
+# skipped with a note rather than failing. The website is a separate repo —
+# commit and push it there yourself after reviewing the refreshed images.
+SLUG="zerkalo"
+WEBSITE_DIR="${WEBSITE_DIR:-$(dirname "$SCRIPT_DIR")/calstfrancis.github.io}"
+if [[ -d "$WEBSITE_DIR" ]]; then
+  echo "==> Publishing web images to $WEBSITE_DIR"
+  cp "$OUT"      "$WEBSITE_DIR/$SLUG.png"
+  cp "$OUT_DARK" "$WEBSITE_DIR/$SLUG-dark.png"
+  magick "$OUT"      -quality 80 "$WEBSITE_DIR/$SLUG.webp"
+  magick "$OUT_DARK" -quality 80 "$WEBSITE_DIR/$SLUG-dark.webp"
+  echo "    wrote $SLUG.{png,webp} and $SLUG-dark.{png,webp}"
+else
+  echo "NOTE: website dir not found ($WEBSITE_DIR) — skipping web export."
+fi
