@@ -147,8 +147,27 @@ KEYFILE
   echo "==> Waiting for window to render and document to compile"
   sleep 20
 
-  echo "==> Capturing screenshot -> $out (window is maximized to the display size)"
-  DISPLAY=":$DISPLAY_NUM" magick x:root -crop "${WINDOW_W}x${WINDOW_H}+0+0" +repage "$out"
+  # Capture, then check the image isn't blank before accepting it. A fixed wait
+  # isn't enough on a cold run — the first capture of a release fetches Typst
+  # packages over the network first — and a solid-black PNG published to the
+  # website is worse than a slow release. Standard deviation of a real
+  # screenshot is in the thousands; a single-colour image is 0.
+  local attempt
+  for attempt in 1 2 3 4 5; do
+    echo "==> Capturing screenshot -> $out (attempt $attempt)"
+    DISPLAY=":$DISPLAY_NUM" magick x:root -crop "${WINDOW_W}x${WINDOW_H}+0+0" +repage "$out"
+    local sd
+    sd=$(magick "$out" -format "%[fx:standard_deviation]" info: 2>/dev/null || echo 0)
+    if awk -v v="$sd" 'BEGIN { exit !(v > 0.01) }'; then
+      break
+    fi
+    if [[ $attempt -eq 5 ]]; then
+      echo "ERROR: $out is blank after 5 attempts — the app never rendered." >&2
+      exit 1
+    fi
+    echo "    blank capture (sd=$sd) — waiting for the window to render"
+    sleep 10
+  done
 
   kill "$APP_PID" 2>/dev/null || true
   wait "$APP_PID" 2>/dev/null || true

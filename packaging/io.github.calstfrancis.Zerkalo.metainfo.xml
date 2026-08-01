@@ -16,8 +16,8 @@
       <li>Multi-file tabs with modified indicator and inline compile-error dots</li>
       <li>Syntax highlighting, find and replace, auto-pair brackets</li>
       <li>Ctrl+B / Ctrl+I bold and italic formatting with toggle-off support</li>
-      <li>LSP completions via bundled tinymist — type # for a popup</li>
-      <li>Citation autocomplete — type @ for fuzzy BibTeX key search with smart popup positioning</li>
+      <li>Inline completion — type # for a dim suggestion after the cursor previewing what will be inserted, with its signature and keys in the status bar; Tab accepts, and a compact ranked list joins in once the prefix narrows things down. Backed by bundled tinymist where available</li>
+      <li>Citation and CV autocomplete — type @ or ! for the same inline suggestion over BibTeX keys and Skrizhal CV entries</li>
       <li>Spell check with suggestions, Ignore All, and language selector; typewriter scrolling option</li>
       <li>Word count, reading time, word-count goal, session delta, and section word count</li>
       <li>Command palette (Ctrl+K) — fuzzy search over commands and headings</li>
@@ -75,6 +75,28 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.19.0" date="2026-08-01">
+      <description>
+        <p>0.19.0 "Quiet Silver" — Inline autocomplete, a status bar that stays out of the way, and a viewport that stays put.</p>
+        <ul>
+          <li>Added: inline completion suggestions — type # and the best match appears dim after the cursor, previewing what will actually be inserted; Tab accepts it, and the compact list only opens once two characters are typed</li>
+          <li>Added: the status bar names the current suggestion, leads with its signature, and shows the keys that take it; a bare # says what to do, and it admits when only built-in snippets are available because no language server is running</li>
+          <li>Added: completions are matched by their Typst name and fragments of it — #pagebreak works, #break finds it too — ranked prefix-first with matched letters in bold, and the name you pick for a prefix is remembered per project</li>
+          <li>Added: citations (@) and CV entries (!) behave the same way — inline suggestion, status-line description, list held back until the query is worth listing</li>
+          <li>Added: #cv-profile("name") renders a whole CV profile — every section, in its own order, each with its heading — built in Skrizhal's CV Profiles dialog</li>
+          <li>Added: root-file controls can be dismissed per project, for single-file documents that never needed a root</li>
+          <li>Changed: the status bar spans the whole window and gives its left half to the suggestion hint; Simple Mode and Focus moved to the header beside Library, the compile-mode toggle beside the compile buttons, the root-file controls beside the document title, and the GOST Type B font switch into the menu</li>
+          <li>Changed: Escape means "not for this word" — it dismisses until you move on, and no longer deletes what you typed</li>
+          <li>Fixed: Zerkalo crashed outright when resizing the editor/preview split, dragging the sidebar edge, or toggling the sidebar</li>
+          <li>Fixed: pasting threw the editor to the top of the document — GTK animates the viewport there after a paste, and your place is now held through it</li>
+          <li>Fixed: the right-click menu opened on top of the spelling suggestions, hiding them</li>
+          <li>Fixed: GitHub sync could send your sign-in token to non-GitHub backup remotes — token use is now scoped to github.com only</li>
+          <li>Fixed: renaming a citation key could silently overwrite a different, already-existing key; hyphenated keys weren't renamed in the document text</li>
+          <li>Fixed: snapshot history could mix together unrelated files or projects that happened to share a name</li>
+          <li>Fixed: a CV elements file containing profiles could leave the ! autocomplete and CV panel completely empty</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.18.0" date="2026-07-11">
       <description>
         <p>0.18.0 "True Type" — Default fonts, CV template fixes, onboarding polish.</p>
@@ -418,7 +440,7 @@
         </ul>
       </description>
     </release>
-    <release version="0.13.7-rc1" date="2026-06-13">
+    <release type="development" version="0.13.7-rc1" date="2026-06-13">
       <description>
         <p>Simple mode polish.</p>
         <ul>

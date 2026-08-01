@@ -7,6 +7,13 @@ on:
     branches: [ main ]
 
 jobs:
+  version-consistency:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check version / metainfo consistency
+        run: ./check-versions.sh
+
   build:
     runs-on: ubuntu-24.04
 

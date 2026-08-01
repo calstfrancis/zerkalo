@@ -13,9 +13,9 @@ Live preview · Academic styles · LSP completions · Git sync · Adwaita design
 |---|---|
 | **Multi-file tabs** | Open multiple `.typ` files; modified-indicator dot; red error dot on compile failure; close button |
 | **Syntax highlighting** | Full Typst grammar via GtkSourceView 5 |
-| **LSP completions** | `#` triggers a popup via [tinymist](https://github.com/Myriad-Dreamin/tinymist) |
+| **Inline completions** | `#` shows the best match dim after the cursor, previewing what will be inserted; Tab accepts, and a compact ranked list joins in after two characters. Backed by [tinymist](https://github.com/Myriad-Dreamin/tinymist) where available |
 | **Built-in snippets** | Academic snippets (figure, table, footnote, bibliography, …) prepended to the LSP popup |
-| **Citation autocomplete** | `@` triggers a BibTeX key popup with fuzzy filtering |
+| **Citation autocomplete** | `@` (BibTeX keys) and `!` (Skrizhal CV entries) behave the same way — inline suggestion, description in the status bar |
 | **Inline diagnostics** | Compile errors and LSP warnings shown as red/amber underlines in the editor |
 | **Find & Replace** | `Ctrl+F`; forward/backward; animated slide-in bar; replace one or all |
 | **Spell check** | Blue wavy underlines on misspelled prose words; right-click for suggestions, Ignore All; language selector in Settings; optional autocorrect on word boundary |
@@ -48,8 +48,8 @@ Live preview · Academic styles · LSP completions · Git sync · Adwaita design
 |---|---|
 | **New Project wizard** | ≡ → New Project… — names, slugifies, and creates a project folder with starter files; templates: Blank, Essay, Journal / Thesis, Theological Journal |
 | **Compilation root** | One file is the Typst entry point; Zerkalo auto-detects it from the import graph or reads `.zerkalo/config.toml`; marked with ★ in the file tree |
-| **Root indicator** | ★ icon on the root file's row in the file tree; "Root: filename.typ" chip in the status bar |
-| **Root switcher** | Click the status bar chip → popover lists all candidate roots; or right-click any file → Set as Compilation Root; writes `root_file` to `.zerkalo/config.toml` and recompiles |
+| **Root indicator** | ★ icon on the root file's row in the file tree; root controls beside the document title while the "project" toggle is on (dismissable per project) |
+| **Root switcher** | Turn on "project" beside the document title → Set…; or right-click any file → Set as Compilation Root; writes `root_file` to `.zerkalo/config.toml` and recompiles |
 | **#include / #import helper** | Right-click a file in the tree → Insert `#include` or Insert `#import`; path is automatically relative to the root's directory |
 | **Project config** | `.zerkalo/config.toml` inside the project folder — overrides `root_file`, `bib_path`, `file_order` for that project |
 
