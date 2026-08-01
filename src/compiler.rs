@@ -282,6 +282,39 @@ mod tests {
     }
 
     #[test]
+    fn compile_to_rgba_produces_buffer_matching_declared_dimensions() {
+        let path = write_temp_typ("= Heading\n\nSome content here.");
+        let result = compile_to_rgba_pages(&path, 1.0, &HashMap::new(), &HashMap::new());
+        assert!(result.is_ok(), "doc should render to RGBA: {:?}", result.err());
+        let pages = result.unwrap();
+        assert!(!pages.is_empty(), "should produce at least one page");
+        let p = &pages[0];
+        assert!(p.width > 0 && p.height > 0, "page should have real dimensions");
+        // GdkPixbuf reads this buffer using a rowstride derived from `width`, so
+        // a mismatch here would read past the end of the allocation.
+        assert_eq!(
+            p.rgba.len(),
+            (p.width * p.height * 4) as usize,
+            "RGBA buffer must be exactly width * height * 4 bytes"
+        );
+    }
+
+    #[test]
+    fn compile_to_rgba_renders_page_content_opaque() {
+        let path = write_temp_typ("= Heading\n\nSome content here.");
+        let pages = compile_to_rgba_pages(&path, 1.0, &HashMap::new(), &HashMap::new()).unwrap();
+        let p = &pages[0];
+        assert!(
+            p.rgba.chunks_exact(4).all(|px| px[3] == 255),
+            "a Typst page background is opaque; a transparent result means demultiply is wrong"
+        );
+        assert!(
+            p.rgba.chunks_exact(4).any(|px| px[0] < 128),
+            "page should contain dark pixels — the rendered glyphs"
+        );
+    }
+
+    #[test]
     fn compile_with_sys_inputs() {
         let path = write_temp_typ(
             "#let d = sys.inputs.at(\"draft\", default: \"false\")\nDraft: #d"
@@ -400,6 +433,55 @@ _profiles:
             result.err()
         );
         assert!(result.unwrap().starts_with(b"%PDF-"));
+    }
+}
+
+/// One rendered page as straight (non-premultiplied) RGBA8, ready to hand to
+/// `GdkPixbuf` without a decode step.
+pub struct RenderedPage {
+    pub width: u32,
+    pub height: u32,
+    pub rgba: Vec<u8>,
+}
+
+/// Compile `root_file` and return each page as raw RGBA pixels.
+///
+/// The live preview uses this rather than `compile_to_png_bytes` because that
+/// path PNG-encoded every page on the worker only for the main thread to decode
+/// all of them straight back — the bytes never leave the process, so the whole
+/// round-trip was wasted work, and the decode half stalled the UI on every
+/// compile in proportion to page count.
+pub fn compile_to_rgba_pages(
+    root_file: &Path,
+    pixel_per_pt: f32,
+    overrides: &HashMap<PathBuf, String>,
+    sys_inputs: &HashMap<String, String>,
+) -> Result<Vec<RenderedPage>, String> {
+    let world = ZerkaloWorld::new(root_file, overrides.clone(), sys_inputs)?;
+    let result = typst::compile::<PagedDocument>(&world);
+
+    match result.output {
+        Ok(doc) => {
+            let mut pages = Vec::with_capacity(doc.pages.len());
+            for page in &doc.pages {
+                let pixmap = typst_render::render(page, pixel_per_pt);
+                // tiny-skia stores premultiplied RGBA; GdkPixbuf wants straight.
+                // Typst pages are opaque so this is usually identity, but pages
+                // with a transparent background would otherwise darken.
+                let mut rgba = Vec::with_capacity(pixmap.pixels().len() * 4);
+                for px in pixmap.pixels() {
+                    let c = px.demultiply();
+                    rgba.extend_from_slice(&[c.red(), c.green(), c.blue(), c.alpha()]);
+                }
+                pages.push(RenderedPage {
+                    width: pixmap.width(),
+                    height: pixmap.height(),
+                    rgba,
+                });
+            }
+            Ok(pages)
+        }
+        Err(errors) => Err(format_diagnostics(&world, &errors)),
     }
 }
 

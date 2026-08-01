@@ -126,6 +126,13 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
+                "Fixed: typing lagged badly on long documents, and got worse the longer the document and the more tabs were open — the error squiggles were being re-applied across every open tab on every single keystroke",
+                "Fixed: the status bar's section word count re-read the whole document every time the cursor changed line, so holding an arrow key scanned it once per line",
+                "Fixed: comment highlighting re-tagged the entire document every time typing paused, even when no comment had moved",
+                "Fixed: the preview repainted every page of the document on every frame, however little of it was on screen — long documents scrolled progressively worse",
+                "Fixed: every compile compressed each page to PNG only to decompress it again immediately, freezing the window after each recompile for longer the more pages the document had",
+                "Fixed: editing during a slow compile stacked up extra compiles competing with the interface — a request arriving mid-compile now waits and runs once",
+                "Fixed: choosing a spelling suggestion threw the editor to the top of the document, the same way pasting used to",
                 "New: autocomplete suggests inline — type # and the best match appears dim after the cursor; Tab accepts it, and the (now much smaller) list only opens once you've typed two characters",
                 "New: the status bar says what the current suggestion does and which keys take it, so the explanation never covers what you're writing",
                 "New: suggestions are found by their Typst name and by fragments of it — #pagebreak works, and #break finds it too; matched letters are shown in bold and the best match is always selected",
