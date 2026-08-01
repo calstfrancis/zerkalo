@@ -31,27 +31,21 @@ impl LspPopup {
         list_box.set_selection_mode(SelectionMode::Browse);
         list_box.set_activate_on_single_click(true);
 
+        // Deliberately small: this sits over the text the user is writing, so it
+        // shows roughly six rows and no more, and carries no footer. The inline
+        // ghost suggestion in the editor is the primary affordance — the list is
+        // the fallback for when several things match.
         let scroll = ScrolledWindow::new();
         scroll.set_child(Some(&list_box));
-        scroll.set_min_content_width(480);
-        scroll.set_min_content_height(60);
-        scroll.set_max_content_height(380);
+        scroll.set_min_content_width(300);
+        scroll.set_min_content_height(28);
+        scroll.set_max_content_height(180);
         scroll.set_propagate_natural_height(true);
-
-        let hint = Label::new(Some("↑ ↓ navigate · double-click or ↵ insert · Esc dismiss"));
-        hint.add_css_class("dim-label");
-        hint.set_margin_top(4);
-        hint.set_margin_bottom(4);
-        hint.set_margin_start(10);
-        hint.set_margin_end(10);
-        hint.set_xalign(0.0);
 
         let outer = GtkBox::new(Orientation::Vertical, 0);
         outer.set_margin_top(2);
-        outer.set_margin_bottom(4);
+        outer.set_margin_bottom(2);
         outer.append(&scroll);
-        outer.append(&Separator::new(Orientation::Horizontal));
-        outer.append(&hint);
         popover.set_child(Some(&outer));
 
         let items: Rc<RefCell<Vec<CompletionItem>>> = Rc::new(RefCell::new(Vec::new()));
@@ -98,10 +92,9 @@ impl LspPopup {
         *self.on_complete.borrow_mut() = Some(Box::new(f));
     }
 
-    /// Replace the popup contents with a new master item list and show at (x, y).
-    /// `above`: true = popup sits above the cursor (PositionType::Top), false = below.
-    /// Resets any active filter. Call `apply_filter` afterwards to filter the new list.
-    pub fn show_items(&self, mut new_items: Vec<CompletionItem>, x: i32, y: i32, above: bool) {
+    /// Replace the popup contents with a new master item list, without showing
+    /// anything. Resets any active filter — call `apply_filter` afterwards.
+    pub fn load_items(&self, mut new_items: Vec<CompletionItem>) {
         self.clear_rows();
         *self.filter_prefix.borrow_mut() = String::new();
 
@@ -125,7 +118,12 @@ impl LspPopup {
         if let Some(row) = self.list_box.row_at_index(0) {
             self.list_box.select_row(Some(&row));
         }
+    }
 
+    /// Show the already-loaded list at (x, y). `above`: true = the popup sits
+    /// above the cursor (PositionType::Top), false = below.
+    pub fn show_at(&self, x: i32, y: i32, above: bool) {
+        if self.items.borrow().is_empty() { return; }
         self.popover.set_position(if above { PositionType::Top } else { PositionType::Bottom });
         self.popover.set_pointing_to(Some(&Rectangle::new(x, y, 1, 1)));
         if !self.popover.is_visible() {
@@ -193,6 +191,29 @@ impl LspPopup {
                 self.list_box.select_row(Some(&row));
             }
         }
+    }
+
+    /// The item the inline ghost suggestion should offer for `prefix`: the
+    /// shortest label that starts with it, so `#e` suggests `emph` rather than
+    /// whatever happens to sort first alphabetically.
+    pub fn best_match(&self, prefix: &str) -> Option<CompletionItem> {
+        if prefix.is_empty() { return None; }
+        let lprefix = prefix.to_lowercase();
+        self.items
+            .borrow()
+            .iter()
+            .filter(|i| i.label.to_lowercase().starts_with(&lprefix))
+            .min_by_key(|i| (i.label.chars().count(), i.label.to_lowercase()))
+            .cloned()
+    }
+
+    pub fn match_count(&self, prefix: &str) -> usize {
+        let lprefix = prefix.to_lowercase();
+        self.items
+            .borrow()
+            .iter()
+            .filter(|i| lprefix.is_empty() || i.label.to_lowercase().starts_with(&lprefix))
+            .count()
     }
 
     pub fn hide(&self) {

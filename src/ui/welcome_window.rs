@@ -126,7 +126,11 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
+                "New: autocomplete suggests inline — type # and the best match appears dim after the cursor; Tab accepts it, and the (now much smaller) list only opens once you've typed two characters",
+                "New: clicking anywhere else dismisses a completion or citation popup",
                 "New: #cv-profile(\"name\") renders a whole CV profile — every section, in order, with its headings — built in Skrizhal's CV Profiles dialog",
+                "Fixed: Zerkalo crashed when resizing the editor/preview split, dragging the sidebar edge, or toggling the sidebar",
+                "Fixed: copying — especially from the right-click menu — threw the editor back to the top of the document",
                 "Fixed: a CV elements file containing profiles could leave the ! autocomplete and CV panel completely empty",
                 "Fixed: GitHub sync could send your sign-in token to non-GitHub backup remotes — token use is now scoped to github.com only",
                 "Fixed: cancelling \"Sign in with GitHub\" didn't actually stop the background approval check",

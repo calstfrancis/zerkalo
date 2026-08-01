@@ -5078,7 +5078,7 @@ dependencies = [
 
 [[package]]
 name = "zerkalo"
-version = "0.18.1-dev3"
+version = "0.19.0-dev1"
 dependencies = [
  "biblatex",
  "chrono",

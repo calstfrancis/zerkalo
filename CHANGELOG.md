@@ -5,12 +5,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.18.1-dev3] — CV profiles, plus security, data-integrity, and correctness fixes
+## [0.19.0-dev1] — Inline autocomplete and CV profiles, plus security, data-integrity, and correctness fixes
+
+### Changed
+- **Autocomplete is inline first, list second.** Typing `#` no longer throws a large list over your text: the best match now appears as dim ghost text right after the cursor (fish-shell style) and Tab accepts it. The list only joins in once you've typed two characters, and it's now about a third the width and six rows tall, with no footer. Clicking anywhere else — in the text, the sidebar, another window — dismisses whatever is showing, as does Escape. The ghost is an overlay, never text in the document, so it can't be saved, counted, or sent to the language server by accident.
 
 ### Added
 - **`#cv-profile("name")` renders a whole CV profile** — every section, in the profile's own order, each with its heading — replacing a hand-assembled run of `#cv-section` calls. Profiles are built in Skrizhal's "CV Profiles" dialog and stored in the same CV elements file; unlike a plain category/tag filter they also carry section order and explicit keep/drop lists, so a one-off exception ("drop that job from *this* CV") doesn't need a single-use tag invented for it. Needed no new compile plumbing — it reads the same `skrizhal-cv-data` sys.input the entries already arrive through.
 
 ### Fixed
+- **Copying threw the editor to the top of the document** — most reliably via the right-click menu, where the focus round-trip left the editor's idea of "where you were" pointing at the cursor rather than the viewport. The saved position now follows every scroll instead of being sampled at a few moments, and copy and cut pin the viewport outright, since neither should move it. (Paste still follows the insertion point, which is where the text actually landed.)
+- **Zerkalo crashed outright when resizing the editor/preview split, dragging the sidebar edge, or toggling the sidebar.** As the formatting toolbar narrowed, controls were moved into its overflow menu, but the bookkeeping that remembers where each control belongs was only ever seeded with one entry per zone instead of one per collapsible group. The first collapse exhausted it, and the moment the bar widened again the app aborted. Controls now also return in their original order rather than a shuffled one.
 - **`#cv-section` would have rendered Skrizhal's profile block as if it were a CV entry.** It iterated every top-level key in the CV elements file, so the reserved `_profiles` key introduced by Skrizhal 0.4.0 would have been handed to the entry renderer and printed as nonsense. Reserved (`_`-prefixed) keys are now skipped.
 - **A CV elements file containing profiles left the `!` autocomplete and the CV Elements panel completely empty**, with no error shown. The pinned `skrizhal-core` (v0.3.0) predates reserved keys and parses the file as a single map of entries, so one `_profiles` block failed the whole parse — and every call site treated a failed parse as "no entries". Reserved blocks are now filtered out before parsing, so an unrecognized block costs you that block rather than every entry in the file.
 - **GitHub sync could send your sign-in token to non-GitHub remotes** — a backup remote pointing at any HTTPS host (not just github.com) had the token injected into its URL during sync. Token injection is now scoped to github.com only, and is passed via a scoped git config header instead of the URL, so it no longer appears in process listings either.

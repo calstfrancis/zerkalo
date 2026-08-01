@@ -216,7 +216,7 @@ fn shortcuts_blocks() -> Vec<Block<'static>> {
         Block::Code("Ctrl+K              Command palette (commands + headings)\nCtrl+G              Command palette pre-filtered to headings only\nCtrl+Shift+F        Find in Files (project-wide search)"),
         Block::Gap,
         Block::H2("Autocomplete"),
-        Block::Code("@                   Citation popup (requires a .bib file)\n#                   LSP function/keyword popup (requires tinymist)\nTab / Return        Accept selected item\nEsc                 Dismiss popup\n↑ / ↓               Navigate completion list"),
+        Block::Code("#                   Inline suggestion — the best match appears dim after the cursor\nTab                 Accept the inline suggestion\n#xx                 After two characters, a short list of matches opens too\n@                   Citation popup (requires a .bib file)\nTab / Return        Accept selected item from the list\n↑ / ↓               Navigate the list\nEsc                 Dismiss (clicking elsewhere dismisses too)"),
         Block::Gap,
         Block::H2("Import"),
         Block::Code("Ctrl+Shift+I        Open the Import picker (LaTeX/Word/Markdown/ODT/HTML/EPUB/RTF/PDF)\nCtrl+Shift+V        Paste as Document (converts clipboard text via pandoc)\nDrag & drop         Drop a document file onto the editor to import it directly"),
