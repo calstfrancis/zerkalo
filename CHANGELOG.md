@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.19.0-dev4] — Inline autocomplete and CV profiles, plus security, data-integrity, and correctness fixes
+## [0.19.0-dev5] — Inline autocomplete and CV profiles, plus security, data-integrity, and correctness fixes
 
 ### Changed
 - **Controls moved to where they belong.** The status bar now runs the full width of the window, under the sidebar as well as the editor — it reports on the document, not on one pane. The completion hint has the whole left half of it to itself, with every standing control packed to the far right, so a suggestion can show its name, what it does and its keys without being squeezed. Simple Mode and Focus moved up to the header beside Library; the compile-mode toggle (auto / on save / manual) moved up beside the compile buttons it describes; the root-file controls moved up beside the document title; and the GOST Type B font switch — a once-in-a-while setting, not a status — moved into the ≡ menu.
