@@ -283,10 +283,17 @@ impl AppWindow {
         menu_btn.add_css_class("flat");
         menu_btn.set_popover(Some(&menu_popover));
 
-        // Header end section layout (left → right): sync | todo | profile | Preview | ≡
+        // Header end section layout (left → right):
+        //   sync | todo | ⟳ compile now | compile mode | Preview | ≡
         // In GTK4 pack_end the last-packed widget is leftmost in the end section.
+        // `compile_mode_slot` is packed empty here and filled further down, once
+        // the config-backed compile-mode button exists — packing it late would
+        // otherwise land it at the far left of the section, away from the
+        // compile buttons it belongs with.
+        let compile_mode_slot = GtkBox::new(Orientation::Horizontal, 0);
         header.pack_end(&menu_btn);
         header.pack_end(&compile_btn);
+        header.pack_end(&compile_mode_slot);
         header.pack_end(&recompile_header_btn);
         header.pack_end(&todo_btn);
         header.pack_end(&sync_btn);
@@ -325,7 +332,14 @@ impl AppWindow {
         file_selector.add_css_class("flat");
         file_selector.set_child(Some(&file_title_widget));
         file_selector.set_popover(Some(&recent_popover));
-        header.set_title_widget(Some(&file_selector));
+
+        // Root-file controls sit immediately right of the document title, where
+        // they read as being about *this* document. Filled in further down.
+        let title_extras = GtkBox::new(Orientation::Horizontal, 4);
+        let title_box = GtkBox::new(Orientation::Horizontal, 6);
+        title_box.append(&file_selector);
+        title_box.append(&title_extras);
+        header.set_title_widget(Some(&title_box));
 
         // ── Panels ──────────────────────────────────────────────────────────
 
@@ -779,6 +793,10 @@ impl AppWindow {
         draft_toggle.set_visible(false);
         editor_pane.status_bar_insert_after_goal(&draft_toggle);
 
+        // Simple Mode belongs with the other document-view controls in the
+        // header rather than mid-status-bar; pack_start puts it right of Library.
+        header.pack_start(&editor_pane.detach_simple_mode_button());
+
         // ── Simple mode wiring ──────────────────────────────────────────────
         {
             let cfg = current_config.clone();
@@ -806,16 +824,10 @@ impl AppWindow {
             btn.set_tooltip_text(Some("Cycle compile mode: auto → on save → manual"));
             apply_compile_mode_css(&btn, config.auto_compile, config.compile_on_save, config.manual_compile_only);
 
-            let sep_cm = Label::new(Some("│"));
-            sep_cm.add_css_class("dim-label");
-            sep_cm.add_css_class("caption");
-            sep_cm.set_opacity(0.4);
-            sep_cm.set_margin_start(2);
-            sep_cm.set_margin_end(2);
-
-            // Insert btn after simple, then sep between simple and btn
-            editor_pane.status_bar_insert_after_simple(&btn);
-            editor_pane.status_bar_widget().insert_child_after(&sep_cm, Some(editor_pane.simple_mode_button()));
+            // Beside the compile buttons in the header — it says what those
+            // buttons will do, so it belongs with them rather than at the far
+            // end of the status bar.
+            compile_mode_slot.append(&btn);
 
             let auto_cm = auto_compile.clone();
             let cos_cm = compile_on_save.clone();
@@ -3186,7 +3198,12 @@ impl AppWindow {
         {
             let main_path = project_root.join("main.typ");
             let no_root_configured = configured_root.borrow().is_none();
-            if no_root_configured && main_path.exists() {
+            // Once dismissed, the suggestion stays dismissed — it's advice about
+            // a project shape the user has already declined.
+            let dismissed = crate::config::ProjectConfig::load(&project_root)
+                .map(|c| c.root_controls_dismissed)
+                .unwrap_or(false);
+            if no_root_configured && main_path.exists() && !dismissed {
                 let banner = adw::Banner::new("main.typ detected — set it as root?");
                 banner.set_button_label(Some("Set as Root"));
                 banner.set_revealed(false); // revealed by project toggle
@@ -3562,11 +3579,28 @@ impl AppWindow {
             set_root_btn.add_css_class("caption");
             proj_controls.append(&set_root_btn);
 
-            let clear_root_btn = Button::with_label("\u{2715}");
+            // Distinct icons: this one clears the chosen root, the next one
+            // puts the whole control away. Two bare ✕ glyphs side by side read
+            // as the same button twice.
+            let clear_root_btn = Button::from_icon_name("edit-clear-symbolic");
             clear_root_btn.add_css_class("flat");
-            clear_root_btn.add_css_class("caption");
             clear_root_btn.set_tooltip_text(Some("Clear root file"));
+            clear_root_btn.update_property(&[gtk4::accessible::Property::Label("Clear root file")]);
             proj_controls.append(&clear_root_btn);
+
+            // Dismiss: for a one-file document there's no root to pick, and the
+            // controls plus the main.typ banner are pure clutter. Shuts them for
+            // this project and remembers it; the "project" toggle stays, so one
+            // click brings them back.
+            let dismiss_root_btn = Button::from_icon_name("window-close-symbolic");
+            dismiss_root_btn.add_css_class("flat");
+            dismiss_root_btn.set_tooltip_text(Some(
+                "Hide project controls for this document (click \"project\" to bring them back)",
+            ));
+            dismiss_root_btn.update_property(&[
+                gtk4::accessible::Property::Label("Hide project controls"),
+            ]);
+            proj_controls.append(&dismiss_root_btn);
 
             // Initialise from current root state
             {
@@ -3581,6 +3615,31 @@ impl AppWindow {
                 } else {
                     clear_root_btn.set_sensitive(false);
                 }
+            }
+
+            {
+                let ctrls = proj_controls.clone();
+                let toggle_c = proj_toggle.clone();
+                let banner_rc = root_banner.clone();
+                let root_dir_c = project_root.clone();
+                let toast_c = toast_overlay.clone();
+                let title_c = file_title_widget.clone();
+                dismiss_root_btn.connect_clicked(move |_| {
+                    toggle_c.set_active(false);
+                    ctrls.set_visible(false);
+                    // The "root › file" breadcrumb is part of the same story.
+                    title_c.set_subtitle("");
+                    if let Some(b) = banner_rc.borrow().as_ref() {
+                        b.set_revealed(false);
+                    }
+                    let mut pcfg =
+                        crate::config::ProjectConfig::load(&root_dir_c).unwrap_or_default();
+                    pcfg.root_controls_dismissed = true;
+                    let _ = pcfg.save(&root_dir_c);
+                    toast_c.add_toast(adw::Toast::new(
+                        "Project controls hidden — click \"project\" to show them again",
+                    ));
+                });
             }
 
             // Toggle → show/hide inline controls and root banner; update proj_mode_active
@@ -3684,8 +3743,8 @@ impl AppWindow {
 
             // Insert before SIMPLE: toggle first (ends up just left of SIMPLE),
             // then controls (ends up just left of toggle, so: [controls | toggle | SIMPLE]).
-            editor_pane.status_bar_insert_before_simple(&proj_toggle);
-            editor_pane.status_bar_insert_before_simple(&proj_controls);
+            title_extras.append(&proj_toggle);
+            title_extras.append(&proj_controls);
         }
 
         // Wire file_tree into the compile-done holder
@@ -4022,8 +4081,6 @@ impl AppWindow {
         right_col.append(&inner_paned);
         right_col.append(search_panel.widget());
         right_col.append(error_panel.widget());
-        right_col.append(&Separator::new(Orientation::Horizontal));
-        right_col.append(editor_pane.status_bar_widget());
 
 
         let content_paned = Paned::new(Orientation::Horizontal);
@@ -4103,10 +4160,15 @@ impl AppWindow {
             });
         }
 
-        let main_content = GtkBox::new(Orientation::Horizontal, 0);
+        // The status bar spans the whole window, under the sidebar as well as
+        // the editor — it reports on the document, not on one pane. (It used to
+        // live inside the editor column, so it stopped at the sidebar edge.)
+        let main_content = GtkBox::new(Orientation::Vertical, 0);
         main_content.set_hexpand(true);
         main_content.set_vexpand(true);
         main_content.append(&outer_paned);
+        main_content.append(&Separator::new(Orientation::Horizontal));
+        main_content.append(editor_pane.status_bar_widget());
 
         toast_for_sync_btn.set_child(Some(&main_content));
 

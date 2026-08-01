@@ -291,6 +291,13 @@ pub struct ProjectConfig {
     /// When set, overrides the auto-detected root file.
     #[serde(default)]
     pub root_file: Option<PathBuf>,
+    /// Set when the user dismisses the root-file controls for this project.
+    /// A single-file document has no root to choose, so the controls and the
+    /// "main.typ detected" banner are just clutter; this keeps them shut and
+    /// stops the banner reappearing. The "project" toggle stays in the header,
+    /// so turning them back on is one click.
+    #[serde(default)]
+    pub root_controls_dismissed: bool,
 }
 
 #[cfg(test)]

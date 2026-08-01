@@ -240,7 +240,6 @@ pub struct EditorPane {
     last_wc_text: Rc<RefCell<String>>,
     project_root: Rc<RefCell<Option<PathBuf>>>,
     status_bar: GtkBox,
-    status_bar_left_spacer: GtkBox,
     simple_mode_btn: Button,
     autocorrect_label: Label,
     on_autocorrect_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
@@ -452,13 +451,17 @@ impl EditorPane {
         lsp_status_label.add_css_class("caption");
         lsp_status_label.set_use_markup(true);
         lsp_status_label.set_margin_start(8);
-        // Completion hints can run long; ellipsize rather than shoving the rest
-        // of the status bar off the end.
+        // First in the bar, so it takes its natural width before anything else
+        // is measured — no width needs reserving. The ceiling and ellipsis are
+        // there for the rare very long LSP description.
         lsp_status_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-        lsp_status_label.set_max_width_chars(72);
+        lsp_status_label.set_max_width_chars(86);
         lsp_status_label.set_margin_top(3);
         lsp_status_label.set_margin_bottom(3);
-        status_bar.append(&lsp_status_label);
+        // Far left of the bar, ahead of the toggles: it's the one thing here
+        // that's about what you're doing right now rather than a standing
+        // setting, and it reads first there.
+        status_bar.prepend(&lsp_status_label);
 
         let diag_label = Label::new(None);
         diag_label.add_css_class("dim-label");
@@ -468,7 +471,8 @@ impl EditorPane {
         diag_label.set_margin_bottom(3);
         status_bar.append(&diag_label);
 
-        // Left spacer so SIMPLE is centered
+        // Slack between the left group (transient hint, toggles, cursor) and the
+        // right group (counts, version).
         let left_spacer = GtkBox::new(Orientation::Horizontal, 0);
         left_spacer.set_hexpand(true);
         status_bar.append(&left_spacer);
@@ -488,13 +492,6 @@ impl EditorPane {
         ));
         simple_mode_btn.update_property(&[gtk4::accessible::Property::Label("Toggle simple mode")]);
         status_bar.append(&simple_mode_btn);
-
-        // Matching right spacer: with left_spacer above, this centers SIMPLE in
-        // the space between the left widget group and the right widget group,
-        // rather than letting it get pushed flush against the right group.
-        let right_spacer = GtkBox::new(Orientation::Horizontal, 0);
-        right_spacer.set_hexpand(true);
-        status_bar.append(&right_spacer);
 
         let sep1 = gtk4::Separator::new(Orientation::Vertical);
         sep1.add_css_class("statusbar-sep");
@@ -1328,7 +1325,6 @@ impl EditorPane {
             last_wc_text,
             project_root,
             status_bar,
-            status_bar_left_spacer: left_spacer.clone(),
             simple_mode_btn: simple_mode_btn.clone(),
             autocorrect_label,
             on_autocorrect_toggle,
@@ -1738,19 +1734,15 @@ impl EditorPane {
         self.status_bar.insert_child_after(w, Some(&self.goal_ring));
     }
 
-    /// Insert a widget into the status bar just before the SIMPLE toggle
-    /// (i.e. between the hexpand spacer and SIMPLE).
-    pub fn status_bar_insert_before_simple(&self, w: &impl gtk4::prelude::IsA<gtk4::Widget>) {
-        self.status_bar.insert_child_after(w, Some(&self.status_bar_left_spacer));
-    }
-
-    /// Insert a widget into the status bar immediately after the SIMPLE toggle.
-    pub fn status_bar_insert_after_simple(&self, w: &impl gtk4::prelude::IsA<gtk4::Widget>) {
-        self.status_bar.insert_child_after(w, Some(&self.simple_mode_btn));
-    }
-
-    pub fn simple_mode_button(&self) -> &Button {
-        &self.simple_mode_btn
+    /// Remove the Simple Mode button from the status bar and hand it over, so
+    /// a caller can place it elsewhere (it lives beside the Library button in
+    /// the header). The button keeps all its wiring — only its parent changes.
+    pub fn detach_simple_mode_button(&self) -> Button {
+        let btn = self.simple_mode_btn.clone();
+        if btn.parent().as_ref() == Some(self.status_bar.upcast_ref::<gtk4::Widget>()) {
+            self.status_bar.remove(&btn);
+        }
+        btn
     }
 
     // ── Settings ──────────────────────────────────────────────────────────────
@@ -5834,7 +5826,6 @@ fn set_ghost(
 fn clear_ghost(ghost: &Label, slot: &Rc<RefCell<Option<CompletionItem>>>, hint: &Label) {
     ghost.set_visible(false);
     *slot.borrow_mut() = None;
-    hint.set_width_chars(0);
     hint.set_text("");
 }
 
@@ -5887,10 +5878,6 @@ fn set_completion_hint(
         }
         None => String::new(),
     };
-    // An ellipsizing label asks for almost no width, so in a status bar this
-    // full it was being squeezed to "outline — Auto-ge…". Claim room while a
-    // hint is up, and give it back the moment there isn't one.
-    hint.set_width_chars(if text.is_empty() { 0 } else { 64 });
     hint.set_markup(&text);
 }
 
