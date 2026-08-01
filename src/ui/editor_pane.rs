@@ -241,6 +241,8 @@ pub struct EditorPane {
     project_root: Rc<RefCell<Option<PathBuf>>>,
     status_bar: GtkBox,
     simple_mode_btn: Button,
+    focus_toggle_btn: Button,
+    gost_btn: Button,
     autocorrect_label: Label,
     on_autocorrect_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
     gost_label: Label,
@@ -339,18 +341,24 @@ impl EditorPane {
         let status_bar = GtkBox::new(Orientation::Horizontal, 0);
         status_bar.set_hexpand(true);
 
-        let gost_label = Label::new(Some("gost type b"));
-        gost_label.add_css_class("dim-label");
-        gost_label.add_css_class("caption");
+        // Lives in the hamburger menu — a whole-UI font switch is a setting you
+        // change once, not something to keep a status-bar chip for.
+        let gost_label = Label::new(Some("GOST Type B font"));
         gost_label.set_use_markup(true);
-        gost_label.set_margin_top(3);
-        gost_label.set_margin_bottom(3);
+        gost_label.set_halign(gtk4::Align::Start);
+        gost_label.set_hexpand(true);
+
+        // Same row padding as make_menu_item() in app_window, so it lines up
+        // with the menu items either side of it.
+        let gost_row = GtkBox::new(Orientation::Horizontal, 0);
+        gost_row.set_margin_start(4);
+        gost_row.set_margin_end(6);
+        gost_row.append(&gost_label);
 
         let gost_btn = Button::new();
-        gost_btn.set_child(Some(&gost_label));
+        gost_btn.set_child(Some(&gost_row));
         gost_btn.add_css_class("flat");
         gost_btn.set_tooltip_text(Some("Toggle GOST type B engineering font for the whole UI"));
-        gost_btn.set_margin_end(4);
 
         let autocorrect_label = Label::new(Some("autocorrect"));
         autocorrect_label.add_css_class("dim-label");
@@ -411,11 +419,6 @@ impl EditorPane {
         format_bar_toggle_btn.set_margin_end(4);
         format_bar_toggle_btn.update_property(&[gtk4::accessible::Property::Label("Toggle format bar")]);
 
-        status_bar.append(&focus_toggle_btn);
-        status_bar.append(&format_bar_toggle_btn);
-        status_bar.append(&autocorrect_btn);
-        status_bar.append(&gost_btn);
-        status_bar.append(&search_btn);
 
         let sb_sep1 = gtk4::Separator::new(Orientation::Vertical);
         sb_sep1.add_css_class("statusbar-sep");
@@ -423,7 +426,6 @@ impl EditorPane {
         sb_sep1.set_margin_end(6);
         sb_sep1.set_margin_top(6);
         sb_sep1.set_margin_bottom(6);
-        status_bar.append(&sb_sep1);
 
         let undo_btn = Button::from_icon_name("edit-undo-symbolic");
         undo_btn.add_css_class("flat");
@@ -444,7 +446,6 @@ impl EditorPane {
         cursor_label.set_margin_top(3);
         cursor_label.set_margin_bottom(3);
         cursor_label.set_tooltip_text(Some("Line 1, Column 1"));
-        status_bar.append(&cursor_label);
 
         let lsp_status_label = Label::new(None);
         lsp_status_label.add_css_class("dim-label");
@@ -458,10 +459,6 @@ impl EditorPane {
         lsp_status_label.set_max_width_chars(86);
         lsp_status_label.set_margin_top(3);
         lsp_status_label.set_margin_bottom(3);
-        // Far left of the bar, ahead of the toggles: it's the one thing here
-        // that's about what you're doing right now rather than a standing
-        // setting, and it reads first there.
-        status_bar.prepend(&lsp_status_label);
 
         let diag_label = Label::new(None);
         diag_label.add_css_class("dim-label");
@@ -469,13 +466,9 @@ impl EditorPane {
         diag_label.set_margin_start(8);
         diag_label.set_margin_top(3);
         diag_label.set_margin_bottom(3);
-        status_bar.append(&diag_label);
 
-        // Slack between the left group (transient hint, toggles, cursor) and the
-        // right group (counts, version).
         let left_spacer = GtkBox::new(Orientation::Horizontal, 0);
         left_spacer.set_hexpand(true);
-        status_bar.append(&left_spacer);
 
         let simple_mode_label = Label::new(None);
         simple_mode_label.add_css_class("caption");
@@ -491,7 +484,6 @@ impl EditorPane {
             "Simple Mode: hides Typst front-matter above the document body.\nEdit it via the Update Template button.",
         ));
         simple_mode_btn.update_property(&[gtk4::accessible::Property::Label("Toggle simple mode")]);
-        status_bar.append(&simple_mode_btn);
 
         let sep1 = gtk4::Separator::new(Orientation::Vertical);
         sep1.add_css_class("statusbar-sep");
@@ -499,7 +491,6 @@ impl EditorPane {
         sep1.set_margin_end(6);
         sep1.set_margin_top(6);
         sep1.set_margin_bottom(6);
-        status_bar.append(&sep1);
 
         let section_wc_label = Label::new(None);
         section_wc_label.add_css_class("dim-label");
@@ -521,7 +512,6 @@ impl EditorPane {
         wc_btn.set_margin_top(1);
         wc_btn.set_margin_bottom(1);
         wc_btn.set_tooltip_text(Some("Document statistics"));
-        status_bar.append(&wc_btn);
 
         let sep2 = gtk4::Separator::new(Orientation::Vertical);
         sep2.add_css_class("statusbar-sep");
@@ -529,7 +519,6 @@ impl EditorPane {
         sep2.set_margin_end(6);
         sep2.set_margin_top(6);
         sep2.set_margin_bottom(6);
-        status_bar.append(&sep2);
 
         let session_delta_label = Label::new(None);
         session_delta_label.add_css_class("dim-label");
@@ -538,7 +527,6 @@ impl EditorPane {
         session_delta_label.set_margin_top(3);
         session_delta_label.set_margin_bottom(3);
         session_delta_label.set_visible(false);
-        status_bar.append(&session_delta_label);
 
         let goal_fraction: Rc<Cell<f64>> = Rc::new(Cell::new(0.0));
         let goal_celebrating: Rc<Cell<bool>> = Rc::new(Cell::new(false));
@@ -590,7 +578,6 @@ impl EditorPane {
                 }
             });
         }
-        status_bar.append(&goal_ring);
 
         let version_btn = Button::with_label(concat!("v", env!("CARGO_PKG_VERSION")));
         version_btn.add_css_class("flat");
@@ -598,6 +585,28 @@ impl EditorPane {
         version_btn.add_css_class("caption");
         version_btn.set_margin_end(4);
         version_btn.set_tooltip_text(Some("View changelog"));
+
+        // ── Status bar assembly ───────────────────────────────────────────────
+        //
+        // The completion hint leads, alone, with every standing control packed
+        // to the far right behind an expanding spacer. The hint is the only
+        // thing here that changes with what you're doing rather than how the
+        // app is set up, and it needs room for a name, a description and its
+        // keys — so it gets the whole left half of the window and the settings
+        // queue up out of its way.
+        status_bar.append(&lsp_status_label);
+        status_bar.append(&left_spacer);
+        status_bar.append(&format_bar_toggle_btn);
+        status_bar.append(&autocorrect_btn);
+        status_bar.append(&search_btn);
+        status_bar.append(&sb_sep1);
+        status_bar.append(&cursor_label);
+        status_bar.append(&diag_label);
+        status_bar.append(&sep1);
+        status_bar.append(&wc_btn);
+        status_bar.append(&sep2);
+        status_bar.append(&session_delta_label);
+        status_bar.append(&goal_ring);
         status_bar.append(&version_btn);
 
         let breadcrumb_label = Label::new(Some(""));
@@ -1326,6 +1335,8 @@ impl EditorPane {
             project_root,
             status_bar,
             simple_mode_btn: simple_mode_btn.clone(),
+            focus_toggle_btn: focus_toggle_btn.clone(),
+            gost_btn: gost_btn.clone(),
             autocorrect_label,
             on_autocorrect_toggle,
             gost_label,
@@ -1422,7 +1433,7 @@ impl EditorPane {
             gost_btn.connect_clicked(move |_| {
                 let new_val = !*gost_on.borrow();
                 *gost_on.borrow_mut() = new_val;
-                set_toggle_label(&lbl_g, "gost type b", new_val);
+                set_toggle_label(&lbl_g, "GOST Type B font", new_val);
                 if let Some(f) = cb_g.borrow().as_ref() { f(new_val); }
             });
         }
@@ -1734,15 +1745,19 @@ impl EditorPane {
         self.status_bar.insert_child_after(w, Some(&self.goal_ring));
     }
 
-    /// Remove the Simple Mode button from the status bar and hand it over, so
-    /// a caller can place it elsewhere (it lives beside the Library button in
-    /// the header). The button keeps all its wiring — only its parent changes.
-    pub fn detach_simple_mode_button(&self) -> Button {
-        let btn = self.simple_mode_btn.clone();
-        if btn.parent().as_ref() == Some(self.status_bar.upcast_ref::<gtk4::Widget>()) {
-            self.status_bar.remove(&btn);
-        }
-        btn
+    /// Buttons built here but placed by the caller: Simple Mode and Focus sit
+    /// in the header beside Library, and the GOST font switch in the hamburger
+    /// menu. They keep all their wiring — only their parent differs.
+    pub fn simple_mode_button_for_header(&self) -> Button {
+        self.simple_mode_btn.clone()
+    }
+
+    pub fn focus_button_for_header(&self) -> Button {
+        self.focus_toggle_btn.clone()
+    }
+
+    pub fn gost_button_for_menu(&self) -> Button {
+        self.gost_btn.clone()
     }
 
     // ── Settings ──────────────────────────────────────────────────────────────
