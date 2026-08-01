@@ -291,6 +291,12 @@ pub struct ProjectConfig {
     /// When set, overrides the auto-detected root file.
     #[serde(default)]
     pub root_file: Option<PathBuf>,
+    /// prefix → completion name last chosen for it in this project, so the
+    /// inline suggestion learns the vocabulary of the work in hand rather than
+    /// re-guessing from a static ranking every time (VS Code calls the same
+    /// idea suggestSelection: recentlyUsedByPrefix).
+    #[serde(default)]
+    pub completion_picks: std::collections::HashMap<String, String>,
     /// Set when the user dismisses the root-file controls for this project.
     /// A single-file document has no root to choose, so the controls and the
     /// "main.typ detected" banner are just clutter; this keeps them shut and

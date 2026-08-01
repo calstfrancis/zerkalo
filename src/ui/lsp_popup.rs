@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use gtk4::gdk::Rectangle;
@@ -24,6 +24,18 @@ pub struct LspPopup {
     filter_prefix: Rc<RefCell<String>>,
     on_complete: Rc<RefCell<Option<Box<dyn Fn(CompletionItem)>>>>,
     on_selection_changed: Rc<RefCell<Option<Box<dyn Fn(Option<CompletionItem>)>>>>,
+    /// The name last chosen for the current prefix, if any. Whatever the
+    /// ranking thinks, a name the user has picked for this prefix before is the
+    /// one they mean — the same reasoning as VS Code's recentlyUsedByPrefix.
+    preferred: Rc<RefCell<Option<String>>>,
+    /// Names already used in the document. `#col` means something different in
+    /// a file that already calls `#columns` than in a fresh one (VS Code calls
+    /// this a locality bonus).
+    local_names: Rc<RefCell<std::collections::HashSet<String>>>,
+    /// Matches before truncation, so the footer can admit when it's showing a
+    /// slice: "8 of 137" tells you to keep typing, "3 of 3" to arrow down.
+    total_matches: Rc<Cell<usize>>,
+    footer: Label,
 }
 
 impl LspPopup {
@@ -55,7 +67,7 @@ impl LspPopup {
         // One caption-sized line of keys. The old footer was a full-size label
         // that made the popup feel like a dialog; this is small enough to read
         // as chrome, but the keys still need saying somewhere.
-        let hint = Label::new(Some("↑↓ select · Tab insert · Esc dismiss"));
+        let hint = Label::new(Some(FOOTER_KEYS));
         hint.add_css_class("dim-label");
         hint.add_css_class("caption");
         hint.set_margin_top(3);
@@ -84,6 +96,10 @@ impl LspPopup {
         let p = Self {
             popover, list_box, scroll, items, shown, filter_prefix, on_complete,
             on_selection_changed,
+            preferred: Rc::new(RefCell::new(None)),
+            local_names: Rc::new(RefCell::new(std::collections::HashSet::new())),
+            total_matches: Rc::new(Cell::new(0)),
+            footer: hint,
         };
 
         // Double-click (or Enter key on the list) triggers completion
@@ -118,6 +134,16 @@ impl LspPopup {
 
     pub fn set_on_selection_changed(&self, f: impl Fn(Option<CompletionItem>) + 'static) {
         *self.on_selection_changed.borrow_mut() = Some(Box::new(f));
+    }
+
+    /// The name previously chosen for the prefix being typed, if any.
+    pub fn set_preferred_name(&self, name: Option<String>) {
+        *self.preferred.borrow_mut() = name;
+    }
+
+    /// Names that already appear in the document being edited.
+    pub fn set_local_names(&self, names: std::collections::HashSet<String>) {
+        *self.local_names.borrow_mut() = names;
     }
 
     /// Replace the popup contents with a new master item list, without showing
@@ -162,21 +188,45 @@ impl LspPopup {
             .iter()
             .filter_map(|item| match_name(&item.label, &lprefix).map(|m| (m, item.clone())))
             .collect();
-        // Best first: how the query matched, then where, then the shortest name
-        // (an exact-ish match beats a long name that merely contains the query).
-        scored.sort_by(|a, b| {
-            a.0.rank
-                .cmp(&b.0.rank)
-                .then(a.0.start.cmp(&b.0.start))
-                .then(a.1.label.chars().count().cmp(&b.1.label.chars().count()))
-                .then(a.1.label.to_lowercase().cmp(&b.1.label.to_lowercase()))
-        });
+        // Best first: what the user chose here last time, then whether the name
+        // is already used in this document, then how the query matched, where,
+        // and finally the shortest name (an exact-ish match beats a long name
+        // that merely contains the query).
+        let preferred = self.preferred.borrow().clone();
+        let local = self.local_names.borrow();
+        let key = |m: &NameMatch, item: &CompletionItem| {
+            (
+                preferred.as_deref() != Some(item.label.as_str()),
+                !local.contains(&item.label),
+                m.rank,
+                m.start,
+                item.label.chars().count(),
+                item.label.to_lowercase(),
+            )
+        };
+        scored.sort_by(|a, b| key(&a.0, &a.1).cmp(&key(&b.0, &b.1)));
+        drop(local);
+
+        self.total_matches.set(scored.len());
         scored.truncate(MAX_ROWS);
+
+        self.update_footer(self.total_matches.get(), scored.len());
 
         let matches: Vec<(NameMatch, CompletionItem)> = scored;
         let items: Vec<CompletionItem> = matches.iter().map(|(_, i)| i.clone()).collect();
         let highlights: Vec<Vec<usize>> = matches.into_iter().map(|(m, _)| m.positions).collect();
         self.rebuild_rows_with(items, highlights);
+    }
+
+    /// "8 of 137 · keys" when the list is a slice of the matches, plain keys
+    /// when it isn't. Being shown 8 of 137 is the cue to type another letter
+    /// rather than reach for the arrow keys.
+    fn update_footer(&self, total: usize, shown: usize) {
+        if total > shown {
+            self.footer.set_text(&format!("{shown} of {total} · {FOOTER_KEYS}"));
+        } else {
+            self.footer.set_text(FOOTER_KEYS);
+        }
     }
 
     fn rebuild_rows(&self, items: Vec<CompletionItem>, _prefix: &str) {
@@ -226,11 +276,22 @@ impl LspPopup {
     pub fn best_match(&self, prefix: &str) -> Option<CompletionItem> {
         if prefix.is_empty() { return None; }
         let lprefix = prefix.to_lowercase();
-        self.items
-            .borrow()
+        let items = self.items.borrow();
+        let mut candidates = items
             .iter()
-            .filter(|i| i.label.to_lowercase().starts_with(&lprefix))
-            .min_by_key(|i| (i.label.chars().count(), i.label.to_lowercase()))
+            .filter(|i| i.label.to_lowercase().starts_with(&lprefix));
+        // A name chosen for this prefix before wins outright — the ghost is a
+        // prediction, and the best evidence for it is what happened last time.
+        if let Some(pref) = self.preferred.borrow().as_deref() {
+            if let Some(hit) = candidates.clone().find(|i| i.label == pref) {
+                return Some(hit.clone());
+            }
+        }
+        let local = self.local_names.borrow();
+        candidates
+            .min_by_key(|i| {
+                (!local.contains(&i.label), i.label.chars().count(), i.label.to_lowercase())
+            })
             .cloned()
     }
 
@@ -355,6 +416,8 @@ fn scroll_row_into_view(scroll: &ScrolledWindow, list_box: &ListBox, row: &ListB
         }
     }
 }
+
+const FOOTER_KEYS: &str = "↑↓ select · Tab insert · Esc dismiss";
 
 /// Longest list the popup will build in one go. Beyond this the extra rows are
 /// unreachable in practice — the user narrows the query instead of scrolling.

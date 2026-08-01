@@ -60,6 +60,29 @@ impl PopupEntry {
         }
     }
 
+    /// The entry's key, for callers outside this module (the inline ghost
+    /// completes it, the status line names it).
+    pub fn key_text(&self) -> String {
+        self.key().to_string()
+    }
+
+    /// One line saying what this entry is, for the status hint.
+    pub fn describe(&self) -> String {
+        match self {
+            PopupEntry::Bib(e) => {
+                let who = format_author_year(e);
+                if e.title.is_empty() { who } else { format!("{who} — {}", truncate(&e.title, 60)) }
+            }
+            PopupEntry::Cv(e) => {
+                let what = if e.title.is_empty() { e.key.clone() } else { e.title.clone() };
+                match e.organization.as_deref().filter(|o| !o.is_empty()) {
+                    Some(org) => format!("{what} — {org}"),
+                    None => what,
+                }
+            }
+        }
+    }
+
     /// Whether the query is a prefix of whatever field users are most
     /// likely to actually search by — used to float better matches to the
     /// top rather than just relying on match order.
@@ -269,6 +292,37 @@ impl BibPopup {
 
     pub fn first_filtered_entry(&self) -> Option<PopupEntry> {
         self.filtered_entries.borrow().first().cloned()
+    }
+
+    /// Entries matching `query`, best first, without touching the popup — so a
+    /// caller can decide whether it's worth showing a list at all, and what to
+    /// offer as inline ghost text.
+    pub fn matches_for(&self, query: &str, source: PopupSource) -> Vec<PopupEntry> {
+        let q = query.to_lowercase();
+        let mut matched: Vec<PopupEntry> = match source {
+            PopupSource::Bib => {
+                self.bib_entries.borrow().iter().cloned().map(PopupEntry::Bib).collect()
+            }
+            PopupSource::Cv => {
+                self.cv_entries.borrow().iter().cloned().map(PopupEntry::Cv).collect()
+            }
+        };
+        matched.retain(|e| q.is_empty() || e.search_haystack().to_lowercase().contains(&q));
+        matched.sort_by_key(|e| if e.is_prefix_match(&q) { 0u8 } else { 1u8 });
+        matched
+    }
+
+    /// The entry whose *key* continues what's been typed — the only kind of
+    /// match ghost text can be drawn for, since it's appended to the query.
+    pub fn ghost_entry(&self, query: &str, source: PopupSource) -> Option<PopupEntry> {
+        if query.is_empty() {
+            return None;
+        }
+        let q = query.to_lowercase();
+        self.matches_for(query, source)
+            .into_iter()
+            .filter(|e| e.key_text().to_lowercase().starts_with(&q))
+            .min_by_key(|e| e.key_text().chars().count())
     }
 
     pub fn move_selection(&self, delta: i32) {

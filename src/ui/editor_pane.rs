@@ -243,6 +243,11 @@ pub struct EditorPane {
     simple_mode_btn: Button,
     focus_toggle_btn: Button,
     gost_btn: Button,
+    /// Whether a language server is answering. Drives the "built-in snippets
+    /// only" note on the completion hint.
+    lsp_ready: Rc<Cell<bool>>,
+    /// prefix → name last chosen for it, remembered per project.
+    completion_picks: Rc<RefCell<std::collections::HashMap<String, String>>>,
     autocorrect_label: Label,
     on_autocorrect_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
     gost_label: Label,
@@ -1337,6 +1342,8 @@ impl EditorPane {
             simple_mode_btn: simple_mode_btn.clone(),
             focus_toggle_btn: focus_toggle_btn.clone(),
             gost_btn: gost_btn.clone(),
+            lsp_ready: Rc::new(Cell::new(false)),
+            completion_picks: Rc::new(RefCell::new(std::collections::HashMap::new())),
             autocorrect_label,
             on_autocorrect_toggle,
             gost_label,
@@ -1758,6 +1765,16 @@ impl EditorPane {
 
     pub fn gost_button_for_menu(&self) -> Button {
         self.gost_btn.clone()
+    }
+
+    /// Told by app_window once it knows whether tinymist actually started.
+    pub fn set_lsp_available(&self, ready: bool) {
+        self.lsp_ready.set(ready);
+    }
+
+    /// Seed the remembered prefix → name picks when a project is opened.
+    pub fn set_completion_picks(&self, picks: std::collections::HashMap<String, String>) {
+        *self.completion_picks.borrow_mut() = picks;
     }
 
     // ── Settings ──────────────────────────────────────────────────────────────
@@ -2244,6 +2261,7 @@ impl EditorPane {
             &prefix,
             ghosted.is_some(),
             list_open,
+            self.lsp_ready.get(),
         );
     }
 
@@ -3559,6 +3577,33 @@ impl EditorPane {
             *completing_complete.borrow_mut() = false;
         });
 
+        // Inline ghost suggestion, fish-shell style: the rest of the best match
+        // drawn dim right after the cursor, accepted with Tab. It's an overlay
+        // child of the view rather than text in the buffer, so it can't end up
+        // saved to the file, counted as words, or sent to the LSP — and because
+        // overlay coordinates are buffer coordinates, it scrolls with the text
+        // for free.
+        let ghost_label = Label::new(None);
+        ghost_label.add_css_class("completion-ghost");
+        ghost_label.set_visible(false);
+        ghost_label.set_can_target(false);
+        view.add_overlay(&ghost_label, 0, 0);
+        let ghost_item: Rc<RefCell<Option<CompletionItem>>> = Rc::new(RefCell::new(None));
+        // Escape means "not for this word". Holds the buffer offset of the `#`
+        // it applied to, so suggestions stay away until the cursor leaves that
+        // one — every shell autosuggestion behaves this way, and popping back up
+        // on the next keystroke made Escape feel broken.
+        let completion_suppressed_at: Rc<Cell<i32>> = Rc::new(Cell::new(-1));
+        // The citation/CV ghost shares the same label — only one suggestion can
+        // be under the cursor at a time — but keeps its own slot so Tab knows
+        // which kind of completion it is taking.
+        let ghost_bib_entry: Rc<RefCell<Option<crate::ui::bib_popup::PopupEntry>>> =
+            Rc::new(RefCell::new(None));
+
+        let ghost_ac = ghost_label.clone();
+        let ghost_bib_ac = ghost_bib_entry.clone();
+        let ghost_item_ac = ghost_item.clone();
+        let hint_ac = self.lsp_status_label.clone();
         let view_ac = view.clone();
         let popup_ac = bib_popup.clone();
         let mark_ac = ac_mark.clone();
@@ -3592,6 +3637,7 @@ impl EditorPane {
             }
             if !found_trigger {
                 *bib_active_ac.borrow_mut() = false;
+                clear_citation_ghost(&ghost_ac, &ghost_bib_ac, &hint_ac);
                 dismiss_popup(buf, &popup_ac, &mark_ac);
                 return;
             }
@@ -3606,6 +3652,7 @@ impl EditorPane {
             };
             if prev_is_word {
                 *bib_active_ac.borrow_mut() = false;
+                clear_citation_ghost(&ghost_ac, &ghost_bib_ac, &hint_ac);
                 dismiss_popup(buf, &popup_ac, &mark_ac);
                 return;
             }
@@ -3631,7 +3678,29 @@ impl EditorPane {
             let above = wy_bottom > view_h / 2;
             let wy = if above { wy_top } else { wy_bottom };
             let source = if trigger_char == '!' { PopupSource::Cv } else { PopupSource::Bib };
-            popup_ac.show_filtered(query, wx, wy, above, source);
+
+            // Same rules as `#`: inline suggestion first, list once the query is
+            // worth listing. A bare `@` used to drop the whole bibliography over
+            // the text.
+            let matches = popup_ac.matches_for(query, source);
+            let ghost_entry = popup_ac.ghost_entry(query, source);
+            let list_open = query.chars().count() >= MIN_POPUP_PREFIX && !matches.is_empty();
+            if list_open {
+                popup_ac.show_filtered(query, wx, wy, above, source);
+            } else {
+                popup_ac.hide();
+            }
+            *ghost_item_ac.borrow_mut() = None;
+            set_citation_ghost(
+                &view_ac, &ghost_ac, &ghost_bib_ac, &hint_ac, buf,
+                ghost_entry.clone(), query,
+            );
+            set_citation_hint(
+                &hint_ac,
+                ghost_entry.as_ref().or_else(|| matches.first()),
+                ghost_entry.is_some(),
+                list_open,
+            );
             *bib_active_ac.borrow_mut() = popup_ac.is_visible();
         });
 
@@ -3642,18 +3711,6 @@ impl EditorPane {
         let lsp_completing: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
         let lsp_comp_gen: Rc<RefCell<u64>> = Rc::new(RefCell::new(0));
 
-        // Inline ghost suggestion, fish-shell style: the rest of the best match
-        // drawn dim right after the cursor, accepted with Tab. It's an overlay
-        // child of the view rather than text in the buffer, so it can't end up
-        // saved to the file, counted as words, or sent to the LSP — and because
-        // overlay coordinates are buffer coordinates, it scrolls with the text
-        // for free.
-        let ghost_label = Label::new(None);
-        ghost_label.add_css_class("completion-ghost");
-        ghost_label.set_visible(false);
-        ghost_label.set_can_target(false);
-        view.add_overlay(&ghost_label, 0, 0);
-        let ghost_item: Rc<RefCell<Option<CompletionItem>>> = Rc::new(RefCell::new(None));
 
         let update_ghost = {
             let view = view.clone();
@@ -3678,6 +3735,7 @@ impl EditorPane {
             let hint_sel = self.lsp_status_label.clone();
             let ghost_sel = ghost_label.clone();
             let buf_sel = buffer.clone();
+            let lsp_ready_sel = self.lsp_ready.clone();
             lsp_popup.set_on_selection_changed(move |item| {
                 let prefix = lsp_hash_prefix(&buf_sel);
                 set_completion_hint(
@@ -3686,9 +3744,31 @@ impl EditorPane {
                     &prefix,
                     ghost_sel.is_visible(),
                     true,
+                    lsp_ready_sel.get(),
                 );
             });
         }
+
+        // Remember what was chosen for the prefix that was typed, so the next
+        // time it's typed the ghost offers the same thing first.
+        let remember_pick = {
+            let picks = self.completion_picks.clone();
+            let root = self.project_root.clone();
+            move |prefix: &str, label: &str| {
+                if prefix.is_empty() { return; }
+                let changed = picks
+                    .borrow()
+                    .get(prefix)
+                    .map(|existing| existing != label)
+                    .unwrap_or(true);
+                if !changed { return; }
+                picks.borrow_mut().insert(prefix.to_string(), label.to_string());
+                let Some(root_dir) = root.borrow().clone() else { return };
+                let mut pcfg = crate::config::ProjectConfig::load(&root_dir).unwrap_or_default();
+                pcfg.completion_picks = picks.borrow().clone();
+                let _ = pcfg.save(&root_dir);
+            }
+        };
 
         // LSP on_complete: replace #prefix with the chosen insertion text
         {
@@ -3700,7 +3780,9 @@ impl EditorPane {
             let ghost2 = ghost_label.clone();
             let ghost_item2 = ghost_item.clone();
             let hint2 = self.lsp_status_label.clone();
+            let remember2 = remember_pick.clone();
             lsp_popup.set_on_complete(move |item| {
+                remember2(&lsp_hash_prefix(&buf2), &item.label);
                 clear_ghost(&ghost2, &ghost_item2, &hint2);
                 *comp2.borrow_mut() = true;
                 let mark_opt = mark2.borrow().clone();
@@ -3743,6 +3825,10 @@ impl EditorPane {
             let update_ghost_lsp = update_ghost.clone();
             let hide_ghost_lsp = hide_ghost.clone();
             let hint_lbl_lsp = self.lsp_status_label.clone();
+            let lsp_ready_lsp = self.lsp_ready.clone();
+            let picks_lsp = self.completion_picks.clone();
+            let suppressed_at = completion_suppressed_at.clone();
+            let ghost_bib_lsp = ghost_bib_entry.clone();
             buffer.connect_changed(move |buf| {
                 if *lsp_completing3.borrow() {
                     return;
@@ -3769,6 +3855,15 @@ impl EditorPane {
                 }
 
                 if found_hash {
+                    // Escape suppresses suggestions for *this* `#` only; typing
+                    // on past it, or starting another one, brings them back.
+                    if suppressed_at.get() == hash_iter.offset() {
+                        lsp_popup3.hide();
+                        hide_ghost_lsp();
+                        return;
+                    }
+                    suppressed_at.set(-1);
+
                     // Track the '#' position
                     {
                         let mut mark_ref = lsp_mark3.borrow_mut();
@@ -3796,6 +3891,13 @@ impl EditorPane {
                     let above = wy_bottom > view_h / 2;
                     let wy = if above { wy_top } else { wy_bottom };
                     let snippets = snippet_items(cv_mode_for_lsp.get());
+
+                    // Names already written in this document rank above ones
+                    // that aren't, and a name previously chosen for this exact
+                    // prefix outranks everything.
+                    lsp_popup3.set_local_names(names_used_in(buf));
+                    lsp_popup3.set_preferred_name(picks_lsp.borrow().get(&prefix).cloned());
+
                     if lsp_popup3.is_visible() {
                         lsp_popup3.apply_filter(&prefix);
                     } else {
@@ -3811,6 +3913,7 @@ impl EditorPane {
                         lsp_popup3.hide();
                     }
                     let ghosted = lsp_popup3.best_match(&prefix);
+                    *ghost_bib_lsp.borrow_mut() = None;
                     update_ghost_lsp(buf, ghosted.clone(), &prefix);
                     set_completion_hint(
                         &hint_lbl_lsp,
@@ -3818,6 +3921,7 @@ impl EditorPane {
                         &prefix,
                         ghosted.is_some(),
                         list_open,
+                        lsp_ready_lsp.get(),
                     );
 
                     let line = cursor_iter.line() as u32 + 1;
@@ -3873,6 +3977,10 @@ impl EditorPane {
         let ghost_item_key = ghost_item.clone();
         let ghost_label_key = ghost_label.clone();
         let hint_lbl_key = self.lsp_status_label.clone();
+        let suppressed_key = completion_suppressed_at.clone();
+        let lsp_mark_suppress = lsp_mark.clone();
+        let ghost_bib_key = ghost_bib_entry.clone();
+        let view_bib_key = view.clone();
 
         let key_ctrl = EventControllerKey::new();
         key_ctrl.set_propagation_phase(PropagationPhase::Capture);
@@ -3883,7 +3991,23 @@ impl EditorPane {
             // the fish-shell gesture, and the whole point of showing the ghost
             // before the list appears. Escape dismisses just the ghost, leaving
             // what the user actually typed alone.
-            if !lsp_popup_key.is_visible() && ghost_label_key.is_visible() {
+            if !lsp_popup_key.is_visible() && !bib_popup_key.is_visible()
+                && ghost_label_key.is_visible()
+            {
+                // A citation ghost is taken the citation way — same key, same
+                // feel, different insertion.
+                if key == Key::Tab {
+                    let entry = ghost_bib_key.borrow().clone();
+                    if let Some(entry) = entry {
+                        clear_citation_ghost(&ghost_label_key, &ghost_bib_key, &hint_lbl_key);
+                        *bib_active_key.borrow_mut() = false;
+                        do_bib_complete(
+                            &buf_key, &mark_key, &completing_key, &bib_popup_key,
+                            &view_bib_key, &entry,
+                        );
+                        return glib::Propagation::Stop;
+                    }
+                }
                 match key {
                     Key::Tab => {
                         let item = ghost_item_key.borrow().clone();
@@ -3901,6 +4025,10 @@ impl EditorPane {
                         }
                     }
                     Key::Escape => {
+                        suppress_current_completion(
+                            &buf_key, &lsp_mark_suppress, &suppressed_key,
+                        );
+                        clear_citation_ghost(&ghost_label_key, &ghost_bib_key, &hint_lbl_key);
                         clear_ghost(&ghost_label_key, &ghost_item_key, &hint_lbl_key);
                         return glib::Propagation::Stop;
                     }
@@ -3912,15 +4040,14 @@ impl EditorPane {
             if lsp_popup_key.is_visible() {
                 return match key {
                     Key::Escape => {
-                        let mark_opt = lsp_mark_key.borrow_mut().take();
-                        if let Some(m) = mark_opt {
-                            let mut start = buf_key.iter_at_mark(&m);
-                            let mut end = buf_key.iter_at_offset(buf_key.cursor_position());
-                            buf_key.begin_user_action();
-                            buf_key.delete(&mut start, &mut end);
-                            buf_key.end_user_action();
-                            buf_key.delete_mark(&m);
-                        }
+                        // Dismiss, and leave what was typed alone. Escape used to
+                        // delete back to the `#`, which threw away the user's own
+                        // text for the crime of not wanting a suggestion — and it
+                        // made "quiet for this word" impossible, there being no
+                        // word left to be quiet about.
+                        suppress_current_completion(
+                            &buf_key, &lsp_mark_suppress, &suppressed_key,
+                        );
                         lsp_popup_key.hide();
                         clear_ghost(&ghost_label_key, &ghost_item_key, &hint_lbl_key);
                         glib::Propagation::Stop
@@ -4985,6 +5112,7 @@ impl EditorPane {
                 let bib_popup_click = bib_popup.clone();
                 let ghost_click = ghost_label.clone();
                 let ghost_item_click = ghost_item.clone();
+                let ghost_bib_click = ghost_bib_entry.clone();
                 let hint_click = self.lsp_status_label.clone();
                 any_click.connect_pressed(move |_, _, _, _| {
                     // Clicking anywhere in the text dismisses a suggestion —
@@ -4992,6 +5120,7 @@ impl EditorPane {
                     // keyboard while you type), so they'd otherwise sit there.
                     lsp_popup_click.hide();
                     bib_popup_click.hide();
+                    clear_citation_ghost(&ghost_click, &ghost_bib_click, &hint_click);
                     clear_ghost(&ghost_click, &ghost_item_click, &hint_click);
                     if !view_fc.has_focus() {
                         // View is gaining focus → GTK will snap to insert mark → restore both axes.
@@ -5023,11 +5152,13 @@ impl EditorPane {
                 let bib_popup_focus = bib_popup.clone();
                 let ghost_focus = ghost_label.clone();
                 let ghost_item_focus = ghost_item.clone();
+                let ghost_bib_focus = ghost_bib_entry.clone();
                 let hint_focus = self.lsp_status_label.clone();
                 focus_ctrl.connect_leave(move |_| {
                     pause();
                     lsp_popup_focus.hide();
                     bib_popup_focus.hide();
+                    clear_citation_ghost(&ghost_focus, &ghost_bib_focus, &hint_focus);
                     clear_ghost(&ghost_focus, &ghost_item_focus, &hint_focus);
                 });
             }
@@ -5797,6 +5928,60 @@ const MIN_POPUP_PREFIX: usize = 2;
 
 /// Draw `item`'s remaining characters as dim ghost text right after the cursor,
 /// or hide the ghost when there's nothing left to suggest.
+/// One-line preview of what an item will actually insert: newlines and runs of
+/// whitespace collapsed, cut to something that fits after the cursor.
+///
+/// The ghost used to show only the rest of the *name*, which made Tab a leap of
+/// faith — `#fig` + Tab lands eight lines of figure scaffolding, and nothing
+/// said so beforehand.
+fn insertion_preview(item: &CompletionItem, prefix: &str) -> Option<String> {
+    let raw = item.insert_text.as_deref().unwrap_or(&item.label);
+    let flat = flatten_snippet(raw);
+    let flat = flat.trim_start_matches('#');
+    // Only usable as ghost text if it continues what's already typed.
+    let rest = flat.strip_prefix(prefix).or_else(|| {
+        let lower = flat.to_lowercase();
+        lower.starts_with(prefix).then(|| &flat[prefix.len()..])
+    })?;
+    if rest.is_empty() {
+        return None;
+    }
+    const MAX: usize = 56;
+    if rest.chars().count() > MAX {
+        let cut: String = rest.chars().take(MAX - 1).collect();
+        Some(format!("{}…", cut.trim_end()))
+    } else {
+        Some(rest.to_string())
+    }
+}
+
+/// A multi-line snippet body as one readable line: indentation collapsed, and
+/// no gaps left hanging inside brackets ("figure( image" reads as a typo).
+fn flatten_snippet(raw: &str) -> String {
+    let joined = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+    joined
+        .replace("( ", "(")
+        .replace(" )", ")")
+        .replace("[ ", "[")
+        .replace(" ]", "]")
+        .replace(" ,", ",")
+}
+
+/// The signature line for an item, when it has one. Language-server items carry
+/// the real signature in `detail`; a built-in snippet's is derived from what it
+/// inserts. Mid-line, `figure(body, caption: [..])` answers more than a
+/// sentence of prose does.
+fn item_signature(item: &CompletionItem) -> Option<String> {
+    if let Some(detail) = item.detail.as_deref() {
+        if detail.contains('(') && !detail.contains(" — ") {
+            return Some(detail.to_string());
+        }
+    }
+    let flat = flatten_snippet(item.insert_text.as_deref()?);
+    let flat = flat.trim_start_matches('#').to_string();
+    flat.contains('(').then_some(flat)
+}
+
 fn set_ghost(
     view: &View,
     ghost: &Label,
@@ -5807,10 +5992,12 @@ fn set_ghost(
     prefix: &str,
 ) {
     let remainder = item.as_ref().and_then(|i| {
-        i.label
-            .get(prefix.len()..)
-            .filter(|r| !r.is_empty())
-            .map(str::to_string)
+        insertion_preview(i, prefix).or_else(|| {
+            i.label
+                .get(prefix.len()..)
+                .filter(|r| !r.is_empty())
+                .map(str::to_string)
+        })
     });
     let Some(remainder) = remainder else {
         clear_ghost(ghost, slot, hint);
@@ -5836,6 +6023,53 @@ fn set_ghost(
     *slot.borrow_mut() = item;
 }
 
+/// Citation ghost: the rest of the key drawn after what's typed. Kept separate
+/// from the `#` ghost's slot so Tab knows which kind of completion it's taking.
+fn set_citation_ghost(
+    view: &View,
+    ghost: &Label,
+    slot: &Rc<RefCell<Option<crate::ui::bib_popup::PopupEntry>>>,
+    hint: &Label,
+    buf: &Buffer,
+    entry: Option<crate::ui::bib_popup::PopupEntry>,
+    query: &str,
+) {
+    let remainder = entry.as_ref().and_then(|e| {
+        e.key_text()
+            .get(query.len()..)
+            .filter(|r| !r.is_empty())
+            .map(str::to_string)
+    });
+    let Some(remainder) = remainder else {
+        clear_citation_ghost(ghost, slot, hint);
+        return;
+    };
+    let cursor = buf.iter_at_offset(buf.cursor_position());
+    let mut line_end = cursor.clone();
+    if !line_end.ends_line() {
+        line_end.forward_to_line_end();
+    }
+    if !buf.text(&cursor, &line_end, false).trim().is_empty() {
+        clear_citation_ghost(ghost, slot, hint);
+        return;
+    }
+    let loc = view.iter_location(&cursor);
+    ghost.set_text(&remainder);
+    view.move_overlay(ghost, loc.x(), loc.y());
+    ghost.set_visible(true);
+    *slot.borrow_mut() = entry;
+}
+
+fn clear_citation_ghost(
+    ghost: &Label,
+    slot: &Rc<RefCell<Option<crate::ui::bib_popup::PopupEntry>>>,
+    hint: &Label,
+) {
+    ghost.set_visible(false);
+    *slot.borrow_mut() = None;
+    hint.set_text("");
+}
+
 /// Take down the inline suggestion and the status line together — they're one
 /// affordance, and a hint left behind describes something no longer on offer.
 fn clear_ghost(ghost: &Label, slot: &Rc<RefCell<Option<CompletionItem>>>, hint: &Label) {
@@ -5851,49 +6085,114 @@ fn clear_ghost(ghost: &Label, slot: &Rc<RefCell<Option<CompletionItem>>>, hint: 
 ///
 /// `has_list` distinguishes the two stages: with a list open, arrows and Escape
 /// are live too.
+/// Shared shape for both completion hints: **name** — what it is · keys.
+fn completion_hint_markup(name: &str, what: &str, has_ghost: bool, has_list: bool) -> String {
+    let what = if what.chars().count() > 46 {
+        let cut: String = what.chars().take(45).collect();
+        format!("{}…", cut.trim_end())
+    } else {
+        what.to_string()
+    };
+    // The status bar shares its row with the word count and the rest — spelling
+    // the keys out in full pushed the description off the end.
+    let keys = match (has_ghost, has_list) {
+        (_, true) => "Tab insert · ↑↓ select · Esc",
+        (true, false) => "Tab insert · Esc",
+        (false, false) => "Esc dismiss",
+    };
+    format!(
+        "<b>{}</b> — {}   ·   {}",
+        glib::markup_escape_text(name),
+        glib::markup_escape_text(&what),
+        keys,
+    )
+}
+
+/// Citation/CV equivalent of `set_completion_hint`: same line, same keys, so
+/// `@` and `#` behave alike rather than one of them being the polished half.
+fn set_citation_hint(
+    hint: &Label,
+    entry: Option<&crate::ui::bib_popup::PopupEntry>,
+    has_ghost: bool,
+    has_list: bool,
+) {
+    match entry {
+        Some(e) => hint.set_markup(&completion_hint_markup(
+            &e.key_text(),
+            &e.describe(),
+            has_ghost,
+            has_list,
+        )),
+        None => hint.set_text(""),
+    }
+}
+
 fn set_completion_hint(
     hint: &Label,
     item: Option<&CompletionItem>,
     prefix: &str,
     has_ghost: bool,
     has_list: bool,
+    lsp_ready: bool,
 ) {
+    // Without a language server the only completions are the handful of
+    // built-in snippets. Saying so turns "why is nothing offered?" into a
+    // fact about the setup — the startup log said it, where nobody looks.
+    // Only said where the line has room: when something is being described, the
+    // description earns the space, and this would just be truncated away.
+    let scope = if lsp_ready { "" } else { "   ·   built-in snippets only (tinymist not running)" };
     let text = match item {
         Some(item) => {
-            // Trim the description rather than letting the label ellipsize the
-            // whole line: the keys sit at the end and are the half a newcomer
-            // needs most. The full text is in the list row.
-            let what = {
-                let full = item.detail.clone().unwrap_or_else(|| item.label.clone());
-                if full.chars().count() > 46 {
-                    let cut: String = full.chars().take(45).collect();
-                    format!("{}…", cut.trim_end())
-                } else {
-                    full
-                }
-            };
-            // The status bar shares its row with the word count and the rest —
-            // spelling the keys out in full pushed the description off the end.
-            let keys = match (has_ghost, has_list) {
-                (_, true) => "Tab insert · ↑↓ select · Esc",
-                (true, false) => "Tab insert · Esc",
-                (false, false) => "Esc dismiss",
-            };
-            format!(
-                "<b>{}</b> — {}   ·   {}",
-                glib::markup_escape_text(&item.label),
-                glib::markup_escape_text(&what),
-                keys,
-            )
+            // Signature first when there is one: mid-line, the argument list is
+            // what you need. Prose is the fallback, trimmed so the keys at the
+            // end survive.
+            let what = item_signature(item)
+                .or_else(|| item.detail.clone())
+                .unwrap_or_else(|| item.label.clone());
+            completion_hint_markup(&item.label, &what, has_ghost, has_list)
         }
         // A bare `#` matches everything, so there's nothing to describe yet —
         // say what to do instead, which is the moment the question arises.
         None if prefix.is_empty() => {
-            "Typst function — keep typing to search, Tab takes the suggestion".to_string()
+            format!("Typst function — keep typing to search, Tab takes the suggestion{scope}")
         }
         None => String::new(),
     };
     hint.set_markup(&text);
+}
+
+/// Names the document already invokes with `#`. Used as a ranking bonus: in a
+/// file that already calls `#columns`, `#col` most likely means that again.
+fn names_used_in(buf: &Buffer) -> std::collections::HashSet<String> {
+    let (start, end) = buf.bounds();
+    let text = buf.text(&start, &end, false);
+    let mut names = std::collections::HashSet::new();
+    let mut rest = text.as_str();
+    while let Some(at) = rest.find('#') {
+        rest = &rest[at + 1..];
+        let name: String = rest
+            .chars()
+            .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '-')
+            .collect();
+        if !name.is_empty() {
+            names.insert(name);
+        }
+    }
+    names
+}
+
+/// Note the `#` the cursor is inside, so suggestions for it stay dismissed.
+fn suppress_current_completion(
+    buf: &Buffer,
+    mark: &Rc<RefCell<Option<gtk4::TextMark>>>,
+    slot: &Rc<Cell<i32>>,
+) {
+    let offset = mark
+        .borrow()
+        .as_ref()
+        .map(|m| buf.iter_at_mark(m).offset())
+        .unwrap_or(-1);
+    slot.set(offset);
 }
 
 fn lsp_hash_prefix(buffer: &Buffer) -> String {
