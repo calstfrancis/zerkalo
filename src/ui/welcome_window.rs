@@ -140,6 +140,8 @@ impl WelcomeWindow {
                 "New: root-file controls can be dismissed per project (the ✕ beside them) — for single-file documents that never needed a root; click \"project\" to bring them back",
                 "New: #cv-profile(\"name\") renders a whole CV profile — every section, in order, with its headings — built in Skrizhal's CV Profiles dialog",
                 "Fixed: Zerkalo crashed when resizing the editor/preview split, dragging the sidebar edge, or toggling the sidebar",
+                "Fixed: pasting threw the editor back to the top of the document — GTK animates the viewport there after a paste, and Zerkalo now holds your place through it",
+                "Fixed: the right-click menu opened on top of the spelling suggestions, hiding them",
                 "Fixed: copying — especially from the right-click menu — threw the editor back to the top of the document",
                 "Fixed: a CV elements file containing profiles could leave the ! autocomplete and CV panel completely empty",
                 "Fixed: GitHub sync could send your sign-in token to non-GitHub backup remotes — token use is now scoped to github.com only",
