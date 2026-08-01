@@ -2200,16 +2200,7 @@ impl EditorPane {
         let wy = if above { wy_top } else { wy_bottom };
 
         if !ti.popup_visible {
-            let snippets = if self.cv_mode.get() { CV_SNIPPETS } else { ACADEMIC_SNIPPETS };
-            let mut all_items: Vec<CompletionItem> = snippets
-                .iter()
-                .map(|(_, label, desc, body)| CompletionItem {
-                    label: label.to_string(),
-                    kind: 15,
-                    detail: Some(desc.to_string()),
-                    insert_text: Some(body.to_string()),
-                })
-                .collect();
+            let mut all_items = snippet_items(self.cv_mode.get());
             all_items.extend(items);
             ti.lsp_popup.load_items(all_items);
         } else {
@@ -2219,18 +2210,29 @@ impl EditorPane {
 
         // Arriving LSP results refine what's on offer; they don't get to open the
         // list on their own before the prefix is worth listing (see MIN_POPUP_PREFIX).
-        if prefix.chars().count() >= MIN_POPUP_PREFIX && ti.lsp_popup.match_count(&prefix) > 0 {
+        let list_open =
+            prefix.chars().count() >= MIN_POPUP_PREFIX && ti.lsp_popup.match_count(&prefix) > 0;
+        if list_open {
             ti.lsp_popup.show_at(wx, wy, above);
         } else {
             ti.lsp_popup.hide();
         }
+        let ghosted = ti.lsp_popup.best_match(&prefix);
         set_ghost(
             &ti.view,
             &ti.ghost_label,
             &ti.ghost_item,
+            &self.lsp_status_label,
             &ti.buffer,
-            ti.lsp_popup.best_match(&prefix),
+            ghosted.clone(),
             &prefix,
+        );
+        set_completion_hint(
+            &self.lsp_status_label,
+            ti.lsp_popup.describable_match(&prefix).as_ref(),
+            &prefix,
+            ghosted.is_some(),
+            list_open,
         );
     }
 
@@ -3646,14 +3648,16 @@ impl EditorPane {
             let view = view.clone();
             let ghost = ghost_label.clone();
             let slot = ghost_item.clone();
+            let hint = self.lsp_status_label.clone();
             move |buf: &Buffer, item: Option<CompletionItem>, prefix: &str| {
-                set_ghost(&view, &ghost, &slot, buf, item, prefix);
+                set_ghost(&view, &ghost, &slot, &hint, buf, item, prefix);
             }
         };
         let hide_ghost = {
             let ghost = ghost_label.clone();
             let slot = ghost_item.clone();
-            move || clear_ghost(&ghost, &slot)
+            let hint = self.lsp_status_label.clone();
+            move || clear_ghost(&ghost, &slot, &hint)
         };
 
         // LSP on_complete: replace #prefix with the chosen insertion text
@@ -3665,8 +3669,9 @@ impl EditorPane {
             let popup2 = lsp_popup.clone();
             let ghost2 = ghost_label.clone();
             let ghost_item2 = ghost_item.clone();
+            let hint2 = self.lsp_status_label.clone();
             lsp_popup.set_on_complete(move |item| {
-                clear_ghost(&ghost2, &ghost_item2);
+                clear_ghost(&ghost2, &ghost_item2, &hint2);
                 *comp2.borrow_mut() = true;
                 let mark_opt = mark2.borrow().clone();
                 if let Some(ref m) = mark_opt {
@@ -3707,6 +3712,7 @@ impl EditorPane {
             let cv_mode_for_lsp = self.cv_mode.clone();
             let update_ghost_lsp = update_ghost.clone();
             let hide_ghost_lsp = hide_ghost.clone();
+            let hint_lbl_lsp = self.lsp_status_label.clone();
             buffer.connect_changed(move |buf| {
                 if *lsp_completing3.borrow() {
                     return;
@@ -3759,16 +3765,7 @@ impl EditorPane {
                     let view_h = view_lsp.allocated_height() as i32;
                     let above = wy_bottom > view_h / 2;
                     let wy = if above { wy_top } else { wy_bottom };
-                    let snippet_src = if cv_mode_for_lsp.get() { CV_SNIPPETS } else { ACADEMIC_SNIPPETS };
-                    let snippets: Vec<CompletionItem> = snippet_src
-                        .iter()
-                        .map(|(_, label, desc, body)| CompletionItem {
-                            label: label.to_string(),
-                            kind: 15,
-                            detail: Some(desc.to_string()),
-                            insert_text: Some(body.to_string()),
-                        })
-                        .collect();
+                    let snippets = snippet_items(cv_mode_for_lsp.get());
                     if lsp_popup3.is_visible() {
                         lsp_popup3.apply_filter(&prefix);
                     } else {
@@ -3777,12 +3774,21 @@ impl EditorPane {
                     }
 
                     let matches = lsp_popup3.match_count(&prefix);
-                    if prefix.chars().count() >= MIN_POPUP_PREFIX && matches > 0 {
+                    let list_open = prefix.chars().count() >= MIN_POPUP_PREFIX && matches > 0;
+                    if list_open {
                         lsp_popup3.show_at(wx, wy, above);
                     } else {
                         lsp_popup3.hide();
                     }
-                    update_ghost_lsp(buf, lsp_popup3.best_match(&prefix), &prefix);
+                    let ghosted = lsp_popup3.best_match(&prefix);
+                    update_ghost_lsp(buf, ghosted.clone(), &prefix);
+                    set_completion_hint(
+                        &hint_lbl_lsp,
+                        lsp_popup3.describable_match(&prefix).as_ref(),
+                        &prefix,
+                        ghosted.is_some(),
+                        list_open,
+                    );
 
                     let line = cursor_iter.line() as u32 + 1;
                     // LSP positions are UTF-16 code units by default (we don't
@@ -3818,6 +3824,7 @@ impl EditorPane {
                     }
                     lsp_popup3.hide();
                     hide_ghost_lsp();
+                    hint_lbl_lsp.set_text("");
                 }
             });
         }
@@ -3835,6 +3842,7 @@ impl EditorPane {
         let bib_active_key = bib_active_for_open.clone();
         let ghost_item_key = ghost_item.clone();
         let ghost_label_key = ghost_label.clone();
+        let hint_lbl_key = self.lsp_status_label.clone();
 
         let key_ctrl = EventControllerKey::new();
         key_ctrl.set_propagation_phase(PropagationPhase::Capture);
@@ -3850,7 +3858,7 @@ impl EditorPane {
                     Key::Tab => {
                         let item = ghost_item_key.borrow().clone();
                         if let Some(i) = item {
-                            clear_ghost(&ghost_label_key, &ghost_item_key);
+                            clear_ghost(&ghost_label_key, &ghost_item_key, &hint_lbl_key);
                             do_lsp_complete(
                                 &buf_key,
                                 &lsp_mark_key,
@@ -3863,7 +3871,7 @@ impl EditorPane {
                         }
                     }
                     Key::Escape => {
-                        clear_ghost(&ghost_label_key, &ghost_item_key);
+                        clear_ghost(&ghost_label_key, &ghost_item_key, &hint_lbl_key);
                         return glib::Propagation::Stop;
                     }
                     _ => {}
@@ -3884,7 +3892,7 @@ impl EditorPane {
                             buf_key.delete_mark(&m);
                         }
                         lsp_popup_key.hide();
-                        clear_ghost(&ghost_label_key, &ghost_item_key);
+                        clear_ghost(&ghost_label_key, &ghost_item_key, &hint_lbl_key);
                         glib::Propagation::Stop
                     }
                     Key::Tab => {
@@ -3892,7 +3900,7 @@ impl EditorPane {
                             .selected_item()
                             .or_else(|| lsp_popup_key.first_item());
                         if let Some(i) = item {
-                            clear_ghost(&ghost_label_key, &ghost_item_key);
+                            clear_ghost(&ghost_label_key, &ghost_item_key, &hint_lbl_key);
                             do_lsp_complete(
                                 &buf_key,
                                 &lsp_mark_key,
@@ -3906,7 +3914,7 @@ impl EditorPane {
                     }
                     Key::Return => {
                         if let Some(i) = lsp_popup_key.selected_item() {
-                            clear_ghost(&ghost_label_key, &ghost_item_key);
+                            clear_ghost(&ghost_label_key, &ghost_item_key, &hint_lbl_key);
                             do_lsp_complete(
                                 &buf_key,
                                 &lsp_mark_key,
@@ -4947,13 +4955,14 @@ impl EditorPane {
                 let bib_popup_click = bib_popup.clone();
                 let ghost_click = ghost_label.clone();
                 let ghost_item_click = ghost_item.clone();
+                let hint_click = self.lsp_status_label.clone();
                 any_click.connect_pressed(move |_, _, _, _| {
                     // Clicking anywhere in the text dismisses a suggestion —
                     // the popovers are autohide(false) (they must not steal the
                     // keyboard while you type), so they'd otherwise sit there.
                     lsp_popup_click.hide();
                     bib_popup_click.hide();
-                    clear_ghost(&ghost_click, &ghost_item_click);
+                    clear_ghost(&ghost_click, &ghost_item_click, &hint_click);
                     if !view_fc.has_focus() {
                         // View is gaining focus → GTK will snap to insert mark → restore both axes.
                         // Use a 0ms timeout (not idle_add) so we fire AFTER the entire idle queue
@@ -4984,11 +4993,12 @@ impl EditorPane {
                 let bib_popup_focus = bib_popup.clone();
                 let ghost_focus = ghost_label.clone();
                 let ghost_item_focus = ghost_item.clone();
+                let hint_focus = self.lsp_status_label.clone();
                 focus_ctrl.connect_leave(move |_| {
                     pause();
                     lsp_popup_focus.hide();
                     bib_popup_focus.hide();
-                    clear_ghost(&ghost_focus, &ghost_item_focus);
+                    clear_ghost(&ghost_focus, &ghost_item_focus, &hint_focus);
                 });
             }
             {
@@ -5716,6 +5726,35 @@ fn apply_spell_tags(
     }
 }
 
+/// Built-in snippets as completion items. The item's name is the Typst
+/// identifier — `pagebreak`, `outline` — not the human title, because that's
+/// what gets typed after `#` and what the ghost text has to continue; matching
+/// on the title meant `#pagebreak` found nothing while `#page break` was
+/// unsayable. The title leads the description instead, so the list still reads
+/// as "Page break — force content to start on a new page".
+fn snippet_items(cv_mode: bool) -> Vec<CompletionItem> {
+    let source = if cv_mode { CV_SNIPPETS } else { ACADEMIC_SNIPPETS };
+    source
+        .iter()
+        .map(|(name, title, desc, body)| {
+            let title = title.trim_start_matches('#');
+            // Skip the title when it's just the name respaced ("Page break" for
+            // `pagebreak`) — repeating it reads as two dashes and no content.
+            let detail = if title.replace(' ', "").eq_ignore_ascii_case(name) {
+                desc.to_string()
+            } else {
+                format!("{title} — {desc}")
+            };
+            CompletionItem {
+                label: name.to_string(),
+                kind: 15,
+                detail: Some(detail),
+                insert_text: Some(body.to_string()),
+            }
+        })
+        .collect()
+}
+
 /// Number of characters typed after `#` before the completion *list* joins the
 /// inline ghost suggestion. At one character everything still matches, so the
 /// list would just be a wall of options over the text being written.
@@ -5727,6 +5766,7 @@ fn set_ghost(
     view: &View,
     ghost: &Label,
     slot: &Rc<RefCell<Option<CompletionItem>>>,
+    hint: &Label,
     buf: &Buffer,
     item: Option<CompletionItem>,
     prefix: &str,
@@ -5738,7 +5778,7 @@ fn set_ghost(
             .map(str::to_string)
     });
     let Some(remainder) = remainder else {
-        clear_ghost(ghost, slot);
+        clear_ghost(ghost, slot, hint);
         return;
     };
     let cursor = buf.iter_at_offset(buf.cursor_position());
@@ -5750,7 +5790,7 @@ fn set_ghost(
             line_end.forward_to_line_end();
         }
         if !buf.text(&cursor, &line_end, false).trim().is_empty() {
-            clear_ghost(ghost, slot);
+            clear_ghost(ghost, slot, hint);
             return;
         }
     }
@@ -5761,9 +5801,52 @@ fn set_ghost(
     *slot.borrow_mut() = item;
 }
 
-fn clear_ghost(ghost: &Label, slot: &Rc<RefCell<Option<CompletionItem>>>) {
+/// Take down the inline suggestion and the status line together — they're one
+/// affordance, and a hint left behind describes something no longer on offer.
+fn clear_ghost(ghost: &Label, slot: &Rc<RefCell<Option<CompletionItem>>>, hint: &Label) {
     ghost.set_visible(false);
     *slot.borrow_mut() = None;
+    hint.set_text("");
+}
+
+/// The status-bar line that says what the current suggestion is for and which
+/// key takes it. The ghost alone shows *that* something is on offer but not
+/// what it does — and the status bar can carry a sentence without covering a
+/// single character of the document.
+///
+/// `has_list` distinguishes the two stages: with a list open, arrows and Escape
+/// are live too.
+fn set_completion_hint(
+    hint: &Label,
+    item: Option<&CompletionItem>,
+    prefix: &str,
+    has_ghost: bool,
+    has_list: bool,
+) {
+    let text = match item {
+        Some(item) => {
+            let what = item.detail.clone().unwrap_or_else(|| item.label.clone());
+            let keys = match (has_ghost, has_list) {
+                (true, true) => "Tab insert · ↑↓ select · Esc dismiss",
+                (true, false) => "Tab insert · Esc dismiss",
+                (false, true) => "↑↓ select · Tab insert · Esc dismiss",
+                (false, false) => "Esc dismiss",
+            };
+            format!(
+                "<b>{}</b> — {}   ·   {}",
+                glib::markup_escape_text(&item.label),
+                glib::markup_escape_text(&what),
+                keys,
+            )
+        }
+        // A bare `#` matches everything, so there's nothing to describe yet —
+        // say what to do instead, which is the moment the question arises.
+        None if prefix.is_empty() => {
+            "Typst function — keep typing to search, Tab takes the suggestion".to_string()
+        }
+        None => String::new(),
+    };
+    hint.set_markup(&text);
 }
 
 fn lsp_hash_prefix(buffer: &Buffer) -> String {

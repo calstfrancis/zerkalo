@@ -42,10 +42,24 @@ impl LspPopup {
         scroll.set_max_content_height(180);
         scroll.set_propagate_natural_height(true);
 
+        // One caption-sized line of keys. The old footer was a full-size label
+        // that made the popup feel like a dialog; this is small enough to read
+        // as chrome, but the keys still need saying somewhere.
+        let hint = Label::new(Some("↑↓ select · Tab insert · Esc dismiss"));
+        hint.add_css_class("dim-label");
+        hint.add_css_class("caption");
+        hint.set_margin_top(3);
+        hint.set_margin_bottom(1);
+        hint.set_margin_start(10);
+        hint.set_margin_end(10);
+        hint.set_xalign(0.0);
+
         let outer = GtkBox::new(Orientation::Vertical, 0);
         outer.set_margin_top(2);
         outer.set_margin_bottom(2);
         outer.append(&scroll);
+        outer.append(&Separator::new(Orientation::Horizontal));
+        outer.append(&hint);
         popover.set_child(Some(&outer));
 
         let items: Rc<RefCell<Vec<CompletionItem>>> = Rc::new(RefCell::new(Vec::new()));
@@ -53,7 +67,10 @@ impl LspPopup {
         let on_complete: Rc<RefCell<Option<Box<dyn Fn(CompletionItem)>>>> =
             Rc::new(RefCell::new(None));
 
-        // Client-side filter: hide rows whose label doesn't start with the current prefix.
+        // Client-side filter. Substring, not prefix: `#break` should still find
+        // `pagebreak`, and half-remembered names are exactly when a list is
+        // worth having. (The inline ghost stays prefix-only — see `best_match` —
+        // since it can only be appended to what's already typed.)
         {
             let items_f = items.clone();
             let prefix_f = filter_prefix.clone();
@@ -66,7 +83,7 @@ impl LspPopup {
                 items_f
                     .borrow()
                     .get(idx)
-                    .map(|item| item.label.to_lowercase().starts_with(prefix.as_str()))
+                    .map(|item| item_matches(item, &prefix))
                     .unwrap_or(false)
             });
         }
@@ -138,7 +155,10 @@ impl LspPopup {
         *self.filter_prefix.borrow_mut() = lprefix.clone();
         self.list_box.invalidate_filter();
 
-        // Select the first item that passes the filter
+        // Select the best item that passes the filter — a prefix match if there
+        // is one, otherwise the first substring match. It must be a *matching*
+        // row: leaving the selection on a filtered-out row would make Return and
+        // Tab insert something the user can't even see.
         let first_idx = {
             let items = self.items.borrow();
             if lprefix.is_empty() {
@@ -147,12 +167,17 @@ impl LspPopup {
                 items
                     .iter()
                     .position(|item| item.label.to_lowercase().starts_with(&lprefix))
+                    .or_else(|| items.iter().position(|item| item_matches(item, &lprefix)))
             }
         };
-        if let Some(idx) = first_idx {
-            if let Some(row) = self.list_box.row_at_index(idx as i32) {
-                self.list_box.select_row(Some(&row));
+        match first_idx {
+            Some(idx) => {
+                if let Some(row) = self.list_box.row_at_index(idx as i32) {
+                    self.list_box.select_row(Some(&row));
+                    scroll_row_into_view(&self.scroll, &self.list_box, &row);
+                }
             }
+            None => self.list_box.select_row(None::<&ListBoxRow>),
         }
     }
 
@@ -179,23 +204,16 @@ impl LspPopup {
         }
         *self.items.borrow_mut() = all;
 
+        // Re-run the filter through the one code path that also fixes up the
+        // selection, so merged-in results can't leave it on a hidden row.
         let prefix = self.filter_prefix.borrow().clone();
-        self.list_box.invalidate_filter();
-        let first_idx = {
-            let items = self.items.borrow();
-            if prefix.is_empty() { Some(0usize) }
-            else { items.iter().position(|item| item.label.to_lowercase().starts_with(&prefix)) }
-        };
-        if let Some(idx) = first_idx {
-            if let Some(row) = self.list_box.row_at_index(idx as i32) {
-                self.list_box.select_row(Some(&row));
-            }
-        }
+        self.apply_filter(&prefix);
     }
 
     /// The item the inline ghost suggestion should offer for `prefix`: the
     /// shortest label that starts with it, so `#e` suggests `emph` rather than
-    /// whatever happens to sort first alphabetically.
+    /// whatever happens to sort first alphabetically. Prefix-only by design —
+    /// ghost text is drawn as a continuation of what's been typed.
     pub fn best_match(&self, prefix: &str) -> Option<CompletionItem> {
         if prefix.is_empty() { return None; }
         let lprefix = prefix.to_lowercase();
@@ -207,12 +225,27 @@ impl LspPopup {
             .cloned()
     }
 
+    /// The item to describe when there's no ghost to show: falls back to the
+    /// best substring match so `#break` can still say what `pagebreak` does.
+    pub fn describable_match(&self, prefix: &str) -> Option<CompletionItem> {
+        self.best_match(prefix).or_else(|| {
+            if prefix.is_empty() { return None; }
+            let lprefix = prefix.to_lowercase();
+            self.items
+                .borrow()
+                .iter()
+                .filter(|i| item_matches(i, &lprefix))
+                .min_by_key(|i| (i.label.chars().count(), i.label.to_lowercase()))
+                .cloned()
+        })
+    }
+
     pub fn match_count(&self, prefix: &str) -> usize {
         let lprefix = prefix.to_lowercase();
         self.items
             .borrow()
             .iter()
-            .filter(|i| lprefix.is_empty() || i.label.to_lowercase().starts_with(&lprefix))
+            .filter(|i| lprefix.is_empty() || item_matches(i, &lprefix))
             .count()
     }
 
@@ -321,6 +354,19 @@ fn scroll_row_into_view(scroll: &ScrolledWindow, list_box: &ListBox, row: &ListB
             adj.set_value(row_bottom - adj.page_size());
         }
     }
+}
+
+/// `lprefix` must already be lowercase. Matches the name, and also what the
+/// item is described as, so `#quote` finds the block snippet described as
+/// "use for block quotations".
+fn item_matches(item: &CompletionItem, lprefix: &str) -> bool {
+    let label = item.label.to_lowercase();
+    if label.contains(lprefix) {
+        return true;
+    }
+    item.detail
+        .as_deref()
+        .is_some_and(|d| d.to_lowercase().contains(lprefix))
 }
 
 fn kind_label(kind: u8) -> &'static str {
