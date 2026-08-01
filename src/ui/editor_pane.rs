@@ -1,6 +1,6 @@
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
@@ -2280,28 +2280,7 @@ impl EditorPane {
             state.tabs.iter().map(|(p, t)| (p.clone(), t.buffer.clone(), t.diag_dot.clone())).collect()
         };
         for (path, buffer, diag_dot) in &tabs {
-            let (buf_start, buf_end) = buffer.bounds();
-            ensure_diag_tags(buffer);
-            buffer.remove_tag_by_name("zerkalo-diag-error", &buf_start, &buf_end);
-            buffer.remove_tag_by_name("zerkalo-diag-warning", &buf_start, &buf_end);
-            buffer.remove_source_marks(&buf_start, &buf_end, Some("zerkalo-error"));
-            buffer.remove_source_marks(&buf_start, &buf_end, Some("zerkalo-warning"));
-            let has_errors = diagnostics.iter().any(|(f, _, is_err, _)| f == path && *is_err);
-            diag_dot.set_visible(has_errors);
-            for (err_file, err_line, is_error, _msg) in diagnostics {
-                if err_file != path {
-                    continue;
-                }
-                let line_idx = err_line.saturating_sub(1) as i32;
-                if let Some(line_start) = buffer.iter_at_line(line_idx) {
-                    let mut line_end = line_start.clone();
-                    line_end.forward_to_line_end();
-                    let tag = if *is_error { "zerkalo-diag-error" } else { "zerkalo-diag-warning" };
-                    buffer.apply_tag_by_name(tag, &line_start, &line_end);
-                    let category = if *is_error { "zerkalo-error" } else { "zerkalo-warning" };
-                    buffer.create_source_mark(None, category, &line_start);
-                }
-            }
+            mark_diagnostics_for_tab(path, buffer, diag_dot, diagnostics);
         }
     }
 
@@ -2873,7 +2852,7 @@ impl EditorPane {
             content
         };
         buffer.set_text(content);
-        apply_comment_highlights(&buffer);
+        apply_comment_highlights(&buffer, None);
         { let sm = *self.simple_mode.borrow(); apply_simple_mode_tag(&buffer, sm); }
 
         let view = View::with_buffer(&buffer);
@@ -3170,6 +3149,7 @@ impl EditorPane {
         // in the event loop regardless of typing speed.
         let wc_timer: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
         let comment_timer: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
+        let comment_spans: Rc<RefCell<Vec<(i32, i32)>>> = Rc::new(RefCell::new(Vec::new()));
         let proj_wc_timer: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
         buffer.connect_changed(move |buf| {
             let newly_modified = {
@@ -3260,11 +3240,12 @@ impl EditorPane {
             {
                 let buf_comment = buf.clone();
                 let t = comment_timer.clone();
+                let cache = comment_spans.clone();
                 *comment_timer.borrow_mut() = Some(glib::timeout_add_local_once(
                     Duration::from_millis(500),
                     move || {
                         *t.borrow_mut() = None;
-                        apply_comment_highlights(&buf_comment);
+                        apply_comment_highlights(&buf_comment, Some(&cache));
                     },
                 ));
             }
@@ -3275,6 +3256,7 @@ impl EditorPane {
         let cursor_lbl = self.cursor_label.clone();
         let section_wc_lbl = self.section_wc_label.clone();
         let last_section_line: Rc<std::cell::Cell<i32>> = Rc::new(std::cell::Cell::new(-1));
+        let section_wc_timer: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
         let wc_lbl_for_sel = self.word_count_label.clone();
         let last_wc_for_mark = self.last_wc_text.clone();
         // Extra clones for the selection_bound handler below.
@@ -3314,16 +3296,27 @@ impl EditorPane {
                 cursor_lbl.set_text(&format!("L{line}:C{col}"));
                 cursor_lbl.set_tooltip_text(Some(&format!("Line {line}, Column {col}")));
 
-                // Section word count — only recompute when the line changes
+                // Section word count — recompute only when the line changes, and
+                // debounced so holding an arrow key doesn't rescan per line.
                 let cur_line = cursor.line();
                 if cur_line != last_section_line.get() {
                     last_section_line.set(cur_line);
-                    if let Some(wc) = section_word_count_for_line(buf, cur_line) {
-                        section_wc_lbl.set_text(&format!("§ {wc}"));
-                        section_wc_lbl.set_tooltip_text(Some("Words in this section"));
-                    } else {
-                        section_wc_lbl.set_text("");
-                    }
+                    if let Some(id) = section_wc_timer.borrow_mut().take() { id.remove(); }
+                    let lbl = section_wc_lbl.clone();
+                    let b = buf.clone();
+                    let t = section_wc_timer.clone();
+                    *section_wc_timer.borrow_mut() = Some(glib::timeout_add_local_once(
+                        SECTION_WC_DEBOUNCE,
+                        move || {
+                            *t.borrow_mut() = None;
+                            if let Some(wc) = section_word_count_for_line(&b, cur_line) {
+                                lbl.set_text(&format!("§ {wc}"));
+                                lbl.set_tooltip_text(Some("Words in this section"));
+                            } else {
+                                lbl.set_text("");
+                            }
+                        },
+                    ));
                 }
 
                 // Selection word/sentence stats — use cached wc to avoid reading entire buffer
@@ -4504,11 +4497,21 @@ impl EditorPane {
             view.add_controller(nav_ctrl);
         }
 
+        // Viewport hold, shared by every edit that hands focus back to the view
+        // and so provokes GTK's scroll-to-mark animation: paste, and applying a
+        // spell suggestion from either popover. The vadjustment/hadjustment
+        // handlers that honour these live further down.
+        let hold_position: Rc<Cell<Option<(f64, f64)>>> = Rc::new(Cell::new(None));
+        let hold_until: Rc<Cell<Instant>> = Rc::new(Cell::new(Instant::now()));
+
         // ── Alt+Enter: open spell suggestions for word under cursor ─────────────
         {
             let spell_ae = self.spell_checker.clone();
             let buf_ae   = buffer.clone();
             let view_ae  = view.clone();
+            let scroll_ae = scroll.clone();
+            let hold_pos_ae = hold_position.clone();
+            let hold_until_ae = hold_until.clone();
             let ae_ctrl  = EventControllerKey::new();
             ae_ctrl.connect_key_pressed(move |_, key, _, mods| {
                 use gtk4::gdk::{Key, ModifierType};
@@ -4572,7 +4575,15 @@ impl EditorPane {
                         let we = word_end.clone();
                         let s = sugg.clone();
                         let pop2 = popover.clone();
+                        let scroll_sg = scroll_ae.clone();
+                        let hold_p = hold_pos_ae.clone();
+                        let hold_u = hold_until_ae.clone();
                         btn.connect_clicked(move |_| {
+                            let vpos = scroll_sg.vadjustment().value();
+                            let hpos = scroll_sg.hadjustment().value();
+                            hold_p.set(Some((vpos, hpos)));
+                            hold_u.set(Instant::now() + PASTE_HOLD);
+
                             let mut a = ws.clone();
                             let mut b = we.clone();
                             buf2.begin_user_action();
@@ -4580,6 +4591,9 @@ impl EditorPane {
                             buf2.insert(&mut a, &s);
                             buf2.end_user_action();
                             pop2.popdown();
+
+                            let release = hold_p.clone();
+                            glib::timeout_add_local_once(PASTE_HOLD, move || release.set(None));
                         });
                         vbox.append(&btn);
                     }
@@ -4793,8 +4807,6 @@ impl EditorPane {
         // *held*: for a moment after a paste, every frame of that animation is
         // put straight back. Snapping back once at the end would be visible;
         // countering each frame means nothing moves at all.
-        let hold_position: Rc<Cell<Option<(f64, f64)>>> = Rc::new(Cell::new(None));
-        let hold_until: Rc<Cell<Instant>> = Rc::new(Cell::new(Instant::now()));
         let pause_tracking = {
             let until = track_paused_until.clone();
             move || until.set(Instant::now() + Duration::from_millis(150))
@@ -4844,6 +4856,8 @@ impl EditorPane {
             let spell_rc = self.spell_checker.clone();
             let buf_rc = buffer.clone();
             let view_rc = view.clone();
+            let hold_pos_spell = hold_position.clone();
+            let hold_until_spell = hold_until.clone();
             let scroll_rc = scroll.clone();
             let pause_rc = pause_tracking.clone();
 
@@ -4949,7 +4963,18 @@ impl EditorPane {
                         let we = word_end.clone();
                         let s = sugg.clone();
                         let pop2 = popover.clone();
+                        let scroll_sg = scroll_rc.clone();
+                        let hold_p = hold_pos_spell.clone();
+                        let hold_u = hold_until_spell.clone();
                         btn.connect_clicked(move |_| {
+                            // Popping the popover down hands focus back to the view,
+                            // and GTK answers with the same scroll-to-mark animation
+                            // that follows a paste. Hold the viewport through it.
+                            let vpos = scroll_sg.vadjustment().value();
+                            let hpos = scroll_sg.hadjustment().value();
+                            hold_p.set(Some((vpos, hpos)));
+                            hold_u.set(Instant::now() + PASTE_HOLD);
+
                             let mut a = ws.clone();
                             let mut b = we.clone();
                             buf2.begin_user_action();
@@ -4957,6 +4982,9 @@ impl EditorPane {
                             buf2.insert(&mut a, &s);
                             buf2.end_user_action();
                             pop2.popdown();
+
+                            let release = hold_p.clone();
+                            glib::timeout_add_local_once(PASTE_HOLD, move || release.set(None));
                         });
                         vbox.append(&btn);
                     }
@@ -5290,22 +5318,37 @@ impl EditorPane {
             }
         }
 
-        // Re-apply squiggles after undo restores old text
+        // Re-apply squiggles after undo restores old text. Debounced, and scoped
+        // to this tab: the sweep is O(document length), so running it inline for
+        // every open tab on every keystroke made typing lag on long documents.
         {
             let last_diags = self.last_diagnostics.clone();
-            let ep_rem = self.clone();
+            let path_rem = path.clone();
+            let buf_rem = buffer.clone();
+            let dot_rem = diag_dot.clone();
             let remarking: Rc<std::cell::Cell<bool>> = Rc::new(std::cell::Cell::new(false));
+            let remark_timer: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
             buffer.connect_changed(move |_| {
                 if remarking.get() { return; }
-                let diags = last_diags.borrow().clone();
-                if diags.is_empty() { return; }
-                remarking.set(true);
-                let ep = ep_rem.clone();
+                if last_diags.borrow().is_empty() { return; }
+                if let Some(id) = remark_timer.borrow_mut().take() { id.remove(); }
+                let diags_rc = last_diags.clone();
+                let p = path_rem.clone();
+                let b = buf_rem.clone();
+                let d = dot_rem.clone();
                 let rem = remarking.clone();
-                glib::idle_add_local_once(move || {
-                    ep.mark_diagnostics(&diags);
-                    rem.set(false);
-                });
+                let t = remark_timer.clone();
+                *remark_timer.borrow_mut() = Some(glib::timeout_add_local_once(
+                    DIAG_REMARK_DEBOUNCE,
+                    move || {
+                        *t.borrow_mut() = None;
+                        let diags = diags_rc.borrow().clone();
+                        if diags.is_empty() { return; }
+                        rem.set(true);
+                        mark_diagnostics_for_tab(&p, &b, &d, &diags);
+                        rem.set(false);
+                    },
+                ));
             });
         }
 
@@ -5805,7 +5848,12 @@ fn apply_simple_mode_tag(buffer: &Buffer, on: bool) {
 
 /// Apply a background fill to all comment lines (// runs and /* */ blocks).
 /// Adjacent // lines are merged into one contiguous tag span for a "box" look.
-fn apply_comment_highlights(buffer: &Buffer) {
+/// Highlight comment blocks. `cache` holds the line spans from the last run:
+/// when they are unchanged — the common case, since typing inside a paragraph
+/// doesn't move a comment boundary — the tag sweep is skipped entirely. That
+/// sweep costs O(document length) and forces a relayout, so on a long document
+/// it was a visible hitch every time typing paused.
+fn apply_comment_highlights(buffer: &Buffer, cache: Option<&RefCell<Vec<(i32, i32)>>>) {
     let tag_name = "zk-comment-bg";
     let table = buffer.tag_table();
     let tag = match table.lookup(tag_name) {
@@ -5828,13 +5876,12 @@ fn apply_comment_highlights(buffer: &Buffer) {
     let color = gtk4::gdk::RGBA::new(base.red(), base.green(), base.blue(), alpha);
     tag.set_paragraph_background_rgba(Some(&color));
 
-    // Remove old highlights
     let (buf_start, buf_end) = buffer.bounds();
-    buffer.remove_tag(&tag, &buf_start, &buf_end);
-
     let text = buffer.text(&buf_start, &buf_end, false).to_string();
     let lines: Vec<&str> = text.lines().collect();
     let n = lines.len();
+
+    let mut spans: Vec<(i32, i32)> = Vec::new();
     let mut i = 0;
     while i < n {
         let trimmed = lines[i].trim();
@@ -5842,28 +5889,66 @@ fn apply_comment_highlights(buffer: &Buffer) {
             // Merge consecutive // lines into one span
             let run_start = i;
             while i < n && lines[i].trim().starts_with("//") { i += 1; }
-            if let (Some(ts), Some(mut te)) = (
-                buffer.iter_at_line(run_start as i32),
-                buffer.iter_at_line((i - 1) as i32),
-            ) {
-                te.forward_to_line_end();
-                buffer.apply_tag(&tag, &ts, &te);
-            }
+            spans.push((run_start as i32, (i - 1) as i32));
         } else if trimmed.contains("/*") {
             // Block comment: scan for closing */
             let block_start = i;
             while i < n && !lines[i].contains("*/") { i += 1; }
             if i < n { i += 1; } // include closing line
             let last = (i - 1).min(n.saturating_sub(1));
-            if let (Some(ts), Some(mut te)) = (
-                buffer.iter_at_line(block_start as i32),
-                buffer.iter_at_line(last as i32),
-            ) {
-                te.forward_to_line_end();
-                buffer.apply_tag(&tag, &ts, &te);
-            }
+            spans.push((block_start as i32, last as i32));
         } else {
             i += 1;
+        }
+    }
+
+    if let Some(c) = cache {
+        if *c.borrow() == spans { return; }
+        *c.borrow_mut() = spans.clone();
+    }
+
+    buffer.remove_tag(&tag, &buf_start, &buf_end);
+    for (start_line, end_line) in spans {
+        if let (Some(ts), Some(mut te)) = (
+            buffer.iter_at_line(start_line),
+            buffer.iter_at_line(end_line),
+        ) {
+            te.forward_to_line_end();
+            buffer.apply_tag(&tag, &ts, &te);
+        }
+    }
+}
+
+/// Re-apply squiggles and gutter marks for a single tab. Split out of
+/// `mark_diagnostics` so an edit can refresh only the buffer that changed —
+/// the full-buffer tag sweep below costs proportional to document length, and
+/// doing it for every open tab on every keystroke was the bulk of typing lag.
+fn mark_diagnostics_for_tab(
+    path: &Path,
+    buffer: &Buffer,
+    diag_dot: &Label,
+    diagnostics: &[(PathBuf, u32, bool, String)],
+) {
+    let (buf_start, buf_end) = buffer.bounds();
+    ensure_diag_tags(buffer);
+    buffer.remove_tag_by_name("zerkalo-diag-error", &buf_start, &buf_end);
+    buffer.remove_tag_by_name("zerkalo-diag-warning", &buf_start, &buf_end);
+    buffer.remove_source_marks(&buf_start, &buf_end, Some("zerkalo-error"));
+    buffer.remove_source_marks(&buf_start, &buf_end, Some("zerkalo-warning"));
+    let has_errors = diagnostics.iter().any(|(f, _, is_err, _)| f == path && *is_err);
+    diag_dot.set_visible(has_errors);
+    for (err_file, err_line, is_error, _msg) in diagnostics {
+        if err_file != path {
+            continue;
+        }
+        let line_idx = err_line.saturating_sub(1) as i32;
+        if let Some(line_start) = buffer.iter_at_line(line_idx) {
+            let mut line_end = line_start.clone();
+            line_end.forward_to_line_end();
+            let tag = if *is_error { "zerkalo-diag-error" } else { "zerkalo-diag-warning" };
+            buffer.apply_tag_by_name(tag, &line_start, &line_end);
+            let category = if *is_error { "zerkalo-error" } else { "zerkalo-warning" };
+            buffer.create_source_mark(None, category, &line_start);
         }
     }
 }
@@ -6001,6 +6086,13 @@ fn snippet_items(cv_mode: bool) -> Vec<CompletionItem> {
 /// scroll animation (about a dozen frames), short enough that a deliberate
 /// scroll right after pasting still feels immediate.
 const PASTE_HOLD: Duration = Duration::from_millis(600);
+
+/// How long after the last edit before diagnostic squiggles are re-applied.
+/// Long enough that a burst of typing costs one sweep, not one per keystroke.
+const DIAG_REMARK_DEBOUNCE: Duration = Duration::from_millis(250);
+
+/// Settle time before recomputing the status bar's section word count.
+const SECTION_WC_DEBOUNCE: Duration = Duration::from_millis(200);
 
 /// Number of characters typed after `#` before the completion *list* joins the
 /// inline ghost suggestion. At one character everything still matches, so the
@@ -6833,39 +6925,25 @@ fn count_words_typst(text: &str) -> u32 {
     count
 }
 
+/// Words in the section containing `cursor_line`. Reads the buffer once and
+/// works on borrowed lines — the previous version issued three `buf.text()`
+/// calls per line (one per pass), which on a long document meant thousands of
+/// GTK round-trips and allocations every time the cursor changed line.
 fn section_word_count_for_line(buf: &sourceview5::Buffer, cursor_line: i32) -> Option<u32> {
-    let total = buf.line_count();
-    let mut sec_start = -1i32;
-    let mut sec_level = 0usize;
-    for ln in (0..=cursor_line).rev() {
-        let start = buf.iter_at_line(ln)?;
-        let mut end = start.clone();
-        if !end.ends_line() { end.forward_to_line_end(); }
-        let text = buf.text(&start, &end, false).to_string();
-        if let Some(lvl) = section_heading_level(&text) {
-            sec_start = ln;
-            sec_level = lvl;
-            break;
-        }
-    }
-    if sec_start < 0 { return None; }
-    let mut sec_end = total;
-    for ln in (sec_start + 1)..total {
-        let start = buf.iter_at_line(ln)?;
-        let mut end = start.clone();
-        if !end.ends_line() { end.forward_to_line_end(); }
-        let text = buf.text(&start, &end, false).to_string();
-        if let Some(lvl) = section_heading_level(&text) {
-            if lvl <= sec_level { sec_end = ln; break; }
-        }
-    }
-    let mut words = 0u32;
-    for ln in sec_start..sec_end {
-        let start = buf.iter_at_line(ln)?;
-        let mut end = start.clone();
-        if !end.ends_line() { end.forward_to_line_end(); }
-        let text = buf.text(&start, &end, false).to_string();
-        words += count_words_typst(&text);
-    }
-    Some(words)
+    let (s, e) = buf.bounds();
+    let text = buf.text(&s, &e, false).to_string();
+    let lines: Vec<&str> = text.lines().collect();
+    let total = lines.len();
+    let cursor_line = (cursor_line.max(0) as usize).min(total.saturating_sub(1));
+    if total == 0 { return None; }
+
+    let (sec_start, sec_level) = (0..=cursor_line)
+        .rev()
+        .find_map(|ln| section_heading_level(lines[ln]).map(|lvl| (ln, lvl)))?;
+
+    let sec_end = ((sec_start + 1)..total)
+        .find(|&ln| section_heading_level(lines[ln]).is_some_and(|lvl| lvl <= sec_level))
+        .unwrap_or(total);
+
+    Some(lines[sec_start..sec_end].iter().map(|l| count_words_typst(l)).sum())
 }

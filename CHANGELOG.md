@@ -5,6 +5,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.19.1-dev1] — Responsiveness on long documents
+
+### Fixed
+- **The preview redrew every page of the document on every frame.** Scrolling, zooming or resizing repainted all pages — five fills and a scaled blit each — however little of the document was actually on screen, so a long document scrolled progressively worse. Only the pages touching the visible area are painted now.
+- **Every compile PNG-encoded each page only to decode it straight back.** The compile thread compressed each rendered page to PNG and the main thread immediately decompressed all of them again; the bytes never left the app. Pages now go straight from the renderer to the screen as raw pixels, which drops the compression work from each compile and — because the decode ran on the main thread — removes a freeze after every recompile that got longer the more pages the document had.
+- **Editing during a slow compile started a second compile on top of it.** Typst can't be interrupted mid-compile, and each edit spawned another one regardless, so on a document slow enough to compile that several could stack up and compete with the interface for processor time. A request arriving mid-compile now waits and runs once, when the current one finishes.
+- **Typing lagged badly on long documents, and got worse the longer the document and the more tabs were open.** Four separate pieces of work were running far more often than they needed to. Whenever the document had any compile error or warning — which, mid-edit, is nearly always — every keystroke re-applied the error squiggles across *every open tab*, sweeping each buffer end to end to clear the old marks first. That now runs once 250 ms after you stop typing, and only on the tab you actually edited. The status bar's section word count re-read the document three times over — once per line, through the text widget — every time the cursor changed line, so holding an arrow key meant one full scan per line; it now reads the buffer once and waits for the cursor to settle. The comment highlighting re-tagged the whole document every time typing paused, even when no comment had moved; it now compares the comment spans first and does nothing when they're unchanged.
+- **Choosing a spelling suggestion threw the editor to the top of the document**, the same GTK scroll-to-mark animation behind the paste jump fixed in 0.19.0 — dismissing the suggestion popover hands focus back to the editor and GTK animates the viewport away. Your place is now held through it, for both the right-click menu and Alt+Enter.
+
+---
+
 ## [0.19.0] "Quiet Silver" — Inline autocomplete, a status bar that stays out of the way, and a viewport that stays put
 
 ### Changed

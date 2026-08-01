@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -18,7 +18,7 @@ use std::time::Instant;
 // ── Result sent from compile thread ──────────────────────────────────────────
 
 enum CompileResult {
-    Success(Vec<Vec<u8>>, std::time::Duration),
+    Success(Vec<crate::compiler::RenderedPage>, std::time::Duration),
     Error(String, std::time::Duration),
 }
 
@@ -51,6 +51,12 @@ pub struct PreviewPane {
     page_pixbufs: Rc<RefCell<Vec<Pixbuf>>>,
     watch_active: Rc<RefCell<bool>>,
     compile_gen: Rc<RefCell<u64>>,
+    /// A Typst compile is running. Typst offers no way to abort one, so rather
+    /// than letting each edit spawn another thread that races the last — several
+    /// full compiles competing with the UI for cores — a request arriving mid
+    /// compile just sets `compile_pending` and is run when the current one lands.
+    compile_in_flight: Rc<Cell<bool>>,
+    compile_pending: Rc<Cell<bool>>,
     buffer_snapshot: Rc<RefCell<HashMap<PathBuf, String>>>,
     /// CV mode's Skrizhal `cv-elements.yaml` path, if any — re-read fresh on
     /// every compile (see `set_cv_elements_path`) rather than cached, so
@@ -168,10 +174,27 @@ impl PreviewPane {
             ctx.set_source_rgb(0.82, 0.82, 0.82);
             ctx.paint().ok();
 
+            // Only paint pages that intersect the damaged region. Every page used
+            // to be painted on every frame — five fills and a scaled blit each —
+            // so scrolling a long document cost time proportional to its length
+            // no matter how little of it was on screen.
+            let (_, clip_top, _, clip_bottom) = ctx.clip_extents().unwrap_or((
+                f64::MIN, f64::MIN, f64::MAX, f64::MAX,
+            ));
+
             let mut y = 0.0f64;
             for pb in pbs.iter() {
                 let pw = pb.width() as f64 * z;
                 let ph = pb.height() as f64 * z;
+                if y > clip_bottom {
+                    break;
+                }
+                // The drop shadow extends a few px past the page bottom, so keep
+                // drawing a page whose body has only just scrolled out of view.
+                if y + ph + PAGE_GAP < clip_top {
+                    y += ph + PAGE_GAP;
+                    continue;
+                }
                 // Soft drop shadow (stacked translucent rects, darkest innermost).
                 // Use pw (page width) for shadows so they don't bleed outside the
                 // page when the viewport is wider than the rendered content.
@@ -280,6 +303,8 @@ impl PreviewPane {
             page_pixbufs,
             watch_active: Rc::new(RefCell::new(false)),
             compile_gen: Rc::new(RefCell::new(0)),
+            compile_in_flight: Rc::new(Cell::new(false)),
+            compile_pending: Rc::new(Cell::new(false)),
             buffer_snapshot: Rc::new(RefCell::new(HashMap::new())),
             cv_elements_path: Rc::new(RefCell::new(None)),
             draft_mode: Rc::new(RefCell::new(false)),
@@ -682,9 +707,15 @@ impl PreviewPane {
             }
         };
 
+        if self.compile_in_flight.get() {
+            self.compile_pending.set(true);
+            return;
+        }
+
         *self.compile_gen.borrow_mut() += 1;
         let my_gen = *self.compile_gen.borrow();
         let gen_rc = self.compile_gen.clone();
+        self.compile_in_flight.set(true);
 
         if let Some(f) = self.on_compile_start.borrow().as_ref() { f(); }
         self.spinner.set_spinning(true);
@@ -732,7 +763,7 @@ impl PreviewPane {
         }
         std::thread::spawn(move || {
             let t0 = std::time::Instant::now();
-            let result = crate::compiler::compile_to_png_bytes(&root, pixel_per_pt, &snapshots, &sys_inputs);
+            let result = crate::compiler::compile_to_rgba_pages(&root, pixel_per_pt, &snapshots, &sys_inputs);
             let elapsed = t0.elapsed();
             tx.send(match result {
                 Ok(pages) => CompileResult::Success(pages, elapsed),
@@ -745,7 +776,13 @@ impl PreviewPane {
         let pane = self.clone();
         glib::timeout_add_local(Duration::from_millis(50), move || {
             if *gen_rc.borrow() != my_gen {
+                // Cancelled. The worker thread can't be stopped and is still
+                // running, but nothing is waiting on it now, and a cancel is a
+                // deliberate "stop" — so drop any queued request rather than
+                // starting one immediately.
                 pane.spinner.set_spinning(false);
+                pane.compile_in_flight.set(false);
+                pane.compile_pending.set(false);
                 return glib::ControlFlow::Break;
             }
             match rx.try_recv() {
@@ -754,7 +791,7 @@ impl PreviewPane {
                     pane.cancel_btn.set_visible(false);
                     match result {
                         CompileResult::Success(pages, elapsed) => {
-                            pane.load_pixbufs_from_bytes(&pages);
+                            pane.load_pixbufs_from_pages(pages);
                             pane.stack.set_visible_child_name("ready");
                             let page_count = pane.page_count();
                             if let Some(f) = pane.on_compile_done.borrow().as_ref() {
@@ -775,12 +812,20 @@ impl PreviewPane {
                             }
                         }
                     }
+                    pane.compile_in_flight.set(false);
+                    if pane.compile_pending.replace(false) {
+                        pane.trigger_compile();
+                    }
                     glib::ControlFlow::Break
                 }
                 Err(TryRecvError::Empty) => glib::ControlFlow::Continue,
                 Err(TryRecvError::Disconnected) => {
                     pane.spinner.set_spinning(false);
                     pane.cancel_btn.set_visible(false);
+                    pane.compile_in_flight.set(false);
+                    if pane.compile_pending.replace(false) {
+                        pane.trigger_compile();
+                    }
                     glib::ControlFlow::Break
                 }
             }
@@ -794,18 +839,28 @@ impl PreviewPane {
 
     // ── Internal ──────────────────────────────────────────────────────────────
 
-    fn load_pixbufs_from_bytes(&self, pages: &[Vec<u8>]) {
+    /// Wrap already-rendered RGBA pages as pixbufs. `Pixbuf::from_bytes` takes
+    /// ownership of the buffer without copying or decoding, so this is cheap
+    /// regardless of page count — the old version decoded a PNG per page here,
+    /// on the main thread, after every compile.
+    fn load_pixbufs_from_pages(&self, pages: Vec<crate::compiler::RenderedPage>) {
         let is_first = *self.first_load.borrow();
 
-        let mut pixbufs = Vec::new();
-        for png_bytes in pages {
-            let gbytes = glib::Bytes::from(png_bytes.as_slice());
-            let stream = gtk4::gio::MemoryInputStream::from_bytes(&gbytes);
-            match Pixbuf::from_stream(&stream, None::<&gtk4::gio::Cancellable>) {
-                Ok(pb) => pixbufs.push(pb),
-                Err(e) => tracing::warn!("Failed to decode preview PNG from bytes: {e}"),
-            }
-        }
+        let pixbufs: Vec<Pixbuf> = pages
+            .into_iter()
+            .map(|p| {
+                let rowstride = (p.width * 4) as i32;
+                Pixbuf::from_bytes(
+                    &glib::Bytes::from_owned(p.rgba),
+                    gtk4::gdk_pixbuf::Colorspace::Rgb,
+                    true,
+                    8,
+                    p.width as i32,
+                    p.height as i32,
+                    rowstride,
+                )
+            })
+            .collect();
         *self.page_pixbufs.borrow_mut() = pixbufs;
 
         if is_first {
