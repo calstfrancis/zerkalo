@@ -450,6 +450,23 @@ impl PreviewPane {
         *self.root_file.borrow_mut() = None;
     }
 
+    /// The inputs the preview itself compiles with: root file, unsaved buffer
+    /// contents, and sys inputs. Anything else that compiles the same document —
+    /// printing, export — must go through this rather than assembling its own,
+    /// which is how printing ended up silently omitting the CV data and
+    /// producing nothing at all for a CV document.
+    ///
+    /// Draft mode is deliberately excluded: the caller is producing final
+    /// output, not a preview.
+    pub fn compile_inputs(&self) -> Option<(PathBuf, HashMap<PathBuf, String>, HashMap<String, String>)> {
+        let root = self.root_file_path()?;
+        let mut sys_inputs = HashMap::new();
+        if let Some((k, v)) = self.cv_data_sys_input() {
+            sys_inputs.insert(k, v);
+        }
+        Some((root, self.buffer_snapshot.borrow().clone(), sys_inputs))
+    }
+
     pub fn set_buffer_snapshot(&self, path: PathBuf, text: String) {
         self.buffer_snapshot.borrow_mut().insert(path, text);
     }

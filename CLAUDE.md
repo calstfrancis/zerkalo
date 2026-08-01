@@ -17,6 +17,7 @@
 1. Update `Cargo.toml` version to the next dev number
 2. Update `CHANGELOG.md` — add entry at top for the new rc version
 3. Update What's New in `src/ui/welcome_window.rs` to reflect current features
+3a. **If `Cargo.lock` changed** (any dependency added, removed or updated), regenerate `packaging/cargo-sources.json` and commit it with the bump. The flatpak's `zerkalo-deps` module builds with `CARGO_NET_OFFLINE: 'true'` against that vendored manifest, so without it the build fails at the dependency fetch. See the Zerkalo bullet under **Version files by project** in the root `Projects/CLAUDE.md` for the exact commands.
 4. Push to GitHub (needed so the source is current for collaborators and CI)
 5. Run `flatpak-builder --force-clean --user --install build-flatpak packaging/io.github.calstfrancis.Zerkalo.yml`
 - **Do not** add a `metainfo.xml` `<release>` entry for dev builds — only at actual release time (see root `Projects/CLAUDE.md`'s Release workflow), matching Rubric/Gost/Kopilka/Skrizhal. This used to be a Zerkalo-only exception and caused a real bug: AppStream's version comparison treats `0.16.1-dev6` as *higher* than `0.16.1` (it has no concept of pre-release ordering, unlike semver — confirmed via `appstreamcli compare-versions`), so `flatpak info` displayed the wrong "Version" for the app any time a same-base-version dev entry existed alongside the clean release entry. Reordering entries in the file doesn't fix this — the comparison, not document order, decides. Fixed by removing the interim `0.16.1-devN` entries and stopping future ones.

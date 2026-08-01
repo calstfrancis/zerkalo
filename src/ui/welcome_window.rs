@@ -126,6 +126,11 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
+                "New: Print (Ctrl+P) opens the system print dialog and actually prints — printer, page range, copies and duplex — instead of exporting a PDF to the cache and opening it in another app; the PDF goes to the printer as vector, so text stays sharp at the printer's own resolution",
+                "New: a save button in the header, to the right of the git sync button",
+                "Fixed: printing a CV produced nothing at all, and the error was discarded so the button looked dead; printing and PDF export now use exactly the same inputs as the preview",
+                "Fixed: printing used the last saved version rather than what was on screen — unsaved changes are written first",
+                "Fixed: printing reported nothing on failure and gave no sign it was working; there's now a progress toast and errors reach the error panel",
                 "Fixed: typing lagged badly on long documents, and got worse the longer the document and the more tabs were open — the error squiggles were being re-applied across every open tab on every single keystroke",
                 "Fixed: the status bar's section word count re-read the whole document every time the cursor changed line, so holding an arrow key scanned it once per line",
                 "Fixed: comment highlighting re-tagged the entire document every time typing paused, even when no comment had moved",

@@ -217,18 +217,24 @@ pub fn compile_to_pdf_bytes(
     let result = typst::compile::<PagedDocument>(&world);
 
     match result.output {
-        Ok(doc) => {
-            typst_pdf::pdf(&doc, &typst_pdf::PdfOptions::default())
-                .map_err(|errors| {
-                    errors
-                        .iter()
-                        .map(|e| e.message.to_string())
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                })
-        }
+        Ok(doc) => pdf_bytes_from_document(&doc),
         Err(errors) => Err(format_diagnostics(&world, &errors)),
     }
+}
+
+/// Serialise an already-laid-out document to PDF.
+///
+/// Printing needs this separately from `compile_to_pdf_bytes`: it compiles once
+/// and uses the result twice — the PDF goes to the print portal, and the
+/// document itself stays around to raster-render pages if no portal is there.
+pub fn pdf_bytes_from_document(doc: &PagedDocument) -> Result<Vec<u8>, String> {
+    typst_pdf::pdf(doc, &typst_pdf::PdfOptions::default()).map_err(|errors| {
+        errors
+            .iter()
+            .map(|e| e.message.to_string())
+            .collect::<Vec<_>>()
+            .join("\n")
+    })
 }
 
 #[cfg(test)]
@@ -311,6 +317,59 @@ mod tests {
         assert!(
             p.rgba.chunks_exact(4).any(|px| px[0] < 128),
             "page should contain dark pixels — the rendered glyphs"
+        );
+    }
+
+    #[test]
+    fn compile_document_reports_page_count_for_printing() {
+        // The print dialog's page range depends on this count being right.
+        let path = write_temp_typ("First page.\n#pagebreak()\nSecond page.");
+        let doc = compile_document(&path, &HashMap::new(), &HashMap::new())
+            .expect("document should compile");
+        assert_eq!(doc.pages.len(), 2, "two pages after an explicit pagebreak");
+    }
+
+    #[test]
+    fn compile_document_surfaces_errors_rather_than_returning_empty() {
+        // Printing used to discard this, leaving the button apparently dead.
+        let path = write_temp_typ("#panic(\"boom\")");
+        let result = compile_document(&path, &HashMap::new(), &HashMap::new());
+        assert!(result.is_err(), "a failing document must report an error");
+    }
+
+    #[test]
+    fn render_page_rgba_scales_with_resolution() {
+        // draw_page relies on this: it renders at PRINT_DPI/72 and scales the
+        // Cairo context back down by the same factor to land at true size.
+        let path = write_temp_typ("= Heading");
+        let doc = compile_document(&path, &HashMap::new(), &HashMap::new()).unwrap();
+        let low = render_page_rgba(&doc.pages[0], 1.0);
+        let high = render_page_rgba(&doc.pages[0], 2.0);
+        // Page dimensions are fractional points, so doubling the scale lands
+        // within a pixel of double the size rather than exactly on it.
+        assert!(
+            high.width.abs_diff(low.width * 2) <= 1,
+            "2x scale should double the width: {} vs {}", high.width, low.width * 2
+        );
+        assert!(
+            high.height.abs_diff(low.height * 2) <= 1,
+            "2x scale should double the height: {} vs {}", high.height, low.height * 2
+        );
+        assert_eq!(high.rgba.len(), (high.width * high.height * 4) as usize);
+    }
+
+    #[test]
+    fn compile_document_honours_sys_inputs() {
+        // The CV path depends on this: entries arrive only via skrizhal-cv-data,
+        // and printing omitting it produced a document that could not compile.
+        let path = write_temp_typ(
+            "#let d = sys.inputs.at(\"zerkalo-test\", default: \"missing\")\nValue: #d",
+        );
+        let mut inputs = HashMap::new();
+        inputs.insert("zerkalo-test".to_string(), "present".to_string());
+        assert!(
+            compile_document(&path, &HashMap::new(), &inputs).is_ok(),
+            "sys inputs must reach the compiled document"
         );
     }
 
@@ -444,6 +503,36 @@ pub struct RenderedPage {
     pub rgba: Vec<u8>,
 }
 
+/// Compile `root_file` and hand back the laid-out document itself.
+///
+/// Printing needs this rather than a finished PDF or a page bitmap: the print
+/// dialog decides the resolution and which pages are wanted, and neither is
+/// known until after the user has answered it. Holding the document lets each
+/// page be rendered on demand, at the printer's resolution, one at a time.
+pub fn compile_document(
+    root_file: &Path,
+    overrides: &HashMap<PathBuf, String>,
+    sys_inputs: &HashMap<String, String>,
+) -> Result<PagedDocument, String> {
+    let world = ZerkaloWorld::new(root_file, overrides.clone(), sys_inputs)?;
+    let result = typst::compile::<PagedDocument>(&world);
+    match result.output {
+        Ok(doc) => Ok(doc),
+        Err(errors) => Err(format_diagnostics(&world, &errors)),
+    }
+}
+
+/// Render a single already-laid-out page to straight RGBA8.
+pub fn render_page_rgba(page: &typst::layout::Page, pixel_per_pt: f32) -> RenderedPage {
+    let pixmap = typst_render::render(page, pixel_per_pt);
+    let mut rgba = Vec::with_capacity(pixmap.pixels().len() * 4);
+    for px in pixmap.pixels() {
+        let c = px.demultiply();
+        rgba.extend_from_slice(&[c.red(), c.green(), c.blue(), c.alpha()]);
+    }
+    RenderedPage { width: pixmap.width(), height: pixmap.height(), rgba }
+}
+
 /// Compile `root_file` and return each page as raw RGBA pixels.
 ///
 /// The live preview uses this rather than `compile_to_png_bytes` because that
@@ -462,24 +551,10 @@ pub fn compile_to_rgba_pages(
 
     match result.output {
         Ok(doc) => {
-            let mut pages = Vec::with_capacity(doc.pages.len());
-            for page in &doc.pages {
-                let pixmap = typst_render::render(page, pixel_per_pt);
-                // tiny-skia stores premultiplied RGBA; GdkPixbuf wants straight.
-                // Typst pages are opaque so this is usually identity, but pages
-                // with a transparent background would otherwise darken.
-                let mut rgba = Vec::with_capacity(pixmap.pixels().len() * 4);
-                for px in pixmap.pixels() {
-                    let c = px.demultiply();
-                    rgba.extend_from_slice(&[c.red(), c.green(), c.blue(), c.alpha()]);
-                }
-                pages.push(RenderedPage {
-                    width: pixmap.width(),
-                    height: pixmap.height(),
-                    rgba,
-                });
-            }
-            Ok(pages)
+            // tiny-skia stores premultiplied RGBA; GdkPixbuf wants straight.
+            // Typst pages are opaque so this is usually identity, but pages with
+            // a transparent background would otherwise darken. See render_page_rgba.
+            Ok(doc.pages.iter().map(|p| render_page_rgba(p, pixel_per_pt)).collect())
         }
         Err(errors) => Err(format_diagnostics(&world, &errors)),
     }
