@@ -268,6 +268,9 @@ impl AppWindow {
         menu_popover_box.append(&Separator::new(Orientation::Horizontal));
         // App settings
         menu_popover_box.append(&menu_fonts_item);
+        // Filled once editor_pane exists — it owns the button and its state.
+        let gost_menu_slot = GtkBox::new(Orientation::Vertical, 0);
+        menu_popover_box.append(&gost_menu_slot);
         menu_popover_box.append(&menu_settings_item);
         menu_popover_box.append(&menu_setup_item);
         menu_popover_box.append(&menu_backup_remote_item);
@@ -793,9 +796,11 @@ impl AppWindow {
         draft_toggle.set_visible(false);
         editor_pane.status_bar_insert_after_goal(&draft_toggle);
 
-        // Simple Mode belongs with the other document-view controls in the
-        // header rather than mid-status-bar; pack_start puts it right of Library.
-        header.pack_start(&editor_pane.detach_simple_mode_button());
+        // Document-view controls belong together in the header rather than
+        // scattered along the status bar; pack_start puts them right of Library.
+        header.pack_start(&editor_pane.simple_mode_button_for_header());
+        header.pack_start(&editor_pane.focus_button_for_header());
+        gost_menu_slot.append(&editor_pane.gost_button_for_menu());
 
         // ── Simple mode wiring ──────────────────────────────────────────────
         {
