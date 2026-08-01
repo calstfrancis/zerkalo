@@ -127,6 +127,8 @@ impl WelcomeWindow {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
                 "New: autocomplete suggests inline — type # and the best match appears dim after the cursor; Tab accepts it, and the (now much smaller) list only opens once you've typed two characters",
+                "New: the status bar says what the current suggestion does and which keys take it, so the explanation never covers what you're writing",
+                "New: suggestions are found by their Typst name and by fragments of it — #pagebreak works, and #break finds it too",
                 "New: clicking anywhere else dismisses a completion or citation popup",
                 "New: #cv-profile(\"name\") renders a whole CV profile — every section, in order, with its headings — built in Skrizhal's CV Profiles dialog",
                 "Fixed: Zerkalo crashed when resizing the editor/preview split, dragging the sidebar edge, or toggling the sidebar",
