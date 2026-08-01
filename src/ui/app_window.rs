@@ -796,6 +796,8 @@ impl AppWindow {
         draft_toggle.set_visible(false);
         editor_pane.status_bar_insert_after_goal(&draft_toggle);
 
+        editor_pane.set_completion_picks(proj_cfg.completion_picks.clone());
+
         // Document-view controls belong together in the header rather than
         // scattered along the status bar; pack_start puts them right of Library.
         header.pack_start(&editor_pane.simple_mode_button_for_header());
@@ -2796,7 +2798,9 @@ impl AppWindow {
         let editor_for_lsp_init = editor_pane.clone();
         glib::timeout_add_local(Duration::from_millis(500), move || {
             *lsp_init.borrow_mut() = LspClient::new(&root_for_lsp);
-            if lsp_init.borrow().is_some() {
+            let ready = lsp_init.borrow().is_some();
+            editor_for_lsp_init.set_lsp_available(ready);
+            if ready {
                 tracing::info!("tinymist LSP active");
                 editor_for_lsp_init.set_lsp_status("LSP ●");
             } else {
