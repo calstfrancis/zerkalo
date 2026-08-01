@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.19.0-dev2] — Inline autocomplete and CV profiles, plus security, data-integrity, and correctness fixes
+## [0.19.0-dev3] — Inline autocomplete and CV profiles, plus security, data-integrity, and correctness fixes
 
 ### Changed
 - **Autocomplete is inline first, list second.** Typing `#` no longer throws a large list over your text: the best match now appears as dim ghost text right after the cursor (fish-shell style) and Tab accepts it. The list only joins in once you've typed two characters, and it's now about a third the width and six rows tall. Clicking anywhere else — in the text, the sidebar, another window — dismisses whatever is showing, as does Escape. The ghost is an overlay, never text in the document, so it can't be saved, counted, or sent to the language server by accident.
