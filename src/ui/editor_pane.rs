@@ -2,7 +2,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use gtk4::prelude::*;
 use gtk4::{
@@ -176,6 +176,8 @@ struct EditorTab {
     tab_box: GtkBox,
     display_name: String,
     lsp_popup: LspPopup,
+    ghost_label: Label,
+    ghost_item: Rc<RefCell<Option<CompletionItem>>>,
     session_start_words: u32,
 }
 
@@ -1077,17 +1079,38 @@ impl EditorPane {
 
         // Rolling "insert after" anchors: the current rightmost visible widget
         // in each zone. Restoring a group pushes its last widget as the new
-        // anchor; collapsing a group pops back to the previous one.
+        // anchor; collapsing a group pops back to the previous one. So while
+        // the bar is fully expanded each stack must already hold the whole
+        // chain, bottom-to-top: the zone's fixed base widget, then the last
+        // control of every group in reverse collapse order. Seeding only the
+        // base left the stack empty after the first collapse, and restoring
+        // then unwrapped a None and aborted the app.
         let zone_a_anchor_stack: Rc<RefCell<Vec<gtk4::Widget>>> =
-            Rc::new(RefCell::new(vec![italic_btn.clone().upcast()]));
+            Rc::new(RefCell::new(vec![
+                italic_btn.clone().upcast(),
+                h3_btn.clone().upcast(),
+                pb_btn.clone().upcast(),
+                line_numbers_btn.clone().upcast(),
+                table_btn.clone().upcast(),
+                figure_btn.clone().upcast(),
+                cv_format_section.clone().upcast(),
+            ]));
         let zone_b_anchor_stack: Rc<RefCell<Vec<gtk4::Widget>>> =
-            Rc::new(RefCell::new(vec![fb_spacer.clone().upcast()]));
+            Rc::new(RefCell::new(vec![
+                fb_spacer.clone().upcast(),
+                font_bar_btn.clone().upcast(),
+                size_bar_btn.clone().upcast(),
+            ]));
+        let zone_a_base: gtk4::Widget = italic_btn.clone().upcast();
+        let zone_b_base: gtk4::Widget = fb_spacer.clone().upcast();
         let overflow_stage: Rc<Cell<usize>> = Rc::new(Cell::new(0));
 
         let set_overflow_stage = {
             let overflow_groups = overflow_groups.clone();
             let zone_a_anchor_stack = zone_a_anchor_stack.clone();
             let zone_b_anchor_stack = zone_b_anchor_stack.clone();
+            let zone_a_base = zone_a_base.clone();
+            let zone_b_base = zone_b_base.clone();
             let overflow_stage = overflow_stage.clone();
             let overflow_box = overflow_box.clone();
             let overflow_btn = overflow_btn.clone();
@@ -1112,7 +1135,11 @@ impl EditorPane {
                     stage -= 1;
                     let group = &overflow_groups[stage];
                     let stack = if group.zone_b { &zone_b_anchor_stack } else { &zone_a_anchor_stack };
-                    let mut anchor = stack.borrow().last().unwrap().clone();
+                    let base = if group.zone_b { &zone_b_base } else { &zone_a_base };
+                    // Never unwrap here: an unbalanced stack must degrade to a
+                    // slightly odd button order, not abort the process (a panic
+                    // in a GTK callback can't unwind and takes the app down).
+                    let mut anchor = stack.borrow().last().cloned().unwrap_or_else(|| base.clone());
                     if let Some(sep) = &group.lead_separator {
                         format_bar.insert_child_after(sep, Some(&anchor));
                         anchor = sep.clone();
@@ -2143,6 +2170,8 @@ impl EditorPane {
             buffer: sourceview5::Buffer,
             lsp_popup: crate::ui::lsp_popup::LspPopup,
             popup_visible: bool,
+            ghost_label: Label,
+            ghost_item: Rc<RefCell<Option<CompletionItem>>>,
         }
         let tab_info: Option<TabInfo> = {
             let state = self.state.borrow();
@@ -2153,6 +2182,8 @@ impl EditorPane {
                     buffer: tab.buffer.clone(),
                     lsp_popup: tab.lsp_popup.clone(),
                     popup_visible: tab.lsp_popup.is_visible(),
+                    ghost_label: tab.ghost_label.clone(),
+                    ghost_item: tab.ghost_item.clone(),
                 })
         };
         let Some(ti) = tab_info else { return };
@@ -2180,11 +2211,27 @@ impl EditorPane {
                 })
                 .collect();
             all_items.extend(items);
-            ti.lsp_popup.show_items(all_items, wx, wy, above);
+            ti.lsp_popup.load_items(all_items);
         } else {
             ti.lsp_popup.merge_items(items);
         }
         ti.lsp_popup.apply_filter(&prefix);
+
+        // Arriving LSP results refine what's on offer; they don't get to open the
+        // list on their own before the prefix is worth listing (see MIN_POPUP_PREFIX).
+        if prefix.chars().count() >= MIN_POPUP_PREFIX && ti.lsp_popup.match_count(&prefix) > 0 {
+            ti.lsp_popup.show_at(wx, wy, above);
+        } else {
+            ti.lsp_popup.hide();
+        }
+        set_ghost(
+            &ti.view,
+            &ti.ghost_label,
+            &ti.ghost_item,
+            &ti.buffer,
+            ti.lsp_popup.best_match(&prefix),
+            &prefix,
+        );
     }
 
     // ── Inline diagnostic marks ───────────────────────────────────────────────
@@ -3582,6 +3629,33 @@ impl EditorPane {
         let lsp_completing: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
         let lsp_comp_gen: Rc<RefCell<u64>> = Rc::new(RefCell::new(0));
 
+        // Inline ghost suggestion, fish-shell style: the rest of the best match
+        // drawn dim right after the cursor, accepted with Tab. It's an overlay
+        // child of the view rather than text in the buffer, so it can't end up
+        // saved to the file, counted as words, or sent to the LSP — and because
+        // overlay coordinates are buffer coordinates, it scrolls with the text
+        // for free.
+        let ghost_label = Label::new(None);
+        ghost_label.add_css_class("completion-ghost");
+        ghost_label.set_visible(false);
+        ghost_label.set_can_target(false);
+        view.add_overlay(&ghost_label, 0, 0);
+        let ghost_item: Rc<RefCell<Option<CompletionItem>>> = Rc::new(RefCell::new(None));
+
+        let update_ghost = {
+            let view = view.clone();
+            let ghost = ghost_label.clone();
+            let slot = ghost_item.clone();
+            move |buf: &Buffer, item: Option<CompletionItem>, prefix: &str| {
+                set_ghost(&view, &ghost, &slot, buf, item, prefix);
+            }
+        };
+        let hide_ghost = {
+            let ghost = ghost_label.clone();
+            let slot = ghost_item.clone();
+            move || clear_ghost(&ghost, &slot)
+        };
+
         // LSP on_complete: replace #prefix with the chosen insertion text
         {
             let buf2 = buffer.clone();
@@ -3589,7 +3663,10 @@ impl EditorPane {
             let mark2 = lsp_mark.clone();
             let comp2 = lsp_completing.clone();
             let popup2 = lsp_popup.clone();
+            let ghost2 = ghost_label.clone();
+            let ghost_item2 = ghost_item.clone();
             lsp_popup.set_on_complete(move |item| {
+                clear_ghost(&ghost2, &ghost_item2);
                 *comp2.borrow_mut() = true;
                 let mark_opt = mark2.borrow().clone();
                 if let Some(ref m) = mark_opt {
@@ -3628,6 +3705,8 @@ impl EditorPane {
             let path_for_lsp = path.clone();
             let view_lsp = view.clone();
             let cv_mode_for_lsp = self.cv_mode.clone();
+            let update_ghost_lsp = update_ghost.clone();
+            let hide_ghost_lsp = hide_ghost.clone();
             buffer.connect_changed(move |buf| {
                 if *lsp_completing3.borrow() {
                     return;
@@ -3666,29 +3745,44 @@ impl EditorPane {
                         }
                     }
 
-                    // Show built-in snippets immediately without waiting for LSP
-                    if !lsp_popup3.is_visible() {
-                        let loc = view_lsp.iter_location(&cursor_iter);
-                        let (wx, wy_bottom) = view_lsp.buffer_to_window_coords(
-                            TextWindowType::Widget, loc.x(), loc.y() + loc.height());
-                        let (_, wy_top) = view_lsp.buffer_to_window_coords(
-                            TextWindowType::Widget, loc.x(), loc.y());
-                        let view_h = view_lsp.allocated_height() as i32;
-                        let above = wy_bottom > view_h / 2;
-                        let wy = if above { wy_top } else { wy_bottom };
-                        let snippet_src = if cv_mode_for_lsp.get() { CV_SNIPPETS } else { ACADEMIC_SNIPPETS };
-                        let snippets: Vec<CompletionItem> = snippet_src
-                            .iter()
-                            .map(|(_, label, desc, body)| CompletionItem {
-                                label: label.to_string(),
-                                kind: 15,
-                                detail: Some(desc.to_string()),
-                                insert_text: Some(body.to_string()),
-                            })
-                            .collect();
-                        lsp_popup3.show_items(snippets, wx, wy, above);
-                        lsp_popup3.apply_filter(&lsp_hash_prefix(buf));
+                    // Load the built-in snippets without waiting for the LSP, but
+                    // don't put a list on screen for a bare `#` — at one typed
+                    // character everything still matches, so the list is noise on
+                    // top of the text. The ghost suggestion carries that stage;
+                    // the list joins in once the prefix narrows things down.
+                    let prefix = lsp_hash_prefix(buf);
+                    let loc = view_lsp.iter_location(&cursor_iter);
+                    let (wx, wy_bottom) = view_lsp.buffer_to_window_coords(
+                        TextWindowType::Widget, loc.x(), loc.y() + loc.height());
+                    let (_, wy_top) = view_lsp.buffer_to_window_coords(
+                        TextWindowType::Widget, loc.x(), loc.y());
+                    let view_h = view_lsp.allocated_height() as i32;
+                    let above = wy_bottom > view_h / 2;
+                    let wy = if above { wy_top } else { wy_bottom };
+                    let snippet_src = if cv_mode_for_lsp.get() { CV_SNIPPETS } else { ACADEMIC_SNIPPETS };
+                    let snippets: Vec<CompletionItem> = snippet_src
+                        .iter()
+                        .map(|(_, label, desc, body)| CompletionItem {
+                            label: label.to_string(),
+                            kind: 15,
+                            detail: Some(desc.to_string()),
+                            insert_text: Some(body.to_string()),
+                        })
+                        .collect();
+                    if lsp_popup3.is_visible() {
+                        lsp_popup3.apply_filter(&prefix);
+                    } else {
+                        lsp_popup3.load_items(snippets);
+                        lsp_popup3.apply_filter(&prefix);
                     }
+
+                    let matches = lsp_popup3.match_count(&prefix);
+                    if prefix.chars().count() >= MIN_POPUP_PREFIX && matches > 0 {
+                        lsp_popup3.show_at(wx, wy, above);
+                    } else {
+                        lsp_popup3.hide();
+                    }
+                    update_ghost_lsp(buf, lsp_popup3.best_match(&prefix), &prefix);
 
                     let line = cursor_iter.line() as u32 + 1;
                     // LSP positions are UTF-16 code units by default (we don't
@@ -3723,6 +3817,7 @@ impl EditorPane {
                         buf.delete_mark(&m);
                     }
                     lsp_popup3.hide();
+                    hide_ghost_lsp();
                 }
             });
         }
@@ -3738,11 +3833,42 @@ impl EditorPane {
         let lsp_completing_key = lsp_completing.clone();
         let view_key = view.clone();
         let bib_active_key = bib_active_for_open.clone();
+        let ghost_item_key = ghost_item.clone();
+        let ghost_label_key = ghost_label.clone();
 
         let key_ctrl = EventControllerKey::new();
         key_ctrl.set_propagation_phase(PropagationPhase::Capture);
         key_ctrl.connect_key_pressed(move |_, key, _, _mods| {
             use gtk4::gdk::Key;
+
+            // Tab accepts the inline ghost suggestion even when no list is up —
+            // the fish-shell gesture, and the whole point of showing the ghost
+            // before the list appears. Escape dismisses just the ghost, leaving
+            // what the user actually typed alone.
+            if !lsp_popup_key.is_visible() && ghost_label_key.is_visible() {
+                match key {
+                    Key::Tab => {
+                        let item = ghost_item_key.borrow().clone();
+                        if let Some(i) = item {
+                            clear_ghost(&ghost_label_key, &ghost_item_key);
+                            do_lsp_complete(
+                                &buf_key,
+                                &lsp_mark_key,
+                                &lsp_completing_key,
+                                &lsp_popup_key,
+                                &view_key,
+                                i,
+                            );
+                            return glib::Propagation::Stop;
+                        }
+                    }
+                    Key::Escape => {
+                        clear_ghost(&ghost_label_key, &ghost_item_key);
+                        return glib::Propagation::Stop;
+                    }
+                    _ => {}
+                }
+            }
 
             // LSP popup takes priority
             if lsp_popup_key.is_visible() {
@@ -3758,6 +3884,7 @@ impl EditorPane {
                             buf_key.delete_mark(&m);
                         }
                         lsp_popup_key.hide();
+                        clear_ghost(&ghost_label_key, &ghost_item_key);
                         glib::Propagation::Stop
                     }
                     Key::Tab => {
@@ -3765,6 +3892,7 @@ impl EditorPane {
                             .selected_item()
                             .or_else(|| lsp_popup_key.first_item());
                         if let Some(i) = item {
+                            clear_ghost(&ghost_label_key, &ghost_item_key);
                             do_lsp_complete(
                                 &buf_key,
                                 &lsp_mark_key,
@@ -3778,6 +3906,7 @@ impl EditorPane {
                     }
                     Key::Return => {
                         if let Some(i) = lsp_popup_key.selected_item() {
+                            clear_ghost(&ghost_label_key, &ghost_item_key);
                             do_lsp_complete(
                                 &buf_key,
                                 &lsp_mark_key,
@@ -4473,13 +4602,48 @@ impl EditorPane {
         let saved_scroll: Rc<Cell<f64>> = Rc::new(Cell::new(-1.0));
         let saved_hscroll: Rc<Cell<f64>> = Rc::new(Cell::new(-1.0));
 
+        // Track every scroll, rather than sampling the position on the handful
+        // of events (pointer enter/leave, click, focus leave) that used to be
+        // the only writers. Anything that scrolled without one of those firing
+        // — a wheel scroll with the pointer already inside, Page Down, a jump
+        // from the outline — left the saved value stale, usually still at the
+        // top of the file where the pointer first entered. The next focus-enter
+        // then "restored" that, which is why copying or pasting (both of which
+        // hand focus to the clipboard manager and back) threw the view to the
+        // top of the document.
+        //
+        // GTK's focus-snap must not be recorded as the user's position, so
+        // tracking pauses around the events that provoke one (a click into the
+        // view, a right-click, focus arriving or leaving). The pause is a short
+        // deadline rather than a flag cleared on the next tick because the snap
+        // doesn't reliably land within one: taking Copy from the right-click
+        // menu snapped the view *after* the restore that was meant to undo it,
+        // and the snapped position — the cursor, typically still at the top of
+        // the file — became the position every later restore aimed at.
+        let track_paused_until: Rc<Cell<Instant>> = Rc::new(Cell::new(Instant::now()));
+        let pause_tracking = {
+            let until = track_paused_until.clone();
+            move || until.set(Instant::now() + Duration::from_millis(150))
+        };
+        {
+            let sv = saved_scroll.clone();
+            let until = track_paused_until.clone();
+            scroll.vadjustment().connect_value_changed(move |adj| {
+                if Instant::now() >= until.get() { sv.set(adj.value()); }
+            });
+            let sh = saved_hscroll.clone();
+            let until = track_paused_until.clone();
+            scroll.hadjustment().connect_value_changed(move |adj| {
+                if Instant::now() >= until.get() { sh.set(adj.value()); }
+            });
+        }
+
         {
             let spell_rc = self.spell_checker.clone();
             let buf_rc = buffer.clone();
             let view_rc = view.clone();
             let scroll_rc = scroll.clone();
-            let saved_rc = saved_scroll.clone();
-            let saved_hrc = saved_hscroll.clone();
+            let pause_rc = pause_tracking.clone();
 
             // Use connect_pressed, not connect_released. GtkSourceView processes
             // button-3 internally and may grab the pointer before the release
@@ -4490,22 +4654,15 @@ impl EditorPane {
 
             gesture.connect_pressed(move |_, _, x, y| {
                 // Suppress the focus-snap that right-click can trigger even
-                // when the view already has focus. Also update saved_scroll so
-                // that focus_ctrl.connect_enter (which fires on popover dismiss)
-                // restores to the correct position, not the GTK-snapped one.
-                // focus_ctrl.connect_leave fires during event processing (before
-                // idle), so it would otherwise capture the wrong snapped value.
+                // when the view already has focus.
                 let scroll_val = scroll_rc.vadjustment().value();
                 let hscroll_val = scroll_rc.hadjustment().value();
                 {
                     let sc = scroll_rc.clone();
-                    let sv = saved_rc.clone();
-                    let sh = saved_hrc.clone();
+                    pause_rc();
                     glib::timeout_add_local_once(Duration::ZERO, move || {
                         sc.vadjustment().set_value(scroll_val);
                         sc.hadjustment().set_value(hscroll_val);
-                        sv.set(scroll_val);
-                        sh.set(hscroll_val);
                     });
                 }
 
@@ -4773,34 +4930,8 @@ impl EditorPane {
         // restore it in idle after GTK's focus-in handler runs.
         // saved_scroll is shared with the right-click gesture above — see comment there.
         {
-
-            // Save scroll on pointer-enter and pointer-leave so that saved_scroll
-            // stays current after the user scrolls with the mouse wheel (the wheel
-            // fires inside the view without triggering enter again). Without leave,
-            // right-clicking elsewhere after scrolling would restore the stale
-            // pre-scroll position.
-            let ptr_ctrl = EventControllerMotion::new();
-            {
-                let sc = scroll.clone();
-                let sv = saved_scroll.clone();
-                let sh = saved_hscroll.clone();
-                ptr_ctrl.connect_enter(move |_, _, _| {
-                    let hval = sc.hadjustment().value();
-                    sv.set(sc.vadjustment().value());
-                    sh.set(hval);
-                });
-            }
-            {
-                let sc = scroll.clone();
-                let sv = saved_scroll.clone();
-                let sh = saved_hscroll.clone();
-                ptr_ctrl.connect_leave(move |_| {
-                    let hval = sc.hadjustment().value();
-                    sv.set(sc.vadjustment().value());
-                    sh.set(hval);
-                });
-            }
-            view.add_controller(ptr_ctrl);
+            // saved_scroll/saved_hscroll follow every scroll (see the adjustment
+            // handlers above), so nothing here needs to sample the position.
 
             // On left-click, suppress the focus-snap only when the view is
             // actually gaining focus. If it already has focus the click is
@@ -4810,19 +4941,27 @@ impl EditorPane {
             any_click.set_button(1);
             {
                 let sc = scroll.clone();
-                let sv = saved_scroll.clone();
-                let sh = saved_hscroll.clone();
+                let pause = pause_tracking.clone();
                 let view_fc = view.clone();
+                let lsp_popup_click = lsp_popup.clone();
+                let bib_popup_click = bib_popup.clone();
+                let ghost_click = ghost_label.clone();
+                let ghost_item_click = ghost_item.clone();
                 any_click.connect_pressed(move |_, _, _, _| {
-                    let val = sc.vadjustment().value();
-                    let hval = sc.hadjustment().value();
-                    sv.set(val);
-                    sh.set(hval);
+                    // Clicking anywhere in the text dismisses a suggestion —
+                    // the popovers are autohide(false) (they must not steal the
+                    // keyboard while you type), so they'd otherwise sit there.
+                    lsp_popup_click.hide();
+                    bib_popup_click.hide();
+                    clear_ghost(&ghost_click, &ghost_item_click);
                     if !view_fc.has_focus() {
                         // View is gaining focus → GTK will snap to insert mark → restore both axes.
                         // Use a 0ms timeout (not idle_add) so we fire AFTER the entire idle queue
                         // drains, including GTK's own focus-snap scroll_mark_onscreen idle.
+                        let val = sc.vadjustment().value();
+                        let hval = sc.hadjustment().value();
                         let sc2 = sc.clone();
+                        pause();
                         glib::timeout_add_local_once(Duration::ZERO, move || {
                             sc2.vadjustment().set_value(val);
                             sc2.hadjustment().set_value(hval);
@@ -4832,33 +4971,41 @@ impl EditorPane {
             }
             view.add_controller(any_click);
 
-            // Also refresh the saved value whenever focus leaves the view, so
-            // that the stored position stays current for re-entry.
             let focus_ctrl = EventControllerFocus::new();
             {
-                let sc_leave = scroll.clone();
-                let sv_leave = saved_scroll.clone();
-                let sh_leave = saved_hscroll.clone();
+                // Pause tracking as focus leaves too: the snap can fire on the
+                // way out (when a context menu takes focus), and recording it
+                // would make the restore on the way back in aim at it. Focus
+                // leaving the editor at all — a click in the sidebar, the
+                // preview, another window — also means any suggestion on screen
+                // is stale, so drop it.
+                let pause = pause_tracking.clone();
+                let lsp_popup_focus = lsp_popup.clone();
+                let bib_popup_focus = bib_popup.clone();
+                let ghost_focus = ghost_label.clone();
+                let ghost_item_focus = ghost_item.clone();
                 focus_ctrl.connect_leave(move |_| {
-                    let hval = sc_leave.hadjustment().value();
-                    sv_leave.set(sc_leave.vadjustment().value());
-                    sh_leave.set(hval);
+                    pause();
+                    lsp_popup_focus.hide();
+                    bib_popup_focus.hide();
+                    clear_ghost(&ghost_focus, &ghost_item_focus);
                 });
             }
             {
                 let sc_enter = scroll.clone();
                 let sv_enter = saved_scroll.clone();
                 let sh_enter = saved_hscroll.clone();
+                let pause = pause_tracking.clone();
                 focus_ctrl.connect_enter(move |_| {
-                    // Use the value saved when focus left (or at right-click time) rather
-                    // than the current scroll. GTK can snap the view to the cursor
-                    // synchronously before this signal fires (e.g. on context-menu
-                    // dismiss), so reading the current value would restore the snapped
-                    // position rather than where the user actually was.
+                    // Use the tracked position rather than the current scroll. GTK can
+                    // snap the view to the cursor synchronously before this signal fires
+                    // (e.g. on context-menu dismiss), so reading the adjustment here
+                    // would restore the snapped position rather than where the user was.
                     let val = sv_enter.get();
                     let hval = sh_enter.get();
                     if val < 0.0 { return; }
                     let sc = sc_enter.clone();
+                    pause();
                     glib::timeout_add_local_once(Duration::ZERO, move || {
                         sc.vadjustment().set_value(val);
                         sc.hadjustment().set_value(hval);
@@ -4866,6 +5013,34 @@ impl EditorPane {
                 });
             }
             view.add_controller(focus_ctrl);
+        }
+
+        // Copying must never move the viewport. GtkTextView scrolls to the
+        // insert mark after a clipboard action, and taking Copy from the
+        // right-click menu adds a focus round-trip that can snap it as well —
+        // together they threw the view to wherever the cursor happened to be
+        // (usually the top of the file) on a plain copy. Pin the position
+        // across both, for cut too, since a cut happens where the user already
+        // is. Paste is deliberately left alone: scrolling to the insertion
+        // point is the correct thing there, since that's where the text landed.
+        {
+            let pin = {
+                let scroll = scroll.clone();
+                let pause = pause_tracking.clone();
+                move || {
+                    let val = scroll.vadjustment().value();
+                    let hval = scroll.hadjustment().value();
+                    let sc = scroll.clone();
+                    pause();
+                    glib::timeout_add_local_once(Duration::ZERO, move || {
+                        sc.vadjustment().set_value(val);
+                        sc.hadjustment().set_value(hval);
+                    });
+                }
+            };
+            let pin_cut = pin.clone();
+            view.connect_copy_clipboard(move |_| pin());
+            view.connect_cut_clipboard(move |_| pin_cut());
         }
 
         // Re-apply squiggles after undo restores old text
@@ -4909,6 +5084,8 @@ impl EditorPane {
                 tab_box,
                 display_name: display_name.clone(),
                 lsp_popup,
+                ghost_label,
+                ghost_item,
                 session_start_words,
             },
         );
@@ -5537,6 +5714,56 @@ fn apply_spell_tags(
             buffer.apply_tag_by_name("zerkalo-spell", &iter_start, &iter_end);
         }
     }
+}
+
+/// Number of characters typed after `#` before the completion *list* joins the
+/// inline ghost suggestion. At one character everything still matches, so the
+/// list would just be a wall of options over the text being written.
+const MIN_POPUP_PREFIX: usize = 2;
+
+/// Draw `item`'s remaining characters as dim ghost text right after the cursor,
+/// or hide the ghost when there's nothing left to suggest.
+fn set_ghost(
+    view: &View,
+    ghost: &Label,
+    slot: &Rc<RefCell<Option<CompletionItem>>>,
+    buf: &Buffer,
+    item: Option<CompletionItem>,
+    prefix: &str,
+) {
+    let remainder = item.as_ref().and_then(|i| {
+        i.label
+            .get(prefix.len()..)
+            .filter(|r| !r.is_empty())
+            .map(str::to_string)
+    });
+    let Some(remainder) = remainder else {
+        clear_ghost(ghost, slot);
+        return;
+    };
+    let cursor = buf.iter_at_offset(buf.cursor_position());
+    // The ghost is drawn over the view, so it would cover whatever follows the
+    // cursor. Only offer it when the rest of the line is empty.
+    {
+        let mut line_end = cursor.clone();
+        if !line_end.ends_line() {
+            line_end.forward_to_line_end();
+        }
+        if !buf.text(&cursor, &line_end, false).trim().is_empty() {
+            clear_ghost(ghost, slot);
+            return;
+        }
+    }
+    let loc = view.iter_location(&cursor);
+    ghost.set_text(&remainder);
+    view.move_overlay(ghost, loc.x(), loc.y());
+    ghost.set_visible(true);
+    *slot.borrow_mut() = item;
+}
+
+fn clear_ghost(ghost: &Label, slot: &Rc<RefCell<Option<CompletionItem>>>) {
+    ghost.set_visible(false);
+    *slot.borrow_mut() = None;
 }
 
 fn lsp_hash_prefix(buffer: &Buffer) -> String {

@@ -30,6 +30,11 @@ const GLOBAL_CSS: &str = ".navigation-sidebar > row:hover:not(:selected) { \
     .zerkalo-sidebar { \
         transition: opacity 250ms; \
     } \
+    /* Inline completion suggestion drawn after the cursor. Font properties are \
+       inherited from the textview node, so it lines up with the real text. */ \
+    .completion-ghost { \
+        color: alpha(@window_fg_color, 0.42); \
+    } \
     .zerkalo-sidebar entry, \
     .zerkalo-sidebar button, \
     .zerkalo-sidebar label { \
