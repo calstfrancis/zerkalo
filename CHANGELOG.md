@@ -5,9 +5,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.19.1-dev1] — Responsiveness on long documents
+## [0.19.1-dev2] — Printing, and responsiveness on long documents
+
+### Added
+- **A save button in the header**, to the right of the git sync button. Same action as ≡ → Save, snapshot included.
+
+### Changed
+- **"Print PDF" is now "Print…", and actually prints.** It used to compile a PDF into `~/.cache/zerkalo/`, open it in whatever application owns PDFs, and leave you to print from there. It now opens the system print dialog — printer selection, page range, copies, collate and duplex — and sends the document to the printer. The compiled PDF goes to the printer as-is, so text prints as vector at the printer's own resolution rather than being flattened to an image. On a desktop with no print portal, Zerkalo falls back to GTK's print dialog with pages rendered at 300 dpi, one at a time as the printer asks for them.
 
 ### Fixed
+- **Printing a CV produced nothing at all.** It compiled with no sys inputs, but CV entries reach the document through `skrizhal-cv-data`, so a CV document couldn't compile — and the error was discarded, leaving the button apparently dead. Printing and PDF export now both compile with exactly the inputs the preview uses. Export was silently affected by the same bug.
+- **Printing used the last saved version of the document**, not what was on screen. Unsaved changes are now written first, as the PDF export already did.
+- **Printing failed silently.** Compile errors and write failures were both discarded. Failures now appear in the error panel with a toast, and there's a "Preparing to print…" toast while it works, rather than a button that appears to do nothing for several seconds.
+- **Repeatedly pressing Ctrl+P started a compile per press**, each racing the others and writing the same file. Only one runs at a time now.
+- **Printed documents accumulated in `~/.cache/zerkalo/`** under a name derived only from the file stem, so any two projects with a `main.typ` overwrote each other's. Nothing is written to disk to print any more.
 - **The preview redrew every page of the document on every frame.** Scrolling, zooming or resizing repainted all pages — five fills and a scaled blit each — however little of the document was actually on screen, so a long document scrolled progressively worse. Only the pages touching the visible area are painted now.
 - **Every compile PNG-encoded each page only to decode it straight back.** The compile thread compressed each rendered page to PNG and the main thread immediately decompressed all of them again; the bytes never left the app. Pages now go straight from the renderer to the screen as raw pixels, which drops the compression work from each compile and — because the decode ran on the main thread — removes a freeze after every recompile that got longer the more pages the document had.
 - **Editing during a slow compile started a second compile on top of it.** Typst can't be interrupted mid-compile, and each edit spawned another one regardless, so on a document slow enough to compile that several could stack up and compete with the interface for processor time. A request arriving mid-compile now waits and runs once, when the current one finishes.

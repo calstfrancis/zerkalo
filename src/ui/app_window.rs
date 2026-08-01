@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, SystemTime};
 
@@ -7,6 +7,7 @@ use gtk4::prelude::*;
 use gtk4::{
     AlertDialog, Align, Box as GtkBox, Button, Entry, Label, MenuButton,
     Notebook, Orientation, Paned, Popover, ScrolledWindow, Separator, Stack, ToggleButton,
+    Window,
 };
 use libadwaita as adw;
 use adw::prelude::*;
@@ -213,6 +214,11 @@ impl AppWindow {
         sync_btn.add_css_class("flat");
         sync_btn.update_property(&[gtk4::accessible::Property::Label("Commit and push to Git")]);
 
+        let save_btn = Button::from_icon_name("document-save-symbolic");
+        save_btn.set_tooltip_text(Some("Save (Ctrl+S)"));
+        save_btn.add_css_class("flat");
+        save_btn.update_property(&[gtk4::accessible::Property::Label("Save the current document")]);
+
         // ── Hamburger menu items (using make_menu_item for left+shortcut layout) ──
         let HamburgerItems {
             menu_new_template_item,
@@ -287,7 +293,7 @@ impl AppWindow {
         menu_btn.set_popover(Some(&menu_popover));
 
         // Header end section layout (left → right):
-        //   sync | todo | ⟳ compile now | compile mode | Preview | ≡
+        //   sync | save | todo | ⟳ compile now | compile mode | Preview | ≡
         // In GTK4 pack_end the last-packed widget is leftmost in the end section.
         // `compile_mode_slot` is packed empty here and filled further down, once
         // the config-backed compile-mode button exists — packing it late would
@@ -299,6 +305,7 @@ impl AppWindow {
         header.pack_end(&compile_mode_slot);
         header.pack_end(&recompile_header_btn);
         header.pack_end(&todo_btn);
+        header.pack_end(&save_btn);
         header.pack_end(&sync_btn);
 
         // ── Setzer-style open dropdown ───────────────────────────────────────
@@ -1475,14 +1482,31 @@ impl AppWindow {
             .present();
         });
 
-        // ── Menu: Print PDF ─────────────────────────────────────────────────
+        // Hoisted above its uses (the print handlers just below, and the import
+        // machinery further down around the sync button) so all of them — which
+        // show in-progress and result toasts — can capture it.
+        let toast_overlay = adw::ToastOverlay::new();
+
+        // ── Menu: Print ─────────────────────────────────────────────────────
 
         {
+            let window_for_print = window.clone();
+            let editor_for_print = editor_pane.clone();
             let preview_for_print = preview_pane.clone();
+            let toast_for_print = toast_overlay.clone();
+            let panel_for_print = error_panel.clone();
+            let root_for_print = project_root.clone();
             let menu_popover_for_print = menu_popover.clone();
             menu_print_item.connect_clicked(move |_| {
                 menu_popover_for_print.popdown();
-                print_pdf_from_preview(&preview_for_print);
+                print_from_preview(
+                    window_for_print.clone().upcast_ref(),
+                    &editor_for_print,
+                    &preview_for_print,
+                    &toast_for_print,
+                    &panel_for_print,
+                    &root_for_print,
+                );
             });
         }
 
@@ -1499,10 +1523,6 @@ impl AppWindow {
 
         // ── Menu: Import (picker dialog) ───────────────────────────────────
 
-        // Hoisted above its other uses (further down, around the sync button)
-        // so the import machinery below — which shows in-progress/result toasts —
-        // can capture it too.
-        let toast_overlay = adw::ToastOverlay::new();
 
         // ── Citation panel: "Skrizhal" button launches the actual app ────────
         {
@@ -1989,6 +2009,21 @@ impl AppWindow {
                     save_snapshot(&root_for_menu_save, &path, &content);
                 }
                 preview_for_menu_save.trigger_compile();
+            }
+        });
+
+        // ── Header: Save ────────────────────────────────────────────────────
+        // Same action as the ≡ menu's Save, including the snapshot.
+
+        let editor_for_save_btn = editor_pane.clone();
+        let preview_for_save_btn = preview_pane.clone();
+        let root_for_save_btn = project_root.clone();
+        save_btn.connect_clicked(move |_| {
+            if let Some(path) = editor_for_save_btn.save_current() {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    save_snapshot(&root_for_save_btn, &path, &content);
+                }
+                preview_for_save_btn.trigger_compile();
             }
         });
 
@@ -3289,6 +3324,10 @@ impl AppWindow {
         let popout_win_for_btn = popout_window.clone();
         let popout_pane_for_btn = popout_pane.clone();
         let window_for_popout = window.clone();
+        let editor_for_popout_print = editor_pane.clone();
+        let toast_for_popout_print = toast_overlay.clone();
+        let panel_for_popout_print = error_panel.clone();
+        let root_for_popout_print = project_root.clone();
         popout_btn.connect_clicked(move |_| {
             // If already open, just raise it
             if let Some(win) = popout_win_for_btn.borrow().as_ref() {
@@ -3330,10 +3369,25 @@ impl AppWindow {
 
             let print_btn = Button::from_icon_name("printer-symbolic");
             print_btn.add_css_class("flat");
-            print_btn.set_tooltip_text(Some("Print PDF"));
-            let print_pane = secondary.clone();
+            print_btn.set_tooltip_text(Some("Print (Ctrl+P)"));
+            // Prints via the *main* preview pane, not `secondary`: the popout is
+            // constructed with only a root file and output dir, so it carries
+            // neither the unsaved buffer contents nor the CV elements path.
+            let print_pane = preview_for_popout.clone();
+            let print_win = window_for_popout.clone();
+            let print_editor = editor_for_popout_print.clone();
+            let print_toast = toast_for_popout_print.clone();
+            let print_panel = panel_for_popout_print.clone();
+            let print_root = root_for_popout_print.clone();
             print_btn.connect_clicked(move |_| {
-                print_pdf_from_preview(&print_pane);
+                print_from_preview(
+                    print_win.clone().upcast_ref(),
+                    &print_editor,
+                    &print_pane,
+                    &print_toast,
+                    &print_panel,
+                    &print_root,
+                );
             });
 
             let lbl_po_out = po_zoom_label.clone();
@@ -4497,11 +4551,18 @@ impl AppWindow {
                 }
             }
 
-            // Ctrl+P — print (compile PDF and open in viewer)
+            // Ctrl+P — open the system print dialog
             {
                 use gtk4::gdk::Key;
                 if ctrl && !shift && !alt && key == Key::p {
-                    print_pdf_from_preview(&preview);
+                    print_from_preview(
+                        window.clone().upcast_ref(),
+                        &editor,
+                        &preview,
+                        &toast_for_key,
+                        &error_panel_for_key,
+                        &snapshot_root,
+                    );
                     return glib::Propagation::Stop;
                 }
             }
@@ -4511,7 +4572,9 @@ impl AppWindow {
                 use gtk4::gdk::Key;
                 if ctrl && shift && key == Key::e {
                     editor.save_all_modified();
-                    if let Some(root_path) = preview.root_file_path() {
+                    // Same inputs the preview compiles with — assembling them
+                    // by hand here is what left CV documents exporting blank.
+                    if let Some((root_path, overrides, sys_inputs)) = preview.compile_inputs() {
                         let dest = root_path.with_extension("pdf");
                         let t = adw::Toast::new("Exporting PDF…");
                         t.set_timeout(2);
@@ -4521,8 +4584,8 @@ impl AppWindow {
                         std::thread::spawn(move || {
                             let result = crate::compiler::compile_to_pdf_bytes(
                                 &root_for_thread,
-                                &std::collections::HashMap::new(),
-                                &std::collections::HashMap::new(),
+                                &overrides,
+                                &sys_inputs,
                             ).map_err(|e| e.to_string());
                             let _ = tx.send(result);
                         });
@@ -7390,7 +7453,7 @@ fn build_hamburger_menu_items() -> HamburgerItems {
         menu_snapshots_item:       make_menu_item("Browse Snapshots…",           None),
         menu_export_item:          make_menu_item("Export…",                     None),
         menu_export_web_item:      make_menu_item("Export for Web…",             None),
-        menu_print_item:           make_menu_item("Print PDF",                   Some("Ctrl+P")),
+        menu_print_item:           make_menu_item("Print\u{2026}",               Some("Ctrl+P")),
         menu_import_item:          make_menu_item("Import…",                     Some("Ctrl+Shift+I")),
         menu_docs_item:            make_menu_item("Browse Documents…",           None),
         menu_fonts_item:           make_menu_item("Font Management…",            None),
@@ -7757,36 +7820,81 @@ fn apply_template_result(
     }
 }
 
-fn print_pdf_from_preview(preview: &super::preview_pane::PreviewPane) {
-    let Some(root) = preview.root_file_path() else { return };
-    let stem = root
+/// Open the system print dialog for the current document.
+///
+/// This used to compile a PDF into `~/.cache/zerkalo/<stem>.pdf` and `xdg-open`
+/// it, which meant "Print" actually exported a PDF to a path the user didn't
+/// choose and handed it to whatever application owns PDFs. It also compiled with
+/// no sys inputs, so a CV document — whose entries arrive through
+/// `skrizhal-cv-data` — failed to compile, and the error was discarded, leaving
+/// the button apparently dead.
+fn print_from_preview(
+    parent: &Window,
+    editor: &EditorPane,
+    preview: &super::preview_pane::PreviewPane,
+    toast_overlay: &adw::ToastOverlay,
+    error_panel: &ErrorPanel,
+    project_root: &Path,
+) {
+    // Print what's on screen, not the last saved state. `compile_inputs`
+    // carries the unsaved buffer contents, but only the preview's own snapshot —
+    // so flush every other modified tab to disk first, the same way the
+    // Ctrl+Shift+E export does.
+    editor.save_all_modified();
+
+    let Some((root, overrides, sys_inputs)) = preview.compile_inputs() else {
+        toast_overlay.add_toast(adw::Toast::new("Nothing to print — no root file detected."));
+        return;
+    };
+
+    let job_name = root
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("document")
         .to_string();
 
-    let cache_dir = PathBuf::from(shellexpand::tilde("~/.cache/zerkalo").as_ref());
-    let _ = std::fs::create_dir_all(&cache_dir);
-    let out_path = cache_dir.join(format!("{stem}.pdf"));
-
-    std::thread::spawn(move || {
-        let result = crate::compiler::compile_to_pdf_bytes(
-            &root,
-            &std::collections::HashMap::new(),
-            &std::collections::HashMap::new(),
-        );
-        match result {
-            Ok(bytes) => {
-                if std::fs::write(&out_path, &bytes).is_ok() {
-                    crate::git_sync::host_command("xdg-open")
-                        .arg(&out_path)
-                        .spawn()
-                        .ok();
+    let toast = toast_overlay.clone();
+    let panel = error_panel.clone();
+    let root_for_errors = project_root.to_path_buf();
+    crate::ui::print::print_document(
+        parent,
+        crate::ui::print::PrintRequest { root, overrides, sys_inputs, job_name },
+        move |status| {
+            use crate::ui::print::PrintStatus;
+            match status {
+                PrintStatus::Preparing => {
+                    let t = adw::Toast::new("Preparing to print…");
+                    t.set_timeout(2);
+                    toast.add_toast(t);
+                }
+                PrintStatus::AlreadyRunning => {
+                    let t = adw::Toast::new("Already preparing a document to print.");
+                    t.set_timeout(2);
+                    toast.add_toast(t);
+                }
+                PrintStatus::Failed(msg) => {
+                    let errors = parse_typst_errors(&msg, &root_for_errors);
+                    if errors.is_empty() {
+                        let t = adw::Toast::new(&format!("Couldn't print: {msg}"));
+                        t.set_timeout(5);
+                        toast.add_toast(t);
+                    } else {
+                        panel.show_compile_errors(errors);
+                        panel.widget().set_visible(true);
+                        let t = adw::Toast::new("Couldn't print — see the error panel.");
+                        t.set_timeout(4);
+                        toast.add_toast(t);
+                    }
+                }
+                PrintStatus::Cancelled => {}
+                PrintStatus::Sent => {
+                    let t = adw::Toast::new("Sent to printer");
+                    t.set_timeout(3);
+                    toast.add_toast(t);
                 }
             }
-            Err(_) => {}
-        }
-    });
+        },
+    );
 }
 
 fn update_draft_toggle_label(btn: &gtk4::ToggleButton, is_draft: bool) {
