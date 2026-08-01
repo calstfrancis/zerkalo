@@ -4786,6 +4786,15 @@ impl EditorPane {
         // and the snapped position — the cursor, typically still at the top of
         // the file — became the position every later restore aimed at.
         let track_paused_until: Rc<Cell<Instant>> = Rc::new(Cell::new(Instant::now()));
+        // Pasting makes GTK animate the viewport to the top of the buffer — an
+        // eased curve over a dozen frames, ending at 0, with focus never leaving
+        // the editor and the cursor still mid-document. Nothing in Zerkalo asks
+        // for it and there's no signal to decline it, so instead the position is
+        // *held*: for a moment after a paste, every frame of that animation is
+        // put straight back. Snapping back once at the end would be visible;
+        // countering each frame means nothing moves at all.
+        let hold_position: Rc<Cell<Option<(f64, f64)>>> = Rc::new(Cell::new(None));
+        let hold_until: Rc<Cell<Instant>> = Rc::new(Cell::new(Instant::now()));
         let pause_tracking = {
             let until = track_paused_until.clone();
             move || until.set(Instant::now() + Duration::from_millis(150))
@@ -4793,12 +4802,40 @@ impl EditorPane {
         {
             let sv = saved_scroll.clone();
             let until = track_paused_until.clone();
+            let held = hold_position.clone();
+            let held_until = hold_until.clone();
+            let reasserting: Rc<Cell<bool>> = Rc::new(Cell::new(false));
             scroll.vadjustment().connect_value_changed(move |adj| {
+                if let Some((v, _)) = held.get() {
+                    if Instant::now() < held_until.get() {
+                        // Re-assert, guarding against our own recursion.
+                        if !reasserting.get() && (adj.value() - v).abs() > 0.5 {
+                            reasserting.set(true);
+                            adj.set_value(v);
+                            reasserting.set(false);
+                        }
+                        return;
+                    }
+                    held.set(None);
+                }
                 if Instant::now() >= until.get() { sv.set(adj.value()); }
             });
             let sh = saved_hscroll.clone();
             let until = track_paused_until.clone();
+            let held_h = hold_position.clone();
+            let held_until_h = hold_until.clone();
+            let reasserting_h: Rc<Cell<bool>> = Rc::new(Cell::new(false));
             scroll.hadjustment().connect_value_changed(move |adj| {
+                if let Some((_, h)) = held_h.get() {
+                    if Instant::now() < held_until_h.get() {
+                        if !reasserting_h.get() && (adj.value() - h).abs() > 0.5 {
+                            reasserting_h.set(true);
+                            adj.set_value(h);
+                            reasserting_h.set(false);
+                        }
+                        return;
+                    }
+                }
                 if Instant::now() >= until.get() { sh.set(adj.value()); }
             });
         }
@@ -4816,8 +4853,13 @@ impl EditorPane {
             // connect_pressed fires before any widget-level handling.
             let gesture = GestureClick::new();
             gesture.set_button(3); // right button
+            // Capture phase + claiming the sequence below: GtkTextView has its
+            // own right-click handler that opens the standard context menu, and
+            // it was opening *on top of* the spell suggestions, hiding the thing
+            // the right-click was for. Claiming stops the view ever seeing it.
+            gesture.set_propagation_phase(PropagationPhase::Capture);
 
-            gesture.connect_pressed(move |_, _, x, y| {
+            gesture.connect_pressed(move |gesture, _, x, y| {
                 // Suppress the focus-snap that right-click can trigger even
                 // when the view already has focus.
                 let scroll_val = scroll_rc.vadjustment().value();
@@ -4876,6 +4918,9 @@ impl EditorPane {
 
                 let suggestions = sc.suggestions_for(&word);
                 drop(sc);
+                // From here a spell popover is definitely going up, so take the
+                // click: no built-in menu, no two menus stacked.
+                gesture.set_state(gtk4::EventSequenceState::Claimed);
 
                 let popover = Popover::new();
                 popover.set_parent(&view_rc);
@@ -5212,6 +5257,37 @@ impl EditorPane {
             let pin_cut = pin.clone();
             view.connect_copy_clipboard(move |_| pin());
             view.connect_cut_clipboard(move |_| pin_cut());
+
+            // Paste inserts at the cursor, so the right viewport is the one the
+            // user is already looking at. Hold it while GTK's animation plays
+            // out — unless the paste landed off-screen, where following it is
+            // the correct behaviour.
+            {
+                let scroll = scroll.clone();
+                let view_p = view.clone();
+                let buf_p = buffer.clone();
+                let held = hold_position.clone();
+                let held_until = hold_until.clone();
+                let pause = pause_tracking.clone();
+                buffer.connect_paste_done(move |buf, _| {
+                    let cursor = buf.iter_at_offset(buf.cursor_position());
+                    let loc = view_p.iter_location(&cursor);
+                    let (_, wy) = view_p.buffer_to_window_coords(
+                        TextWindowType::Widget, loc.x(), loc.y(),
+                    );
+                    let on_screen = wy >= 0 && wy <= view_p.allocated_height();
+                    if !on_screen {
+                        return;
+                    }
+                    held.set(Some((scroll.vadjustment().value(), scroll.hadjustment().value())));
+                    held_until.set(Instant::now() + PASTE_HOLD);
+                    pause();
+                    // Release the hold once the animation is spent, so ordinary
+                    // scrolling works again immediately afterwards.
+                    let held_release = held.clone();
+                    glib::timeout_add_local_once(PASTE_HOLD, move || held_release.set(None));
+                });
+            }
         }
 
         // Re-apply squiggles after undo restores old text
@@ -5920,6 +5996,11 @@ fn snippet_items(cv_mode: bool) -> Vec<CompletionItem> {
         })
         .collect()
 }
+
+/// How long the viewport is held after a paste. Long enough to outlast GTK's
+/// scroll animation (about a dozen frames), short enough that a deliberate
+/// scroll right after pasting still feels immediate.
+const PASTE_HOLD: Duration = Duration::from_millis(600);
 
 /// Number of characters typed after `#` before the completion *list* joins the
 /// inline ghost suggestion. At one character everything still matches, so the
