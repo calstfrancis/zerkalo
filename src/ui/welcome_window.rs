@@ -119,7 +119,7 @@ impl WelcomeWindow {
             for item in [
                 "Zerkalo hides the Typst front-matter so you can focus on writing prose",
                 "To change template settings use Update Template Settings in the ≡ menu",
-                "Turn Simple Mode off with the SIMPLE button in the status bar",
+                "Turn Simple Mode off with the SIMPLE button in the header, beside Library",
             ] {
                 body.append(&bullet_row(item));
             }
@@ -131,6 +131,8 @@ impl WelcomeWindow {
                 "New: suggestions are found by their Typst name and by fragments of it — #pagebreak works, and #break finds it too; matched letters are shown in bold and the best match is always selected",
                 "New: arrowing through the suggestion list describes each entry in the status bar; list rows are one line each, so the box shows eight of them instead of two",
                 "New: clicking anywhere else dismisses a completion or citation popup",
+                "Changed: the status bar now spans the whole window, with the completion hint at its far left; Simple Mode sits beside Library, the compile mode beside the compile buttons, and the root-file controls beside the document title",
+                "New: root-file controls can be dismissed per project (the ✕ beside them) — for single-file documents that never needed a root; click \"project\" to bring them back",
                 "New: #cv-profile(\"name\") renders a whole CV profile — every section, in order, with its headings — built in Skrizhal's CV Profiles dialog",
                 "Fixed: Zerkalo crashed when resizing the editor/preview split, dragging the sidebar edge, or toggling the sidebar",
                 "Fixed: copying — especially from the right-click menu — threw the editor back to the top of the document",
