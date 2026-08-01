@@ -15,9 +15,15 @@ pub struct LspPopup {
     popover: Popover,
     list_box: ListBox,
     scroll: ScrolledWindow,
+    /// Everything on offer, in arrival order.
     items: Rc<RefCell<Vec<CompletionItem>>>,
+    /// What the list currently shows: the matches for `filter_prefix`, best
+    /// first. Row N is `shown[N]` — there are no hidden rows, so a row index can
+    /// never point at something the user can't see.
+    shown: Rc<RefCell<Vec<CompletionItem>>>,
     filter_prefix: Rc<RefCell<String>>,
     on_complete: Rc<RefCell<Option<Box<dyn Fn(CompletionItem)>>>>,
+    on_selection_changed: Rc<RefCell<Option<Box<dyn Fn(Option<CompletionItem>)>>>>,
 }
 
 impl LspPopup {
@@ -31,15 +37,19 @@ impl LspPopup {
         list_box.set_selection_mode(SelectionMode::Browse);
         list_box.set_activate_on_single_click(true);
 
-        // Deliberately small: this sits over the text the user is writing, so it
-        // shows roughly six rows and no more, and carries no footer. The inline
-        // ghost suggestion in the editor is the primary affordance — the list is
-        // the fallback for when several things match.
+        // Wide enough for a name and a one-line description, tall enough for
+        // eight of them. The previous 300×180 was small in the wrong way: rows
+        // wrapped their description over three lines, so two entries filled the
+        // box and everything else was behind a scrollbar. Restraint has to come
+        // from showing few things briefly, not from clipping what's shown —
+        // every editor that does this well (VS Code, nvim-cmp, Zed) uses
+        // single-line rows and moves the prose elsewhere.
         let scroll = ScrolledWindow::new();
         scroll.set_child(Some(&list_box));
-        scroll.set_min_content_width(300);
+        scroll.set_min_content_width(430);
+        scroll.set_max_content_width(430);
         scroll.set_min_content_height(28);
-        scroll.set_max_content_height(180);
+        scroll.set_max_content_height(8 * 26);
         scroll.set_propagate_natural_height(true);
 
         // One caption-sized line of keys. The old footer was a full-size label
@@ -67,38 +77,35 @@ impl LspPopup {
         let on_complete: Rc<RefCell<Option<Box<dyn Fn(CompletionItem)>>>> =
             Rc::new(RefCell::new(None));
 
-        // Client-side filter. Substring, not prefix: `#break` should still find
-        // `pagebreak`, and half-remembered names are exactly when a list is
-        // worth having. (The inline ghost stays prefix-only — see `best_match` —
-        // since it can only be appended to what's already typed.)
-        {
-            let items_f = items.clone();
-            let prefix_f = filter_prefix.clone();
-            list_box.set_filter_func(move |row| {
-                let prefix = prefix_f.borrow();
-                if prefix.is_empty() {
-                    return true;
-                }
-                let idx = row.index() as usize;
-                items_f
-                    .borrow()
-                    .get(idx)
-                    .map(|item| item_matches(item, &prefix))
-                    .unwrap_or(false)
-            });
-        }
+        let shown: Rc<RefCell<Vec<CompletionItem>>> = Rc::new(RefCell::new(Vec::new()));
+        let on_selection_changed: Rc<RefCell<Option<Box<dyn Fn(Option<CompletionItem>)>>>> =
+            Rc::new(RefCell::new(None));
 
-        let p = Self { popover, list_box, scroll, items, filter_prefix, on_complete };
+        let p = Self {
+            popover, list_box, scroll, items, shown, filter_prefix, on_complete,
+            on_selection_changed,
+        };
 
         // Double-click (or Enter key on the list) triggers completion
         {
-            let items2 = p.items.clone();
+            let shown2 = p.shown.clone();
             let cb2 = p.on_complete.clone();
             p.list_box.connect_row_activated(move |_, row| {
                 let idx = row.index() as usize;
-                if let Some(item) = items2.borrow().get(idx).cloned() {
+                if let Some(item) = shown2.borrow().get(idx).cloned() {
                     if let Some(f) = cb2.borrow().as_ref() { f(item); }
                 }
+            });
+        }
+
+        // Moving through the list re-describes the highlighted entry, so the
+        // status line always explains what's actually selected.
+        {
+            let shown3 = p.shown.clone();
+            let cb3 = p.on_selection_changed.clone();
+            p.list_box.connect_row_selected(move |_, row| {
+                let item = row.and_then(|r| shown3.borrow().get(r.index() as usize).cloned());
+                if let Some(f) = cb3.borrow().as_ref() { f(item); }
             });
         }
 
@@ -109,10 +116,13 @@ impl LspPopup {
         *self.on_complete.borrow_mut() = Some(Box::new(f));
     }
 
+    pub fn set_on_selection_changed(&self, f: impl Fn(Option<CompletionItem>) + 'static) {
+        *self.on_selection_changed.borrow_mut() = Some(Box::new(f));
+    }
+
     /// Replace the popup contents with a new master item list, without showing
     /// anything. Resets any active filter — call `apply_filter` afterwards.
     pub fn load_items(&self, mut new_items: Vec<CompletionItem>) {
-        self.clear_rows();
         *self.filter_prefix.borrow_mut() = String::new();
 
         if new_items.is_empty() {
@@ -120,27 +130,19 @@ impl LspPopup {
                 self.popover.popdown();
             }
             *self.items.borrow_mut() = Vec::new();
+            self.rebuild_rows(Vec::new(), "");
             return;
         }
 
         new_items.sort_by(|a, b| a.label.to_lowercase().cmp(&b.label.to_lowercase()));
-
-        for item in &new_items {
-            self.append_row(item);
-        }
         *self.items.borrow_mut() = new_items;
-
-        self.list_box.invalidate_filter();
-
-        if let Some(row) = self.list_box.row_at_index(0) {
-            self.list_box.select_row(Some(&row));
-        }
+        self.apply_filter("");
     }
 
     /// Show the already-loaded list at (x, y). `above`: true = the popup sits
     /// above the cursor (PositionType::Top), false = below.
     pub fn show_at(&self, x: i32, y: i32, above: bool) {
-        if self.items.borrow().is_empty() { return; }
+        if self.shown.borrow().is_empty() { return; }
         self.popover.set_position(if above { PositionType::Top } else { PositionType::Bottom });
         self.popover.set_pointing_to(Some(&Rectangle::new(x, y, 1, 1)));
         if !self.popover.is_visible() {
@@ -148,41 +150,56 @@ impl LspPopup {
         }
     }
 
-    /// Update the client-side filter prefix and scroll to the first matching row.
-    /// Safe to call while the popup is visible; does not rebuild the row list.
+    /// Re-filter to `prefix` and rebuild the rows in best-match-first order.
+    /// Safe to call while the popup is visible.
     pub fn apply_filter(&self, prefix: &str) {
         let lprefix = prefix.to_lowercase();
         *self.filter_prefix.borrow_mut() = lprefix.clone();
-        self.list_box.invalidate_filter();
 
-        // Select the best item that passes the filter — a prefix match if there
-        // is one, otherwise the first substring match. It must be a *matching*
-        // row: leaving the selection on a filtered-out row would make Return and
-        // Tab insert something the user can't even see.
-        let first_idx = {
-            let items = self.items.borrow();
-            if lprefix.is_empty() {
-                Some(0usize)
-            } else {
-                items
-                    .iter()
-                    .position(|item| item.label.to_lowercase().starts_with(&lprefix))
-                    .or_else(|| items.iter().position(|item| item_matches(item, &lprefix)))
-            }
-        };
-        match first_idx {
-            Some(idx) => {
-                if let Some(row) = self.list_box.row_at_index(idx as i32) {
-                    self.list_box.select_row(Some(&row));
-                    scroll_row_into_view(&self.scroll, &self.list_box, &row);
-                }
-            }
-            None => self.list_box.select_row(None::<&ListBoxRow>),
+        let mut scored: Vec<(NameMatch, CompletionItem)> = self
+            .items
+            .borrow()
+            .iter()
+            .filter_map(|item| match_name(&item.label, &lprefix).map(|m| (m, item.clone())))
+            .collect();
+        // Best first: how the query matched, then where, then the shortest name
+        // (an exact-ish match beats a long name that merely contains the query).
+        scored.sort_by(|a, b| {
+            a.0.rank
+                .cmp(&b.0.rank)
+                .then(a.0.start.cmp(&b.0.start))
+                .then(a.1.label.chars().count().cmp(&b.1.label.chars().count()))
+                .then(a.1.label.to_lowercase().cmp(&b.1.label.to_lowercase()))
+        });
+        scored.truncate(MAX_ROWS);
+
+        let matches: Vec<(NameMatch, CompletionItem)> = scored;
+        let items: Vec<CompletionItem> = matches.iter().map(|(_, i)| i.clone()).collect();
+        let highlights: Vec<Vec<usize>> = matches.into_iter().map(|(m, _)| m.positions).collect();
+        self.rebuild_rows_with(items, highlights);
+    }
+
+    fn rebuild_rows(&self, items: Vec<CompletionItem>, _prefix: &str) {
+        self.rebuild_rows_with(items, Vec::new());
+    }
+
+    fn rebuild_rows_with(&self, items: Vec<CompletionItem>, highlights: Vec<Vec<usize>>) {
+        self.clear_rows();
+        for (idx, item) in items.iter().enumerate() {
+            let empty = Vec::new();
+            self.append_row(item, highlights.get(idx).unwrap_or(&empty));
+        }
+        *self.shown.borrow_mut() = items;
+        if let Some(row) = self.list_box.row_at_index(0) {
+            self.list_box.select_row(Some(&row));
+        } else {
+            self.list_box.select_row(None::<&ListBoxRow>);
         }
     }
 
-    /// Merge additional items into the existing master list (dedup by label, re-sort, re-filter).
-    /// Used when LSP results arrive after the popup was already shown with local snippets.
+    /// Merge additional items into the master list (dedup by name), keeping the
+    /// current filter. Used when LSP results arrive after the popup was already
+    /// showing local snippets.
     pub fn merge_items(&self, new_items: Vec<CompletionItem>) {
         let any_new = {
             let existing = self.items.borrow();
@@ -190,30 +207,22 @@ impl LspPopup {
         };
         if !any_new { return; }
 
-        let mut all = self.items.borrow().clone();
-        for item in new_items {
-            if !all.iter().any(|ei| ei.label == item.label) {
-                all.push(item);
+        {
+            let mut all = self.items.borrow_mut();
+            for item in new_items {
+                if !all.iter().any(|ei| ei.label == item.label) {
+                    all.push(item);
+                }
             }
         }
-        all.sort_by(|a, b| a.label.to_lowercase().cmp(&b.label.to_lowercase()));
-
-        self.clear_rows();
-        for item in &all {
-            self.append_row(item);
-        }
-        *self.items.borrow_mut() = all;
-
-        // Re-run the filter through the one code path that also fixes up the
-        // selection, so merged-in results can't leave it on a hidden row.
         let prefix = self.filter_prefix.borrow().clone();
         self.apply_filter(&prefix);
     }
 
     /// The item the inline ghost suggestion should offer for `prefix`: the
-    /// shortest label that starts with it, so `#e` suggests `emph` rather than
+    /// shortest name that starts with it, so `#e` suggests `emph` rather than
     /// whatever happens to sort first alphabetically. Prefix-only by design —
-    /// ghost text is drawn as a continuation of what's been typed.
+    /// ghost text is drawn as a continuation of what's already typed.
     pub fn best_match(&self, prefix: &str) -> Option<CompletionItem> {
         if prefix.is_empty() { return None; }
         let lprefix = prefix.to_lowercase();
@@ -225,27 +234,22 @@ impl LspPopup {
             .cloned()
     }
 
-    /// The item to describe when there's no ghost to show: falls back to the
-    /// best substring match so `#break` can still say what `pagebreak` does.
+    /// The item to describe when there's no ghost to show: the best match on
+    /// any of the weaker rankings, so `#break` can still say what `pagebreak` does.
     pub fn describable_match(&self, prefix: &str) -> Option<CompletionItem> {
-        self.best_match(prefix).or_else(|| {
-            if prefix.is_empty() { return None; }
-            let lprefix = prefix.to_lowercase();
-            self.items
-                .borrow()
-                .iter()
-                .filter(|i| item_matches(i, &lprefix))
-                .min_by_key(|i| (i.label.chars().count(), i.label.to_lowercase()))
-                .cloned()
-        })
+        self.best_match(prefix)
+            .or_else(|| self.shown.borrow().first().cloned())
     }
 
     pub fn match_count(&self, prefix: &str) -> usize {
         let lprefix = prefix.to_lowercase();
+        if lprefix.is_empty() {
+            return self.items.borrow().len();
+        }
         self.items
             .borrow()
             .iter()
-            .filter(|i| lprefix.is_empty() || item_matches(i, &lprefix))
+            .filter(|i| match_name(&i.label, &lprefix).is_some())
             .count()
     }
 
@@ -261,29 +265,19 @@ impl LspPopup {
 
     pub fn selected_item(&self) -> Option<CompletionItem> {
         let row = self.list_box.selected_row()?;
-        let idx = row.index() as usize;
-        self.items.borrow().get(idx).cloned()
+        self.shown.borrow().get(row.index() as usize).cloned()
     }
 
     pub fn first_item(&self) -> Option<CompletionItem> {
-        self.items.borrow().first().cloned()
+        self.shown.borrow().first().cloned()
     }
 
     pub fn move_selection(&self, delta: i32) {
-        // Collect only the visible row indices (filter may hide some)
-        let mut visible: Vec<i32> = Vec::new();
-        let mut i = 0i32;
-        while let Some(row) = self.list_box.row_at_index(i) {
-            if row.is_visible() {
-                visible.push(i);
-            }
-            i += 1;
-        }
-        if visible.is_empty() { return; }
-        let current_idx = self.list_box.selected_row().map(|r| r.index()).unwrap_or(-1);
-        let pos = visible.iter().position(|&idx| idx == current_idx).unwrap_or(0) as i32;
-        let next_pos = (pos + delta).clamp(0, visible.len() as i32 - 1) as usize;
-        if let Some(row) = self.list_box.row_at_index(visible[next_pos]) {
+        let count = self.shown.borrow().len() as i32;
+        if count == 0 { return; }
+        let current = self.list_box.selected_row().map(|r| r.index()).unwrap_or(0);
+        let next = (current + delta).clamp(0, count - 1);
+        if let Some(row) = self.list_box.row_at_index(next) {
             self.list_box.select_row(Some(&row));
             scroll_row_into_view(&self.scroll, &self.list_box, &row);
         }
@@ -295,47 +289,53 @@ impl LspPopup {
         }
     }
 
-    fn append_row(&self, item: &CompletionItem) {
+    /// One line per entry: name (with the matched characters emboldened, as
+    /// VS Code does), then the description, ellipsized rather than wrapped, then
+    /// the kind. Wrapping was what made the box feel cramped — a row that can
+    /// grow to three lines turns eight visible entries into two.
+    fn append_row(&self, item: &CompletionItem, highlight: &[usize]) {
         let row = ListBoxRow::new();
         row.set_activatable(true);
 
         let row_box = GtkBox::new(Orientation::Horizontal, 8);
-        row_box.set_margin_top(4);
-        row_box.set_margin_bottom(4);
+        row_box.set_margin_top(3);
+        row_box.set_margin_bottom(3);
         row_box.set_margin_start(10);
         row_box.set_margin_end(10);
 
-        // Kind badge
-        let kind_str = kind_label(item.kind);
-        let kind_lbl = Label::new(Some(kind_str));
-        kind_lbl.add_css_class("dim-label");
-        kind_lbl.add_css_class("caption");
-        kind_lbl.set_width_chars(12);
-        kind_lbl.set_xalign(0.0);
-        kind_lbl.set_valign(Align::Center);
-        row_box.append(&kind_lbl);
-
-        // Label + detail
-        let text_col = GtkBox::new(Orientation::Vertical, 1);
-
-        let label_lbl = Label::new(Some(&item.label));
-        label_lbl.set_halign(Align::Start);
-        label_lbl.set_xalign(0.0);
-        label_lbl.set_hexpand(true);
-        text_col.append(&label_lbl);
+        let name_lbl = Label::new(None);
+        name_lbl.set_markup(&highlighted_markup(&item.label, highlight));
+        name_lbl.set_halign(Align::Start);
+        name_lbl.set_xalign(0.0);
+        name_lbl.set_valign(Align::Center);
+        name_lbl.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+        row_box.append(&name_lbl);
 
         if let Some(ref detail) = item.detail {
             let detail_lbl = Label::new(Some(detail));
             detail_lbl.set_halign(Align::Start);
             detail_lbl.set_xalign(0.0);
+            detail_lbl.set_valign(Align::Center);
+            detail_lbl.set_hexpand(true);
             detail_lbl.add_css_class("dim-label");
-            detail_lbl.set_wrap(true);
-            detail_lbl.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
-            detail_lbl.set_max_width_chars(60);
-            text_col.append(&detail_lbl);
+            detail_lbl.add_css_class("caption");
+            detail_lbl.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+            row_box.append(&detail_lbl);
         }
 
-        row_box.append(&text_col);
+        let kind_str = kind_label(item.kind);
+        if !kind_str.is_empty() {
+            let kind_lbl = Label::new(Some(kind_str));
+            kind_lbl.add_css_class("dim-label");
+            kind_lbl.add_css_class("caption");
+            kind_lbl.set_halign(Align::End);
+            kind_lbl.set_valign(Align::Center);
+            if item.detail.is_none() {
+                kind_lbl.set_hexpand(true);
+            }
+            row_box.append(&kind_lbl);
+        }
+
         row.set_child(Some(&row_box));
         self.list_box.append(&row);
     }
@@ -356,17 +356,91 @@ fn scroll_row_into_view(scroll: &ScrolledWindow, list_box: &ListBox, row: &ListB
     }
 }
 
-/// `lprefix` must already be lowercase. Matches the name, and also what the
-/// item is described as, so `#quote` finds the block snippet described as
-/// "use for block quotations".
-fn item_matches(item: &CompletionItem, lprefix: &str) -> bool {
-    let label = item.label.to_lowercase();
-    if label.contains(lprefix) {
-        return true;
+/// Longest list the popup will build in one go. Beyond this the extra rows are
+/// unreachable in practice — the user narrows the query instead of scrolling.
+const MAX_ROWS: usize = 50;
+
+/// Shortest query allowed to match by loose subsequence. One or two characters
+/// match nearly everything that way, which is how a list becomes noise.
+const MIN_SUBSEQUENCE_QUERY: usize = 3;
+
+pub struct NameMatch {
+    /// 0 = prefix, 1 = word start, 2 = anywhere in the name, 3 = subsequence.
+    pub rank: u8,
+    /// Character index of the first matched character; earlier is better.
+    pub start: usize,
+    /// Character indices to embolden in the row.
+    pub positions: Vec<usize>,
+}
+
+/// Match `query` (already lowercase) against a completion's *name* only.
+///
+/// Names, never descriptions. Matching descriptions as well seemed generous —
+/// `#quote` finding the block snippet — but it mostly produced matches with no
+/// visible cause: typing `#column` offered `dropcap`, because "decorative"
+/// contains "co". A suggestion the user can't connect to what they typed reads
+/// as the editor being wrong, and there's nowhere in a one-line row to show
+/// that the match came from prose they can't see. VS Code draws the same line:
+/// it filters on the item's word (or an explicit filterText), and treats
+/// documentation as something to display, not to search.
+pub fn match_name(name: &str, query: &str) -> Option<NameMatch> {
+    if query.is_empty() {
+        return Some(NameMatch { rank: 0, start: 0, positions: Vec::new() });
     }
-    item.detail
-        .as_deref()
-        .is_some_and(|d| d.to_lowercase().contains(lprefix))
+    let lname: Vec<char> = name.to_lowercase().chars().collect();
+    let q: Vec<char> = query.chars().collect();
+
+    let find_at = |from: usize| -> Option<usize> {
+        if q.len() > lname.len() { return None; }
+        (from..=lname.len() - q.len()).find(|&i| lname[i..i + q.len()] == q[..])
+    };
+
+    if let Some(at) = find_at(0) {
+        let positions: Vec<usize> = (at..at + q.len()).collect();
+        if at == 0 {
+            return Some(NameMatch { rank: 0, start: 0, positions });
+        }
+        // A run starting at a word boundary (`page-break`, `pageBreak`) is a
+        // deliberate-looking match; one starting mid-word is weaker but real.
+        let prev = lname[at - 1];
+        let boundary = !prev.is_alphanumeric()
+            || name.chars().nth(at).is_some_and(|c| c.is_uppercase());
+        return Some(NameMatch { rank: if boundary { 1 } else { 2 }, start: at, positions });
+    }
+
+    if q.len() < MIN_SUBSEQUENCE_QUERY {
+        return None;
+    }
+    let mut positions = Vec::with_capacity(q.len());
+    let mut qi = 0;
+    for (i, c) in lname.iter().enumerate() {
+        if qi < q.len() && *c == q[qi] {
+            positions.push(i);
+            qi += 1;
+        }
+    }
+    if qi == q.len() {
+        let start = positions[0];
+        Some(NameMatch { rank: 3, start, positions })
+    } else {
+        None
+    }
+}
+
+/// Pango markup for a name with its matched characters in bold.
+fn highlighted_markup(name: &str, positions: &[usize]) -> String {
+    let mut out = String::with_capacity(name.len() + positions.len() * 7);
+    for (i, ch) in name.chars().enumerate() {
+        let escaped = glib::markup_escape_text(&ch.to_string()).to_string();
+        if positions.contains(&i) {
+            out.push_str("<b>");
+            out.push_str(&escaped);
+            out.push_str("</b>");
+        } else {
+            out.push_str(&escaped);
+        }
+    }
+    out
 }
 
 fn kind_label(kind: u8) -> &'static str {
@@ -385,5 +459,51 @@ fn kind_label(kind: u8) -> &'static str {
         14 => "Keyword",
         15 => "Snippet",
         _  => "",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rank(name: &str, query: &str) -> Option<u8> {
+        match_name(name, query).map(|m| m.rank)
+    }
+
+    #[test]
+    fn prefix_beats_everything_else() {
+        assert_eq!(rank("pagebreak", "page"), Some(0));
+        assert_eq!(rank("pagebreak", "break"), Some(2));
+        assert_eq!(rank("page-break", "break"), Some(1));
+        assert_eq!(rank("pageBreak", "break"), Some(1));
+    }
+
+    #[test]
+    fn subsequence_needs_a_real_query() {
+        // "cl" is a subsequence of "colbreak" but far too short to mean it.
+        assert_eq!(rank("colbreak", "cl"), None);
+        assert_eq!(rank("colbreak", "clbrk"), Some(3));
+    }
+
+    #[test]
+    fn unrelated_names_do_not_match() {
+        // The bug this guards: `#column` used to surface `dropcap`, because
+        // matching also read the description ("decorative" contains "co").
+        assert_eq!(rank("dropcap", "column"), None);
+        assert_eq!(rank("dropcap", "col"), None);
+        assert_eq!(rank("dropcap", "co"), None);
+        assert_eq!(rank("outline", "column"), None);
+    }
+
+    #[test]
+    fn positions_mark_what_matched() {
+        let m = match_name("pagebreak", "break").unwrap();
+        assert_eq!(m.positions, vec![4, 5, 6, 7, 8]);
+        assert_eq!(m.start, 4);
+    }
+
+    #[test]
+    fn empty_query_matches_all() {
+        assert_eq!(rank("anything", ""), Some(0));
     }
 }

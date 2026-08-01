@@ -452,6 +452,10 @@ impl EditorPane {
         lsp_status_label.add_css_class("caption");
         lsp_status_label.set_use_markup(true);
         lsp_status_label.set_margin_start(8);
+        // Completion hints can run long; ellipsize rather than shoving the rest
+        // of the status bar off the end.
+        lsp_status_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+        lsp_status_label.set_max_width_chars(72);
         lsp_status_label.set_margin_top(3);
         lsp_status_label.set_margin_bottom(3);
         status_bar.append(&lsp_status_label);
@@ -3660,6 +3664,25 @@ impl EditorPane {
             move || clear_ghost(&ghost, &slot, &hint)
         };
 
+        // Arrowing through the list re-describes the highlighted entry in the
+        // status bar, the way VS Code's details panel tracks its selection —
+        // except this one costs no screen space over the document.
+        {
+            let hint_sel = self.lsp_status_label.clone();
+            let ghost_sel = ghost_label.clone();
+            let buf_sel = buffer.clone();
+            lsp_popup.set_on_selection_changed(move |item| {
+                let prefix = lsp_hash_prefix(&buf_sel);
+                set_completion_hint(
+                    &hint_sel,
+                    item.as_ref(),
+                    &prefix,
+                    ghost_sel.is_visible(),
+                    true,
+                );
+            });
+        }
+
         // LSP on_complete: replace #prefix with the chosen insertion text
         {
             let buf2 = buffer.clone();
@@ -5740,7 +5763,12 @@ fn snippet_items(cv_mode: bool) -> Vec<CompletionItem> {
             let title = title.trim_start_matches('#');
             // Skip the title when it's just the name respaced ("Page break" for
             // `pagebreak`) — repeating it reads as two dashes and no content.
-            let detail = if title.replace(' ', "").eq_ignore_ascii_case(name) {
+            // Drop the title when the description already says it, so the hint
+            // doesn't read "outline — Table of Contents — Auto-generated table
+            // of contents".
+            let redundant = title.replace(' ', "").eq_ignore_ascii_case(name)
+                || desc.to_lowercase().contains(&title.to_lowercase());
+            let detail = if redundant {
                 desc.to_string()
             } else {
                 format!("{title} — {desc}")
@@ -5806,6 +5834,7 @@ fn set_ghost(
 fn clear_ghost(ghost: &Label, slot: &Rc<RefCell<Option<CompletionItem>>>, hint: &Label) {
     ghost.set_visible(false);
     *slot.borrow_mut() = None;
+    hint.set_width_chars(0);
     hint.set_text("");
 }
 
@@ -5825,11 +5854,23 @@ fn set_completion_hint(
 ) {
     let text = match item {
         Some(item) => {
-            let what = item.detail.clone().unwrap_or_else(|| item.label.clone());
+            // Trim the description rather than letting the label ellipsize the
+            // whole line: the keys sit at the end and are the half a newcomer
+            // needs most. The full text is in the list row.
+            let what = {
+                let full = item.detail.clone().unwrap_or_else(|| item.label.clone());
+                if full.chars().count() > 46 {
+                    let cut: String = full.chars().take(45).collect();
+                    format!("{}…", cut.trim_end())
+                } else {
+                    full
+                }
+            };
+            // The status bar shares its row with the word count and the rest —
+            // spelling the keys out in full pushed the description off the end.
             let keys = match (has_ghost, has_list) {
-                (true, true) => "Tab insert · ↑↓ select · Esc dismiss",
-                (true, false) => "Tab insert · Esc dismiss",
-                (false, true) => "↑↓ select · Tab insert · Esc dismiss",
+                (_, true) => "Tab insert · ↑↓ select · Esc",
+                (true, false) => "Tab insert · Esc",
                 (false, false) => "Esc dismiss",
             };
             format!(
@@ -5846,6 +5887,10 @@ fn set_completion_hint(
         }
         None => String::new(),
     };
+    // An ellipsizing label asks for almost no width, so in a status bar this
+    // full it was being squeezed to "outline — Auto-ge…". Claim room while a
+    // hint is up, and give it back the moment there isn't one.
+    hint.set_width_chars(if text.is_empty() { 0 } else { 64 });
     hint.set_markup(&text);
 }
 
