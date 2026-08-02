@@ -19,6 +19,12 @@ finish-args:
   - --talk-name=org.freedesktop.Flatpak
   - --talk-name=org.freedesktop.secrets
   - --socket=ssh-auth
+  # Printing normally goes through the print portal, which needs no permission
+  # beyond the portal talk-name above. This is for the GTK fallback used when no
+  # portal answers: without it that path enumerates zero printers inside the
+  # sandbox, so the fallback would open an empty dialog rather than failing
+  # honestly.
+  - --socket=cups
 
 build-options:
   append-path: /usr/lib/sdk/rust-stable/bin

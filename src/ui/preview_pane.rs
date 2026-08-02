@@ -442,11 +442,15 @@ impl PreviewPane {
     }
 
     pub fn set_root_file(&self, path: PathBuf) {
+        // The print cache holds a whole laid-out document; without this it
+        // would outlive the file it came from once another is opened.
+        crate::ui::print::invalidate_cache();
         *self.root_file.borrow_mut() = Some(path);
         *self.first_load.borrow_mut() = true;
     }
 
     pub fn clear_root_file(&self) {
+        crate::ui::print::invalidate_cache();
         *self.root_file.borrow_mut() = None;
     }
 

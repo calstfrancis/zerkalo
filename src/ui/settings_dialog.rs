@@ -553,6 +553,9 @@ impl SettingsDialog {
             let last_used_advanced_cur = current.last_used_advanced;
             let default_sans_font_cur = current.default_sans_font.clone();
             let default_serif_font_cur = current.default_serif_font.clone();
+            // Owned by the print sheet, not this dialog — carried through so
+            // saving preferences doesn't reset the last-used print settings.
+            let print_cur = current.print.clone();
             let snippets_cur = current.snippets.clone();
             move || {
                 let work_dir_text = work_dir_row.text().trim().to_string();
@@ -654,6 +657,7 @@ impl SettingsDialog {
                     snippets: snippets_cur.clone(),
                     default_sans_font: default_sans_font_cur.clone(),
                     default_serif_font: default_serif_font_cur.clone(),
+                    print: print_cur.clone(),
                 }
             }
         };

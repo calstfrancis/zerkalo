@@ -63,6 +63,7 @@ Live preview · Academic styles · LSP completions · Git sync · Adwaita design
 | **Update Template Settings** | ☰ → Update Template Settings — re-applies preamble settings from a per-document `.zerkalo.toml` sidecar; splices at the `// ── Document body` marker so body content is never touched; font and spacing propagate to manual config sections; metadata fields (`#let doc-title`, `#let doc-author`, etc.) are always read fresh from the document so in-source edits are picked up automatically |
 | **LaTeX / DOCX / PDF import** | ☰ → Import… — converts to Typst via pandoc or pdftotext; all imported files receive a Zerkalo template section and are immediately responsive to "Update Template Settings" |
 | **Export** | PDF (typst), HTML (typst), DOCX, ODT, LaTeX (all via pandoc where needed) |
+| **Print** | `Ctrl+P` opens the print sheet — page ranges in the document's own numbering, one/two/four pages a sheet or a fold-and-staple booklet, with a preview of the first sheet; hands off to the system print dialog with the paper size, copies, two-sided and colour already set. Text prints as vector at the printer's own resolution |
 | **Font management** | ☰ → Font Management — searchable list of system fonts; enable/disable; persisted to `~/.config/zerkalo/font-preferences.toml` |
 | **GOST Type B font** | Bundled and installed automatically on first launch |
 | **Git sync** | Commit and push in one click or `Ctrl+Shift+S`; pushes to all configured remotes |

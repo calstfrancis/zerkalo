@@ -284,6 +284,7 @@ pub fn default_commands() -> Vec<PaletteItem> {
         PaletteItem { id: "open_file".into(), label: "Open File…".into(), subtitle: "Browse to open a file".into() },
         PaletteItem { id: "save".into(), label: "Save".into(), subtitle: "Save the active document (Ctrl+S)".into() },
         PaletteItem { id: "export".into(), label: "Export…".into(), subtitle: "Export to PDF, HTML, DOCX, ODT or LaTeX".into() },
+        PaletteItem { id: "print".into(), label: "Print…".into(), subtitle: "Page range, layout and printer (Ctrl+P)".into() },
         PaletteItem { id: "toggle_find".into(), label: "Find & Replace".into(), subtitle: "Toggle the find/replace bar (Ctrl+F)".into() },
         PaletteItem { id: "find_in_files".into(), label: "Find in Files\u{2026}".into(), subtitle: "Search across all project files (Ctrl+Shift+F)".into() },
         PaletteItem { id: "project_outline".into(), label: "Project Outline".into(), subtitle: "Jump to any heading in the current document".into() },

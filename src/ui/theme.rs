@@ -62,6 +62,19 @@ pub fn lookup_color_hex(widget: &impl IsA<gtk4::Widget>, name: &str, fallback: &
         .unwrap_or_else(|| fallback.to_string())
 }
 
+/// Resolves a GTK named color to Cairo's 0–1 components.
+///
+/// Widgets that draw themselves need the numbers, not a hex string, and must
+/// re-query at draw time rather than caching so a theme or accent change is
+/// picked up without being redrawn from scratch.
+pub fn rgb(widget: &impl IsA<gtk4::Widget>, name: &str) -> Option<(f64, f64, f64)> {
+    widget
+        .as_ref()
+        .style_context()
+        .lookup_color(name)
+        .map(|c| (c.red() as f64, c.green() as f64, c.blue() as f64))
+}
+
 /// Blends window_fg_color into window_bg_color to approximate the "dim-label"
 /// muted foreground as a solid hex, since Pango markup can't apply CSS alpha.
 pub fn muted_fg_hex(widget: &impl IsA<gtk4::Widget>) -> String {
