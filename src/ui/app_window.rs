@@ -72,6 +72,10 @@ pub struct AppWindow {
     library: Rc<RefCell<Library>>,
     library_window: LibraryWindow,
     menu_import_item: Button,
+    /// Shared with every handler that persists a preference. Held on the
+    /// window so keyboard shortcuts, which are wired in a separate pass from
+    /// the menu items, reach the same instance rather than a stale clone.
+    config: Rc<RefCell<Config>>,
 }
 
 impl AppWindow {
@@ -219,6 +223,13 @@ impl AppWindow {
         save_btn.add_css_class("flat");
         save_btn.update_property(&[gtk4::accessible::Property::Label("Save the current document")]);
 
+        // Connected further down, alongside the hamburger's Print item — the
+        // panes it needs don't exist yet at this point.
+        let print_header_btn = Button::from_icon_name("printer-symbolic");
+        print_header_btn.set_tooltip_text(Some("Print (Ctrl+P)"));
+        print_header_btn.add_css_class("flat");
+        print_header_btn.update_property(&[gtk4::accessible::Property::Label("Print the document")]);
+
         // ── Hamburger menu items (using make_menu_item for left+shortcut layout) ──
         let HamburgerItems {
             menu_new_template_item,
@@ -293,7 +304,7 @@ impl AppWindow {
         menu_btn.set_popover(Some(&menu_popover));
 
         // Header end section layout (left → right):
-        //   sync | save | todo | ⟳ compile now | compile mode | Preview | ≡
+        //   sync | save | todo | print | ⟳ compile now | compile mode | Preview | ≡
         // In GTK4 pack_end the last-packed widget is leftmost in the end section.
         // `compile_mode_slot` is packed empty here and filled further down, once
         // the config-backed compile-mode button exists — packing it late would
@@ -304,6 +315,7 @@ impl AppWindow {
         header.pack_end(&compile_btn);
         header.pack_end(&compile_mode_slot);
         header.pack_end(&recompile_header_btn);
+        header.pack_end(&print_header_btn);
         header.pack_end(&todo_btn);
         header.pack_end(&save_btn);
         header.pack_end(&sync_btn);
@@ -1497,17 +1509,28 @@ impl AppWindow {
             let panel_for_print = error_panel.clone();
             let root_for_print = project_root.clone();
             let menu_popover_for_print = menu_popover.clone();
-            menu_print_item.connect_clicked(move |_| {
-                menu_popover_for_print.popdown();
+            let config_for_print = current_config.clone();
+
+            // The hamburger item and the header button do the same thing, so
+            // they share one closure rather than two that can drift.
+            let open_print_sheet: Rc<dyn Fn()> = Rc::new(move || {
                 print_from_preview(
-                    window_for_print.clone().upcast_ref(),
+                    &window_for_print,
                     &editor_for_print,
                     &preview_for_print,
                     &toast_for_print,
                     &panel_for_print,
                     &root_for_print,
+                    &config_for_print,
                 );
             });
+
+            let from_menu = open_print_sheet.clone();
+            menu_print_item.connect_clicked(move |_| {
+                menu_popover_for_print.popdown();
+                from_menu();
+            });
+            print_header_btn.connect_clicked(move |_| open_print_sheet());
         }
 
         // ── Menu: Font Management ───────────────────────────────────────────
@@ -3328,6 +3351,7 @@ impl AppWindow {
         let toast_for_popout_print = toast_overlay.clone();
         let panel_for_popout_print = error_panel.clone();
         let root_for_popout_print = project_root.clone();
+        let config_for_popout_print = current_config.clone();
         popout_btn.connect_clicked(move |_| {
             // If already open, just raise it
             if let Some(win) = popout_win_for_btn.borrow().as_ref() {
@@ -3379,14 +3403,16 @@ impl AppWindow {
             let print_toast = toast_for_popout_print.clone();
             let print_panel = panel_for_popout_print.clone();
             let print_root = root_for_popout_print.clone();
+            let print_config = config_for_popout_print.clone();
             print_btn.connect_clicked(move |_| {
                 print_from_preview(
-                    print_win.clone().upcast_ref(),
+                    &print_win,
                     &print_editor,
                     &print_pane,
                     &print_toast,
                     &print_panel,
                     &print_root,
+                    &print_config,
                 );
             });
 
@@ -4290,6 +4316,7 @@ impl AppWindow {
             library,
             library_window,
             menu_import_item,
+            config: current_config,
         }
     }
 
@@ -4313,12 +4340,13 @@ impl AppWindow {
         let kb_manual_only = self.manual_compile_only.clone();
         let snapshot_root = self.project_root.clone();
         let toast_for_key = self.toast_overlay.clone();
+        let config_for_print_key = self.config.clone();
         let compile_btn_for_key = self.compile_btn.clone();
         let library_window_for_key = self.library_window.clone();
         let library_for_key = self.library.clone();
         let controller = gtk4::EventControllerKey::new();
 
-        // ── Command palette (Ctrl+P) ────────────────────────────────────────
+        // ── Command palette (Ctrl+K) ────────────────────────────────────────
         let palette = Rc::new(CommandPalette::new(&self.window));
         {
             let editor_for_pal = self.editor_pane.clone();
@@ -4326,6 +4354,9 @@ impl AppWindow {
             let search_for_pal = self.search_panel.clone();
             let preview_for_pal = self.preview_pane.clone();
             let root_for_pal = self.project_root.clone();
+            let toast_for_pal = self.toast_overlay.clone();
+            let panel_for_pal = self.error_panel.clone();
+            let config_for_pal = self.config.clone();
             palette.set_on_activate(move |id| {
                 let w = window_for_pal.clone();
                 if id.starts_with("heading:") {
@@ -4360,6 +4391,17 @@ impl AppWindow {
                                 // if already showing headings. The Ctrl+G shortcut covers this.
                                 let _ = items;
                             }
+                        }
+                        "print" => {
+                            print_from_preview(
+                                &w,
+                                &editor_for_pal,
+                                &preview_for_pal,
+                                &toast_for_pal,
+                                &panel_for_pal,
+                                &root_for_pal,
+                                &config_for_pal,
+                            );
                         }
                         "toggle_profile" => {
                             let is_draft = preview_for_pal.is_draft_mode();
@@ -4551,17 +4593,18 @@ impl AppWindow {
                 }
             }
 
-            // Ctrl+P — open the system print dialog
+            // Ctrl+P — open the print sheet
             {
                 use gtk4::gdk::Key;
                 if ctrl && !shift && !alt && key == Key::p {
                     print_from_preview(
-                        window.clone().upcast_ref(),
+                        &window,
                         &editor,
                         &preview,
                         &toast_for_key,
                         &error_panel_for_key,
                         &snapshot_root,
+                        &config_for_print_key,
                     );
                     return glib::Propagation::Stop;
                 }
@@ -7820,7 +7863,7 @@ fn apply_template_result(
     }
 }
 
-/// Open the system print dialog for the current document.
+/// Open the print sheet for the current document.
 ///
 /// This used to compile a PDF into `~/.cache/zerkalo/<stem>.pdf` and `xdg-open`
 /// it, which meant "Print" actually exported a PDF to a path the user didn't
@@ -7828,13 +7871,15 @@ fn apply_template_result(
 /// no sys inputs, so a CV document — whose entries arrive through
 /// `skrizhal-cv-data` — failed to compile, and the error was discarded, leaving
 /// the button apparently dead.
+#[allow(clippy::too_many_arguments)]
 fn print_from_preview(
-    parent: &Window,
+    parent: &adw::ApplicationWindow,
     editor: &EditorPane,
     preview: &super::preview_pane::PreviewPane,
     toast_overlay: &adw::ToastOverlay,
     error_panel: &ErrorPanel,
     project_root: &Path,
+    config: &Rc<RefCell<Config>>,
 ) {
     // Print what's on screen, not the last saved state. `compile_inputs`
     // carries the unsaved buffer contents, but only the preview's own snapshot —
@@ -7842,55 +7887,55 @@ fn print_from_preview(
     // Ctrl+Shift+E export does.
     editor.save_all_modified();
 
-    let Some((root, overrides, sys_inputs)) = preview.compile_inputs() else {
+    let Some(request) = crate::ui::print_sheet::request_for(preview) else {
         toast_overlay.add_toast(adw::Toast::new("Nothing to print — no root file detected."));
         return;
     };
 
-    let job_name = root
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("document")
-        .to_string();
-
-    let toast = toast_overlay.clone();
+    let toast_for_errors = toast_overlay.clone();
+    let toast_for_status = toast_overlay.clone();
     let panel = error_panel.clone();
     let root_for_errors = project_root.to_path_buf();
-    crate::ui::print::print_document(
+    let config_for_save = config.clone();
+
+    crate::ui::print_sheet::PrintSheet::open(
         parent,
-        crate::ui::print::PrintRequest { root, overrides, sys_inputs, job_name },
+        request,
+        &config.borrow(),
+        move |prefs| {
+            let mut cfg = config_for_save.borrow_mut();
+            if cfg.print != prefs {
+                cfg.print = prefs;
+                let _ = cfg.save();
+            }
+        },
+        move |msg| {
+            let errors = parse_typst_errors(&msg, &root_for_errors);
+            if errors.is_empty() {
+                let t = adw::Toast::new(&format!("Couldn't print: {msg}"));
+                t.set_timeout(5);
+                toast_for_errors.add_toast(t);
+            } else {
+                panel.show_compile_errors(errors);
+                panel.widget().set_visible(true);
+                let t = adw::Toast::new("Couldn't print — see the error panel.");
+                t.set_timeout(4);
+                toast_for_errors.add_toast(t);
+            }
+        },
         move |status| {
             use crate::ui::print::PrintStatus;
             match status {
-                PrintStatus::Preparing => {
-                    let t = adw::Toast::new("Preparing to print…");
-                    t.set_timeout(2);
-                    toast.add_toast(t);
-                }
-                PrintStatus::AlreadyRunning => {
-                    let t = adw::Toast::new("Already preparing a document to print.");
-                    t.set_timeout(2);
-                    toast.add_toast(t);
-                }
                 PrintStatus::Failed(msg) => {
-                    let errors = parse_typst_errors(&msg, &root_for_errors);
-                    if errors.is_empty() {
-                        let t = adw::Toast::new(&format!("Couldn't print: {msg}"));
-                        t.set_timeout(5);
-                        toast.add_toast(t);
-                    } else {
-                        panel.show_compile_errors(errors);
-                        panel.widget().set_visible(true);
-                        let t = adw::Toast::new("Couldn't print — see the error panel.");
-                        t.set_timeout(4);
-                        toast.add_toast(t);
-                    }
+                    let t = adw::Toast::new(&format!("Couldn't print: {msg}"));
+                    t.set_timeout(5);
+                    toast_for_status.add_toast(t);
                 }
                 PrintStatus::Cancelled => {}
                 PrintStatus::Sent => {
                     let t = adw::Toast::new("Sent to printer");
                     t.set_timeout(3);
-                    toast.add_toast(t);
+                    toast_for_status.add_toast(t);
                 }
             }
         },

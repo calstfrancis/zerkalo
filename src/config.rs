@@ -25,6 +25,62 @@ pub enum CompileProfile {
     Final,
 }
 
+// ── Print ─────────────────────────────────────────────────────────────────────
+
+/// How the printer handles two-sided output. The print portal owns the real
+/// setting; this only decides what its dialog opens on.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum DuplexPref {
+    /// Leave the printer's own default alone.
+    #[default]
+    Printer,
+    OneSided,
+    /// Two-sided, flipped along the long edge — the usual choice for portrait
+    /// documents, and the one a folded booklet needs.
+    LongEdge,
+    ShortEdge,
+}
+
+/// Print settings remembered between runs.
+///
+/// The portal hands its dialog a fresh `Settings` every time and keeps nothing
+/// of its own, so without this every print starts from the desktop defaults —
+/// re-picking two-sided and grayscale on every run of the same job.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct PrintPrefs {
+    /// One of "off", "two-up", "four-up", "booklet"; parsed by
+    /// `crate::print_layout::Imposition`. Stored as a string so an unknown
+    /// value from a newer version degrades to the default instead of failing
+    /// the whole config load.
+    #[serde(default = "default_imposition")]
+    pub imposition: String,
+    #[serde(default = "default_copies")]
+    pub copies: u32,
+    #[serde(default)]
+    pub duplex: DuplexPref,
+    #[serde(default = "default_true")]
+    pub color: bool,
+    /// Whether the last job collated its copies.
+    #[serde(default = "default_true")]
+    pub collate: bool,
+}
+
+impl Default for PrintPrefs {
+    fn default() -> Self {
+        Self {
+            imposition: default_imposition(),
+            copies: default_copies(),
+            duplex: DuplexPref::default(),
+            color: true,
+            collate: true,
+        }
+    }
+}
+
+fn default_imposition() -> String { "off".to_string() }
+fn default_copies() -> u32 { 1 }
+
 // ── Snippet ───────────────────────────────────────────────────────────────────
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -136,6 +192,8 @@ pub struct Config {
     pub default_sans_font: String,
     #[serde(default)]
     pub default_serif_font: String,
+    #[serde(default)]
+    pub print: PrintPrefs,
 }
 
 fn default_work_dir() -> PathBuf {
@@ -204,6 +262,7 @@ impl Default for Config {
             snippets: Vec::new(),
             default_sans_font: String::new(),
             default_serif_font: String::new(),
+            print: PrintPrefs::default(),
         }
     }
 }

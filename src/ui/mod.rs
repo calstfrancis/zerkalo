@@ -17,6 +17,7 @@ pub mod outline_panel;
 pub mod package_browser;
 pub mod preview_pane;
 pub mod print;
+pub mod print_sheet;
 pub mod ref_manager;
 pub mod settings_dialog;
 pub mod sync_dialog;

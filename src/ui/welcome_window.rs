@@ -126,11 +126,18 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
-                "New: Print (Ctrl+P) opens the system print dialog and actually prints — printer, page range, copies and duplex — instead of exporting a PDF to the cache and opening it in another app; the PDF goes to the printer as vector, so text stays sharp at the printer's own resolution",
+                "New: Ctrl+P opens a print sheet before the printer's own dialog — it shows the document, its page count and its real paper size, and hands off with everything already set; the PDF goes to the printer as vector, so text stays sharp at the printer's own resolution",
+                "New: page ranges in the document's own numbering — type 12 and you get the page with 12 printed on it, not the twelfth sheet, however the document numbers itself",
+                "New: two or four pages a sheet, and fold-and-staple booklets; imposition is done on the PDF itself, so booklet ordering works on every printer and the preview shows the real first sheet",
+                "New: print settings are remembered between runs — copies, two-sided, colour and layout — with a proof, a final copy and a booklet offered as starting points",
+                "New: Print is reachable from the header and the command palette, not just the ≡ menu",
                 "New: a save button in the header, to the right of the git sync button",
                 "Fixed: printing a CV produced nothing at all, and the error was discarded so the button looked dead; printing and PDF export now use exactly the same inputs as the preview",
                 "Fixed: printing used the last saved version rather than what was on screen — unsaved changes are written first",
-                "Fixed: printing reported nothing on failure and gave no sign it was working; there's now a progress toast and errors reach the error panel",
+                "Fixed: printing reported nothing on failure and gave no sign it was working; the print sheet now opens immediately and errors reach the error panel",
+                "Fixed: the print dialog opened on the desktop's default paper whatever the document was, so anything that wasn't A4 or Letter was silently scaled or clipped",
+                "Fixed: printing the same document twice compiled it twice — the compiled document is kept until you edit it",
+                "Fixed: the fallback print path rasterised at a fixed 300 dpi and, inside the Flatpak, could find no printers at all",
                 "Fixed: typing lagged badly on long documents, and got worse the longer the document and the more tabs were open — the error squiggles were being re-applied across every open tab on every single keystroke",
                 "Fixed: the status bar's section word count re-read the whole document every time the cursor changed line, so holding an arrow key scanned it once per line",
                 "Fixed: comment highlighting re-tagged the entire document every time typing paused, even when no comment had moved",
