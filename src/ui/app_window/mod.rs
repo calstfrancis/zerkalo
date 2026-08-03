@@ -14,24 +14,18 @@ use adw::prelude::*;
 use crate::bibliography;
 use crate::config::{CompileProfile, Config, Theme};
 use crate::writing_log::{WritingLog, count_words, FileStartWords};
-use crate::git_sync;
 use crate::keybindings::{matches_binding, Keybindings};
 use crate::lsp::{DiagSeverity, LspClient};
 use crate::session::Session;
 use super::command_palette::{CommandPalette, default_commands, heading_items};
-use super::docs_browser::DocsBrowser;
 use super::editor_pane::EditorPane;
 use super::file_tree::FileTree;
-use super::font_manager::FontManager;
 use super::error_panel::{enrich_error_message, parse_typst_errors, CompileError, ErrorPanel, Severity};
-use super::export_dialog::ExportDialog;
 use super::help_window::HelpWindow;
 use super::outline_panel::OutlinePanel;
 use super::preview_pane::PreviewPane;
-use super::settings_dialog::SettingsDialog;
-use super::sync_dialog::SyncDialog;
 use super::template_dialog::TemplateDialog;
-use super::snapshot_dialog::{SnapshotDialog, save_snapshot};
+use super::snapshot_dialog::save_snapshot;
 use super::library_window::LibraryWindow;
 use crate::library::Library;
 
@@ -39,13 +33,14 @@ use crate::cv_mode::CV_HELPERS_TYPST;
 
 mod dialogs;
 mod header;
+mod menus;
+use menus::{MenuCtx, wire_app_menus, wire_document_menus};
 mod panels;
 use panels::{Panels, build_panels};
 use header::{HeaderWidgets, build_header};
 mod import;
 mod sync;
 use dialogs::{show_changelog, show_doc_stats};
-use sync::{do_sync, show_backup_remote_dialog};
 use import::{
     IMPORT_FORMATS, import_folder_via_pandoc, import_via_pandoc, paste_as_document,
     run_pandoc_import, run_pdf_import, show_import_history_dialog,
@@ -159,6 +154,7 @@ impl AppWindow {
         let has_compile_errors: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
 
         let HeaderWidgets {
+            menus,
             compile_btn,
             compile_mode_slot,
             draft_toggle,
@@ -166,28 +162,7 @@ impl AppWindow {
             gost_menu_slot,
             header,
             library_btn,
-            menu_about_item,
-            menu_backup_remote_item,
-            menu_docs_item,
-            menu_export_item,
-            menu_export_web_item,
-            menu_fonts_item,
-            menu_help_item,
-            menu_import_item,
-            menu_import_pdf_item,
-            menu_new_item,
-            menu_new_template_item,
-            menu_open_item,
             menu_popover,
-            menu_print_item,
-            menu_reapply_template_item,
-            menu_repair_markers_item,
-            menu_save_as_item,
-            menu_save_item,
-            menu_settings_item,
-            menu_setup_item,
-            menu_snapshots_item,
-            menu_writing_stats_item,
             open_list_box,
             open_search,
             preview_label,
@@ -616,7 +591,7 @@ impl AppWindow {
             window.add_css_class("high-contrast");
         }
         // Import is experimental — only visible in developer mode
-        menu_import_item.set_visible(config.developer_mode);
+        menus.menu_import_item.set_visible(config.developer_mode);
 
         let editor_for_dark = editor_pane.clone();
         adw::StyleManager::default().connect_dark_notify(move |mgr| {
@@ -980,297 +955,34 @@ impl AppWindow {
             });
         }
 
-        // ── Menu: Browse Documents ──────────────────────────────────────────
-        let window_for_docs = window.clone();
-        let editor_for_docs = editor_pane.clone();
-        let root_for_docs = project_root.clone();
-        let menu_popover_for_docs = menu_popover.clone();
-        menu_docs_item.connect_clicked(move |_| {
-            menu_popover_for_docs.popdown();
-            let browser = DocsBrowser::new(&window_for_docs, root_for_docs.clone());
-            let ep = editor_for_docs.clone();
-            browser.set_on_open(move |path| {
-                if let Ok(content) = std::fs::read_to_string(&path) {
-                    ep.open_file(path, &content);
-                }
-            });
-            browser.present();
-        });
-
-        // ── Compile/Preview toggle button ───────────────────────────────────
-        // Wired after preview_outer is created (see below, search "preview_vis_holder.borrow_mut")
-
-        // ── Menu: Settings ──────────────────────────────────────────────────
-
-        let window_for_settings = window.clone();
-        let editor_for_settings = editor_pane.clone();
-        let debounce_for_settings = debounce_ms.clone();
-        let auto_compile_for_settings = auto_compile.clone();
-        let compile_on_save_for_settings = compile_on_save.clone();
-        let manual_compile_only_for_settings = manual_compile_only.clone();
-        let current_config_for_settings = current_config.clone();
-        let menu_popover_for_settings = menu_popover.clone();
-        let import_item_for_settings = menu_import_item.clone();
-        let compile_mode_btn_for_settings = compile_mode_btn.clone();
-        let compile_mode_label_for_settings = compile_mode_label.clone();
-        menu_settings_item.connect_clicked(move |_| {
-            menu_popover_for_settings.popdown();
-            let dialog = SettingsDialog::new(
-                &window_for_settings,
-                &current_config_for_settings.borrow(),
-            );
-            let editor = editor_for_settings.clone();
-            let debounce = debounce_for_settings.clone();
-            let auto_flag = auto_compile_for_settings.clone();
-            let cos_flag = compile_on_save_for_settings.clone();
-            let mco_flag = manual_compile_only_for_settings.clone();
-            let cfg_rc = current_config_for_settings.clone();
-            let window_for_save = window_for_settings.clone();
-            let import_item_save = import_item_for_settings.clone();
-            let cm_btn_save = compile_mode_btn_for_settings.clone();
-            let cm_lbl_save = compile_mode_label_for_settings.clone();
-
-            // Live preview — apply appearance changes immediately while dialog is open
-            {
-                let editor_p = editor.clone();
-                let win_p = window_for_save.clone();
-                dialog.set_on_preview(move |cfg| {
-                    editor_p.apply_font_size(cfg.editor_font_size);
-                    editor_p.apply_font_family(&cfg.editor_font_family);
-                    editor_p.apply_word_wrap(cfg.editor_word_wrap);
-                    editor_p.set_word_wrap_btn(cfg.editor_word_wrap);
-                    editor_p.apply_show_whitespace(cfg.editor_show_whitespace);
-                    editor_p.apply_tab_width(cfg.editor_tab_width);
-                    editor_p.apply_line_spacing(cfg.editor_line_spacing);
-                    editor_p.apply_typewriter_scroll(cfg.typewriter_scrolling);
-                    apply_theme(&cfg.theme);
-                    editor_p.apply_style_scheme(adw::StyleManager::default().is_dark());
-                    if cfg.high_contrast {
-                        win_p.add_css_class("high-contrast");
-                    } else {
-                        win_p.remove_css_class("high-contrast");
-                    }
-                });
-            }
-
-            dialog.set_on_save(move |new_cfg| {
-                *debounce.borrow_mut() = new_cfg.debounce_ms;
-                *auto_flag.borrow_mut() = new_cfg.auto_compile;
-                *cos_flag.borrow_mut() = new_cfg.compile_on_save;
-                *mco_flag.borrow_mut() = new_cfg.manual_compile_only;
-                cm_lbl_save.set_text(compile_mode_label_str(
-                    new_cfg.auto_compile,
-                    new_cfg.compile_on_save,
-                    new_cfg.manual_compile_only,
-                ));
-                apply_compile_mode_css(&cm_btn_save, new_cfg.auto_compile, new_cfg.compile_on_save, new_cfg.manual_compile_only);
-                editor.apply_font_size(new_cfg.editor_font_size);
-                editor.apply_font_family(&new_cfg.editor_font_family);
-                editor.apply_word_wrap(new_cfg.editor_word_wrap);
-                editor.set_word_wrap_btn(new_cfg.editor_word_wrap);
-                editor.apply_show_whitespace(new_cfg.editor_show_whitespace);
-                editor.apply_tab_width(new_cfg.editor_tab_width);
-                editor.apply_line_spacing(new_cfg.editor_line_spacing);
-                editor.apply_typewriter_scroll(new_cfg.typewriter_scrolling);
-                editor.set_spell_enabled(new_cfg.spell_enabled);
-                editor.set_spell_autocorrect(new_cfg.spell_autocorrect);
-                editor.set_spell_languages(new_cfg.spell_languages.clone());
-                apply_theme(&new_cfg.theme);
-                editor.apply_style_scheme(adw::StyleManager::default().is_dark());
-                // High contrast CSS class on the window
-                if new_cfg.high_contrast {
-                    window_for_save.add_css_class("high-contrast");
-                } else {
-                    window_for_save.remove_css_class("high-contrast");
-                }
-                let old_bib = cfg_rc.borrow().bib_path.clone();
-                if old_bib != new_cfg.bib_path {
-                    match new_cfg.bib_path.as_ref() {
-                        Some(bp) => editor.set_bib_entries(bibliography::load_bib(bp)),
-                        None => editor.set_bib_entries(Vec::new()),
-                    }
-                }
-                import_item_save.set_visible(new_cfg.developer_mode);
-                let work_dir_changed = new_cfg.work_dir != cfg_rc.borrow().work_dir;
-                *cfg_rc.borrow_mut() = new_cfg;
-                if work_dir_changed {
-                    let alert = AlertDialog::builder()
-                        .modal(true)
-                        .message("Restart required")
-                        .detail("The work folder change takes effect after restarting Zerkalo.")
-                        .buttons(["OK"])
-                        .default_button(0)
-                        .build();
-                    alert.choose(
-                        Some(&window_for_save),
-                        None::<&gtk4::gio::Cancellable>,
-                        |_| {},
-                    );
-                }
-            });
-            dialog.present();
-        });
-
-        // ── Menu: Help ──────────────────────────────────────────────────────
-
-        let window_for_help = window.clone();
-        let menu_popover_for_help = menu_popover.clone();
-        let editor_for_help = editor_pane.clone();
-        menu_help_item.connect_clicked(move |_| {
-            menu_popover_for_help.popdown();
-            HelpWindow::new(&window_for_help, editor_for_help.is_cv_mode()).present();
-        });
-
-        // ── Menu: Setup & Onboarding ────────────────────────────────────────
-
-        let window_for_setup = window.clone();
-        let root_for_setup = project_root.clone();
-        let menu_popover_for_setup = menu_popover.clone();
-        let cfg_for_setup = current_config.clone();
-        menu_setup_item.connect_clicked(move |_| {
-            menu_popover_for_setup.popdown();
-            let (sans, serif) = font_defaults(&cfg_for_setup);
-            super::setup_wizard::SetupWizard::new(
-                &window_for_setup, &root_for_setup, &sans, &serif,
-                make_font_save_cb(cfg_for_setup.clone()),
-            ).present();
-        });
-
-        // ── Menu: Backup Remotes ────────────────────────────────────────────
-
-        let window_for_backup = window.clone();
-        let root_for_backup = project_root.clone();
-        let menu_popover_for_backup = menu_popover.clone();
-        menu_backup_remote_item.connect_clicked(move |_| {
-            menu_popover_for_backup.popdown();
-            show_backup_remote_dialog(&window_for_backup, &root_for_backup);
-        });
-
-        // ── Menu: About ─────────────────────────────────────────────────────
-
-        let window_for_about = window.clone();
-        let menu_popover_for_about = menu_popover.clone();
-        menu_about_item.connect_clicked(move |_| {
-            menu_popover_for_about.popdown();
-            let dlg = adw::MessageDialog::new(
-                Some(&window_for_about),
-                Some(concat!("Zerkalo ", env!("CARGO_PKG_VERSION"))),
-                Some(
-                    "A contemplative Typst editor.\n\n\
-                     Built with Rust · GTK4 · libadwaita · sourceview5\n\
-                     Embedded Typst compiler — no binary required\n\n\
-                     https://github.com/calstfrancis/zerkalo"
-                ),
-            );
-            dlg.add_response("ok", "OK");
-            dlg.present();
-        });
-
-        // ── Menu: Writing Stats ─────────────────────────────────────────────
-
-        let window_for_stats = window.clone();
-        let writing_log_for_stats = writing_log.clone();
-        let menu_popover_for_stats = menu_popover.clone();
-        menu_writing_stats_item.connect_clicked(move |_| {
-            menu_popover_for_stats.popdown();
-            let log = writing_log_for_stats.borrow();
-            let today = log.total_today();
-            let week = log.total_this_week();
-            let streak = log.streak_days();
-            let total = log.sessions.len();
-            let body = format!(
-                "Today: {:+} words\nThis week: {:+} words\nStreak: {} day{}\nTotal sessions: {}",
-                today, week, streak,
-                if streak == 1 { "" } else { "s" },
-                total,
-            );
-            let dlg = adw::MessageDialog::new(
-                Some(&window_for_stats),
-                Some("Writing Stats"),
-                Some(&body),
-            );
-            dlg.add_response("ok", "OK");
-            dlg.present();
-        });
-
-        // ── Menu: Export ────────────────────────────────────────────────────
-
-        let preview_for_export = preview_pane.clone();
-        let window_for_export = window.clone();
-        let menu_popover_for_export = menu_popover.clone();
-        let current_config_for_export = current_config.clone();
-        let project_root_for_export = project_root.clone();
-        let cv_elements_for_export = effective_cv_elements.clone();
-        menu_export_item.connect_clicked(move |_| {
-            menu_popover_for_export.popdown();
-            let initial_fmt = current_config_for_export.borrow().last_export_format;
-            let cfg_for_save = current_config_for_export.clone();
-            ExportDialog::new(
-                &window_for_export,
-                preview_for_export.root_file_path(),
-                preview_for_export.output_dir(),
-                project_root_for_export.clone(),
-                cv_elements_for_export.clone(),
-                initial_fmt,
-                move |fmt| {
-                    let mut cfg = cfg_for_save.borrow_mut();
-                    cfg.last_export_format = fmt;
-                    let _ = cfg.save();
-                },
-            )
-            .present();
-        });
-
-        // Hoisted above its uses (the print handlers just below, and the import
-        // machinery further down around the sync button) so all of them — which
-        // show in-progress and result toasts — can capture it.
+        // Created here rather than inside the Print menu section: the menu
+        // wiring extracted below needs it, and several later sections do too.
         let toast_overlay = adw::ToastOverlay::new();
 
-        // ── Menu: Print ─────────────────────────────────────────────────────
+        let menu_ctx = MenuCtx {
+            window: window.clone(),
+            editor_pane: editor_pane.clone(),
+            preview_pane: preview_pane.clone(),
+            error_panel: error_panel.clone(),
+            toast_overlay: toast_overlay.clone(),
+            current_config: current_config.clone(),
+            project_root: project_root.clone(),
+            writing_log: writing_log.clone(),
+            menu_popover: menu_popover.clone(),
+            auto_compile: auto_compile.clone(),
+            compile_on_save: compile_on_save.clone(),
+            manual_compile_only: manual_compile_only.clone(),
+            debounce_ms: debounce_ms.clone(),
+            compile_mode_btn: compile_mode_btn.clone(),
+            compile_mode_label: compile_mode_label.clone(),
+            effective_cv_elements: effective_cv_elements.clone(),
+            auto_detected_bib: auto_detected_bib.clone(),
+            print_header_btn: print_header_btn.clone(),
+            save_btn: save_btn.clone(),
+            sync_btn: sync_btn.clone(),
+        };
 
-        {
-            let window_for_print = window.clone();
-            let editor_for_print = editor_pane.clone();
-            let preview_for_print = preview_pane.clone();
-            let toast_for_print = toast_overlay.clone();
-            let panel_for_print = error_panel.clone();
-            let root_for_print = project_root.clone();
-            let menu_popover_for_print = menu_popover.clone();
-            let config_for_print = current_config.clone();
-
-            // The hamburger item and the header button do the same thing, so
-            // they share one closure rather than two that can drift.
-            let open_print_sheet: Rc<dyn Fn()> = Rc::new(move || {
-                print_from_preview(
-                    &window_for_print,
-                    &editor_for_print,
-                    &preview_for_print,
-                    &toast_for_print,
-                    &panel_for_print,
-                    &root_for_print,
-                    &config_for_print,
-                );
-            });
-
-            let from_menu = open_print_sheet.clone();
-            menu_print_item.connect_clicked(move |_| {
-                menu_popover_for_print.popdown();
-                from_menu();
-            });
-            print_header_btn.connect_clicked(move |_| open_print_sheet());
-        }
-
-        // ── Menu: Font Management ───────────────────────────────────────────
-
-        let window_for_fonts = window.clone();
-        let menu_popover_for_fonts = menu_popover.clone();
-        let cfg_for_fonts = current_config.clone();
-        menu_fonts_item.connect_clicked(move |_| {
-            menu_popover_for_fonts.popdown();
-            let cfg = cfg_for_fonts.borrow();
-            FontManager::new(&window_for_fonts, &cfg.default_sans_font, &cfg.default_serif_font).present();
-        });
-
+        wire_app_menus(&menu_ctx, &menus);
         // ── Menu: Import (picker dialog) ───────────────────────────────────
 
 
@@ -1305,8 +1017,8 @@ impl AppWindow {
         let work_dir_for_import = project_root.clone();
         let config_for_import = current_config.clone();
         let toast_overlay_for_import = toast_overlay.clone();
-        let pdf_item_for_dlg = menu_import_pdf_item.clone();
-        menu_import_item.connect_clicked(move |_| {
+        let pdf_item_for_dlg = menus.menu_import_pdf_item.clone();
+        menus.menu_import_item.connect_clicked(move |_| {
             menu_popover_for_import.popdown();
 
             let dlg = adw::Window::new();
@@ -1428,520 +1140,7 @@ impl AppWindow {
             dlg.present();
         });
 
-        // ── Menu: Import PDF ───────────────────────────────────────────────
-
-        let window_for_pdf = window.clone();
-        let editor_for_pdf = editor_pane.clone();
-        let menu_popover_for_pdf = menu_popover.clone();
-        let work_dir_for_pdf = project_root.clone();
-        menu_import_pdf_item.connect_clicked(move |_| {
-            menu_popover_for_pdf.popdown();
-            let dialog = gtk4::FileDialog::new();
-            dialog.set_title("Import PDF File");
-            let filter = gtk4::FileFilter::new();
-            filter.set_name(Some("PDF files (*.pdf)"));
-            filter.add_pattern("*.pdf");
-            let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
-            filters.append(&filter);
-            dialog.set_filters(Some(&filters));
-            dialog.set_initial_folder(Some(&gtk4::gio::File::for_path(&work_dir_for_pdf)));
-            let win2 = window_for_pdf.clone();
-            let ep2 = editor_for_pdf.clone();
-            let win_ref = win2.clone();
-            dialog.open(Some(&win_ref), None::<&gtk4::gio::Cancellable>, move |result| {
-                if let Ok(file) = result {
-                    if let Some(input_path) = file.path() {
-                        run_pdf_import(&win2, &ep2, input_path);
-                    }
-                }
-            });
-        });
-
-        // ── Menu: New from Template ─────────────────────────────────────────
-
-        let window_for_template = window.clone();
-        let editor_for_template = editor_pane.clone();
-        let menu_popover_for_template = menu_popover.clone();
-        let project_root_for_template = project_root.clone();
-        let cfg_for_template = current_config.clone();
-        menu_new_template_item.connect_clicked(move |_| {
-            menu_popover_for_template.popdown();
-            let last_advanced = cfg_for_template.borrow().last_used_advanced;
-            let dlg = TemplateDialog::new(&window_for_template, &project_root_for_template, last_advanced);
-            {
-                let cfg = cfg_for_template.borrow();
-                dlg.set_bib_path(cfg.bib_path.clone());
-                dlg.preselect_locked_identity(&cfg.locked_author.clone(), &cfg.locked_affiliation.clone());
-            }
-            {
-                let cfg2 = cfg_for_template.clone();
-                dlg.set_on_advanced_toggle(move |expanded| {
-                    let mut c = cfg2.borrow_mut();
-                    c.last_used_advanced = expanded;
-                    let _ = c.save();
-                });
-            }
-            {
-                let cfg = cfg_for_template.clone();
-                dlg.set_on_lock_identity(move |author, affiliation| {
-                    let mut c = cfg.borrow_mut();
-                    c.locked_author = author;
-                    c.locked_affiliation = affiliation;
-                    let _ = c.save();
-                });
-            }
-            let ep = editor_for_template.clone();
-            dlg.set_on_create(move |path| {
-                if let Ok(content) = std::fs::read_to_string(&path) {
-                    ep.open_file(path, &content);
-                }
-            });
-            dlg.present();
-        });
-
-        // ── Menu: Update Template Settings ─────────────────────────────────
-
-        let window_for_reapply = window.clone();
-        let editor_for_reapply = editor_pane.clone();
-        let menu_popover_for_reapply = menu_popover.clone();
-        let project_root_for_reapply = project_root.clone();
-        let cfg_for_reapply = current_config.clone();
-        let preview_for_reapply = preview_pane.clone();
-        menu_reapply_template_item.connect_clicked(move |_| {
-            menu_popover_for_reapply.popdown();
-            let Some(current_path) = editor_for_reapply.get_active_path() else {
-                let t = adw::Toast::new("Open a document first");
-                t.set_timeout(3);
-                // toast_overlay captured below; use a window dialog as fallback
-                show_alert(&window_for_reapply, "No document open", "Open a .typ file first, then use Update Template Settings.");
-                return;
-            };
-            let current_content = editor_for_reapply.get_active_content().unwrap_or_default();
-            let last_advanced_reapply = cfg_for_reapply.borrow().last_used_advanced;
-            let dlg = TemplateDialog::new(&window_for_reapply, &project_root_for_reapply, last_advanced_reapply);
-            {
-                let cfg_adv = cfg_for_reapply.clone();
-                dlg.set_on_advanced_toggle(move |expanded| {
-                    let mut c = cfg_adv.borrow_mut();
-                    c.last_used_advanced = expanded;
-                    let _ = c.save();
-                });
-            }
-            {
-                let cfg = cfg_for_reapply.borrow();
-                dlg.set_bib_path(cfg.bib_path.clone());
-                dlg.preselect_locked_identity(&cfg.locked_author.clone(), &cfg.locked_affiliation.clone());
-                dlg.set_cv_elements_path(cfg.cv_elements_path.clone());
-            }
-            {
-                let cfg = cfg_for_reapply.clone();
-                dlg.set_on_lock_identity(move |author, affiliation| {
-                    let mut c = cfg.borrow_mut();
-                    c.locked_author = author;
-                    c.locked_affiliation = affiliation;
-                    let _ = c.save();
-                });
-            }
-            {
-                let cfg = cfg_for_reapply.clone();
-                dlg.set_on_cv_elements_change(move |path| {
-                    let mut c = cfg.borrow_mut();
-                    c.cv_elements_path = Some(path);
-                    let _ = c.save();
-                });
-            }
-
-            if let Some(sidecar) = super::template_dialog::load_sidecar(&current_path) {
-                dlg.preselect_from_sidecar(&sidecar);
-            } else {
-                let doc_kind = super::template_dialog::parse_doc_kind(&current_content);
-                dlg.preselect_cv_mode(doc_kind.as_deref() == Some("cv"));
-                dlg.preselect_body_kind(super::template_dialog::body_kind_from_key(
-                    doc_kind.as_deref().unwrap_or(""),
-                ));
-                dlg.preselect_style(
-                    &super::template_dialog::parse_style_key(&current_content)
-                        .unwrap_or_default(),
-                );
-                // A CV document's @zerkalo-style marker is just the literal "cv"
-                // (see generate_cv_template), so preselect_style above can't
-                // recover the actual CV style (Modern/Academic/Classic/
-                // Two-Column) from it — that's tracked separately via
-                // @zerkalo-cv-style.
-                if let Some(cv_style) = super::template_dialog::parse_cv_style(&current_content) {
-                    if let Some(idx) = super::template_dialog::cv_style_index(&cv_style) {
-                        dlg.preselect_cv_style_index(idx);
-                    }
-                }
-                if let Some(f) = super::template_dialog::parse_font(&current_content) {
-                    dlg.preselect_font(&f);
-                }
-                if let Some(p) = super::template_dialog::parse_paper(&current_content) {
-                    dlg.preselect_paper(&p, "", "");
-                }
-                if let Some(s) = super::template_dialog::parse_spacing(&current_content) {
-                    dlg.preselect_spacing(&s);
-                }
-                dlg.preselect_margin(super::template_dialog::parse_margin(&current_content), "");
-                dlg.preselect_toc(
-                    super::template_dialog::parse_has_toc(&current_content),
-                    super::template_dialog::parse_toc_depth(&current_content),
-                );
-                dlg.preselect_abstract(
-                    super::template_dialog::parse_has_abstract(&current_content),
-                    &super::template_dialog::parse_abstract_text(&current_content),
-                );
-                dlg.preselect_keywords(
-                    super::template_dialog::parse_has_keywords(&current_content),
-                    &super::template_dialog::parse_keywords_text(&current_content),
-                );
-                if let Some(f) = super::template_dialog::parse_dropcap_font(&current_content) {
-                    dlg.preselect_dropcap_font(&f);
-                }
-                if let Some(c) = super::template_dialog::parse_dropcap_color(&current_content) {
-                    dlg.preselect_dropcap_color(&c);
-                }
-            }
-            // The body is ground truth for CV-ness: if the sidecar/marker path above
-            // disagrees with what the document's body actually calls (#cv-section, an
-            // import of cv-helpers.typ), trust the body — see body_looks_like_cv's doc
-            // comment. Without this, a document whose sidecar drifted to a non-CV kind
-            // would keep regenerating a non-CV preamble onto its still-CV body forever,
-            // producing a document that fails to compile ("unknown function: section").
-            if super::template_dialog::body_looks_like_cv(&current_content) {
-                dlg.preselect_cv_mode(true);
-                dlg.preselect_body_kind(super::template_dialog::body_kind_from_key("cv"));
-                // The sidecar/marker path above may have left the Style row on a
-                // stale or non-CV-meaningful selection (e.g. a sidecar that drifted
-                // to a non-CV body_kind never calls preselect_cv_style_index at
-                // all). Re-derive it from the body's actual @zerkalo-cv-style marker
-                // now that we know this is really a CV.
-                if let Some(cv_style) = super::template_dialog::parse_cv_style(&current_content) {
-                    if let Some(idx) = super::template_dialog::cv_style_index(&cv_style) {
-                        dlg.preselect_cv_style_index(idx);
-                    }
-                }
-            }
-            if let Some(doc_abstract) = super::template_dialog::parse_abstract_from_doc(&current_content) {
-                dlg.override_abstract_text(&doc_abstract);
-            }
-            // Always read metadata from the document — the user may have edited the
-            // #let doc-* variables directly, and the sidecar won't reflect those changes.
-            dlg.preselect_metadata(
-                &super::template_dialog::parse_meta(&current_content, "title"),
-                &super::template_dialog::parse_meta(&current_content, "subtitle"),
-                &super::template_dialog::parse_meta(&current_content, "author"),
-                &super::template_dialog::parse_meta(&current_content, "affiliation"),
-                &super::template_dialog::parse_meta(&current_content, "course"),
-                &super::template_dialog::parse_meta(&current_content, "professor"),
-                &super::template_dialog::parse_meta(&current_content, "date"),
-            );
-
-            let ep = editor_for_reapply.clone();
-            let win_for_apply = window_for_reapply.clone();
-            let preview_apply = preview_for_reapply.clone();
-            let current_content_for_apply = current_content.clone();
-            let current_path_for_apply = current_path.clone();
-            dlg.set_on_apply(move |new_content, sidecar| {
-                apply_template_result(
-                    &win_for_apply,
-                    &ep,
-                    &preview_apply,
-                    current_path_for_apply.clone(),
-                    current_content_for_apply.clone(),
-                    new_content,
-                    sidecar,
-                );
-            });
-            dlg.present();
-        });
-
-        // ── Menu: Repair Template Markers ───────────────────────────────────
-
-        let editor_for_repair = editor_pane.clone();
-        let window_for_repair = window.clone();
-        let menu_popover_for_repair = menu_popover.clone();
-        menu_repair_markers_item.connect_clicked(move |_| {
-            menu_popover_for_repair.popdown();
-            let Some(path) = editor_for_repair.get_active_path() else { return };
-            let (title, body) = match super::template_dialog::repair_template_markers(&path) {
-                Ok(true) => {
-                    if let Ok(new_content) = std::fs::read_to_string(&path) {
-                        editor_for_repair.reload_file(path, &new_content);
-                    }
-                    (
-                        "Marker repaired",
-                        "The body marker was re-inserted. A backup was saved as .typ.bak.".to_string(),
-                    )
-                }
-                Ok(false) => (
-                    "Marker already present",
-                    "The file already contains a valid body marker. No changes were made.".to_string(),
-                ),
-                Err(e) => ("Repair failed", e),
-            };
-            let dlg = adw::MessageDialog::new(
-                Some(&window_for_repair),
-                Some(title),
-                Some(&body),
-            );
-            dlg.add_response("ok", "OK");
-            dlg.set_default_response(Some("ok"));
-            dlg.present();
-        });
-
-        // ── Menu: New Document ──────────────────────────────────────────────
-
-        let window_for_new = window.clone();
-        let editor_for_new = editor_pane.clone();
-        let work_dir_for_new = project_root.clone();
-        let menu_popover_for_new = menu_popover.clone();
-        menu_new_item.connect_clicked(move |_| {
-            menu_popover_for_new.popdown();
-            let dialog = gtk4::FileDialog::new();
-            dialog.set_title("New Document");
-            dialog.set_initial_folder(Some(&gtk4::gio::File::for_path(&work_dir_for_new)));
-            dialog.set_initial_name(Some("untitled.typ"));
-            let win_c = window_for_new.clone();
-            let ep_c = editor_for_new.clone();
-            dialog.save(Some(&win_c), None::<&gtk4::gio::Cancellable>, move |result| {
-                if let Ok(file) = result {
-                    if let Some(path) = file.path() {
-                        if !path.exists() {
-                            let _ = std::fs::write(&path, "= Title\n\n");
-                        }
-                        if let Ok(content) = std::fs::read_to_string(&path) {
-                            ep_c.open_file(path, &content);
-                        }
-                    }
-                }
-            });
-        });
-
-        // ── Menu: Open File ─────────────────────────────────────────────────
-
-        let window_for_open = window.clone();
-        let editor_for_open_file = editor_pane.clone();
-        let menu_popover_for_open = menu_popover.clone();
-        menu_open_item.connect_clicked(move |_| {
-            menu_popover_for_open.popdown();
-            let dialog = gtk4::FileDialog::new();
-            dialog.set_title("Open File");
-            let filter = gtk4::FileFilter::new();
-            filter.set_name(Some("Typst files (*.typ)"));
-            filter.add_pattern("*.typ");
-            let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
-            filters.append(&filter);
-            dialog.set_filters(Some(&filters));
-            let win_c = window_for_open.clone();
-            let ep_c = editor_for_open_file.clone();
-            dialog.open(Some(&win_c), None::<&gtk4::gio::Cancellable>, move |result| {
-                if let Ok(file) = result {
-                    if let Some(path) = file.path() {
-                        if let Ok(content) = std::fs::read_to_string(&path) {
-                            ep_c.open_file(path, &content);
-                        }
-                    }
-                }
-            });
-        });
-
-        // ── Menu: Save ──────────────────────────────────────────────────────
-
-        let editor_for_menu_save = editor_pane.clone();
-        let preview_for_menu_save = preview_pane.clone();
-        let menu_popover_for_save = menu_popover.clone();
-        let root_for_menu_save = project_root.clone();
-        menu_save_item.connect_clicked(move |_| {
-            menu_popover_for_save.popdown();
-            if let Some(path) = editor_for_menu_save.save_current() {
-                if let Ok(content) = std::fs::read_to_string(&path) {
-                    save_snapshot(&root_for_menu_save, &path, &content);
-                }
-                preview_for_menu_save.trigger_compile();
-            }
-        });
-
-        // ── Header: Save ────────────────────────────────────────────────────
-        // Same action as the ≡ menu's Save, including the snapshot.
-
-        let editor_for_save_btn = editor_pane.clone();
-        let preview_for_save_btn = preview_pane.clone();
-        let root_for_save_btn = project_root.clone();
-        save_btn.connect_clicked(move |_| {
-            if let Some(path) = editor_for_save_btn.save_current() {
-                if let Ok(content) = std::fs::read_to_string(&path) {
-                    save_snapshot(&root_for_save_btn, &path, &content);
-                }
-                preview_for_save_btn.trigger_compile();
-            }
-        });
-
-        // ── Menu: Save As ───────────────────────────────────────────────────
-
-        let window_for_save_as = window.clone();
-        let editor_for_save_as = editor_pane.clone();
-        let preview_for_save_as = preview_pane.clone();
-        let menu_popover_for_save_as = menu_popover.clone();
-        menu_save_as_item.connect_clicked(move |_| {
-            menu_popover_for_save_as.popdown();
-            let Some(content) = editor_for_save_as.get_active_content() else { return };
-            let dialog = gtk4::FileDialog::new();
-            dialog.set_title("Save As");
-            let filter = gtk4::FileFilter::new();
-            filter.set_name(Some("Typst files (*.typ)"));
-            filter.add_pattern("*.typ");
-            let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
-            filters.append(&filter);
-            dialog.set_filters(Some(&filters));
-            dialog.set_initial_name(Some("untitled.typ"));
-            let win_c = window_for_save_as.clone();
-            let ep_c = editor_for_save_as.clone();
-            let pv_c = preview_for_save_as.clone();
-            dialog.save(Some(&win_c), None::<&gtk4::gio::Cancellable>, move |result| {
-                if let Ok(file) = result {
-                    if let Some(mut path) = file.path() {
-                        if path.extension().is_none() {
-                            path.set_extension("typ");
-                        }
-                        if std::fs::write(&path, content.as_bytes()).is_ok() {
-                            ep_c.open_file(path.clone(), &content);
-                            pv_c.set_root_file(path);
-                            pv_c.trigger_compile();
-                        }
-                    }
-                }
-            });
-        });
-
-        // ── Menu: Browse Snapshots ──────────────────────────────────────────
-
-        let window_for_snap = window.clone();
-        let editor_for_snap = editor_pane.clone();
-        let root_for_snap = project_root.clone();
-        let menu_popover_for_snap = menu_popover.clone();
-        menu_snapshots_item.connect_clicked(move |_| {
-            menu_popover_for_snap.popdown();
-            let Some(path) = editor_for_snap.get_active_path() else { return };
-            let content = editor_for_snap.get_active_content().unwrap_or_default();
-            let dialog = SnapshotDialog::new(&window_for_snap, &root_for_snap, &path, &content);
-            let ep = editor_for_snap.clone();
-            let pp_path = path.clone();
-            let win_for_restore = window_for_snap.clone();
-            dialog.set_on_restore(move |text| {
-                restore_snapshot_with_confirm(&win_for_restore, &ep, &pp_path, text);
-            });
-            dialog.present();
-        });
-
-        // ── Sync button ─────────────────────────────────────────────────────
-
-        let window_for_sync = window.clone();
-        let sync_btn_ref = sync_btn.clone();
-        let editor_for_sync = editor_pane.clone();
-        let toast_for_sync_btn = toast_overlay.clone();
-        let toast_for_sync_closure = toast_overlay.clone();
-
-        if let Some(ref bib_path) = *auto_detected_bib.borrow() {
-            let name = bib_path.file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("refs.bib")
-                .to_string();
-            let t = adw::Toast::new(&format!("Loaded bibliography: {name}"));
-            t.set_timeout(4);
-            toast_overlay.add_toast(t);
-        }
-
-        // ── Menu: Export for Web ────────────────────────────────────────────
-        {
-            let ep = editor_pane.clone();
-            let win = window.clone();
-            let pop = menu_popover.clone();
-            let toast = toast_for_sync_btn.clone();
-            menu_export_web_item.connect_clicked(move |_| {
-                pop.popdown();
-                let Some(input_path) = ep.get_active_path() else { return };
-                let dialog = gtk4::FileDialog::builder()
-                    .title("Export for Web")
-                    .modal(true)
-                    .initial_name(
-                        input_path.with_extension("html")
-                            .file_name()
-                            .and_then(|n| n.to_str())
-                            .unwrap_or("output.html"),
-                    )
-                    .build();
-                let win_c = win.clone();
-                let toast_c = toast.clone();
-                dialog.save(Some(&win_c), None::<&gtk4::gio::Cancellable>, move |result| {
-                    let Ok(gfile) = result else { return };
-                    let Some(out_path) = gfile.path() else { return };
-                    match crate::web_export::export_for_web(&input_path, &out_path) {
-                        Ok(()) => {
-                            let t = adw::Toast::new("Exported for web");
-                            t.set_timeout(3);
-                            toast_c.add_toast(t);
-                        }
-                        Err(e) => {
-                            let t = adw::Toast::new(&format!("Export failed: {e}"));
-                            t.set_timeout(6);
-                            toast_c.add_toast(t);
-                        }
-                    }
-                });
-            });
-        }
-        let config_for_sync = current_config.clone();
-        let project_root_for_sync_fallback = project_root.clone();
-        sync_btn.connect_clicked(move |_| {
-            editor_for_sync.save_all_modified();
-            let root = editor_for_sync.get_active_path()
-                .and_then(|p| p.parent().map(|d| d.to_path_buf()))
-                .and_then(|dir| git_sync::git_repo_root(&dir))
-                .unwrap_or_else(|| project_root_for_sync_fallback.clone());
-            let win = window_for_sync.clone();
-            let btn = sync_btn_ref.clone();
-            let toasts = toast_for_sync_closure.clone();
-            let token = crate::secret_store::load_github_token();
-            let cfg_rc = config_for_sync.clone();
-
-            if !git_sync::has_remote(&root) {
-                let dialog = SyncDialog::new(&win);
-                let root2 = root.clone();
-                let win2 = win.clone();
-                let btn2 = btn.clone();
-                let toasts2 = toasts.clone();
-                let token2 = token.clone();
-                let cfg_rc2 = cfg_rc.clone();
-
-                let confirmed = Rc::new(RefCell::new(false));
-                let confirmed_set = confirmed.clone();
-                dialog.set_on_confirm(move |url| {
-                    *confirmed_set.borrow_mut() = true;
-                    match git_sync::add_remote(&root2, &url) {
-                        Ok(()) => do_sync(root2.clone(), win2.clone(), toasts2.clone(), btn2.clone(), token2.clone(), cfg_rc2.clone()),
-                        Err(e) => {
-                            show_alert(&win2, "Remote Setup Failed", &e);
-                            btn2.set_sensitive(true);
-                        }
-                    }
-                });
-
-                let btn_cancel = btn.clone();
-                dialog.window.connect_destroy(move |_| {
-                    if !*confirmed.borrow() {
-                        btn_cancel.set_sensitive(true);
-                    }
-                });
-
-                btn.set_sensitive(false);
-                dialog.present();
-                return;
-            }
-
-            do_sync(root, win, toasts, btn, token, cfg_rc);
-        });
-
+        wire_document_menus(&menu_ctx, &menus);
         // ── Debounced compile + outline update + LSP ────────────────────────
 
         let preview_for_change = preview_pane.clone();
@@ -4032,12 +3231,12 @@ impl AppWindow {
         main_content.append(&Separator::new(Orientation::Horizontal));
         main_content.append(editor_pane.status_bar_widget());
 
-        toast_for_sync_btn.set_child(Some(&main_content));
+        toast_overlay.set_child(Some(&main_content));
 
         let toolbar_view = adw::ToolbarView::new();
         toolbar_view.add_top_bar(&header);
         toolbar_view.add_bottom_bar(&compile_rev);
-        toolbar_view.set_content(Some(&toast_for_sync_btn));
+        toolbar_view.set_content(Some(&toast_overlay));
 
         window.set_content(Some(&toolbar_view));
 
@@ -4077,7 +3276,7 @@ impl AppWindow {
             project_root,
             sync_btn,
             search_panel,
-            toast_overlay: toast_for_sync_btn,
+            toast_overlay,
             file_tree,
             writing_log,
             file_start_words,
@@ -4088,7 +3287,7 @@ impl AppWindow {
             compile_btn,
             library,
             library_window,
-            menu_import_item,
+            menu_import_item: menus.menu_import_item,
             config: current_config,
         }
     }

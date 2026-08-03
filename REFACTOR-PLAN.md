@@ -194,10 +194,17 @@ with all four XDG dirs redirected. Verified afterwards that nothing under
 **Harness notes for next time** (the script lives in the session scratchpad, not
 the repo — rebuild from these notes if it's wanted again):
 
-- `dbus-run-session` and a window manager (`kwin_x11`) both **broke window
-  mapping entirely** — blank root, no window ever appeared. `capture-screenshots.sh`
-  uses neither; match it. `dbus-run-session` is only needed when a real Zerkalo
-  might already own the app ID on the session bus — check with `pgrep` first.
+- **A window manager (`kwin_x11`) breaks window mapping entirely** — blank root,
+  no window ever appears. `capture-screenshots.sh` runs without one; match it.
+  (Corrected 2026-08-03 during phase 3c: an earlier note here blamed
+  `dbus-run-session` as well. That was wrong — it was `kwin` alone. See the
+  portal note below; `dbus-run-session` is in fact *required* for some dialogs.)
+- **Anything using `gtk4::FileDialog` needs `dbus-run-session`.** Without it the
+  harness shares Cal's real session bus, GTK routes the chooser to the real
+  desktop portal, and no window appears on the isolated display at all (the row
+  fires, the popover blanks, nothing opens). `GTK_USE_PORTAL=0` does not prevent
+  it. Under `dbus-run-session` the in-process chooser opens normally. This
+  affects Open File, New Blank Document and Save As.
 - With no WM there is no X input focus, so `xdotool key` alone goes nowhere.
   **Pointer clicks (XTEST) land regardless of focus**, and once a click has
   landed in a window, typing into it works.
@@ -279,7 +286,7 @@ function, not the file.
 
 ## Phase 3 — `AppWindow::new` (4,299 lines) — the main event
 
-**Status:** ◐ **IN PROGRESS** — 3a ☑ and 3b ☑ done (2026-08-03); 3c–3e remain
+**Status:** ◐ **IN PROGRESS** — 3a ☑ 3b ☑ 3c ☑ done (2026-08-03); 3d–3e remain
 **Risk:** medium · **Depends on:** Phase 2 (pattern established)
 
 ### Progress
@@ -299,7 +306,38 @@ function, not the file.
   Note the modest reduction: the destructures cost ~55 lines at the call
   sites. Construction extraction has a floor; the wiring is where the bulk is.
 
-### 3c — menu wiring: analysis done, design decision pending
+### 3c ☑ DONE (2026-08-03) — `AppWindow::new` 4,006 → 3,210
+
+`menus.rs` (875 lines) holds `MenuCtx` (20 fields of shared state) plus
+`wire_app_menus` and `wire_document_menus`, each taking `(&MenuCtx, &Menus)` —
+two parameters where positional extraction would have needed 30 and 21.
+`HeaderWidgets` gained the nested `menus: Menus` field as planned, so the buttons
+travel as one value.
+
+Two preparatory fixes, both behaviour-preserving:
+- `toast_overlay` was created *inside* the Print menu section; hoisted above the
+  run, where several later sections already needed it.
+- `toast_for_sync_btn` was deleted outright. It was `toast_overlay.clone()` —
+  the same GObject under a misleading name, and it was what actually got
+  assigned to the struct's `toast_overlay` field. All uses now say
+  `toast_overlay`.
+
+**Smoke-verified row by row** (see harness notes above; one app launch per row,
+because the dialogs are modal and one open dialog blocks input to the parent no
+matter whether it is hidden, moved or sent `WM_DELETE_WINDOW`):
+
+- run A, 10/10: Browse Documents → "My Documents", Export → "Export", Print →
+  "Print", Font Management, Settings, Setup & Onboarding, Git Remotes, Writing
+  Stats, Keyboard Shortcuts & Help → "Help — Zerkalo", About → "Zerkalo 0.20.0-dev2"
+- run B, 8/8: New from Template, New Blank Document → "New Document", Open File,
+  Update Template Settings, Repair Template Markers → "Marker repaired",
+  Save As, Browse Snapshots, Export for Web
+
+Not covered: **Save** and **GOST Type B font** act on the document and open no
+window; the **Import** rows are hidden in the throwaway home because pandoc is
+absent, so they need a machine with pandoc installed to exercise.
+
+### 3c — original analysis (kept for reference)
 
 **Do not start 3c by extracting menu sections one at a time.** Measured:
 
