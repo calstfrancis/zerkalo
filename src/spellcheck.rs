@@ -514,3 +514,202 @@ pub fn levenshtein(a: &str, b: &str) -> usize {
     }
     dp[m][n]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn words(text: &str) -> Vec<String> {
+        extract_words(text).into_iter().map(|(_, _, w)| w).collect()
+    }
+
+    // ── extract_words: prose ─────────────────────────────────────────────────
+
+    #[test]
+    fn extracts_plain_words_with_their_offsets() {
+        assert_eq!(
+            extract_words("the quick fox"),
+            vec![
+                (0, 3, "the".to_string()),
+                (4, 9, "quick".to_string()),
+                (10, 13, "fox".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn words_shorter_than_three_characters_are_skipped() {
+        assert_eq!(words("a an the is are"), vec!["the", "are"]);
+    }
+
+    #[test]
+    fn empty_and_wordless_input_yields_nothing() {
+        for text in ["", "   ", "123 456", "!!! ... ???", "\n\n\n"] {
+            assert!(extract_words(text).is_empty(), "text {text:?}");
+        }
+    }
+
+    #[test]
+    fn punctuation_splits_words_without_being_captured() {
+        assert_eq!(words("hello, world! yes?"), vec!["hello", "world", "yes"]);
+    }
+
+    #[test]
+    fn hyphens_and_apostrophes_split_words_into_parts() {
+        assert_eq!(words("well-known"), vec!["well", "known"]);
+        assert_eq!(words("don't"), vec!["don"]);
+    }
+
+    /// Offsets are code-point positions (matching `TextIter::offset()`), not
+    /// byte indices — so multi-byte characters earlier in the text must not
+    /// shift the offsets of later words.
+    #[test]
+    fn offsets_are_counted_in_code_points_not_bytes() {
+        let extracted = extract_words("naïve théorie");
+        assert_eq!(
+            extracted,
+            vec![(0, 5, "naïve".to_string()), (6, 13, "théorie".to_string())]
+        );
+        let chars: Vec<char> = "naïve théorie".chars().collect();
+        let (start, end, word) = &extracted[1];
+        assert_eq!(chars[*start..*end].iter().collect::<String>(), *word);
+    }
+
+    #[test]
+    fn non_latin_alphabetic_text_is_extracted() {
+        assert_eq!(words("Слово Божие"), vec!["Слово", "Божие"]);
+    }
+
+    // ── extract_words: Typst markup is skipped ───────────────────────────────
+
+    #[test]
+    fn line_and_block_comments_are_skipped() {
+        assert_eq!(words("real // ignored\nmore"), vec!["real", "more"]);
+        assert_eq!(words("real /* ignored */ more"), vec!["real", "more"]);
+        assert_eq!(words("real /* spans\nlines */ more"), vec!["real", "more"]);
+    }
+
+    #[test]
+    fn inline_and_fenced_raw_blocks_are_skipped() {
+        assert_eq!(words("prose `ignored` prose"), vec!["prose", "prose"]);
+        assert_eq!(
+            words("before\n```rust\nignored code\n```\nafter"),
+            vec!["before", "after"]
+        );
+    }
+
+    #[test]
+    fn math_regions_are_skipped() {
+        assert_eq!(words("prose $alpha beta$ prose"), vec!["prose", "prose"]);
+    }
+
+    #[test]
+    fn citations_and_labels_are_skipped() {
+        assert_eq!(words("see @augustine:confessions here"), vec!["see", "here"]);
+        assert_eq!(words("text <my-label> text"), vec!["text", "text"]);
+    }
+
+    #[test]
+    fn heading_markers_are_skipped_but_heading_text_is_kept() {
+        assert_eq!(words("= Introduction\nbody"), vec!["Introduction", "body"]);
+        assert_eq!(words("=== Deep heading"), vec!["Deep", "heading"]);
+    }
+
+    /// An `=` mid-line is not a heading marker, so nothing special happens —
+    /// it just isn't alphabetic and gets stepped over.
+    #[test]
+    fn an_equals_sign_mid_line_is_not_treated_as_a_heading() {
+        assert_eq!(words("alpha = beta"), vec!["alpha", "beta"]);
+    }
+
+    #[test]
+    fn hash_function_names_and_their_paren_or_brace_arguments_are_skipped() {
+        assert_eq!(words("#figure(image(\"cat.png\")) after"), vec!["after"]);
+        assert_eq!(words("#block{ignored code} after"), vec!["after"]);
+        assert_eq!(words("#nested(outer(inner)) after"), vec!["after"]);
+    }
+
+    /// Brace-skipping is anchored to `#ident` — a `{...}` block that isn't
+    /// directly attached to a hash function is walked as ordinary prose.
+    #[test]
+    fn a_detached_brace_block_is_not_skipped() {
+        assert_eq!(
+            words("#let value = {contents} after"),
+            vec!["value", "contents", "after"]
+        );
+    }
+
+    /// Bracketed content is prose (`#emph[...]`), so it must still be checked
+    /// even though the function name and paren arguments around it are not.
+    #[test]
+    fn bracketed_content_after_a_hash_function_is_still_prose() {
+        assert_eq!(words("#emph[emphasised prose]"), vec!["emphasised", "prose"]);
+        assert_eq!(
+            words("#text(size: 10pt)[visible words]"),
+            vec!["visible", "words"]
+        );
+    }
+
+    #[test]
+    fn offsets_survive_skipped_markup_and_still_index_the_original_text() {
+        let text = "// comment\nReformation @luther:1517 followed";
+        let chars: Vec<char> = text.chars().collect();
+        for (start, end, word) in extract_words(text) {
+            assert_eq!(chars[start..end].iter().collect::<String>(), word);
+        }
+        assert_eq!(words(text), vec!["Reformation", "followed"]);
+    }
+
+    #[test]
+    fn an_unterminated_raw_block_swallows_the_rest_of_the_text() {
+        assert_eq!(words("before ```\nnever closed"), vec!["before"]);
+    }
+
+    // ── levenshtein ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn identical_strings_have_distance_zero() {
+        assert_eq!(levenshtein("word", "word"), 0);
+        assert_eq!(levenshtein("", ""), 0);
+    }
+
+    #[test]
+    fn single_edits_have_distance_one() {
+        assert_eq!(levenshtein("cat", "cats"), 1, "insertion");
+        assert_eq!(levenshtein("cats", "cat"), 1, "deletion");
+        assert_eq!(levenshtein("cat", "bat"), 1, "substitution");
+    }
+
+    #[test]
+    fn distance_is_symmetric() {
+        for (a, b) in [("teh", "the"), ("recieve", "receive"), ("", "abc")] {
+            assert_eq!(levenshtein(a, b), levenshtein(b, a), "{a:?} vs {b:?}");
+        }
+    }
+
+    #[test]
+    fn a_transposition_counts_as_two_edits() {
+        assert_eq!(levenshtein("teh", "the"), 2);
+    }
+
+    #[test]
+    fn distance_from_an_empty_string_is_the_other_length_while_within_the_cap() {
+        assert_eq!(levenshtein("", "ab"), 2);
+        assert_eq!(levenshtein("ab", ""), 2);
+    }
+
+    /// The function caps at 3 for performance: any pair whose lengths differ by
+    /// more than 2 returns 3 without computing the real distance.
+    #[test]
+    fn length_differences_beyond_two_short_circuit_to_the_cap() {
+        assert_eq!(levenshtein("a", "abcdefgh"), 3);
+        assert_eq!(levenshtein("", "abc"), 3);
+        assert_eq!(levenshtein("completely", "different words here"), 3);
+    }
+
+    #[test]
+    fn levenshtein_counts_code_points_not_bytes() {
+        assert_eq!(levenshtein("café", "cafe"), 1);
+        assert_eq!(levenshtein("naïve", "naive"), 1);
+    }
+}

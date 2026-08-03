@@ -1,0 +1,392 @@
+# Zerkalo Refactor Plan — file splitting + library.rs tests
+
+**Created:** 2026-08-03 · **Baseline:** v0.20.0-dev2 · **Status:** Phase 1 done
+
+This file tracks progress. **Read it before starting any phase**, and update the
+status boxes as phases land. Same role `PRINT-PLAN.md` plays for the print work.
+
+---
+
+## Why this exists
+
+Assessment of the codebase at v0.20.0-dev2 found the code quality itself is
+sound — 269 tests passing in 0.39s, clippy clean, only ~23 `unwrap`/`expect`
+outside test modules across 46.5k lines, SQL fully parameterised. The problem is
+**size concentration**, plus one coverage hole:
+
+| Problem | Where | Size |
+|---|---|---|
+| `AppWindow::new` is one function | `ui/app_window.rs:81–4380` | **4,299 lines** |
+| `EditorPane::open_file` is one function | `ui/editor_pane.rs:2802–5532` | **2,730 lines** |
+| `EditorPane::new` | `ui/editor_pane.rs:303–1741` | 1,438 lines |
+| `TemplateDialog::new` | `ui/template_dialog.rs` | 1,247 lines |
+| `library.rs` has zero tests | `src/library.rs` | 1,083 lines |
+| `spellcheck.rs` has zero tests | `src/spellcheck.rs` | 516 lines |
+
+Four files hold 55% of the codebase. `AppWindow::new` is navigable only because
+of ~90 `── section ──` comment banners — a table of contents compensating for a
+function that should be forty functions. `open_file` is worse: the name lies, so
+nobody looking for tab-creation logic has a reason to open it.
+
+**Guiding principle: the banners are already the seams.** This is mechanical
+extraction, not redesign. No behaviour changes, no logic rewrites, no API
+redesign. If a phase starts requiring judgement calls about behaviour, stop and
+reconsider the split rather than pushing through.
+
+---
+
+## Ordering rationale
+
+Tests first (Phase 1), then splitting. Two reasons:
+
+1. `library.rs` is untested *and* untouched by the splitting work, so it's an
+   independent win that can't be invalidated by later phases.
+2. It builds the habit of "extract a seam, then test through it" on a small
+   file before applying the same thinking to a 4,000-line function.
+
+The splitting phases go **easiest → hardest** so the pattern is established on
+low-risk code first. `open_file` is last because it's the one with genuinely
+tangled state.
+
+---
+
+## Verification gate — run after EVERY phase
+
+Non-negotiable. A phase is not done until all four pass:
+
+```sh
+cargo test              # must stay at 269+ passing, 0 failed
+cargo clippy --all-targets   # must stay clean (0 warnings)
+cargo build --release   # must succeed
+./check-versions.sh     # version-consistency guard
+```
+
+Then a **manual smoke test** — the compiler can't catch a closure wired to the
+wrong widget. Launch and confirm:
+- App opens, a document loads, live preview compiles
+- Open a second file (tab switching works), edit it, autosave indicator moves
+- Ctrl+K palette, sidebar toggle, focus mode, hamburger menu items
+- Whichever subsystem the phase touched, exercised directly
+
+**Commit at the end of each phase**, separately. Never let two phases share a
+commit — a bisect needs to land on one extraction at a time.
+
+---
+
+## Phase 1 — `library.rs` tests
+
+**Status:** ☑ **DONE** (2026-08-03) — 71 tests added, 269 → 340 total, all gates green
+**Risk:** low · **Depends on:** nothing
+
+### Outcome
+
+- **1a done.** `Library` gained a `trash_dir: PathBuf` field + `default_trash_dir()`.
+  `open()` and `open_in_memory()` both use the real path (unchanged behaviour —
+  `open_in_memory` is a *production* fallback when `open()` fails, not just a test
+  hook, so it must keep the real trash dir). Tests use the private
+  `in_memory_with_trash_dir()`.
+- **1b done.** 46 tests in `library.rs`: trash lifecycle, all nine filters,
+  search, sort, upsert/timestamps, tags, categories, projects, import.
+- **1c done.** 25 tests in `spellcheck.rs`. `extract_words` turned out to be far
+  richer than the plan assumed — a Typst-aware markup skipper (comments, raw
+  blocks, math, citations, labels, `#fn(...)`/`{...}` args, heading markers), not
+  just a word splitter. Tests cover all of it plus code-point offset correctness.
+- Fixed a misattached doc comment: `extract_typst_title`'s docs were sitting on
+  `restore_collision_path` (`library.rs:1008`).
+
+### Two findings — behaviour pinned, NOT fixed (Phase 1 is no-behaviour-change)
+
+1. **Uncolored categories all render the same blue.** `get_category_color`'s doc
+   comment promises `None` "if it has never had one assigned", so callers can
+   pick a distinct per-category fallback. But the schema declares
+   `color_hex TEXT NOT NULL DEFAULT '#3584e4'`, so a row always has a color the
+   moment it exists — `None` is unreachable. The `stable_palette_color(&name)`
+   fallbacks at `library_window.rs:766` and `:1865` are therefore dead code, and
+   every uncolored category renders identically: the exact outcome the doc
+   comments say they exist to prevent. Pinned by
+   `an_uncolored_category_reports_the_schema_default_not_none`. **Fix would be:
+   make the column nullable (or stop defaulting it) so the palette fallback can
+   fire.** Ask Cal before changing — it's user-visible.
+2. **`move_to_trash` can mark a row deleted without the file having moved.** If
+   both `rename` and `copy` fail, the DB still sets `deleted=1` and a
+   `trash_path` pointing at a file that was never created. Not currently pinned
+   by a test (hard to provoke portably); noted for whoever touches this next.
+
+### Original plan follows (for reference)
+
+`library.rs` already has `open_in_memory()` (line 102) — a function that exists
+purely for testing, currently unused by any test. That's the hook.
+
+### 1a. Add the filesystem seam (prerequisite)
+
+`move_to_trash` (line 557), `restore_from_trash` (585), and
+`permanently_delete` (616) all resolve the trash directory via
+`glib::user_data_dir().join("zerkalo").join("trash")` — a hardcoded global. **They
+cannot be tested without a seam**, and testing them against the real path would
+write into Cal's actual data dir.
+
+Fix: give `Library` a `trash_dir: PathBuf` field.
+- `open()` sets it to `glib::user_data_dir().join("zerkalo").join("trash")` — unchanged behaviour
+- `open_in_memory()` gains a variant (or a `with_trash_dir` setter) taking a `tempfile::TempDir` path
+- Replace the three inline `glib::user_data_dir()` calls with `self.trash_dir`
+
+`tempfile` is already a dev-dependency. This is the only production-code change
+in Phase 1; everything else is pure test addition.
+
+### 1b. Tests to write
+
+Priority order — destructive operations first, since those are the ones that
+lose user data when wrong:
+
+**Trash lifecycle** (highest value — real file moves + DB state)
+- `move_to_trash` sets `deleted=1` and populates `trash_path`
+- `move_to_trash` actually moves the file off the original path
+- two same-named files trashed in the same second don't collide
+  (the `ts-{doc_id}-{name}` scheme at line 566 exists specifically for this —
+  pin it)
+- `restore_from_trash` puts the file back and clears `deleted`/`trash_path`
+- **restore when a new file now occupies the original path** uses
+  `restore_collision_path` instead of clobbering it (line 597 — this is the
+  data-loss case)
+- `restore_from_trash` on a doc with no `trash_path` is a no-op, not an error
+- `permanently_delete` removes both the DB row and the trash file
+
+**Query/filter layer** (`documents()`, line 277)
+- each `LibraryFilter` variant returns the right set: All excludes
+  archived+deleted; Project respects `pd.position` ordering; Tag/Category filter
+  correctly; Trash shows only deleted
+- search substring matching, including when `search` is empty (the `"%"` path)
+- each `SortOrder` variant orders correctly, and `pinned DESC` wins over the
+  sort in every filter
+- `doc_count()` agrees with `documents().len()` for the same filter
+
+**Tags & categories**
+- `set_doc_tags` replaces (not appends); `add_doc_tags` appends without duplicating
+- `delete_tag` removes the tag from all docs that had it
+- `rename_tag` preserves associations
+- `ensure_category` / `create_category` are idempotent
+- category colours round-trip
+
+**Upsert & timestamps**
+- `upsert_document` on the same path twice returns the same id, doesn't duplicate
+- `touch_opened` / `touch_saved` move only their own column
+
+Target: **~30 tests**. Suite should stay well under 1s.
+
+### 1c. Also in scope — `spellcheck.rs`
+
+Two pure functions, no seam needed, trivially testable:
+- `extract_words()` (line 208) — offsets are correct; hyphens, apostrophes,
+  non-ASCII/unicode, empty input, punctuation-only input
+- `levenshtein()` (line 495) — identity is 0, symmetry, empty-string cases,
+  single edits of each kind (insert/delete/substitute)
+
+Target: ~10 tests.
+
+---
+
+## Phase 2 — `TemplateDialog::new` (1,247 lines)
+
+**Status:** ☐ not started
+**Risk:** low · **Depends on:** nothing (do after Phase 1 for pattern-setting)
+
+Deliberately first among the splits: `template_dialog.rs` already has the most
+tests in the repo (38), so the extraction is well-covered by the existing suite —
+the safest place to establish the pattern.
+
+Split `new()` along its internal sections into private helpers. Leave the pure
+functions (`generate_typst_template`, `generate_preset_preview`) where they are;
+they're already separate and already tested.
+
+**Deliverable:** `new()` under ~200 lines, remainder in named `fn build_*`
+helpers. File stays one file — 5,920 lines is large but the problem here is the
+function, not the file.
+
+---
+
+## Phase 3 — `AppWindow::new` (4,299 lines) — the main event
+
+**Status:** ☐ not started
+**Risk:** medium · **Depends on:** Phase 2 (pattern established)
+
+### The mechanic
+
+Each `── banner ──` becomes a method. The existing banners already name them:
+
+```
+── Header bar ──                    → fn build_header_bar(...)
+── Hamburger menu items ──          → fn build_hamburger_menu(...)
+── Menu: Export ──                  → fn wire_export_menu(...)
+── Bibliography loading & watch ──  → fn wire_bibliography(...)
+── File tree ──                     → fn wire_file_tree(...)
+── LSP: poll for diagnostics ──     → fn spawn_lsp_poller(...)
+── Persist pane positions ──        → fn wire_pane_persistence(...)
+...
+```
+
+~90 banners → roughly 40 helpers after merging trivially small adjacent ones.
+
+### Sub-phases — do NOT do this in one commit
+
+Split across several commits, each independently verified against the gate:
+
+- **3a — Leaf dialogs & helpers.** Free functions at the file's end
+  (`show_backup_remote_dialog`, `show_github_token_dialog`,
+  `show_dynamic_shortcuts_window`, `post_process_latex_import`,
+  `handle_preview_click_jump`, …) are already outside `new()`. Move them to a
+  new `ui/app_window/dialogs.rs`. Pure file-move, near-zero risk, and it
+  immediately drops the main file by ~1,000 lines.
+- **3b — Widget construction.** The `── Header bar ──`, `── Popover layout ──`,
+  `── Panels ──`, `── Layout ──` sections. These build widgets and return them;
+  the least entangled.
+- **3c — Menu wiring.** All ~20 `── Menu: X ──` sections. Highly uniform
+  (connect a click handler to a menu row), so they extract almost identically.
+- **3d — Subsystem wiring.** Bibliography, CV entries, citations, file tree,
+  LSP, sync, watcher, pane persistence.
+- **3e — Startup & lifecycle.** Welcome window, setup wizard chain, missing-tool
+  checks, auto-backup.
+
+### The hard part: closure captures
+
+`app_window.rs` has **878 `.clone()` calls**, nearly all closure captures. When a
+section moves into a method, its captures must become parameters.
+
+- Prefer passing `&` references and cloning inside the helper, so the call site
+  stays readable
+- Where a helper needs 8+ captures, that's a signal the section is doing too
+  much — either it splits further, or those widgets genuinely belong in a
+  struct. **Bundle into a small `struct` of related widgets rather than growing
+  a 12-argument function.**
+- Resist the urge to redesign the ownership model mid-refactor. If a section
+  fights the extraction, leave it inline, note it here, and move on. A 600-line
+  `new()` with three stubborn inline sections is a huge win over 4,299.
+
+### On splitting into modules
+
+Convert `ui/app_window.rs` → `ui/app_window/` with `mod.rs`, `dialogs.rs`,
+`build.rs`, `menus.rs`, `wiring.rs`. Do this in 3a while the file is still
+whole — moving files later means re-resolving imports repeatedly.
+
+**Note:** the 23 existing tests in `app_window.rs` must move with the code they
+test. Check them after each sub-phase.
+
+---
+
+## Phase 4 — `EditorPane::open_file` (2,730 lines)
+
+**Status:** ☐ not started
+**Risk:** high · **Depends on:** Phase 3 (hardest last)
+
+### Why it's hardest
+
+Every section closes over the same freshly-created `buffer`/`view`/`tab`, plus
+much of the ~70-field `EditorPane` struct. Unlike `AppWindow::new` — where
+sections wire mostly-independent subsystems — these are genuinely interleaved
+around one tab's state.
+
+### The approach
+
+Introduce a **`TabContext` struct** holding what the per-tab closures need
+(`buffer`, `view`, `scroll_window`, `path`, plus the relevant `Rc` handles from
+`EditorPane`). Build it once at the top of `open_file`, then pass `&TabContext`
+to each extracted `fn wire_*`. This is the key move — without it, every helper
+takes 15 arguments and the refactor makes things worse, not better.
+
+Then extract along the 26 existing banners:
+
+```
+2891 ── Image / document drag-and-drop ──    → wire_drag_and_drop
+2961 ── Tab label ──                         → build_tab_label
+3123 ── Modified flag + word count ──        → wire_modified_and_word_count
+3249 ── Cursor position tracking ──          → wire_cursor_tracking
+3538 ── @-citation / !-cv-entry autocomplete → wire_citation_autocomplete
+3695 ── #-function LSP autocomplete ──       → wire_lsp_autocomplete
+3954 ── Key controller ──                    → wire_key_controller  (~550 lines,
+                                                splits further into the
+                                                Ctrl+B/I, Ctrl+D, Ctrl+/,
+                                                Ctrl+Enter, undo/redo and
+                                                word-nav sub-banners)
+4502 ── Alt+Enter spell suggestions ──       → wire_spell_suggestions
+4665 ── Spell check: debounced ──            → wire_spellcheck
+4753 ── Spell check: autocorrect ──          → wire_autocorrect
+4846 ── Right-click context menu ──          → wire_context_menu
+5191 ── Inline error assistant ──            → wire_error_assistant
+5486 ── Insert into notebook ──              → (stays inline; it's the tail)
+```
+
+Also rename: what remains should be honest about doing tab construction, or the
+tab-building body should live in `fn create_tab(...)` with `open_file` reduced
+to the existing-tab check plus a call to it.
+
+**Also split the file.** `editor_pane.rs` at 7,081 lines → `ui/editor_pane/`
+with `mod.rs`, `tab.rs`, `keys.rs`, `completion.rs`, `spell.rs`.
+
+### Manual testing is critical here
+
+`editor_pane.rs` has **zero tests**. The compiler will catch nothing beyond type
+errors. Every phase-4 commit needs hands-on verification of: typing, autocorrect,
+every keyboard shortcut listed above, both autocomplete paths, spell right-click,
+error hover, drag-and-drop, tab switching, word count, cursor/breadcrumb display.
+
+Consider writing a few `EditorPane` tests **before** this phase for anything
+extractable as a pure function (word navigation offsets, comment toggling,
+auto-pair logic) — but don't let that block the phase if the logic is too
+GTK-entangled to isolate.
+
+---
+
+## Phase 5 — `Library::documents()` deduplication
+
+**Status:** ☐ not started
+**Risk:** low · **Depends on:** Phase 1 (needs the tests as a safety net)
+
+`library.rs:277–405` is nine near-identical match arms. Each prepares a query,
+calls `query_map`, and loops `for r in rows { docs.push(r?); }`. The only
+variation is the JOIN, the WHERE prefix, and the parameter index.
+
+Collapse to one query path that composes those three fragments. **Only attempt
+this after Phase 1's filter/sort tests exist** — they're exactly the safety net
+that makes it a safe change, and they'll then cover one code path instead of nine.
+
+---
+
+## Phase 6 — optional: unblock the UI thread
+
+**Status:** ☐ not started
+**Risk:** low · **Depends on:** nothing · **Priority:** only if it's felt in use
+
+Two synchronous subprocess calls on the GTK main thread:
+- `ui/history_panel.rs:210,237` — `git log --follow` (slow on long histories)
+- `ui/preview_pane.rs:985,1019` — `pdftotext` (slow on large PDFs)
+
+Both are bounded and fine in the common case. If either ever feels sticky, port
+them to the pattern `do_sync` already uses correctly (`app_window.rs:4969`):
+spawn a thread, poll a `std::sync::mpsc::sync_channel` from
+`glib::timeout_add_local`. **Don't do this speculatively** — it adds async
+complexity for no benefit if nobody has noticed a freeze.
+
+---
+
+## Explicitly out of scope
+
+Keeping the blast radius small is the point. Do **not**, as part of this work:
+
+- Change any user-visible behaviour
+- Redesign the `Rc<RefCell<Option<Box<dyn Fn>>>>` callback pattern — it's
+  consistent, deliberate, and documented at `main.rs:1`
+- Remove the `clippy::type_complexity` allow
+- Add abstractions "while we're in here"
+- Touch `library_window.rs` (3,057 lines) or `setup_wizard.rs` (1,223) — large
+  files, but no single monster function; they can wait
+- Bump versions or release. This is refactor work; a version bump happens when
+  Cal asks for a dev build, per `CLAUDE.md`
+
+## Definition of done
+
+- [ ] No function in `src/` exceeds ~400 lines
+- [ ] `AppWindow::new` and `EditorPane::open_file` each under ~300 lines
+- [ ] `library.rs` and `spellcheck.rs` have meaningful test coverage
+- [ ] Test count materially up from 269; all passing
+- [ ] Clippy still clean, release build still works
+- [ ] `CHANGELOG.md` updated (internal/refactor entry — per `CLAUDE.md`'s
+      documentation policy, meaningful changes get an entry even without a release)

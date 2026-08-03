@@ -7,6 +7,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [0.20.0-dev2] — A print system worth the name, a leak closed, and saving you control
 
+### Internal
+- **The library database and the spell checker's text scanner now have tests** — 71 of them, covering the two largest untested modules in the codebase. The document library's trash, restore and permanent-delete paths move real files around and had no coverage at all; the case that matters most is restoring a document when something new has since taken its original path, which must land beside the newer file rather than overwrite it. `Library` now takes its trash directory as a field rather than resolving it globally, so those tests run against a temp directory instead of the real data directory. First phase of the plan in `REFACTOR-PLAN.md`.
+
 ### Added
 - **Typst packages are downloaded when a document first imports one.** `#import "@preview/…"` previously only worked if the package already happened to be in `~/.cache/typst/packages`; otherwise it failed with `file not found` naming an internal cache path. Packages — and their own dependencies — are now fetched on first use, the same way `typst-cli` does it, into the same shared cache. `@local` packages resolve too.
 - **Typst warnings now reach the error panel.** The compiler returned them all along and Zerkalo discarded every one, so deprecations and unused imports were invisible even though the panel already knew how to display warnings. A document that compiles cleanly but warns now says so, without the banner or toast reserved for real errors.
