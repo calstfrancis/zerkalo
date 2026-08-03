@@ -171,8 +171,8 @@ struct EditorTab {
     view: View,
     scroll_window: ScrolledWindow,
     modified: bool,
-    dot_label: Label,
     diag_dot: Label,
+    dot_label: Label,
     tab_box: GtkBox,
     display_name: String,
     lsp_popup: LspPopup,
@@ -298,6 +298,20 @@ fn set_status_toggle(btn: &Button, label: &Label, text: &str, active: bool) {
     btn.update_state(&[gtk4::accessible::State::Pressed(pressed)]);
 }
 
+
+/// The widgets belonging to one open tab. `open_file` was 2,730 lines largely
+/// because every wiring section closed over these same few values plus `self`;
+/// bundling them is what lets a section become a method instead of a closure
+/// with a dozen captures.
+struct TabContext {
+    path: PathBuf,
+    display_name: String,
+    buffer: Buffer,
+    view: View,
+    scroll: ScrolledWindow,
+    tab_box: GtkBox,
+    dot_label: Label,
+}
 
 impl EditorPane {
     pub fn new() -> Self {
@@ -3120,421 +3134,19 @@ impl EditorPane {
             tab_box.add_controller(rc_for_gesture);
         }
 
-        // ── Modified flag + word count ────────────────────────────────────────
+        let tab = TabContext {
+            path: path.clone(),
+            display_name: display_name.clone(),
+            buffer: buffer.clone(),
+            view: view.clone(),
+            scroll: scroll.clone(),
+            tab_box: tab_box.clone(),
+            dot_label: dot_label.clone(),
+        };
 
-        let state_for_change = self.state.clone();
-        let path_for_change = path.clone();
-        let dot_for_change = dot_label.clone();
-        let tab_box_for_change = tab_box.clone();
-        let tab_name_for_change = display_name.clone();
-        let on_change_cb = self.on_change.clone();
-        let on_modified_cb = self.on_modified_changed.clone();
-        let on_file_dirty_cb = self.on_file_dirty.clone();
-        let wc_for_change = self.word_count_label.clone();
-        let goal_for_change = self.goal_ring.clone();
-        let goal_frac_for_change = self.goal_fraction.clone();
-        let goal_val_for_change = self.word_count_goal.clone();
-        let goal_celebrating_for_change = self.goal_celebrating.clone();
-        let goal_was_met_for_change: Rc<Cell<bool>> = Rc::new(Cell::new(false));
-        let last_wc_for_change = self.last_wc_text.clone();
-        let project_root_for_wc = self.project_root.clone();
-        let session_start_for_change: Rc<std::cell::Cell<u32>> = Rc::new(std::cell::Cell::new(count_words(content)));
-        // SourceId-based debounce timers. Each keystroke cancels the previous
-        // pending timer before scheduling a new one, so timers never accumulate
-        // in the event loop regardless of typing speed.
-        let wc_timer: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
-        let comment_timer: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
-        let comment_spans: Rc<RefCell<Vec<(i32, i32)>>> = Rc::new(RefCell::new(Vec::new()));
-        let proj_wc_timer: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
-        buffer.connect_changed(move |buf| {
-            let newly_modified = {
-                let mut state = state_for_change.borrow_mut();
-                if let Some(tab) = state.tabs.get_mut(&path_for_change) {
-                    if !tab.modified { tab.modified = true; true } else { false }
-                } else { false }
-            };
-            if newly_modified {
-                // GTK widget ops must happen after borrow_mut is released — doing
-                // them inside the borrow can cause reentrant signal dispatch that
-                // tries to borrow state again, triggering a BorrowMutError panic.
-                dot_for_change.set_visible(true);
-                tab_box_for_change.update_property(&[gtk4::accessible::Property::Label(
-                    &format!("{} — unsaved", tab_name_for_change)
-                )]);
-                if let Some(f) = on_modified_cb.borrow().as_ref() { f(true); }
-                if let Some(f) = on_file_dirty_cb.borrow().as_ref() { f(path_for_change.clone(), true); }
-            }
-            if let Some(f) = on_change_cb.borrow().as_ref() { f(); }
-
-            // ── Debounced word count (300 ms) ─────────────────────────────────
-            if let Some(id) = wc_timer.borrow_mut().take() { id.remove(); }
-            {
-                let wc2 = wc_for_change.clone();
-                let goal2 = goal_for_change.clone();
-                let goal_frac2 = goal_frac_for_change.clone();
-                let goal_val2 = goal_val_for_change.clone();
-                let last_wc2 = last_wc_for_change.clone();
-                let ss2 = session_start_for_change.clone();
-                let buf2 = buf.clone();
-                let t = wc_timer.clone();
-                let goal_cel2 = goal_celebrating_for_change.clone();
-                let goal_was2 = goal_was_met_for_change.clone();
-                *wc_timer.borrow_mut() = Some(glib::timeout_add_local_once(
-                    Duration::from_millis(300),
-                    move || {
-                        *t.borrow_mut() = None;
-                        let (s, e) = buf2.bounds();
-                        let text = buf2.text(&s, &e, false);
-                        let goal = *goal_val2.borrow();
-                        if goal > 0 {
-                            let was_met = goal_was2.get();
-                            update_goal_ring(&goal2, &goal_frac2, &text, goal);
-                            let now_met = goal_frac2.get() >= 1.0;
-                            goal_was2.set(now_met);
-                            if now_met && !was_met {
-                                goal_cel2.set(true);
-                                goal2.queue_draw();
-                                let cel_reset = goal_cel2.clone();
-                                let ring_reset = goal2.clone();
-                                glib::timeout_add_local_once(
-                                    Duration::from_millis(900),
-                                    move || {
-                                        cel_reset.set(false);
-                                        ring_reset.queue_draw();
-                                    },
-                                );
-                            }
-                        }
-                        let wc_str = wc_str_with_delta(&text, ss2.get());
-                        *last_wc2.borrow_mut() = wc_str.clone();
-                        wc2.set_text(&wc_str);
-                    },
-                ));
-            }
-
-            // ── Debounced project word count tooltip (5 s) ────────────────────
-            if let Some(id) = proj_wc_timer.borrow_mut().take() { id.remove(); }
-            {
-                let wc_lbl_proj = wc_for_change.clone();
-                let root_proj = project_root_for_wc.clone();
-                let t = proj_wc_timer.clone();
-                *proj_wc_timer.borrow_mut() = Some(glib::timeout_add_local_once(
-                    Duration::from_millis(5000),
-                    move || {
-                        *t.borrow_mut() = None;
-                        if let Some(root) = root_proj.borrow().as_ref() {
-                            let total = count_project_words(root);
-                            wc_lbl_proj.set_tooltip_text(Some(&format!("Project total: {total} words")));
-                        }
-                    },
-                ));
-            }
-
-            // ── Debounced comment highlights (500 ms) ─────────────────────────
-            if let Some(id) = comment_timer.borrow_mut().take() { id.remove(); }
-            {
-                let buf_comment = buf.clone();
-                let t = comment_timer.clone();
-                let cache = comment_spans.clone();
-                *comment_timer.borrow_mut() = Some(glib::timeout_add_local_once(
-                    Duration::from_millis(500),
-                    move || {
-                        *t.borrow_mut() = None;
-                        apply_comment_highlights(&buf_comment, Some(&cache));
-                    },
-                ));
-            }
-        });
-
-        // ── Cursor position tracking + heading detection ──────────────────────
-
-        let cursor_lbl = self.cursor_label.clone();
-        let section_wc_lbl = self.section_wc_label.clone();
-        let last_section_line: Rc<std::cell::Cell<i32>> = Rc::new(std::cell::Cell::new(-1));
-        let section_wc_timer: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
-        let wc_lbl_for_sel = self.word_count_label.clone();
-        let last_wc_for_mark = self.last_wc_text.clone();
-        // Extra clones for the selection_bound handler below.
-        let wc_lbl_for_sel_bound = wc_lbl_for_sel.clone();
-        let last_wc_for_sel_bound = last_wc_for_mark.clone();
-        let breadcrumb_lbl = self.breadcrumb_label.clone();
-        let lsp_lbl_for_pkg = self.lsp_status_label.clone();
-        let on_heading_cb = self.on_cursor_heading.clone();
-        let on_moved_cb = self.on_cursor_moved.clone();
-        let cursor_moved_gen: Rc<std::cell::Cell<u64>> = Rc::new(std::cell::Cell::new(0));
-        let typewriter_gen: Rc<std::cell::Cell<u64>> = Rc::new(std::cell::Cell::new(0));
-        let heading_sync_gen: Rc<std::cell::Cell<u64>> = Rc::new(std::cell::Cell::new(0));
-        let path_for_heading = path.clone();
-        let path_for_moved = path.clone();
-        let last_heading_line: Rc<RefCell<u32>> = Rc::new(RefCell::new(u32::MAX));
-        let typewriter_for_mark = self.typewriter_scroll.clone();
-        let view_for_typewriter = view.clone();
-        let scroll_for_typewriter = scroll.clone();
-        let crosshair_for_mark = self.typewriter_crosshair.clone();
-        let crosshair_timer_for_mark = self.typewriter_crosshair_timer.clone();
-        let view_for_scroll_margin = view.clone();
-        // Track last line the typewriter scroll recentered on, so we only fire
-        // when the cursor crosses a line boundary (not every column move).
-        let last_tw_line: Rc<std::cell::Cell<i32>> = Rc::new(std::cell::Cell::new(-1));
-        // Only do typewriter scroll when typing, not on mouse click.
-        // connect_changed fires before connect_mark_set on keyboard input.
-        let typing_flag: Rc<std::cell::Cell<bool>> = Rc::new(std::cell::Cell::new(false));
-        let typing_flag_set = typing_flag.clone();
-        buffer.connect_changed(move |_| {
-            typing_flag_set.set(true);
-        });
-        buffer.connect_mark_set(move |buf, _iter, mark| {
-            if mark.name().as_deref() == Some("insert") {
-                let cursor = buf.iter_at_mark(mark);
-                let line = cursor.line() + 1;
-                let col = cursor.line_offset() + 1;
-                cursor_lbl.set_text(&format!("L{line}:C{col}"));
-                cursor_lbl.set_tooltip_text(Some(&format!("Line {line}, Column {col}")));
-
-                // Section word count — recompute only when the line changes, and
-                // debounced so holding an arrow key doesn't rescan per line.
-                let cur_line = cursor.line();
-                if cur_line != last_section_line.get() {
-                    last_section_line.set(cur_line);
-                    if let Some(id) = section_wc_timer.borrow_mut().take() { id.remove(); }
-                    let lbl = section_wc_lbl.clone();
-                    let b = buf.clone();
-                    let t = section_wc_timer.clone();
-                    *section_wc_timer.borrow_mut() = Some(glib::timeout_add_local_once(
-                        SECTION_WC_DEBOUNCE,
-                        move || {
-                            *t.borrow_mut() = None;
-                            if let Some(wc) = section_word_count_for_line(&b, cur_line) {
-                                lbl.set_text(&format!("§ {wc}"));
-                                lbl.set_tooltip_text(Some("Words in this section"));
-                            } else {
-                                lbl.set_text("");
-                            }
-                        },
-                    ));
-                }
-
-                // Selection word/sentence stats — use cached wc to avoid reading entire buffer
-                if let Some((sel_s, sel_e)) = buf.selection_bounds() {
-                    let sel_text = buf.text(&sel_s, &sel_e, false).to_string();
-                    let word_count = sel_text.split_whitespace().count();
-                    let sentence_count = sel_text
-                        .split(['.', '!', '?'])
-                        .filter(|s| !s.trim().is_empty())
-                        .count();
-                    wc_lbl_for_sel.set_text(&format!(
-                        "{word_count} words, {sentence_count} sentences selected"
-                    ));
-                } else {
-                    // Restore cached word count — no full buffer read needed
-                    let cached = last_wc_for_mark.borrow().clone();
-                    if !cached.is_empty() {
-                        wc_lbl_for_sel.set_text(&cached);
-                    }
-                }
-
-                // Read typing flag before any scroll decisions. connect_changed fires
-                // before connect_mark_set on keyboard input, so was_typing is true for
-                // keystrokes and false for mouse clicks.
-                let was_typing = typing_flag.get();
-                typing_flag.set(false);
-
-                // Scroll margin: keep the cursor at least ~5 lines from the viewport
-                // edges while typing (within_margin=0.15). Only queued on keyboard
-                // input — mouse press must NOT queue this or the idle fires mid-drag
-                // and breaks selection.
-                //
-                // Inside the idle we re-check two conditions before scrolling:
-                //  1. No selection active (drag started while idle was pending).
-                //  2. Cursor is within ±1 viewport height of the visible area.
-                //     If it's further away the user intentionally scrolled; snapping
-                //     back would be disorienting. ±1vh covers the normal case of
-                //     typing one or two lines past the edge.
-                if was_typing && !buf.has_selection() {
-                    let vs = view_for_scroll_margin.clone();
-                    let insert_mark = buf.get_insert();
-                    let buf_s = buf.clone();
-                    glib::idle_add_local_once(move || {
-                        if buf_s.has_selection() { return; }
-                        let cursor = buf_s.iter_at_mark(&insert_mark);
-                        let loc = vs.iter_location(&cursor);
-                        let (_, wy) = vs.buffer_to_window_coords(
-                            TextWindowType::Widget, loc.x(), loc.y(),
-                        );
-                        let view_h = vs.allocated_height();
-                        if wy > -view_h && wy < 2 * view_h {
-                            vs.scroll_to_mark(&insert_mark, 0.15, false, 0.0, 0.5);
-                        }
-                    });
-                }
-
-                // Typewriter scroll: only recenter when typing (not on mouse click).
-                // Debounced 80 ms so rapid line crossings coalesce into one recenter.
-                if *typewriter_for_mark.borrow()
-                    && was_typing
-                    && !buf.has_selection()
-                    && cursor.line() != last_tw_line.get()
-                {
-                    last_tw_line.set(cursor.line());
-                    let mut c = cursor;
-                    let vt = view_for_typewriter.clone();
-                    let sc_tw = scroll_for_typewriter.clone();
-                    let gen = typewriter_gen.get().wrapping_add(1);
-                    typewriter_gen.set(gen);
-                    let gen_rc = typewriter_gen.clone();
-                    let crosshair_tw = crosshair_for_mark.clone();
-                    let crosshair_timer_tw = crosshair_timer_for_mark.clone();
-                    glib::timeout_add_local_once(
-                        std::time::Duration::from_millis(80),
-                        move || {
-                            if gen_rc.get() != gen { return; }
-                            // Preserve horizontal scroll — scroll_to_iter with xalign=0.0 would
-                            // snap the view left, hiding text behind the left margin/line numbers.
-                            let h = sc_tw.hadjustment().value();
-                            vt.scroll_to_iter(&mut c, 0.0, true, 0.0, 0.45);
-                            sc_tw.hadjustment().set_value(h);
-                            // Show crosshair line at anchor; hide after 800ms
-                            crosshair_tw.set_visible(true);
-                            crosshair_tw.queue_draw();
-                            if let Some(id) = crosshair_timer_tw.borrow_mut().take() { id.remove(); }
-                            let ch = crosshair_tw.clone();
-                            let ct = crosshair_timer_tw.clone();
-                            let id = glib::timeout_add_local_once(
-                                std::time::Duration::from_millis(800),
-                                move || { ch.set_visible(false); *ct.borrow_mut() = None; },
-                            );
-                            *crosshair_timer_tw.borrow_mut() = Some(id);
-                        },
-                    );
-                }
-
-                // #import "@preview/pkg:ver" tooltip
-                {
-                    let line_start = buf.iter_at_line(cursor.line()).unwrap_or_else(|| buf.start_iter());
-                    let line_end = {
-                        let mut e = line_start;
-                        if !e.ends_line() { e.forward_to_line_end(); }
-                        e
-                    };
-                    let line_text = buf.text(&line_start, &line_end, false).to_string();
-                    let trimmed = line_text.trim();
-                    if let Some(rest) = trimmed.strip_prefix("#import \"@preview/") {
-                        let pkg_name: String = rest.chars()
-                            .take_while(|c| *c != ':' && *c != '"')
-                            .collect();
-                        // Strip version suffix (e.g. "codly" from "codly:1.0.0")
-                        let base_name = pkg_name.split(':').next().unwrap_or(&pkg_name);
-                        if let Some((_, desc)) = IMPORT_PACKAGE_TOOLTIPS.iter()
-                            .find(|(n, _)| *n == base_name)
-                        {
-                            let lbl = lsp_lbl_for_pkg.clone();
-                            let desc_s = desc.to_string();
-                            let pkg_s = base_name.to_string();
-                            lbl.set_text(&format!("{pkg_s}: {desc_s}"));
-                            glib::timeout_add_local_once(
-                                std::time::Duration::from_secs(3),
-                                move || { lbl.set_text(""); },
-                            );
-                        }
-                    }
-                }
-
-                // Update breadcrumb heading path
-                let heading_path = build_heading_path(buf, cursor.line());
-                breadcrumb_lbl.set_text(&heading_path);
-
-                // Scan backward for a heading; only scroll preview on keyboard nav (not mouse click).
-                // Debounced 200 ms so the preview doesn't jump on every section boundary crossing.
-                if was_typing {
-                    let heading_line = find_heading_line_for(buf, cursor.line());
-                    if heading_line != *last_heading_line.borrow() {
-                        *last_heading_line.borrow_mut() = heading_line;
-                        if heading_line != u32::MAX && on_heading_cb.borrow().is_some() {
-                            let gen = heading_sync_gen.get().wrapping_add(1);
-                            heading_sync_gen.set(gen);
-                            let gen_rc = heading_sync_gen.clone();
-                            let cb_h = on_heading_cb.clone();
-                            let path_h = path_for_heading.clone();
-                            glib::timeout_add_local_once(
-                                std::time::Duration::from_millis(200),
-                                move || {
-                                    if gen_rc.get() != gen { return; }
-                                    if let Some(f) = cb_h.borrow().as_ref() {
-                                        f(path_h.clone(), heading_line);
-                                    }
-                                },
-                            );
-                        }
-                    }
-                }
-
-                // Debounced reverse sync: notify app_window of cursor position 300ms after it
-                // settles. Only fire on keyboard movement (was_typing), not mouse clicks —
-                // otherwise a click in the editor jumps the preview to match the clicked line.
-                // Uses a generation counter rather than SourceId::remove() — glib 0.18 panics
-                // when remove() is called on a source that timeout_add_local_once already removed.
-                if was_typing {
-                    let line = cursor.line() as u32;
-                    let total = buf.line_count() as u32;
-                    let gen = cursor_moved_gen.get().wrapping_add(1);
-                    cursor_moved_gen.set(gen);
-                    let cb = on_moved_cb.clone();
-                    let path_m = path_for_moved.clone();
-                    let gen_rc = cursor_moved_gen.clone();
-                    glib::timeout_add_local_once(
-                        std::time::Duration::from_millis(300),
-                        move || {
-                            if gen_rc.get() == gen {
-                                if let Some(f) = cb.borrow().as_ref() {
-                                    f(path_m.clone(), line, total);
-                                }
-                            }
-                        },
-                    );
-                }
-            }
-        });
-
-        // When the user clicks to deselect, GTK moves the `insert` mark first and
-        // `selection_bound` second. The `insert` handler above fires while
-        // `selection_bound` is still at the old anchor, making
-        // `selection_bounds()` return Some — so it prints "N selected" even
-        // though nothing is selected. This second handler fires when
-        // `selection_bound` arrives and clears the ghost label.
-        buffer.connect_mark_set(move |buf, _iter, mark| {
-            if mark.name().as_deref() != Some("selection_bound") { return; }
-            if !buf.has_selection() {
-                let cached = last_wc_for_sel_bound.borrow().clone();
-                if !cached.is_empty() {
-                    wc_lbl_for_sel_bound.set_text(&cached);
-                }
-            }
-        });
-
-        // ── Undo / Redo sensitivity ───────────────────────────────────────────
-        // Guard against background-tab interference: only update the shared
-        // undo/redo buttons when the notification comes from the active tab's
-        // buffer. A background tab's begin_user_action or set_text can fire
-        // notify::can-undo and silently grey out the button for the active tab.
-        {
-            let ub = self.undo_btn.clone();
-            let nb_u = self.notebook.clone();
-            let sc_u = scroll.clone();
-            buffer.connect_can_undo_notify(move |buf| {
-                if nb_u.page_num(&sc_u) == nb_u.current_page() {
-                    ub.set_sensitive(buf.can_undo());
-                }
-            });
-            let rb = self.redo_btn.clone();
-            let nb_r = self.notebook.clone();
-            let sc_r = scroll.clone();
-            buffer.connect_can_redo_notify(move |buf| {
-                if nb_r.page_num(&sc_r) == nb_r.current_page() {
-                    rb.set_sensitive(buf.can_redo());
-                }
-            });
-        }
-
+        self.wire_modified_and_word_count(&tab, content);
+        self.wire_cursor_tracking(&tab);
+        self.wire_undo_redo_sensitivity(&tab);
         // ── @-citation / !-cv-entry autocomplete ──────────────────────────────
 
         let bib_popup = BibPopup::new(&view, self.bib_entries.clone(), self.cv_entries.clone());
@@ -4499,350 +4111,9 @@ impl EditorPane {
         let hold_position: Rc<Cell<Option<(f64, f64)>>> = Rc::new(Cell::new(None));
         let hold_until: Rc<Cell<Instant>> = Rc::new(Cell::new(Instant::now()));
 
-        // ── Alt+Enter: open spell suggestions for word under cursor ─────────────
-        {
-            let spell_ae = self.spell_checker.clone();
-            let buf_ae   = buffer.clone();
-            let view_ae  = view.clone();
-            let scroll_ae = scroll.clone();
-            let hold_pos_ae = hold_position.clone();
-            let hold_until_ae = hold_until.clone();
-            let ae_ctrl  = EventControllerKey::new();
-            ae_ctrl.connect_key_pressed(move |_, key, _, mods| {
-                use gtk4::gdk::{Key, ModifierType};
-                if key != Key::Return && key != Key::KP_Enter { return glib::Propagation::Proceed; }
-                if !mods.contains(ModifierType::ALT_MASK) { return glib::Propagation::Proceed; }
-
-                let sc = spell_ae.borrow();
-                if !sc.enabled { return glib::Propagation::Proceed; }
-
-                let buf = &buf_ae;
-                let pos = buf.cursor_position();
-                let iter = buf.iter_at_offset(pos);
-                let table = buf.tag_table();
-                let Some(tag) = table.lookup("zerkalo-spell") else { return glib::Propagation::Proceed; };
-                if !iter.has_tag(&tag) { return glib::Propagation::Proceed; }
-
-                let mut word_start = iter;
-                loop {
-                    let mut prev = word_start;
-                    if !prev.backward_char() { break; }
-                    if !prev.char().is_alphabetic() { break; }
-                    word_start = prev;
-                }
-                let mut word_end = iter;
-                while word_end.char().is_alphabetic() {
-                    if !word_end.forward_char() { break; }
-                }
-                let word = buf.text(&word_start, &word_end, false).to_string();
-                if word.is_empty() { return glib::Propagation::Proceed; }
-
-                let already_ignored = sc.is_ignored(&word);
-                let lang = sc.primary_language().to_string();
-                drop(sc);
-
-                // Position popover at cursor
-                let (cx, cy) = {
-                    let iter2 = buf.iter_at_offset(pos);
-                    let rect = view_ae.iter_location(&iter2);
-                    (rect.x() + rect.width() / 2, rect.y() + rect.height())
-                };
-                let popover = Popover::new();
-                popover.set_parent(&view_ae);
-                popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(cx, cy, 1, 1)));
-                popover.set_has_arrow(true);
-                popover.set_autohide(true);
-
-                let vbox = GtkBox::new(Orientation::Vertical, 2);
-                vbox.set_margin_top(6); vbox.set_margin_bottom(6);
-                vbox.set_margin_start(4); vbox.set_margin_end(4);
-
-                // Open on a placeholder and fill the list when hunspell replies.
-                // Asking it inline blocked the main loop for the whole fork,
-                // exec and wait before the menu could even appear.
-                let pending = Label::new(Some("Checking\u{2026}"));
-                pending.add_css_class("dim-label");
-                pending.set_margin_top(4); pending.set_margin_bottom(4);
-                vbox.append(&pending);
-
-                let pop_close = popover.clone();
-                popover.connect_closed(move |_| { pop_close.unparent(); });
-                popover.set_child(Some(&vbox));
-                popover.popup();
-                popover.grab_focus();
-
-                // Offsets, not TextIters: the reply lands after this handler
-                // returns, and any edit in between invalidates an iterator.
-                let ws_off = word_start.offset();
-                let we_off = word_end.offset();
-
-                let (tx, rx) = std::sync::mpsc::sync_channel::<Vec<String>>(1);
-                {
-                    let word_bg = word.clone();
-                    std::thread::spawn(move || {
-                        let out = if already_ignored {
-                            Vec::new()
-                        } else {
-                            crate::spellcheck::suggestions_for_word(&word_bg, &lang)
-                        };
-                        tx.send(out).ok();
-                    });
-                }
-
-                let rx = Rc::new(rx);
-                let vbox_fill = vbox.clone();
-                let pending_fill = pending.clone();
-                let popover_fill = popover.clone();
-                let buf_fill = buf_ae.clone();
-                let scroll_fill = scroll_ae.clone();
-                let hold_pos_fill = hold_pos_ae.clone();
-                let hold_until_fill = hold_until_ae.clone();
-                let word_fill = word.clone();
-                glib::timeout_add_local(Duration::from_millis(30), move || {
-                    let suggestions = match rx.try_recv() {
-                        Ok(s) => s,
-                        Err(std::sync::mpsc::TryRecvError::Empty) => {
-                            // Nothing to fill if the user already dismissed it.
-                            if !popover_fill.is_visible() {
-                                return glib::ControlFlow::Break;
-                            }
-                            return glib::ControlFlow::Continue;
-                        }
-                        Err(_) => return glib::ControlFlow::Break,
-                    };
-                    if !popover_fill.is_visible() {
-                        return glib::ControlFlow::Break;
-                    }
-                    vbox_fill.remove(&pending_fill);
-
-                    if suggestions.is_empty() {
-                        let lbl = Label::new(Some("No suggestions"));
-                        lbl.add_css_class("dim-label");
-                        lbl.set_margin_top(4); lbl.set_margin_bottom(4);
-                        vbox_fill.append(&lbl);
-                    } else {
-                        for sugg in suggestions.iter().take(6) {
-                            let btn = Button::with_label(sugg);
-                            btn.add_css_class("flat");
-                            let buf2 = buf_fill.clone();
-                            let s = sugg.clone();
-                            let pop2 = popover_fill.clone();
-                            let scroll_sg = scroll_fill.clone();
-                            let hold_p = hold_pos_fill.clone();
-                            let hold_u = hold_until_fill.clone();
-                            let expected = word_fill.clone();
-                            btn.connect_clicked(move |_| {
-                                let vpos = scroll_sg.vadjustment().value();
-                                let hpos = scroll_sg.hadjustment().value();
-                                hold_p.set(Some((vpos, hpos)));
-                                hold_u.set(Instant::now() + PASTE_HOLD);
-
-                                let mut a = buf2.iter_at_offset(ws_off);
-                                let mut b = buf2.iter_at_offset(we_off);
-                                // The buffer may have changed while the menu was
-                                // open; only replace if the word is still there.
-                                if buf2.text(&a, &b, false) == expected.as_str() {
-                                    buf2.begin_user_action();
-                                    buf2.delete(&mut a, &mut b);
-                                    buf2.insert(&mut a, &s);
-                                    buf2.end_user_action();
-                                }
-                                pop2.popdown();
-
-                                let release = hold_p.clone();
-                                glib::timeout_add_local_once(PASTE_HOLD, move || release.set(None));
-                            });
-                            vbox_fill.append(&btn);
-                        }
-                    }
-                    glib::ControlFlow::Break
-                });
-                glib::Propagation::Stop
-            });
-            view.add_controller(ae_ctrl);
-        }
-
-        // ── Spell check: debounced buffer check ───────────────────────────────
-
-        {
-            let spell_c = self.spell_checker.clone();
-            let spell_timer: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
-            let spell_poll_timer: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
-            let buf_spell = buffer.clone();
-
-            buffer.connect_changed(move |buf| {
-                let enabled = {
-                    let sc = spell_c.borrow();
-                    sc.enabled
-                };
-                if !enabled {
-                    // Release spell_checker borrow before GTK tag ops — remove_tag_by_name
-                    // can cascade through GtkSourceView signals and re-enter this closure
-                    // (or another that borrows spell_checker), causing a BorrowError panic.
-                    clear_spell_tags(&buf_spell);
-                    return;
-                }
-
-                // Cancel any pending debounce and in-flight poll timer.
-                if let Some(id) = spell_timer.borrow_mut().take() { id.remove(); }
-                if let Some(id) = spell_poll_timer.borrow_mut().take() { id.remove(); }
-
-                let buf2 = buf.clone();
-                let sc2 = spell_c.clone();
-                let t = spell_timer.clone();
-                let pt = spell_poll_timer.clone();
-                let pt2 = spell_poll_timer.clone();
-
-                *spell_timer.borrow_mut() = Some(glib::timeout_add_local_once(
-                    Duration::from_millis(700),
-                    move || {
-                        *t.borrow_mut() = None;
-
-                        let sc = sc2.borrow();
-                        if !sc.enabled {
-                            clear_spell_tags(&buf2);
-                            return;
-                        }
-                        let langs = sc.languages.clone();
-                        let ignored = sc.ignored();
-                        drop(sc);
-
-                        let (s, e) = buf2.bounds();
-                        let text = buf2.text(&s, &e, true).to_string();
-                        let buf3 = buf2.clone();
-
-                        let (tx, rx) = std::sync::mpsc::sync_channel(1);
-                        std::thread::spawn(move || {
-                            let words = crate::spellcheck::extract_words(&text);
-                            let unique: Vec<String> = {
-                                let mut seen = HashSet::new();
-                                words.iter()
-                                    .filter(|(_, _, w)| !ignored.contains(&w.to_lowercase()) && seen.insert(w.to_lowercase()))
-                                    .map(|(_, _, w)| w.clone())
-                                    .collect()
-                            };
-                            let unique_refs: Vec<&str> = unique.iter().map(|s| s.as_str()).collect();
-                            let misspelled = crate::spellcheck::check_words_batch(&unique_refs, &langs);
-                            let _ = tx.send((words, misspelled));
-                        });
-
-                        let poll_id = glib::timeout_add_local(Duration::from_millis(50), move || {
-                            match rx.try_recv() {
-                                Ok((words, misspelled)) => {
-                                    // Clear the RefCell before returning Break. GLib auto-removes
-                                    // the source after the callback, but the RefCell still holds
-                                    // the now-dead SourceId. A subsequent connect_changed would call
-                                    // id.remove() on it and panic with "Failed to remove source".
-                                    *pt2.borrow_mut() = None;
-                                    apply_spell_tags(&buf3, &words, &misspelled);
-                                    glib::ControlFlow::Break
-                                }
-                                Err(std::sync::mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
-                                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                                    *pt2.borrow_mut() = None;
-                                    glib::ControlFlow::Break
-                                }
-                            }
-                        });
-                        *pt.borrow_mut() = Some(poll_id);
-                    },
-                ));
-            });
-        }
-
-        // ── Spell check: autocorrect on word boundary ─────────────────────────
-
-        {
-            let spell_ac = self.spell_checker.clone();
-            let buf_ac = buffer.clone();
-
-            buffer.connect_changed(move |buf| {
-                let sc = spell_ac.borrow();
-                if !sc.enabled || !sc.autocorrect {
-                    return;
-                }
-
-                let cursor = buf.cursor_position();
-                if cursor < 2 {
-                    return;
-                }
-
-                let just_typed = buf.iter_at_offset(cursor - 1);
-                let ch = just_typed.char();
-                // Only autocorrect when a word-terminating character is typed
-                if !matches!(ch, ' ' | '\t' | '\n' | '.' | ',' | ';' | ':' | '!' | '?') {
-                    return;
-                }
-
-                // Scan backward to find the preceding word
-                let word_end = buf.iter_at_offset(cursor - 1);
-                let mut word_start = word_end;
-                loop {
-                    let mut prev = word_start;
-                    if !prev.backward_char() { break; }
-                    if !prev.char().is_alphabetic() { break; }
-                    word_start = prev;
-                }
-                if word_start == word_end { return; }
-
-                let word = buf.text(&word_start, &word_end, false).to_string();
-                if word.len() < 3 || sc.is_ignored(&word) { return; }
-
-                // Don't autocorrect proper nouns or words already starting with upper
-                if word.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
-                    return;
-                }
-
-                let lang = sc.primary_language().to_string();
-                drop(sc);
-
-                // Ask hunspell on a worker thread. This runs from
-                // `connect_changed`, i.e. inside a keystroke: doing the
-                // fork/exec/wait inline stalled the main loop on every space,
-                // period, comma, semicolon, colon, `!` and `?` the user typed.
-                //
-                // Char offsets rather than TextIter: iterators are invalidated
-                // by any later buffer edit, and now the reply arrives well
-                // after this handler has returned. The word at those offsets is
-                // re-validated before anything is replaced, so keystrokes in
-                // the meantime are safely ignored.
-                let ws_off = word_start.offset();
-                let we_off = word_end.offset();
-                let word_c = word.clone();
-                let buf_c = buf_ac.clone();
-                let (tx, rx) = std::sync::mpsc::sync_channel::<Vec<String>>(1);
-                std::thread::spawn(move || {
-                    tx.send(crate::spellcheck::suggestions_for_word(&word_c, &lang)).ok();
-                });
-
-                let word_c = word.clone();
-                let rx = Rc::new(rx);
-                glib::timeout_add_local(Duration::from_millis(30), move || {
-                    let suggestions = match rx.try_recv() {
-                        Ok(s) => s,
-                        Err(std::sync::mpsc::TryRecvError::Empty) => {
-                            return glib::ControlFlow::Continue
-                        }
-                        Err(_) => return glib::ControlFlow::Break,
-                    };
-                    // Only apply if edit distance is 1 (very confident replacement)
-                    if let Some(best) = suggestions.first() {
-                        if crate::spellcheck::levenshtein(&word_c.to_lowercase(), &best.to_lowercase()) <= 1 {
-                            let mut s = buf_c.iter_at_offset(ws_off);
-                            let mut e = buf_c.iter_at_offset(we_off);
-                            if buf_c.text(&s, &e, false) == word_c.as_str() {
-                                buf_c.begin_user_action();
-                                buf_c.delete(&mut s, &mut e);
-                                buf_c.insert(&mut s, best);
-                                buf_c.end_user_action();
-                            }
-                        }
-                    }
-                    glib::ControlFlow::Break
-                });
-            });
-        }
-
+        self.wire_spell_suggestions(&tab, &hold_position, &hold_until);
+        self.wire_spellcheck(&tab);
+        self.wire_autocorrect(&tab);
         // ── Right-click context menu (spell suggestions + ignore) ─────────────
         //
         // saved_scroll is defined here (not in the focus-snap block below) so
@@ -5488,7 +4759,7 @@ impl EditorPane {
         let page_index = self.notebook.append_page(&scroll, Some(&tab_box));
         self.notebook.set_tab_reorderable(&scroll, true);
 
-        let path_for_callback = path.clone();
+        let path_for_callback = tab.path.clone();
         let content_for_callback = content.to_string();
 
 
@@ -7078,6 +6349,785 @@ fn section_word_count_for_line(buf: &sourceview5::Buffer, cursor_line: i32) -> O
         .unwrap_or(total);
 
     Some(lines[sec_start..sec_end].iter().map(|l| count_words_typst(l)).sum())
+}
+
+impl EditorPane {
+    fn wire_modified_and_word_count(&self, tab: &TabContext, content: &str) {
+        // ── Modified flag + word count ────────────────────────────────────────
+
+        let state_for_change = self.state.clone();
+        let path_for_change = tab.path.clone();
+        let dot_for_change = tab.dot_label.clone();
+        let tab_box_for_change = tab.tab_box.clone();
+        let tab_name_for_change = tab.display_name.clone();
+        let on_change_cb = self.on_change.clone();
+        let on_modified_cb = self.on_modified_changed.clone();
+        let on_file_dirty_cb = self.on_file_dirty.clone();
+        let wc_for_change = self.word_count_label.clone();
+        let goal_for_change = self.goal_ring.clone();
+        let goal_frac_for_change = self.goal_fraction.clone();
+        let goal_val_for_change = self.word_count_goal.clone();
+        let goal_celebrating_for_change = self.goal_celebrating.clone();
+        let goal_was_met_for_change: Rc<Cell<bool>> = Rc::new(Cell::new(false));
+        let last_wc_for_change = self.last_wc_text.clone();
+        let project_root_for_wc = self.project_root.clone();
+        let session_start_for_change: Rc<std::cell::Cell<u32>> = Rc::new(std::cell::Cell::new(count_words(content)));
+        // SourceId-based debounce timers. Each keystroke cancels the previous
+        // pending timer before scheduling a new one, so timers never accumulate
+        // in the event loop regardless of typing speed.
+        let wc_timer: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
+        let comment_timer: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
+        let comment_spans: Rc<RefCell<Vec<(i32, i32)>>> = Rc::new(RefCell::new(Vec::new()));
+        let proj_wc_timer: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
+        tab.buffer.connect_changed(move |buf| {
+            let newly_modified = {
+                let mut state = state_for_change.borrow_mut();
+                if let Some(tab) = state.tabs.get_mut(&path_for_change) {
+                    if !tab.modified { tab.modified = true; true } else { false }
+                } else { false }
+            };
+            if newly_modified {
+                // GTK widget ops must happen after borrow_mut is released — doing
+                // them inside the borrow can cause reentrant signal dispatch that
+                // tries to borrow state again, triggering a BorrowMutError panic.
+                dot_for_change.set_visible(true);
+                tab_box_for_change.update_property(&[gtk4::accessible::Property::Label(
+                    &format!("{} — unsaved", tab_name_for_change)
+                )]);
+                if let Some(f) = on_modified_cb.borrow().as_ref() { f(true); }
+                if let Some(f) = on_file_dirty_cb.borrow().as_ref() { f(path_for_change.clone(), true); }
+            }
+            if let Some(f) = on_change_cb.borrow().as_ref() { f(); }
+
+            // ── Debounced word count (300 ms) ─────────────────────────────────
+            if let Some(id) = wc_timer.borrow_mut().take() { id.remove(); }
+            {
+                let wc2 = wc_for_change.clone();
+                let goal2 = goal_for_change.clone();
+                let goal_frac2 = goal_frac_for_change.clone();
+                let goal_val2 = goal_val_for_change.clone();
+                let last_wc2 = last_wc_for_change.clone();
+                let ss2 = session_start_for_change.clone();
+                let buf2 = buf.clone();
+                let t = wc_timer.clone();
+                let goal_cel2 = goal_celebrating_for_change.clone();
+                let goal_was2 = goal_was_met_for_change.clone();
+                *wc_timer.borrow_mut() = Some(glib::timeout_add_local_once(
+                    Duration::from_millis(300),
+                    move || {
+                        *t.borrow_mut() = None;
+                        let (s, e) = buf2.bounds();
+                        let text = buf2.text(&s, &e, false);
+                        let goal = *goal_val2.borrow();
+                        if goal > 0 {
+                            let was_met = goal_was2.get();
+                            update_goal_ring(&goal2, &goal_frac2, &text, goal);
+                            let now_met = goal_frac2.get() >= 1.0;
+                            goal_was2.set(now_met);
+                            if now_met && !was_met {
+                                goal_cel2.set(true);
+                                goal2.queue_draw();
+                                let cel_reset = goal_cel2.clone();
+                                let ring_reset = goal2.clone();
+                                glib::timeout_add_local_once(
+                                    Duration::from_millis(900),
+                                    move || {
+                                        cel_reset.set(false);
+                                        ring_reset.queue_draw();
+                                    },
+                                );
+                            }
+                        }
+                        let wc_str = wc_str_with_delta(&text, ss2.get());
+                        *last_wc2.borrow_mut() = wc_str.clone();
+                        wc2.set_text(&wc_str);
+                    },
+                ));
+            }
+
+            // ── Debounced project word count tooltip (5 s) ────────────────────
+            if let Some(id) = proj_wc_timer.borrow_mut().take() { id.remove(); }
+            {
+                let wc_lbl_proj = wc_for_change.clone();
+                let root_proj = project_root_for_wc.clone();
+                let t = proj_wc_timer.clone();
+                *proj_wc_timer.borrow_mut() = Some(glib::timeout_add_local_once(
+                    Duration::from_millis(5000),
+                    move || {
+                        *t.borrow_mut() = None;
+                        if let Some(root) = root_proj.borrow().as_ref() {
+                            let total = count_project_words(root);
+                            wc_lbl_proj.set_tooltip_text(Some(&format!("Project total: {total} words")));
+                        }
+                    },
+                ));
+            }
+
+            // ── Debounced comment highlights (500 ms) ─────────────────────────
+            if let Some(id) = comment_timer.borrow_mut().take() { id.remove(); }
+            {
+                let buf_comment = buf.clone();
+                let t = comment_timer.clone();
+                let cache = comment_spans.clone();
+                *comment_timer.borrow_mut() = Some(glib::timeout_add_local_once(
+                    Duration::from_millis(500),
+                    move || {
+                        *t.borrow_mut() = None;
+                        apply_comment_highlights(&buf_comment, Some(&cache));
+                    },
+                ));
+            }
+        });
+
+    }
+
+    fn wire_cursor_tracking(&self, tab: &TabContext) {
+        // ── Cursor position tracking + heading detection ──────────────────────
+
+        let cursor_lbl = self.cursor_label.clone();
+        let section_wc_lbl = self.section_wc_label.clone();
+        let last_section_line: Rc<std::cell::Cell<i32>> = Rc::new(std::cell::Cell::new(-1));
+        let section_wc_timer: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
+        let wc_lbl_for_sel = self.word_count_label.clone();
+        let last_wc_for_mark = self.last_wc_text.clone();
+        // Extra clones for the selection_bound handler below.
+        let wc_lbl_for_sel_bound = wc_lbl_for_sel.clone();
+        let last_wc_for_sel_bound = last_wc_for_mark.clone();
+        let breadcrumb_lbl = self.breadcrumb_label.clone();
+        let lsp_lbl_for_pkg = self.lsp_status_label.clone();
+        let on_heading_cb = self.on_cursor_heading.clone();
+        let on_moved_cb = self.on_cursor_moved.clone();
+        let cursor_moved_gen: Rc<std::cell::Cell<u64>> = Rc::new(std::cell::Cell::new(0));
+        let typewriter_gen: Rc<std::cell::Cell<u64>> = Rc::new(std::cell::Cell::new(0));
+        let heading_sync_gen: Rc<std::cell::Cell<u64>> = Rc::new(std::cell::Cell::new(0));
+        let path_for_heading = tab.path.clone();
+        let path_for_moved = tab.path.clone();
+        let last_heading_line: Rc<RefCell<u32>> = Rc::new(RefCell::new(u32::MAX));
+        let typewriter_for_mark = self.typewriter_scroll.clone();
+        let view_for_typewriter = tab.view.clone();
+        let scroll_for_typewriter = tab.scroll.clone();
+        let crosshair_for_mark = self.typewriter_crosshair.clone();
+        let crosshair_timer_for_mark = self.typewriter_crosshair_timer.clone();
+        let view_for_scroll_margin = tab.view.clone();
+        // Track last line the typewriter tab.scroll recentered on, so we only fire
+        // when the cursor crosses a line boundary (not every column move).
+        let last_tw_line: Rc<std::cell::Cell<i32>> = Rc::new(std::cell::Cell::new(-1));
+        // Only do typewriter tab.scroll when typing, not on mouse click.
+        // connect_changed fires before connect_mark_set on keyboard input.
+        let typing_flag: Rc<std::cell::Cell<bool>> = Rc::new(std::cell::Cell::new(false));
+        let typing_flag_set = typing_flag.clone();
+        tab.buffer.connect_changed(move |_| {
+            typing_flag_set.set(true);
+        });
+        tab.buffer.connect_mark_set(move |buf, _iter, mark| {
+            if mark.name().as_deref() == Some("insert") {
+                let cursor = buf.iter_at_mark(mark);
+                let line = cursor.line() + 1;
+                let col = cursor.line_offset() + 1;
+                cursor_lbl.set_text(&format!("L{line}:C{col}"));
+                cursor_lbl.set_tooltip_text(Some(&format!("Line {line}, Column {col}")));
+
+                // Section word count — recompute only when the line changes, and
+                // debounced so holding an arrow key doesn't rescan per line.
+                let cur_line = cursor.line();
+                if cur_line != last_section_line.get() {
+                    last_section_line.set(cur_line);
+                    if let Some(id) = section_wc_timer.borrow_mut().take() { id.remove(); }
+                    let lbl = section_wc_lbl.clone();
+                    let b = buf.clone();
+                    let t = section_wc_timer.clone();
+                    *section_wc_timer.borrow_mut() = Some(glib::timeout_add_local_once(
+                        SECTION_WC_DEBOUNCE,
+                        move || {
+                            *t.borrow_mut() = None;
+                            if let Some(wc) = section_word_count_for_line(&b, cur_line) {
+                                lbl.set_text(&format!("§ {wc}"));
+                                lbl.set_tooltip_text(Some("Words in this section"));
+                            } else {
+                                lbl.set_text("");
+                            }
+                        },
+                    ));
+                }
+
+                // Selection word/sentence stats — use cached wc to avoid reading entire tab.buffer
+                if let Some((sel_s, sel_e)) = buf.selection_bounds() {
+                    let sel_text = buf.text(&sel_s, &sel_e, false).to_string();
+                    let word_count = sel_text.split_whitespace().count();
+                    let sentence_count = sel_text
+                        .split(['.', '!', '?'])
+                        .filter(|s| !s.trim().is_empty())
+                        .count();
+                    wc_lbl_for_sel.set_text(&format!(
+                        "{word_count} words, {sentence_count} sentences selected"
+                    ));
+                } else {
+                    // Restore cached word count — no full tab.buffer read needed
+                    let cached = last_wc_for_mark.borrow().clone();
+                    if !cached.is_empty() {
+                        wc_lbl_for_sel.set_text(&cached);
+                    }
+                }
+
+                // Read typing flag before any tab.scroll decisions. connect_changed fires
+                // before connect_mark_set on keyboard input, so was_typing is true for
+                // keystrokes and false for mouse clicks.
+                let was_typing = typing_flag.get();
+                typing_flag.set(false);
+
+                // Scroll margin: keep the cursor at least ~5 lines from the viewport
+                // edges while typing (within_margin=0.15). Only queued on keyboard
+                // input — mouse press must NOT queue this or the idle fires mid-drag
+                // and breaks selection.
+                //
+                // Inside the idle we re-check two conditions before scrolling:
+                //  1. No selection active (drag started while idle was pending).
+                //  2. Cursor is within ±1 viewport height of the visible area.
+                //     If it's further away the user intentionally scrolled; snapping
+                //     back would be disorienting. ±1vh covers the normal case of
+                //     typing one or two lines past the edge.
+                if was_typing && !buf.has_selection() {
+                    let vs = view_for_scroll_margin.clone();
+                    let insert_mark = buf.get_insert();
+                    let buf_s = buf.clone();
+                    glib::idle_add_local_once(move || {
+                        if buf_s.has_selection() { return; }
+                        let cursor = buf_s.iter_at_mark(&insert_mark);
+                        let loc = vs.iter_location(&cursor);
+                        let (_, wy) = vs.buffer_to_window_coords(
+                            TextWindowType::Widget, loc.x(), loc.y(),
+                        );
+                        let view_h = vs.allocated_height();
+                        if wy > -view_h && wy < 2 * view_h {
+                            vs.scroll_to_mark(&insert_mark, 0.15, false, 0.0, 0.5);
+                        }
+                    });
+                }
+
+                // Typewriter scroll: only recenter when typing (not on mouse click).
+                // Debounced 80 ms so rapid line crossings coalesce into one recenter.
+                if *typewriter_for_mark.borrow()
+                    && was_typing
+                    && !buf.has_selection()
+                    && cursor.line() != last_tw_line.get()
+                {
+                    last_tw_line.set(cursor.line());
+                    let mut c = cursor;
+                    let vt = view_for_typewriter.clone();
+                    let sc_tw = scroll_for_typewriter.clone();
+                    let gen = typewriter_gen.get().wrapping_add(1);
+                    typewriter_gen.set(gen);
+                    let gen_rc = typewriter_gen.clone();
+                    let crosshair_tw = crosshair_for_mark.clone();
+                    let crosshair_timer_tw = crosshair_timer_for_mark.clone();
+                    glib::timeout_add_local_once(
+                        std::time::Duration::from_millis(80),
+                        move || {
+                            if gen_rc.get() != gen { return; }
+                            // Preserve horizontal tab.scroll — scroll_to_iter with xalign=0.0 would
+                            // snap the tab.view left, hiding text behind the left margin/line numbers.
+                            let h = sc_tw.hadjustment().value();
+                            vt.scroll_to_iter(&mut c, 0.0, true, 0.0, 0.45);
+                            sc_tw.hadjustment().set_value(h);
+                            // Show crosshair line at anchor; hide after 800ms
+                            crosshair_tw.set_visible(true);
+                            crosshair_tw.queue_draw();
+                            if let Some(id) = crosshair_timer_tw.borrow_mut().take() { id.remove(); }
+                            let ch = crosshair_tw.clone();
+                            let ct = crosshair_timer_tw.clone();
+                            let id = glib::timeout_add_local_once(
+                                std::time::Duration::from_millis(800),
+                                move || { ch.set_visible(false); *ct.borrow_mut() = None; },
+                            );
+                            *crosshair_timer_tw.borrow_mut() = Some(id);
+                        },
+                    );
+                }
+
+                // #import "@preview/pkg:ver" tooltip
+                {
+                    let line_start = buf.iter_at_line(cursor.line()).unwrap_or_else(|| buf.start_iter());
+                    let line_end = {
+                        let mut e = line_start;
+                        if !e.ends_line() { e.forward_to_line_end(); }
+                        e
+                    };
+                    let line_text = buf.text(&line_start, &line_end, false).to_string();
+                    let trimmed = line_text.trim();
+                    if let Some(rest) = trimmed.strip_prefix("#import \"@preview/") {
+                        let pkg_name: String = rest.chars()
+                            .take_while(|c| *c != ':' && *c != '"')
+                            .collect();
+                        // Strip version suffix (e.g. "codly" from "codly:1.0.0")
+                        let base_name = pkg_name.split(':').next().unwrap_or(&pkg_name);
+                        if let Some((_, desc)) = IMPORT_PACKAGE_TOOLTIPS.iter()
+                            .find(|(n, _)| *n == base_name)
+                        {
+                            let lbl = lsp_lbl_for_pkg.clone();
+                            let desc_s = desc.to_string();
+                            let pkg_s = base_name.to_string();
+                            lbl.set_text(&format!("{pkg_s}: {desc_s}"));
+                            glib::timeout_add_local_once(
+                                std::time::Duration::from_secs(3),
+                                move || { lbl.set_text(""); },
+                            );
+                        }
+                    }
+                }
+
+                // Update breadcrumb heading path
+                let heading_path = build_heading_path(buf, cursor.line());
+                breadcrumb_lbl.set_text(&heading_path);
+
+                // Scan backward for a heading; only tab.scroll preview on keyboard nav (not mouse click).
+                // Debounced 200 ms so the preview doesn't jump on every section boundary crossing.
+                if was_typing {
+                    let heading_line = find_heading_line_for(buf, cursor.line());
+                    if heading_line != *last_heading_line.borrow() {
+                        *last_heading_line.borrow_mut() = heading_line;
+                        if heading_line != u32::MAX && on_heading_cb.borrow().is_some() {
+                            let gen = heading_sync_gen.get().wrapping_add(1);
+                            heading_sync_gen.set(gen);
+                            let gen_rc = heading_sync_gen.clone();
+                            let cb_h = on_heading_cb.clone();
+                            let path_h = path_for_heading.clone();
+                            glib::timeout_add_local_once(
+                                std::time::Duration::from_millis(200),
+                                move || {
+                                    if gen_rc.get() != gen { return; }
+                                    if let Some(f) = cb_h.borrow().as_ref() {
+                                        f(path_h.clone(), heading_line);
+                                    }
+                                },
+                            );
+                        }
+                    }
+                }
+
+                // Debounced reverse sync: notify app_window of cursor position 300ms after it
+                // settles. Only fire on keyboard movement (was_typing), not mouse clicks —
+                // otherwise a click in the editor jumps the preview to match the clicked line.
+                // Uses a generation counter rather than SourceId::remove() — glib 0.18 panics
+                // when remove() is called on a source that timeout_add_local_once already removed.
+                if was_typing {
+                    let line = cursor.line() as u32;
+                    let total = buf.line_count() as u32;
+                    let gen = cursor_moved_gen.get().wrapping_add(1);
+                    cursor_moved_gen.set(gen);
+                    let cb = on_moved_cb.clone();
+                    let path_m = path_for_moved.clone();
+                    let gen_rc = cursor_moved_gen.clone();
+                    glib::timeout_add_local_once(
+                        std::time::Duration::from_millis(300),
+                        move || {
+                            if gen_rc.get() == gen {
+                                if let Some(f) = cb.borrow().as_ref() {
+                                    f(path_m.clone(), line, total);
+                                }
+                            }
+                        },
+                    );
+                }
+            }
+        });
+
+        // When the user clicks to deselect, GTK moves the `insert` mark first and
+        // `selection_bound` second. The `insert` handler above fires while
+        // `selection_bound` is still at the old anchor, making
+        // `selection_bounds()` return Some — so it prints "N selected" even
+        // though nothing is selected. This second handler fires when
+        // `selection_bound` arrives and clears the ghost label.
+        tab.buffer.connect_mark_set(move |buf, _iter, mark| {
+            if mark.name().as_deref() != Some("selection_bound") { return; }
+            if !buf.has_selection() {
+                let cached = last_wc_for_sel_bound.borrow().clone();
+                if !cached.is_empty() {
+                    wc_lbl_for_sel_bound.set_text(&cached);
+                }
+            }
+        });
+
+    }
+
+    fn wire_undo_redo_sensitivity(&self, tab: &TabContext) {
+        // ── Undo / Redo sensitivity ───────────────────────────────────────────
+        // Guard against background-tab interference: only update the shared
+        // undo/redo buttons when the notification comes from the active tab's
+        // tab.buffer. A background tab's begin_user_action or set_text can fire
+        // notify::can-undo and silently grey out the button for the active tab.
+        {
+            let ub = self.undo_btn.clone();
+            let nb_u = self.notebook.clone();
+            let sc_u = tab.scroll.clone();
+            tab.buffer.connect_can_undo_notify(move |buf| {
+                if nb_u.page_num(&sc_u) == nb_u.current_page() {
+                    ub.set_sensitive(buf.can_undo());
+                }
+            });
+            let rb = self.redo_btn.clone();
+            let nb_r = self.notebook.clone();
+            let sc_r = tab.scroll.clone();
+            tab.buffer.connect_can_redo_notify(move |buf| {
+                if nb_r.page_num(&sc_r) == nb_r.current_page() {
+                    rb.set_sensitive(buf.can_redo());
+                }
+            });
+        }
+
+    }
+
+    fn wire_spell_suggestions(&self, tab: &TabContext, hold_position: &Rc<Cell<Option<(f64, f64)>>>, hold_until: &Rc<Cell<Instant>>) {
+        // ── Alt+Enter: open spell suggestions for word under cursor ─────────────
+        {
+            let spell_ae = self.spell_checker.clone();
+            let buf_ae   = tab.buffer.clone();
+            let view_ae  = tab.view.clone();
+            let scroll_ae = tab.scroll.clone();
+            let hold_pos_ae = hold_position.clone();
+            let hold_until_ae = hold_until.clone();
+            let ae_ctrl  = EventControllerKey::new();
+            ae_ctrl.connect_key_pressed(move |_, key, _, mods| {
+                use gtk4::gdk::{Key, ModifierType};
+                if key != Key::Return && key != Key::KP_Enter { return glib::Propagation::Proceed; }
+                if !mods.contains(ModifierType::ALT_MASK) { return glib::Propagation::Proceed; }
+
+                let sc = spell_ae.borrow();
+                if !sc.enabled { return glib::Propagation::Proceed; }
+
+                let buf = &buf_ae;
+                let pos = buf.cursor_position();
+                let iter = buf.iter_at_offset(pos);
+                let table = buf.tag_table();
+                let Some(tag) = table.lookup("zerkalo-spell") else { return glib::Propagation::Proceed; };
+                if !iter.has_tag(&tag) { return glib::Propagation::Proceed; }
+
+                let mut word_start = iter;
+                loop {
+                    let mut prev = word_start;
+                    if !prev.backward_char() { break; }
+                    if !prev.char().is_alphabetic() { break; }
+                    word_start = prev;
+                }
+                let mut word_end = iter;
+                while word_end.char().is_alphabetic() {
+                    if !word_end.forward_char() { break; }
+                }
+                let word = buf.text(&word_start, &word_end, false).to_string();
+                if word.is_empty() { return glib::Propagation::Proceed; }
+
+                let already_ignored = sc.is_ignored(&word);
+                let lang = sc.primary_language().to_string();
+                drop(sc);
+
+                // Position popover at cursor
+                let (cx, cy) = {
+                    let iter2 = buf.iter_at_offset(pos);
+                    let rect = view_ae.iter_location(&iter2);
+                    (rect.x() + rect.width() / 2, rect.y() + rect.height())
+                };
+                let popover = Popover::new();
+                popover.set_parent(&view_ae);
+                popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(cx, cy, 1, 1)));
+                popover.set_has_arrow(true);
+                popover.set_autohide(true);
+
+                let vbox = GtkBox::new(Orientation::Vertical, 2);
+                vbox.set_margin_top(6); vbox.set_margin_bottom(6);
+                vbox.set_margin_start(4); vbox.set_margin_end(4);
+
+                // Open on a placeholder and fill the list when hunspell replies.
+                // Asking it inline blocked the main loop for the whole fork,
+                // exec and wait before the menu could even appear.
+                let pending = Label::new(Some("Checking\u{2026}"));
+                pending.add_css_class("dim-label");
+                pending.set_margin_top(4); pending.set_margin_bottom(4);
+                vbox.append(&pending);
+
+                let pop_close = popover.clone();
+                popover.connect_closed(move |_| { pop_close.unparent(); });
+                popover.set_child(Some(&vbox));
+                popover.popup();
+                popover.grab_focus();
+
+                // Offsets, not TextIters: the reply lands after this handler
+                // returns, and any edit in between invalidates an iterator.
+                let ws_off = word_start.offset();
+                let we_off = word_end.offset();
+
+                let (tx, rx) = std::sync::mpsc::sync_channel::<Vec<String>>(1);
+                {
+                    let word_bg = word.clone();
+                    std::thread::spawn(move || {
+                        let out = if already_ignored {
+                            Vec::new()
+                        } else {
+                            crate::spellcheck::suggestions_for_word(&word_bg, &lang)
+                        };
+                        tx.send(out).ok();
+                    });
+                }
+
+                let rx = Rc::new(rx);
+                let vbox_fill = vbox.clone();
+                let pending_fill = pending.clone();
+                let popover_fill = popover.clone();
+                let buf_fill = buf_ae.clone();
+                let scroll_fill = scroll_ae.clone();
+                let hold_pos_fill = hold_pos_ae.clone();
+                let hold_until_fill = hold_until_ae.clone();
+                let word_fill = word.clone();
+                glib::timeout_add_local(Duration::from_millis(30), move || {
+                    let suggestions = match rx.try_recv() {
+                        Ok(s) => s,
+                        Err(std::sync::mpsc::TryRecvError::Empty) => {
+                            // Nothing to fill if the user already dismissed it.
+                            if !popover_fill.is_visible() {
+                                return glib::ControlFlow::Break;
+                            }
+                            return glib::ControlFlow::Continue;
+                        }
+                        Err(_) => return glib::ControlFlow::Break,
+                    };
+                    if !popover_fill.is_visible() {
+                        return glib::ControlFlow::Break;
+                    }
+                    vbox_fill.remove(&pending_fill);
+
+                    if suggestions.is_empty() {
+                        let lbl = Label::new(Some("No suggestions"));
+                        lbl.add_css_class("dim-label");
+                        lbl.set_margin_top(4); lbl.set_margin_bottom(4);
+                        vbox_fill.append(&lbl);
+                    } else {
+                        for sugg in suggestions.iter().take(6) {
+                            let btn = Button::with_label(sugg);
+                            btn.add_css_class("flat");
+                            let buf2 = buf_fill.clone();
+                            let s = sugg.clone();
+                            let pop2 = popover_fill.clone();
+                            let scroll_sg = scroll_fill.clone();
+                            let hold_p = hold_pos_fill.clone();
+                            let hold_u = hold_until_fill.clone();
+                            let expected = word_fill.clone();
+                            btn.connect_clicked(move |_| {
+                                let vpos = scroll_sg.vadjustment().value();
+                                let hpos = scroll_sg.hadjustment().value();
+                                hold_p.set(Some((vpos, hpos)));
+                                hold_u.set(Instant::now() + PASTE_HOLD);
+
+                                let mut a = buf2.iter_at_offset(ws_off);
+                                let mut b = buf2.iter_at_offset(we_off);
+                                // The tab.buffer may have changed while the menu was
+                                // open; only replace if the word is still there.
+                                if buf2.text(&a, &b, false) == expected.as_str() {
+                                    buf2.begin_user_action();
+                                    buf2.delete(&mut a, &mut b);
+                                    buf2.insert(&mut a, &s);
+                                    buf2.end_user_action();
+                                }
+                                pop2.popdown();
+
+                                let release = hold_p.clone();
+                                glib::timeout_add_local_once(PASTE_HOLD, move || release.set(None));
+                            });
+                            vbox_fill.append(&btn);
+                        }
+                    }
+                    glib::ControlFlow::Break
+                });
+                glib::Propagation::Stop
+            });
+            tab.view.add_controller(ae_ctrl);
+        }
+
+    }
+
+    fn wire_spellcheck(&self, tab: &TabContext) {
+        // ── Spell check: debounced tab.buffer check ───────────────────────────────
+
+        {
+            let spell_c = self.spell_checker.clone();
+            let spell_timer: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
+            let spell_poll_timer: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
+            let buf_spell = tab.buffer.clone();
+
+            tab.buffer.connect_changed(move |buf| {
+                let enabled = {
+                    let sc = spell_c.borrow();
+                    sc.enabled
+                };
+                if !enabled {
+                    // Release spell_checker borrow before GTK tag ops — remove_tag_by_name
+                    // can cascade through GtkSourceView signals and re-enter this closure
+                    // (or another that borrows spell_checker), causing a BorrowError panic.
+                    clear_spell_tags(&buf_spell);
+                    return;
+                }
+
+                // Cancel any pending debounce and in-flight poll timer.
+                if let Some(id) = spell_timer.borrow_mut().take() { id.remove(); }
+                if let Some(id) = spell_poll_timer.borrow_mut().take() { id.remove(); }
+
+                let buf2 = buf.clone();
+                let sc2 = spell_c.clone();
+                let t = spell_timer.clone();
+                let pt = spell_poll_timer.clone();
+                let pt2 = spell_poll_timer.clone();
+
+                *spell_timer.borrow_mut() = Some(glib::timeout_add_local_once(
+                    Duration::from_millis(700),
+                    move || {
+                        *t.borrow_mut() = None;
+
+                        let sc = sc2.borrow();
+                        if !sc.enabled {
+                            clear_spell_tags(&buf2);
+                            return;
+                        }
+                        let langs = sc.languages.clone();
+                        let ignored = sc.ignored();
+                        drop(sc);
+
+                        let (s, e) = buf2.bounds();
+                        let text = buf2.text(&s, &e, true).to_string();
+                        let buf3 = buf2.clone();
+
+                        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+                        std::thread::spawn(move || {
+                            let words = crate::spellcheck::extract_words(&text);
+                            let unique: Vec<String> = {
+                                let mut seen = HashSet::new();
+                                words.iter()
+                                    .filter(|(_, _, w)| !ignored.contains(&w.to_lowercase()) && seen.insert(w.to_lowercase()))
+                                    .map(|(_, _, w)| w.clone())
+                                    .collect()
+                            };
+                            let unique_refs: Vec<&str> = unique.iter().map(|s| s.as_str()).collect();
+                            let misspelled = crate::spellcheck::check_words_batch(&unique_refs, &langs);
+                            let _ = tx.send((words, misspelled));
+                        });
+
+                        let poll_id = glib::timeout_add_local(Duration::from_millis(50), move || {
+                            match rx.try_recv() {
+                                Ok((words, misspelled)) => {
+                                    // Clear the RefCell before returning Break. GLib auto-removes
+                                    // the source after the callback, but the RefCell still holds
+                                    // the now-dead SourceId. A subsequent connect_changed would call
+                                    // id.remove() on it and panic with "Failed to remove source".
+                                    *pt2.borrow_mut() = None;
+                                    apply_spell_tags(&buf3, &words, &misspelled);
+                                    glib::ControlFlow::Break
+                                }
+                                Err(std::sync::mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
+                                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                                    *pt2.borrow_mut() = None;
+                                    glib::ControlFlow::Break
+                                }
+                            }
+                        });
+                        *pt.borrow_mut() = Some(poll_id);
+                    },
+                ));
+            });
+        }
+
+    }
+
+    fn wire_autocorrect(&self, tab: &TabContext) {
+        // ── Spell check: autocorrect on word boundary ─────────────────────────
+
+        {
+            let spell_ac = self.spell_checker.clone();
+            let buf_ac = tab.buffer.clone();
+
+            tab.buffer.connect_changed(move |buf| {
+                let sc = spell_ac.borrow();
+                if !sc.enabled || !sc.autocorrect {
+                    return;
+                }
+
+                let cursor = buf.cursor_position();
+                if cursor < 2 {
+                    return;
+                }
+
+                let just_typed = buf.iter_at_offset(cursor - 1);
+                let ch = just_typed.char();
+                // Only autocorrect when a word-terminating character is typed
+                if !matches!(ch, ' ' | '\t' | '\n' | '.' | ',' | ';' | ':' | '!' | '?') {
+                    return;
+                }
+
+                // Scan backward to find the preceding word
+                let word_end = buf.iter_at_offset(cursor - 1);
+                let mut word_start = word_end;
+                loop {
+                    let mut prev = word_start;
+                    if !prev.backward_char() { break; }
+                    if !prev.char().is_alphabetic() { break; }
+                    word_start = prev;
+                }
+                if word_start == word_end { return; }
+
+                let word = buf.text(&word_start, &word_end, false).to_string();
+                if word.len() < 3 || sc.is_ignored(&word) { return; }
+
+                // Don't autocorrect proper nouns or words already starting with upper
+                if word.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
+                    return;
+                }
+
+                let lang = sc.primary_language().to_string();
+                drop(sc);
+
+                // Ask hunspell on a worker thread. This runs from
+                // `connect_changed`, i.e. inside a keystroke: doing the
+                // fork/exec/wait inline stalled the main loop on every space,
+                // period, comma, semicolon, colon, `!` and `?` the user typed.
+                //
+                // Char offsets rather than TextIter: iterators are invalidated
+                // by any later tab.buffer edit, and now the reply arrives well
+                // after this handler has returned. The word at those offsets is
+                // re-validated before anything is replaced, so keystrokes in
+                // the meantime are safely ignored.
+                let ws_off = word_start.offset();
+                let we_off = word_end.offset();
+                let word_c = word.clone();
+                let buf_c = buf_ac.clone();
+                let (tx, rx) = std::sync::mpsc::sync_channel::<Vec<String>>(1);
+                std::thread::spawn(move || {
+                    tx.send(crate::spellcheck::suggestions_for_word(&word_c, &lang)).ok();
+                });
+
+                let word_c = word.clone();
+                let rx = Rc::new(rx);
+                glib::timeout_add_local(Duration::from_millis(30), move || {
+                    let suggestions = match rx.try_recv() {
+                        Ok(s) => s,
+                        Err(std::sync::mpsc::TryRecvError::Empty) => {
+                            return glib::ControlFlow::Continue
+                        }
+                        Err(_) => return glib::ControlFlow::Break,
+                    };
+                    // Only apply if edit distance is 1 (very confident replacement)
+                    if let Some(best) = suggestions.first() {
+                        if crate::spellcheck::levenshtein(&word_c.to_lowercase(), &best.to_lowercase()) <= 1 {
+                            let mut s = buf_c.iter_at_offset(ws_off);
+                            let mut e = buf_c.iter_at_offset(we_off);
+                            if buf_c.text(&s, &e, false) == word_c.as_str() {
+                                buf_c.begin_user_action();
+                                buf_c.delete(&mut s, &mut e);
+                                buf_c.insert(&mut s, best);
+                                buf_c.end_user_action();
+                            }
+                        }
+                    }
+                    glib::ControlFlow::Break
+                });
+            });
+        }
+
+    }
 }
 
 #[cfg(test)]

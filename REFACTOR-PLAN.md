@@ -519,8 +519,65 @@ test. Check them after each sub-phase.
 
 ## Phase 4 — `EditorPane::open_file` (2,730 lines)
 
-**Status:** ☐ not started
+**Status:** ◐ **PARTLY DONE** (2026-08-03) — 4a ☑ tests, 4b ☑ six sections.
+`open_file` 2,730 → **1,987**. Five sections deliberately left inline (below).
 **Risk:** high · **Depends on:** Phase 3 (hardest last)
+
+### 4a ☑ — tests first (19, 347 → 366)
+
+Written *before* touching the code, because this refactor has no other safety
+net. Covers word counting, heading-level parsing, the goal comment, snippet
+stripping, balanced-delimiter scanning and the legacy `it.numbering` migration.
+
+### 4b ☑ — six sections extracted
+
+`TabContext { path, display_name, buffer, view, scroll, tab_box, dot_label }`,
+and each section became a **method on `EditorPane`** — which is the key
+simplification the plan under-specified: because `open_file` takes `&self`, the
+helpers get every `EditorPane` field for free and only need the per-tab widgets.
+No large context struct was needed.
+
+Extracted: `wire_modified_and_word_count`, `wire_cursor_tracking`,
+`wire_undo_redo_sensitivity`, `wire_spell_suggestions`, `wire_spellcheck`,
+`wire_autocorrect`.
+
+### Left inline, deliberately
+
+The remaining sections each **create state that later sections consume**, so
+extracting them means returning 3–8 values and threading them back in:
+
+| Section | Lines | Produces |
+|---|---|---|
+| Image/document drag-and-drop | 70 | `scroll` |
+| Tab label | 162 | `tab_box`, `dot_label`, `diag_dot` |
+| @-citation autocomplete | 157 | `bib_popup`, `ghost_*`, `ac_mark`, … (8) |
+| #-function LSP autocomplete | 259 | `lsp_popup`, `lsp_mark`, `lsp_completing` |
+| Key controller | 548 | `hold_position`, `hold_until` |
+| Right-click context menu | 345 | `saved_scroll`, `saved_hscroll`, `pause_tracking` |
+| Inline error assistant | 295 | — but *consumes* 10 of the above |
+
+The error assistant is the one worth revisiting: it produces nothing, so it is
+extractable, but it needs ten values including `pause_tracking`, which is a
+**closure** and would have to be boxed as `Rc<dyn Fn()>` to travel in a struct.
+That is a real change in shape, not a move, so it was left alone.
+
+### Smoke-verified
+
+Typing into a document exercised the extracted paths at once: the title shows
+**Modified**, the status bar reads **"21 words (+7) · < 1 min read"** (the
+session delta from `wc_str_with_delta`, now unit-tested), the breadcrumb reads
+**"First Heading / Nested Heading"** with **§ 11** section words and **L8:C1**,
+undo is enabled while redo stays greyed, the outline counts update, and the four
+deliberately misspelled words are underlined while correct ones are not.
+
+**Incidental finding, not a regression:** `spell_languages` defaults to
+`["en_CA"]`, but this machine has only `en_US` installed under
+`/usr/share/hunspell`. On such a machine spell check silently does nothing —
+no dictionary, no error. The smoke harness works around it with `DICPATH`.
+Worth deciding whether the default should fall back to any installed English
+dictionary.
+
+
 
 ### Why it's hardest
 
