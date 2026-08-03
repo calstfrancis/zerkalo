@@ -10,18 +10,9 @@ use libadwaita as adw;
 
 use super::{HamburgerItems, build_hamburger_menu_items};
 
-/// Every widget the header bar owns, handed back for the wiring that happens
-/// later in `AppWindow::new`. Large because the header genuinely carries this
-/// much: the title/open dropdown, eight buttons, and the hamburger's 21 menu
-/// rows. Construction only — nothing here is connected to a handler yet.
-pub(super) struct HeaderWidgets {
-    pub(super) compile_btn: Button,
-    pub(super) compile_mode_slot: GtkBox,
-    pub(super) draft_toggle: ToggleButton,
-    pub(super) file_title_widget: adw::WindowTitle,
-    pub(super) gost_menu_slot: GtkBox,
-    pub(super) header: adw::HeaderBar,
-    pub(super) library_btn: Button,
+/// The hamburger popover's rows, kept together so the menu-wiring helpers can
+/// take one value instead of 22 parameters.
+pub(super) struct Menus {
     pub(super) menu_about_item: Button,
     pub(super) menu_backup_remote_item: Button,
     pub(super) menu_docs_item: Button,
@@ -34,7 +25,6 @@ pub(super) struct HeaderWidgets {
     pub(super) menu_new_item: Button,
     pub(super) menu_new_template_item: Button,
     pub(super) menu_open_item: Button,
-    pub(super) menu_popover: Popover,
     pub(super) menu_print_item: Button,
     pub(super) menu_reapply_template_item: Button,
     pub(super) menu_repair_markers_item: Button,
@@ -44,6 +34,21 @@ pub(super) struct HeaderWidgets {
     pub(super) menu_setup_item: Button,
     pub(super) menu_snapshots_item: Button,
     pub(super) menu_writing_stats_item: Button,
+}
+
+/// Every widget the header bar owns, handed back for the wiring that happens
+/// later in `AppWindow::new`. Construction only — nothing here is connected to
+/// a handler yet.
+pub(super) struct HeaderWidgets {
+    pub(super) menus: Menus,
+    pub(super) compile_btn: Button,
+    pub(super) compile_mode_slot: GtkBox,
+    pub(super) draft_toggle: ToggleButton,
+    pub(super) file_title_widget: adw::WindowTitle,
+    pub(super) gost_menu_slot: GtkBox,
+    pub(super) header: adw::HeaderBar,
+    pub(super) library_btn: Button,
+    pub(super) menu_popover: Popover,
     pub(super) open_list_box: GtkBox,
     pub(super) open_search: Entry,
     pub(super) preview_label: Label,
@@ -154,27 +159,27 @@ pub(super) fn build_header() -> HeaderWidgets {
 
     // ── Hamburger menu items (using make_menu_item for left+shortcut layout) ──
     let HamburgerItems {
-        menu_new_template_item,
-        menu_reapply_template_item,
-        menu_repair_markers_item,
-        menu_new_item,
-        menu_open_item,
-        menu_save_item,
-        menu_save_as_item,
-        menu_snapshots_item,
+        menu_about_item,
+        menu_backup_remote_item,
+        menu_docs_item,
         menu_export_item,
         menu_export_web_item,
-        menu_print_item,
-        menu_import_item,
-        menu_docs_item,
         menu_fonts_item,
+        menu_help_item,
+        menu_import_item,
+        menu_import_pdf_item,
+        menu_new_item,
+        menu_new_template_item,
+        menu_open_item,
+        menu_print_item,
+        menu_reapply_template_item,
+        menu_repair_markers_item,
+        menu_save_as_item,
+        menu_save_item,
         menu_settings_item,
         menu_setup_item,
-        menu_backup_remote_item,
-        menu_help_item,
+        menu_snapshots_item,
         menu_writing_stats_item,
-        menu_about_item,
-        menu_import_pdf_item,
     } = build_hamburger_menu_items();
 
     // ── Popover layout ────────────────────────────────────────────────────
@@ -287,6 +292,29 @@ pub(super) fn build_header() -> HeaderWidgets {
 
 
     HeaderWidgets {
+        menus: Menus {
+            menu_about_item,
+            menu_backup_remote_item,
+            menu_docs_item,
+            menu_export_item,
+            menu_export_web_item,
+            menu_fonts_item,
+            menu_help_item,
+            menu_import_item,
+            menu_import_pdf_item,
+            menu_new_item,
+            menu_new_template_item,
+            menu_open_item,
+            menu_print_item,
+            menu_reapply_template_item,
+            menu_repair_markers_item,
+            menu_save_as_item,
+            menu_save_item,
+            menu_settings_item,
+            menu_setup_item,
+            menu_snapshots_item,
+            menu_writing_stats_item,
+        },
         compile_btn,
         compile_mode_slot,
         draft_toggle,
@@ -294,28 +322,7 @@ pub(super) fn build_header() -> HeaderWidgets {
         gost_menu_slot,
         header,
         library_btn,
-        menu_about_item,
-        menu_backup_remote_item,
-        menu_docs_item,
-        menu_export_item,
-        menu_export_web_item,
-        menu_fonts_item,
-        menu_help_item,
-        menu_import_item,
-        menu_import_pdf_item,
-        menu_new_item,
-        menu_new_template_item,
-        menu_open_item,
         menu_popover,
-        menu_print_item,
-        menu_reapply_template_item,
-        menu_repair_markers_item,
-        menu_save_as_item,
-        menu_save_item,
-        menu_settings_item,
-        menu_setup_item,
-        menu_snapshots_item,
-        menu_writing_stats_item,
         open_list_box,
         open_search,
         preview_label,
