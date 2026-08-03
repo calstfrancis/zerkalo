@@ -5,6 +5,14 @@ use rusqlite::{params, Connection, OptionalExtension, Result as SqlResult};
 
 pub struct Library {
     conn: Connection,
+    /// Where `move_to_trash` parks deleted files. A field rather than a direct
+    /// `glib::user_data_dir()` call so tests can point it at a temp dir instead
+    /// of the real data dir.
+    trash_dir: PathBuf,
+}
+
+fn default_trash_dir() -> PathBuf {
+    glib::user_data_dir().join("zerkalo").join("trash")
 }
 
 #[derive(Clone, Debug)]
@@ -94,15 +102,19 @@ impl Library {
         let path = dir.join("library.sqlite");
         let conn = Connection::open(path)?;
         conn.execute_batch("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;")?;
-        let lib = Self { conn };
+        let lib = Self { conn, trash_dir: default_trash_dir() };
         lib.migrate()?;
         Ok(lib)
     }
 
     pub fn open_in_memory() -> Self {
+        Self::in_memory_with_trash_dir(default_trash_dir())
+    }
+
+    fn in_memory_with_trash_dir(trash_dir: PathBuf) -> Self {
         let conn = Connection::open_in_memory().expect("in-memory DB");
         conn.execute_batch("PRAGMA foreign_keys = ON;").ok();
-        let lib = Self { conn };
+        let lib = Self { conn, trash_dir };
         lib.migrate().ok();
         lib
     }
@@ -559,7 +571,7 @@ impl Library {
             Some(d) => d,
             None => return Ok(()),
         };
-        let trash_dir = glib::user_data_dir().join("zerkalo").join("trash");
+        let trash_dir = self.trash_dir.clone();
         std::fs::create_dir_all(&trash_dir).ok();
         let ts = Utc::now().timestamp();
         // Prefix with doc_id (unique, from the primary key) rather than relying
@@ -1005,8 +1017,6 @@ fn search_clause(prefix: &str, param: usize) -> String {
     )
 }
 
-/// Reads the first `#let doc-title = "..."` line from a Typst file.
-/// Falls back to `#let title = "..."` if doc-title isn't found.
 /// Finds a free path near `path` (e.g. `essay.typ` -> `essay (restored).typ`,
 /// then `essay (restored 2).typ`, ...) for use when the original path is
 /// already occupied by a different file.
@@ -1029,6 +1039,8 @@ fn restore_collision_path(path: &Path) -> PathBuf {
     }
 }
 
+/// Reads the first `#let doc-title = "..."` line from a Typst file.
+/// Falls back to `#let title = "..."` if doc-title isn't found.
 fn extract_typst_title(path: &Path) -> Option<String> {
     let content = std::fs::read_to_string(path).ok()?;
     let mut fallback: Option<String> = None;
@@ -1080,4 +1092,766 @@ fn row_to_doc(row: &rusqlite::Row<'_>) -> rusqlite::Result<Document> {
         modified_at: row.get(8)?,
         last_opened_at: row.get(9)?,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    /// A library whose trash lives inside `work`, plus a scratch dir to create
+    /// real document files in — the trash/restore paths move files for real, so
+    /// they need somewhere on disk that isn't Cal's data dir.
+    fn fixture() -> (Library, TempDir) {
+        let work = TempDir::new().expect("temp dir");
+        let lib = Library::in_memory_with_trash_dir(work.path().join("trash"));
+        (lib, work)
+    }
+
+    fn write_doc(work: &TempDir, name: &str, body: &str) -> PathBuf {
+        let path = work.path().join(name);
+        std::fs::write(&path, body).expect("write doc");
+        path
+    }
+
+    fn add_doc(lib: &mut Library, work: &TempDir, name: &str) -> (i64, PathBuf) {
+        let path = write_doc(work, name, "= Heading\n");
+        let id = lib.upsert_document(&path).expect("upsert");
+        (id, path)
+    }
+
+    fn titles(docs: &[Document]) -> Vec<String> {
+        docs.iter().map(|d| d.title.clone()).collect()
+    }
+
+    fn ids(docs: &[Document]) -> Vec<i64> {
+        docs.iter().map(|d| d.id).collect()
+    }
+
+    // ── Trash lifecycle ──────────────────────────────────────────────────────
+
+    #[test]
+    fn move_to_trash_flags_the_row_and_records_where_the_file_went() {
+        let (mut lib, work) = fixture();
+        let (id, path) = add_doc(&mut lib, &work, "essay.typ");
+
+        lib.move_to_trash(id).expect("trash");
+
+        let doc = lib.doc_by_id(id).expect("query").expect("row still present");
+        assert!(!path.exists(), "original file should have been moved away");
+        let trashed = lib.documents(LibraryFilter::Trash, "", SortOrder::Modified).expect("list");
+        assert_eq!(ids(&trashed), vec![doc.id]);
+    }
+
+    #[test]
+    fn move_to_trash_moves_the_file_into_the_trash_dir_with_its_contents_intact() {
+        let (mut lib, work) = fixture();
+        let path = write_doc(&work, "essay.typ", "= Original body\n");
+        let id = lib.upsert_document(&path).expect("upsert");
+
+        lib.move_to_trash(id).expect("trash");
+
+        let trash_dir = work.path().join("trash");
+        let entries: Vec<_> = std::fs::read_dir(&trash_dir)
+            .expect("trash dir created")
+            .filter_map(|e| e.ok())
+            .collect();
+        assert_eq!(entries.len(), 1, "exactly one file should be in the trash");
+        let contents = std::fs::read_to_string(entries[0].path()).expect("read trashed file");
+        assert_eq!(contents, "= Original body\n");
+    }
+
+    /// The `{ts}-{doc_id}-{name}` scheme exists because timestamp+basename alone
+    /// collides for two same-named files trashed within the same second.
+    #[test]
+    fn two_same_named_files_trashed_in_the_same_second_do_not_overwrite_each_other() {
+        let (mut lib, work) = fixture();
+        let dir_a = work.path().join("a");
+        let dir_b = work.path().join("b");
+        std::fs::create_dir_all(&dir_a).unwrap();
+        std::fs::create_dir_all(&dir_b).unwrap();
+        std::fs::write(dir_a.join("notes.typ"), "= From A\n").unwrap();
+        std::fs::write(dir_b.join("notes.typ"), "= From B\n").unwrap();
+
+        let id_a = lib.upsert_document(&dir_a.join("notes.typ")).expect("upsert a");
+        let id_b = lib.upsert_document(&dir_b.join("notes.typ")).expect("upsert b");
+        lib.move_to_trash(id_a).expect("trash a");
+        lib.move_to_trash(id_b).expect("trash b");
+
+        let mut bodies: Vec<String> = std::fs::read_dir(work.path().join("trash"))
+            .expect("trash dir")
+            .filter_map(|e| e.ok())
+            .map(|e| std::fs::read_to_string(e.path()).expect("read"))
+            .collect();
+        bodies.sort();
+        assert_eq!(bodies, vec!["= From A\n".to_string(), "= From B\n".to_string()]);
+    }
+
+    #[test]
+    fn restore_from_trash_puts_the_file_back_and_clears_the_deleted_flag() {
+        let (mut lib, work) = fixture();
+        let path = write_doc(&work, "essay.typ", "= Body\n");
+        let id = lib.upsert_document(&path).expect("upsert");
+
+        lib.move_to_trash(id).expect("trash");
+        lib.restore_from_trash(id).expect("restore");
+
+        assert!(path.exists(), "file should be back at its original path");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "= Body\n");
+        let trashed = lib.documents(LibraryFilter::Trash, "", SortOrder::Modified).expect("list");
+        assert!(trashed.is_empty(), "doc should no longer be in the trash");
+        let all = lib.documents(LibraryFilter::All, "", SortOrder::Modified).expect("list");
+        assert_eq!(ids(&all), vec![id]);
+    }
+
+    /// The data-loss case: something new occupies the original path by the time
+    /// the old document is restored. The restore must go beside it, not over it.
+    #[test]
+    fn restoring_onto_an_occupied_path_does_not_clobber_the_new_file() {
+        let (mut lib, work) = fixture();
+        let path = write_doc(&work, "essay.typ", "= The old one\n");
+        let id = lib.upsert_document(&path).expect("upsert");
+        lib.move_to_trash(id).expect("trash");
+
+        std::fs::write(&path, "= A different, newer file\n").unwrap();
+        lib.restore_from_trash(id).expect("restore");
+
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "= A different, newer file\n",
+            "the newer file must survive untouched"
+        );
+        let restored = work.path().join("essay (restored).typ");
+        assert!(restored.exists(), "restored copy should land beside it");
+        assert_eq!(std::fs::read_to_string(&restored).unwrap(), "= The old one\n");
+
+        let doc = lib.doc_by_id(id).expect("query").expect("row");
+        assert_eq!(doc.path, restored, "DB path should follow the file to its new home");
+    }
+
+    #[test]
+    fn restore_from_trash_on_a_doc_that_was_never_trashed_is_a_no_op() {
+        let (mut lib, work) = fixture();
+        let (id, path) = add_doc(&mut lib, &work, "essay.typ");
+
+        lib.restore_from_trash(id).expect("restore should not error");
+
+        assert!(path.exists());
+        let all = lib.documents(LibraryFilter::All, "", SortOrder::Modified).expect("list");
+        assert_eq!(ids(&all), vec![id]);
+    }
+
+    #[test]
+    fn permanently_delete_removes_both_the_row_and_the_trashed_file() {
+        let (mut lib, work) = fixture();
+        let (id, _) = add_doc(&mut lib, &work, "essay.typ");
+        lib.move_to_trash(id).expect("trash");
+
+        lib.permanently_delete(id).expect("delete");
+
+        assert!(lib.doc_by_id(id).expect("query").is_none(), "row should be gone");
+        let remaining = std::fs::read_dir(work.path().join("trash"))
+            .expect("trash dir")
+            .filter_map(|e| e.ok())
+            .count();
+        assert_eq!(remaining, 0, "trashed file should be gone from disk");
+    }
+
+    #[test]
+    fn move_to_trash_on_an_unknown_id_is_a_no_op() {
+        let (mut lib, _work) = fixture();
+        lib.move_to_trash(4242).expect("should not error");
+    }
+
+    #[test]
+    fn trashed_documents_disappear_from_every_other_filter() {
+        let (mut lib, work) = fixture();
+        let (id, _) = add_doc(&mut lib, &work, "essay.typ");
+        let tag = lib.create_tag("draft", "#ff0000").expect("tag");
+        lib.set_doc_tags(id, &[tag]).expect("set tags");
+        lib.set_category(id, Some("Essays")).expect("category");
+        lib.touch_opened(&work.path().join("essay.typ")).expect("open");
+
+        lib.move_to_trash(id).expect("trash");
+
+        for filter in [
+            LibraryFilter::All,
+            LibraryFilter::Tag(tag),
+            LibraryFilter::Category("Essays".into()),
+            LibraryFilter::Recent,
+        ] {
+            let docs = lib.documents(filter.clone(), "", SortOrder::Modified).expect("list");
+            assert!(docs.is_empty(), "{filter:?} should not show trashed docs");
+            assert_eq!(lib.doc_count(&filter).expect("count"), 0, "{filter:?} count");
+        }
+    }
+
+    // ── Filters ──────────────────────────────────────────────────────────────
+
+    #[test]
+    fn all_filter_excludes_archived_and_deleted() {
+        let (mut lib, work) = fixture();
+        let (keep, _) = add_doc(&mut lib, &work, "keep.typ");
+        let (archived, _) = add_doc(&mut lib, &work, "archived.typ");
+        let (trashed, _) = add_doc(&mut lib, &work, "trashed.typ");
+        lib.set_archived(archived, true).expect("archive");
+        lib.move_to_trash(trashed).expect("trash");
+
+        let docs = lib.documents(LibraryFilter::All, "", SortOrder::Modified).expect("list");
+        assert_eq!(ids(&docs), vec![keep]);
+        assert_eq!(lib.doc_count(&LibraryFilter::All).expect("count"), 1);
+    }
+
+    #[test]
+    fn archive_filter_shows_only_archived_and_not_deleted() {
+        let (mut lib, work) = fixture();
+        let (a, _) = add_doc(&mut lib, &work, "a.typ");
+        let (b, _) = add_doc(&mut lib, &work, "b.typ");
+        lib.set_archived(a, true).expect("archive a");
+        lib.set_archived(b, true).expect("archive b");
+        lib.move_to_trash(b).expect("trash b");
+
+        let docs = lib.documents(LibraryFilter::Archive, "", SortOrder::Modified).expect("list");
+        assert_eq!(ids(&docs), vec![a]);
+        assert_eq!(lib.doc_count(&LibraryFilter::Archive).expect("count"), 1);
+    }
+
+    #[test]
+    fn untagged_filter_shows_only_documents_with_no_tags() {
+        let (mut lib, work) = fixture();
+        let (tagged, _) = add_doc(&mut lib, &work, "tagged.typ");
+        let (bare, _) = add_doc(&mut lib, &work, "bare.typ");
+        let tag = lib.create_tag("draft", "#ff0000").expect("tag");
+        lib.set_doc_tags(tagged, &[tag]).expect("set tags");
+
+        let docs = lib.documents(LibraryFilter::Untagged, "", SortOrder::Modified).expect("list");
+        assert_eq!(ids(&docs), vec![bare]);
+        assert_eq!(lib.doc_count(&LibraryFilter::Untagged).expect("count"), 1);
+    }
+
+    #[test]
+    fn recent_filter_shows_only_documents_that_have_been_opened() {
+        let (mut lib, work) = fixture();
+        let (opened, opened_path) = add_doc(&mut lib, &work, "opened.typ");
+        add_doc(&mut lib, &work, "never-opened.typ");
+        lib.touch_opened(&opened_path).expect("open");
+
+        let docs = lib.documents(LibraryFilter::Recent, "", SortOrder::Opened).expect("list");
+        assert_eq!(ids(&docs), vec![opened]);
+        assert_eq!(lib.doc_count(&LibraryFilter::Recent).expect("count"), 1);
+    }
+
+    #[test]
+    fn category_group_filter_includes_the_parent_and_its_children() {
+        let (mut lib, work) = fixture();
+        let (parent_doc, _) = add_doc(&mut lib, &work, "parent.typ");
+        let (child_doc, _) = add_doc(&mut lib, &work, "child.typ");
+        let (other_doc, _) = add_doc(&mut lib, &work, "other.typ");
+        lib.create_category("Academic", None).expect("parent cat");
+        lib.create_category("Essays", Some("Academic")).expect("child cat");
+        lib.set_category(parent_doc, Some("Academic")).expect("set");
+        lib.set_category(child_doc, Some("Essays")).expect("set");
+        lib.set_category(other_doc, Some("Sermons")).expect("set");
+
+        let docs = lib
+            .documents(LibraryFilter::CategoryGroup("Academic".into()), "", SortOrder::Title)
+            .expect("list");
+        let mut got = ids(&docs);
+        got.sort();
+        let mut want = vec![parent_doc, child_doc];
+        want.sort();
+        assert_eq!(got, want);
+        assert_eq!(
+            lib.doc_count(&LibraryFilter::CategoryGroup("Academic".into())).expect("count"),
+            2
+        );
+
+        let narrow = lib
+            .documents(LibraryFilter::Category("Essays".into()), "", SortOrder::Title)
+            .expect("list");
+        assert_eq!(ids(&narrow), vec![child_doc]);
+    }
+
+    #[test]
+    fn project_filter_returns_documents_in_stored_position_order() {
+        let (mut lib, work) = fixture();
+        let (first, _) = add_doc(&mut lib, &work, "first.typ");
+        let (second, _) = add_doc(&mut lib, &work, "second.typ");
+        let (third, _) = add_doc(&mut lib, &work, "third.typ");
+        let project = lib.create_project("Thesis").expect("project");
+        for id in [first, second, third] {
+            lib.add_doc_to_project(project, id).expect("add");
+        }
+
+        let docs = lib
+            .documents(LibraryFilter::Project(project), "", SortOrder::Title)
+            .expect("list");
+        assert_eq!(ids(&docs), vec![first, second, third]);
+        assert_eq!(lib.doc_count(&LibraryFilter::Project(project)).expect("count"), 3);
+    }
+
+    // ── Search ───────────────────────────────────────────────────────────────
+
+    #[test]
+    fn empty_search_matches_everything() {
+        let (mut lib, work) = fixture();
+        add_doc(&mut lib, &work, "alpha.typ");
+        add_doc(&mut lib, &work, "beta.typ");
+
+        let docs = lib.documents(LibraryFilter::All, "", SortOrder::Title).expect("list");
+        assert_eq!(docs.len(), 2);
+    }
+
+    #[test]
+    fn search_matches_a_substring_of_the_title_case_insensitively() {
+        let (mut lib, work) = fixture();
+        let (id, _) = add_doc(&mut lib, &work, "Reformation.typ");
+        add_doc(&mut lib, &work, "unrelated.typ");
+
+        for query in ["Reform", "reform", "format"] {
+            let docs = lib.documents(LibraryFilter::All, query, SortOrder::Title).expect("list");
+            assert_eq!(ids(&docs), vec![id], "query {query:?}");
+        }
+    }
+
+    #[test]
+    fn search_also_matches_category_and_tag_names() {
+        let (mut lib, work) = fixture();
+        let (by_category, _) = add_doc(&mut lib, &work, "one.typ");
+        let (by_tag, _) = add_doc(&mut lib, &work, "two.typ");
+        lib.set_category(by_category, Some("Homiletics")).expect("category");
+        let tag = lib.create_tag("patristics", "#ff0000").expect("tag");
+        lib.set_doc_tags(by_tag, &[tag]).expect("set tags");
+
+        let by_cat = lib.documents(LibraryFilter::All, "Homile", SortOrder::Title).expect("list");
+        assert_eq!(ids(&by_cat), vec![by_category]);
+        let by_tag_name = lib.documents(LibraryFilter::All, "patris", SortOrder::Title).expect("list");
+        assert_eq!(ids(&by_tag_name), vec![by_tag]);
+    }
+
+    #[test]
+    fn search_that_matches_nothing_returns_empty() {
+        let (mut lib, work) = fixture();
+        add_doc(&mut lib, &work, "alpha.typ");
+
+        let docs = lib
+            .documents(LibraryFilter::All, "no-such-document", SortOrder::Title)
+            .expect("list");
+        assert!(docs.is_empty());
+    }
+
+    // ── Sorting ──────────────────────────────────────────────────────────────
+
+    #[test]
+    fn title_sort_is_alphabetical_and_case_insensitive() {
+        let (mut lib, work) = fixture();
+        for (name, title) in [("c.typ", "cherry"), ("a.typ", "Apple"), ("b.typ", "banana")] {
+            let path = write_doc(&work, name, &format!("#let doc-title = \"{title}\"\n"));
+            lib.upsert_document(&path).expect("upsert");
+        }
+
+        let docs = lib.documents(LibraryFilter::All, "", SortOrder::Title).expect("list");
+        assert_eq!(titles(&docs), vec!["Apple", "banana", "cherry"]);
+    }
+
+    #[test]
+    fn opened_sort_puts_never_opened_documents_last() {
+        let (mut lib, work) = fixture();
+        let (opened, opened_path) = add_doc(&mut lib, &work, "opened.typ");
+        let (never, _) = add_doc(&mut lib, &work, "never.typ");
+        lib.touch_opened(&opened_path).expect("open");
+
+        let docs = lib.documents(LibraryFilter::All, "", SortOrder::Opened).expect("list");
+        assert_eq!(ids(&docs), vec![opened, never]);
+    }
+
+    #[test]
+    fn pinned_documents_sort_ahead_of_unpinned_ones_regardless_of_sort_order() {
+        let (mut lib, work) = fixture();
+        let path_a = write_doc(&work, "a.typ", "#let doc-title = \"Aaa\"\n");
+        let path_z = write_doc(&work, "z.typ", "#let doc-title = \"Zzz\"\n");
+        lib.upsert_document(&path_a).expect("upsert");
+        let zzz = lib.upsert_document(&path_z).expect("upsert");
+        lib.set_pinned(zzz, true).expect("pin");
+
+        let docs = lib.documents(LibraryFilter::All, "", SortOrder::Title).expect("list");
+        assert_eq!(
+            titles(&docs),
+            vec!["Zzz", "Aaa"],
+            "pinned wins even though Title sort would put Aaa first"
+        );
+    }
+
+    #[test]
+    fn doc_count_agrees_with_the_number_of_documents_returned() {
+        let (mut lib, work) = fixture();
+        for name in ["a.typ", "b.typ", "c.typ"] {
+            add_doc(&mut lib, &work, name);
+        }
+        let archived = lib.upsert_document(&write_doc(&work, "d.typ", "x")).expect("upsert");
+        lib.set_archived(archived, true).expect("archive");
+
+        for filter in [LibraryFilter::All, LibraryFilter::Archive, LibraryFilter::Untagged] {
+            let listed = lib.documents(filter.clone(), "", SortOrder::Modified).expect("list").len();
+            assert_eq!(listed as i64, lib.doc_count(&filter).expect("count"), "{filter:?}");
+        }
+    }
+
+    // ── Upsert & timestamps ──────────────────────────────────────────────────
+
+    #[test]
+    fn upserting_the_same_path_twice_returns_the_same_id_and_does_not_duplicate() {
+        let (mut lib, work) = fixture();
+        let path = write_doc(&work, "essay.typ", "= One\n");
+
+        let first = lib.upsert_document(&path).expect("first");
+        let second = lib.upsert_document(&path).expect("second");
+
+        assert_eq!(first, second);
+        let docs = lib.documents(LibraryFilter::All, "", SortOrder::Title).expect("list");
+        assert_eq!(docs.len(), 1);
+    }
+
+    #[test]
+    fn upsert_picks_up_a_retitled_document() {
+        let (mut lib, work) = fixture();
+        let path = write_doc(&work, "essay.typ", "#let doc-title = \"First Title\"\n");
+        let id = lib.upsert_document(&path).expect("upsert");
+        assert_eq!(lib.doc_by_id(id).unwrap().unwrap().title, "First Title");
+
+        std::fs::write(&path, "#let doc-title = \"Second Title\"\n").unwrap();
+        lib.upsert_document(&path).expect("re-upsert");
+
+        assert_eq!(lib.doc_by_id(id).unwrap().unwrap().title, "Second Title");
+    }
+
+    #[test]
+    fn a_document_with_no_title_declaration_falls_back_to_its_filename() {
+        let (mut lib, work) = fixture();
+        let path = write_doc(&work, "my-essay.typ", "= Just a heading\n");
+
+        let id = lib.upsert_document(&path).expect("upsert");
+
+        assert_eq!(lib.doc_by_id(id).unwrap().unwrap().title, "my-essay");
+    }
+
+    #[test]
+    fn touch_opened_sets_last_opened_without_touching_modified() {
+        let (mut lib, work) = fixture();
+        let (id, path) = add_doc(&mut lib, &work, "essay.typ");
+        let before = lib.doc_by_id(id).unwrap().unwrap();
+        assert!(before.last_opened_at.is_none());
+
+        lib.touch_opened(&path).expect("open");
+
+        let after = lib.doc_by_id(id).unwrap().unwrap();
+        assert!(after.last_opened_at.is_some());
+        assert_eq!(after.modified_at, before.modified_at);
+    }
+
+    #[test]
+    fn touch_saved_advances_modified_without_setting_last_opened() {
+        let (mut lib, work) = fixture();
+        let (id, path) = add_doc(&mut lib, &work, "essay.typ");
+        let before = lib.doc_by_id(id).unwrap().unwrap();
+
+        lib.touch_saved(&path).expect("save");
+
+        let after = lib.doc_by_id(id).unwrap().unwrap();
+        assert!(after.modified_at >= before.modified_at);
+        assert!(after.last_opened_at.is_none());
+    }
+
+    // ── Tags ─────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn set_doc_tags_replaces_the_existing_set_rather_than_appending() {
+        let (mut lib, work) = fixture();
+        let (id, _) = add_doc(&mut lib, &work, "essay.typ");
+        let draft = lib.create_tag("draft", "#ff0000").expect("tag");
+        let final_tag = lib.create_tag("final", "#00ff00").expect("tag");
+
+        lib.set_doc_tags(id, &[draft]).expect("set");
+        lib.set_doc_tags(id, &[final_tag]).expect("replace");
+
+        let names: Vec<String> = lib.doc_tags(id).expect("tags").into_iter().map(|t| t.name).collect();
+        assert_eq!(names, vec!["final"]);
+    }
+
+    #[test]
+    fn add_doc_tags_appends_and_ignores_duplicates() {
+        let (mut lib, work) = fixture();
+        let (id, _) = add_doc(&mut lib, &work, "essay.typ");
+        let draft = lib.create_tag("draft", "#ff0000").expect("tag");
+        let review = lib.create_tag("review", "#00ff00").expect("tag");
+
+        lib.set_doc_tags(id, &[draft]).expect("set");
+        lib.add_doc_tags(id, &[review]).expect("add");
+        lib.add_doc_tags(id, &[review]).expect("add again");
+
+        let names: Vec<String> = lib.doc_tags(id).expect("tags").into_iter().map(|t| t.name).collect();
+        assert_eq!(names, vec!["draft", "review"]);
+    }
+
+    #[test]
+    fn creating_a_tag_that_already_exists_returns_the_original_id() {
+        let (mut lib, _work) = fixture();
+        let first = lib.create_tag("draft", "#ff0000").expect("tag");
+        let second = lib.create_tag("draft", "#00ff00").expect("tag again");
+
+        assert_eq!(first, second);
+        assert_eq!(lib.all_tags().expect("tags").len(), 1);
+    }
+
+    #[test]
+    fn deleting_a_tag_detaches_it_from_every_document() {
+        let (mut lib, work) = fixture();
+        let (a, _) = add_doc(&mut lib, &work, "a.typ");
+        let (b, _) = add_doc(&mut lib, &work, "b.typ");
+        let tag = lib.create_tag("draft", "#ff0000").expect("tag");
+        lib.set_doc_tags(a, &[tag]).expect("set");
+        lib.set_doc_tags(b, &[tag]).expect("set");
+
+        lib.delete_tag(tag).expect("delete");
+
+        assert!(lib.doc_tags(a).expect("tags").is_empty());
+        assert!(lib.doc_tags(b).expect("tags").is_empty());
+        let untagged = lib.documents(LibraryFilter::Untagged, "", SortOrder::Title).expect("list");
+        assert_eq!(untagged.len(), 2);
+    }
+
+    #[test]
+    fn renaming_a_tag_keeps_its_document_associations() {
+        let (mut lib, work) = fixture();
+        let (id, _) = add_doc(&mut lib, &work, "essay.typ");
+        let tag = lib.create_tag("draft", "#ff0000").expect("tag");
+        lib.set_doc_tags(id, &[tag]).expect("set");
+
+        lib.rename_tag(tag, "in-progress").expect("rename");
+
+        let names: Vec<String> = lib.doc_tags(id).expect("tags").into_iter().map(|t| t.name).collect();
+        assert_eq!(names, vec!["in-progress"]);
+        let docs = lib.documents(LibraryFilter::Tag(tag), "", SortOrder::Title).expect("list");
+        assert_eq!(ids(&docs), vec![id]);
+    }
+
+    #[test]
+    fn tag_counts_include_zero_for_tags_nobody_uses() {
+        let (mut lib, work) = fixture();
+        let (id, _) = add_doc(&mut lib, &work, "essay.typ");
+        let used = lib.create_tag("used", "#ff0000").expect("tag");
+        lib.create_tag("unused", "#00ff00").expect("tag");
+        lib.set_doc_tags(id, &[used]).expect("set");
+
+        let counts: Vec<(String, i64)> = lib
+            .all_tags_with_counts()
+            .expect("counts")
+            .into_iter()
+            .map(|(t, n)| (t.name, n))
+            .collect();
+        assert_eq!(counts, vec![("used".to_string(), 1), ("unused".to_string(), 0)]);
+    }
+
+    // ── Categories ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn ensure_category_is_idempotent() {
+        let (mut lib, _work) = fixture();
+        lib.ensure_category("Essays").expect("first");
+        lib.ensure_category("Essays").expect("second");
+
+        let names: Vec<String> = lib
+            .all_categories_structured()
+            .expect("cats")
+            .into_iter()
+            .map(|c| c.name)
+            .collect();
+        assert_eq!(names, vec!["Essays"]);
+    }
+
+    #[test]
+    fn setting_a_category_on_a_document_registers_the_category() {
+        let (mut lib, work) = fixture();
+        let (id, _) = add_doc(&mut lib, &work, "essay.typ");
+
+        lib.set_category(id, Some("Sermons")).expect("set");
+
+        assert_eq!(lib.all_categories().expect("cats"), vec!["Sermons"]);
+        assert!(lib
+            .all_categories_structured()
+            .expect("structured")
+            .iter()
+            .any(|c| c.name == "Sermons"));
+    }
+
+    #[test]
+    fn category_colors_round_trip() {
+        let (mut lib, _work) = fixture();
+        lib.ensure_category("Essays").expect("ensure");
+
+        lib.set_category_color("Essays", "#aabbcc").expect("set color");
+
+        assert_eq!(lib.get_category_color("Essays"), Some("#aabbcc".to_string()));
+    }
+
+    /// Pins current behaviour, which contradicts `get_category_color`'s stated
+    /// contract ("None if it has never had one assigned"): the `categories`
+    /// schema declares `color_hex TEXT NOT NULL DEFAULT '#3584e4'`, so a
+    /// category row always has a color the moment it exists. The
+    /// `stable_palette_color` fallbacks in `library_window.rs` are therefore
+    /// unreachable and every uncolored category renders the same blue — the
+    /// exact outcome the doc comments say they exist to prevent. Change this
+    /// test when that's fixed; it is not describing desirable behaviour.
+    #[test]
+    fn an_uncolored_category_reports_the_schema_default_not_none() {
+        let (mut lib, work) = fixture();
+        lib.ensure_category("Essays").expect("ensure");
+        let (id, _) = add_doc(&mut lib, &work, "essay.typ");
+        lib.set_category(id, Some("Sermons")).expect("set");
+
+        assert_eq!(lib.get_category_color("Essays"), Some("#3584e4".to_string()));
+        assert_eq!(
+            lib.all_categories_with_colors().expect("colors"),
+            vec![("Sermons".to_string(), Some("#3584e4".to_string()))]
+        );
+    }
+
+    #[test]
+    fn renaming_a_category_moves_its_documents_and_reparents_its_children() {
+        let (mut lib, work) = fixture();
+        let (id, _) = add_doc(&mut lib, &work, "essay.typ");
+        lib.create_category("Academic", None).expect("parent");
+        lib.create_category("Essays", Some("Academic")).expect("child");
+        lib.set_category(id, Some("Academic")).expect("set");
+
+        lib.rename_category("Academic", "Scholarly").expect("rename");
+
+        assert_eq!(lib.doc_by_id(id).unwrap().unwrap().category, Some("Scholarly".to_string()));
+        let child = lib
+            .all_categories_structured()
+            .expect("cats")
+            .into_iter()
+            .find(|c| c.name == "Essays")
+            .expect("child still present");
+        assert_eq!(child.parent, Some("Scholarly".to_string()));
+        assert!(!lib
+            .all_categories_structured()
+            .expect("cats")
+            .iter()
+            .any(|c| c.name == "Academic"));
+    }
+
+    #[test]
+    fn a_category_with_children_refuses_to_be_force_deleted() {
+        let (mut lib, _work) = fixture();
+        lib.create_category("Academic", None).expect("parent");
+        lib.create_category("Essays", Some("Academic")).expect("child");
+
+        assert!(lib.category_has_children("Academic").expect("check"));
+        assert!(!lib.force_delete_category_if_no_children("Academic").expect("delete"));
+        assert!(lib
+            .all_categories_structured()
+            .expect("cats")
+            .iter()
+            .any(|c| c.name == "Academic"));
+    }
+
+    #[test]
+    fn force_deleting_a_childless_category_clears_it_from_its_documents() {
+        let (mut lib, work) = fixture();
+        let (id, _) = add_doc(&mut lib, &work, "essay.typ");
+        lib.set_category(id, Some("Essays")).expect("set");
+
+        assert!(lib.force_delete_category_if_no_children("Essays").expect("delete"));
+
+        assert_eq!(lib.doc_by_id(id).unwrap().unwrap().category, None);
+        assert!(lib.all_categories().expect("cats").is_empty());
+    }
+
+    // ── Projects ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn documents_added_to_a_project_get_sequential_positions() {
+        let (mut lib, work) = fixture();
+        let project = lib.create_project("Thesis").expect("project");
+        let (a, _) = add_doc(&mut lib, &work, "a.typ");
+        let (b, _) = add_doc(&mut lib, &work, "b.typ");
+        lib.add_doc_to_project(project, a).expect("add");
+        lib.add_doc_to_project(project, b).expect("add");
+
+        assert_eq!(lib.position_in_project(project, a).expect("pos"), Some(0));
+        assert_eq!(lib.position_in_project(project, b).expect("pos"), Some(1));
+    }
+
+    #[test]
+    fn moving_a_document_to_the_front_of_a_project_reorders_the_rest() {
+        let (mut lib, work) = fixture();
+        let project = lib.create_project("Thesis").expect("project");
+        let (a, _) = add_doc(&mut lib, &work, "a.typ");
+        let (b, _) = add_doc(&mut lib, &work, "b.typ");
+        let (c, _) = add_doc(&mut lib, &work, "c.typ");
+        for id in [a, b, c] {
+            lib.add_doc_to_project(project, id).expect("add");
+        }
+
+        lib.move_doc_in_project(project, c, 0).expect("move");
+
+        let docs = lib
+            .documents(LibraryFilter::Project(project), "", SortOrder::Title)
+            .expect("list");
+        assert_eq!(ids(&docs), vec![c, a, b]);
+    }
+
+    #[test]
+    fn deleting_a_project_leaves_its_documents_alone() {
+        let (mut lib, work) = fixture();
+        let project = lib.create_project("Thesis").expect("project");
+        let (id, _) = add_doc(&mut lib, &work, "essay.typ");
+        lib.add_doc_to_project(project, id).expect("add");
+
+        lib.delete_project(project).expect("delete");
+
+        assert!(lib.all_projects().expect("projects").is_empty());
+        let docs = lib.documents(LibraryFilter::All, "", SortOrder::Title).expect("list");
+        assert_eq!(ids(&docs), vec![id], "the document itself should survive");
+    }
+
+    #[test]
+    fn deleting_a_document_that_is_a_project_root_clears_the_root_reference() {
+        let (mut lib, work) = fixture();
+        let project = lib.create_project("Thesis").expect("project");
+        let (id, path) = add_doc(&mut lib, &work, "main.typ");
+        lib.add_doc_to_project(project, id).expect("add");
+        lib.set_project_root(project, Some(id)).expect("set root");
+        assert_eq!(lib.project_root_path(project).expect("root"), Some(path));
+
+        lib.remove_document(id).expect("remove");
+
+        assert_eq!(lib.project_root_path(project).expect("root"), None);
+        assert_eq!(lib.all_projects().expect("projects").len(), 1);
+    }
+
+    // ── Import ───────────────────────────────────────────────────────────────
+
+    #[test]
+    fn import_directory_recurses_but_skips_hidden_dirs_and_non_typst_files() {
+        let (mut lib, work) = fixture();
+        std::fs::create_dir_all(work.path().join("nested")).unwrap();
+        std::fs::create_dir_all(work.path().join(".hidden")).unwrap();
+        std::fs::write(work.path().join("top.typ"), "= Top\n").unwrap();
+        std::fs::write(work.path().join("nested/deep.typ"), "= Deep\n").unwrap();
+        std::fs::write(work.path().join("notes.md"), "not typst").unwrap();
+        std::fs::write(work.path().join(".hidden/secret.typ"), "= Secret\n").unwrap();
+
+        let count = lib.import_directory(work.path()).expect("import");
+
+        assert_eq!(count, 2);
+        let found: Vec<String> = lib
+            .documents(LibraryFilter::All, "", SortOrder::Title)
+            .expect("list")
+            .into_iter()
+            .map(|d| d.title)
+            .collect();
+        assert_eq!(found, vec!["deep", "top"]);
+    }
 }
