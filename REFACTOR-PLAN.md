@@ -279,8 +279,54 @@ function, not the file.
 
 ## Phase 3 — `AppWindow::new` (4,299 lines) — the main event
 
-**Status:** ☐ not started
+**Status:** ◐ **IN PROGRESS** — 3a ☑ and 3b ☑ done (2026-08-03); 3c–3e remain
 **Risk:** medium · **Depends on:** Phase 2 (pattern established)
+
+### Progress
+
+- **3a ☑** `app_window.rs` (8,302 lines) is now a module directory: `mod.rs`
+  (5,159), `import.rs` (2,152), `sync.rs` (502), `dialogs.rs` (249),
+  plus 3b's `header.rs` (334) and `panels.rs` (210). Free functions only.
+  The import machinery was one contiguous block and **all 23 of the file's
+  tests target it**, so they moved with it and covered the move immediately.
+  Only 7 of its 32 items were reachable from `impl AppWindow`.
+  Also removed a stale doc comment describing the pre-print-overhaul
+  "compile to `~/.cache/zerkalo` and xdg-open" behaviour, which had drifted
+  onto `restore_snapshot_with_confirm`; `print_from_preview`'s own current doc
+  comment already documents that behaviour as removed.
+- **3b ☑** `build_header()` → `HeaderWidgets` (43 fields) and `build_panels()`
+  → `Panels` (13 fields). `AppWindow::new` 4,299 → **4,006**.
+  Note the modest reduction: the destructures cost ~55 lines at the call
+  sites. Construction extraction has a floor; the wiring is where the bulk is.
+
+### 3c — menu wiring: analysis done, design decision pending
+
+**Do not start 3c by extracting menu sections one at a time.** Measured:
+
+- The menu sections are **not contiguous** — the "Menu: Import (picker dialog)"
+  and "Citation panel: Skrizhal" blocks are interleaved between them. Two
+  contiguous runs exist: **983–1273** (Browse Documents → Font Management, 291
+  lines) and **1431–1944** (Import PDF → Export for Web, 514 lines).
+- Run A needs **30** distinct captures, run B needs **21**. Extracting them with
+  positional parameters would produce exactly the 12-argument functions this
+  plan forbids.
+
+**The shape it wants** (same move as Phase 2's `FormWidgets`, and the rehearsal
+for Phase 4's `TabContext`): one `MenuCtx` struct holding the ~22 shared items
+(`window`, `editor_pane`, `preview_pane`, `error_panel`, `toast_overlay`,
+`current_config`, `project_root`, `writing_log`, the compile-mode cluster), plus
+a `Menus` struct of the 22 `menu_*` buttons — which **`HeaderWidgets` already
+holds**, so the cheapest route is to give `HeaderWidgets` a nested `menus: Menus`
+field rather than building a second copy. Then each run becomes
+`wire_app_menus(&ctx, &menus)` — two parameters.
+
+**Two bindings escape their run and must be hoisted above it first:**
+`toast_overlay` (created inside run A) and `toast_for_sync_btn` (run B).
+
+**Verification warning:** nothing in the test suite covers `app_window` wiring —
+all 347 tests pass regardless of whether a menu item is connected to the wrong
+handler. 3c needs the headless smoke harness (see the Smoke test section above)
+driving the hamburger menu item by item.
 
 ### The mechanic
 
