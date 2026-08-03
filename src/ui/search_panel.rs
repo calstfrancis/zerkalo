@@ -506,7 +506,7 @@ fn visit_dir(dir: &PathBuf, work_dir: &Path, query: &str, out: &mut Vec<Match>, 
     }
 }
 
-fn encode_row_name(file: &PathBuf, line: u32) -> String {
+fn encode_row_name(file: &Path, line: u32) -> String {
     format!("{}||{}", file.display(), line)
 }
 

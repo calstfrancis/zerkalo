@@ -69,7 +69,7 @@ impl PackageBrowser {
         {
             let pb_c = pb.clone();
             pb.filter_entry.connect_changed(move |entry| {
-                pb_c.rebuild_list(&entry.text().to_string());
+                pb_c.rebuild_list(entry.text().as_ref());
             });
         }
 

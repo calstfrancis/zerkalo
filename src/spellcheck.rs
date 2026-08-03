@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::io::Write as IoWrite;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 const DICT_DIRS: &[&str] = &[
@@ -16,7 +16,12 @@ pub struct SpellChecker {
     pub languages: Vec<String>,
     pub enabled: bool,
     pub autocorrect: bool,
+    /// Words from the global user dictionary plus the session's ad-hoc
+    /// "ignore" choices. Kept apart from the project's own list so switching
+    /// projects doesn't carry one project's vocabulary into the next.
     ignored: HashSet<String>,
+    /// Words from the currently-open project's `.zerkalo/dictionary.dic`.
+    project_ignored: HashSet<String>,
     project_dict_path: Option<PathBuf>,
 }
 
@@ -25,11 +30,11 @@ fn global_user_dict_path() -> PathBuf {
     PathBuf::from(base).join("user.dic")
 }
 
-fn project_dict_path(project_root: &PathBuf) -> PathBuf {
+fn project_dict_path(project_root: &Path) -> PathBuf {
     project_root.join(".zerkalo").join("dictionary.dic")
 }
 
-fn load_dic_words(path: &PathBuf) -> HashSet<String> {
+fn load_dic_words(path: &Path) -> HashSet<String> {
     let mut words = HashSet::new();
     let Ok(content) = std::fs::read_to_string(path) else { return words };
     // Hunspell .dic format: first line is word count, then one word per line
@@ -43,7 +48,7 @@ fn load_dic_words(path: &PathBuf) -> HashSet<String> {
     words
 }
 
-fn append_dic_word(path: &PathBuf, word: &str) {
+fn append_dic_word(path: &Path, word: &str) {
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
@@ -76,16 +81,18 @@ impl SpellChecker {
             enabled: true,
             autocorrect: false,
             ignored,
+            project_ignored: HashSet::new(),
             project_dict_path: None,
         }
     }
 
-    pub fn set_project_root(&mut self, root: &PathBuf) {
+    /// Switches to `root`'s project dictionary, *replacing* the previous
+    /// project's words rather than accumulating them — otherwise a word added
+    /// to one project's dictionary stayed accepted in every project opened
+    /// afterwards for the rest of the session.
+    pub fn set_project_root(&mut self, root: &Path) {
         let path = project_dict_path(root);
-        let words = load_dic_words(&path);
-        for w in words {
-            self.ignored.insert(w);
-        }
+        self.project_ignored = load_dic_words(&path);
         self.project_dict_path = Some(path);
     }
 
@@ -103,8 +110,8 @@ impl SpellChecker {
     }
 
     pub fn add_to_project_dict(&mut self, word: &str) {
-        self.ignore(word);
         if let Some(ref path) = self.project_dict_path.clone() {
+            self.project_ignored.insert(word.to_lowercase());
             append_dic_word(path, word);
         } else {
             self.add_to_user_dict(word);
@@ -115,16 +122,21 @@ impl SpellChecker {
         self.project_dict_path.is_some()
     }
 
-    pub fn ignored(&self) -> &HashSet<String> {
-        &self.ignored
+    /// Every word to skip: global dictionary, session ignores, and the current
+    /// project's dictionary. Callers snapshot this to filter on a worker
+    /// thread, so it has to include the project words too.
+    pub fn ignored(&self) -> HashSet<String> {
+        self.ignored.union(&self.project_ignored).cloned().collect()
     }
 
     pub fn is_ignored(&self, word: &str) -> bool {
-        self.ignored.contains(&word.to_lowercase())
+        let lower = word.to_lowercase();
+        self.ignored.contains(&lower) || self.project_ignored.contains(&lower)
     }
 
     /// Check a set of unique words. Returns a map of misspelled word → suggestion list.
     /// A word is considered correct if it passes in ANY of the configured languages.
+    #[allow(dead_code)] // multi-language variant; the UI path uses check_words_batch
     pub fn check_unique(&self, unique_words: &[&str]) -> HashMap<String, Vec<String>> {
         let filtered: Vec<&str> = unique_words
             .iter()
@@ -164,15 +176,26 @@ impl SpellChecker {
 
     /// Get suggestions for a single word (used by right-click menu).
     /// Uses the primary language for suggestions.
+    ///
+    /// Spawns and waits on `hunspell`, so it must not be called from the GTK
+    /// main thread. Use [`suggestions_for_word`] from a worker instead when the
+    /// caller is on the main loop.
+    #[allow(dead_code)] // the UI now calls suggestions_for_word off-thread
     pub fn suggestions_for(&self, word: &str) -> Vec<String> {
         if self.is_ignored(word) {
             return Vec::new();
         }
-        let words = [word];
-        run_hunspell_batch(&words, self.primary_language())
-            .remove(&word.to_lowercase())
-            .unwrap_or_default()
+        suggestions_for_word(word, self.primary_language())
     }
+}
+
+/// Suggestions for one word in one language, with no borrow of the checker —
+/// so it can be sent to a worker thread while the main loop keeps running.
+pub fn suggestions_for_word(word: &str, language: &str) -> Vec<String> {
+    let words = [word];
+    run_hunspell_batch(&words, language)
+        .remove(&word.to_lowercase())
+        .unwrap_or_default()
 }
 
 // ── Word extraction ───────────────────────────────────────────────────────────
@@ -410,14 +433,26 @@ fn run_hunspell_batch(words: &[&str], language: &str) -> HashMap<String, Vec<Str
         Err(_) => return result,
     };
 
-    if let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(input.as_bytes());
-    }
+    // Write stdin on its own thread while the parent reads stdout. Writing the
+    // whole word list first and only then reading deadlocks once hunspell's
+    // output fills the ~64 KB pipe buffer: it blocks writing, we block writing,
+    // and neither side ever drains. A long document's unique-word list reaches
+    // that comfortably.
+    let writer = child.stdin.take().map(|mut stdin| {
+        std::thread::spawn(move || {
+            let _ = stdin.write_all(input.as_bytes());
+            // Dropping stdin here closes the pipe, which is what tells hunspell
+            // to finish and exit.
+        })
+    });
 
     let output = match child.wait_with_output() {
         Ok(o) => o,
         Err(_) => return result,
     };
+    if let Some(w) = writer {
+        let _ = w.join();
+    }
 
     let text = String::from_utf8_lossy(&output.stdout);
 
@@ -466,8 +501,8 @@ pub fn levenshtein(a: &str, b: &str) -> usize {
         return 3; // cap
     }
     let mut dp = vec![vec![0usize; n + 1]; m + 1];
-    for i in 0..=m { dp[i][0] = i; }
-    for j in 0..=n { dp[0][j] = j; }
+    for (i, row) in dp.iter_mut().enumerate() { row[0] = i; }
+    for (j, cell) in dp[0].iter_mut().enumerate() { *cell = j; }
     for i in 1..=m {
         for j in 1..=n {
             dp[i][j] = if a[i - 1] == b[j - 1] {

@@ -55,5 +55,8 @@ jobs:
       - name: Test
         run: cargo test --release
 
+      # -D warnings, not a bare `cargo clippy`: without it the job passes no
+      # matter how many warnings accumulate, which is how the tree reached 225
+      # of them. The codebase is at zero — keep it there.
       - name: Clippy
-        run: cargo clippy
+        run: cargo clippy --all-targets -- -D warnings

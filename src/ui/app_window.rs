@@ -7,7 +7,6 @@ use gtk4::prelude::*;
 use gtk4::{
     AlertDialog, Align, Box as GtkBox, Button, Entry, Label, MenuButton,
     Notebook, Orientation, Paned, Popover, ScrolledWindow, Separator, Stack, ToggleButton,
-    Window,
 };
 use libadwaita as adw;
 use adw::prelude::*;
@@ -89,8 +88,11 @@ impl AppWindow {
         {
             let library_bg = library.clone();
             let work_dir_bg = config.work_dir.clone();
-            let (sender, receiver) =
-                glib::MainContext::channel::<Library>(glib::Priority::LOW);
+            // Plain mpsc polled from the main loop, matching every other
+            // worker handoff in this file. `MainContext::channel` was
+            // deprecated in favour of an async channel, and this codebase has
+            // no async runtime on the GTK side to host one.
+            let (sender, receiver) = std::sync::mpsc::sync_channel::<Library>(1);
             std::thread::spawn(move || {
                 let mut lib = Library::open().unwrap_or_else(|e| {
                     tracing::warn!("Failed to open library DB: {e}");
@@ -100,10 +102,16 @@ impl AppWindow {
                 lib.fix_created_dates_from_fs();
                 sender.send(lib).ok();
             });
-            receiver.attach(None, move |lib| {
-                *library_bg.borrow_mut() = lib;
-                tracing::info!("Library DB ready");
-                glib::ControlFlow::Break
+            glib::timeout_add_local(Duration::from_millis(100), move || {
+                match receiver.try_recv() {
+                    Ok(lib) => {
+                        *library_bg.borrow_mut() = lib;
+                        tracing::info!("Library DB ready");
+                        glib::ControlFlow::Break
+                    }
+                    Err(std::sync::mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => glib::ControlFlow::Break,
+                }
             });
         }
 
@@ -136,7 +144,9 @@ impl AppWindow {
         let compile_on_save: Rc<RefCell<bool>> = Rc::new(RefCell::new(config.compile_on_save));
         let manual_compile_only: Rc<RefCell<bool>> = Rc::new(RefCell::new(config.manual_compile_only));
         let auto_save_idle_ms: Rc<RefCell<u64>> = Rc::new(RefCell::new(config.auto_save_idle_ms));
-        let current_config: Rc<RefCell<Config>> = Rc::new(RefCell::new(config.clone()));
+        // The process-wide instance, not a copy — dialogs that change settings
+        // mutate this same one, so nothing silently reverts anyone else's edit.
+        let current_config: Rc<RefCell<Config>> = crate::config::shared();
         let last_edit_instant: Rc<RefCell<Option<std::time::Instant>>> = Rc::new(RefCell::new(None));
         let has_compile_errors: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
 
@@ -620,7 +630,7 @@ impl AppWindow {
                         let alert = AlertDialog::builder()
                             .modal(true)
                             .message("Move to trash?")
-                            .detail(&format!("'{}' will be moved to the system trash.", name_del))
+                            .detail(format!("'{}' will be moved to the system trash.", name_del))
                             .buttons(["Cancel", "Move to Trash"])
                             .cancel_button(0)
                             .default_button(0)
@@ -2607,7 +2617,7 @@ impl AppWindow {
 
         let compile_rev_for_done = compile_rev.clone();
         let compile_btn_for_done = compile_btn.clone();
-        preview_pane.set_on_compile_done(move |result| {
+        preview_pane.set_on_compile_done(move |result, warnings| {
             compile_btn_for_done.remove_css_class("compiling-pulse");
             compile_rev_for_done.set_reveal_child(false);
             match &result {
@@ -2615,13 +2625,39 @@ impl AppWindow {
                     let had_errors = *has_errors_for_compile.borrow();
                     *has_errors_for_compile.borrow_mut() = false;
                     error_panel_for_compile.clear();
-                    error_panel_for_compile.widget().set_visible(false);
                     editor_for_diag.clear_diagnostic_marks();
                     editor_for_diag.clear_error_marks();
-                    editor_for_diag.set_diag_summary(0, 0);
                     error_banner_for_compile.set_visible(false);
                     error_banner_lbl_for_compile.set_visible(false);
-                    window_for_compile.set_title(Some("Zerkalo"));
+                    // A clean compile can still have warnings — deprecations,
+                    // unused imports. They go through the same panel as errors
+                    // rather than being dropped, but never raise a banner or a
+                    // toast, since nothing is broken.
+                    let warns = if warnings.is_empty() {
+                        Vec::new()
+                    } else {
+                        parse_typst_errors(&warnings, &root_for_compile)
+                    };
+                    if warns.is_empty() {
+                        error_panel_for_compile.widget().set_visible(false);
+                        editor_for_diag.set_diag_summary(0, 0);
+                        window_for_compile.set_title(Some("Zerkalo"));
+                    } else {
+                        let diags: Vec<(std::path::PathBuf, u32, bool, String)> = warns
+                            .iter()
+                            .map(|w| (w.file.clone(), w.line, false, w.message.clone()))
+                            .collect();
+                        editor_for_diag.mark_diagnostics(&diags);
+                        editor_for_diag.set_diag_summary(0, warns.len() as u32);
+                        window_for_compile.set_title(Some(&format!(
+                            "Zerkalo ({} warning{})",
+                            warns.len(),
+                            if warns.len() == 1 { "" } else { "s" }
+                        )));
+                        error_panel_for_compile.show_compile_errors(warns);
+                        error_panel_for_compile.set_build_log(&warnings);
+                        error_panel_for_compile.widget().set_visible(true);
+                    }
                     // Only show success toast when recovering from errors
                     if had_errors {
                         let t = adw::Toast::new("Compiled successfully");
@@ -2723,6 +2759,26 @@ impl AppWindow {
         }
 
         // ── Startup: warn if required tools are missing ──────────────────────
+
+        // ── Startup: report an unreadable settings file ──────────────────────
+
+        if let Some(problem) = crate::config::take_load_problem() {
+            let toast_for_cfg = toast_overlay.clone();
+            let backup = problem
+                .backup
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| problem.backup.display().to_string());
+            let msg = format!(
+                "Settings could not be read ({}). Backed up as {backup}; defaults are in use.",
+                problem.error
+            );
+            glib::timeout_add_local_once(Duration::from_millis(700), move || {
+                let t = adw::Toast::new(&msg);
+                t.set_timeout(10);
+                toast_for_cfg.add_toast(t);
+            });
+        }
 
         // ── Startup: combined missing-tool check (single alert, not stacked) ───
         let win_for_check = window.clone();
@@ -2962,13 +3018,13 @@ impl AppWindow {
             glib::ControlFlow::Continue
         });
 
-        // ── Periodic auto-save every 30 s ───────────────────────────────────
-
-        let editor_for_autosave = editor_pane.clone();
-        glib::timeout_add_local(Duration::from_secs(30), move || {
-            editor_for_autosave.save_all_modified();
-            glib::ControlFlow::Continue
-        });
+        // There is deliberately no periodic write-to-disk timer here. One used
+        // to call `save_all_modified()` every 30 s, which wrote every modified
+        // buffer to its real path, cleared the modified flag, and deleted the
+        // recovery copy — so the idle autosave above could never find anything
+        // to save and `find_recovery` could never see an autosave newer than
+        // the file, making the whole crash-recovery path unreachable. The file
+        // on disk now changes only when the user saves.
 
         // ── Layout ──────────────────────────────────────────────────────────
 
@@ -3505,7 +3561,7 @@ impl AppWindow {
                 let alert = AlertDialog::builder()
                     .modal(true)
                     .message("Move to trash?")
-                    .detail(&format!("'{}' will be moved to the system trash.", name))
+                    .detail(format!("'{}' will be moved to the system trash.", name))
                     .buttons(["Cancel", "Move to Trash"])
                     .cancel_button(0)
                     .default_button(0)
@@ -4359,8 +4415,7 @@ impl AppWindow {
             let config_for_pal = self.config.clone();
             palette.set_on_activate(move |id| {
                 let w = window_for_pal.clone();
-                if id.starts_with("heading:") {
-                    let rest = &id["heading:".len()..];
+                if let Some(rest) = id.strip_prefix("heading:") {
                     if let Some(colon) = rest.find(':') {
                         let line_str = &rest[..colon];
                         let path_str = &rest[colon + 1..];
@@ -4369,8 +4424,8 @@ impl AppWindow {
                             editor_for_pal.jump_to_line(&path, line);
                         }
                     }
-                } else if id.starts_with("file:") {
-                    let path = std::path::PathBuf::from(&id["file:".len()..]);
+                } else if let Some(rest) = id.strip_prefix("file:") {
+                    let path = std::path::PathBuf::from(rest);
                     if let Ok(content) = std::fs::read_to_string(&path) {
                         editor_for_pal.open_file(path, &content);
                     }
@@ -4500,11 +4555,7 @@ impl AppWindow {
             {
                 use gtk4::gdk::Key;
                 if ctrl && shift && !alt && key == Key::v {
-                    // AppWindow doesn't keep the shared `Rc<RefCell<Config>>` from
-                    // `new()` around as a field, so load a fresh copy here — any
-                    // setting relevant to import (e.g. bib_path) is written to
-                    // disk immediately when changed, so this stays current.
-                    let cfg = Rc::new(RefCell::new(Config::load().unwrap_or_default()));
+                    let cfg = crate::config::shared();
                     paste_as_document(
                         &window_for_paste_key, &editor_for_paste_key, &work_dir_for_paste_key,
                         &cfg, &toast_overlay_for_paste_key,
@@ -4865,8 +4916,10 @@ fn make_font_save_cb(cfg: Rc<RefCell<Config>>) -> impl Fn(String, String) + 'sta
     }
 }
 
-fn compile_mode_label_str(auto: bool, cos: bool, mco: bool) -> &'static str {
-    if mco { "manual" } else if auto { "auto" } else if cos { "on save" } else { "on save" }
+fn compile_mode_label_str(auto: bool, _cos: bool, mco: bool) -> &'static str {
+    // Anything that isn't manual or auto compiles on save, whether or not the
+    // compile_on_save flag is explicitly set.
+    if mco { "manual" } else if auto { "auto" } else { "on save" }
 }
 
 fn apply_compile_mode_css(btn: &Button, auto: bool, _cos: bool, mco: bool) {
@@ -5526,12 +5579,6 @@ fn format_file_mtime(mtime: std::time::SystemTime) -> String {
     else { format!("{} months ago", secs / (86400 * 30)) }
 }
 
-/// Post-process a pandoc-converted Typst file:
-///   1. Insert `#pagebreak()` between the title block and the body
-///      (just before the first top-level `= Heading`).
-///   2. Insert `#pagebreak()` before the `#bibliography(...)` call.
-///   3. Fix the bibliography path to the configured `.bib` file if supplied;
-///      add a commented-out bibliography stub if none exists.
 /// Compute a path string for `#include`/`#import` relative to the compilation root's directory.
 /// Falls back to the filename if no root is set or paths don't share a prefix.
 fn compute_include_path(preview: &super::preview_pane::PreviewPane, abs_path: &std::path::Path) -> String {
@@ -5550,8 +5597,7 @@ fn compute_include_path(preview: &super::preview_pane::PreviewPane, abs_path: &s
 
 fn extract_doc_title(content: &str) -> Option<String> {
     // 1. TOML/YAML front-matter: ---\ntitle = "..." or title: ...\n---
-    if content.starts_with("---\n") {
-        let rest = &content[4..];
+    if let Some(rest) = content.strip_prefix("---\n") {
         let end = rest.find("\n---\n").or_else(|| rest.find("\n---"));
         if let Some(end) = end {
             for line in rest[..end].lines() {
@@ -5580,9 +5626,9 @@ fn extract_doc_title(content: &str) -> Option<String> {
         if t.starts_with("#set document(") {
             if let Some(pos) = t.find("title:") {
                 let after = t[pos + "title:".len()..].trim();
-                if after.starts_with('"') {
-                    if let Some(end) = after[1..].find('"') {
-                        let title = after[1..end + 1].to_string();
+                if let Some(inner) = after.strip_prefix('"') {
+                    if let Some(end) = inner.find('"') {
+                        let title = inner[..end].to_string();
                         if !title.is_empty() {
                             return Some(title);
                         }
@@ -6189,6 +6235,9 @@ fn summarize_import_content(text: &str) -> String {
     parts.join(" · ")
 }
 
+// Each argument is a distinct widget or piece of state this flow needs; a
+// struct here would just be a bag with one caller.
+#[allow(clippy::too_many_arguments)]
 fn show_import_preview_dialog(
     window: &adw::ApplicationWindow,
     editor: &EditorPane,
@@ -6706,6 +6755,7 @@ fn prompt_paste_filename(
 
 /// Like `run_pandoc_import`, but for content that isn't a file on disk yet —
 /// pandoc reads from stdin (`-` as input) instead of a named file.
+#[allow(clippy::too_many_arguments)]
 fn run_pandoc_import_from_stdin(
     window: &adw::ApplicationWindow,
     editor: &EditorPane,
@@ -7130,6 +7180,13 @@ fn run_next_batch_worker(
     });
 }
 
+/// Post-process a pandoc-converted Typst file:
+///
+/// 1. Insert `#pagebreak()` between the title block and the body
+///    (just before the first top-level `= Heading`).
+/// 2. Insert `#pagebreak()` before the `#bibliography(...)` call.
+/// 3. Fix the bibliography path to the configured `.bib` file if supplied;
+///    add a commented-out bibliography stub if none exists.
 fn post_process_latex_import(content: &str, bib_path: Option<&std::path::Path>) -> String {
     // ── Phase 1: single-pass classifier ───────────────────────────────────────
     //
@@ -7549,7 +7606,7 @@ fn show_doc_stats(
     let chars_with_spaces = content.chars().count();
     let paragraphs = content.split("\n\n").filter(|s| !s.trim().is_empty()).count();
     let sentences = content
-        .split(|c: char| matches!(c, '.' | '!' | '?'))
+        .split(['.', '!', '?'])
         .filter(|s| !s.trim().is_empty())
         .count();
     let reading_mins = if words < 200 { "<1".to_string() } else { format!("{}", words / 200) };

@@ -1,9 +1,9 @@
-/// Known Typst error patterns paired with actionable fix descriptions and
-/// automated text transformations.  Each entry:
-///   - `pattern`: substring to look for in the error message (case-insensitive)
-///   - `description`: short human-readable explanation shown in the Fix popup
-///   - `fix_fn`: optional function that takes (source_text, error_line 0-based)
-///               and returns a patched version of the source
+// Known Typst error patterns paired with actionable fix descriptions and
+// automated text transformations. Each entry:
+//   - `pattern`: substring to look for in the error message (case-insensitive)
+//   - `description`: short human-readable explanation shown in the Fix popup
+//   - `fix_fn`: optional function that takes (source_text, error_line 0-based)
+//              and returns a patched version of the source
 
 pub struct ErrorFix {
     pub pattern: &'static str,

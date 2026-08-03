@@ -13,7 +13,7 @@ use gtk4::{
 use libadwaita as adw;
 use adw::prelude::*;
 
-use crate::library::{Category, Library, LibraryFilter, SortOrder};
+use crate::library::{Library, LibraryFilter, SortOrder};
 
 const TAG_COLORS: &[&str] = &[
     "#3584e4", "#33d17a", "#f6d32d", "#ff7800", "#e01b24", "#9141ac", "#dc8add", "#986a44",
@@ -2861,6 +2861,11 @@ fn format_date(iso: &str) -> String {
     }
 }
 
+// GTK 4.10 deprecated per-widget CSS providers in favour of a display-wide
+// provider plus a CSS class. These two set a colour that is only known at
+// runtime (a tag's own hex), which the class-based approach cannot express
+// without generating a class per colour — left as-is deliberately.
+#[allow(deprecated)]
 fn apply_color_css(widget: &impl IsA<gtk4::Widget>, color: &str) {
     let provider = gtk4::CssProvider::new();
     provider.load_from_data(&format!(
@@ -2872,6 +2877,7 @@ fn apply_color_css(widget: &impl IsA<gtk4::Widget>, color: &str) {
         .add_provider(&provider, gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION);
 }
 
+#[allow(deprecated)]
 fn apply_cat_color(widget: &impl IsA<gtk4::Widget>, bg_hex: &str) {
     let provider = gtk4::CssProvider::new();
     provider.load_from_data(&format!(
@@ -2884,28 +2890,26 @@ fn apply_cat_color(widget: &impl IsA<gtk4::Widget>, bg_hex: &str) {
 }
 
 fn extract_cite_keys(typ_path: &std::path::Path) -> std::collections::HashSet<String> {
+    // Compiled once, not three times per file — this runs for every document in
+    // the library on a scan.
+    static SHORTHAND: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    static CITE_LABEL: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    static CITE_STRING: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+
     let content = match std::fs::read_to_string(typ_path) {
         Ok(c) => c,
         Err(_) => return std::collections::HashSet::new(),
     };
     let mut keys = std::collections::HashSet::new();
-    for cap in regex::Regex::new(r"@([a-zA-Z][a-zA-Z0-9_:.-]*)")
-        .unwrap()
-        .captures_iter(&content)
-    {
-        keys.insert(cap[1].to_string());
-    }
-    for cap in regex::Regex::new(r"#cite\(<([^>]+)>\)")
-        .unwrap()
-        .captures_iter(&content)
-    {
-        keys.insert(cap[1].to_string());
-    }
-    for cap in regex::Regex::new(r#"#cite\("([^"]+)"\)"#)
-        .unwrap()
-        .captures_iter(&content)
-    {
-        keys.insert(cap[1].to_string());
+    let patterns = [
+        SHORTHAND.get_or_init(|| regex::Regex::new(r"@([a-zA-Z][a-zA-Z0-9_:.-]*)").unwrap()),
+        CITE_LABEL.get_or_init(|| regex::Regex::new(r"#cite\(<([^>]+)>\)").unwrap()),
+        CITE_STRING.get_or_init(|| regex::Regex::new(r#"#cite\("([^"]+)"\)"#).unwrap()),
+    ];
+    for re in patterns {
+        for cap in re.captures_iter(&content) {
+            keys.insert(cap[1].to_string());
+        }
     }
     keys
 }
@@ -2928,7 +2932,7 @@ fn parse_bibtex_authors_for_keys(
         {
             let after = &trimmed[trimmed.find('{').unwrap() + 1..];
             let key = after.split(',').next().unwrap_or("").trim().to_string();
-            in_matching_entry = filter_keys.map_or(true, |keys| keys.contains(&key));
+            in_matching_entry = filter_keys.is_none_or(|keys| keys.contains(&key));
         }
         if !in_matching_entry {
             continue;
@@ -2938,8 +2942,8 @@ fn parse_bibtex_authors_for_keys(
             if let Some(eq) = trimmed.find('=') {
                 let raw = trimmed[eq + 1..].trim();
                 let value = raw
-                    .trim_start_matches(|c: char| c == '{' || c == '"')
-                    .trim_end_matches(|c: char| c == ',' || c == '}' || c == '"')
+                    .trim_start_matches(['{', '"'])
+                    .trim_end_matches([',', '}', '"'])
                     .trim();
                 for part in value.split(" and ") {
                     if let Some(tag) = extract_author_tag(part) {
@@ -2957,8 +2961,8 @@ fn parse_bibtex_authors_for_keys(
 fn extract_author_tag(raw: &str) -> Option<String> {
     let name = raw
         .trim()
-        .trim_start_matches(|c: char| c == '{')
-        .trim_end_matches(|c: char| c == '}' || c == ',')
+        .trim_start_matches('{')
+        .trim_end_matches(['}', ','])
         .trim();
     if name.is_empty() {
         return None;

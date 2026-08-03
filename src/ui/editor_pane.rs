@@ -323,11 +323,10 @@ impl EditorPane {
         // Install Typst language definition
         let lang_dir = glib::user_data_dir().join("zerkalo/language-specs");
         let lang_file = lang_dir.join("typst.lang");
-        if !lang_file.exists() {
-            if std::fs::create_dir_all(&lang_dir).is_ok() {
+        if !lang_file.exists()
+            && std::fs::create_dir_all(&lang_dir).is_ok() {
                 let _ = std::fs::write(&lang_file, TYPST_LANG);
             }
-        }
         let lang_manager = LanguageManager::default();
         let dir_str = lang_dir.to_string_lossy().to_string();
         let existing: Vec<String> = lang_manager
@@ -783,12 +782,12 @@ impl EditorPane {
         }
         // Wrap grid_btns in Rc so hover handlers can update all cells
         let grid_rc: Rc<Vec<Vec<Button>>> = Rc::new(
-            grid_btns.iter().map(|row| row.clone()).collect()
+            grid_btns.to_vec()
         );
         // Wire hover handlers (separate pass so all cells are available)
-        for r in 0..GRID_MAX {
-            for c in 0..GRID_MAX {
-                let cell = grid_btns[r][c].clone();
+        for (r, row) in grid_btns.iter().enumerate().take(GRID_MAX) {
+            for (c, cell) in row.iter().enumerate().take(GRID_MAX) {
+                let cell = cell.clone();
                 let sr = selected_rows.clone();
                 let sc = selected_cols.clone();
                 let lbl = table_size_lbl.clone();
@@ -2023,7 +2022,7 @@ impl EditorPane {
             let mut v = Vec::new();
             let mut it = buffer.start_iter();
             while let Some((s, e)) = it.forward_search(text, flags, None) {
-                let advance = e.clone();
+                let advance = e;
                 v.push((s.offset(), e.offset()));
                 it = advance;
             }
@@ -2163,18 +2162,13 @@ impl EditorPane {
             self.find_bar.set_entry_error(false);
             buffer.begin_user_action();
             let mut iter = buffer.start_iter();
-            loop {
-                match iter.forward_search(find, flags, None) {
-                    Some((mut start, mut end)) => {
-                        let offset = start.offset();
-                        buffer.delete(&mut start, &mut end);
-                        let mut ins = buffer.iter_at_offset(offset);
-                        buffer.insert(&mut ins, replace);
-                        iter = buffer.iter_at_offset(offset + replace.chars().count() as i32);
-                        count += 1;
-                    }
-                    None => break,
-                }
+            while let Some((mut start, mut end)) = iter.forward_search(find, flags, None) {
+                let offset = start.offset();
+                buffer.delete(&mut start, &mut end);
+                let mut ins = buffer.iter_at_offset(offset);
+                buffer.insert(&mut ins, replace);
+                iter = buffer.iter_at_offset(offset + replace.chars().count() as i32);
+                count += 1;
             }
             buffer.end_user_action();
         }
@@ -2223,7 +2217,7 @@ impl EditorPane {
             TextWindowType::Widget, loc.x(), loc.y() + loc.height());
         let (_, wy_top) = ti.view.buffer_to_window_coords(
             TextWindowType::Widget, loc.x(), loc.y());
-        let view_h = ti.view.allocated_height() as i32;
+        let view_h = ti.view.allocated_height();
         let above = wy_bottom > view_h / 2;
         let wy = if above { wy_top } else { wy_bottom };
 
@@ -2319,7 +2313,7 @@ impl EditorPane {
                 }
                 let line_idx = (*line as i32).saturating_sub(1);
                 if let Some(line_start) = buffer.iter_at_line(line_idx) {
-                    let mut line_end = line_start.clone();
+                    let mut line_end = line_start;
                     line_end.forward_to_line_end();
                     buffer.apply_tag_by_name("zerkalo-error-line", &line_start, &line_end);
                 }
@@ -2412,6 +2406,7 @@ impl EditorPane {
         *self.on_cursor_heading.borrow_mut() = Some(Box::new(f));
     }
 
+    #[allow(dead_code)] // cursor-position readout, wired by callers not yet built
     pub fn set_on_cursor_moved(&self, f: impl Fn(PathBuf, u32, u32) + 'static) {
         *self.on_cursor_moved.borrow_mut() = Some(Box::new(f));
     }
@@ -2700,7 +2695,7 @@ impl EditorPane {
         let sc = self.spell_checker.borrow();
         if !sc.enabled { return; }
         let languages = sc.languages.clone();
-        let ignored = sc.ignored().clone();
+        let ignored = sc.ignored();
         drop(sc);
 
         let state = self.state.borrow();
@@ -3087,7 +3082,7 @@ impl EditorPane {
                 let alert = AlertDialog::builder()
                     .modal(true)
                     .message("Delete this file?")
-                    .detail(&format!("'{}' will be permanently deleted.", name_di))
+                    .detail(format!("'{}' will be permanently deleted.", name_di))
                     .buttons(["Cancel", "Delete"])
                     .cancel_button(0)
                     .default_button(0)
@@ -3324,7 +3319,7 @@ impl EditorPane {
                     let sel_text = buf.text(&sel_s, &sel_e, false).to_string();
                     let word_count = sel_text.split_whitespace().count();
                     let sentence_count = sel_text
-                        .split(|c: char| matches!(c, '.' | '!' | '?'))
+                        .split(['.', '!', '?'])
                         .filter(|s| !s.trim().is_empty())
                         .count();
                     wc_lbl_for_sel.set_text(&format!(
@@ -3381,7 +3376,7 @@ impl EditorPane {
                     && cursor.line() != last_tw_line.get()
                 {
                     last_tw_line.set(cursor.line());
-                    let mut c = cursor.clone();
+                    let mut c = cursor;
                     let vt = view_for_typewriter.clone();
                     let sc_tw = scroll_for_typewriter.clone();
                     let gen = typewriter_gen.get().wrapping_add(1);
@@ -3417,7 +3412,7 @@ impl EditorPane {
                 {
                     let line_start = buf.iter_at_line(cursor.line()).unwrap_or_else(|| buf.start_iter());
                     let line_end = {
-                        let mut e = line_start.clone();
+                        let mut e = line_start;
                         if !e.ends_line() { e.forward_to_line_end(); }
                         e
                     };
@@ -3609,10 +3604,10 @@ impl EditorPane {
             }
             let cursor_pos = buf.cursor_position();
             let cursor_iter = buf.iter_at_offset(cursor_pos);
-            let mut temp = cursor_iter.clone();
+            let mut temp = cursor_iter;
             let mut found_trigger = false;
             let mut trigger_char = '@';
-            let mut at_iter = cursor_iter.clone();
+            let mut at_iter = cursor_iter;
             loop {
                 if !temp.backward_char() {
                     break;
@@ -3621,7 +3616,7 @@ impl EditorPane {
                 if ch == '@' || (ch == '!' && cv_mode_ac.get()) {
                     found_trigger = true;
                     trigger_char = ch;
-                    at_iter = temp.clone();
+                    at_iter = temp;
                     break;
                 }
                 if !(ch.is_alphanumeric() || ch == '-' || ch == '_' || ch == ':') {
@@ -3635,7 +3630,7 @@ impl EditorPane {
                 return;
             }
             let prev_is_word = {
-                let mut prev = at_iter.clone();
+                let mut prev = at_iter;
                 if prev.backward_char() {
                     let ch = prev.char();
                     ch.is_alphanumeric() || ch == '_'
@@ -3665,7 +3660,7 @@ impl EditorPane {
                 TextWindowType::Widget, loc.x(), loc.y() + loc.height());
             let (_, wy_top) = view_ac.buffer_to_window_coords(
                 TextWindowType::Widget, loc.x(), loc.y());
-            let view_h = view_ac.allocated_height() as i32;
+            let view_h = view_ac.allocated_height();
             // above=true: popup uses PositionType::Top, its bottom lands at wy_top (cursor top)
             // above=false: popup uses PositionType::Bottom, its top lands at wy_bottom (cursor bottom)
             let above = wy_bottom > view_h / 2;
@@ -3828,9 +3823,9 @@ impl EditorPane {
                 }
                 let cursor_pos = buf.cursor_position();
                 let cursor_iter = buf.iter_at_offset(cursor_pos);
-                let mut temp = cursor_iter.clone();
+                let mut temp = cursor_iter;
                 let mut found_hash = false;
-                let mut hash_iter = cursor_iter.clone();
+                let mut hash_iter = cursor_iter;
 
                 loop {
                     if !temp.backward_char() {
@@ -3839,7 +3834,7 @@ impl EditorPane {
                     let ch = temp.char();
                     if ch == '#' {
                         found_hash = true;
-                        hash_iter = temp.clone();
+                        hash_iter = temp;
                         break;
                     }
                     if !(ch.is_alphanumeric() || ch == '_' || ch == '-') {
@@ -3880,7 +3875,7 @@ impl EditorPane {
                         TextWindowType::Widget, loc.x(), loc.y() + loc.height());
                     let (_, wy_top) = view_lsp.buffer_to_window_coords(
                         TextWindowType::Widget, loc.x(), loc.y());
-                    let view_h = view_lsp.allocated_height() as i32;
+                    let view_h = view_lsp.allocated_height();
                     let above = wy_bottom > view_h / 2;
                     let wy = if above { wy_top } else { wy_bottom };
                     let snippets = snippet_items(cv_mode_for_lsp.get());
@@ -3925,7 +3920,7 @@ impl EditorPane {
                     // Plane. Count UTF-16 units up to the cursor instead, so
                     // completions stay aligned on lines with e.g. emoji before
                     // the cursor.
-                    let mut line_start = cursor_iter.clone();
+                    let mut line_start = cursor_iter;
                     line_start.set_line_offset(0);
                     let text_before_cursor = buf.text(&line_start, &cursor_iter, false);
                     let col = text_before_cursor.encode_utf16().count() as u32 + 1;
@@ -4231,7 +4226,7 @@ impl EditorPane {
                 // Determine whether all non-empty lines start with "//"
                 let all_commented = (first_line..=last_line).all(|ln| {
                     if let Some(it) = buf_cmt.iter_at_line(ln) {
-                        let mut end = it.clone();
+                        let mut end = it;
                         end.forward_to_line_end();
                         let line_text = buf_cmt.text(&it, &end, false).to_string();
                         line_text.trim_start().is_empty() || line_text.trim_start().starts_with("//")
@@ -4243,7 +4238,7 @@ impl EditorPane {
                 buf_cmt.begin_user_action();
                 for ln in (first_line..=last_line).rev() {
                     let Some(line_start) = buf_cmt.iter_at_line(ln) else { continue };
-                    let mut line_end = line_start.clone();
+                    let mut line_end = line_start;
                     line_end.forward_to_line_end();
                     let line_text = buf_cmt.text(&line_start, &line_end, false).to_string();
                     if line_text.trim_start().is_empty() { continue; }
@@ -4254,7 +4249,7 @@ impl EditorPane {
                         let indent_len = (line_text.len() - stripped.len()) as i32;
                         if let Some(mut del_start) = buf_cmt.iter_at_line_offset(ln, indent_len) {
                             let remove = if stripped.starts_with("// ") { 3 } else { 2 };
-                            let mut del_end = del_start.clone();
+                            let mut del_end = del_start;
                             del_end.forward_chars(remove);
                             buf_cmt.delete(&mut del_start, &mut del_end);
                         }
@@ -4348,7 +4343,7 @@ impl EditorPane {
                 buf_dup.begin_user_action();
                 if let Some((sel_s, sel_e)) = buf_dup.selection_bounds() {
                     let text = buf_dup.text(&sel_s, &sel_e, false).to_string();
-                    let mut ins = sel_e.clone();
+                    let mut ins = sel_e;
                     buf_dup.insert(&mut ins, &text);
                 } else {
                     let cursor_pos = buf_dup.cursor_position();
@@ -4358,12 +4353,12 @@ impl EditorPane {
                         buf_dup.end_user_action();
                         return glib::Propagation::Stop;
                     };
-                    let mut line_end = line_start.clone();
+                    let mut line_end = line_start;
                     if !line_end.ends_line() {
                         line_end.forward_to_line_end();
                     }
                     let text = buf_dup.text(&line_start, &line_end, false).to_string();
-                    let mut ins = line_end.clone();
+                    let mut ins = line_end;
                     buf_dup.insert(&mut ins, &format!("\n{text}"));
                 }
                 buf_dup.end_user_action();
@@ -4450,7 +4445,7 @@ impl EditorPane {
                     if let Some(ln) = target_line {
                         if let Some(it) = buf_nav.iter_at_line(ln) {
                             buf_nav.place_cursor(&it);
-                            let mut it2 = it.clone();
+                            let mut it2 = it;
                             view_nav.scroll_to_iter(&mut it2, 0.1, false, 0.0, 0.3);
                         }
                     }
@@ -4483,14 +4478,14 @@ impl EditorPane {
                     }
                     it.backward_word_start();
                     // If the character just before the new position is '#' or '@', absorb it
-                    let mut probe = it.clone();
+                    let mut probe = it;
                     if probe.backward_char() && matches!(probe.char(), '#' | '@') {
                         it = probe;
                     }
                 }
 
                 buf_nav.place_cursor(&it);
-                let mut sc = it.clone();
+                let mut sc = it;
                 view_nav.scroll_to_iter(&mut sc, 0.07, false, 0.0, 0.5);
                 glib::Propagation::Stop
             });
@@ -4528,21 +4523,22 @@ impl EditorPane {
                 let Some(tag) = table.lookup("zerkalo-spell") else { return glib::Propagation::Proceed; };
                 if !iter.has_tag(&tag) { return glib::Propagation::Proceed; }
 
-                let mut word_start = iter.clone();
+                let mut word_start = iter;
                 loop {
-                    let mut prev = word_start.clone();
+                    let mut prev = word_start;
                     if !prev.backward_char() { break; }
                     if !prev.char().is_alphabetic() { break; }
                     word_start = prev;
                 }
-                let mut word_end = iter.clone();
+                let mut word_end = iter;
                 while word_end.char().is_alphabetic() {
                     if !word_end.forward_char() { break; }
                 }
                 let word = buf.text(&word_start, &word_end, false).to_string();
                 if word.is_empty() { return glib::Propagation::Proceed; }
 
-                let suggestions = sc.suggestions_for(&word);
+                let already_ignored = sc.is_ignored(&word);
+                let lang = sc.primary_language().to_string();
                 drop(sc);
 
                 // Position popover at cursor
@@ -4561,49 +4557,106 @@ impl EditorPane {
                 vbox.set_margin_top(6); vbox.set_margin_bottom(6);
                 vbox.set_margin_start(4); vbox.set_margin_end(4);
 
-                if suggestions.is_empty() {
-                    let lbl = Label::new(Some("No suggestions"));
-                    lbl.add_css_class("dim-label");
-                    lbl.set_margin_top(4); lbl.set_margin_bottom(4);
-                    vbox.append(&lbl);
-                } else {
-                    for sugg in suggestions.iter().take(6) {
-                        let btn = Button::with_label(sugg);
-                        btn.add_css_class("flat");
-                        let buf2 = buf_ae.clone();
-                        let ws = word_start.clone();
-                        let we = word_end.clone();
-                        let s = sugg.clone();
-                        let pop2 = popover.clone();
-                        let scroll_sg = scroll_ae.clone();
-                        let hold_p = hold_pos_ae.clone();
-                        let hold_u = hold_until_ae.clone();
-                        btn.connect_clicked(move |_| {
-                            let vpos = scroll_sg.vadjustment().value();
-                            let hpos = scroll_sg.hadjustment().value();
-                            hold_p.set(Some((vpos, hpos)));
-                            hold_u.set(Instant::now() + PASTE_HOLD);
-
-                            let mut a = ws.clone();
-                            let mut b = we.clone();
-                            buf2.begin_user_action();
-                            buf2.delete(&mut a, &mut b);
-                            buf2.insert(&mut a, &s);
-                            buf2.end_user_action();
-                            pop2.popdown();
-
-                            let release = hold_p.clone();
-                            glib::timeout_add_local_once(PASTE_HOLD, move || release.set(None));
-                        });
-                        vbox.append(&btn);
-                    }
-                }
+                // Open on a placeholder and fill the list when hunspell replies.
+                // Asking it inline blocked the main loop for the whole fork,
+                // exec and wait before the menu could even appear.
+                let pending = Label::new(Some("Checking\u{2026}"));
+                pending.add_css_class("dim-label");
+                pending.set_margin_top(4); pending.set_margin_bottom(4);
+                vbox.append(&pending);
 
                 let pop_close = popover.clone();
                 popover.connect_closed(move |_| { pop_close.unparent(); });
                 popover.set_child(Some(&vbox));
                 popover.popup();
                 popover.grab_focus();
+
+                // Offsets, not TextIters: the reply lands after this handler
+                // returns, and any edit in between invalidates an iterator.
+                let ws_off = word_start.offset();
+                let we_off = word_end.offset();
+
+                let (tx, rx) = std::sync::mpsc::sync_channel::<Vec<String>>(1);
+                {
+                    let word_bg = word.clone();
+                    std::thread::spawn(move || {
+                        let out = if already_ignored {
+                            Vec::new()
+                        } else {
+                            crate::spellcheck::suggestions_for_word(&word_bg, &lang)
+                        };
+                        tx.send(out).ok();
+                    });
+                }
+
+                let rx = Rc::new(rx);
+                let vbox_fill = vbox.clone();
+                let pending_fill = pending.clone();
+                let popover_fill = popover.clone();
+                let buf_fill = buf_ae.clone();
+                let scroll_fill = scroll_ae.clone();
+                let hold_pos_fill = hold_pos_ae.clone();
+                let hold_until_fill = hold_until_ae.clone();
+                let word_fill = word.clone();
+                glib::timeout_add_local(Duration::from_millis(30), move || {
+                    let suggestions = match rx.try_recv() {
+                        Ok(s) => s,
+                        Err(std::sync::mpsc::TryRecvError::Empty) => {
+                            // Nothing to fill if the user already dismissed it.
+                            if !popover_fill.is_visible() {
+                                return glib::ControlFlow::Break;
+                            }
+                            return glib::ControlFlow::Continue;
+                        }
+                        Err(_) => return glib::ControlFlow::Break,
+                    };
+                    if !popover_fill.is_visible() {
+                        return glib::ControlFlow::Break;
+                    }
+                    vbox_fill.remove(&pending_fill);
+
+                    if suggestions.is_empty() {
+                        let lbl = Label::new(Some("No suggestions"));
+                        lbl.add_css_class("dim-label");
+                        lbl.set_margin_top(4); lbl.set_margin_bottom(4);
+                        vbox_fill.append(&lbl);
+                    } else {
+                        for sugg in suggestions.iter().take(6) {
+                            let btn = Button::with_label(sugg);
+                            btn.add_css_class("flat");
+                            let buf2 = buf_fill.clone();
+                            let s = sugg.clone();
+                            let pop2 = popover_fill.clone();
+                            let scroll_sg = scroll_fill.clone();
+                            let hold_p = hold_pos_fill.clone();
+                            let hold_u = hold_until_fill.clone();
+                            let expected = word_fill.clone();
+                            btn.connect_clicked(move |_| {
+                                let vpos = scroll_sg.vadjustment().value();
+                                let hpos = scroll_sg.hadjustment().value();
+                                hold_p.set(Some((vpos, hpos)));
+                                hold_u.set(Instant::now() + PASTE_HOLD);
+
+                                let mut a = buf2.iter_at_offset(ws_off);
+                                let mut b = buf2.iter_at_offset(we_off);
+                                // The buffer may have changed while the menu was
+                                // open; only replace if the word is still there.
+                                if buf2.text(&a, &b, false) == expected.as_str() {
+                                    buf2.begin_user_action();
+                                    buf2.delete(&mut a, &mut b);
+                                    buf2.insert(&mut a, &s);
+                                    buf2.end_user_action();
+                                }
+                                pop2.popdown();
+
+                                let release = hold_p.clone();
+                                glib::timeout_add_local_once(PASTE_HOLD, move || release.set(None));
+                            });
+                            vbox_fill.append(&btn);
+                        }
+                    }
+                    glib::ControlFlow::Break
+                });
                 glib::Propagation::Stop
             });
             view.add_controller(ae_ctrl);
@@ -4651,7 +4704,7 @@ impl EditorPane {
                             return;
                         }
                         let langs = sc.languages.clone();
-                        let ignored = sc.ignored().clone();
+                        let ignored = sc.ignored();
                         drop(sc);
 
                         let (s, e) = buf2.bounds();
@@ -4723,9 +4776,9 @@ impl EditorPane {
 
                 // Scan backward to find the preceding word
                 let word_end = buf.iter_at_offset(cursor - 1);
-                let mut word_start = word_end.clone();
+                let mut word_start = word_end;
                 loop {
-                    let mut prev = word_start.clone();
+                    let mut prev = word_start;
                     if !prev.backward_char() { break; }
                     if !prev.char().is_alphabetic() { break; }
                     word_start = prev;
@@ -4740,34 +4793,53 @@ impl EditorPane {
                     return;
                 }
 
-                let suggestions = sc.suggestions_for(&word);
+                let lang = sc.primary_language().to_string();
                 drop(sc);
 
-                if let Some(best) = suggestions.first() {
+                // Ask hunspell on a worker thread. This runs from
+                // `connect_changed`, i.e. inside a keystroke: doing the
+                // fork/exec/wait inline stalled the main loop on every space,
+                // period, comma, semicolon, colon, `!` and `?` the user typed.
+                //
+                // Char offsets rather than TextIter: iterators are invalidated
+                // by any later buffer edit, and now the reply arrives well
+                // after this handler has returned. The word at those offsets is
+                // re-validated before anything is replaced, so keystrokes in
+                // the meantime are safely ignored.
+                let ws_off = word_start.offset();
+                let we_off = word_end.offset();
+                let word_c = word.clone();
+                let buf_c = buf_ac.clone();
+                let (tx, rx) = std::sync::mpsc::sync_channel::<Vec<String>>(1);
+                std::thread::spawn(move || {
+                    tx.send(crate::spellcheck::suggestions_for_word(&word_c, &lang)).ok();
+                });
+
+                let word_c = word.clone();
+                let rx = Rc::new(rx);
+                glib::timeout_add_local(Duration::from_millis(30), move || {
+                    let suggestions = match rx.try_recv() {
+                        Ok(s) => s,
+                        Err(std::sync::mpsc::TryRecvError::Empty) => {
+                            return glib::ControlFlow::Continue
+                        }
+                        Err(_) => return glib::ControlFlow::Break,
+                    };
                     // Only apply if edit distance is 1 (very confident replacement)
-                    if crate::spellcheck::levenshtein(&word.to_lowercase(), &best.to_lowercase()) <= 1 {
-                        // Capture char offsets instead of TextIter objects: iterators are
-                        // invalidated by any subsequent buffer edit before the idle fires.
-                        // Re-validate the word at those offsets before applying so a second
-                        // keypress between connect_changed and the idle is safely ignored.
-                        let ws_off = word_start.offset();
-                        let we_off = word_end.offset();
-                        let best_c = best.clone();
-                        let word_c = word.clone();
-                        let buf_c = buf_ac.clone();
-                        glib::idle_add_local_once(move || {
+                    if let Some(best) = suggestions.first() {
+                        if crate::spellcheck::levenshtein(&word_c.to_lowercase(), &best.to_lowercase()) <= 1 {
                             let mut s = buf_c.iter_at_offset(ws_off);
                             let mut e = buf_c.iter_at_offset(we_off);
-                            if buf_c.text(&s, &e, false) != word_c.as_str() {
-                                return;
+                            if buf_c.text(&s, &e, false) == word_c.as_str() {
+                                buf_c.begin_user_action();
+                                buf_c.delete(&mut s, &mut e);
+                                buf_c.insert(&mut s, best);
+                                buf_c.end_user_action();
                             }
-                            buf_c.begin_user_action();
-                            buf_c.delete(&mut s, &mut e);
-                            buf_c.insert(&mut s, &best_c);
-                            buf_c.end_user_action();
-                        });
+                        }
                     }
-                }
+                    glib::ControlFlow::Break
+                });
             });
         }
 
@@ -4916,21 +4988,22 @@ impl EditorPane {
                 if !iter.has_tag(&tag) { return; }
 
                 // Find word boundaries
-                let mut word_start = iter.clone();
+                let mut word_start = iter;
                 loop {
-                    let mut prev = word_start.clone();
+                    let mut prev = word_start;
                     if !prev.backward_char() { break; }
                     if !prev.char().is_alphabetic() { break; }
                     word_start = prev;
                 }
-                let mut word_end = iter.clone();
+                let mut word_end = iter;
                 while word_end.char().is_alphabetic() {
                     if !word_end.forward_char() { break; }
                 }
                 let word = buf_rc.text(&word_start, &word_end, false).to_string();
                 if word.is_empty() { return; }
 
-                let suggestions = sc.suggestions_for(&word);
+                let already_ignored = sc.is_ignored(&word);
+                let lang = sc.primary_language().to_string();
                 drop(sc);
                 // From here a spell popover is definitely going up, so take the
                 // click: no built-in menu, no two menus stacked.
@@ -4948,47 +5021,105 @@ impl EditorPane {
                 vbox.set_margin_start(4);
                 vbox.set_margin_end(4);
 
-                if suggestions.is_empty() {
-                    let lbl = Label::new(Some("No suggestions"));
-                    lbl.add_css_class("dim-label");
-                    lbl.set_margin_top(4);
-                    lbl.set_margin_bottom(4);
-                    vbox.append(&lbl);
-                } else {
-                    for sugg in suggestions.iter().take(6) {
-                        let btn = Button::with_label(sugg);
-                        btn.add_css_class("flat");
-                        let buf2 = buf_rc.clone();
-                        let ws = word_start.clone();
-                        let we = word_end.clone();
-                        let s = sugg.clone();
-                        let pop2 = popover.clone();
-                        let scroll_sg = scroll_rc.clone();
-                        let hold_p = hold_pos_spell.clone();
-                        let hold_u = hold_until_spell.clone();
-                        btn.connect_clicked(move |_| {
-                            // Popping the popover down hands focus back to the view,
-                            // and GTK answers with the same scroll-to-mark animation
-                            // that follows a paste. Hold the viewport through it.
-                            let vpos = scroll_sg.vadjustment().value();
-                            let hpos = scroll_sg.hadjustment().value();
-                            hold_p.set(Some((vpos, hpos)));
-                            hold_u.set(Instant::now() + PASTE_HOLD);
+                // Suggestions live in their own box so they can be filled in
+                // once hunspell answers, without disturbing the fixed actions
+                // below. Asking it inline delayed the menu appearing by the
+                // whole fork/exec/wait, on the main loop.
+                let sugg_box = GtkBox::new(Orientation::Vertical, 2);
+                let pending = Label::new(Some("Checking\u{2026}"));
+                pending.add_css_class("dim-label");
+                pending.set_margin_top(4);
+                pending.set_margin_bottom(4);
+                sugg_box.append(&pending);
+                vbox.append(&sugg_box);
 
-                            let mut a = ws.clone();
-                            let mut b = we.clone();
-                            buf2.begin_user_action();
-                            buf2.delete(&mut a, &mut b);
-                            buf2.insert(&mut a, &s);
-                            buf2.end_user_action();
-                            pop2.popdown();
+                // Offsets, not TextIters: the reply arrives after this handler
+                // returns, and any edit in between invalidates an iterator.
+                let ws_off = word_start.offset();
+                let we_off = word_end.offset();
 
-                            let release = hold_p.clone();
-                            glib::timeout_add_local_once(PASTE_HOLD, move || release.set(None));
-                        });
-                        vbox.append(&btn);
-                    }
+                let (tx, rx) = std::sync::mpsc::sync_channel::<Vec<String>>(1);
+                {
+                    let word_bg = word.clone();
+                    std::thread::spawn(move || {
+                        let out = if already_ignored {
+                            Vec::new()
+                        } else {
+                            crate::spellcheck::suggestions_for_word(&word_bg, &lang)
+                        };
+                        tx.send(out).ok();
+                    });
                 }
+
+                let rx = Rc::new(rx);
+                let sugg_box_fill = sugg_box.clone();
+                let pending_fill = pending.clone();
+                let popover_fill = popover.clone();
+                let buf_fill = buf_rc.clone();
+                let scroll_fill = scroll_rc.clone();
+                let hold_pos_fill = hold_pos_spell.clone();
+                let hold_until_fill = hold_until_spell.clone();
+                let word_fill = word.clone();
+                glib::timeout_add_local(Duration::from_millis(30), move || {
+                    let suggestions = match rx.try_recv() {
+                        Ok(s) => s,
+                        Err(std::sync::mpsc::TryRecvError::Empty) => {
+                            if !popover_fill.is_visible() {
+                                return glib::ControlFlow::Break;
+                            }
+                            return glib::ControlFlow::Continue;
+                        }
+                        Err(_) => return glib::ControlFlow::Break,
+                    };
+                    if !popover_fill.is_visible() {
+                        return glib::ControlFlow::Break;
+                    }
+                    sugg_box_fill.remove(&pending_fill);
+
+                    if suggestions.is_empty() {
+                        let lbl = Label::new(Some("No suggestions"));
+                        lbl.add_css_class("dim-label");
+                        lbl.set_margin_top(4);
+                        lbl.set_margin_bottom(4);
+                        sugg_box_fill.append(&lbl);
+                    } else {
+                        for sugg in suggestions.iter().take(6) {
+                            let btn = Button::with_label(sugg);
+                            btn.add_css_class("flat");
+                            let buf2 = buf_fill.clone();
+                            let s = sugg.clone();
+                            let pop2 = popover_fill.clone();
+                            let scroll_sg = scroll_fill.clone();
+                            let hold_p = hold_pos_fill.clone();
+                            let hold_u = hold_until_fill.clone();
+                            let expected = word_fill.clone();
+                            btn.connect_clicked(move |_| {
+                                // Popping the popover down hands focus back to the view,
+                                // and GTK answers with the same scroll-to-mark animation
+                                // that follows a paste. Hold the viewport through it.
+                                let vpos = scroll_sg.vadjustment().value();
+                                let hpos = scroll_sg.hadjustment().value();
+                                hold_p.set(Some((vpos, hpos)));
+                                hold_u.set(Instant::now() + PASTE_HOLD);
+
+                                let mut a = buf2.iter_at_offset(ws_off);
+                                let mut b = buf2.iter_at_offset(we_off);
+                                if buf2.text(&a, &b, false) == expected.as_str() {
+                                    buf2.begin_user_action();
+                                    buf2.delete(&mut a, &mut b);
+                                    buf2.insert(&mut a, &s);
+                                    buf2.end_user_action();
+                                }
+                                pop2.popdown();
+
+                                let release = hold_p.clone();
+                                glib::timeout_add_local_once(PASTE_HOLD, move || release.set(None));
+                            });
+                            sugg_box_fill.append(&btn);
+                        }
+                    }
+                    glib::ControlFlow::Break
+                });
 
                 vbox.append(&Separator::new(Orientation::Horizontal));
 
@@ -5293,7 +5424,7 @@ impl EditorPane {
             {
                 let scroll = scroll.clone();
                 let view_p = view.clone();
-                let buf_p = buffer.clone();
+                let _buf_p = buffer.clone();
                 let held = hold_position.clone();
                 let held_until = hold_until.clone();
                 let pause = pause_tracking.clone();
@@ -5420,6 +5551,7 @@ impl EditorPane {
         }
     }
 
+    #[allow(dead_code)] // companion to the word-count stats
     pub fn active_line_count(&self) -> u32 {
         let current = match self.notebook.current_page() {
             Some(p) => p,
@@ -5604,7 +5736,7 @@ impl EditorPane {
                 if !tab.modified { continue; }
                 let (start, end) = tab.buffer.bounds();
                 let content = tab.buffer.text(&start, &end, true);
-                if std::fs::write(path, content.as_bytes()).is_ok() {
+                if crate::error::atomic_write(path, content.as_bytes()).is_ok() {
                     tab.modified = false;
                     out.push((tab.dot_label.clone(), tab.tab_box.clone(), tab.display_name.clone(), path.clone()));
                 }
@@ -5621,7 +5753,7 @@ impl EditorPane {
     pub fn save_current(&self) -> Option<PathBuf> {
         let path = self.get_active_path()?;
         let content = self.get_active_content()?;
-        std::fs::write(&path, content.as_bytes()).ok()?;
+        crate::error::atomic_write(&path, content.as_bytes()).ok()?;
         crate::auto_save::clear(&path);
         self.mark_saved(&path);
         Some(path)
@@ -5761,8 +5893,8 @@ impl EditorPane {
         let Some((_view, buf)) = self.active_view_buffer() else { return };
         let cursor = buf.iter_at_mark(&buf.get_insert());
         let line = cursor.line();
-        let line_start = buf.iter_at_line(line).unwrap_or(cursor.clone());
-        let mut line_end = line_start.clone();
+        let line_start = buf.iter_at_line(line).unwrap_or(cursor);
+        let mut line_end = line_start;
         line_end.forward_to_line_end();
         let line_text = buf.text(&line_start, &line_end, false).to_string();
         let raw = line_text.as_str();
@@ -5943,7 +6075,7 @@ fn mark_diagnostics_for_tab(
         }
         let line_idx = err_line.saturating_sub(1) as i32;
         if let Some(line_start) = buffer.iter_at_line(line_idx) {
-            let mut line_end = line_start.clone();
+            let mut line_end = line_start;
             line_end.forward_to_line_end();
             let tag = if *is_error { "zerkalo-diag-error" } else { "zerkalo-diag-warning" };
             buffer.apply_tag_by_name(tag, &line_start, &line_end);
@@ -6018,9 +6150,9 @@ fn remove_spell_word_tags(buffer: &Buffer, tag: &gtk4::TextTag, word: &str) {
             if !it.forward_to_tag_toggle(Some(tag)) { break; }
             if it >= e { break; }
         }
-        let ws = it.clone();
-        let mut we = it.clone();
-        if !we.forward_to_tag_toggle(Some(tag)) { we = e.clone(); }
+        let ws = it;
+        let mut we = it;
+        if !we.forward_to_tag_toggle(Some(tag)) { we = e; }
         let w = buffer.text(&ws, &we, false).to_string();
         if w.to_lowercase() == target {
             buffer.remove_tag(tag, &ws, &we);
@@ -6180,7 +6312,7 @@ fn set_ghost(
     // The ghost is drawn over the view, so it would cover whatever follows the
     // cursor. Only offer it when the rest of the line is empty.
     {
-        let mut line_end = cursor.clone();
+        let mut line_end = cursor;
         if !line_end.ends_line() {
             line_end.forward_to_line_end();
         }
@@ -6218,7 +6350,7 @@ fn set_citation_ghost(
         return;
     };
     let cursor = buf.iter_at_offset(buf.cursor_position());
-    let mut line_end = cursor.clone();
+    let mut line_end = cursor;
     if !line_end.ends_line() {
         line_end.forward_to_line_end();
     }
@@ -6370,7 +6502,7 @@ fn suppress_current_completion(
 
 fn lsp_hash_prefix(buffer: &Buffer) -> String {
     let cursor = buffer.iter_at_offset(buffer.cursor_position());
-    let mut temp = cursor.clone();
+    let mut temp = cursor;
     loop {
         if !temp.backward_char() {
             break;
@@ -6416,7 +6548,7 @@ fn close_tab_with_dirty_check(
     if is_modified {
         let alert = AlertDialog::builder()
             .modal(true)
-            .message(&format!("Save changes to '{}'?", display_name))
+            .message(format!("Save changes to '{}'?", display_name))
             .detail("Your changes will be lost if you close without saving.")
             .buttons(["Cancel", "Discard", "Save"])
             .cancel_button(0)
@@ -6441,7 +6573,7 @@ fn close_tab_with_dirty_check(
                         })
                     };
                     if let Some(content) = content {
-                        let _ = std::fs::write(&path, content.as_bytes());
+                        let _ = crate::error::atomic_write(&path, content.as_bytes());
                         crate::auto_save::clear(&path);
                         ep.mark_saved(&path);
                     }
@@ -6723,7 +6855,7 @@ fn build_heading_path(buf: &sourceview5::Buffer, line_idx: i32) -> String {
     let mut check = line_idx;
     while check >= 0 {
         if let Some(iter) = buf.iter_at_line(check) {
-            let mut end = iter.clone();
+            let mut end = iter;
             end.forward_to_line_end();
             let text = buf.text(&iter, &end, false).to_string();
             if text.starts_with('=') {
@@ -6750,7 +6882,7 @@ fn find_heading_line_for(buf: &sourceview5::Buffer, line_idx: i32) -> u32 {
     let mut check = line_idx;
     while check >= 0 {
         if let Some(iter) = buf.iter_at_line(check) {
-            let mut end = iter.clone();
+            let mut end = iter;
             end.forward_to_line_end();
             let text = buf.text(&iter, &end, false);
             if text.starts_with('=') {
@@ -6765,7 +6897,7 @@ fn find_heading_line_for(buf: &sourceview5::Buffer, line_idx: i32) -> u32 {
 /// True if `ln` is a Typst heading line (starts with `=`).
 fn is_heading_line(buf: &sourceview5::Buffer, ln: i32) -> bool {
     if let Some(it) = buf.iter_at_line(ln) {
-        let mut end = it.clone();
+        let mut end = it;
         end.forward_to_line_end();
         let text = buf.text(&it, &end, false);
         return text.starts_with('=');

@@ -1,5 +1,5 @@
 use std::cell::{Cell, RefCell};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use gtk4::prelude::*;
@@ -250,8 +250,8 @@ impl OutlinePanel {
     }
 
     /// Update outline from a single file (single-document mode).
-    pub fn update(&self, content: &str, path: &PathBuf) {
-        let files = vec![(path.clone(), content.to_string())];
+    pub fn update(&self, content: &str, path: &Path) {
+        let files = vec![(path.to_path_buf(), content.to_string())];
         *self.cached_files.borrow_mut() = files.clone();
         self.repopulate(&files);
     }

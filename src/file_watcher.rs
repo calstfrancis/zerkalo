@@ -19,8 +19,16 @@ pub fn start(
 
     let on_change = std::rc::Rc::new(on_change);
 
-    // Poll the pending queue on GTK's main loop every 250 ms.
+    // Poll the pending queue on GTK's main loop every 250 ms, for as long as
+    // someone still holds the watcher. Without the strong-count check the timer
+    // outlived every watcher it was started for, so each restart left another
+    // permanent 250 ms tick behind, still holding its callback — and with it
+    // whatever panes that callback had captured.
+    let alive = Arc::downgrade(&pending);
     glib::timeout_add_local(std::time::Duration::from_millis(250), move || {
+        let Some(pending) = alive.upgrade() else {
+            return glib::ControlFlow::Break;
+        };
         let paths: Vec<PathBuf> = pending
             .lock()
             .map(|mut g| g.drain().collect())
@@ -30,6 +38,7 @@ pub fn start(
         }
         glib::ControlFlow::Continue
     });
+    drop(pending);
 
     let mut watcher = notify::recommended_watcher(move |res: Result<Event, notify::Error>| {
         if let Ok(event) = res {
@@ -40,7 +49,7 @@ pub fn start(
             if is_write {
                 if let Ok(mut guard) = pending_watcher.lock() {
                     for path in event.paths {
-                        if path.extension().map_or(false, |e| e == "typ") {
+                        if path.extension().is_some_and(|e| e == "typ") {
                             guard.insert(path);
                         }
                     }

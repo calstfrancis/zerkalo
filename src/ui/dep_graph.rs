@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::cell::RefCell;
 
@@ -275,12 +275,12 @@ fn parse_imports(content: &str, base_dir: &std::path::Path) -> Vec<PathBuf> {
         .collect()
 }
 
-fn build_dep_map(root: &PathBuf, project_root: &PathBuf) -> HashMap<PathBuf, Vec<PathBuf>> {
+fn build_dep_map(root: &Path, project_root: &Path) -> HashMap<PathBuf, Vec<PathBuf>> {
     let mut map: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
     let mut queue: VecDeque<PathBuf> = VecDeque::new();
     let mut visited: HashSet<PathBuf> = HashSet::new();
 
-    let canonical_root = std::fs::canonicalize(root).unwrap_or_else(|_| root.clone());
+    let canonical_root = std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
     queue.push_back(canonical_root.clone());
 
     while let Some(path) = queue.pop_front() {
@@ -308,7 +308,7 @@ fn build_dep_map(root: &PathBuf, project_root: &PathBuf) -> HashMap<PathBuf, Vec
 }
 
 fn layout_graph(
-    root: &PathBuf,
+    root: &Path,
     deps: &HashMap<PathBuf, Vec<PathBuf>>,
 ) -> (Vec<GraphNode>, Vec<(usize, usize)>) {
     let mut nodes: Vec<GraphNode> = Vec::new();
@@ -318,7 +318,7 @@ fn layout_graph(
     let mut visited: HashSet<PathBuf> = HashSet::new();
     let mut queue: VecDeque<(PathBuf, usize)> = VecDeque::new();
 
-    queue.push_back((root.clone(), 0));
+    queue.push_back((root.to_path_buf(), 0));
 
     while let Some((path, depth)) = queue.pop_front() {
         if visited.contains(&path) {

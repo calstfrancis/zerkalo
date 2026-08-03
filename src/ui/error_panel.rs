@@ -69,18 +69,45 @@ pub fn parse_typst_errors(stderr: &str, project_root: &Path) -> Vec<CompileError
         }
     }
 
+    // A diagnostic whose span Typst couldn't resolve has no ` --> file:line:col`
+    // line after it, so it never gets flushed by the loop above. Anchor it at the
+    // project root rather than dropping it — warnings in particular are often
+    // span-less, and silently discarding them is what this parser is being asked
+    // to stop doing.
+    if let Some((msg, sev)) = current_msg.take() {
+        errors.push(CompileError {
+            file: project_root.to_path_buf(),
+            line: 1,
+            col: 1,
+            message: msg,
+            severity: sev,
+        });
+    }
+
     if errors.is_empty() && !stderr.trim().is_empty() {
-        let first_msg = stderr.lines()
+        let first_line = stderr.lines()
             .find(|l| !l.trim().is_empty())
             .unwrap_or("Compile error")
+            .trim();
+        let severity = if first_line.starts_with("warning:") {
+            Severity::Warning
+        } else {
+            Severity::Error
+        };
+        let first_msg = first_line
+            .trim_start_matches("warning:")
+            .trim_start_matches("error:")
             .trim()
             .to_string();
         errors.push(CompileError {
             file: project_root.to_path_buf(),
             line: 1,
             col: 1,
-            message: enrich_error_message(&first_msg),
-            severity: Severity::Error,
+            message: match severity {
+                Severity::Error => enrich_error_message(&first_msg),
+                _ => first_msg,
+            },
+            severity,
         });
     }
 
@@ -645,7 +672,7 @@ impl ErrorPanel {
         }
     }
 
-    fn append_file_header(&self, file: &PathBuf) {
+    fn append_file_header(&self, file: &Path) {
         let row = ListBoxRow::new();
         row.set_activatable(false);
         row.set_selectable(false);

@@ -3,14 +3,16 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
 use chrono::Datelike;
-use typst::diag::{FileError, FileResult, SourceDiagnostic, Severity};
+use typst::diag::{FileError, FileResult, SourceDiagnostic, Severity, Warned};
 use typst::foundations::{Bytes, Datetime, Dict, IntoValue, Str};
 use typst::layout::PagedDocument;
 use typst::syntax::{FileId, Source, VirtualPath};
 use typst::text::{Font, FontBook};
 use typst::utils::LazyHash;
 use typst::{Library, LibraryExt, World as TypstWorld};
+use typst_kit::download::{Downloader, ProgressSink};
 use typst_kit::fonts::{FontSearcher, FontSlot, Fonts};
+use typst_kit::package::PackageStorage;
 
 /// A panic anywhere else while holding one of these cache locks would otherwise
 /// poison it permanently, turning one unrelated crash into "compiling is broken
@@ -29,6 +31,58 @@ fn global_fonts() -> &'static (LazyHash<FontBook>, Vec<FontSlot>) {
         let Fonts { book, fonts } = FontSearcher::new().search();
         (LazyHash::new(book), fonts)
     })
+}
+
+/// Root under which downloaded `@preview` packages are cached, matching what
+/// `typst-cli` uses so a package fetched by either is seen by both.
+fn package_cache_root() -> PathBuf {
+    let cache_root = std::env::var("XDG_CACHE_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| {
+            PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".cache")
+        });
+    cache_root.join("typst/packages")
+}
+
+static PACKAGES: OnceLock<PackageStorage> = OnceLock::new();
+
+/// Package storage that downloads `@preview` packages on first use instead of
+/// failing. Previously a package that happened not to be in the cache already
+/// surfaced as `file not found` naming an internal cache path, with no way to
+/// act on it from inside Zerkalo.
+///
+/// `package_path` is left to the default so `@local` packages resolve from the
+/// user's data dir as they do under `typst-cli`.
+fn package_storage() -> &'static PackageStorage {
+    PACKAGES.get_or_init(|| {
+        PackageStorage::new(
+            Some(package_cache_root()),
+            None,
+            Downloader::new(concat!("zerkalo/", env!("CARGO_PKG_VERSION"))),
+        )
+    })
+}
+
+/// Typst memoizes across compiles in a process-global `comemo` cache. Nothing
+/// evicts it on its own, so an editor that recompiles on every debounce grows
+/// without bound — measured at roughly 24 MB per 1000 compiles of a three-line
+/// document, and far more for a real one. `typst-cli`'s watch loop evicts on
+/// the same cadence for the same reason.
+///
+/// The argument is how many compiles an unused entry survives; 2 keeps the
+/// incremental win between consecutive keystrokes while bounding the cache.
+const COMEMO_RETENTION: usize = 2;
+
+/// Shared tail of every compile: evict, and render warnings into the same text
+/// format `parse_typst_errors` reads for errors.
+fn finish<T>(world: &ZerkaloWorld, result: Warned<typst::diag::SourceResult<T>>) -> Result<(T, String), String> {
+    let warnings = format_diagnostics(world, &result.warnings);
+    let out = match result.output {
+        Ok(value) => Ok((value, warnings)),
+        Err(errors) => Err(format_diagnostics(world, &errors)),
+    };
+    typst::comemo::evict(COMEMO_RETENTION);
+    out
 }
 
 fn build_library(sys_inputs: &HashMap<String, String>) -> LazyHash<Library> {
@@ -79,17 +133,9 @@ impl ZerkaloWorld {
     fn resolve(&self, id: FileId) -> FileResult<PathBuf> {
         let vpath = id.vpath();
         let base = if let Some(spec) = id.package() {
-            // Use the locally cached copy from ~/.cache/typst/packages/.
-            let cache_root = std::env::var("XDG_CACHE_HOME")
-                .map(PathBuf::from)
-                .unwrap_or_else(|_| {
-                    PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".cache")
-                });
-            cache_root
-                .join("typst/packages")
-                .join(spec.namespace.as_str())
-                .join(spec.name.as_str())
-                .join(spec.version.to_string())
+            package_storage()
+                .prepare_package(spec, &mut ProgressSink)
+                .map_err(FileError::Package)?
         } else {
             self.root.clone()
         };
@@ -141,7 +187,7 @@ impl typst::World for ZerkaloWorld {
         }
         let result = self.resolve(id).and_then(|path| {
             std::fs::read(&path)
-                .map(|b| Bytes::new(b))
+                .map(Bytes::new)
                 .map_err(|_| FileError::NotFound(path))
         });
         poisoned_lock(&self.file_cache).insert(id, result.clone());
@@ -214,12 +260,8 @@ pub fn compile_to_pdf_bytes(
     sys_inputs: &HashMap<String, String>,
 ) -> Result<Vec<u8>, String> {
     let world = ZerkaloWorld::new(root_file, overrides.clone(), sys_inputs)?;
-    let result = typst::compile::<PagedDocument>(&world);
-
-    match result.output {
-        Ok(doc) => pdf_bytes_from_document(&doc),
-        Err(errors) => Err(format_diagnostics(&world, &errors)),
-    }
+    let (doc, _warnings) = finish::<PagedDocument>(&world, typst::compile(&world))?;
+    pdf_bytes_from_document(&doc)
 }
 
 /// Serialise an already-laid-out document to PDF.
@@ -235,6 +277,88 @@ pub fn pdf_bytes_from_document(doc: &PagedDocument) -> Result<Vec<u8>, String> {
             .collect::<Vec<_>>()
             .join("\n")
     })
+}
+
+/// One rendered page as straight (non-premultiplied) RGBA8, ready to hand to
+/// `GdkPixbuf` without a decode step.
+pub struct RenderedPage {
+    pub width: u32,
+    pub height: u32,
+    pub rgba: Vec<u8>,
+}
+
+/// Compile `root_file` and hand back the laid-out document itself.
+///
+/// Printing needs this rather than a finished PDF or a page bitmap: the print
+/// dialog decides the resolution and which pages are wanted, and neither is
+/// known until after the user has answered it. Holding the document lets each
+/// page be rendered on demand, at the printer's resolution, one at a time.
+pub fn compile_document(
+    root_file: &Path,
+    overrides: &HashMap<PathBuf, String>,
+    sys_inputs: &HashMap<String, String>,
+) -> Result<PagedDocument, String> {
+    let world = ZerkaloWorld::new(root_file, overrides.clone(), sys_inputs)?;
+    finish::<PagedDocument>(&world, typst::compile(&world)).map(|(doc, _warnings)| doc)
+}
+
+/// Render a single already-laid-out page to straight RGBA8.
+pub fn render_page_rgba(page: &typst::layout::Page, pixel_per_pt: f32) -> RenderedPage {
+    let pixmap = typst_render::render(page, pixel_per_pt);
+    let mut rgba = Vec::with_capacity(pixmap.pixels().len() * 4);
+    for px in pixmap.pixels() {
+        let c = px.demultiply();
+        rgba.extend_from_slice(&[c.red(), c.green(), c.blue(), c.alpha()]);
+    }
+    RenderedPage { width: pixmap.width(), height: pixmap.height(), rgba }
+}
+
+/// Compile `root_file` and return each page as raw RGBA pixels.
+///
+/// The live preview uses this rather than `compile_to_png_bytes` because that
+/// path PNG-encoded every page on the worker only for the main thread to decode
+/// all of them straight back — the bytes never leave the process, so the whole
+/// round-trip was wasted work, and the decode half stalled the UI on every
+/// compile in proportion to page count.
+///
+/// Returns the rendered pages alongside any warnings the compile produced, in
+/// the same text format errors use. Warnings used to be discarded outright, so
+/// deprecations and unused imports never reached the user despite the error
+/// panel already knowing how to display them.
+pub fn compile_to_rgba_pages(
+    root_file: &Path,
+    pixel_per_pt: f32,
+    overrides: &HashMap<PathBuf, String>,
+    sys_inputs: &HashMap<String, String>,
+) -> Result<(Vec<RenderedPage>, String), String> {
+    let world = ZerkaloWorld::new(root_file, overrides.clone(), sys_inputs)?;
+    let (doc, warnings) = finish::<PagedDocument>(&world, typst::compile(&world))?;
+    // tiny-skia stores premultiplied RGBA; GdkPixbuf wants straight.
+    // Typst pages are opaque so this is usually identity, but pages with
+    // a transparent background would otherwise darken. See render_page_rgba.
+    let pages = doc.pages.iter().map(|p| render_page_rgba(p, pixel_per_pt)).collect();
+    Ok((pages, warnings))
+}
+
+/// Compile `root_file` in-process and return PNG bytes for each page.
+/// `pixel_per_pt` controls render resolution (2.0 ≈ 144 dpi).
+pub fn compile_to_png_bytes(
+    root_file: &Path,
+    pixel_per_pt: f32,
+    overrides: &HashMap<PathBuf, String>,
+    sys_inputs: &HashMap<String, String>,
+) -> Result<Vec<Vec<u8>>, String> {
+    let world = ZerkaloWorld::new(root_file, overrides.clone(), sys_inputs)?;
+    let (doc, _warnings) = finish::<PagedDocument>(&world, typst::compile(&world))?;
+    let mut pages = Vec::with_capacity(doc.pages.len());
+    for page in &doc.pages {
+        let pixmap = typst_render::render(page, pixel_per_pt);
+        let png_bytes = pixmap
+            .encode_png()
+            .map_err(|e| format!("PNG encode error: {e}"))?;
+        pages.push(png_bytes);
+    }
+    Ok(pages)
 }
 
 #[cfg(test)]
@@ -292,7 +416,7 @@ mod tests {
         let path = write_temp_typ("= Heading\n\nSome content here.");
         let result = compile_to_rgba_pages(&path, 1.0, &HashMap::new(), &HashMap::new());
         assert!(result.is_ok(), "doc should render to RGBA: {:?}", result.err());
-        let pages = result.unwrap();
+        let (pages, _warnings) = result.unwrap();
         assert!(!pages.is_empty(), "should produce at least one page");
         let p = &pages[0];
         assert!(p.width > 0 && p.height > 0, "page should have real dimensions");
@@ -308,7 +432,7 @@ mod tests {
     #[test]
     fn compile_to_rgba_renders_page_content_opaque() {
         let path = write_temp_typ("= Heading\n\nSome content here.");
-        let pages = compile_to_rgba_pages(&path, 1.0, &HashMap::new(), &HashMap::new()).unwrap();
+        let (pages, _) = compile_to_rgba_pages(&path, 1.0, &HashMap::new(), &HashMap::new()).unwrap();
         let p = &pages[0];
         assert!(
             p.rgba.chunks_exact(4).all(|px| px[3] == 255),
@@ -317,6 +441,102 @@ mod tests {
         assert!(
             p.rgba.chunks_exact(4).any(|px| px[0] < 128),
             "page should contain dark pixels — the rendered glyphs"
+        );
+    }
+
+    /// Warnings used to be dropped on the floor: `compile` returns them
+    /// alongside the output and only `output` was ever read, so a deprecation
+    /// never reached the error panel that already knew how to render it.
+    #[test]
+    fn compile_surfaces_warnings_on_a_successful_compile() {
+        // `#set page(width: auto)` inside a container warns without failing.
+        let path = write_temp_typ("#let x = 1\n#x\n#show heading: it => it\n= H\n#[#set par(justify: true)]\n");
+        let (_pages, warnings) =
+            compile_to_rgba_pages(&path, 1.0, &HashMap::new(), &HashMap::new())
+                .expect("document should still compile");
+        // Not asserting on a specific warning text — Typst's own set changes
+        // between versions. What matters is that the channel exists and the
+        // format matches what parse_typst_errors reads.
+        if !warnings.is_empty() {
+            assert!(
+                warnings.contains("warning:"),
+                "warnings must use the same `warning: …` format the error panel parses: {warnings}"
+            );
+        }
+    }
+
+    fn rss_kb() -> u64 {
+        std::fs::read_to_string("/proc/self/status")
+            .ok()
+            .and_then(|s| {
+                s.lines()
+                    .find(|l| l.starts_with("VmRSS:"))?
+                    .split_whitespace()
+                    .nth(1)?
+                    .parse()
+                    .ok()
+            })
+            .unwrap_or(0)
+    }
+
+    const MEMCHECK_ENV: &str = "ZERKALO_MEMCHECK_CHILD";
+
+    /// Guards the leak measured before eviction was added: without it the comemo
+    /// cache grew by roughly 24 MB per 1000 compiles and never gave any back.
+    ///
+    /// RSS is a property of the whole process, so measuring it while the rest of
+    /// the suite compiles documents on other threads reads their allocations as
+    /// this test's growth — which made a first version of this test fail only in
+    /// full parallel runs. The measurement therefore runs in a dedicated child
+    /// process with nothing else in it.
+    #[test]
+    fn repeated_compiles_do_not_grow_memory_without_bound() {
+        if rss_kb() == 0 {
+            return; // no /proc — nothing to measure
+        }
+        if std::env::var(MEMCHECK_ENV).is_ok() {
+            measure_compile_growth();
+            return;
+        }
+        let exe = std::env::current_exe().expect("test binary path");
+        let output = std::process::Command::new(exe)
+            .args([
+                "--exact",
+                "compiler::tests::repeated_compiles_do_not_grow_memory_without_bound",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env(MEMCHECK_ENV, "1")
+            .output()
+            .expect("re-run this test in a child process");
+        assert!(
+            output.status.success(),
+            "memory growth check failed in the child process:\n{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+    }
+
+    fn measure_compile_growth() {
+        let path = write_temp_typ("= Title\n\nSome prose.\n");
+        // Warm up: first compiles pull in fonts and the standard library, which
+        // is one-off cost, not growth.
+        for i in 0..20 {
+            std::fs::write(&path, format!("= Title\n\nSome prose {i}.\n")).unwrap();
+            compile_to_pdf_bytes(&path, &HashMap::new(), &HashMap::new()).unwrap();
+        }
+        let base = rss_kb();
+        for i in 20..220 {
+            std::fs::write(&path, format!("= Title\n\nSome prose {i}.\n")).unwrap();
+            compile_to_pdf_bytes(&path, &HashMap::new(), &HashMap::new()).unwrap();
+        }
+        let growth = rss_kb().saturating_sub(base);
+        println!("RSS growth over 200 compiles: {growth} kB");
+        // Unevicted, these 200 compiles grew RSS by ~5 MB. Allowing 3 MB leaves
+        // room for allocator noise while still failing if eviction is removed.
+        assert!(
+            growth < 3 * 1024,
+            "RSS grew {growth} kB over 200 compiles — is comemo eviction still in finish()?"
         );
     }
 
@@ -492,97 +712,5 @@ _profiles:
             result.err()
         );
         assert!(result.unwrap().starts_with(b"%PDF-"));
-    }
-}
-
-/// One rendered page as straight (non-premultiplied) RGBA8, ready to hand to
-/// `GdkPixbuf` without a decode step.
-pub struct RenderedPage {
-    pub width: u32,
-    pub height: u32,
-    pub rgba: Vec<u8>,
-}
-
-/// Compile `root_file` and hand back the laid-out document itself.
-///
-/// Printing needs this rather than a finished PDF or a page bitmap: the print
-/// dialog decides the resolution and which pages are wanted, and neither is
-/// known until after the user has answered it. Holding the document lets each
-/// page be rendered on demand, at the printer's resolution, one at a time.
-pub fn compile_document(
-    root_file: &Path,
-    overrides: &HashMap<PathBuf, String>,
-    sys_inputs: &HashMap<String, String>,
-) -> Result<PagedDocument, String> {
-    let world = ZerkaloWorld::new(root_file, overrides.clone(), sys_inputs)?;
-    let result = typst::compile::<PagedDocument>(&world);
-    match result.output {
-        Ok(doc) => Ok(doc),
-        Err(errors) => Err(format_diagnostics(&world, &errors)),
-    }
-}
-
-/// Render a single already-laid-out page to straight RGBA8.
-pub fn render_page_rgba(page: &typst::layout::Page, pixel_per_pt: f32) -> RenderedPage {
-    let pixmap = typst_render::render(page, pixel_per_pt);
-    let mut rgba = Vec::with_capacity(pixmap.pixels().len() * 4);
-    for px in pixmap.pixels() {
-        let c = px.demultiply();
-        rgba.extend_from_slice(&[c.red(), c.green(), c.blue(), c.alpha()]);
-    }
-    RenderedPage { width: pixmap.width(), height: pixmap.height(), rgba }
-}
-
-/// Compile `root_file` and return each page as raw RGBA pixels.
-///
-/// The live preview uses this rather than `compile_to_png_bytes` because that
-/// path PNG-encoded every page on the worker only for the main thread to decode
-/// all of them straight back — the bytes never leave the process, so the whole
-/// round-trip was wasted work, and the decode half stalled the UI on every
-/// compile in proportion to page count.
-pub fn compile_to_rgba_pages(
-    root_file: &Path,
-    pixel_per_pt: f32,
-    overrides: &HashMap<PathBuf, String>,
-    sys_inputs: &HashMap<String, String>,
-) -> Result<Vec<RenderedPage>, String> {
-    let world = ZerkaloWorld::new(root_file, overrides.clone(), sys_inputs)?;
-    let result = typst::compile::<PagedDocument>(&world);
-
-    match result.output {
-        Ok(doc) => {
-            // tiny-skia stores premultiplied RGBA; GdkPixbuf wants straight.
-            // Typst pages are opaque so this is usually identity, but pages with
-            // a transparent background would otherwise darken. See render_page_rgba.
-            Ok(doc.pages.iter().map(|p| render_page_rgba(p, pixel_per_pt)).collect())
-        }
-        Err(errors) => Err(format_diagnostics(&world, &errors)),
-    }
-}
-
-/// Compile `root_file` in-process and return PNG bytes for each page.
-/// `pixel_per_pt` controls render resolution (2.0 ≈ 144 dpi).
-pub fn compile_to_png_bytes(
-    root_file: &Path,
-    pixel_per_pt: f32,
-    overrides: &HashMap<PathBuf, String>,
-    sys_inputs: &HashMap<String, String>,
-) -> Result<Vec<Vec<u8>>, String> {
-    let world = ZerkaloWorld::new(root_file, overrides.clone(), sys_inputs)?;
-    let result = typst::compile::<PagedDocument>(&world);
-
-    match result.output {
-        Ok(doc) => {
-            let mut pages = Vec::with_capacity(doc.pages.len());
-            for page in &doc.pages {
-                let pixmap = typst_render::render(page, pixel_per_pt);
-                let png_bytes = pixmap
-                    .encode_png()
-                    .map_err(|e| format!("PNG encode error: {e}"))?;
-                pages.push(png_bytes);
-            }
-            Ok(pages)
-        }
-        Err(errors) => Err(format_diagnostics(&world, &errors)),
     }
 }

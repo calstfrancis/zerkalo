@@ -121,12 +121,10 @@ fn simple_diff(old: &str, new: &str) -> String {
     // Render with 2-line context around changes
     let changed: Vec<bool> = diff.iter().map(|(c, _)| *c != ' ').collect();
     let mut show = vec![false; diff.len()];
-    for k in 0..diff.len() {
-        if changed[k] {
-            let s = k.saturating_sub(2);
-            let e = (k + 3).min(diff.len());
-            for idx in s..e { show[idx] = true; }
-        }
+    for (k, _) in changed.iter().enumerate().filter(|(_, c)| **c) {
+        let s = k.saturating_sub(2);
+        let e = (k + 3).min(diff.len());
+        show[s..e].iter_mut().for_each(|v| *v = true);
     }
 
     let mut out = String::new();

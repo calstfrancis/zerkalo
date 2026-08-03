@@ -141,14 +141,15 @@ impl ExportDialog {
         let project_root_for_cv = project_root.clone();
         install_btn.connect_clicked(move |_| {
             let (sans, serif) = {
-                let c = crate::config::Config::load().unwrap_or_default();
-                (c.default_sans_font, c.default_serif_font)
+                let c = crate::config::shared();
+                let c = c.borrow();
+                (c.default_sans_font.clone(), c.default_serif_font.clone())
             };
             let wizard = super::setup_wizard::SetupWizard::new(&parent_clone, &project_root, &sans, &serif, |sans, serif| {
-                let mut c = crate::config::Config::load().unwrap_or_default();
-                c.default_sans_font = sans;
-                c.default_serif_font = serif;
-                let _ = c.save();
+                let _ = crate::config::update(|c| {
+                    c.default_sans_font = sans;
+                    c.default_serif_font = serif;
+                });
             });
             wizard.present();
         });
@@ -431,13 +432,13 @@ fn run_command_logged(
     let stdout = child.stdout.take().unwrap();
     let tx_err = tx.clone();
     let stderr_thread = std::thread::spawn(move || {
-        for line in BufReader::new(stderr).lines().flatten() {
+        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
             tx_err.send(ExportMsg::Log(line)).ok();
         }
     });
     let tx_out = tx.clone();
     let stdout_thread = std::thread::spawn(move || {
-        for line in BufReader::new(stdout).lines().flatten() {
+        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
             tx_out.send(ExportMsg::Log(line)).ok();
         }
     });
