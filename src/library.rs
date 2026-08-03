@@ -67,6 +67,87 @@ pub enum LibraryFilter {
     Trash,
 }
 
+/// The parts of `documents()`'s query that vary by filter: which columns to
+/// select, what to join, the conditions before the search clause, the ordering,
+/// and an optional leading parameter.
+struct FilterSpec {
+    /// Column prefix for the search clause and sort: `""` or `"d."`.
+    prefix: &'static str,
+    select: String,
+    from: String,
+    conditions: String,
+    /// `None` means `pinned DESC` followed by the caller's sort. `Some`
+    /// replaces the ordering entirely — project position, recency, trash order.
+    order_override: Option<&'static str>,
+    param: Option<rusqlite::types::Value>,
+}
+
+impl FilterSpec {
+    fn order(&self, sort: &SortOrder) -> String {
+        match self.order_override {
+            Some(o) => o.to_string(),
+            None => format!("{}pinned DESC, {}", self.prefix, sort.clause(self.prefix)),
+        }
+    }
+}
+
+impl LibraryFilter {
+    fn query(self) -> FilterSpec {
+        let plain = |conditions: &str| FilterSpec {
+            prefix: "",
+            select: DOC_COLS.to_string(),
+            from: "documents".to_string(),
+            conditions: conditions.to_string(),
+            order_override: None,
+            param: None,
+        };
+        match self {
+            LibraryFilter::All => plain("archived = 0 AND deleted = 0"),
+            LibraryFilter::Archive => plain("archived = 1 AND deleted = 0"),
+            LibraryFilter::Untagged => plain(
+                "archived = 0 AND deleted = 0 \
+                 AND id NOT IN (SELECT DISTINCT doc_id FROM doc_tags)",
+            ),
+            LibraryFilter::Recent => FilterSpec {
+                order_override: Some("pinned DESC, last_opened_at DESC LIMIT 30"),
+                ..plain("last_opened_at IS NOT NULL AND archived = 0 AND deleted = 0")
+            },
+            LibraryFilter::Trash => FilterSpec {
+                order_override: Some("modified_at DESC"),
+                ..plain("deleted = 1")
+            },
+            LibraryFilter::Category(cat) => FilterSpec {
+                param: Some(cat.into()),
+                ..plain("category = ?1 AND archived = 0 AND deleted = 0")
+            },
+            LibraryFilter::CategoryGroup(parent) => FilterSpec {
+                param: Some(parent.into()),
+                ..plain(
+                    "category IN (\
+                         SELECT name FROM categories WHERE name = ?1 OR parent = ?1\
+                     ) AND archived = 0 AND deleted = 0",
+                )
+            },
+            LibraryFilter::Project(pid) => FilterSpec {
+                prefix: "d.",
+                select: doc_cols_prefixed("d"),
+                from: "documents d JOIN project_docs pd ON pd.doc_id = d.id".to_string(),
+                conditions: "pd.project_id = ?1 AND d.deleted = 0".to_string(),
+                order_override: Some("d.pinned DESC, pd.position, d.title"),
+                param: Some(pid.into()),
+            },
+            LibraryFilter::Tag(tid) => FilterSpec {
+                prefix: "d.",
+                select: doc_cols_prefixed("d"),
+                from: "documents d JOIN doc_tags dt ON dt.doc_id = d.id".to_string(),
+                conditions: "dt.tag_id = ?1 AND d.archived = 0 AND d.deleted = 0".to_string(),
+                order_override: None,
+                param: Some(tid.into()),
+            },
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum SortOrder {
     Modified,
@@ -343,121 +424,33 @@ impl Library {
         } else {
             format!("%{}%", search)
         };
+
+        // Every filter is the same query with five slots swapped: which columns
+        // to select, what to join, the conditions before the search clause, the
+        // ordering, and an optional leading parameter. This used to be nine
+        // near-identical arms, each preparing and draining its own statement.
+        let q = filter.query();
+        let search_idx = if q.param.is_some() { 2 } else { 1 };
+        let sql = format!(
+            "SELECT {} FROM {} WHERE {} AND {} ORDER BY {}",
+            q.select,
+            q.from,
+            q.conditions,
+            search_clause(q.prefix, search_idx),
+            q.order(&sort),
+        );
+
+        let mut args: Vec<rusqlite::types::Value> = Vec::new();
+        if let Some(v) = q.param {
+            args.push(v);
+        }
+        args.push(search_pat.into());
+
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(args), row_to_doc)?;
         let mut docs = Vec::new();
-        match filter {
-            LibraryFilter::All => {
-                let sql = format!(
-                    "SELECT {DOC_COLS} FROM documents
-                     WHERE archived = 0 AND deleted = 0 AND {}
-                     ORDER BY pinned DESC, {}",
-                    search_clause("", 1),
-                    sort.clause("")
-                );
-                let mut stmt = self.conn.prepare(&sql)?;
-                let rows = stmt.query_map(params![search_pat], row_to_doc)?;
-                for r in rows { docs.push(r?); }
-            }
-            LibraryFilter::Project(pid) => {
-                let sql = format!(
-                    "SELECT {} FROM documents d
-                     JOIN project_docs pd ON pd.doc_id = d.id
-                     WHERE pd.project_id = ?1 AND d.deleted = 0 AND {}
-                     ORDER BY d.pinned DESC, pd.position, d.title",
-                    doc_cols_prefixed("d"),
-                    search_clause("d.", 2)
-                );
-                let mut stmt = self.conn.prepare(&sql)?;
-                let rows = stmt.query_map(params![pid, search_pat], row_to_doc)?;
-                for r in rows { docs.push(r?); }
-            }
-            LibraryFilter::Tag(tid) => {
-                let sql = format!(
-                    "SELECT {} FROM documents d
-                     JOIN doc_tags dt ON dt.doc_id = d.id
-                     WHERE dt.tag_id = ?1 AND d.archived = 0 AND d.deleted = 0 AND {}
-                     ORDER BY d.pinned DESC, {}",
-                    doc_cols_prefixed("d"),
-                    search_clause("d.", 2),
-                    sort.clause("d.")
-                );
-                let mut stmt = self.conn.prepare(&sql)?;
-                let rows = stmt.query_map(params![tid, search_pat], row_to_doc)?;
-                for r in rows { docs.push(r?); }
-            }
-            LibraryFilter::Category(cat) => {
-                let sql = format!(
-                    "SELECT {DOC_COLS} FROM documents
-                     WHERE category = ?1 AND archived = 0 AND deleted = 0 AND {}
-                     ORDER BY pinned DESC, {}",
-                    search_clause("", 2),
-                    sort.clause("")
-                );
-                let mut stmt = self.conn.prepare(&sql)?;
-                let rows = stmt.query_map(params![cat, search_pat], row_to_doc)?;
-                for r in rows { docs.push(r?); }
-            }
-            LibraryFilter::CategoryGroup(ref parent) => {
-                let sql = format!(
-                    "SELECT {DOC_COLS} FROM documents
-                     WHERE category IN (
-                         SELECT name FROM categories WHERE name = ?1 OR parent = ?1
-                     ) AND archived = 0 AND deleted = 0 AND {}
-                     ORDER BY pinned DESC, {}",
-                    search_clause("", 2),
-                    sort.clause("")
-                );
-                let mut stmt = self.conn.prepare(&sql)?;
-                let rows = stmt.query_map(params![parent, search_pat], row_to_doc)?;
-                for r in rows { docs.push(r?); }
-            }
-            LibraryFilter::Archive => {
-                let sql = format!(
-                    "SELECT {DOC_COLS} FROM documents
-                     WHERE archived = 1 AND deleted = 0 AND {}
-                     ORDER BY pinned DESC, {}",
-                    search_clause("", 1),
-                    sort.clause("")
-                );
-                let mut stmt = self.conn.prepare(&sql)?;
-                let rows = stmt.query_map(params![search_pat], row_to_doc)?;
-                for r in rows { docs.push(r?); }
-            }
-            LibraryFilter::Recent => {
-                let sql = format!(
-                    "SELECT {DOC_COLS} FROM documents
-                     WHERE last_opened_at IS NOT NULL AND archived = 0 AND deleted = 0 AND {}
-                     ORDER BY pinned DESC, last_opened_at DESC LIMIT 30",
-                    search_clause("", 1)
-                );
-                let mut stmt = self.conn.prepare(&sql)?;
-                let rows = stmt.query_map(params![search_pat], row_to_doc)?;
-                for r in rows { docs.push(r?); }
-            }
-            LibraryFilter::Untagged => {
-                let sql = format!(
-                    "SELECT {DOC_COLS} FROM documents
-                     WHERE archived = 0 AND deleted = 0
-                     AND id NOT IN (SELECT DISTINCT doc_id FROM doc_tags)
-                     AND {}
-                     ORDER BY pinned DESC, {}",
-                    search_clause("", 1),
-                    sort.clause("")
-                );
-                let mut stmt = self.conn.prepare(&sql)?;
-                let rows = stmt.query_map(params![search_pat], row_to_doc)?;
-                for r in rows { docs.push(r?); }
-            }
-            LibraryFilter::Trash => {
-                let sql = format!(
-                    "SELECT {DOC_COLS} FROM documents
-                     WHERE deleted = 1 AND {}
-                     ORDER BY modified_at DESC",
-                    search_clause("", 1)
-                );
-                let mut stmt = self.conn.prepare(&sql)?;
-                let rows = stmt.query_map(params![search_pat], row_to_doc)?;
-                for r in rows { docs.push(r?); }
-            }
+        for r in rows {
+            docs.push(r?);
         }
         Ok(docs)
     }
@@ -2056,5 +2049,96 @@ mod tests {
             .map(|d| d.title)
             .collect();
         assert_eq!(found, vec!["deep", "top"]);
+    }
+}
+
+#[cfg(test)]
+mod sql_shape {
+    use super::*;
+
+    fn sql_for(filter: LibraryFilter, sort: SortOrder) -> String {
+        let q = filter.query();
+        let idx = if q.param.is_some() { 2 } else { 1 };
+        format!(
+            "SELECT {} FROM {} WHERE {} AND {} ORDER BY {}",
+            q.select, q.from, q.conditions, search_clause(q.prefix, idx), q.order(&sort)
+        )
+    }
+
+    /// Filters that take a leading parameter must bind the search pattern to
+    /// `?2`; the rest to `?1`. Getting this wrong silently searches for the
+    /// category/tag id instead of the user's text.
+    #[test]
+    fn search_pattern_takes_the_slot_after_any_leading_parameter() {
+        for f in [LibraryFilter::All, LibraryFilter::Archive, LibraryFilter::Untagged,
+                  LibraryFilter::Recent, LibraryFilter::Trash] {
+            let sql = sql_for(f.clone(), SortOrder::Modified);
+            assert!(sql.contains("title LIKE ?1"), "{f:?} should bind search to ?1");
+        }
+        for f in [LibraryFilter::Category("C".into()), LibraryFilter::CategoryGroup("G".into()),
+                  LibraryFilter::Project(7), LibraryFilter::Tag(9)] {
+            let sql = sql_for(f.clone(), SortOrder::Modified);
+            assert!(sql.contains("LIKE ?2"), "{f:?} should bind search to ?2");
+        }
+    }
+
+    #[test]
+    fn joined_filters_prefix_every_column_with_the_table_alias() {
+        for f in [LibraryFilter::Project(7), LibraryFilter::Tag(9)] {
+            let sql = sql_for(f.clone(), SortOrder::Modified);
+            assert!(sql.contains("FROM documents d JOIN"), "{f:?}");
+            assert!(sql.contains("SELECT d.id,"), "{f:?} must select prefixed columns");
+            assert!(sql.contains("d.title LIKE ?2"), "{f:?} must prefix the search clause");
+            assert!(sql.contains("ORDER BY d.pinned DESC"), "{f:?}");
+        }
+    }
+
+    /// Three filters ignore the caller's sort entirely.
+    #[test]
+    fn fixed_orderings_override_the_requested_sort() {
+        let project = sql_for(LibraryFilter::Project(7), SortOrder::Title);
+        assert!(project.ends_with("ORDER BY d.pinned DESC, pd.position, d.title"));
+
+        let recent = sql_for(LibraryFilter::Recent, SortOrder::Title);
+        assert!(recent.ends_with("ORDER BY pinned DESC, last_opened_at DESC LIMIT 30"));
+
+        let trash = sql_for(LibraryFilter::Trash, SortOrder::Title);
+        assert!(trash.ends_with("ORDER BY modified_at DESC"));
+    }
+
+    #[test]
+    fn the_other_filters_honour_the_requested_sort_behind_pinned() {
+        for f in [LibraryFilter::All, LibraryFilter::Archive, LibraryFilter::Untagged,
+                  LibraryFilter::Category("C".into()), LibraryFilter::Tag(9)] {
+            for (sort, tail) in [
+                (SortOrder::Title, "title COLLATE NOCASE ASC"),
+                (SortOrder::Created, "created_at DESC"),
+                (SortOrder::Opened, "last_opened_at DESC NULLS LAST"),
+            ] {
+                let sql = sql_for(f.clone(), sort.clone());
+                assert!(sql.contains("pinned DESC, "), "{f:?} must keep pinned first");
+                assert!(sql.ends_with(tail), "{f:?} with {sort:?} should end {tail}");
+            }
+        }
+    }
+
+    /// Each filter's defining condition, so a mis-shuffled descriptor is caught.
+    #[test]
+    fn each_filter_keeps_its_own_conditions() {
+        let cases = [
+            (LibraryFilter::All, "archived = 0 AND deleted = 0"),
+            (LibraryFilter::Archive, "archived = 1 AND deleted = 0"),
+            (LibraryFilter::Trash, "deleted = 1"),
+            (LibraryFilter::Untagged, "id NOT IN (SELECT DISTINCT doc_id FROM doc_tags)"),
+            (LibraryFilter::Recent, "last_opened_at IS NOT NULL"),
+            (LibraryFilter::Category("C".into()), "category = ?1"),
+            (LibraryFilter::CategoryGroup("G".into()), "name = ?1 OR parent = ?1"),
+            (LibraryFilter::Project(7), "pd.project_id = ?1 AND d.deleted = 0"),
+            (LibraryFilter::Tag(9), "dt.tag_id = ?1"),
+        ];
+        for (f, needle) in cases {
+            let sql = sql_for(f.clone(), SortOrder::Modified);
+            assert!(sql.contains(needle), "{f:?} should contain {needle:?}\n{sql}");
+        }
     }
 }
