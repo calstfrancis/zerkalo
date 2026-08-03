@@ -11,7 +11,6 @@ use gtk4::{
 use libadwaita as adw;
 use adw::prelude::*;
 
-use crate::bibliography;
 use crate::config::{CompileProfile, Config, Theme};
 use crate::writing_log::{WritingLog, count_words, FileStartWords};
 use crate::keybindings::{matches_binding, Keybindings};
@@ -31,7 +30,11 @@ use crate::library::Library;
 
 use crate::cv_mode::CV_HELPERS_TYPST;
 
+mod citations;
 mod dialogs;
+mod file_tree_wiring;
+use file_tree_wiring::{FileTreeCtx, wire_file_tree};
+use citations::{CitationCtx, wire_citations};
 mod header;
 mod menus;
 use menus::{MenuCtx, wire_app_menus, wire_document_menus};
@@ -39,7 +42,9 @@ mod panels;
 use panels::{Panels, build_panels};
 use header::{HeaderWidgets, build_header};
 mod import;
+mod startup;
 mod sync;
+use startup::{PanePersistCtx, WatcherCtx, wire_file_watcher, wire_pane_persistence};
 use dialogs::{show_changelog, show_doc_stats};
 use import::{
     IMPORT_FORMATS, import_folder_via_pandoc, import_via_pandoc, paste_as_document,
@@ -598,312 +603,16 @@ impl AppWindow {
             editor_for_dark.apply_style_scheme(mgr.is_dark());
         });
 
-        // ── Bibliography loading & watch ────────────────────────────────────
-
-        if let Some(ref bp) = effective_bib {
-            let entries = bibliography::load_bib(bp);
-            if !entries.is_empty() {
-                tracing::info!("Loaded {} bib entries from {}", entries.len(), bp.display());
-            }
-            editor_pane.set_bib_entries(entries.clone());
-            citation_panel.load_bib(entries);
-            citation_panel.set_bib_filename(bp.file_name().and_then(|n| n.to_str()));
-            ref_manager.load_bib(bp);
-
-            let editor_for_bib = editor_pane.clone();
-            let citation_for_bib = citation_panel.clone();
-            let bib_for_watch = bp.clone();
-            let last_mtime: Rc<RefCell<Option<SystemTime>>> = Rc::new(RefCell::new(
-                std::fs::metadata(&bib_for_watch)
-                    .and_then(|m| m.modified())
-                    .ok(),
-            ));
-            glib::timeout_add_local(Duration::from_secs(5), move || {
-                let current = std::fs::metadata(&bib_for_watch)
-                    .and_then(|m| m.modified())
-                    .ok();
-                let changed = match (*last_mtime.borrow(), current) {
-                    (Some(old), Some(new)) => old != new,
-                    (None, Some(_)) => true,
-                    _ => false,
-                };
-                if changed {
-                    *last_mtime.borrow_mut() = current;
-                    let entries = bibliography::load_bib(&bib_for_watch);
-                    tracing::info!("Reloaded {} bib entries", entries.len());
-                    editor_for_bib.set_bib_entries(entries.clone());
-                    citation_for_bib.load_bib(entries);
-                }
-                glib::ControlFlow::Continue
-            });
-        }
-
-        // ── Auto-detect .bib when no bib is configured ─────────────────────────
-        let auto_detected_bib: Rc<RefCell<Option<std::path::PathBuf>>> = Rc::new(RefCell::new(None));
-        if effective_bib.is_none() {
-            if let Ok(mut entries) = std::fs::read_dir(&project_root) {
-                let found = entries.find_map(|e| {
-                    let path = e.ok()?.path();
-                    let ext = path.extension().and_then(|x| x.to_str())?;
-                    if ext.eq_ignore_ascii_case("bib")
-                        || ext.eq_ignore_ascii_case("yaml")
-                        || ext.eq_ignore_ascii_case("yml")
-                    {
-                        Some(path)
-                    } else {
-                        None
-                    }
-                });
-                if let Some(bib_path) = found {
-                    let entries = bibliography::load_bib(&bib_path);
-                    editor_pane.set_bib_entries(entries.clone());
-                    citation_panel.load_bib(entries);
-                    citation_panel.set_bib_filename(bib_path.file_name().and_then(|n| n.to_str()));
-                    *auto_detected_bib.borrow_mut() = Some(bib_path);
-                }
-            }
-        }
-
-        // ── CV entries loading & watch ───────────────────────────────────────
-
-        if let Some(ref cvp) = effective_cv_elements {
-            let entries = crate::cv_mode::load_cv_entries(cvp);
-            if !entries.is_empty() {
-                tracing::info!("Loaded {} CV entries from {}", entries.len(), cvp.display());
-            }
-            editor_pane.set_cv_entries(entries.clone());
-            citation_panel.load_cv_entries(entries);
-            citation_panel.set_cv_filename(cvp.file_name().and_then(|n| n.to_str()));
-
-            let editor_for_cv = editor_pane.clone();
-            let citation_for_cv = citation_panel.clone();
-            let cv_for_watch = cvp.clone();
-            let last_mtime: Rc<RefCell<Option<SystemTime>>> = Rc::new(RefCell::new(
-                std::fs::metadata(&cv_for_watch)
-                    .and_then(|m| m.modified())
-                    .ok(),
-            ));
-            glib::timeout_add_local(Duration::from_secs(5), move || {
-                let current = std::fs::metadata(&cv_for_watch)
-                    .and_then(|m| m.modified())
-                    .ok();
-                let changed = match (*last_mtime.borrow(), current) {
-                    (Some(old), Some(new)) => old != new,
-                    (None, Some(_)) => true,
-                    _ => false,
-                };
-                if changed {
-                    *last_mtime.borrow_mut() = current;
-                    let entries = crate::cv_mode::load_cv_entries(&cv_for_watch);
-                    tracing::info!("Reloaded {} CV entries", entries.len());
-                    editor_for_cv.set_cv_entries(entries.clone());
-                    citation_for_cv.load_cv_entries(entries);
-                }
-                glib::ControlFlow::Continue
-            });
-        }
-
-        // ── Citation panel: insert @key / #cv-entry("key") at cursor ──────────
-
-        {
-            let ep = editor_pane.clone();
-            citation_panel.set_on_insert(move |text| ep.insert_at_cursor(&text));
-        }
-
-        // ── Citation panel: choose bib file button ────────────────────────────
-
-        {
-            let win_for_bib = window.clone();
-            let ep_for_bib = editor_pane.clone();
-            let cp_for_bib = citation_panel.clone();
-            let cfg_for_bib = current_config.clone();
-            let rm_for_bib = ref_manager.clone();
-            citation_panel.set_on_choose_bib(move || {
-                let dialog = gtk4::FileDialog::new();
-                dialog.set_title("Choose Bibliography File");
-                let filter = gtk4::FileFilter::new();
-                filter.set_name(Some("Bibliography files (*.bib, *.yaml, *.yml)"));
-                filter.add_pattern("*.bib");
-                filter.add_pattern("*.yaml");
-                filter.add_pattern("*.yml");
-                let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
-                filters.append(&filter);
-                dialog.set_filters(Some(&filters));
-                let win = win_for_bib.clone();
-                let ep = ep_for_bib.clone();
-                let cp = cp_for_bib.clone();
-                let cfg = cfg_for_bib.clone();
-                let rm = rm_for_bib.clone();
-                dialog.open(Some(&win), None::<&gtk4::gio::Cancellable>, move |result| {
-                    if let Ok(file) = result {
-                        if let Some(path) = file.path() {
-                            let entries = bibliography::load_bib(&path);
-                            ep.set_bib_entries(entries.clone());
-                            cp.load_bib(entries);
-                            cp.set_bib_filename(path.file_name().and_then(|n| n.to_str()));
-                            rm.load_bib(&path);
-                            cfg.borrow_mut().bib_path = Some(path);
-                            let _ = cfg.borrow().save();
-                        }
-                    }
-                });
-            });
-        }
-
-        // ── Citation panel: choose Skrizhal CV element file button ────────────
-
-        {
-            let win_for_cv = window.clone();
-            let ep_for_cv = editor_pane.clone();
-            let cp_for_cv = citation_panel.clone();
-            let cfg_for_cv = current_config.clone();
-            citation_panel.set_on_choose_cv(move || {
-                let dialog = gtk4::FileDialog::new();
-                dialog.set_title("Choose Skrizhal CV Element File");
-                let filter = gtk4::FileFilter::new();
-                filter.set_name(Some("YAML files (*.yaml, *.yml)"));
-                filter.add_pattern("*.yaml");
-                filter.add_pattern("*.yml");
-                let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
-                filters.append(&filter);
-                dialog.set_filters(Some(&filters));
-                let win = win_for_cv.clone();
-                let ep = ep_for_cv.clone();
-                let cp = cp_for_cv.clone();
-                let cfg = cfg_for_cv.clone();
-                dialog.open(Some(&win), None::<&gtk4::gio::Cancellable>, move |result| {
-                    if let Ok(file) = result {
-                        if let Some(path) = file.path() {
-                            let entries = crate::cv_mode::load_cv_entries(&path);
-                            ep.set_cv_entries(entries.clone());
-                            cp.load_cv_entries(entries);
-                            cp.set_cv_filename(path.file_name().and_then(|n| n.to_str()));
-                            cfg.borrow_mut().cv_elements_path = Some(path);
-                            let _ = cfg.borrow().save();
-                        }
-                    }
-                });
-            });
-        }
-
-        // ── Reference manager: insert citation / jump to broken citation ──────
-
-        let editor_for_ref = editor_pane.clone();
-        ref_manager.set_on_insert(move |citation| {
-            editor_for_ref.insert_at_cursor(&citation);
+        let auto_detected_bib = wire_citations(&CitationCtx {
+            window: window.clone(),
+            editor_pane: editor_pane.clone(),
+            citation_panel: citation_panel.clone(),
+            ref_manager: ref_manager.clone(),
+            current_config: current_config.clone(),
+            project_root: project_root.clone(),
+            effective_bib: effective_bib.clone(),
+            effective_cv_elements: effective_cv_elements.clone(),
         });
-
-        {
-            let ep = editor_pane.clone();
-            ref_manager.set_on_jump_citation(move |key| {
-                ep.jump_to_text(&format!("@{key}"));
-            });
-        }
-
-        // ── Reference manager: project-wide citation-key rename ───────────────
-        {
-            let ep = editor_pane.clone();
-            let rm = ref_manager.clone();
-            let cp = citation_panel.clone();
-            let win = window.clone();
-            let project_root_for_rename = project_root.clone();
-            ref_manager.set_on_rename(move |old_key, new_key| {
-                let Some(bib_path) = rm.bib_path() else { return };
-                let is_bibtex = bib_path
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .is_some_and(|ext| ext.eq_ignore_ascii_case("bib"));
-                if !is_bibtex {
-                    let dlg = adw::MessageDialog::new(
-                        Some(&win),
-                        Some("Only BibTeX rename is supported"),
-                        Some("Renaming keys is only available for .bib bibliographies."),
-                    );
-                    dlg.add_response("ok", "OK");
-                    dlg.present();
-                    return;
-                }
-
-                let typ_files = crate::project::collect_typ_files(&project_root_for_rename);
-                let open_tab_texts: std::collections::HashMap<PathBuf, String> =
-                    ep.all_tab_texts().into_iter().collect();
-
-                let mut affected_files = 0usize;
-                for path in &typ_files {
-                    let changed = if let Some(text) = open_tab_texts.get(path) {
-                        bibliography::rename_key_in_text(text, &old_key, &new_key).1
-                    } else {
-                        std::fs::read_to_string(path).is_ok_and(|content| {
-                            bibliography::rename_key_in_text(&content, &old_key, &new_key).1
-                        })
-                    };
-                    if changed {
-                        affected_files += 1;
-                    }
-                }
-
-                let dlg = adw::MessageDialog::new(
-                    Some(&win),
-                    Some("Rename citation key?"),
-                    Some(&format!(
-                        "Rename @{old_key} to @{new_key} in the bibliography and {affected_files} document(s)?"
-                    )),
-                );
-                dlg.add_response("cancel", "Cancel");
-                dlg.add_response("rename", "Rename");
-                dlg.set_response_appearance("rename", adw::ResponseAppearance::Suggested);
-
-                let bib_path2 = bib_path.clone();
-                let old_key2 = old_key.clone();
-                let new_key2 = new_key.clone();
-                let ep2 = ep.clone();
-                let rm2 = rm.clone();
-                let cp2 = cp.clone();
-                let win2 = win.clone();
-                let typ_files2 = typ_files.clone();
-                dlg.connect_response(None, move |dlg, response| {
-                    dlg.close();
-                    if response != "rename" {
-                        return;
-                    }
-
-                    if let Err(e) = bibliography::rename_key_in_bib_file(&bib_path2, &old_key2, &new_key2) {
-                        let err_dlg = adw::MessageDialog::new(
-                            Some(&win2),
-                            Some("Rename failed"),
-                            Some(&format!("Could not update the bibliography file: {e}")),
-                        );
-                        err_dlg.add_response("ok", "OK");
-                        err_dlg.present();
-                        return;
-                    }
-
-                    ep2.replace_citation_key_in_open_tabs(&old_key2, &new_key2);
-
-                    let open_paths: std::collections::HashSet<PathBuf> =
-                        ep2.open_tab_paths().into_iter().collect();
-                    for path in &typ_files2 {
-                        if open_paths.contains(path) {
-                            continue;
-                        }
-                        if let Ok(content) = std::fs::read_to_string(path) {
-                            let (new_content, changed) =
-                                bibliography::rename_key_in_text(&content, &old_key2, &new_key2);
-                            if changed {
-                                let _ = std::fs::write(path, new_content);
-                            }
-                        }
-                    }
-
-                    let entries = bibliography::load_bib(&bib_path2);
-                    ep2.set_bib_entries(entries.clone());
-                    cp2.load_bib(entries.clone());
-                    rm2.load_bib(&bib_path2);
-                });
-                dlg.present();
-            });
-        }
-
         // ── Sidebar toggle (item 1) ─────────────────────────────────────────
         // (left_paned is set up in the layout section below; we capture it via Rc)
         let focus_active: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
@@ -2439,378 +2148,20 @@ impl AppWindow {
             *popout_pane_for_btn.borrow_mut() = Some(secondary);
         });
 
-        // ── File tree ────────────────────────────────────────────────────────
-        let file_tree = FileTree::new(project_root.clone());
-        {
-            let ep = editor_pane.clone();
-            let lib = library.clone();
-            file_tree.set_on_open(move |path| {
-                if let Ok(content) = std::fs::read_to_string(&path) {
-                    ep.open_file(path.clone(), &content);
-                }
-                lib.borrow_mut().touch_opened(&path).ok();
-            });
-        }
-        {
-            let root = project_root.clone();
-            let ft = file_tree.clone();
-            let ep = editor_pane.clone();
-            file_tree.set_on_new_file(move |name| {
-                let path = root.join(&name);
-                if !path.exists() {
-                    let _ = std::fs::write(&path, "");
-                }
-                if let Ok(content) = std::fs::read_to_string(&path) {
-                    ep.open_file(path, &content);
-                }
-                ft.refresh();
-            });
-        }
-        {
-            let ft = file_tree.clone();
-            let win_for_ft_del = window.clone();
-            file_tree.set_on_delete(move |path| {
-                let name = path.file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("this file")
-                    .to_string();
-                let alert = AlertDialog::builder()
-                    .modal(true)
-                    .message("Move to trash?")
-                    .detail(format!("'{}' will be moved to the system trash.", name))
-                    .buttons(["Cancel", "Move to Trash"])
-                    .cancel_button(0)
-                    .default_button(0)
-                    .build();
-                let ft2 = ft.clone();
-                alert.choose(
-                    Some(&win_for_ft_del),
-                    None::<&gtk4::gio::Cancellable>,
-                    move |result| {
-                        if result == Ok(1) {
-                            let _ = gtk4::gio::File::for_path(&path)
-                                .trash(None::<&gtk4::gio::Cancellable>);
-                            ft2.refresh();
-                        }
-                    },
-                );
-            });
-        }
-        {
-            let root = project_root.clone();
-            let ft = file_tree.clone();
-            file_tree.set_on_new_folder(move |name| {
-                let _ = std::fs::create_dir_all(root.join(&name));
-                ft.refresh();
-            });
-        }
-        {
-            let root = project_root.clone();
-            let ft = file_tree.clone();
-            let ep = editor_pane.clone();
-            file_tree.set_on_new_chapter(move |name| {
-                let slug = crate::templates::slugify(&name);
-                if slug.is_empty() { return; }
-                let filename = format!("{slug}.typ");
-                let file_path = root.join(&filename);
-                if file_path.exists() { return; }
-                let _ = std::fs::write(&file_path, format!("= {name}\n\n"));
-                // Insert #include before #bibliography (or at end) in main.typ
-                let main_path = root.join("main.typ");
-                if main_path.exists() {
-                    if let Ok(content) = std::fs::read_to_string(&main_path) {
-                        let include_line = format!("#include \"{filename}\"");
-                        let new_content = if let Some(pos) = content.find("\n#bibliography(") {
-                            format!("{}\n{}{}", &content[..pos], include_line, &content[pos..])
-                        } else {
-                            format!("{}\n{}\n", content.trim_end(), include_line)
-                        };
-                        let _ = std::fs::write(&main_path, new_content);
-                    }
-                }
-                ft.refresh();
-                // Open the new chapter file
-                if let Ok(content) = std::fs::read_to_string(&file_path) {
-                    ep.open_file(file_path, &content);
-                }
-            });
-        }
-        {
-            let ep = editor_pane.clone();
-            let preview = preview_pane.clone();
-            file_tree.set_on_insert_include(move |abs_path| {
-                let rel = compute_include_path(&preview, &abs_path);
-                ep.insert_at_cursor(&format!("#include \"{rel}\"\n"));
-            });
-        }
-        {
-            let ep = editor_pane.clone();
-            let preview = preview_pane.clone();
-            file_tree.set_on_insert_import(move |abs_path| {
-                let rel = compute_include_path(&preview, &abs_path);
-                let stem = abs_path.file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("*");
-                ep.insert_at_cursor(&format!("#import \"{rel}\": {stem}\n"));
-            });
-        }
-        // ── Set / Clear root file via context menu ────────────────────────────
-        {
-            let preview = preview_pane.clone();
-            let root_ref = configured_root.clone();
-            let root_dir = project_root.clone();
-            let title_w = file_title_widget.clone();
-            let ep_for_root = editor_pane.clone();
-            file_tree.set_on_set_root(move |path| {
-                preview.set_root_file(path.clone());
-                *root_ref.borrow_mut() = Some(path.clone());
-                // Update breadcrumb if there's an active file
-                if let Some(active) = ep_for_root.get_active_path() {
-                    if path != active {
-                        let root_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("root");
-                        let active_name = active.file_name().and_then(|n| n.to_str()).unwrap_or("file");
-                        title_w.set_subtitle(&format!("{root_name} › {active_name}"));
-                    } else {
-                        title_w.set_subtitle("");
-                    }
-                }
-                // Save to project config
-                let rel = path.strip_prefix(&root_dir).unwrap_or(&path).to_path_buf();
-                let mut pcfg = crate::config::ProjectConfig::load(&root_dir).unwrap_or_default();
-                pcfg.root_file = Some(rel);
-                let _ = pcfg.save(&root_dir);
-                preview.trigger_compile();
-            });
-        }
-        {
-            let preview = preview_pane.clone();
-            let root_ref = configured_root.clone();
-            let root_dir = project_root.clone();
-            let title_w = file_title_widget.clone();
-            file_tree.set_on_clear_root(move |()| {
-                preview.clear_root_file();
-                *root_ref.borrow_mut() = None;
-                title_w.set_subtitle("");
-                // Save to project config
-                let mut pcfg = crate::config::ProjectConfig::load(&root_dir).unwrap_or_default();
-                pcfg.root_file = None;
-                let _ = pcfg.save(&root_dir);
-            });
-        }
-        {
-            let editor_for_tab_out = editor_pane.clone();
-            file_tree.set_on_tab_out(move || {
-                editor_for_tab_out.grab_focus();
-            });
-        }
-
-        // ── Project toggle in status bar ─────────────────────────────────────
-        //
-        // A ToggleButton labelled "project" (default OFF). When toggled ON,
-        // inline root-file controls become visible in the status bar.
-        {
-            let proj_toggle = ToggleButton::new();
-            proj_toggle.add_css_class("flat");
-            proj_toggle.add_css_class("status-toggle");
-            proj_toggle.set_tooltip_text(Some("Toggle project controls (root file)"));
-            proj_toggle.update_property(&[gtk4::accessible::Property::Label("Toggle project controls")]);
-            proj_toggle.set_active(false);
-
-            let proj_btn_label = Label::new(Some("project"));
-            proj_btn_label.set_use_markup(true);
-            proj_btn_label.add_css_class("caption");
-            proj_btn_label.set_margin_top(3);
-            proj_btn_label.set_margin_bottom(3);
-            proj_toggle.set_child(Some(&proj_btn_label));
-
-            // ── Inline controls (hidden until toggle is ON) ───────────────────
-            let proj_controls = GtkBox::new(Orientation::Horizontal, 4);
-            proj_controls.set_visible(false);
-            proj_controls.set_margin_start(4);
-
-            let root_value_lbl = Label::new(Some("no root"));
-            root_value_lbl.add_css_class("caption");
-            root_value_lbl.add_css_class("dim-label");
-            root_value_lbl.set_ellipsize(gtk4::pango::EllipsizeMode::Middle);
-            root_value_lbl.set_max_width_chars(22);
-            proj_controls.append(&root_value_lbl);
-
-            let set_root_btn = Button::with_label("Set\u{2026}");
-            set_root_btn.add_css_class("flat");
-            set_root_btn.add_css_class("caption");
-            proj_controls.append(&set_root_btn);
-
-            // Distinct icons: this one clears the chosen root, the next one
-            // puts the whole control away. Two bare ✕ glyphs side by side read
-            // as the same button twice.
-            let clear_root_btn = Button::from_icon_name("edit-clear-symbolic");
-            clear_root_btn.add_css_class("flat");
-            clear_root_btn.set_tooltip_text(Some("Clear root file"));
-            clear_root_btn.update_property(&[gtk4::accessible::Property::Label("Clear root file")]);
-            proj_controls.append(&clear_root_btn);
-
-            // Dismiss: for a one-file document there's no root to pick, and the
-            // controls plus the main.typ banner are pure clutter. Shuts them for
-            // this project and remembers it; the "project" toggle stays, so one
-            // click brings them back.
-            let dismiss_root_btn = Button::from_icon_name("window-close-symbolic");
-            dismiss_root_btn.add_css_class("flat");
-            dismiss_root_btn.set_tooltip_text(Some(
-                "Hide project controls for this document (click \"project\" to bring them back)",
-            ));
-            dismiss_root_btn.update_property(&[
-                gtk4::accessible::Property::Label("Hide project controls"),
-            ]);
-            proj_controls.append(&dismiss_root_btn);
-
-            // Initialise from current root state
-            {
-                let root_name = configured_root.borrow().as_ref()
-                    .and_then(|p| p.file_name())
-                    .and_then(|n| n.to_str())
-                    .map(|s| s.to_string());
-                if let Some(name) = root_name {
-                    root_value_lbl.set_text(&name);
-                    proj_btn_label.set_markup("<b>project</b>");
-                    clear_root_btn.set_sensitive(true);
-                } else {
-                    clear_root_btn.set_sensitive(false);
-                }
-            }
-
-            {
-                let ctrls = proj_controls.clone();
-                let toggle_c = proj_toggle.clone();
-                let banner_rc = root_banner.clone();
-                let root_dir_c = project_root.clone();
-                let toast_c = toast_overlay.clone();
-                let title_c = file_title_widget.clone();
-                dismiss_root_btn.connect_clicked(move |_| {
-                    toggle_c.set_active(false);
-                    ctrls.set_visible(false);
-                    // The "root › file" breadcrumb is part of the same story.
-                    title_c.set_subtitle("");
-                    if let Some(b) = banner_rc.borrow().as_ref() {
-                        b.set_revealed(false);
-                    }
-                    let mut pcfg =
-                        crate::config::ProjectConfig::load(&root_dir_c).unwrap_or_default();
-                    pcfg.root_controls_dismissed = true;
-                    let _ = pcfg.save(&root_dir_c);
-                    toast_c.add_toast(adw::Toast::new(
-                        "Project controls hidden — click \"project\" to show them again",
-                    ));
-                });
-            }
-
-            // Toggle → show/hide inline controls and root banner; update proj_mode_active
-            {
-                let ctrls = proj_controls.clone();
-                let banner_rc = root_banner.clone();
-                let proj_mode_c = proj_mode_active.clone();
-                proj_toggle.connect_toggled(move |btn| {
-                    let on = btn.is_active();
-                    proj_mode_c.set(on);
-                    ctrls.set_visible(on);
-                    if let Some(b) = banner_rc.borrow().as_ref() {
-                        b.set_revealed(on);
-                    }
-                });
-            }
-
-            let root_value_lbl_rc = Rc::new(root_value_lbl);
-            let proj_btn_label_rc = Rc::new(proj_btn_label);
-            let clear_root_btn_rc = Rc::new(clear_root_btn);
-
-            // "Set…" button
-            {
-                let win_c = window.clone();
-                let root_dir_c = project_root.clone();
-                let root_ref_c = configured_root.clone();
-                let preview_c = preview_pane.clone();
-                let title_c = file_title_widget.clone();
-                let ep_c = editor_pane.clone();
-                let rvl = root_value_lbl_rc.clone();
-                let bll = proj_btn_label_rc.clone();
-                let clr = clear_root_btn_rc.clone();
-                set_root_btn.connect_clicked(move |_| {
-                    let dialog = gtk4::FileDialog::new();
-                    dialog.set_title("Set Root File");
-                    let filter = gtk4::FileFilter::new();
-                    filter.set_name(Some("Typst files (*.typ)"));
-                    filter.add_pattern("*.typ");
-                    let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
-                    filters.append(&filter);
-                    dialog.set_filters(Some(&filters));
-                    dialog.set_initial_folder(Some(&gtk4::gio::File::for_path(&root_dir_c)));
-                    let root_dir2 = root_dir_c.clone();
-                    let root_ref2 = root_ref_c.clone();
-                    let preview2 = preview_c.clone();
-                    let title2 = title_c.clone();
-                    let ep2 = ep_c.clone();
-                    let rvl2 = rvl.clone();
-                    let bll2 = bll.clone();
-                    let clr2 = clr.clone();
-                    dialog.open(Some(&win_c), None::<&gtk4::gio::Cancellable>, move |result| {
-                        if let Ok(file) = result {
-                            if let Some(path) = file.path() {
-                                preview2.set_root_file(path.clone());
-                                *root_ref2.borrow_mut() = Some(path.clone());
-                                if let Some(active) = ep2.get_active_path() {
-                                    if path != active {
-                                        let rn = path.file_name().and_then(|n| n.to_str()).unwrap_or("root");
-                                        let an = active.file_name().and_then(|n| n.to_str()).unwrap_or("file");
-                                        title2.set_subtitle(&format!("{rn} › {an}"));
-                                    } else {
-                                        title2.set_subtitle("");
-                                    }
-                                }
-                                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("?");
-                                rvl2.set_text(name);
-                                bll2.set_markup("<b>project</b>");
-                                clr2.set_sensitive(true);
-                                let rel = path.strip_prefix(&root_dir2).unwrap_or(&path).to_path_buf();
-                                let mut pcfg = crate::config::ProjectConfig::load(&root_dir2).unwrap_or_default();
-                                pcfg.root_file = Some(rel);
-                                let _ = pcfg.save(&root_dir2);
-                                preview2.trigger_compile();
-                            }
-                        }
-                    });
-                });
-            }
-
-            // "✕" clear button
-            {
-                let root_ref_c = configured_root.clone();
-                let root_dir_c = project_root.clone();
-                let preview_c = preview_pane.clone();
-                let title_c = file_title_widget.clone();
-                let rvl = root_value_lbl_rc.clone();
-                let bll = proj_btn_label_rc.clone();
-                let clr = clear_root_btn_rc.clone();
-                clear_root_btn_rc.connect_clicked(move |_| {
-                    preview_c.clear_root_file();
-                    *root_ref_c.borrow_mut() = None;
-                    title_c.set_subtitle("");
-                    rvl.set_text("no root");
-                    bll.set_markup("project");
-                    clr.set_sensitive(false);
-                    let mut pcfg = crate::config::ProjectConfig::load(&root_dir_c).unwrap_or_default();
-                    pcfg.root_file = None;
-                    let _ = pcfg.save(&root_dir_c);
-                });
-            }
-
-            // Insert before SIMPLE: toggle first (ends up just left of SIMPLE),
-            // then controls (ends up just left of toggle, so: [controls | toggle | SIMPLE]).
-            title_extras.append(&proj_toggle);
-            title_extras.append(&proj_controls);
-        }
-
-        // Wire file_tree into the compile-done holder
-        *file_tree_holder.borrow_mut() = Some(file_tree.clone());
-
+        let file_tree = wire_file_tree(&FileTreeCtx {
+            window: window.clone(),
+            editor_pane: editor_pane.clone(),
+            preview_pane: preview_pane.clone(),
+            toast_overlay: toast_overlay.clone(),
+            project_root: project_root.clone(),
+            library: library.clone(),
+            file_title_widget: file_title_widget.clone(),
+            title_extras: title_extras.clone(),
+            file_tree_holder: file_tree_holder.clone(),
+            configured_root: configured_root.clone(),
+            proj_mode_active: proj_mode_active.clone(),
+            root_banner: root_banner.clone(),
+        });
         // ── Unsaved-file indicator in file tree ─────────────────────────────
         {
             let ft = file_tree.clone();
@@ -3164,62 +2515,11 @@ impl AppWindow {
         outer_paned.set_start_child(Some(&left_box));
         outer_paned.set_end_child(Some(&content_paned));
 
-        // ── Persist pane positions (debounced, 400 ms after last drag) ────────
-        // Use a flag so we ignore position-notify during initial GTK layout.
-        {
-            let cfg = current_config.clone();
-            let ready = Rc::new(std::cell::Cell::new(false));
-            let ready2 = ready.clone();
-            outer_paned.connect_realize(move |_| {
-                let r = ready2.clone();
-                glib::idle_add_local_once(move || { r.set(true); });
-            });
-            let pending: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
-            outer_paned.connect_position_notify(move |p| {
-                if !ready.get() { return; }
-                let pos = p.position();
-                let cfg2 = cfg.clone();
-                let pending_for_cb = pending.clone();
-                let mut slot = pending.borrow_mut();
-                if let Some(id) = slot.take() { id.remove(); }
-                *slot = Some(glib::timeout_add_local_once(
-                    std::time::Duration::from_millis(400),
-                    move || {
-                        *pending_for_cb.borrow_mut() = None;
-                        let mut c = cfg2.borrow_mut();
-                        c.sidebar_width = pos;
-                        let _ = c.save();
-                    },
-                ));
-            });
-        }
-        {
-            let cfg = current_config.clone();
-            let ready = Rc::new(std::cell::Cell::new(false));
-            let ready2 = ready.clone();
-            inner_paned.connect_realize(move |_| {
-                let r = ready2.clone();
-                glib::idle_add_local_once(move || { r.set(true); });
-            });
-            let pending: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
-            inner_paned.connect_position_notify(move |p| {
-                if !ready.get() { return; }
-                let pos = p.position();
-                let cfg2 = cfg.clone();
-                let pending_for_cb = pending.clone();
-                let mut slot = pending.borrow_mut();
-                if let Some(id) = slot.take() { id.remove(); }
-                *slot = Some(glib::timeout_add_local_once(
-                    std::time::Duration::from_millis(400),
-                    move || {
-                        *pending_for_cb.borrow_mut() = None;
-                        let mut c = cfg2.borrow_mut();
-                        c.preview_split = pos;
-                        let _ = c.save();
-                    },
-                ));
-            });
-        }
+        wire_pane_persistence(&PanePersistCtx {
+            current_config: current_config.clone(),
+            outer_paned: outer_paned.clone(),
+            inner_paned: inner_paned.clone(),
+        });
 
         // The status bar spans the whole window, under the sidebar as well as
         // the editor — it reports on the document, not on one pane. (It used to
@@ -3239,33 +2539,14 @@ impl AppWindow {
         toolbar_view.set_content(Some(&toast_overlay));
 
         window.set_content(Some(&toolbar_view));
-
-        // ── File-system watcher for external .typ changes ───────────────────
-        // Fires when a .typ file in the project is written by an external tool
-        // (e.g., a sync agent, another editor) so the preview stays current.
-        let preview_for_watch = preview_pane.clone();
-        let editor_for_watch = editor_pane.clone();
-        let mco_for_watch = manual_compile_only.clone();
-        let library_for_watch = library.clone();
-        let lw_for_watch = library_window.clone();
-        let file_watcher = crate::file_watcher::start(
-            project_root.clone(),
-            move |changed_path| {
-                library_for_watch
-                    .borrow_mut()
-                    .upsert_document(&changed_path)
-                    .ok();
-                if lw_for_watch.window().is_visible() {
-                    lw_for_watch.refresh();
-                }
-                // Only react to files we don't have open — those are handled by
-                // the editor's own save path.
-                let is_open = editor_for_watch.is_file_open(&changed_path);
-                if !is_open && !*mco_for_watch.borrow() {
-                    preview_for_watch.trigger_compile();
-                }
-            },
-        );
+        let file_watcher = wire_file_watcher(&WatcherCtx {
+            editor_pane: editor_pane.clone(),
+            preview_pane: preview_pane.clone(),
+            project_root: project_root.clone(),
+            library: library.clone(),
+            library_window: library_window.clone(),
+            manual_compile_only: manual_compile_only.clone(),
+        });
 
         Self {
             window,
