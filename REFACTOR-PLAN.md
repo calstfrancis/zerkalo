@@ -187,8 +187,35 @@ Target: ~10 tests.
 
 ## Phase 2 — `TemplateDialog::new` (1,247 lines)
 
-**Status:** ☐ not started
+**Status:** ☑ **DONE** (2026-08-03) — `new()` 1,247 → 229 lines, all gates green
 **Risk:** low · **Depends on:** nothing (do after Phase 1 for pattern-setting)
+
+### Outcome
+
+Extracted, in order: five tab builders (`build_document_tab`, `build_layout_tab`,
+`build_sections_tab`, `build_languages_tab`, `build_packages_tab`), each
+returning a small struct of the widgets the dialog needs later;
+`build_cv_elements_group`; `build_templates_gallery`; `wire_cv_mode_toggle`;
+`wire_pin_buttons`; `wire_preview_code_button`; `wire_action_buttons`.
+
+**The unplanned win: `FormWidgets`.** The Create, Apply and Preview Code paths
+each cloned the same 35 widgets and repeated the same ~70-line `TemplateSettings`
+literal — verified semantically identical (differences were whitespace and one
+closure parameter name) before merging. They now share one `FormWidgets` value
+and a single `collect()`. That removed ~200 lines of triplication and is what
+made the tail of `new()` tractable; passing `&form` also cut the parameter counts
+of the gallery and toggle helpers dramatically.
+
+**No `#[allow(clippy::too_many_arguments)]` was added.** Where a helper wanted
+more than seven parameters, the arguments were grouped into meaning-carrying
+structs instead — `ActionButtons`, `StyleRowModels`, `FontDefaults`,
+`CvModeTargets`. This is the plan's own "bundle rather than grow the signature"
+rule, and it is the pattern Phase 4's `TabContext` should follow.
+
+**Still not tested.** `template_dialog.rs`'s 38 tests cover the pure generation
+functions, not the dialog construction — they passed throughout, which is
+reassuring but not the same as verifying the wiring. Manual check needed: preset
+gallery click-through, CV Mode toggle, pins, Preview Code, Create and Apply.
 
 Deliberately first among the splits: `template_dialog.rs` already has the most
 tests in the repo (38), so the extraction is well-covered by the existing suite —

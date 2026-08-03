@@ -507,6 +507,1195 @@ pub struct TemplateDialog {
     body_kind_state: Rc<RefCell<BodyKind>>,
 }
 
+// ── Tab builders ─────────────────────────────────────────────────────────────
+// Each builds one notebook page and hands back the widgets the dialog needs to
+// read, preselect or wire later. Split out of `TemplateDialog::new`, which was
+// 1,247 lines; the tab boundaries were already marked by comment banners there.
+
+struct DocumentTab {
+    title_row: adw::EntryRow,
+    subtitle_row: adw::EntryRow,
+    author_row: adw::EntryRow,
+    author_pin: Button,
+    affil_row: adw::EntryRow,
+    affil_pin: Button,
+    course_row: adw::EntryRow,
+    professor_row: adw::EntryRow,
+    date_row: adw::EntryRow,
+    style_row: adw::ComboRow,
+    style_group: adw::PreferencesGroup,
+    style_model: gtk4::StringList,
+    cv_style_model: gtk4::StringList,
+}
+
+fn build_document_tab(notebook: &Notebook, cv_switch: &Switch) -> DocumentTab {
+    // ── Tab 1: Document ──────────────────────────────────────────────────
+    let meta_group = adw::PreferencesGroup::new();
+    meta_group.set_title("Metadata");
+
+    let title_row = adw::EntryRow::new();
+    title_row.set_title("Title");
+    meta_group.add(&title_row);
+
+    let subtitle_row = adw::EntryRow::new();
+    subtitle_row.set_title("Subtitle");
+    meta_group.add(&subtitle_row);
+
+    let author_row = adw::EntryRow::new();
+    author_row.set_title("Author");
+    let author_pin = Button::from_icon_name("changes-prevent-symbolic");
+    author_pin.add_css_class("flat");
+    author_pin.set_tooltip_text(Some("Save as default for new documents"));
+    author_row.add_suffix(&author_pin);
+    meta_group.add(&author_row);
+
+    let affil_row = adw::EntryRow::new();
+    affil_row.set_title("Affiliation");
+    let affil_pin = Button::from_icon_name("changes-prevent-symbolic");
+    affil_pin.add_css_class("flat");
+    affil_pin.set_tooltip_text(Some("Save as default for new documents"));
+    affil_row.add_suffix(&affil_pin);
+    meta_group.add(&affil_row);
+
+    let course_row = adw::EntryRow::new();
+    course_row.set_title("Course / Context");
+    meta_group.add(&course_row);
+
+    let professor_row = adw::EntryRow::new();
+    professor_row.set_title("Professor / Instructor");
+    meta_group.add(&professor_row);
+
+    let date_row = adw::EntryRow::new();
+    date_row.set_title("Date");
+    date_row.set_tooltip_text(Some("Leave blank to use today's date automatically"));
+    meta_group.add(&date_row);
+
+    let style_group = adw::PreferencesGroup::new();
+    style_group.set_title("Citation & Heading Style");
+
+    let style_labels: Vec<&str> = CITATION_STYLES.iter().map(|(n, _)| *n).collect();
+    let style_model = gtk4::StringList::new(&style_labels);
+    let cv_style_labels: Vec<&str> = CV_STYLE_OPTIONS.iter().map(|(n, _, _)| *n).collect();
+    let cv_style_model = gtk4::StringList::new(&cv_style_labels);
+    let style_row = adw::ComboRow::new();
+    style_row.set_title("Style");
+    style_row.set_subtitle("Sets heading formatting and bibliography output");
+    style_row.set_model(Some(&style_model));
+    style_row.set_selected(0);
+    style_group.add(&style_row);
+    // While CV Mode is on, this row's model/title/subtitle swap to
+    // CV_STYLE_OPTIONS — see the cv_switch handler below — so re-picking
+    // a CV style here shows real names ("Two-Column") and a description
+    // instead of an unrelated citation style ("MLA").
+    {
+        let cv_switch_c = cv_switch.clone();
+        style_row.connect_selected_notify(move |row| {
+            if cv_switch_c.is_active() {
+                if let Some((_, _, desc)) = CV_STYLE_OPTIONS.get(row.selected() as usize) {
+                    row.set_subtitle(desc);
+                }
+            }
+        });
+    }
+
+    let tab1_box = pref_tab_box();
+    tab1_box.append(&meta_group);
+    tab1_box.append(&style_group);
+    notebook.append_page(&tab_scroll(tab1_box), Some(&tab_label("Document")));
+
+    DocumentTab {
+        title_row,
+        subtitle_row,
+        author_row,
+        author_pin,
+        affil_row,
+        affil_pin,
+        course_row,
+        professor_row,
+        date_row,
+        style_row,
+        style_group,
+        style_model,
+        cv_style_model,
+    }
+}
+
+struct LayoutTab {
+    paper_row: adw::ComboRow,
+    custom_paper_w_row: adw::SpinRow,
+    custom_paper_h_row: adw::SpinRow,
+    margin_row: adw::ComboRow,
+    custom_margin_row: adw::SpinRow,
+    pnum_row: adw::ComboRow,
+    header_row: adw::ComboRow,
+    font_row: adw::ComboRow,
+    custom_font_row: adw::EntryRow,
+    font_size_row: adw::ComboRow,
+    custom_font_size_row: adw::SpinRow,
+    spacing_row: adw::ComboRow,
+    available_fonts: Vec<String>,
+    default_fonts_cfg: crate::config::Config,
+    default_font_idx: u32,
+}
+
+fn build_layout_tab(notebook: &Notebook) -> LayoutTab {
+    // ── Tab 2: Layout ────────────────────────────────────────────────────
+    let page_group = adw::PreferencesGroup::new();
+    page_group.set_title("Page");
+
+    let paper_labels: Vec<&str> = PAPER_SIZES.iter().map(|(n, _)| *n).collect();
+    let paper_model = gtk4::StringList::new(&paper_labels);
+    let paper_row = adw::ComboRow::new();
+    paper_row.set_title("Paper Size");
+    paper_row.set_model(Some(&paper_model));
+    paper_row.set_selected(0);
+    page_group.add(&paper_row);
+
+    let custom_paper_w_row = adw::SpinRow::with_range(50.0, 1200.0, 1.0);
+    custom_paper_w_row.set_title("Custom Width (mm)");
+    custom_paper_w_row.set_value(210.0);
+    custom_paper_w_row.set_visible(false);
+    page_group.add(&custom_paper_w_row);
+
+    let custom_paper_h_row = adw::SpinRow::with_range(50.0, 1200.0, 1.0);
+    custom_paper_h_row.set_title("Custom Height (mm)");
+    custom_paper_h_row.set_value(297.0);
+    custom_paper_h_row.set_visible(false);
+    page_group.add(&custom_paper_h_row);
+
+    let paper_row_c = paper_row.clone();
+    let cpw = custom_paper_w_row.clone();
+    let cph = custom_paper_h_row.clone();
+    let custom_paper_idx = (PAPER_SIZES.len() - 1) as u32;
+    paper_row_c.connect_selected_notify(move |r| {
+        let is_custom = r.selected() == custom_paper_idx;
+        cpw.set_visible(is_custom);
+        cph.set_visible(is_custom);
+    });
+
+    let margin_model = gtk4::StringList::new(MARGIN_PRESETS);
+    let margin_row = adw::ComboRow::new();
+    margin_row.set_title("Margins");
+    margin_row.set_model(Some(&margin_model));
+    margin_row.set_selected(0);
+    page_group.add(&margin_row);
+
+    let custom_margin_row = adw::SpinRow::with_range(0.1, 5.0, 0.05);
+    custom_margin_row.set_title("Custom Margin (in, all sides)");
+    custom_margin_row.set_digits(2);
+    custom_margin_row.set_value(1.0);
+    custom_margin_row.set_visible(false);
+    page_group.add(&custom_margin_row);
+
+    let margin_row_c = margin_row.clone();
+    let cmr = custom_margin_row.clone();
+    let custom_margin_idx = (MARGIN_PRESETS.len() - 1) as u32;
+    margin_row_c.connect_selected_notify(move |r| cmr.set_visible(r.selected() == custom_margin_idx));
+
+    let pnum_model = gtk4::StringList::new(PAGE_NUM_OPTIONS);
+    let pnum_row = adw::ComboRow::new();
+    pnum_row.set_title("Page Numbers");
+    pnum_row.set_model(Some(&pnum_model));
+    pnum_row.set_selected(0);
+    page_group.add(&pnum_row);
+
+    let header_model = gtk4::StringList::new(HEADER_OPTIONS);
+    let header_row = adw::ComboRow::new();
+    header_row.set_title("Running Header");
+    header_row.set_model(Some(&header_model));
+    header_row.set_selected(0);
+    page_group.add(&header_row);
+
+    let typo_group = adw::PreferencesGroup::new();
+    typo_group.set_title("Typography");
+
+    let available_fonts = build_font_list();
+    let font_labels: Vec<&str> = available_fonts.iter().map(|s| s.as_str()).collect();
+    let font_model = gtk4::StringList::new(&font_labels);
+    let font_row = adw::ComboRow::new();
+    font_row.set_title("Body Font");
+    font_row.set_model(Some(&font_model));
+    // Onboarding's default serif/sans fonts (Setup & Onboarding -> Default
+    // Fonts) take priority; "Times New Roman" is the fallback for anyone
+    // who hasn't set one. The CV toggle below re-selects to the sans
+    // default while it's on, since résumés commonly go sans-serif.
+    let default_fonts_cfg = crate::config::shared().borrow().clone();
+    let default_font_idx = available_fonts.iter()
+        .position(|f| f == &default_fonts_cfg.default_serif_font)
+        .or_else(|| available_fonts.iter().position(|f| f == "Times New Roman"))
+        .unwrap_or(0) as u32;
+    font_row.set_selected(default_font_idx);
+    typo_group.add(&font_row);
+
+    let custom_font_row = adw::EntryRow::new();
+    custom_font_row.set_title("Custom Font Name");
+    custom_font_row.set_visible(false);
+    typo_group.add(&custom_font_row);
+
+    let font_row_c = font_row.clone();
+    let cfr = custom_font_row.clone();
+    let font_count = available_fonts.len();
+    let other_idx = (font_count - 1) as u32;
+    font_row_c.connect_selected_notify(move |r| cfr.set_visible(r.selected() == other_idx));
+
+    let font_size_model = gtk4::StringList::new(&["10 pt", "11 pt", "12 pt", "14 pt", "Custom…"]);
+    let font_size_row = adw::ComboRow::new();
+    font_size_row.set_title("Font Size");
+    font_size_row.set_model(Some(&font_size_model));
+    font_size_row.set_selected(2); // 12pt default
+    typo_group.add(&font_size_row);
+
+    let custom_font_size_row = adw::SpinRow::with_range(6.0, 72.0, 1.0);
+    custom_font_size_row.set_title("Custom Size (pt)");
+    custom_font_size_row.set_value(12.0);
+    custom_font_size_row.set_visible(false);
+    typo_group.add(&custom_font_size_row);
+
+    let font_size_row_c = font_size_row.clone();
+    let cfs = custom_font_size_row.clone();
+    const CUSTOM_FONT_SIZE_IDX: u32 = 4;
+    font_size_row_c.connect_selected_notify(move |r| cfs.set_visible(r.selected() == CUSTOM_FONT_SIZE_IDX));
+
+    let spacing_labels: Vec<&str> = SPACING_OPTIONS.iter().map(|(n, _)| *n).collect();
+    let spacing_model = gtk4::StringList::new(&spacing_labels);
+    let spacing_row = adw::ComboRow::new();
+    spacing_row.set_title("Line Spacing");
+    spacing_row.set_model(Some(&spacing_model));
+    spacing_row.set_selected(1);
+    typo_group.add(&spacing_row);
+
+    let tab2_box = pref_tab_box();
+    tab2_box.append(&page_group);
+    tab2_box.append(&typo_group);
+    notebook.append_page(&tab_scroll(tab2_box), Some(&tab_label("Layout")));
+
+    LayoutTab {
+        paper_row,
+        custom_paper_w_row,
+        custom_paper_h_row,
+        margin_row,
+        custom_margin_row,
+        pnum_row,
+        header_row,
+        font_row,
+        custom_font_row,
+        font_size_row,
+        custom_font_size_row,
+        spacing_row,
+        available_fonts,
+        default_fonts_cfg,
+        default_font_idx,
+    }
+}
+
+struct SectionsTab {
+    toc_row: adw::SwitchRow,
+    toc_depth_row: adw::ComboRow,
+    abstract_row: adw::SwitchRow,
+    abstract_text_row: adw::EntryRow,
+    keywords_row: adw::SwitchRow,
+    keywords_text_row: adw::EntryRow,
+    heading_numbering_row: adw::SwitchRow,
+    heading_format_row: adw::ComboRow,
+    scroll: ScrolledWindow,
+}
+
+fn build_sections_tab(notebook: &Notebook) -> SectionsTab {
+    // ── Tab 3: Sections ──────────────────────────────────────────────────
+    let sec_group = adw::PreferencesGroup::new();
+    sec_group.set_title("Document Sections");
+
+    let toc_row = adw::SwitchRow::new();
+    toc_row.set_title("Table of Contents");
+    toc_row.set_active(false);
+    sec_group.add(&toc_row);
+
+    let toc_depth_labels = gtk4::StringList::new(&["1 level", "2 levels", "3 levels"]);
+    let toc_depth_row = adw::ComboRow::new();
+    toc_depth_row.set_title("ToC Depth");
+    toc_depth_row.set_model(Some(&toc_depth_labels));
+    toc_depth_row.set_selected(1);
+    toc_depth_row.set_sensitive(false);
+    sec_group.add(&toc_depth_row);
+
+    {
+        let dr = toc_depth_row.clone();
+        toc_row.connect_active_notify(move |r| dr.set_sensitive(r.is_active()));
+    }
+
+    let abstract_row = adw::SwitchRow::new();
+    abstract_row.set_title("Abstract");
+    abstract_row.set_active(false);
+    sec_group.add(&abstract_row);
+
+    let abstract_text_row = adw::EntryRow::new();
+    abstract_text_row.set_title("Abstract Text");
+    abstract_text_row.set_visible(false);
+    sec_group.add(&abstract_text_row);
+
+    {
+        let atr = abstract_text_row.clone();
+        abstract_row.connect_active_notify(move |r| atr.set_visible(r.is_active()));
+    }
+
+    let keywords_row = adw::SwitchRow::new();
+    keywords_row.set_title("Keywords Line");
+    keywords_row.set_active(false);
+    sec_group.add(&keywords_row);
+
+    let keywords_text_row = adw::EntryRow::new();
+    keywords_text_row.set_title("Keywords (comma-separated)");
+    keywords_text_row.set_visible(false);
+    sec_group.add(&keywords_text_row);
+
+    {
+        let ktr = keywords_text_row.clone();
+        keywords_row.connect_active_notify(move |r| ktr.set_visible(r.is_active()));
+    }
+
+    let heading_numbering_row = adw::SwitchRow::new();
+    heading_numbering_row.set_title("Numbered Headings");
+    heading_numbering_row.set_subtitle("e.g. 1. Introduction, 1.1 Background");
+    heading_numbering_row.set_active(false);
+    sec_group.add(&heading_numbering_row);
+
+    let heading_format_row = adw::ComboRow::new();
+    heading_format_row.set_title("Numbering Format");
+    heading_format_row.set_model(Some(&gtk4::StringList::new(
+        &NUMBERING_FORMATS.iter().map(|(n, _)| *n).collect::<Vec<_>>(),
+    )));
+    heading_format_row.set_visible(false);
+    sec_group.add(&heading_format_row);
+
+    // Show/hide format row when numbering is toggled
+    {
+        let hfr = heading_format_row.clone();
+        heading_numbering_row.connect_active_notify(move |sw| {
+            hfr.set_visible(sw.is_active());
+        });
+    }
+
+    let tab3_box = pref_tab_box();
+    tab3_box.append(&sec_group);
+    let tab3_scroll = tab_scroll(tab3_box);
+    notebook.append_page(&tab3_scroll, Some(&tab_label("Sections")));
+
+    SectionsTab {
+        toc_row,
+        toc_depth_row,
+        abstract_row,
+        abstract_text_row,
+        keywords_row,
+        keywords_text_row,
+        heading_numbering_row,
+        heading_format_row,
+        scroll: tab3_scroll,
+    }
+}
+
+fn build_languages_tab(notebook: &Notebook) -> Vec<(String, adw::SwitchRow)> {
+    // ── Tab 4: Languages ─────────────────────────────────────────────────
+    let lang_group = adw::PreferencesGroup::new();
+    lang_group.set_title("Language Support");
+    lang_group.set_description(Some(
+        "Enable the scripts used in your document. Each loads the correct \
+         font hint and text-direction setting.",
+    ));
+
+    let mut lang_switches: Vec<(String, adw::SwitchRow)> = Vec::new();
+    for (key, name, desc) in LANGUAGES {
+        let sw = adw::SwitchRow::new();
+        sw.set_title(name);
+        sw.set_subtitle(desc);
+        sw.set_active(false);
+        lang_group.add(&sw);
+        lang_switches.push((key.to_string(), sw));
+    }
+
+    let tab4_box = pref_tab_box();
+    tab4_box.append(&lang_group);
+    notebook.append_page(&tab_scroll(tab4_box), Some(&tab_label("Languages")));
+
+    lang_switches
+}
+
+struct PackagesTab {
+    pkg_switches: Vec<(String, adw::SwitchRow)>,
+    dropcap_expander: adw::ExpanderRow,
+    dropcap_font_row: adw::ComboRow,
+    dropcap_lines_row: adw::ComboRow,
+    dropcap_color_row: adw::ComboRow,
+    scroll: ScrolledWindow,
+}
+
+fn build_packages_tab(notebook: &Notebook) -> PackagesTab {
+    // ── Tab 5: Packages ──────────────────────────────────────────────────
+    let pkg_group = adw::PreferencesGroup::new();
+    pkg_group.set_title("Extra Packages");
+    pkg_group.set_description(Some(
+        "Adds #import statements to the generated template. \
+         You can add more packages manually at any time.",
+    ));
+
+    let mut pkg_switches: Vec<(String, adw::SwitchRow)> = Vec::new();
+
+    // ── Droplet: ExpanderRow with font + lines children ───────────────────
+    let dropcap_expander = adw::ExpanderRow::new();
+    dropcap_expander.set_title("Droplet");
+    dropcap_expander.set_subtitle(
+        "Large decorative first-letter for an opening paragraph. Wraps it automatically \
+         around the rest of the paragraph's text — no markup needed beyond enabling it here."
+    );
+    dropcap_expander.set_subtitle_lines(0);
+    dropcap_expander.set_show_enable_switch(true);
+    dropcap_expander.set_enable_expansion(false);
+    pkg_group.add(&dropcap_expander);
+
+    let droplet_hidden_sw = adw::SwitchRow::new();
+    droplet_hidden_sw.set_active(false);
+    {
+        let sw_c = droplet_hidden_sw.clone();
+        dropcap_expander.connect_notify_local(Some("enable-expansion"), move |exp, _| {
+            sw_c.set_active(exp.enables_expansion());
+        });
+    }
+    pkg_switches.push(("pkg_droplet".to_string(), droplet_hidden_sw));
+
+    let dropcap_font_list: Vec<String> = {
+        let mut v = vec!["(use body font)".to_string()];
+        v.extend(build_font_list().into_iter().filter(|f| f != "Other…"));
+        v
+    };
+    let dropcap_font_labels: Vec<&str> = dropcap_font_list.iter().map(|s| s.as_str()).collect();
+    let dropcap_font_row = adw::ComboRow::new();
+    dropcap_font_row.set_title("Font");
+    dropcap_font_row.set_subtitle("Decorative font for the large first letter");
+    dropcap_font_row.set_model(Some(&gtk4::StringList::new(&dropcap_font_labels)));
+    dropcap_font_row.set_selected(0);
+    dropcap_expander.add_row(&dropcap_font_row);
+
+    let dropcap_lines_row = adw::ComboRow::new();
+    dropcap_lines_row.set_title("Height");
+    dropcap_lines_row.set_subtitle("How many lines tall the dropcap should be");
+    dropcap_lines_row.set_model(Some(&gtk4::StringList::new(&["2 lines", "3 lines", "4 lines", "5 lines", "6 lines"])));
+    dropcap_lines_row.set_selected(1); // 3 lines default
+    dropcap_expander.add_row(&dropcap_lines_row);
+
+    let dropcap_color_labels: Vec<&str> = DROPCAP_COLORS.iter().map(|(l, _)| *l).collect();
+    let dropcap_color_row = adw::ComboRow::new();
+    dropcap_color_row.set_title("Color");
+    dropcap_color_row.set_subtitle("Ink color for the large first letter");
+    dropcap_color_row.set_model(Some(&gtk4::StringList::new(&dropcap_color_labels)));
+    dropcap_color_row.set_selected(0);
+    dropcap_expander.add_row(&dropcap_color_row);
+
+    // ── Other extra packages ──────────────────────────────────────────────
+    for (key, name, desc) in EXTRA_PACKAGES.iter().filter(|(k, _, _)| *k != "pkg_droplet") {
+        let sw = adw::SwitchRow::new();
+        sw.set_title(name);
+        sw.set_subtitle(desc);
+        sw.set_subtitle_lines(0);
+        sw.set_active(false);
+        pkg_group.add(&sw);
+        pkg_switches.push((key.to_string(), sw));
+    }
+
+    let tab5_box = pref_tab_box();
+    tab5_box.append(&pkg_group);
+    let tab5_scroll = tab_scroll(tab5_box);
+    notebook.append_page(&tab5_scroll, Some(&tab_label("Packages")));
+
+    PackagesTab {
+        pkg_switches,
+        dropcap_expander,
+        dropcap_font_row,
+        dropcap_lines_row,
+        dropcap_color_row,
+        scroll: tab5_scroll,
+    }
+}
+
+/// Lives in the Template tab's left column beside the preset list, shown only
+/// in CV Mode, rather than a separate bar that cramped the rest of the dialog.
+fn build_cv_elements_group(
+    window: &adw::Window,
+    cv_elements_path: &Rc<RefCell<Option<PathBuf>>>,
+    on_cv_elements_change: &OnCvElementsCb,
+) -> (adw::PreferencesGroup, adw::EntryRow) {
+    // ── Skrizhal CV Elements group — lives in the Template tab's left
+    // column alongside the preset list, shown only in CV Mode, instead of
+    // a separate bar that cramped the rest of the dialog.
+    let cv_elements_group = adw::PreferencesGroup::new();
+    cv_elements_group.set_title("Skrizhal CV Elements");
+    cv_elements_group.set_description(Some(
+        "A Skrizhal YAML file of jobs, degrees, awards, etc. — used to fill in this CV \
+         instead of a bibliography.",
+    ));
+    cv_elements_group.set_visible(false);
+
+    let cv_elements_row = adw::EntryRow::new();
+    cv_elements_row.set_title("Skrizhal file");
+    let cv_browse_btn = Button::from_icon_name("document-open-symbolic");
+    cv_browse_btn.set_valign(Align::Center);
+    cv_browse_btn.add_css_class("flat");
+    cv_elements_row.add_suffix(&cv_browse_btn);
+    cv_elements_group.add(&cv_elements_row);
+
+    {
+        let row_c = cv_elements_row.clone();
+        let win_c = window.clone();
+        let path_c = cv_elements_path.clone();
+        let on_change_c = on_cv_elements_change.clone();
+        cv_browse_btn.connect_clicked(move |_| {
+            let row2 = row_c.clone();
+            let path2 = path_c.clone();
+            let on_change2 = on_change_c.clone();
+            let fd = gtk4::FileDialog::new();
+            let filter = gtk4::FileFilter::new();
+            filter.set_name(Some("YAML files (*.yaml, *.yml)"));
+            filter.add_pattern("*.yaml");
+            filter.add_pattern("*.yml");
+            let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
+            filters.append(&filter);
+            fd.set_filters(Some(&filters));
+            fd.open(Some(&win_c), None::<&gtk4::gio::Cancellable>, move |result| {
+                if let Ok(file) = result {
+                    if let Some(path) = file.path() {
+                        row2.set_text(path.to_str().unwrap_or(""));
+                        *path2.borrow_mut() = Some(path.clone());
+                        if let Some(f) = on_change2.borrow().as_ref() { f(path); }
+                    }
+                }
+            });
+        });
+    }
+
+    (cv_elements_group, cv_elements_row)
+}
+
+/// Every widget the three "read the form" paths need. They previously each
+/// cloned all 35 of them and repeated the same ~70-line `TemplateSettings`
+/// literal; the three copies were identical bar whitespace and one closure
+/// parameter name.
+#[derive(Clone)]
+struct FormWidgets {
+    title: adw::EntryRow,
+    subtitle: adw::EntryRow,
+    author: adw::EntryRow,
+    affil: adw::EntryRow,
+    course: adw::EntryRow,
+    professor: adw::EntryRow,
+    date: adw::EntryRow,
+    style: adw::ComboRow,
+    paper: adw::ComboRow,
+    custom_paper_w: adw::SpinRow,
+    custom_paper_h: adw::SpinRow,
+    margin: adw::ComboRow,
+    custom_margin: adw::SpinRow,
+    font: adw::ComboRow,
+    custom_font: adw::EntryRow,
+    font_size: adw::ComboRow,
+    custom_font_size: adw::SpinRow,
+    spacing: adw::ComboRow,
+    pnum: adw::ComboRow,
+    header: adw::ComboRow,
+    toc: adw::SwitchRow,
+    toc_depth: adw::ComboRow,
+    abstract_sw: adw::SwitchRow,
+    abstract_text: adw::EntryRow,
+    keywords: adw::SwitchRow,
+    keywords_text: adw::EntryRow,
+    heading_num: adw::SwitchRow,
+    heading_fmt: adw::ComboRow,
+    langs: Vec<(String, adw::SwitchRow)>,
+    pkgs: Vec<(String, adw::SwitchRow)>,
+    dropcap_font: adw::ComboRow,
+    dropcap_lines: adw::ComboRow,
+    dropcap_color: adw::ComboRow,
+    body_kind: Rc<RefCell<BodyKind>>,
+    bib_path: Rc<RefCell<Option<PathBuf>>>,
+}
+
+impl FormWidgets {
+    fn collect(&self) -> TemplateSettings {
+        let font_idx = self.font.selected() as usize;
+        let available_fonts_inner = build_font_list();
+        let font = if font_idx >= available_fonts_inner.len().saturating_sub(1) {
+            let s = self.custom_font.text().to_string();
+            if s.is_empty() { "Times New Roman".to_string() } else { s }
+        } else {
+            available_fonts_inner.get(font_idx).cloned().unwrap_or_else(|| "Times New Roman".to_string())
+        };
+
+        let font_size = resolve_font_size(self.font_size.selected(), self.custom_font_size.value());
+
+        let toc_depth = match self.toc_depth.selected() {
+            0 => 1u32,
+            2 => 3,
+            _ => 2,
+        };
+
+        TemplateSettings {
+            title: self.title.text().to_string(),
+            subtitle: self.subtitle.text().to_string(),
+            author: self.author.text().to_string(),
+            affiliation: self.affil.text().to_string(),
+            course: self.course.text().to_string(),
+            professor: self.professor.text().to_string(),
+            date: self.date.text().to_string(),
+            style_idx: self.style.selected() as usize,
+            paper_idx: self.paper.selected() as usize,
+            custom_paper_w: (self.custom_paper_w.value() as i64).to_string(),
+            custom_paper_h: (self.custom_paper_h.value() as i64).to_string(),
+            margin_idx: self.margin.selected() as usize,
+            custom_margin: format!("{:.2}", self.custom_margin.value()),
+            font,
+            font_size,
+            spacing: SPACING_OPTIONS
+                .get(self.spacing.selected() as usize)
+                .map(|(_, v)| v.to_string())
+                .unwrap_or_else(|| "1.5em".to_string()),
+            page_num_pos: self.pnum.selected(),
+            header_style: self.header.selected(),
+            include_toc: self.toc.is_active(),
+            toc_depth,
+            include_abstract: self.abstract_sw.is_active(),
+            abstract_text: self.abstract_text.text().to_string(),
+            include_keywords: self.keywords.is_active(),
+            keywords: self.keywords_text.text().to_string(),
+            heading_numbering: self.heading_num.is_active(),
+            numbering_format: NUMBERING_FORMATS
+                .get(self.heading_fmt.selected() as usize)
+                .map(|(_, p)| p.to_string())
+                .unwrap_or_else(|| "1.".to_string()),
+            languages: self
+                .langs
+                .iter()
+                .filter(|(_, sw)| sw.is_active())
+                .map(|(k, _)| k.clone())
+                .collect(),
+            packages: self
+                .pkgs
+                .iter()
+                .filter(|(_, sw)| sw.is_active())
+                .map(|(k, _)| k.clone())
+                .collect(),
+            dropcap_font: if self.pkgs.iter().any(|(k, sw)| k == "pkg_droplet" && sw.is_active()) {
+                let idx = self.dropcap_font.selected() as usize;
+                if idx == 0 { String::new() } else {
+                    self.dropcap_font.model()
+                        .and_then(|m| m.downcast::<gtk4::StringList>().ok())
+                        .and_then(|sl| sl.string(idx as u32))
+                        .map(|s| s.to_string())
+                        .unwrap_or_default()
+                }
+            } else {
+                String::new()
+            },
+            dropcap_lines: self.dropcap_lines.selected() + 2,
+            dropcap_color: DROPCAP_COLORS
+                .get(self.dropcap_color.selected() as usize)
+                .map(|(_, v)| v.to_string())
+                .unwrap_or_default(),
+            body_kind: *self.body_kind.borrow(),
+            bib_path: self.bib_path.borrow().clone(),
+        }
+    }
+}
+
+/// The preset gallery: Tab 0. Clicking a preset pre-fills the form and renders
+/// a preview. `gallery_rows` is populated so CV Mode can filter which presets
+/// are visible without rebuilding the list.
+fn build_templates_gallery(
+    form: &FormWidgets,
+    gallery_rows: &Rc<RefCell<Vec<(adw::ActionRow, BodyKind)>>>,
+    cv_elements_group: &adw::PreferencesGroup,
+) -> GtkBox {
+    
+        let gallery_outer = GtkBox::new(Orientation::Horizontal, 0);
+        gallery_outer.set_hexpand(true);
+        gallery_outer.set_vexpand(true);
+
+        // Left: scrollable preset list
+        let gallery_group = adw::PreferencesGroup::new();
+        gallery_group.set_title("Starting Template");
+        gallery_group.set_description(Some(
+            "Click a preset to pre-fill the form and see a preview.",
+        ));
+        let left_box = pref_tab_box();
+        left_box.append(&gallery_group);
+        left_box.append(cv_elements_group);
+        let left_scroll = ScrolledWindow::new();
+        left_scroll.set_width_request(300);
+        left_scroll.set_vexpand(true);
+        left_scroll.set_hscrollbar_policy(PolicyType::Never);
+        left_scroll.set_child(Some(&left_box));
+        gallery_outer.append(&left_scroll);
+        gallery_outer.append(&Separator::new(Orientation::Vertical));
+
+        // Right: preview pane
+        let preview_overlay = Overlay::new();
+        preview_overlay.set_hexpand(true);
+        preview_overlay.set_vexpand(true);
+
+        let preview_picture = Picture::new();
+        preview_picture.set_hexpand(true);
+        preview_picture.set_vexpand(true);
+        preview_picture.set_can_shrink(true);
+        preview_picture.set_content_fit(gtk4::ContentFit::Contain);
+        preview_picture.set_margin_top(16);
+        preview_picture.set_margin_bottom(16);
+        preview_picture.set_margin_start(16);
+        preview_picture.set_margin_end(16);
+        preview_overlay.set_child(Some(&preview_picture));
+
+        let preview_spinner = Spinner::new();
+        preview_spinner.set_halign(Align::Center);
+        preview_spinner.set_valign(Align::Center);
+        preview_spinner.set_width_request(32);
+        preview_spinner.set_height_request(32);
+        preview_spinner.set_visible(false);
+        preview_overlay.add_overlay(&preview_spinner);
+
+        let hint_label = Label::new(Some("Select a template\nto preview it here"));
+        hint_label.add_css_class("dim-label");
+        hint_label.set_halign(Align::Center);
+        hint_label.set_valign(Align::Center);
+        hint_label.set_justify(gtk4::Justification::Center);
+        preview_overlay.add_overlay(&hint_label);
+
+        gallery_outer.append(&preview_overlay);
+
+        // Form widget captures for preset application
+        let g_style = form.style.clone();
+        let g_paper = form.paper.clone();
+        let g_margin = form.margin.clone();
+        let g_spacing = form.spacing.clone();
+        let g_pnum = form.pnum.clone();
+        let g_header = form.header.clone();
+        let g_toc = form.toc.clone();
+        let g_abstract = form.abstract_sw.clone();
+        let g_keywords = form.keywords.clone();
+
+        for (idx, preset) in TEMPLATE_PRESETS.iter().enumerate() {
+            let row = adw::ActionRow::new();
+            row.set_title(preset.name);
+            row.set_subtitle(preset.description);
+            row.set_activatable(true);
+            row.add_suffix(&gtk4::Image::from_icon_name("go-next-symbolic"));
+
+            let g_style_c = g_style.clone();
+            let g_paper_c = g_paper.clone();
+            let g_margin_c = g_margin.clone();
+            let g_spacing_c = g_spacing.clone();
+            let g_pnum_c = g_pnum.clone();
+            let g_header_c = g_header.clone();
+            let g_toc_c = g_toc.clone();
+            let g_abstract_c = g_abstract.clone();
+            let g_keywords_c = g_keywords.clone();
+            let pic_c = preview_picture.clone();
+            let spin_c = preview_spinner.clone();
+            let hint_c = hint_label.clone();
+            let bk_state_c = form.body_kind.clone();
+
+            row.connect_activated(move |_| {
+                // Apply preset values to form
+                let p = &TEMPLATE_PRESETS[idx];
+                *bk_state_c.borrow_mut() = p.body_kind;
+                g_style_c.set_selected(p.style_idx);
+                g_paper_c.set_selected(p.paper_idx);
+                g_margin_c.set_selected(p.margin_idx);
+                g_spacing_c.set_selected(p.spacing_idx);
+                g_pnum_c.set_selected(p.page_num_pos);
+                g_header_c.set_selected(p.header_idx);
+                g_toc_c.set_active(p.include_toc);
+                g_abstract_c.set_active(p.include_abstract);
+                g_keywords_c.set_active(p.include_keywords);
+
+                // Kick off preview render
+                hint_c.set_visible(false);
+                pic_c.set_paintable(None::<&gtk4::gdk::Paintable>);
+                spin_c.set_visible(true);
+                spin_c.start();
+
+                let (tx, rx) = std::sync::mpsc::sync_channel::<Result<Vec<u8>, String>>(1);
+                std::thread::spawn(move || {
+                    tx.send(generate_preset_preview(idx)).ok();
+                });
+
+                let rx = std::rc::Rc::new(rx);
+                let pic = pic_c.clone();
+                let spin = spin_c.clone();
+                glib::timeout_add_local(
+                    std::time::Duration::from_millis(100),
+                    move || {
+                        use std::sync::mpsc::TryRecvError;
+                        match rx.try_recv() {
+                            Ok(Ok(png_bytes)) => {
+                                spin.stop();
+                                spin.set_visible(false);
+                                let bytes = glib::Bytes::from_owned(png_bytes);
+                                if let Ok(tex) = gtk4::gdk::Texture::from_bytes(&bytes) {
+                                    pic.set_paintable(Some(
+                                        tex.upcast_ref::<gtk4::gdk::Paintable>(),
+                                    ));
+                                }
+                                glib::ControlFlow::Break
+                            }
+                            Ok(Err(_)) => {
+                                spin.stop();
+                                spin.set_visible(false);
+                                glib::ControlFlow::Break
+                            }
+                            Err(TryRecvError::Empty) => glib::ControlFlow::Continue,
+                            Err(TryRecvError::Disconnected) => {
+                                spin.stop();
+                                glib::ControlFlow::Break
+                            }
+                        }
+                    },
+                );
+            });
+
+            gallery_group.add(&row);
+            gallery_rows.borrow_mut().push((row, preset.body_kind));
+        }
+
+        // Auto-preview the first preset when the gallery opens
+        if !TEMPLATE_PRESETS.is_empty() {
+            let p = &TEMPLATE_PRESETS[0];
+            *form.body_kind.borrow_mut() = p.body_kind;
+            g_style.set_selected(p.style_idx);
+            g_paper.set_selected(p.paper_idx);
+            g_margin.set_selected(p.margin_idx);
+            g_spacing.set_selected(p.spacing_idx);
+            g_pnum.set_selected(p.page_num_pos);
+            g_header.set_selected(p.header_idx);
+            g_toc.set_active(p.include_toc);
+            g_abstract.set_active(p.include_abstract);
+            g_keywords.set_active(p.include_keywords);
+            hint_label.set_visible(false);
+            preview_spinner.set_visible(true);
+            preview_spinner.start();
+            let pic = preview_picture.clone();
+            let spin = preview_spinner.clone();
+            let (tx, rx) = std::sync::mpsc::sync_channel::<Result<Vec<u8>, String>>(1);
+            std::thread::spawn(move || { tx.send(generate_preset_preview(0)).ok(); });
+            let rx = std::rc::Rc::new(rx);
+            glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
+                use std::sync::mpsc::TryRecvError;
+                match rx.try_recv() {
+                    Ok(Ok(png_bytes)) => {
+                        spin.stop(); spin.set_visible(false);
+                        let bytes = glib::Bytes::from_owned(png_bytes);
+                        if let Ok(tex) = gtk4::gdk::Texture::from_bytes(&bytes) {
+                            pic.set_paintable(Some(tex.upcast_ref::<gtk4::gdk::Paintable>()));
+                        }
+                        glib::ControlFlow::Break
+                    }
+                    Ok(Err(_)) => { spin.stop(); spin.set_visible(false); glib::ControlFlow::Break }
+                    Err(TryRecvError::Empty) => glib::ControlFlow::Continue,
+                    Err(TryRecvError::Disconnected) => { spin.stop(); glib::ControlFlow::Break }
+                }
+            });
+        }
+
+        gallery_outer
+}
+
+/// The Style row's two interchangeable models — citation styles normally, CV
+/// layouts while CV Mode is on.
+struct StyleRowModels {
+    group: adw::PreferencesGroup,
+    citation: gtk4::StringList,
+    cv: gtk4::StringList,
+}
+
+/// Body-font defaults resolved once when the Layout tab is built.
+struct FontDefaults {
+    available: Vec<String>,
+    config: crate::config::Config,
+    serif_idx: u32,
+}
+
+/// What CV Mode shows and hides: the Skrizhal group appears, the Sections and
+/// Packages tabs go away.
+struct CvModeTargets<'a> {
+    cv_elements_group: &'a adw::PreferencesGroup,
+    tab3_scroll: &'a ScrolledWindow,
+    tab5_scroll: &'a ScrolledWindow,
+}
+
+/// CV Mode: filters the gallery to CV presets, hides the Sections and Packages
+/// tabs, reveals the Skrizhal group, and swaps the Style row between citation
+/// styles and CV layouts.
+fn wire_cv_mode_toggle(
+    cv_switch: &Switch,
+    form: &FormWidgets,
+    gallery_rows: &Rc<RefCell<Vec<(adw::ActionRow, BodyKind)>>>,
+    style: &StyleRowModels,
+    targets: CvModeTargets<'_>,
+    pins: (&Button, &Button),
+    fonts: &FontDefaults,
+) {
+    let CvModeTargets { cv_elements_group, tab3_scroll, tab5_scroll } = targets;
+    let StyleRowModels { group: style_group, citation: style_model, cv: cv_style_model } = style;
+    let (author_pin, affil_pin) = pins;
+    let FontDefaults {
+        available: available_fonts_p,
+        config: default_fonts_cfg_p,
+        serif_idx: default_font_idx_p,
+    } = fonts;
+    let default_font_idx_p = *default_font_idx_p;
+    {
+        let rows = gallery_rows.clone();
+        let tab3 = tab3_scroll.clone();
+        let tab5 = tab5_scroll.clone();
+        let elements_group = cv_elements_group.clone();
+        // The Metadata group's academic-paper rows aren't relevant to a CV, so in
+        // CV mode Title/Date hide entirely and Subtitle/Affiliation/Course/Professor
+        // are relabeled to CV-relevant fields (Email/Location/Phone/Links) instead
+        // of adding a parallel set of cv_*-only rows — see generate_cv_template's
+        // matching field mapping. The pin buttons hide too: they jointly lock
+        // (author, affiliation) as the persistent default identity for *all* new
+        // documents, and clicking one while form.affil means "Location" would
+        // overwrite that default with a CV-specific value.
+        let m_title = form.title.clone();
+        let m_subtitle = form.subtitle.clone();
+        let m_author = form.author.clone();
+        let m_affil = form.affil.clone();
+        let m_course = form.course.clone();
+        let m_professor = form.professor.clone();
+        let m_date = form.date.clone();
+        let m_author_pin = author_pin.clone();
+        let m_affil_pin = affil_pin.clone();
+        let m_font_row = form.font.clone();
+        let sans_font_idx = available_fonts_p.iter()
+            .position(|f| f == &default_fonts_cfg_p.default_sans_font);
+        let serif_font_idx = default_font_idx_p;
+        let m_style_group = style_group.clone();
+        let m_style_row = form.style.clone();
+        let m_style_model = style_model.clone();
+        let m_cv_style_model = cv_style_model.clone();
+        cv_switch.connect_active_notify(move |sw| {
+            let cv_on = sw.is_active();
+            for (row, kind) in rows.borrow().iter() {
+                row.set_visible(if cv_on { *kind == BodyKind::Cv } else { *kind != BodyKind::Cv });
+            }
+            tab3.set_visible(!cv_on);
+            tab5.set_visible(!cv_on);
+            elements_group.set_visible(cv_on);
+
+            m_title.set_visible(!cv_on);
+            m_date.set_visible(!cv_on);
+            m_author.set_title(if cv_on { "Full Name" } else { "Author" });
+            m_subtitle.set_title(if cv_on { "Email" } else { "Subtitle" });
+            m_affil.set_title(if cv_on { "Location" } else { "Affiliation" });
+            m_course.set_title(if cv_on { "Phone" } else { "Course / Context" });
+            m_professor.set_title(if cv_on { "Links / Website" } else { "Professor / Instructor" });
+            m_author_pin.set_visible(!cv_on);
+            m_affil_pin.set_visible(!cv_on);
+
+            // Résumés commonly go sans-serif; re-select the onboarding-chosen
+            // sans default while CV mode is on, and back to the serif default
+            // (or "Times New Roman") when it's off. Only applies when a sans
+            // default is actually set — otherwise leave the font as-is rather
+            // than jumping to an arbitrary font.
+            if cv_on {
+                if let Some(i) = sans_font_idx {
+                    m_font_row.set_selected(i as u32);
+                }
+            } else {
+                m_font_row.set_selected(serif_font_idx);
+            }
+
+            // The "Style" row is the same underlying control (and the same
+            // style_idx field) for both citation styles and CV styles — see
+            // CV_STYLE_OPTIONS's doc comment. Swap its model/labels so it
+            // shows real CV style names + a description instead of an
+            // unrelated citation style while CV Mode is on.
+            if cv_on {
+                m_style_group.set_title("CV Style");
+                m_style_row.set_model(Some(&m_cv_style_model));
+                let idx = (m_style_row.selected() as usize).min(CV_STYLE_OPTIONS.len() - 1);
+                m_style_row.set_selected(idx as u32);
+                if let Some((_, _, desc)) = CV_STYLE_OPTIONS.get(idx) {
+                    m_style_row.set_subtitle(desc);
+                }
+            } else {
+                m_style_group.set_title("Citation & Heading Style");
+                m_style_row.set_model(Some(&m_style_model));
+                m_style_row.set_subtitle("Sets heading formatting and bibliography output");
+            }
+        });
+    }
+}
+
+/// The pin buttons beside Author and Affiliation, which save the current value
+/// as the default for new documents.
+fn wire_pin_buttons(
+    author_row: &adw::EntryRow,
+    author_pin: &Button,
+    affil_row: &adw::EntryRow,
+    affil_pin: &Button,
+    on_lock_identity: &OnLockCb,
+) {
+    {
+        let lock = on_lock_identity.clone();
+        let ar = author_row.clone();
+        let afr = affil_row.clone();
+        author_pin.connect_clicked(move |_| {
+            if let Some(f) = lock.borrow().as_ref() {
+                f(ar.text().to_string(), afr.text().to_string());
+            }
+        });
+    }
+    {
+        let lock = on_lock_identity.clone();
+        let ar = author_row.clone();
+        let afr = affil_row.clone();
+        affil_pin.connect_clicked(move |_| {
+            if let Some(f) = lock.borrow().as_ref() {
+                f(ar.text().to_string(), afr.text().to_string());
+            }
+        });
+    }
+}
+
+/// "Preview Code" — generates the preamble from the current form and shows it
+/// read-only, without creating or modifying any document.
+fn wire_preview_code_button(
+    preview_code_btn: &Button,
+    window: &adw::Window,
+    form: &FormWidgets,
+) {
+    {
+        let pf = form.clone();
+        let window = window.clone();
+        preview_code_btn.connect_clicked(move |_| {
+            let settings = pf.collect();
+            let code = generate_typst_template(&settings);
+
+            // Show in a read-only window
+            let pwin = adw::Window::new();
+            pwin.set_title(Some("Generated Typst Code"));
+            pwin.set_default_size(680, 560);
+            pwin.set_transient_for(Some(&window));
+            pwin.set_modal(false);
+
+            let pheader = adw::HeaderBar::new();
+            let close_btn = Button::with_label("Close");
+            close_btn.add_css_class("flat");
+            let pwin2 = pwin.clone();
+            close_btn.connect_clicked(move |_| pwin2.close());
+            pheader.pack_start(&close_btn);
+
+            let tv = gtk4::TextView::new();
+            tv.set_editable(false);
+            tv.set_monospace(true);
+            tv.set_left_margin(12);
+            tv.set_right_margin(12);
+            tv.set_top_margin(8);
+            tv.set_bottom_margin(8);
+            tv.buffer().set_text(&code);
+
+            let scroll = ScrolledWindow::new();
+            scroll.set_vexpand(true);
+            scroll.set_hexpand(true);
+            scroll.set_child(Some(&tv));
+
+            let toolbar_view = adw::ToolbarView::new();
+            toolbar_view.add_top_bar(&pheader);
+            toolbar_view.set_content(Some(&scroll));
+            pwin.set_content(Some(&toolbar_view));
+            pwin.present();
+        });
+    }
+}
+
+struct ActionButtons {
+    cancel_btn: Button,
+    create_btn: Button,
+    apply_btn: Button,
+}
+
+/// Cancel, Create Document and Apply to Current. Create writes a new file via a
+/// save dialog; Apply hands the settings back to the caller for splicing into
+/// the open document.
+fn wire_action_buttons(
+    window: &adw::Window,
+    work_dir: &std::path::Path,
+    form: &FormWidgets,
+    buttons: &ActionButtons,
+    on_create: &OnCreateCb,
+    on_apply: &OnApplyCb,
+) {
+    let ActionButtons { cancel_btn, create_btn, apply_btn } = buttons;
+    let win_cancel = window.clone();
+    cancel_btn.connect_clicked(move |_| win_cancel.close());
+
+    // Create: collect state → generate template → file dialog → write → callback
+    let on_create_c = on_create.clone();
+    let win_for_create = window.clone();
+    let work_dir_for_create = work_dir.to_path_buf();
+
+    // Capture all form widgets
+    let cf = form.clone();
+
+    create_btn.connect_clicked(move |_| {
+        let settings = cf.collect();
+
+        let content = generate_typst_template(&settings);
+        // Title is hidden (and unused) in CV mode, so default the filename to
+        // the person's name instead of an empty/generic slug.
+        let title_slug = if matches!(settings.body_kind, BodyKind::Cv) {
+            if settings.author.is_empty() { slug("cv") } else { slug(&format!("{} cv", settings.author)) }
+        } else {
+            slug(&settings.title)
+        };
+        let sidecar = build_sidecar(&settings);
+
+        let dialog = gtk4::FileDialog::new();
+        dialog.set_title("Save New Document");
+        dialog.set_initial_name(Some(&format!("{}.typ", title_slug)));
+        dialog.set_initial_folder(Some(&gtk4::gio::File::for_path(&work_dir_for_create)));
+
+        let win_c = win_for_create.clone();
+        let cb = on_create_c.clone();
+        dialog.save(
+            Some(&win_for_create),
+            None::<&gtk4::gio::Cancellable>,
+            move |result| {
+                if let Ok(file) = result {
+                    if let Some(path) = file.path() {
+                        let _ = std::fs::write(&path, &content);
+                        save_sidecar(&path, &sidecar);
+                        if let Some(f) = cb.borrow().as_ref() {
+                            f(path);
+                        }
+                    }
+                }
+                win_c.close();
+            },
+        );
+    });
+
+    // Apply: generate in-memory, fire on_apply(content) without file dialog
+    let on_apply_c = on_apply.clone();
+    let win_for_apply = window.clone();
+    // Re-capture widget state (same set as create_btn, re-bound here)
+    let af = form.clone();
+    apply_btn.connect_clicked(move |_| {
+        let settings = af.collect();
+        let content = generate_typst_template(&settings);
+        let sidecar = build_sidecar(&settings);
+        if let Some(f) = on_apply_c.borrow().as_ref() {
+            f(content, sidecar);
+        }
+        win_for_apply.close();
+    });
+}
+
 impl TemplateDialog {
     pub fn new(parent: &impl IsA<gtk4::Window>, work_dir: &std::path::Path, _last_used_advanced: bool) -> Self {
         let window = adw::Window::builder()
@@ -560,386 +1749,62 @@ impl TemplateDialog {
         notebook.set_tab_pos(PositionType::Left);
         notebook.set_vexpand(true);
 
-        // ── Tab 1: Document ──────────────────────────────────────────────────
-        let meta_group = adw::PreferencesGroup::new();
-        meta_group.set_title("Metadata");
+        let DocumentTab {
+            title_row,
+            subtitle_row,
+            author_row,
+            author_pin,
+            affil_row,
+            affil_pin,
+            course_row,
+            professor_row,
+            date_row,
+            style_row,
+            style_group,
+            style_model,
+            cv_style_model,
+        } = build_document_tab(&notebook, &cv_switch);
 
-        let title_row = adw::EntryRow::new();
-        title_row.set_title("Title");
-        meta_group.add(&title_row);
+        let LayoutTab {
+            paper_row,
+            custom_paper_w_row,
+            custom_paper_h_row,
+            margin_row,
+            custom_margin_row,
+            pnum_row,
+            header_row,
+            font_row,
+            custom_font_row,
+            font_size_row,
+            custom_font_size_row,
+            spacing_row,
+            available_fonts,
+            default_fonts_cfg,
+            default_font_idx,
+        } = build_layout_tab(&notebook);
 
-        let subtitle_row = adw::EntryRow::new();
-        subtitle_row.set_title("Subtitle");
-        meta_group.add(&subtitle_row);
+        let SectionsTab {
+            toc_row,
+            toc_depth_row,
+            abstract_row,
+            abstract_text_row,
+            keywords_row,
+            keywords_text_row,
+            heading_numbering_row,
+            heading_format_row,
+            scroll: tab3_scroll,
+        } = build_sections_tab(&notebook);
 
-        let author_row = adw::EntryRow::new();
-        author_row.set_title("Author");
-        let author_pin = Button::from_icon_name("changes-prevent-symbolic");
-        author_pin.add_css_class("flat");
-        author_pin.set_tooltip_text(Some("Save as default for new documents"));
-        author_row.add_suffix(&author_pin);
-        meta_group.add(&author_row);
+        let lang_switches = build_languages_tab(&notebook);
 
-        let affil_row = adw::EntryRow::new();
-        affil_row.set_title("Affiliation");
-        let affil_pin = Button::from_icon_name("changes-prevent-symbolic");
-        affil_pin.add_css_class("flat");
-        affil_pin.set_tooltip_text(Some("Save as default for new documents"));
-        affil_row.add_suffix(&affil_pin);
-        meta_group.add(&affil_row);
-
-        let course_row = adw::EntryRow::new();
-        course_row.set_title("Course / Context");
-        meta_group.add(&course_row);
-
-        let professor_row = adw::EntryRow::new();
-        professor_row.set_title("Professor / Instructor");
-        meta_group.add(&professor_row);
-
-        let date_row = adw::EntryRow::new();
-        date_row.set_title("Date");
-        date_row.set_tooltip_text(Some("Leave blank to use today's date automatically"));
-        meta_group.add(&date_row);
-
-        let style_group = adw::PreferencesGroup::new();
-        style_group.set_title("Citation & Heading Style");
-
-        let style_labels: Vec<&str> = CITATION_STYLES.iter().map(|(n, _)| *n).collect();
-        let style_model = gtk4::StringList::new(&style_labels);
-        let cv_style_labels: Vec<&str> = CV_STYLE_OPTIONS.iter().map(|(n, _, _)| *n).collect();
-        let cv_style_model = gtk4::StringList::new(&cv_style_labels);
-        let style_row = adw::ComboRow::new();
-        style_row.set_title("Style");
-        style_row.set_subtitle("Sets heading formatting and bibliography output");
-        style_row.set_model(Some(&style_model));
-        style_row.set_selected(0);
-        style_group.add(&style_row);
-        // While CV Mode is on, this row's model/title/subtitle swap to
-        // CV_STYLE_OPTIONS — see the cv_switch handler below — so re-picking
-        // a CV style here shows real names ("Two-Column") and a description
-        // instead of an unrelated citation style ("MLA").
-        {
-            let cv_switch_c = cv_switch.clone();
-            style_row.connect_selected_notify(move |row| {
-                if cv_switch_c.is_active() {
-                    if let Some((_, _, desc)) = CV_STYLE_OPTIONS.get(row.selected() as usize) {
-                        row.set_subtitle(desc);
-                    }
-                }
-            });
-        }
-
-        let tab1_box = pref_tab_box();
-        tab1_box.append(&meta_group);
-        tab1_box.append(&style_group);
-        notebook.append_page(&tab_scroll(tab1_box), Some(&tab_label("Document")));
-
-        // ── Tab 2: Layout ────────────────────────────────────────────────────
-        let page_group = adw::PreferencesGroup::new();
-        page_group.set_title("Page");
-
-        let paper_labels: Vec<&str> = PAPER_SIZES.iter().map(|(n, _)| *n).collect();
-        let paper_model = gtk4::StringList::new(&paper_labels);
-        let paper_row = adw::ComboRow::new();
-        paper_row.set_title("Paper Size");
-        paper_row.set_model(Some(&paper_model));
-        paper_row.set_selected(0);
-        page_group.add(&paper_row);
-
-        let custom_paper_w_row = adw::SpinRow::with_range(50.0, 1200.0, 1.0);
-        custom_paper_w_row.set_title("Custom Width (mm)");
-        custom_paper_w_row.set_value(210.0);
-        custom_paper_w_row.set_visible(false);
-        page_group.add(&custom_paper_w_row);
-
-        let custom_paper_h_row = adw::SpinRow::with_range(50.0, 1200.0, 1.0);
-        custom_paper_h_row.set_title("Custom Height (mm)");
-        custom_paper_h_row.set_value(297.0);
-        custom_paper_h_row.set_visible(false);
-        page_group.add(&custom_paper_h_row);
-
-        let paper_row_c = paper_row.clone();
-        let cpw = custom_paper_w_row.clone();
-        let cph = custom_paper_h_row.clone();
-        let custom_paper_idx = (PAPER_SIZES.len() - 1) as u32;
-        paper_row_c.connect_selected_notify(move |r| {
-            let is_custom = r.selected() == custom_paper_idx;
-            cpw.set_visible(is_custom);
-            cph.set_visible(is_custom);
-        });
-
-        let margin_model = gtk4::StringList::new(MARGIN_PRESETS);
-        let margin_row = adw::ComboRow::new();
-        margin_row.set_title("Margins");
-        margin_row.set_model(Some(&margin_model));
-        margin_row.set_selected(0);
-        page_group.add(&margin_row);
-
-        let custom_margin_row = adw::SpinRow::with_range(0.1, 5.0, 0.05);
-        custom_margin_row.set_title("Custom Margin (in, all sides)");
-        custom_margin_row.set_digits(2);
-        custom_margin_row.set_value(1.0);
-        custom_margin_row.set_visible(false);
-        page_group.add(&custom_margin_row);
-
-        let margin_row_c = margin_row.clone();
-        let cmr = custom_margin_row.clone();
-        let custom_margin_idx = (MARGIN_PRESETS.len() - 1) as u32;
-        margin_row_c.connect_selected_notify(move |r| cmr.set_visible(r.selected() == custom_margin_idx));
-
-        let pnum_model = gtk4::StringList::new(PAGE_NUM_OPTIONS);
-        let pnum_row = adw::ComboRow::new();
-        pnum_row.set_title("Page Numbers");
-        pnum_row.set_model(Some(&pnum_model));
-        pnum_row.set_selected(0);
-        page_group.add(&pnum_row);
-
-        let header_model = gtk4::StringList::new(HEADER_OPTIONS);
-        let header_row = adw::ComboRow::new();
-        header_row.set_title("Running Header");
-        header_row.set_model(Some(&header_model));
-        header_row.set_selected(0);
-        page_group.add(&header_row);
-
-        let typo_group = adw::PreferencesGroup::new();
-        typo_group.set_title("Typography");
-
-        let available_fonts = build_font_list();
-        let font_labels: Vec<&str> = available_fonts.iter().map(|s| s.as_str()).collect();
-        let font_model = gtk4::StringList::new(&font_labels);
-        let font_row = adw::ComboRow::new();
-        font_row.set_title("Body Font");
-        font_row.set_model(Some(&font_model));
-        // Onboarding's default serif/sans fonts (Setup & Onboarding -> Default
-        // Fonts) take priority; "Times New Roman" is the fallback for anyone
-        // who hasn't set one. The CV toggle below re-selects to the sans
-        // default while it's on, since résumés commonly go sans-serif.
-        let default_fonts_cfg = crate::config::shared().borrow().clone();
-        let default_font_idx = available_fonts.iter()
-            .position(|f| f == &default_fonts_cfg.default_serif_font)
-            .or_else(|| available_fonts.iter().position(|f| f == "Times New Roman"))
-            .unwrap_or(0) as u32;
-        font_row.set_selected(default_font_idx);
-        typo_group.add(&font_row);
-
-        let custom_font_row = adw::EntryRow::new();
-        custom_font_row.set_title("Custom Font Name");
-        custom_font_row.set_visible(false);
-        typo_group.add(&custom_font_row);
-
-        let font_row_c = font_row.clone();
-        let cfr = custom_font_row.clone();
-        let font_count = available_fonts.len();
-        let other_idx = (font_count - 1) as u32;
-        font_row_c.connect_selected_notify(move |r| cfr.set_visible(r.selected() == other_idx));
-
-        let font_size_model = gtk4::StringList::new(&["10 pt", "11 pt", "12 pt", "14 pt", "Custom…"]);
-        let font_size_row = adw::ComboRow::new();
-        font_size_row.set_title("Font Size");
-        font_size_row.set_model(Some(&font_size_model));
-        font_size_row.set_selected(2); // 12pt default
-        typo_group.add(&font_size_row);
-
-        let custom_font_size_row = adw::SpinRow::with_range(6.0, 72.0, 1.0);
-        custom_font_size_row.set_title("Custom Size (pt)");
-        custom_font_size_row.set_value(12.0);
-        custom_font_size_row.set_visible(false);
-        typo_group.add(&custom_font_size_row);
-
-        let font_size_row_c = font_size_row.clone();
-        let cfs = custom_font_size_row.clone();
-        const CUSTOM_FONT_SIZE_IDX: u32 = 4;
-        font_size_row_c.connect_selected_notify(move |r| cfs.set_visible(r.selected() == CUSTOM_FONT_SIZE_IDX));
-
-        let spacing_labels: Vec<&str> = SPACING_OPTIONS.iter().map(|(n, _)| *n).collect();
-        let spacing_model = gtk4::StringList::new(&spacing_labels);
-        let spacing_row = adw::ComboRow::new();
-        spacing_row.set_title("Line Spacing");
-        spacing_row.set_model(Some(&spacing_model));
-        spacing_row.set_selected(1);
-        typo_group.add(&spacing_row);
-
-        let tab2_box = pref_tab_box();
-        tab2_box.append(&page_group);
-        tab2_box.append(&typo_group);
-        notebook.append_page(&tab_scroll(tab2_box), Some(&tab_label("Layout")));
-
-        // ── Tab 3: Sections ──────────────────────────────────────────────────
-        let sec_group = adw::PreferencesGroup::new();
-        sec_group.set_title("Document Sections");
-
-        let toc_row = adw::SwitchRow::new();
-        toc_row.set_title("Table of Contents");
-        toc_row.set_active(false);
-        sec_group.add(&toc_row);
-
-        let toc_depth_labels = gtk4::StringList::new(&["1 level", "2 levels", "3 levels"]);
-        let toc_depth_row = adw::ComboRow::new();
-        toc_depth_row.set_title("ToC Depth");
-        toc_depth_row.set_model(Some(&toc_depth_labels));
-        toc_depth_row.set_selected(1);
-        toc_depth_row.set_sensitive(false);
-        sec_group.add(&toc_depth_row);
-
-        {
-            let dr = toc_depth_row.clone();
-            toc_row.connect_active_notify(move |r| dr.set_sensitive(r.is_active()));
-        }
-
-        let abstract_row = adw::SwitchRow::new();
-        abstract_row.set_title("Abstract");
-        abstract_row.set_active(false);
-        sec_group.add(&abstract_row);
-
-        let abstract_text_row = adw::EntryRow::new();
-        abstract_text_row.set_title("Abstract Text");
-        abstract_text_row.set_visible(false);
-        sec_group.add(&abstract_text_row);
-
-        {
-            let atr = abstract_text_row.clone();
-            abstract_row.connect_active_notify(move |r| atr.set_visible(r.is_active()));
-        }
-
-        let keywords_row = adw::SwitchRow::new();
-        keywords_row.set_title("Keywords Line");
-        keywords_row.set_active(false);
-        sec_group.add(&keywords_row);
-
-        let keywords_text_row = adw::EntryRow::new();
-        keywords_text_row.set_title("Keywords (comma-separated)");
-        keywords_text_row.set_visible(false);
-        sec_group.add(&keywords_text_row);
-
-        {
-            let ktr = keywords_text_row.clone();
-            keywords_row.connect_active_notify(move |r| ktr.set_visible(r.is_active()));
-        }
-
-        let heading_numbering_row = adw::SwitchRow::new();
-        heading_numbering_row.set_title("Numbered Headings");
-        heading_numbering_row.set_subtitle("e.g. 1. Introduction, 1.1 Background");
-        heading_numbering_row.set_active(false);
-        sec_group.add(&heading_numbering_row);
-
-        let heading_format_row = adw::ComboRow::new();
-        heading_format_row.set_title("Numbering Format");
-        heading_format_row.set_model(Some(&gtk4::StringList::new(
-            &NUMBERING_FORMATS.iter().map(|(n, _)| *n).collect::<Vec<_>>(),
-        )));
-        heading_format_row.set_visible(false);
-        sec_group.add(&heading_format_row);
-
-        // Show/hide format row when numbering is toggled
-        {
-            let hfr = heading_format_row.clone();
-            heading_numbering_row.connect_active_notify(move |sw| {
-                hfr.set_visible(sw.is_active());
-            });
-        }
-
-        let tab3_box = pref_tab_box();
-        tab3_box.append(&sec_group);
-        let tab3_scroll = tab_scroll(tab3_box);
-        notebook.append_page(&tab3_scroll, Some(&tab_label("Sections")));
-
-        // ── Tab 4: Languages ─────────────────────────────────────────────────
-        let lang_group = adw::PreferencesGroup::new();
-        lang_group.set_title("Language Support");
-        lang_group.set_description(Some(
-            "Enable the scripts used in your document. Each loads the correct \
-             font hint and text-direction setting.",
-        ));
-
-        let mut lang_switches: Vec<(String, adw::SwitchRow)> = Vec::new();
-        for (key, name, desc) in LANGUAGES {
-            let sw = adw::SwitchRow::new();
-            sw.set_title(name);
-            sw.set_subtitle(desc);
-            sw.set_active(false);
-            lang_group.add(&sw);
-            lang_switches.push((key.to_string(), sw));
-        }
-
-        let tab4_box = pref_tab_box();
-        tab4_box.append(&lang_group);
-        notebook.append_page(&tab_scroll(tab4_box), Some(&tab_label("Languages")));
-
-        // ── Tab 5: Packages ──────────────────────────────────────────────────
-        let pkg_group = adw::PreferencesGroup::new();
-        pkg_group.set_title("Extra Packages");
-        pkg_group.set_description(Some(
-            "Adds #import statements to the generated template. \
-             You can add more packages manually at any time.",
-        ));
-
-        let mut pkg_switches: Vec<(String, adw::SwitchRow)> = Vec::new();
-
-        // ── Droplet: ExpanderRow with font + lines children ───────────────────
-        let dropcap_expander = adw::ExpanderRow::new();
-        dropcap_expander.set_title("Droplet");
-        dropcap_expander.set_subtitle(
-            "Large decorative first-letter for an opening paragraph. Wraps it automatically \
-             around the rest of the paragraph's text — no markup needed beyond enabling it here."
-        );
-        dropcap_expander.set_subtitle_lines(0);
-        dropcap_expander.set_show_enable_switch(true);
-        dropcap_expander.set_enable_expansion(false);
-        pkg_group.add(&dropcap_expander);
-
-        let droplet_hidden_sw = adw::SwitchRow::new();
-        droplet_hidden_sw.set_active(false);
-        {
-            let sw_c = droplet_hidden_sw.clone();
-            dropcap_expander.connect_notify_local(Some("enable-expansion"), move |exp, _| {
-                sw_c.set_active(exp.enables_expansion());
-            });
-        }
-        pkg_switches.push(("pkg_droplet".to_string(), droplet_hidden_sw));
-
-        let dropcap_font_list: Vec<String> = {
-            let mut v = vec!["(use body font)".to_string()];
-            v.extend(build_font_list().into_iter().filter(|f| f != "Other…"));
-            v
-        };
-        let dropcap_font_labels: Vec<&str> = dropcap_font_list.iter().map(|s| s.as_str()).collect();
-        let dropcap_font_row = adw::ComboRow::new();
-        dropcap_font_row.set_title("Font");
-        dropcap_font_row.set_subtitle("Decorative font for the large first letter");
-        dropcap_font_row.set_model(Some(&gtk4::StringList::new(&dropcap_font_labels)));
-        dropcap_font_row.set_selected(0);
-        dropcap_expander.add_row(&dropcap_font_row);
-
-        let dropcap_lines_row = adw::ComboRow::new();
-        dropcap_lines_row.set_title("Height");
-        dropcap_lines_row.set_subtitle("How many lines tall the dropcap should be");
-        dropcap_lines_row.set_model(Some(&gtk4::StringList::new(&["2 lines", "3 lines", "4 lines", "5 lines", "6 lines"])));
-        dropcap_lines_row.set_selected(1); // 3 lines default
-        dropcap_expander.add_row(&dropcap_lines_row);
-
-        let dropcap_color_labels: Vec<&str> = DROPCAP_COLORS.iter().map(|(l, _)| *l).collect();
-        let dropcap_color_row = adw::ComboRow::new();
-        dropcap_color_row.set_title("Color");
-        dropcap_color_row.set_subtitle("Ink color for the large first letter");
-        dropcap_color_row.set_model(Some(&gtk4::StringList::new(&dropcap_color_labels)));
-        dropcap_color_row.set_selected(0);
-        dropcap_expander.add_row(&dropcap_color_row);
-
-        // ── Other extra packages ──────────────────────────────────────────────
-        for (key, name, desc) in EXTRA_PACKAGES.iter().filter(|(k, _, _)| *k != "pkg_droplet") {
-            let sw = adw::SwitchRow::new();
-            sw.set_title(name);
-            sw.set_subtitle(desc);
-            sw.set_subtitle_lines(0);
-            sw.set_active(false);
-            pkg_group.add(&sw);
-            pkg_switches.push((key.to_string(), sw));
-        }
-
-        let tab5_box = pref_tab_box();
-        tab5_box.append(&pkg_group);
-        let tab5_scroll = tab_scroll(tab5_box);
-        notebook.append_page(&tab5_scroll, Some(&tab_label("Packages")));
+        let PackagesTab {
+            pkg_switches,
+            dropcap_expander,
+            dropcap_font_row,
+            dropcap_lines_row,
+            dropcap_color_row,
+            scroll: tab5_scroll,
+        } = build_packages_tab(&notebook);
 
         // Tracks which body kind was most recently chosen via the gallery
         let body_kind_state: Rc<RefCell<BodyKind>> =
@@ -950,335 +1815,78 @@ impl TemplateDialog {
         let gallery_rows: Rc<RefCell<Vec<(adw::ActionRow, BodyKind)>>> =
             Rc::new(RefCell::new(Vec::new()));
 
-        // ── Skrizhal CV Elements group — lives in the Template tab's left
-        // column alongside the preset list, shown only in CV Mode, instead of
-        // a separate bar that cramped the rest of the dialog.
-        let cv_elements_group = adw::PreferencesGroup::new();
-        cv_elements_group.set_title("Skrizhal CV Elements");
-        cv_elements_group.set_description(Some(
-            "A Skrizhal YAML file of jobs, degrees, awards, etc. — used to fill in this CV \
-             instead of a bibliography.",
-        ));
-        cv_elements_group.set_visible(false);
+        let (cv_elements_group, cv_elements_row) =
+            build_cv_elements_group(&window, &cv_elements_path, &on_cv_elements_change);
 
-        let cv_elements_row = adw::EntryRow::new();
-        cv_elements_row.set_title("Skrizhal file");
-        let cv_browse_btn = Button::from_icon_name("document-open-symbolic");
-        cv_browse_btn.set_valign(Align::Center);
-        cv_browse_btn.add_css_class("flat");
-        cv_elements_row.add_suffix(&cv_browse_btn);
-        cv_elements_group.add(&cv_elements_row);
 
-        {
-            let row_c = cv_elements_row.clone();
-            let win_c = window.clone();
-            let path_c = cv_elements_path.clone();
-            let on_change_c = on_cv_elements_change.clone();
-            cv_browse_btn.connect_clicked(move |_| {
-                let row2 = row_c.clone();
-                let path2 = path_c.clone();
-                let on_change2 = on_change_c.clone();
-                let fd = gtk4::FileDialog::new();
-                let filter = gtk4::FileFilter::new();
-                filter.set_name(Some("YAML files (*.yaml, *.yml)"));
-                filter.add_pattern("*.yaml");
-                filter.add_pattern("*.yml");
-                let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
-                filters.append(&filter);
-                fd.set_filters(Some(&filters));
-                fd.open(Some(&win_c), None::<&gtk4::gio::Cancellable>, move |result| {
-                    if let Ok(file) = result {
-                        if let Some(path) = file.path() {
-                            row2.set_text(path.to_str().unwrap_or(""));
-                            *path2.borrow_mut() = Some(path.clone());
-                            if let Some(f) = on_change2.borrow().as_ref() { f(path); }
-                        }
-                    }
-                });
-            });
-        }
+        let bib_path: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
 
-        // ── Templates gallery ─────────────────────────────────────────────────
-        let gallery_outer = {
-            let gallery_outer = GtkBox::new(Orientation::Horizontal, 0);
-            gallery_outer.set_hexpand(true);
-            gallery_outer.set_vexpand(true);
-
-            // Left: scrollable preset list
-            let gallery_group = adw::PreferencesGroup::new();
-            gallery_group.set_title("Starting Template");
-            gallery_group.set_description(Some(
-                "Click a preset to pre-fill the form and see a preview.",
-            ));
-            let left_box = pref_tab_box();
-            left_box.append(&gallery_group);
-            left_box.append(&cv_elements_group);
-            let left_scroll = ScrolledWindow::new();
-            left_scroll.set_width_request(300);
-            left_scroll.set_vexpand(true);
-            left_scroll.set_hscrollbar_policy(PolicyType::Never);
-            left_scroll.set_child(Some(&left_box));
-            gallery_outer.append(&left_scroll);
-            gallery_outer.append(&Separator::new(Orientation::Vertical));
-
-            // Right: preview pane
-            let preview_overlay = Overlay::new();
-            preview_overlay.set_hexpand(true);
-            preview_overlay.set_vexpand(true);
-
-            let preview_picture = Picture::new();
-            preview_picture.set_hexpand(true);
-            preview_picture.set_vexpand(true);
-            preview_picture.set_can_shrink(true);
-            preview_picture.set_content_fit(gtk4::ContentFit::Contain);
-            preview_picture.set_margin_top(16);
-            preview_picture.set_margin_bottom(16);
-            preview_picture.set_margin_start(16);
-            preview_picture.set_margin_end(16);
-            preview_overlay.set_child(Some(&preview_picture));
-
-            let preview_spinner = Spinner::new();
-            preview_spinner.set_halign(Align::Center);
-            preview_spinner.set_valign(Align::Center);
-            preview_spinner.set_width_request(32);
-            preview_spinner.set_height_request(32);
-            preview_spinner.set_visible(false);
-            preview_overlay.add_overlay(&preview_spinner);
-
-            let hint_label = Label::new(Some("Select a template\nto preview it here"));
-            hint_label.add_css_class("dim-label");
-            hint_label.set_halign(Align::Center);
-            hint_label.set_valign(Align::Center);
-            hint_label.set_justify(gtk4::Justification::Center);
-            preview_overlay.add_overlay(&hint_label);
-
-            gallery_outer.append(&preview_overlay);
-
-            // Form widget captures for preset application
-            let g_style = style_row.clone();
-            let g_paper = paper_row.clone();
-            let g_margin = margin_row.clone();
-            let g_spacing = spacing_row.clone();
-            let g_pnum = pnum_row.clone();
-            let g_header = header_row.clone();
-            let g_toc = toc_row.clone();
-            let g_abstract = abstract_row.clone();
-            let g_keywords = keywords_row.clone();
-
-            for (idx, preset) in TEMPLATE_PRESETS.iter().enumerate() {
-                let row = adw::ActionRow::new();
-                row.set_title(preset.name);
-                row.set_subtitle(preset.description);
-                row.set_activatable(true);
-                row.add_suffix(&gtk4::Image::from_icon_name("go-next-symbolic"));
-
-                let g_style_c = g_style.clone();
-                let g_paper_c = g_paper.clone();
-                let g_margin_c = g_margin.clone();
-                let g_spacing_c = g_spacing.clone();
-                let g_pnum_c = g_pnum.clone();
-                let g_header_c = g_header.clone();
-                let g_toc_c = g_toc.clone();
-                let g_abstract_c = g_abstract.clone();
-                let g_keywords_c = g_keywords.clone();
-                let pic_c = preview_picture.clone();
-                let spin_c = preview_spinner.clone();
-                let hint_c = hint_label.clone();
-                let bk_state_c = body_kind_state.clone();
-
-                row.connect_activated(move |_| {
-                    // Apply preset values to form
-                    let p = &TEMPLATE_PRESETS[idx];
-                    *bk_state_c.borrow_mut() = p.body_kind;
-                    g_style_c.set_selected(p.style_idx);
-                    g_paper_c.set_selected(p.paper_idx);
-                    g_margin_c.set_selected(p.margin_idx);
-                    g_spacing_c.set_selected(p.spacing_idx);
-                    g_pnum_c.set_selected(p.page_num_pos);
-                    g_header_c.set_selected(p.header_idx);
-                    g_toc_c.set_active(p.include_toc);
-                    g_abstract_c.set_active(p.include_abstract);
-                    g_keywords_c.set_active(p.include_keywords);
-
-                    // Kick off preview render
-                    hint_c.set_visible(false);
-                    pic_c.set_paintable(None::<&gtk4::gdk::Paintable>);
-                    spin_c.set_visible(true);
-                    spin_c.start();
-
-                    let (tx, rx) = std::sync::mpsc::sync_channel::<Result<Vec<u8>, String>>(1);
-                    std::thread::spawn(move || {
-                        tx.send(generate_preset_preview(idx)).ok();
-                    });
-
-                    let rx = std::rc::Rc::new(rx);
-                    let pic = pic_c.clone();
-                    let spin = spin_c.clone();
-                    glib::timeout_add_local(
-                        std::time::Duration::from_millis(100),
-                        move || {
-                            use std::sync::mpsc::TryRecvError;
-                            match rx.try_recv() {
-                                Ok(Ok(png_bytes)) => {
-                                    spin.stop();
-                                    spin.set_visible(false);
-                                    let bytes = glib::Bytes::from_owned(png_bytes);
-                                    if let Ok(tex) = gtk4::gdk::Texture::from_bytes(&bytes) {
-                                        pic.set_paintable(Some(
-                                            tex.upcast_ref::<gtk4::gdk::Paintable>(),
-                                        ));
-                                    }
-                                    glib::ControlFlow::Break
-                                }
-                                Ok(Err(_)) => {
-                                    spin.stop();
-                                    spin.set_visible(false);
-                                    glib::ControlFlow::Break
-                                }
-                                Err(TryRecvError::Empty) => glib::ControlFlow::Continue,
-                                Err(TryRecvError::Disconnected) => {
-                                    spin.stop();
-                                    glib::ControlFlow::Break
-                                }
-                            }
-                        },
-                    );
-                });
-
-                gallery_group.add(&row);
-                gallery_rows.borrow_mut().push((row, preset.body_kind));
-            }
-
-            // Auto-preview the first preset when the gallery opens
-            if !TEMPLATE_PRESETS.is_empty() {
-                let p = &TEMPLATE_PRESETS[0];
-                *body_kind_state.borrow_mut() = p.body_kind;
-                g_style.set_selected(p.style_idx);
-                g_paper.set_selected(p.paper_idx);
-                g_margin.set_selected(p.margin_idx);
-                g_spacing.set_selected(p.spacing_idx);
-                g_pnum.set_selected(p.page_num_pos);
-                g_header.set_selected(p.header_idx);
-                g_toc.set_active(p.include_toc);
-                g_abstract.set_active(p.include_abstract);
-                g_keywords.set_active(p.include_keywords);
-                hint_label.set_visible(false);
-                preview_spinner.set_visible(true);
-                preview_spinner.start();
-                let pic = preview_picture.clone();
-                let spin = preview_spinner.clone();
-                let (tx, rx) = std::sync::mpsc::sync_channel::<Result<Vec<u8>, String>>(1);
-                std::thread::spawn(move || { tx.send(generate_preset_preview(0)).ok(); });
-                let rx = std::rc::Rc::new(rx);
-                glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
-                    use std::sync::mpsc::TryRecvError;
-                    match rx.try_recv() {
-                        Ok(Ok(png_bytes)) => {
-                            spin.stop(); spin.set_visible(false);
-                            let bytes = glib::Bytes::from_owned(png_bytes);
-                            if let Ok(tex) = gtk4::gdk::Texture::from_bytes(&bytes) {
-                                pic.set_paintable(Some(tex.upcast_ref::<gtk4::gdk::Paintable>()));
-                            }
-                            glib::ControlFlow::Break
-                        }
-                        Ok(Err(_)) => { spin.stop(); spin.set_visible(false); glib::ControlFlow::Break }
-                        Err(TryRecvError::Empty) => glib::ControlFlow::Continue,
-                        Err(TryRecvError::Disconnected) => { spin.stop(); glib::ControlFlow::Break }
-                    }
-                });
-            }
-
-            gallery_outer
+        let form = FormWidgets {
+            title: title_row.clone(),
+            subtitle: subtitle_row.clone(),
+            author: author_row.clone(),
+            affil: affil_row.clone(),
+            course: course_row.clone(),
+            professor: professor_row.clone(),
+            date: date_row.clone(),
+            style: style_row.clone(),
+            paper: paper_row.clone(),
+            custom_paper_w: custom_paper_w_row.clone(),
+            custom_paper_h: custom_paper_h_row.clone(),
+            margin: margin_row.clone(),
+            custom_margin: custom_margin_row.clone(),
+            font: font_row.clone(),
+            custom_font: custom_font_row.clone(),
+            font_size: font_size_row.clone(),
+            custom_font_size: custom_font_size_row.clone(),
+            spacing: spacing_row.clone(),
+            pnum: pnum_row.clone(),
+            header: header_row.clone(),
+            toc: toc_row.clone(),
+            toc_depth: toc_depth_row.clone(),
+            abstract_sw: abstract_row.clone(),
+            abstract_text: abstract_text_row.clone(),
+            keywords: keywords_row.clone(),
+            keywords_text: keywords_text_row.clone(),
+            heading_num: heading_numbering_row.clone(),
+            heading_fmt: heading_format_row.clone(),
+            langs: lang_switches.clone(),
+            pkgs: pkg_switches.clone(),
+            dropcap_font: dropcap_font_row.clone(),
+            dropcap_lines: dropcap_lines_row.clone(),
+            dropcap_color: dropcap_color_row.clone(),
+            body_kind: body_kind_state.clone(),
+            bib_path: bib_path.clone(),
         };
+
+        let gallery_outer = build_templates_gallery(&form, &gallery_rows, &cv_elements_group);
 
         // ── Simple form group ────────────────────────────────────────────────
         // Gallery is Tab 0 — it fills the full window and has internal scrolling
         notebook.prepend_page(&gallery_outer, Some(&tab_label("Template")));
         notebook.set_hexpand(true);
 
-        // ── Wire the toggle: filter gallery, hide Sections/Packages, reveal Skrizhal bar
-        {
-            let rows = gallery_rows.clone();
-            let tab3 = tab3_scroll.clone();
-            let tab5 = tab5_scroll.clone();
-            let elements_group = cv_elements_group.clone();
-            // The Metadata group's academic-paper rows aren't relevant to a CV, so in
-            // CV mode Title/Date hide entirely and Subtitle/Affiliation/Course/Professor
-            // are relabeled to CV-relevant fields (Email/Location/Phone/Links) instead
-            // of adding a parallel set of cv_*-only rows — see generate_cv_template's
-            // matching field mapping. The pin buttons hide too: they jointly lock
-            // (author, affiliation) as the persistent default identity for *all* new
-            // documents, and clicking one while affil_row means "Location" would
-            // overwrite that default with a CV-specific value.
-            let m_title = title_row.clone();
-            let m_subtitle = subtitle_row.clone();
-            let m_author = author_row.clone();
-            let m_affil = affil_row.clone();
-            let m_course = course_row.clone();
-            let m_professor = professor_row.clone();
-            let m_date = date_row.clone();
-            let m_author_pin = author_pin.clone();
-            let m_affil_pin = affil_pin.clone();
-            let m_font_row = font_row.clone();
-            let sans_font_idx = available_fonts.iter()
-                .position(|f| f == &default_fonts_cfg.default_sans_font);
-            let serif_font_idx = default_font_idx;
-            let m_style_group = style_group.clone();
-            let m_style_row = style_row.clone();
-            let m_style_model = style_model.clone();
-            let m_cv_style_model = cv_style_model.clone();
-            cv_switch.connect_active_notify(move |sw| {
-                let cv_on = sw.is_active();
-                for (row, kind) in rows.borrow().iter() {
-                    row.set_visible(if cv_on { *kind == BodyKind::Cv } else { *kind != BodyKind::Cv });
-                }
-                tab3.set_visible(!cv_on);
-                tab5.set_visible(!cv_on);
-                elements_group.set_visible(cv_on);
-
-                m_title.set_visible(!cv_on);
-                m_date.set_visible(!cv_on);
-                m_author.set_title(if cv_on { "Full Name" } else { "Author" });
-                m_subtitle.set_title(if cv_on { "Email" } else { "Subtitle" });
-                m_affil.set_title(if cv_on { "Location" } else { "Affiliation" });
-                m_course.set_title(if cv_on { "Phone" } else { "Course / Context" });
-                m_professor.set_title(if cv_on { "Links / Website" } else { "Professor / Instructor" });
-                m_author_pin.set_visible(!cv_on);
-                m_affil_pin.set_visible(!cv_on);
-
-                // Résumés commonly go sans-serif; re-select the onboarding-chosen
-                // sans default while CV mode is on, and back to the serif default
-                // (or "Times New Roman") when it's off. Only applies when a sans
-                // default is actually set — otherwise leave the font as-is rather
-                // than jumping to an arbitrary font.
-                if cv_on {
-                    if let Some(i) = sans_font_idx {
-                        m_font_row.set_selected(i as u32);
-                    }
-                } else {
-                    m_font_row.set_selected(serif_font_idx);
-                }
-
-                // The "Style" row is the same underlying control (and the same
-                // style_idx field) for both citation styles and CV styles — see
-                // CV_STYLE_OPTIONS's doc comment. Swap its model/labels so it
-                // shows real CV style names + a description instead of an
-                // unrelated citation style while CV Mode is on.
-                if cv_on {
-                    m_style_group.set_title("CV Style");
-                    m_style_row.set_model(Some(&m_cv_style_model));
-                    let idx = (m_style_row.selected() as usize).min(CV_STYLE_OPTIONS.len() - 1);
-                    m_style_row.set_selected(idx as u32);
-                    if let Some((_, _, desc)) = CV_STYLE_OPTIONS.get(idx) {
-                        m_style_row.set_subtitle(desc);
-                    }
-                } else {
-                    m_style_group.set_title("Citation & Heading Style");
-                    m_style_row.set_model(Some(&m_style_model));
-                    m_style_row.set_subtitle("Sets heading formatting and bibliography output");
-                }
-            });
-        }
+        wire_cv_mode_toggle(
+            &cv_switch,
+            &form,
+            &gallery_rows,
+            &StyleRowModels {
+                group: style_group.clone(),
+                citation: style_model.clone(),
+                cv: cv_style_model.clone(),
+            },
+            CvModeTargets {
+                cv_elements_group: &cv_elements_group,
+                tab3_scroll: &tab3_scroll,
+                tab5_scroll: &tab5_scroll,
+            },
+            (&author_pin, &affil_pin),
+            &FontDefaults {
+                available: available_fonts.clone(),
+                config: default_fonts_cfg.clone(),
+                serif_idx: default_font_idx,
+            },
+        );
 
         // ── Layout ───────────────────────────────────────────────────────────
         let toolbar_view = adw::ToolbarView::new();
@@ -1286,459 +1894,24 @@ impl TemplateDialog {
         toolbar_view.set_content(Some(&notebook));
         window.set_content(Some(&toolbar_view));
 
-        // ── Button wiring ─────────────────────────────────────────────────────
-        let win_cancel = window.clone();
-        cancel_btn.connect_clicked(move |_| win_cancel.close());
+        wire_action_buttons(
+            &window,
+            work_dir,
+            &form,
+            &ActionButtons {
+                cancel_btn: cancel_btn.clone(),
+                create_btn: create_btn.clone(),
+                apply_btn: apply_btn.clone(),
+            },
+            &on_create,
+            &on_apply,
+        );
 
-        let bib_path: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
 
-        // Create: collect state → generate template → file dialog → write → callback
-        let on_create_c = on_create.clone();
-        let win_for_create = window.clone();
-        let work_dir_for_create = work_dir.to_path_buf();
+        wire_pin_buttons(&author_row, &author_pin, &affil_row, &affil_pin, &on_lock_identity);
 
-        // Capture all form widgets
-        let w_title = title_row.clone();
-        let w_subtitle = subtitle_row.clone();
-        let w_author = author_row.clone();
-        let w_affil = affil_row.clone();
-        let w_course = course_row.clone();
-        let w_professor = professor_row.clone();
-        let w_date = date_row.clone();
-        let w_style = style_row.clone();
-        let w_paper = paper_row.clone();
-        let w_custom_paper_w = custom_paper_w_row.clone();
-        let w_custom_paper_h = custom_paper_h_row.clone();
-        let w_margin = margin_row.clone();
-        let w_custom_margin = custom_margin_row.clone();
-        let w_font = font_row.clone();
-        let w_custom_font = custom_font_row.clone();
-        let w_font_size = font_size_row.clone();
-        let w_custom_font_size = custom_font_size_row.clone();
-        let w_spacing = spacing_row.clone();
-        let w_pnum = pnum_row.clone();
-        let w_header = header_row.clone();
-        let w_toc = toc_row.clone();
-        let w_toc_depth = toc_depth_row.clone();
-        let w_abstract = abstract_row.clone();
-        let w_abstract_text = abstract_text_row.clone();
-        let w_keywords = keywords_row.clone();
-        let w_keywords_text = keywords_text_row.clone();
-        let w_heading_num = heading_numbering_row.clone();
-        let w_heading_fmt = heading_format_row.clone();
-        let w_langs = lang_switches.clone();
-        let w_pkgs = pkg_switches.clone();
-        let w_dropcap_font = dropcap_font_row.clone();
-        let w_dropcap_lines = dropcap_lines_row.clone();
-        let w_dropcap_color = dropcap_color_row.clone();
-        let w_body_kind = body_kind_state.clone();
-        let w_bib_path = bib_path.clone();
+        wire_preview_code_button(&preview_code_btn, &window, &form);
 
-        create_btn.connect_clicked(move |_| {
-            let font_idx = w_font.selected() as usize;
-            let available_fonts_inner = build_font_list();
-            let font = if font_idx >= available_fonts_inner.len().saturating_sub(1) {
-                let s = w_custom_font.text().to_string();
-                if s.is_empty() { "Times New Roman".to_string() } else { s }
-            } else {
-                available_fonts_inner.get(font_idx).cloned().unwrap_or_else(|| "Times New Roman".to_string())
-            };
-
-            let font_size = resolve_font_size(w_font_size.selected(), w_custom_font_size.value());
-
-            let toc_depth = match w_toc_depth.selected() {
-                0 => 1u32,
-                2 => 3,
-                _ => 2,
-            };
-
-            let settings = TemplateSettings {
-                title: w_title.text().to_string(),
-                subtitle: w_subtitle.text().to_string(),
-                author: w_author.text().to_string(),
-                affiliation: w_affil.text().to_string(),
-                course: w_course.text().to_string(),
-                professor: w_professor.text().to_string(),
-                date: w_date.text().to_string(),
-                style_idx: w_style.selected() as usize,
-                paper_idx: w_paper.selected() as usize,
-                custom_paper_w: (w_custom_paper_w.value() as i64).to_string(),
-                custom_paper_h: (w_custom_paper_h.value() as i64).to_string(),
-                margin_idx: w_margin.selected() as usize,
-                custom_margin: format!("{:.2}", w_custom_margin.value()),
-                font,
-                font_size,
-                spacing: SPACING_OPTIONS
-                    .get(w_spacing.selected() as usize)
-                    .map(|(_, v)| v.to_string())
-                    .unwrap_or_else(|| "1.5em".to_string()),
-                page_num_pos: w_pnum.selected(),
-                header_style: w_header.selected(),
-                include_toc: w_toc.is_active(),
-                toc_depth,
-                include_abstract: w_abstract.is_active(),
-                abstract_text: w_abstract_text.text().to_string(),
-                include_keywords: w_keywords.is_active(),
-                keywords: w_keywords_text.text().to_string(),
-                heading_numbering: w_heading_num.is_active(),
-                numbering_format: NUMBERING_FORMATS
-                    .get(w_heading_fmt.selected() as usize)
-                    .map(|(_, p)| p.to_string())
-                    .unwrap_or_else(|| "1.".to_string()),
-                languages: w_langs
-                    .iter()
-                    .filter(|(_, sw)| sw.is_active())
-                    .map(|(k, _)| k.clone())
-                    .collect(),
-                packages: w_pkgs
-                    .iter()
-                    .filter(|(_, sw)| sw.is_active())
-                    .map(|(k, _)| k.clone())
-                    .collect(),
-                dropcap_font: if w_pkgs.iter().any(|(k, sw)| k == "pkg_droplet" && sw.is_active()) {
-                    let idx = w_dropcap_font.selected() as usize;
-                    if idx == 0 { String::new() } else {
-                        w_dropcap_font.model()
-                            .and_then(|m| m.downcast::<gtk4::StringList>().ok())
-                            .and_then(|sl| sl.string(idx as u32))
-                            .map(|s| s.to_string())
-                            .unwrap_or_default()
-                    }
-                } else {
-                    String::new()
-                },
-                dropcap_lines: w_dropcap_lines.selected() + 2,
-                dropcap_color: DROPCAP_COLORS
-                    .get(w_dropcap_color.selected() as usize)
-                    .map(|(_, v)| v.to_string())
-                    .unwrap_or_default(),
-                body_kind: *w_body_kind.borrow(),
-                bib_path: w_bib_path.borrow().clone(),
-            };
-
-            let content = generate_typst_template(&settings);
-            // Title is hidden (and unused) in CV mode, so default the filename to
-            // the person's name instead of an empty/generic slug.
-            let title_slug = if matches!(settings.body_kind, BodyKind::Cv) {
-                if settings.author.is_empty() { slug("cv") } else { slug(&format!("{} cv", settings.author)) }
-            } else {
-                slug(&settings.title)
-            };
-            let sidecar = build_sidecar(&settings);
-
-            let dialog = gtk4::FileDialog::new();
-            dialog.set_title("Save New Document");
-            dialog.set_initial_name(Some(&format!("{}.typ", title_slug)));
-            dialog.set_initial_folder(Some(&gtk4::gio::File::for_path(&work_dir_for_create)));
-
-            let win_c = win_for_create.clone();
-            let cb = on_create_c.clone();
-            dialog.save(
-                Some(&win_for_create),
-                None::<&gtk4::gio::Cancellable>,
-                move |result| {
-                    if let Ok(file) = result {
-                        if let Some(path) = file.path() {
-                            let _ = std::fs::write(&path, &content);
-                            save_sidecar(&path, &sidecar);
-                            if let Some(f) = cb.borrow().as_ref() {
-                                f(path);
-                            }
-                        }
-                    }
-                    win_c.close();
-                },
-            );
-        });
-
-        // Apply: generate in-memory, fire on_apply(content) without file dialog
-        let on_apply_c = on_apply.clone();
-        let win_for_apply = window.clone();
-        // Re-capture widget state (same set as create_btn, re-bound here)
-        let a_title = title_row.clone();
-        let a_subtitle = subtitle_row.clone();
-        let a_author = author_row.clone();
-        let a_affil = affil_row.clone();
-        let a_course = course_row.clone();
-        let a_professor = professor_row.clone();
-        let a_date = date_row.clone();
-        let a_style = style_row.clone();
-        let a_paper = paper_row.clone();
-        let a_custom_paper_w = custom_paper_w_row.clone();
-        let a_custom_paper_h = custom_paper_h_row.clone();
-        let a_margin = margin_row.clone();
-        let a_custom_margin = custom_margin_row.clone();
-        let a_font = font_row.clone();
-        let a_custom_font = custom_font_row.clone();
-        let a_font_size = font_size_row.clone();
-        let a_custom_font_size = custom_font_size_row.clone();
-        let a_spacing = spacing_row.clone();
-        let a_pnum = pnum_row.clone();
-        let a_header = header_row.clone();
-        let a_toc = toc_row.clone();
-        let a_toc_depth = toc_depth_row.clone();
-        let a_abstract = abstract_row.clone();
-        let a_abstract_text = abstract_text_row.clone();
-        let a_keywords = keywords_row.clone();
-        let a_keywords_text = keywords_text_row.clone();
-        let a_heading_num = heading_numbering_row.clone();
-        let a_heading_fmt = heading_format_row.clone();
-        let a_langs = lang_switches.clone();
-        let a_pkgs = pkg_switches.clone();
-        let a_dropcap_font = dropcap_font_row.clone();
-        let a_dropcap_lines = dropcap_lines_row.clone();
-        let a_dropcap_color = dropcap_color_row.clone();
-        let a_body_kind = body_kind_state.clone();
-        let a_bib_path = bib_path.clone();
-        apply_btn.connect_clicked(move |_| {
-            let font_idx = a_font.selected() as usize;
-            let available_fonts_inner = build_font_list();
-            let font = if font_idx >= available_fonts_inner.len().saturating_sub(1) {
-                let s = a_custom_font.text().to_string();
-                if s.is_empty() { "Times New Roman".to_string() } else { s }
-            } else {
-                available_fonts_inner.get(font_idx).cloned().unwrap_or_else(|| "Times New Roman".to_string())
-            };
-            let font_size = resolve_font_size(a_font_size.selected(), a_custom_font_size.value());
-            let toc_depth = match a_toc_depth.selected() { 0 => 1u32, 2 => 3, _ => 2 };
-            let settings = TemplateSettings {
-                title: a_title.text().to_string(),
-                subtitle: a_subtitle.text().to_string(),
-                author: a_author.text().to_string(),
-                affiliation: a_affil.text().to_string(),
-                course: a_course.text().to_string(),
-                professor: a_professor.text().to_string(),
-                date: a_date.text().to_string(),
-                style_idx: a_style.selected() as usize,
-                paper_idx: a_paper.selected() as usize,
-                custom_paper_w: (a_custom_paper_w.value() as i64).to_string(),
-                custom_paper_h: (a_custom_paper_h.value() as i64).to_string(),
-                margin_idx: a_margin.selected() as usize,
-                custom_margin: format!("{:.2}", a_custom_margin.value()),
-                font,
-                font_size,
-                spacing: SPACING_OPTIONS
-                    .get(a_spacing.selected() as usize)
-                    .map(|(_, v)| v.to_string())
-                    .unwrap_or_else(|| "1.5em".to_string()),
-                page_num_pos: a_pnum.selected(),
-                header_style: a_header.selected(),
-                include_toc: a_toc.is_active(),
-                toc_depth,
-                include_abstract: a_abstract.is_active(),
-                abstract_text: a_abstract_text.text().to_string(),
-                include_keywords: a_keywords.is_active(),
-                keywords: a_keywords_text.text().to_string(),
-                heading_numbering: a_heading_num.is_active(),
-                numbering_format: NUMBERING_FORMATS
-                    .get(a_heading_fmt.selected() as usize)
-                    .map(|(_, p)| p.to_string())
-                    .unwrap_or_else(|| "1.".to_string()),
-                languages: a_langs.iter()
-                    .filter(|(_, sw)| sw.is_active())
-                    .map(|(k, _)| k.clone())
-                    .collect(),
-                packages: a_pkgs.iter()
-                    .filter(|(_, sw)| sw.is_active())
-                    .map(|(k, _)| k.clone())
-                    .collect(),
-                dropcap_font: if a_pkgs.iter().any(|(k, sw)| k == "pkg_droplet" && sw.is_active()) {
-                    let idx = a_dropcap_font.selected() as usize;
-                    if idx == 0 { String::new() } else {
-                        a_dropcap_font.model()
-                            .and_then(|m| m.downcast::<gtk4::StringList>().ok())
-                            .and_then(|sl| sl.string(idx as u32))
-                            .map(|s| s.to_string())
-                            .unwrap_or_default()
-                    }
-                } else {
-                    String::new()
-                },
-                dropcap_lines: a_dropcap_lines.selected() + 2,
-                dropcap_color: DROPCAP_COLORS
-                    .get(a_dropcap_color.selected() as usize)
-                    .map(|(_, v)| v.to_string())
-                    .unwrap_or_default(),
-                body_kind: *a_body_kind.borrow(),
-                bib_path: a_bib_path.borrow().clone(),
-            };
-            let content = generate_typst_template(&settings);
-            let sidecar = build_sidecar(&settings);
-            if let Some(f) = on_apply_c.borrow().as_ref() {
-                f(content, sidecar);
-            }
-            win_for_apply.close();
-        });
-
-        // ── Pin button wiring ─────────────────────────────────────────────────
-        {
-            let lock = on_lock_identity.clone();
-            let ar = author_row.clone();
-            let afr = affil_row.clone();
-            author_pin.connect_clicked(move |_| {
-                if let Some(f) = lock.borrow().as_ref() {
-                    f(ar.text().to_string(), afr.text().to_string());
-                }
-            });
-        }
-        {
-            let lock = on_lock_identity.clone();
-            let ar = author_row.clone();
-            let afr = affil_row.clone();
-            affil_pin.connect_clicked(move |_| {
-                if let Some(f) = lock.borrow().as_ref() {
-                    f(ar.text().to_string(), afr.text().to_string());
-                }
-            });
-        }
-
-        // ── Preview Code button — generates the preamble and shows it read-only ─
-        {
-            let p_title = title_row.clone();
-            let p_subtitle = subtitle_row.clone();
-            let p_author = author_row.clone();
-            let p_affil = affil_row.clone();
-            let p_course = course_row.clone();
-            let p_professor = professor_row.clone();
-            let p_date = date_row.clone();
-            let p_style = style_row.clone();
-            let p_paper = paper_row.clone();
-            let p_custom_paper_w = custom_paper_w_row.clone();
-            let p_custom_paper_h = custom_paper_h_row.clone();
-            let p_margin = margin_row.clone();
-            let p_custom_margin = custom_margin_row.clone();
-            let p_font = font_row.clone();
-            let p_custom_font = custom_font_row.clone();
-            let p_font_size = font_size_row.clone();
-            let p_custom_font_size = custom_font_size_row.clone();
-            let p_spacing = spacing_row.clone();
-            let p_pnum = pnum_row.clone();
-            let p_header = header_row.clone();
-            let p_toc = toc_row.clone();
-            let p_toc_depth = toc_depth_row.clone();
-            let p_abstract = abstract_row.clone();
-            let p_abstract_text = abstract_text_row.clone();
-            let p_keywords = keywords_row.clone();
-            let p_keywords_text = keywords_text_row.clone();
-            let p_heading_num = heading_numbering_row.clone();
-            let p_heading_fmt = heading_format_row.clone();
-            let p_langs = lang_switches.clone();
-            let p_pkgs = pkg_switches.clone();
-            let p_dropcap_font = dropcap_font_row.clone();
-            let p_dropcap_lines = dropcap_lines_row.clone();
-            let p_dropcap_color = dropcap_color_row.clone();
-            let p_body_kind = body_kind_state.clone();
-            let p_bib_path = bib_path.clone();
-            let p_win = window.clone();
-            preview_code_btn.connect_clicked(move |_| {
-                let font_idx = p_font.selected() as usize;
-                let available_fonts_inner = build_font_list();
-                let font = if font_idx >= available_fonts_inner.len().saturating_sub(1) {
-                    let s = p_custom_font.text().to_string();
-                    if s.is_empty() { "Times New Roman".to_string() } else { s }
-                } else {
-                    available_fonts_inner.get(font_idx).cloned().unwrap_or_else(|| "Times New Roman".to_string())
-                };
-                let font_size = resolve_font_size(p_font_size.selected(), p_custom_font_size.value());
-                let toc_depth = match p_toc_depth.selected() { 0 => 1u32, 2 => 3, _ => 2 };
-                let settings = TemplateSettings {
-                    title: p_title.text().to_string(),
-                    subtitle: p_subtitle.text().to_string(),
-                    author: p_author.text().to_string(),
-                    affiliation: p_affil.text().to_string(),
-                    course: p_course.text().to_string(),
-                    professor: p_professor.text().to_string(),
-                    date: p_date.text().to_string(),
-                    style_idx: p_style.selected() as usize,
-                    paper_idx: p_paper.selected() as usize,
-                    custom_paper_w: (p_custom_paper_w.value() as i64).to_string(),
-                    custom_paper_h: (p_custom_paper_h.value() as i64).to_string(),
-                    margin_idx: p_margin.selected() as usize,
-                    custom_margin: format!("{:.2}", p_custom_margin.value()),
-                    font,
-                    font_size,
-                    spacing: SPACING_OPTIONS
-                        .get(p_spacing.selected() as usize)
-                        .map(|(_, v)| v.to_string())
-                        .unwrap_or_else(|| "1.5em".to_string()),
-                    page_num_pos: p_pnum.selected(),
-                    header_style: p_header.selected(),
-                    include_toc: p_toc.is_active(),
-                    toc_depth,
-                    include_abstract: p_abstract.is_active(),
-                    abstract_text: p_abstract_text.text().to_string(),
-                    include_keywords: p_keywords.is_active(),
-                    keywords: p_keywords_text.text().to_string(),
-                    heading_numbering: p_heading_num.is_active(),
-                    numbering_format: NUMBERING_FORMATS
-                        .get(p_heading_fmt.selected() as usize)
-                        .map(|(_, pat)| pat.to_string())
-                        .unwrap_or_else(|| "1.".to_string()),
-                    languages: p_langs.iter()
-                        .filter(|(_, sw)| sw.is_active())
-                        .map(|(k, _)| k.clone())
-                        .collect(),
-                    packages: p_pkgs.iter()
-                        .filter(|(_, sw)| sw.is_active())
-                        .map(|(k, _)| k.clone())
-                        .collect(),
-                    dropcap_font: if p_pkgs.iter().any(|(k, sw)| k == "pkg_droplet" && sw.is_active()) {
-                        let idx = p_dropcap_font.selected() as usize;
-                        if idx == 0 { String::new() } else {
-                            p_dropcap_font.model()
-                                .and_then(|m| m.downcast::<gtk4::StringList>().ok())
-                                .and_then(|sl| sl.string(idx as u32))
-                                .map(|s| s.to_string())
-                                .unwrap_or_default()
-                        }
-                    } else {
-                        String::new()
-                    },
-                    dropcap_lines: p_dropcap_lines.selected() + 2,
-                    dropcap_color: DROPCAP_COLORS
-                        .get(p_dropcap_color.selected() as usize)
-                        .map(|(_, v)| v.to_string())
-                        .unwrap_or_default(),
-                    body_kind: *p_body_kind.borrow(),
-                    bib_path: p_bib_path.borrow().clone(),
-                };
-                let code = generate_typst_template(&settings);
-
-                // Show in a read-only window
-                let pwin = adw::Window::new();
-                pwin.set_title(Some("Generated Typst Code"));
-                pwin.set_default_size(680, 560);
-                pwin.set_transient_for(Some(&p_win));
-                pwin.set_modal(false);
-
-                let pheader = adw::HeaderBar::new();
-                let close_btn = Button::with_label("Close");
-                close_btn.add_css_class("flat");
-                let pwin2 = pwin.clone();
-                close_btn.connect_clicked(move |_| pwin2.close());
-                pheader.pack_start(&close_btn);
-
-                let tv = gtk4::TextView::new();
-                tv.set_editable(false);
-                tv.set_monospace(true);
-                tv.set_left_margin(12);
-                tv.set_right_margin(12);
-                tv.set_top_margin(8);
-                tv.set_bottom_margin(8);
-                tv.buffer().set_text(&code);
-
-                let scroll = ScrolledWindow::new();
-                scroll.set_vexpand(true);
-                scroll.set_hexpand(true);
-                scroll.set_child(Some(&tv));
-
-                let toolbar_view = adw::ToolbarView::new();
-                toolbar_view.add_top_bar(&pheader);
-                toolbar_view.set_content(Some(&scroll));
-                pwin.set_content(Some(&toolbar_view));
-                pwin.present();
-            });
-        }
 
         Self {
             window, on_create, on_apply, on_lock_identity, on_advanced_toggle, apply_btn,
