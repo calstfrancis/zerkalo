@@ -548,7 +548,7 @@ impl LibraryWindow {
                         .ok();
                     let filter_row = make_category_filter_row(
                         &format!("category-group:{}", cat.name),
-                        &cat.color_hex,
+                        &cat.color_hex.clone().unwrap_or_else(|| stable_palette_color(&cat.name).to_string()),
                         &cat.name,
                         cat_count,
                     );
@@ -586,7 +586,7 @@ impl LibraryWindow {
                                 .ok();
                             let child_row = make_category_filter_row_indented(
                                 &format!("category:{}", child.name),
-                                &child.color_hex,
+                                &child.color_hex.clone().unwrap_or_else(|| stable_palette_color(&child.name).to_string()),
                                 &child.name,
                                 child_count,
                                 16,
@@ -633,7 +633,7 @@ impl LibraryWindow {
                     .ok();
                 let filter_row = make_category_filter_row(
                     &format!("category:{}", cat.name),
-                    &cat.color_hex,
+                    &cat.color_hex.clone().unwrap_or_else(|| stable_palette_color(&cat.name).to_string()),
                     &cat.name,
                     cat_count,
                 );
@@ -1867,13 +1867,22 @@ impl LibraryWindow {
             })
             .unwrap_or_else(|| TAG_COLORS[0].to_string());
         let selected_color: Rc<RefCell<String>> = Rc::new(RefCell::new(initial_color));
+        // Only persisted if the user actually clicks a swatch. Saving the
+        // pre-filled colour regardless would pin every category to whatever it
+        // happened to be showing, which is what made the palette fallback
+        // pointless in the first place.
+        let color_picked = Rc::new(std::cell::Cell::new(false));
         for color in TAG_COLORS {
             let btn = Button::new();
             btn.set_size_request(20, 20);
             apply_color_css(&btn, color);
             let sel = selected_color.clone();
+            let picked = color_picked.clone();
             let c = color.to_string();
-            btn.connect_clicked(move |_| *sel.borrow_mut() = c.clone());
+            btn.connect_clicked(move |_| {
+                *sel.borrow_mut() = c.clone();
+                picked.set(true);
+            });
             color_row.append(&btn);
         }
         container.append(&color_row);
@@ -1883,6 +1892,7 @@ impl LibraryWindow {
         let id = doc.id;
         let entry_c = entry.clone();
         let color_sel = selected_color.clone();
+        let color_picked_c = color_picked.clone();
         dlg.connect_response(None, move |_, resp| {
             match resp {
                 "ok" => {
@@ -1890,7 +1900,7 @@ impl LibraryWindow {
                     let cat = cat.trim();
                     let value = if cat.is_empty() { None } else { Some(cat) };
                     this.library.borrow_mut().set_category(id, value).ok();
-                    if let Some(name) = value {
+                    if let (Some(name), true) = (value, color_picked_c.get()) {
                         let color = color_sel.borrow().clone();
                         this.library.borrow_mut().set_category_color(name, &color).ok();
                     }
