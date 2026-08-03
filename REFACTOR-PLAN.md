@@ -185,6 +185,52 @@ Target: ~10 tests.
 
 ---
 
+## Smoke test — 2026-08-03 (covers Phase 1, the category-colour fix, and Phase 2)
+
+Run headless against the real `target/release/zerkalo`, in a throwaway `$HOME`
+with all four XDG dirs redirected. Verified afterwards that nothing under
+`~/.config/zerkalo` or `~/.local/share/zerkalo` was modified.
+
+**Harness notes for next time** (the script lives in the session scratchpad, not
+the repo — rebuild from these notes if it's wanted again):
+
+- `dbus-run-session` and a window manager (`kwin_x11`) both **broke window
+  mapping entirely** — blank root, no window ever appeared. `capture-screenshots.sh`
+  uses neither; match it. `dbus-run-session` is only needed when a real Zerkalo
+  might already own the app ID on the session bus — check with `pgrep` first.
+- With no WM there is no X input focus, so `xdotool key` alone goes nowhere.
+  **Pointer clicks (XTEST) land regardless of focus**, and once a click has
+  landed in a window, typing into it works.
+- GTK4 popovers and secondary windows are **separate X surfaces that do not
+  appear in a root-window screengrab**. Capture them with
+  `import -window <id>` after finding them via `xdotool search --name`.
+- The startup "Some tools are missing" alert (pandoc/tinymist absent in a
+  throwaway home) covers the main window until dismissed.
+
+**Results — all pass:**
+
+| Area | Result |
+|---|---|
+| Main window | Editor, syntax highlighting, live preview compiled (`✓ 1 page`), outline populated, status bar intact |
+| Category colours (the fix) | Five categories render **five distinct palette colours**, none the old `#3584e4`; the deliberately-set `#e01b24` survived. Two names hash to the same slot, which is inherent to an 8-colour palette, not a regression |
+| Schema migration | Ran through the real binary over a seeded **legacy-schema** DB: `color_hex` nullable, auto-default → `NULL`, explicit colour preserved, **0 foreign-key violations** |
+| Template dialog | Opens with all six tabs; Document/Layout/Packages tabs correct incl. the Droplet expander |
+| Preset gallery | Preset list renders with a live-compiled preview pane |
+| CV Mode toggle | All four behaviours: gallery filtered to the 4 CV presets, Sections + Packages tabs hidden, Skrizhal group revealed, Style row swapped |
+| `FormWidgets::collect()` | Preview Code generated correct Typst from live form state — typed Title and Author both round-tripped, combos (paper/font/size/style) all correct |
+
+**Checked, not a regression:** the dialog opens on the Document tab rather than
+Template. The `append_page` × 5 + `prepend_page` sequence is byte-identical
+before and after Phase 2 and neither version calls `set_current_page`, so this
+is pre-existing GTK behaviour.
+
+**Not exercised:** Create Document and Apply to Current (both write files or need
+a save dialog), the pin buttons, and trash/restore through the UI. Create and
+Apply share `collect()` with Preview Code, which is verified, but their
+file-writing tails are not.
+
+---
+
 ## Phase 2 — `TemplateDialog::new` (1,247 lines)
 
 **Status:** ☑ **DONE** (2026-08-03) — `new()` 1,247 → 229 lines, all gates green
