@@ -286,7 +286,7 @@ function, not the file.
 
 ## Phase 3 — `AppWindow::new` (4,299 lines) — the main event
 
-**Status:** ◐ **IN PROGRESS** — 3a ☑ 3b ☑ 3c ☑ done (2026-08-03); 3d–3e remain
+**Status:** ◐ **IN PROGRESS** — 3a ☑ 3b ☑ 3c ☑ 3d ☑ done (2026-08-03); 3e remains
 **Risk:** medium · **Depends on:** Phase 2 (pattern established)
 
 ### Progress
@@ -336,6 +336,38 @@ matter whether it is hidden, moved or sent `WM_DELETE_WINDOW`):
 Not covered: **Save** and **GOST Type B font** act on the document and open no
 window; the **Import** rows are hidden in the throwaway home because pandoc is
 absent, so they need a machine with pandoc installed to exercise.
+
+### 3d ☑ DONE (2026-08-03) — `AppWindow::new` 3,210 → 2,486
+
+Three more runs extracted, each with its own context struct:
+
+- `citations.rs` (342) — `wire_citations(&CitationCtx) -> Rc<RefCell<Option<PathBuf>>>`.
+  Bibliography and CV-entry loading with their file watches, the citation
+  panel's insert/choose actions, and the reference manager's insert, jump and
+  project-wide citation-key rename. Returns the auto-detected `.bib` slot, which
+  later sections read.
+- `file_tree_wiring.rs` (410) — `wire_file_tree(&FileTreeCtx) -> FileTree`.
+  The sidebar tree, the root-file context menu, and project mode with its
+  inline controls.
+- `startup.rs` (123) — `wire_pane_persistence` and `wire_file_watcher`.
+
+**Boundary correction worth remembering:** the "Persist pane positions" banner is
+followed directly by the final layout assembly (`main_content`, the toolbar view,
+`window.set_content`). Cutting at the next banner swallows it. The layout stays
+in `new()`; only the two `connect_position_notify` blocks belong in the helper.
+
+**Smoke-verified** against the release binary, on a work dir with a nested
+`chapters/` directory and a `refs.bib` beside the document:
+
+- Citations panel header shows **`refs.bib`** — the auto-detect path found it —
+  and both entries render with author and year.
+- Project mode: toggle activates, the inline root controls (`no root`, `Set…`)
+  appear, and the **"main.typ detected — set it as root?"** banner fires.
+- Pane persistence: `sidebar_width` and `preview_split` are written to
+  `config.toml`, and `preview_split` differed between two runs with different
+  layouts, so it is persisting real positions rather than a constant.
+- Watcher: editing `main.typ` externally produced `inotify` MODIFY/CLOSE_WRITE
+  events in the log.
 
 ### 3c — original analysis (kept for reference)
 
