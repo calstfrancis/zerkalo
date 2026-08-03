@@ -639,8 +639,30 @@ GTK-entangled to isolate.
 
 ## Phase 5 — `Library::documents()` deduplication
 
-**Status:** ☐ not started
+**Status:** ☑ **DONE** (2026-08-03) — nine arms → one query path
 **Risk:** low · **Depends on:** Phase 1 (needs the tests as a safety net)
+
+### Outcome
+
+The nine arms varied in exactly five slots: the selected columns, the FROM/JOIN,
+the conditions before the search clause, the ordering, and an optional leading
+parameter. `LibraryFilter::query()` now returns a `FilterSpec` carrying those,
+and `documents()` builds and runs one statement. Parameters are normalised to
+`Vec<rusqlite::types::Value>` and bound with `params_from_iter`, which is what
+lets the with-parameter and without-parameter cases share a single call.
+
+**Verified two ways, not one.** Phase 1's 46 behavioural tests passed unchanged —
+that was the point of doing them first. But behavioural tests would not
+necessarily catch a wrong ORDER BY or a search bound to the wrong parameter
+slot, so the generated SQL for all nine filters was dumped and compared against
+the originals line by line. All nine matched exactly.
+
+That dump then became **5 assertion tests** (`mod sql_shape`) rather than being
+deleted: the search pattern lands on `?2` exactly when a leading parameter
+exists, joined filters prefix every column with `d.`, the three fixed orderings
+(project position, recency, trash) override the caller's sort, the rest honour
+it behind `pinned DESC`, and each filter keeps its own defining condition.
+Library tests 53 → 58.
 
 `library.rs:277–405` is nine near-identical match arms. Each prepares a query,
 calls `query_map`, and loops `for r in rows { docs.push(r?); }`. The only
