@@ -96,17 +96,17 @@ commit — a bisect needs to land on one extraction at a time.
 
 ### Two findings — behaviour pinned, NOT fixed (Phase 1 is no-behaviour-change)
 
-1. **Uncolored categories all render the same blue.** `get_category_color`'s doc
-   comment promises `None` "if it has never had one assigned", so callers can
-   pick a distinct per-category fallback. But the schema declares
-   `color_hex TEXT NOT NULL DEFAULT '#3584e4'`, so a row always has a color the
-   moment it exists — `None` is unreachable. The `stable_palette_color(&name)`
-   fallbacks at `library_window.rs:766` and `:1865` are therefore dead code, and
-   every uncolored category renders identically: the exact outcome the doc
-   comments say they exist to prevent. Pinned by
-   `an_uncolored_category_reports_the_schema_default_not_none`. **Fix would be:
-   make the column nullable (or stop defaulting it) so the palette fallback can
-   fire.** Ask Cal before changing — it's user-visible.
+1. ~~**Uncolored categories all render the same blue.**~~ **FIXED 2026-08-03**
+   (commit after Phase 1). `color_hex` was `NOT NULL DEFAULT '#3584e4'`, so
+   `get_category_color` could never return `None` and the
+   `stable_palette_color(&name)` fallbacks were dead code. The fix had three
+   parts, because the bug had three: the column is now nullable (one-time
+   rebuild migration treating the old auto-applied default as unset);
+   `Category.color_hex` is `Option<String>` with the palette fallback applied at
+   the three sidebar call sites; and the Set Category dialog only persists a
+   colour when a swatch is actually clicked, instead of always writing back
+   whatever it happened to be displaying. Covered by 9 tests including a
+   file-backed migration test with WAL + foreign keys on.
 2. **`move_to_trash` can mark a row deleted without the file having moved.** If
    both `rename` and `copy` fail, the DB still sets `deleted=1` and a
    `trash_path` pointing at a file that was never created. Not currently pinned

@@ -7,6 +7,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [0.20.0-dev2] — A print system worth the name, a leak closed, and saving you control
 
+### Fixed
+- **Every category in the library sidebar was the same blue.** Categories are meant to take a colour derived from their name until you pick one deliberately, so they stay distinguishable at a glance — but the database gave each one that blue the moment it was created, so the code choosing a per-name colour never ran. Categories you have not coloured yourself now get their own colour again, in the sidebar and on document rows, and existing libraries pick it up on first open. Setting a category on a document no longer quietly locks in whatever colour the dialog happened to be showing; the colour is saved only when you choose one.
+
 ### Internal
 - **The library database and the spell checker's text scanner now have tests** — 71 of them, covering the two largest untested modules in the codebase. The document library's trash, restore and permanent-delete paths move real files around and had no coverage at all; the case that matters most is restoring a document when something new has since taken its original path, which must land beside the newer file rather than overwrite it. `Library` now takes its trash directory as a field rather than resolving it globally, so those tests run against a temp directory instead of the real data directory. First phase of the plan in `REFACTOR-PLAN.md`.
 

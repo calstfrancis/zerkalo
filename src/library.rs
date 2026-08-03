@@ -48,7 +48,9 @@ pub struct Project {
 #[derive(Clone, Debug)]
 pub struct Category {
     pub name: String,
-    pub color_hex: String,
+    /// `None` when no colour has been explicitly chosen — callers substitute a
+    /// per-name palette colour so distinct categories stay distinct.
+    pub color_hex: Option<String>,
     pub parent: Option<String>,
 }
 
@@ -168,13 +170,15 @@ impl Library {
             .execute_batch(
                 "CREATE TABLE IF NOT EXISTS categories (
                     name TEXT NOT NULL PRIMARY KEY,
-                    color_hex TEXT NOT NULL DEFAULT '#3584e4'
+                    color_hex TEXT,
+                    parent TEXT REFERENCES categories(name)
                 );",
             )
             .ok();
         self.conn.execute_batch(
             "ALTER TABLE categories ADD COLUMN parent TEXT REFERENCES categories(name);"
         ).ok();
+        self.migrate_category_colors_to_nullable();
         self.conn.execute_batch(
             "CREATE INDEX IF NOT EXISTS idx_doc_category ON documents(category);
              CREATE INDEX IF NOT EXISTS idx_doc_archived ON documents(archived, deleted);
@@ -188,6 +192,48 @@ impl Library {
              SELECT DISTINCT category FROM documents WHERE category IS NOT NULL;"
         ).ok();
         Ok(())
+    }
+
+    /// `categories.color_hex` was originally `NOT NULL DEFAULT '#3584e4'`, which
+    /// meant a category had a colour the instant it existed — so
+    /// `get_category_color` could never report "none chosen", the per-name
+    /// palette fallback was unreachable, and every category the user hadn't
+    /// explicitly coloured rendered the same blue. SQLite can't drop NOT NULL in
+    /// place, so rebuild the table with a nullable column. The old default is
+    /// treated as unset: it was applied automatically, never chosen, and a
+    /// category that had it already looked exactly like an uncoloured one.
+    fn migrate_category_colors_to_nullable(&self) {
+        let color_is_not_null = self
+            .conn
+            .query_row(
+                "SELECT \"notnull\" FROM pragma_table_info('categories') WHERE name = 'color_hex'",
+                [],
+                |r| r.get::<_, i64>(0),
+            )
+            .unwrap_or(0)
+            == 1;
+        if !color_is_not_null {
+            return;
+        }
+        // foreign_keys can't be toggled inside a transaction, hence the split.
+        self.conn.execute_batch("PRAGMA foreign_keys = OFF;").ok();
+        let rebuilt = self.conn.execute_batch(
+            "BEGIN;
+             CREATE TABLE categories_migrated (
+                 name TEXT NOT NULL PRIMARY KEY,
+                 color_hex TEXT,
+                 parent TEXT REFERENCES categories(name)
+             );
+             INSERT INTO categories_migrated (name, color_hex, parent)
+                 SELECT name, NULLIF(color_hex, '#3584e4'), parent FROM categories;
+             DROP TABLE categories;
+             ALTER TABLE categories_migrated RENAME TO categories;
+             COMMIT;",
+        );
+        if rebuilt.is_err() {
+            self.conn.execute_batch("ROLLBACK;").ok();
+        }
+        self.conn.execute_batch("PRAGMA foreign_keys = ON;").ok();
     }
 
     pub fn upsert_document(&mut self, path: &Path) -> SqlResult<i64> {
@@ -1694,26 +1740,183 @@ mod tests {
         assert_eq!(lib.get_category_color("Essays"), Some("#aabbcc".to_string()));
     }
 
-    /// Pins current behaviour, which contradicts `get_category_color`'s stated
-    /// contract ("None if it has never had one assigned"): the `categories`
-    /// schema declares `color_hex TEXT NOT NULL DEFAULT '#3584e4'`, so a
-    /// category row always has a color the moment it exists. The
-    /// `stable_palette_color` fallbacks in `library_window.rs` are therefore
-    /// unreachable and every uncolored category renders the same blue — the
-    /// exact outcome the doc comments say they exist to prevent. Change this
-    /// test when that's fixed; it is not describing desirable behaviour.
+    /// A category with no colour of its own must report `None`, so callers can
+    /// substitute a per-name palette colour and distinct categories stay
+    /// visually distinct. Guards the regression where the column's
+    /// `NOT NULL DEFAULT '#3584e4'` made `None` unreachable.
     #[test]
-    fn an_uncolored_category_reports_the_schema_default_not_none() {
+    fn a_category_with_no_chosen_color_reports_none() {
         let (mut lib, work) = fixture();
         lib.ensure_category("Essays").expect("ensure");
+        lib.create_category("Homilies", None).expect("create");
         let (id, _) = add_doc(&mut lib, &work, "essay.typ");
         lib.set_category(id, Some("Sermons")).expect("set");
 
-        assert_eq!(lib.get_category_color("Essays"), Some("#3584e4".to_string()));
+        assert_eq!(lib.get_category_color("Essays"), None);
+        assert_eq!(lib.get_category_color("Homilies"), None);
         assert_eq!(
             lib.all_categories_with_colors().expect("colors"),
-            vec![("Sermons".to_string(), Some("#3584e4".to_string()))]
+            vec![("Sermons".to_string(), None)]
         );
+    }
+
+    #[test]
+    fn an_explicitly_chosen_color_survives_alongside_uncolored_categories() {
+        let (mut lib, _work) = fixture();
+        lib.ensure_category("Essays").expect("ensure");
+        lib.ensure_category("Sermons").expect("ensure");
+
+        lib.set_category_color("Essays", "#e01b24").expect("set color");
+
+        assert_eq!(lib.get_category_color("Essays"), Some("#e01b24".to_string()));
+        assert_eq!(lib.get_category_color("Sermons"), None);
+    }
+
+    /// Someone may have deliberately picked the blue that used to be the schema
+    /// default; once set explicitly it must round-trip like any other choice.
+    #[test]
+    fn the_old_default_blue_can_still_be_chosen_deliberately() {
+        let (mut lib, _work) = fixture();
+        lib.ensure_category("Essays").expect("ensure");
+
+        lib.set_category_color("Essays", "#3584e4").expect("set color");
+
+        assert_eq!(lib.get_category_color("Essays"), Some("#3584e4".to_string()));
+    }
+
+    // ── Schema migration ─────────────────────────────────────────────────────
+
+    /// Builds the pre-fix `categories` shape, then runs the migration over it.
+    fn library_with_legacy_categories(rows: &[(&str, &str, Option<&str>)]) -> Library {
+        let conn = Connection::open_in_memory().expect("in-memory DB");
+        conn.execute_batch(
+            "CREATE TABLE categories (
+                 name TEXT NOT NULL PRIMARY KEY,
+                 color_hex TEXT NOT NULL DEFAULT '#3584e4'
+             );
+             ALTER TABLE categories ADD COLUMN parent TEXT REFERENCES categories(name);",
+        )
+        .expect("legacy schema");
+        for (name, color, parent) in rows {
+            conn.execute(
+                "INSERT INTO categories (name, color_hex, parent) VALUES (?1, ?2, ?3)",
+                params![name, color, parent],
+            )
+            .expect("seed");
+        }
+        let lib = Library { conn, trash_dir: PathBuf::from("/nonexistent") };
+        lib.migrate().expect("migrate");
+        lib
+    }
+
+    #[test]
+    fn migration_treats_the_old_auto_applied_default_as_no_color_chosen() {
+        let lib = library_with_legacy_categories(&[
+            ("Essays", "#3584e4", None),
+            ("Sermons", "#e01b24", None),
+        ]);
+
+        assert_eq!(lib.get_category_color("Essays"), None, "auto default becomes unset");
+        assert_eq!(
+            lib.get_category_color("Sermons"),
+            Some("#e01b24".to_string()),
+            "a real choice is preserved"
+        );
+    }
+
+    #[test]
+    fn migration_preserves_category_parents() {
+        let lib = library_with_legacy_categories(&[
+            ("Academic", "#3584e4", None),
+            ("Essays", "#33d17a", Some("Academic")),
+        ]);
+
+        let cats = lib.all_categories_structured().expect("cats");
+        let essays = cats.iter().find(|c| c.name == "Essays").expect("child present");
+        assert_eq!(essays.parent, Some("Academic".to_string()));
+        assert!(lib.category_has_children("Academic").expect("children"));
+    }
+
+    #[test]
+    fn migration_is_idempotent_and_leaves_the_column_nullable() {
+        let lib = library_with_legacy_categories(&[("Essays", "#3584e4", None)]);
+        lib.migrate().expect("second migrate");
+        lib.migrate().expect("third migrate");
+
+        assert_eq!(lib.get_category_color("Essays"), None);
+        let not_null: i64 = lib
+            .conn
+            .query_row(
+                "SELECT \"notnull\" FROM pragma_table_info('categories') WHERE name = 'color_hex'",
+                [],
+                |r| r.get(0),
+            )
+            .expect("pragma");
+        assert_eq!(not_null, 0, "color_hex should be nullable after migrating");
+    }
+
+    /// The in-memory tests above run without WAL or foreign-key enforcement.
+    /// A real library is a file with both switched on, and the migration drops
+    /// and recreates a table that other rows reference — so exercise it there.
+    #[test]
+    fn migration_survives_a_real_file_database_with_wal_and_foreign_keys() {
+        let work = TempDir::new().expect("temp dir");
+        let db_path = work.path().join("library.sqlite");
+        {
+            let conn = Connection::open(&db_path).expect("create");
+            conn.execute_batch(
+                "PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;
+                 CREATE TABLE categories (
+                     name TEXT NOT NULL PRIMARY KEY,
+                     color_hex TEXT NOT NULL DEFAULT '#3584e4'
+                 );
+                 ALTER TABLE categories ADD COLUMN parent TEXT REFERENCES categories(name);
+                 INSERT INTO categories (name, color_hex, parent) VALUES ('Academic', '#3584e4', NULL);
+                 INSERT INTO categories (name, color_hex, parent) VALUES ('Essays', '#e01b24', 'Academic');",
+            )
+            .expect("legacy file schema");
+        }
+
+        let conn = Connection::open(&db_path).expect("reopen");
+        conn.execute_batch("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;")
+            .expect("pragmas");
+        let lib = Library { conn, trash_dir: work.path().join("trash") };
+        lib.migrate().expect("migrate");
+
+        assert_eq!(lib.get_category_color("Academic"), None);
+        assert_eq!(lib.get_category_color("Essays"), Some("#e01b24".to_string()));
+        let essays = lib
+            .all_categories_structured()
+            .expect("cats")
+            .into_iter()
+            .find(|c| c.name == "Essays")
+            .expect("child survived");
+        assert_eq!(essays.parent, Some("Academic".to_string()));
+
+        let fk_violations: i64 = lib
+            .conn
+            .query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |r| r.get(0))
+            .expect("fk check");
+        assert_eq!(fk_violations, 0, "migration must not leave dangling references");
+        let fk_on: i64 = lib
+            .conn
+            .query_row("PRAGMA foreign_keys", [], |r| r.get(0))
+            .expect("pragma");
+        assert_eq!(fk_on, 1, "foreign keys must be switched back on afterwards");
+    }
+
+    #[test]
+    fn a_freshly_created_database_already_has_a_nullable_color_column() {
+        let (lib, _work) = fixture();
+        let not_null: i64 = lib
+            .conn
+            .query_row(
+                "SELECT \"notnull\" FROM pragma_table_info('categories') WHERE name = 'color_hex'",
+                [],
+                |r| r.get(0),
+            )
+            .expect("pragma");
+        assert_eq!(not_null, 0);
     }
 
     #[test]
