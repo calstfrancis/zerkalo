@@ -7079,3 +7079,184 @@ fn section_word_count_for_line(buf: &sourceview5::Buffer, cursor_line: i32) -> O
 
     Some(lines[sec_start..sec_end].iter().map(|l| count_words_typst(l)).sum())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── Word counting ────────────────────────────────────────────────────────
+
+    #[test]
+    fn counts_plain_prose_words() {
+        assert_eq!(count_content_words("one two three"), 3);
+        assert_eq!(count_content_words(""), 0);
+        assert_eq!(count_content_words("   \n\n  "), 0);
+    }
+
+    #[test]
+    fn word_count_excludes_zerkalo_template_blocks() {
+        let doc = "\
+// ZERKALO-TEMPLATE-BEGIN
+#set page(paper: \"a4\")
+#set text(size: 12pt)
+// ZERKALO-TEMPLATE-END
+Real prose here.
+";
+        assert_eq!(count_content_words(doc), 3, "only the prose line should count");
+    }
+
+    #[test]
+    fn lorem_counts_as_the_number_of_words_it_generates() {
+        assert_eq!(count_words_typst("#lorem(50)"), 50);
+        assert_eq!(count_words_typst("before #lorem(10) after"), 12);
+        assert_eq!(count_words_typst("no lorem here"), 3);
+    }
+
+    #[test]
+    fn an_unterminated_lorem_call_stops_the_count_rather_than_looping() {
+        assert_eq!(count_words_typst("some words #lorem(30"), 2);
+    }
+
+    #[test]
+    fn word_count_label_reports_a_session_delta_only_when_words_were_added() {
+        assert_eq!(wc_str_with_delta("one two three", 1), "3 words (+2) · < 1 min read");
+        assert_eq!(wc_str_with_delta("one two three", 3), "3 words · < 1 min read");
+        assert_eq!(wc_str_with_delta("one two three", 9), "3 words · < 1 min read");
+    }
+
+    #[test]
+    fn reading_time_switches_from_under_a_minute_at_two_hundred_words() {
+        let just_under = "word ".repeat(199);
+        let exactly = "word ".repeat(200);
+        assert!(wc_str_with_delta(&just_under, 0).contains("< 1 min read"));
+        assert!(wc_str_with_delta(&exactly, 0).contains("1 min read"));
+        assert!(!wc_str_with_delta(&exactly, 0).contains("< 1 min"));
+    }
+
+    // ── Headings ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn heading_level_counts_leading_equals_signs() {
+        assert_eq!(section_heading_level("= Top"), Some(1));
+        assert_eq!(section_heading_level("== Second"), Some(2));
+        assert_eq!(section_heading_level("===== Fifth"), Some(5));
+        assert_eq!(section_heading_level("   == Indented"), Some(2));
+    }
+
+    /// Typst needs the space: `=text` is not a heading, and `==` alone is not
+    /// one either. Getting this wrong would put junk in the outline panel.
+    #[test]
+    fn equals_without_a_following_space_is_not_a_heading() {
+        assert_eq!(section_heading_level("=NoSpace"), None);
+        assert_eq!(section_heading_level("=="), None);
+        assert_eq!(section_heading_level("plain text"), None);
+        assert_eq!(section_heading_level(""), None);
+        assert_eq!(section_heading_level("a = b"), None);
+    }
+
+    // ── Goal comment ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn reads_the_word_count_goal_from_a_zerkalo_comment() {
+        assert_eq!(parse_goal_comment("// @zerkalo-goal: 1500\n= Doc\n"), Some(1500));
+        assert_eq!(parse_goal_comment("= Doc\n// @zerkalo-goal:800\n"), Some(800));
+    }
+
+    #[test]
+    fn a_missing_or_malformed_goal_comment_yields_none() {
+        assert_eq!(parse_goal_comment("= Doc\n\nNo goal here.\n"), None);
+        assert_eq!(parse_goal_comment("// @zerkalo-goal: not-a-number\n"), None);
+        assert_eq!(parse_goal_comment(""), None);
+    }
+
+    /// Only the first 20 lines are scanned, so a goal further down is ignored.
+    #[test]
+    fn the_goal_comment_is_only_honoured_near_the_top_of_the_file() {
+        let mut doc = "filler\n".repeat(25);
+        doc.push_str("// @zerkalo-goal: 900\n");
+        assert_eq!(parse_goal_comment(&doc), None);
+
+        let mut near_top = "filler\n".repeat(5);
+        near_top.push_str("// @zerkalo-goal: 900\n");
+        assert_eq!(parse_goal_comment(&near_top), Some(900));
+    }
+
+    // ── LSP snippets ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn strips_numbered_and_braced_snippet_placeholders() {
+        assert_eq!(strip_snippets("figure($0)"), "figure()");
+        assert_eq!(strip_snippets("figure(${1:body})"), "figure()");
+        assert_eq!(strip_snippets("#table(columns: $1, $2)"), "#table(columns: , )");
+        assert_eq!(strip_snippets("no placeholders"), "no placeholders");
+    }
+
+    /// A bare `$` is Typst's math delimiter, not a placeholder, so it survives.
+    #[test]
+    fn a_lone_dollar_sign_is_preserved() {
+        assert_eq!(strip_snippets("$x + y$"), "$x + y$");
+        assert_eq!(strip_snippets("cost: $"), "cost: $");
+    }
+
+    // ── Balanced-delimiter scanning ──────────────────────────────────────────
+
+    #[test]
+    fn skips_to_just_past_the_matching_delimiter() {
+        let c: Vec<char> = "(abc)rest".chars().collect();
+        assert_eq!(skip_balanced_typst(&c, 0, c.len()), 5);
+        let c: Vec<char> = "[a[b]c]tail".chars().collect();
+        assert_eq!(skip_balanced_typst(&c, 0, c.len()), 7, "nesting must be respected");
+        let c: Vec<char> = "{x}".chars().collect();
+        assert_eq!(skip_balanced_typst(&c, 0, c.len()), 3);
+    }
+
+    #[test]
+    fn a_non_delimiter_advances_by_one_and_an_unclosed_one_runs_to_the_end() {
+        let c: Vec<char> = "abc".chars().collect();
+        assert_eq!(skip_balanced_typst(&c, 0, c.len()), 1);
+        let c: Vec<char> = "(never closed".chars().collect();
+        assert_eq!(skip_balanced_typst(&c, 0, c.len()), c.len());
+    }
+
+    // ── Legacy template migration ────────────────────────────────────────────
+
+    const LEGACY: &str =
+        "#if it.numbering != none [#context counter(heading).display(it.numbering)#h(0.3em)]";
+
+    /// The legacy `it.numbering` pattern breaks Typst's non-PDF export. When the
+    /// template turns numbering on, it is replaced with the concrete format.
+    #[test]
+    fn legacy_numbering_is_rewritten_with_the_templates_format() {
+        let doc = format!(
+            "// ZERKALO-TEMPLATE-BEGIN\n#set heading(numbering: \"1.1\")\n// ZERKALO-TEMPLATE-END\n{LEGACY}\n"
+        );
+        let out = migrate_template_it_numbering(&doc);
+        assert!(!out.contains("it.numbering"));
+        assert!(out.contains("#context counter(heading).display(\"1.1\")#h(0.3em)"));
+    }
+
+    #[test]
+    fn legacy_numbering_is_removed_when_the_template_has_no_numbering() {
+        let doc = format!(
+            "// ZERKALO-TEMPLATE-BEGIN\n#set page(paper: \"a4\")\n// ZERKALO-TEMPLATE-END\n{LEGACY}\n"
+        );
+        let out = migrate_template_it_numbering(&doc);
+        assert!(!out.contains("it.numbering"));
+        assert!(!out.contains("counter(heading).display"));
+    }
+
+    #[test]
+    fn a_document_without_the_legacy_pattern_is_returned_unchanged() {
+        let doc = "= Title\n\nOrdinary prose.\n";
+        assert_eq!(migrate_template_it_numbering(doc), doc);
+    }
+
+    #[test]
+    fn migration_is_idempotent() {
+        let doc = format!(
+            "// ZERKALO-TEMPLATE-BEGIN\n#set heading(numbering: \"A.\")\n// ZERKALO-TEMPLATE-END\n{LEGACY}\n"
+        );
+        let once = migrate_template_it_numbering(&doc);
+        assert_eq!(migrate_template_it_numbering(&once), once);
+    }
+}
