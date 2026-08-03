@@ -286,7 +286,7 @@ function, not the file.
 
 ## Phase 3 — `AppWindow::new` (4,299 lines) — the main event
 
-**Status:** ◐ **IN PROGRESS** — 3a ☑ 3b ☑ 3c ☑ 3d ☑ done (2026-08-03); 3e remains
+**Status:** ☑ **DONE** (2026-08-03) — 3a–3e all complete. `AppWindow::new` 4,299 → **2,000**
 **Risk:** medium · **Depends on:** Phase 2 (pattern established)
 
 ### Progress
@@ -368,6 +368,62 @@ in `new()`; only the two `connect_position_notify` blocks belong in the helper.
   layouts, so it is persisting real positions rather than a constant.
 - Watcher: editing `main.typ` externally produced `inotify` MODIFY/CLOSE_WRITE
   events in the log.
+
+### 3e ☑ DONE (2026-08-03) — `AppWindow::new` 2,486 → 2,000
+
+- `lifecycle.rs` (306) — `wire_startup(&LifecycleCtx)`. The missing-tool and
+  unreadable-settings warnings, the welcome window and its chained setup wizard,
+  idle auto-backup, and the language server's deferred init and diagnostics poll.
+- `editor_extras.rs` (300) — `wire_editor_extras` (unsaved marker, tab-context
+  delete, image/document drag-and-drop) and `wire_sidebar_toolbar` (GOST toggle,
+  Update Template button), the latter returning the sidebar's left column.
+
+**Smoke-verified on a genuinely fresh home** (no `.welcome_version` marker, so
+the first-run path actually fires):
+
+- **"Welcome to Zerkalo"** window appears and renders correctly, version line
+  included.
+- **"Some tools are missing"** alert appears — the combined single-alert check.
+- LSP deferred init runs; tinymist absence is detected and logged.
+- The log target for all of it now reads `zerkalo::ui::app_window::lifecycle`,
+  which is direct evidence the extracted module is the code executing.
+
+---
+
+## Phase 3 result
+
+`ui/app_window.rs`, 8,302 lines in one file with a 4,299-line constructor, is now
+twelve files. `AppWindow::new` is **2,000 lines** — still the largest function in
+the codebase, but a fifth of what it was, and what remains is mostly the layout
+assembly and the compile/preview callbacks that genuinely belong in the
+constructor.
+
+| File | Lines |
+|---|---|
+| `mod.rs` | 3,156 |
+| `import.rs` | 2,152 |
+| `menus.rs` | 875 |
+| `sync.rs` | 502 |
+| `file_tree_wiring.rs` | 410 |
+| `citations.rs` | 342 |
+| `header.rs` | 341 |
+| `lifecycle.rs` | 306 |
+| `editor_extras.rs` | 300 |
+| `dialogs.rs` | 249 |
+| `panels.rs` | 210 |
+| `startup.rs` | 123 |
+
+**What generalised.** Every extraction past 3b needed the same move: a context
+struct holding the shared state, so helpers take two or three parameters instead
+of twenty or thirty. `MenuCtx`, `CitationCtx`, `FileTreeCtx`, `LifecycleCtx`,
+`EditorExtrasCtx`, `SidebarToolbarCtx`, `PanePersistCtx`, `WatcherCtx` are all
+the same idea, and it is exactly what Phase 4's `TabContext` will be.
+**No `#[allow(clippy::too_many_arguments)]` was added anywhere in Phase 3.**
+
+**What to watch in Phase 4.** The comment banners were reliable seams *except*
+where a section's tail belongs to the next one — the pane-persistence banner is
+followed directly by the final layout assembly. Check the tail of every cut
+before trusting the boundary.
 
 ### 3c — original analysis (kept for reference)
 
