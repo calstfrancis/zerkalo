@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -259,7 +259,7 @@ impl NotesPanel {
     }
 }
 
-fn notes_path_for(file: &PathBuf) -> PathBuf {
+fn notes_path_for(file: &Path) -> PathBuf {
     let stem = file.file_stem().and_then(|s| s.to_str()).unwrap_or("_");
     file.with_file_name(format!("{stem}.notes.json"))
 }

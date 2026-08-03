@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use gtk4::prelude::*;
@@ -300,7 +300,7 @@ pub fn default_commands() -> Vec<PaletteItem> {
     ]
 }
 
-pub fn heading_items(content: &str, path: &PathBuf) -> Vec<PaletteItem> {
+pub fn heading_items(content: &str, path: &Path) -> Vec<PaletteItem> {
     let filename = path
         .file_name()
         .and_then(|n| n.to_str())

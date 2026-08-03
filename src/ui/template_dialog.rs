@@ -714,7 +714,7 @@ impl TemplateDialog {
         // Fonts) take priority; "Times New Roman" is the fallback for anyone
         // who hasn't set one. The CV toggle below re-selects to the sans
         // default while it's on, since résumés commonly go sans-serif.
-        let default_fonts_cfg = crate::config::Config::load().unwrap_or_default();
+        let default_fonts_cfg = crate::config::shared().borrow().clone();
         let default_font_idx = available_fonts.iter()
             .position(|f| f == &default_fonts_cfg.default_serif_font)
             .or_else(|| available_fonts.iter().position(|f| f == "Times New Roman"))
@@ -1925,6 +1925,7 @@ impl TemplateDialog {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn preselect_metadata(
         &self,
         title: &str,
@@ -2206,7 +2207,7 @@ pub fn sidecar_to_settings(sc: &SidecarSettings) -> TemplateSettings {
         dropcap_lines: sc.dropcap_lines,
         dropcap_color: sc.dropcap_color.clone(),
         body_kind: body_kind_from_key(&sc.body_kind),
-        bib_path: sc.bib_path.as_ref().map(|s| std::path::PathBuf::from(s)),
+        bib_path: sc.bib_path.as_ref().map(std::path::PathBuf::from),
     }
 }
 
@@ -3726,7 +3727,7 @@ fn generate_preset_preview(idx: usize) -> Result<Vec<u8>, String> {
     // renders correctly — when no default is set yet, or the chosen system
     // font can't be found.
     let preview_font = {
-        let cfg = crate::config::Config::load().unwrap_or_default();
+        let cfg = crate::config::shared().borrow().clone();
         let chosen = if is_cv_preview { cfg.default_sans_font } else { cfg.default_serif_font };
         if chosen.is_empty() { "Libertinus Serif".to_string() } else { chosen }
     };

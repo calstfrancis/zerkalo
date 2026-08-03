@@ -463,14 +463,14 @@ impl FileTree {
     }
 
     /// Attach drag-source and drop-target controllers to a file row.
-    fn attach_dnd(&self, row: &ListBoxRow, file_path: &PathBuf) {
+    fn attach_dnd(&self, row: &ListBoxRow, file_path: &Path) {
         // Drag source: record which path is being dragged
         let drag_src = DragSource::new();
         drag_src.set_actions(gtk4::gdk::DragAction::MOVE);
-        let src_path = file_path.clone();
+        let src_path = file_path.to_path_buf();
         let drag_holder = self.drag_source_path.clone();
         drag_src.connect_drag_begin(move |src, _drag| {
-            *drag_holder.borrow_mut() = Some(src_path.clone());
+            *drag_holder.borrow_mut() = Some(src_path.to_path_buf());
             // Provide a plain-text payload (the path string)
             let path_str = src_path.to_string_lossy().to_string();
             src.set_content(Some(&gtk4::gdk::ContentProvider::for_value(
@@ -481,7 +481,7 @@ impl FileTree {
 
         // Drop target: accept a path string and reorder
         let drop_tgt = DropTarget::new(glib::Type::STRING, gtk4::gdk::DragAction::MOVE);
-        let target_path = file_path.clone();
+        let target_path = file_path.to_path_buf();
         let order = self.custom_order.clone();
         let project_root = self.project_root.clone();
         let drag_holder2 = self.drag_source_path.clone();
@@ -537,7 +537,7 @@ impl FileTree {
 
     /// Attach a right-click gesture that shows a context menu with "Set as Compilation Root"
     /// and "Delete".
-    fn attach_context_menu(&self, row: &ListBoxRow, file_path: &PathBuf, filename: &str) {
+    fn attach_context_menu(&self, row: &ListBoxRow, file_path: &Path, filename: &str) {
         let popover = Popover::new();
         popover.set_has_arrow(false);
 
@@ -582,7 +582,7 @@ impl FileTree {
 
         // "Insert #include" button
         let pop_for_include = popover.clone();
-        let path_include = file_path.clone();
+        let path_include = file_path.to_path_buf();
         let include_cb = self.on_insert_include.clone();
         include_btn.connect_clicked(move |_| {
             pop_for_include.popdown();
@@ -593,7 +593,7 @@ impl FileTree {
 
         // "Insert #import" button
         let pop_for_import = popover.clone();
-        let path_import = file_path.clone();
+        let path_import = file_path.to_path_buf();
         let import_cb = self.on_insert_import.clone();
         import_btn.connect_clicked(move |_| {
             pop_for_import.popdown();
@@ -604,7 +604,7 @@ impl FileTree {
 
         // "Set as Root File" button
         let pop_for_set_root = popover.clone();
-        let path_set_root = file_path.clone();
+        let path_set_root = file_path.to_path_buf();
         let set_root_cb = self.on_set_root.clone();
         set_root_btn.connect_clicked(move |_| {
             pop_for_set_root.popdown();
@@ -625,7 +625,7 @@ impl FileTree {
 
         // "Delete" button: confirm then fire callback
         let pop_for_del = popover.clone();
-        let path_del = file_path.clone();
+        let path_del = file_path.to_path_buf();
         let name_del = filename.to_owned();
         let del_cb = self.on_delete.clone();
         del_btn.connect_clicked(move |_| {
@@ -634,7 +634,7 @@ impl FileTree {
             let alert = AlertDialog::builder()
                 .modal(true)
                 .message("Delete this file?")
-                .detail(&format!("'{}' will be permanently deleted.", name_del))
+                .detail(format!("'{}' will be permanently deleted.", name_del))
                 .buttons(["Cancel", "Delete"])
                 .cancel_button(0)
                 .default_button(0)

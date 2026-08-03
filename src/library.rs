@@ -8,6 +8,7 @@ pub struct Library {
 }
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)] // mirrors the documents table; not every column is read yet
 pub struct Document {
     pub id: i64,
     pub path: PathBuf,
@@ -29,6 +30,7 @@ pub struct Tag {
 }
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)] // mirrors the projects table; not every column is read yet
 pub struct Project {
     pub id: i64,
     pub name: String,
@@ -569,11 +571,10 @@ impl Library {
             .map(|n| format!("{}-{}-{}", ts, doc_id, n.to_string_lossy()))
             .unwrap_or_else(|| format!("{ts}-{doc_id}.typ"));
         let trash_path = trash_dir.join(&filename);
-        if std::fs::rename(&doc.path, &trash_path).is_err() {
-            if std::fs::copy(&doc.path, &trash_path).is_ok() {
+        if std::fs::rename(&doc.path, &trash_path).is_err()
+            && std::fs::copy(&doc.path, &trash_path).is_ok() {
                 std::fs::remove_file(&doc.path).ok();
             }
-        }
         let trash_str = trash_path.to_string_lossy().to_string();
         self.conn.execute(
             "UPDATE documents SET deleted=1, trash_path=?1 WHERE id=?2",
@@ -792,6 +793,7 @@ impl Library {
         Ok(())
     }
 
+    #[allow(dead_code)] // rounds out the CRUD surface over the library DB
     pub fn delete_category(&mut self, name: &str) -> SqlResult<()> {
         self.conn.execute(
             "UPDATE documents SET category = NULL WHERE category = ?1",
@@ -909,6 +911,7 @@ impl Library {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub fn remove_doc_from_project(&mut self, project_id: i64, doc_id: i64) -> SqlResult<()> {
         self.conn.execute(
             "DELETE FROM project_docs WHERE project_id = ?1 AND doc_id = ?2",
@@ -939,6 +942,7 @@ impl Library {
         Ok(res.map(PathBuf::from))
     }
 
+    #[allow(dead_code)]
     pub fn doc_by_path(&self, path: &Path) -> SqlResult<Option<Document>> {
         let path_str = path.to_string_lossy().to_string();
         let sql = format!("SELECT {DOC_COLS} FROM documents WHERE path = ?1");
@@ -954,6 +958,7 @@ impl Library {
             .optional()
     }
 
+    #[allow(dead_code)]
     pub fn project_of_doc(&self, doc_id: i64) -> SqlResult<Option<(i64, String)>> {
         self.conn
             .query_row(
@@ -1030,18 +1035,16 @@ fn extract_typst_title(path: &Path) -> Option<String> {
     for line in content.lines() {
         let t = line.trim();
         if let Some(rest) = t.strip_prefix("#let doc-title") {
-            let after = rest.trim();
-            if after.starts_with('=') {
-                if let Some(val) = parse_typst_string_value(after[1..].trim()) {
+            if let Some(value) = rest.trim().strip_prefix('=') {
+                if let Some(val) = parse_typst_string_value(value.trim()) {
                     return Some(val);
                 }
             }
         }
         if fallback.is_none() {
             if let Some(rest) = t.strip_prefix("#let title") {
-                let after = rest.trim();
-                if after.starts_with('=') {
-                    if let Some(val) = parse_typst_string_value(after[1..].trim()) {
+                if let Some(value) = rest.trim().strip_prefix('=') {
+                    if let Some(val) = parse_typst_string_value(value.trim()) {
                         fallback = Some(val);
                     }
                 }

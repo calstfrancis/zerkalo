@@ -57,7 +57,7 @@ pub fn record(ms: u64) {
         stats.slow_count += 1;
     }
     // Flush to disk every 10 compiles to amortise I/O.
-    if stats.total_compiles % 10 == 0 {
+    if stats.total_compiles.is_multiple_of(10) {
         let snap = stats.clone();
         drop(stats);
         flush_to_disk(&snap);

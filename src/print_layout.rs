@@ -119,6 +119,7 @@ impl PageNumbering {
         self.logical.len()
     }
 
+    #[allow(dead_code)] // completes the PageNumbering API alongside len()
     pub fn is_empty(&self) -> bool {
         self.logical.is_empty()
     }

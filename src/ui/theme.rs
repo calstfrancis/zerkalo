@@ -53,6 +53,12 @@ pub fn rgba_to_hex(c: &RGBA) -> String {
 
 /// Resolves a GTK named color (e.g. "error_color", "accent_color") on the given
 /// widget's style context to a solid hex string, falling back if unresolved.
+// GTK 4.10 deprecated `style_context()` and `lookup_color()` without shipping a
+// replacement for resolving a *named* theme colour at runtime, which is the whole
+// point of this module (see the "theme escape hatch" note in CLAUDE.md). The
+// deprecation is acknowledged here rather than silenced crate-wide; revisit if
+// gtk4-rs ever exposes an equivalent lookup.
+#[allow(deprecated)]
 pub fn lookup_color_hex(widget: &impl IsA<gtk4::Widget>, name: &str, fallback: &str) -> String {
     widget
         .as_ref()
@@ -67,6 +73,7 @@ pub fn lookup_color_hex(widget: &impl IsA<gtk4::Widget>, name: &str, fallback: &
 /// Widgets that draw themselves need the numbers, not a hex string, and must
 /// re-query at draw time rather than caching so a theme or accent change is
 /// picked up without being redrawn from scratch.
+#[allow(deprecated)]
 pub fn rgb(widget: &impl IsA<gtk4::Widget>, name: &str) -> Option<(f64, f64, f64)> {
     widget
         .as_ref()
@@ -77,6 +84,7 @@ pub fn rgb(widget: &impl IsA<gtk4::Widget>, name: &str) -> Option<(f64, f64, f64
 
 /// Blends window_fg_color into window_bg_color to approximate the "dim-label"
 /// muted foreground as a solid hex, since Pango markup can't apply CSS alpha.
+#[allow(deprecated)]
 pub fn muted_fg_hex(widget: &impl IsA<gtk4::Widget>) -> String {
     let ctx = widget.as_ref().style_context();
     match (

@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -124,7 +124,7 @@ impl PlanPanel {
     }
 }
 
-fn plan_path_for(file: &PathBuf) -> PathBuf {
+fn plan_path_for(file: &Path) -> PathBuf {
     let name = format!(
         "{}.plan",
         file.file_name().and_then(|n| n.to_str()).unwrap_or("_")

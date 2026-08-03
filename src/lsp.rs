@@ -1,7 +1,7 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
+use std::sync::mpsc::{self, Receiver, Sender};
 
 use serde_json::{json, Value};
 
@@ -173,11 +173,8 @@ impl LspClient {
     /// Drain pending diagnostic notifications.
     pub fn poll(&self) -> Vec<LspDiagnostic> {
         let mut out = Vec::new();
-        loop {
-            match self.diag_rx.try_recv() {
-                Ok(d) => out.extend(d),
-                Err(TryRecvError::Empty) | Err(TryRecvError::Disconnected) => break,
-            }
+        while let Ok(d) = self.diag_rx.try_recv() {
+            out.extend(d);
         }
         out
     }
@@ -186,11 +183,8 @@ impl LspClient {
     /// older ones.
     pub fn poll_completion(&self) -> Option<(u64, Vec<CompletionItem>)> {
         let mut latest: Option<(u64, Vec<CompletionItem>)> = None;
-        loop {
-            match self.comp_rx.try_recv() {
-                Ok(pair) => latest = Some(pair),
-                Err(TryRecvError::Empty) | Err(TryRecvError::Disconnected) => break,
-            }
+        while let Ok(pair) = self.comp_rx.try_recv() {
+            latest = Some(pair);
         }
         latest
     }

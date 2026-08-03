@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::SystemTime;
 
@@ -48,7 +48,7 @@ impl DocsBrowser {
 
         // Collect .typ files from work_dir (3 levels deep) sorted by last-modified (newest first)
         let mut files: Vec<(PathBuf, SystemTime)> = scan_typ_files(&work_dir, 3);
-        files.sort_by(|a, b| b.1.cmp(&a.1));
+        files.sort_by_key(|(_, mtime)| std::cmp::Reverse(*mtime));
 
         let file_paths: Rc<RefCell<Vec<PathBuf>>> = Rc::new(RefCell::new(
             files.iter().map(|(p, _)| p.clone()).collect(),
@@ -103,7 +103,7 @@ impl DocsBrowser {
 
 fn append_row(
     list_box: &ListBox,
-    path: &PathBuf,
+    path: &Path,
     mtime: SystemTime,
     on_open: &OpenCb,
     window: &adw::Window,
@@ -141,7 +141,7 @@ fn append_row(
     btn.set_child(Some(&row_box));
 
     let cb = on_open.clone();
-    let p = path.clone();
+    let p = path.to_path_buf();
     let win = window.clone();
     btn.connect_clicked(move |_| {
         if let Some(f) = cb.borrow().as_ref() {

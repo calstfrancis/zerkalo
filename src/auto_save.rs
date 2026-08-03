@@ -1,8 +1,84 @@
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
+/// Recovery copies are regenerable state, not settings, so they belong under
+/// the XDG state dir rather than in `~/.config` alongside `config.toml`.
+/// `legacy_autosave_dir` is still read once, at `prune()`, to move anything
+/// left over from the old location.
 fn autosave_dir() -> PathBuf {
+    if let Some(dir) = TEST_DIR.with(|d| d.borrow().clone()) {
+        return dir;
+    }
+    let base = std::env::var("XDG_STATE_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| {
+            PathBuf::from(shellexpand::tilde("~/.local/state").into_owned())
+        });
+    base.join("zerkalo/autosave")
+}
+
+fn legacy_autosave_dir() -> PathBuf {
     PathBuf::from(shellexpand::tilde("~/.config/zerkalo/autosave").into_owned())
+}
+
+thread_local! {
+    /// Redirects the autosave directory for tests. Without it the unit tests
+    /// read and write the user's real recovery files and race each other under
+    /// the default parallel test runner.
+    static TEST_DIR: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Autosaves are dropped once they are this old. A recovery copy is only ever
+/// interesting until the user next opens that file; anything this stale is for
+/// a document they are not coming back to.
+const MAX_AGE: Duration = Duration::from_secs(30 * 24 * 60 * 60);
+
+/// Housekeeping at startup: migrate anything left in the old config-dir
+/// location, then drop entries whose original file is gone or that have aged
+/// out. Nothing here ever removed entries before, so the directory grew for the
+/// life of the install, including for files deleted long ago.
+pub fn prune() {
+    let dir = autosave_dir();
+    let _ = std::fs::create_dir_all(&dir);
+
+    let legacy = legacy_autosave_dir();
+    if legacy != dir && legacy.is_dir() {
+        if let Ok(entries) = std::fs::read_dir(&legacy) {
+            for entry in entries.flatten() {
+                let dest = dir.join(entry.file_name());
+                if !dest.exists() {
+                    let _ = std::fs::rename(entry.path(), &dest);
+                }
+            }
+        }
+        let _ = std::fs::remove_dir(&legacy);
+    }
+
+    let Ok(entries) = std::fs::read_dir(&dir) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().is_none_or(|e| e != "meta") {
+            continue;
+        }
+        let Some(key) = path.file_stem().map(|s| s.to_string_lossy().into_owned()) else {
+            continue;
+        };
+        let doc = dir.join(format!("{key}.typ"));
+
+        let aged_out = std::fs::metadata(&doc)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| SystemTime::now().duration_since(t).ok())
+            .is_some_and(|age| age > MAX_AGE);
+
+        // Deliberately not pruning entries whose original file has gone: if the
+        // document was deleted, this copy is the only one left. Age is the only
+        // thing that retires a recovery copy.
+        if aged_out || !doc.exists() {
+            let _ = std::fs::remove_file(&path);
+            let _ = std::fs::remove_file(&doc);
+        }
+    }
 }
 
 pub(crate) fn path_key(path: &Path) -> String {
@@ -111,44 +187,64 @@ pub fn clear(original_path: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
+
+    /// Redirects `autosave_dir()` at a throwaway directory for the duration of
+    /// one test. These tests used to read and write the user's real recovery
+    /// files under `~/.config/zerkalo/autosave`, which both polluted live data
+    /// and made them race each other under the parallel test runner.
+    struct Sandbox {
+        dir: tempfile::TempDir,
+    }
+
+    impl Sandbox {
+        fn new() -> Self {
+            let dir = tempfile::tempdir().unwrap();
+            TEST_DIR.with(|d| *d.borrow_mut() = Some(dir.path().to_path_buf()));
+            Self { dir }
+        }
+        fn path(&self) -> &Path {
+            self.dir.path()
+        }
+        fn doc(&self, name: &str) -> PathBuf {
+            self.dir.path().join(name)
+        }
+    }
+
+    impl Drop for Sandbox {
+        fn drop(&mut self) {
+            TEST_DIR.with(|d| *d.borrow_mut() = None);
+        }
+    }
 
     #[test]
     fn save_and_clear() {
-        let path = PathBuf::from("/tmp/zerkalo_test_autosave_clear.typ");
-        let content = "hello world";
-        save(&path, content);
+        let sb = Sandbox::new();
+        let path = sb.doc("clear.typ");
+        save(&path, "hello world");
 
-        let dir = autosave_dir();
         let key = path_key(&path);
-        assert!(dir.join(format!("{key}.typ")).exists(), "autosave file should exist");
+        assert!(sb.path().join(format!("{key}.typ")).exists(), "autosave file should exist");
 
         clear(&path);
-        assert!(!dir.join(format!("{key}.typ")).exists(), "autosave file should be removed");
+        assert!(!sb.path().join(format!("{key}.typ")).exists(), "autosave file should be removed");
     }
 
     #[test]
     fn find_recovery_returns_content_when_newer() {
-        let path = PathBuf::from("/tmp/zerkalo_test_autosave_newer.typ");
-        // Ensure the "original" doesn't exist so autosave is always newer
-        let _ = std::fs::remove_file(&path);
-
-        let content = "recovered content";
-        save(&path, content);
+        let sb = Sandbox::new();
+        // The "original" never exists, so the autosave is always newer.
+        let path = sb.doc("newer.typ");
+        save(&path, "recovered content");
 
         let result = find_recovery(&path);
         assert!(result.is_some(), "should find recovery when original absent");
-        let (recovered, _) = result.unwrap();
-        assert_eq!(recovered, content);
-
-        clear(&path);
+        assert_eq!(result.unwrap().0, "recovered content");
     }
 
     #[test]
     fn find_recovery_returns_none_after_clear() {
-        let path = PathBuf::from("/tmp/zerkalo_test_autosave_none.typ");
-        let _ = std::fs::remove_file(&path);
-
+        let sb = Sandbox::new();
+        let path = sb.doc("none.typ");
         save(&path, "temporary");
         clear(&path);
 
@@ -156,59 +252,93 @@ mod tests {
     }
 
     #[test]
-    fn find_recovery_skips_older_autosave() {
-        let path = PathBuf::from("/tmp/zerkalo_test_autosave_older.typ");
-        // Write the "original" file first
-        std::fs::write(&path, "original").unwrap();
-        // Wait a tiny bit, then write autosave
-        std::thread::sleep(Duration::from_millis(10));
+    fn find_recovery_skips_an_autosave_older_than_the_file() {
+        let sb = Sandbox::new();
+        let path = sb.doc("older.typ");
         save(&path, "autosaved");
-        // Now touch the original to make it newer than autosave
-        let autosave_dir = autosave_dir();
+
+        // Write the original with an mtime strictly after the autosave's.
         let key = path_key(&path);
-        let autosave_file = autosave_dir.join(format!("{key}.typ"));
-        // Set autosave mtime to be older by writing original again
+        let autosave_mtime = std::fs::metadata(sb.path().join(format!("{key}.typ")))
+            .unwrap()
+            .modified()
+            .unwrap();
         std::fs::write(&path, "original refreshed").unwrap();
+        let later = autosave_mtime + Duration::from_secs(10);
+        set_mtime(&path, later);
 
-        // Now autosave is older than original — no recovery should be returned
-        // (This depends on filesystem resolution; skip if mtime is same)
-        let result = find_recovery(&path);
-        // Either None (autosave older) or Some (same mtime — acceptable)
-        // Just verify it doesn't panic
-        drop(result);
-
-        clear(&path);
-        let _ = std::fs::remove_file(&path);
+        assert!(
+            find_recovery(&path).is_none(),
+            "an autosave older than the file on disk is not a recovery"
+        );
     }
 
     #[test]
     fn save_probes_past_a_simulated_hash_collision_instead_of_overwriting() {
-        let victim = PathBuf::from("/tmp/zerkalo_test_autosave_collision_victim.typ");
-        let attacker = PathBuf::from("/tmp/zerkalo_test_autosave_collision_attacker.typ");
-        let dir = autosave_dir();
-        let _ = std::fs::create_dir_all(&dir);
+        let sb = Sandbox::new();
+        let victim = sb.doc("collision-victim.typ");
+        let attacker = sb.doc("collision-attacker.typ");
 
         // Simulate victim and attacker hashing to the same base key by
         // pre-planting victim's .meta/.typ directly under attacker's real key.
         let attacker_key = path_key(&attacker);
-        std::fs::write(dir.join(format!("{attacker_key}.meta")), victim.to_string_lossy().as_bytes()).unwrap();
-        std::fs::write(dir.join(format!("{attacker_key}.typ")), "victim's content").unwrap();
+        std::fs::write(
+            sb.path().join(format!("{attacker_key}.meta")),
+            victim.to_string_lossy().as_bytes(),
+        )
+        .unwrap();
+        std::fs::write(sb.path().join(format!("{attacker_key}.typ")), "victim's content").unwrap();
 
         save(&attacker, "attacker's content");
 
-        // Victim's slot must be untouched...
-        let victim_content = std::fs::read_to_string(dir.join(format!("{attacker_key}.typ"))).unwrap();
-        assert_eq!(victim_content, "victim's content");
+        let victim_content =
+            std::fs::read_to_string(sb.path().join(format!("{attacker_key}.typ"))).unwrap();
+        assert_eq!(victim_content, "victim's content", "victim's slot must be untouched");
 
-        // ...and the attacker's save must be found under a fallback key.
         let attacker_result = find_recovery(&attacker);
-        assert!(attacker_result.is_some(), "attacker's autosave should still be findable via a fallback key");
+        assert!(
+            attacker_result.is_some(),
+            "attacker's autosave should still be findable via a fallback key"
+        );
         assert_eq!(attacker_result.unwrap().0, "attacker's content");
+    }
 
-        // Cleanup: remove both the real victim slot and whatever fallback key
-        // the attacker landed on.
-        let _ = std::fs::remove_file(dir.join(format!("{attacker_key}.meta")));
-        let _ = std::fs::remove_file(dir.join(format!("{attacker_key}.typ")));
-        clear(&attacker);
+    #[test]
+    fn prune_drops_aged_out_entries_and_keeps_fresh_ones() {
+        let sb = Sandbox::new();
+        let fresh = sb.doc("fresh.typ");
+        let stale = sb.doc("stale.typ");
+        save(&fresh, "keep me");
+        save(&stale, "let me go");
+
+        let stale_key = path_key(&stale);
+        let long_ago = SystemTime::now() - MAX_AGE - Duration::from_secs(60);
+        set_mtime(&sb.path().join(format!("{stale_key}.typ")), long_ago);
+
+        prune();
+
+        assert!(find_recovery(&fresh).is_some(), "a recent autosave must survive pruning");
+        assert!(find_recovery(&stale).is_none(), "an aged-out autosave should be removed");
+    }
+
+    #[test]
+    fn prune_removes_a_meta_left_without_its_document() {
+        let sb = Sandbox::new();
+        let path = sb.doc("halfpair.typ");
+        save(&path, "content");
+        let key = path_key(&path);
+        std::fs::remove_file(sb.path().join(format!("{key}.typ"))).unwrap();
+
+        prune();
+
+        assert!(
+            !sb.path().join(format!("{key}.meta")).exists(),
+            "a .meta with no .typ is a broken pair and should not linger"
+        );
+    }
+
+    fn set_mtime(path: &Path, when: SystemTime) {
+        let f = std::fs::OpenOptions::new().write(true).open(path).unwrap();
+        f.set_modified(when).unwrap();
     }
 }

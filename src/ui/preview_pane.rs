@@ -17,8 +17,14 @@ use std::time::Instant;
 
 // ── Result sent from compile thread ──────────────────────────────────────────
 
+/// `(error, warnings)` — the error is `None` on success, and warnings are the
+/// empty string when the compile was clean. Both use the `error: …`/`warning: …`
+/// text format `parse_typst_errors` reads.
+type CompileDoneFn = dyn Fn(Option<String>, String);
+
 enum CompileResult {
-    Success(Vec<crate::compiler::RenderedPage>, std::time::Duration),
+    /// Pages, warnings (empty when clean), elapsed.
+    Success(Vec<crate::compiler::RenderedPage>, String, std::time::Duration),
     Error(String, std::time::Duration),
 }
 
@@ -38,7 +44,7 @@ pub struct PreviewPane {
     root_file: Rc<RefCell<Option<PathBuf>>>,
     zoom: Rc<RefCell<f64>>,
     auto_fit: Rc<RefCell<bool>>,
-    on_compile_done: Rc<RefCell<Option<Box<dyn Fn(Option<String>)>>>>,
+    on_compile_done: Rc<RefCell<Option<Box<CompileDoneFn>>>>,
     on_compile_cancelled: Rc<RefCell<Option<Box<dyn Fn()>>>>,
     on_compile_time: Rc<RefCell<Option<Box<dyn Fn(u64, Option<usize>)>>>>,
     on_compile_start: Rc<RefCell<Option<Box<dyn Fn()>>>>,
@@ -574,7 +580,7 @@ impl PreviewPane {
         }
     }
 
-    pub fn set_on_compile_done(&self, f: impl Fn(Option<String>) + 'static) {
+    pub fn set_on_compile_done(&self, f: impl Fn(Option<String>, String) + 'static) {
         *self.on_compile_done.borrow_mut() = Some(Box::new(f));
     }
 
@@ -634,6 +640,7 @@ impl PreviewPane {
         pbs.len().saturating_sub(1)
     }
 
+    #[allow(dead_code)] // kept alongside the other scroll helpers
     pub fn scroll_to_fraction(&self, frac: f64) {
         let adj = self.img_scroll.vadjustment();
         let range = adj.upper() - adj.lower() - adj.page_size();
@@ -787,7 +794,7 @@ impl PreviewPane {
             let result = crate::compiler::compile_to_rgba_pages(&root, pixel_per_pt, &snapshots, &sys_inputs);
             let elapsed = t0.elapsed();
             tx.send(match result {
-                Ok(pages) => CompileResult::Success(pages, elapsed),
+                Ok((pages, warnings)) => CompileResult::Success(pages, warnings, elapsed),
                 Err(msg) => CompileResult::Error(msg, elapsed),
             })
             .ok();
@@ -811,12 +818,12 @@ impl PreviewPane {
                     pane.spinner.set_spinning(false);
                     pane.cancel_btn.set_visible(false);
                     match result {
-                        CompileResult::Success(pages, elapsed) => {
+                        CompileResult::Success(pages, warnings, elapsed) => {
                             pane.load_pixbufs_from_pages(pages);
                             pane.stack.set_visible_child_name("ready");
                             let page_count = pane.page_count();
                             if let Some(f) = pane.on_compile_done.borrow().as_ref() {
-                                f(None);
+                                f(None, warnings);
                             }
                             if let Some(f) = pane.on_compile_time.borrow().as_ref() {
                                 f(elapsed.as_millis() as u64, Some(page_count));
@@ -826,7 +833,7 @@ impl PreviewPane {
                             pane.error_label.set_label(&msg);
                             pane.stack.set_visible_child_name("error");
                             if let Some(f) = pane.on_compile_done.borrow().as_ref() {
-                                f(Some(msg));
+                                f(Some(msg), String::new());
                             }
                             if let Some(f) = pane.on_compile_time.borrow().as_ref() {
                                 f(elapsed.as_millis() as u64, None);

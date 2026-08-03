@@ -43,6 +43,7 @@ pub fn cv_mode_compile_extras(
 /// and — since Skrizhal keys and BibTeX keys are independent namespaces —
 /// could coincidentally share a literal key string. Keeping them separate
 /// means renaming one can never accidentally rewrite the other's references.
+#[allow(dead_code)] // Skrizhal rename-propagation, kept for the CV editor work
 pub fn rename_cv_entry_key_in_text(text: &str, old_key: &str, new_key: &str) -> (String, bool) {
     static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     let re = RE.get_or_init(|| regex::Regex::new(r#"#cv-entry\("([^"]+)"\)"#).unwrap());
@@ -58,6 +59,61 @@ pub fn rename_cv_entry_key_in_text(text: &str, old_key: &str, new_key: &str) -> 
     });
     let changed = result != text;
     (result.into_owned(), changed)
+}
+
+/// Drops reserved (`_`-prefixed) top-level blocks from CV-elements YAML.
+///
+/// Skrizhal reserves underscore-prefixed top-level keys for configuration
+/// rather than CV entries — `_profiles` since Skrizhal 0.4.0. The pinned
+/// `skrizhal-core` (v0.3.0) predates that convention and deserializes the
+/// whole file as one map of entries, so a single `_profiles` block makes the
+/// *entire* parse fail — and every call site here uses `unwrap_or_default()`,
+/// which turns that into a silently empty entry list: no `!` autocomplete, no
+/// CV panel contents, no error shown.
+///
+/// Filtering textually rather than bumping the dependency keeps this
+/// independent of which `skrizhal-core` is pinned, which is worth having on
+/// its own: one unrecognized block should never cost the user every entry in
+/// the file. Newer `skrizhal-core` skips these keys itself, and then this
+/// simply has nothing left to do.
+///
+/// Top-level YAML keys sit at column 0 and Skrizhal writes plain block-style
+/// YAML, so "drop from a `_`-prefixed key until the next column-0 line" is
+/// sufficient — and strictly narrower than a full YAML round-trip, which
+/// would risk reformatting content this function has no business touching.
+pub fn strip_reserved_blocks(yaml: &str) -> String {
+    let mut out = String::with_capacity(yaml.len());
+    let mut skipping = false;
+    for line in yaml.lines() {
+        let starts_at_column_zero =
+            !line.is_empty() && !line.starts_with(char::is_whitespace) && !line.starts_with('#');
+        if starts_at_column_zero {
+            // A comment or blank line inside a skipped block is dropped with
+            // it; a new column-0 key always ends the skip.
+            skipping = line.starts_with('_') && line.contains(':');
+        }
+        if !skipping {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    out
+}
+
+/// Reads and parses a CV-elements file, tolerating reserved blocks the
+/// pinned `skrizhal-core` doesn't recognize. Returns an empty list on any
+/// read/parse failure, matching what the call sites did before.
+pub fn load_cv_entries(path: &std::path::Path) -> Vec<skrizhal_core::CvEntry> {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    match skrizhal_core::parse_str(&strip_reserved_blocks(&text)) {
+        Ok(entries) => entries,
+        Err(err) => {
+            tracing::warn!("Failed to parse CV elements at {}: {err}", path.display());
+            Vec::new()
+        }
+    }
 }
 
 #[cfg(test)]
@@ -167,60 +223,5 @@ mod tests {
             rename_cv_entry_key_in_text("@old-key and #cite(<old-key>)", "old-key", "new-key");
         assert!(!changed);
         assert_eq!(out, "@old-key and #cite(<old-key>)");
-    }
-}
-
-/// Drops reserved (`_`-prefixed) top-level blocks from CV-elements YAML.
-///
-/// Skrizhal reserves underscore-prefixed top-level keys for configuration
-/// rather than CV entries — `_profiles` since Skrizhal 0.4.0. The pinned
-/// `skrizhal-core` (v0.3.0) predates that convention and deserializes the
-/// whole file as one map of entries, so a single `_profiles` block makes the
-/// *entire* parse fail — and every call site here uses `unwrap_or_default()`,
-/// which turns that into a silently empty entry list: no `!` autocomplete, no
-/// CV panel contents, no error shown.
-///
-/// Filtering textually rather than bumping the dependency keeps this
-/// independent of which `skrizhal-core` is pinned, which is worth having on
-/// its own: one unrecognized block should never cost the user every entry in
-/// the file. Newer `skrizhal-core` skips these keys itself, and then this
-/// simply has nothing left to do.
-///
-/// Top-level YAML keys sit at column 0 and Skrizhal writes plain block-style
-/// YAML, so "drop from a `_`-prefixed key until the next column-0 line" is
-/// sufficient — and strictly narrower than a full YAML round-trip, which
-/// would risk reformatting content this function has no business touching.
-pub fn strip_reserved_blocks(yaml: &str) -> String {
-    let mut out = String::with_capacity(yaml.len());
-    let mut skipping = false;
-    for line in yaml.lines() {
-        let starts_at_column_zero =
-            !line.is_empty() && !line.starts_with(char::is_whitespace) && !line.starts_with('#');
-        if starts_at_column_zero {
-            // A comment or blank line inside a skipped block is dropped with
-            // it; a new column-0 key always ends the skip.
-            skipping = line.starts_with('_') && line.contains(':');
-        }
-        if !skipping {
-            out.push_str(line);
-            out.push('\n');
-        }
-    }
-    out
-}
-
-/// Reads and parses a CV-elements file, tolerating reserved blocks the
-/// pinned `skrizhal-core` doesn't recognize. Returns an empty list on any
-/// read/parse failure, matching what the call sites did before.
-pub fn load_cv_entries(path: &std::path::Path) -> Vec<skrizhal_core::CvEntry> {
-    let Ok(text) = std::fs::read_to_string(path) else {
-        return Vec::new();
-    };
-    match skrizhal_core::parse_str(&strip_reserved_blocks(&text)) {
-        Ok(entries) => entries,
-        Err(err) => {
-            tracing::warn!("Failed to parse CV elements at {}: {err}", path.display());
-            Vec::new()
-        }
     }
 }

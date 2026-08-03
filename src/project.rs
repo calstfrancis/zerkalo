@@ -4,13 +4,12 @@ use std::path::{Path, PathBuf};
 pub fn collect_typ_files(root: &Path) -> Vec<PathBuf> {
     let repo = git2::Repository::open(root).ok();
     let mut files = Vec::new();
-    collect_recursive(root, root, &repo, &mut files);
+    collect_recursive(root, &repo, &mut files);
     files.sort();
     files
 }
 
 fn collect_recursive(
-    root: &Path,
     dir: &Path,
     repo: &Option<git2::Repository>,
     out: &mut Vec<PathBuf>,
@@ -32,7 +31,7 @@ fn collect_recursive(
             }
         }
         if path.is_dir() {
-            collect_recursive(root, &path, repo, out);
+            collect_recursive(&path, repo, out);
         } else if path.extension().map(|e| e == "typ").unwrap_or(false) {
             out.push(path);
         }

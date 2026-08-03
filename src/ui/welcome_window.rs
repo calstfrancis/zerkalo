@@ -126,6 +126,16 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
+                "Fixed: memory grew for the whole time Zerkalo was open — every recompile added permanently to a cache nothing was clearing, so a long writing session leaked steadily",
+                "Changed: Zerkalo no longer writes your document to disk every 30 seconds. Files change when you save them, and the crash-recovery copy — which the old timer kept deleting — now actually works",
+                "Fixed: saving wasn't crash-safe; an interruption mid-write could truncate the file being saved. Documents are now written the same careful way settings always were",
+                "Fixed: settings changed in one dialog were silently reverted by another — changing default fonts in the setup wizard and then touching anything in the main window put them back",
+                "Fixed: a single bad line in config.toml silently discarded every setting and then overwrote the original; the file is now backed up and the error reported",
+                "Fixed: typing stalled on every space, full stop and comma with autocorrect on — spell checking ran on the interface thread and now doesn't",
+                "Fixed: a word added to one project's dictionary stayed accepted in every project opened afterwards",
+                "New: Typst packages are downloaded when a document first imports one, instead of failing unless the package happened to be cached already",
+                "New: Typst warnings reach the error panel — deprecations and unused imports were being discarded entirely",
+                "Changed: crash-recovery copies moved to ~/.local/state/zerkalo/, are cleaned up after 30 days, and no longer pile up forever",
                 "New: Ctrl+P opens a print sheet before the printer's own dialog — it shows the document, its page count and its real paper size, and hands off with everything already set; the PDF goes to the printer as vector, so text stays sharp at the printer's own resolution",
                 "New: page ranges in the document's own numbering — type 12 and you get the page with 12 printed on it, not the twelfth sheet, however the document numbers itself",
                 "New: two or four pages a sheet, and fold-and-staple booklets; imposition is done on the PDF itself, so booklet ordering works on every printer and the preview shows the real first sheet",

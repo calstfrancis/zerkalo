@@ -1,4 +1,6 @@
+use std::cell::{OnceCell, RefCell};
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use serde::{Deserialize, Serialize};
 
@@ -296,6 +298,52 @@ impl Config {
     }
 }
 
+// ── The one live Config ───────────────────────────────────────────────────────
+
+thread_local! {
+    static SHARED: OnceCell<Rc<RefCell<Config>>> = const { OnceCell::new() };
+    /// Set when the config file existed but could not be parsed, so the UI can
+    /// tell the user once it has a window to say it in.
+    static LOAD_PROBLEM: RefCell<Option<LoadProblem>> = const { RefCell::new(None) };
+}
+
+/// A config file that failed to parse, and where the original was preserved.
+#[derive(Clone, Debug)]
+pub struct LoadProblem {
+    pub error: String,
+    pub backup: PathBuf,
+}
+
+/// Takes the parse problem from startup, if there was one. Returns `Some` at
+/// most once — it is reported to the user and then cleared.
+pub fn take_load_problem() -> Option<LoadProblem> {
+    LOAD_PROBLEM.with(|c| c.borrow_mut().take())
+}
+
+/// The process's single live `Config`.
+///
+/// Every settings read and write goes through this. Previously each dialog did
+/// its own `Config::load().unwrap_or_default()` → mutate → `save()` against
+/// disk while the main window held a separate in-memory copy, so whichever
+/// wrote last silently reverted the other's changes — changing fonts in the
+/// setup wizard and then toggling anything in the main window put the fonts
+/// back.
+pub fn shared() -> Rc<RefCell<Config>> {
+    SHARED.with(|cell| {
+        cell.get_or_init(|| Rc::new(RefCell::new(Config::load_or_recover())))
+            .clone()
+    })
+}
+
+/// Mutates the shared config and persists it. The closure sees the same
+/// instance every other part of the app is holding.
+pub fn update(f: impl FnOnce(&mut Config)) -> Result<()> {
+    let shared = shared();
+    let mut cfg = shared.borrow_mut();
+    f(&mut cfg);
+    cfg.save()
+}
+
 impl Config {
     pub fn load() -> Result<Self> {
         let path = Self::config_file()?;
@@ -309,6 +357,47 @@ impl Config {
             }
         }
         Ok(cfg)
+    }
+
+    /// Loads the config, and if the file exists but cannot be parsed, moves it
+    /// aside to a timestamped backup before falling back to defaults.
+    ///
+    /// Without the backup step, one malformed field meant the whole file parsed
+    /// as `Err`, every caller silently substituted `Config::default()`, and the
+    /// next save overwrote the user's real settings permanently.
+    fn load_or_recover() -> Self {
+        match Self::load() {
+            Ok(cfg) => cfg,
+            Err(e) => {
+                // A missing file is the normal first-run case, not a problem.
+                let missing = matches!(
+                    &e,
+                    crate::error::ZerkaloError::Io(io)
+                        if io.kind() == std::io::ErrorKind::NotFound
+                );
+                if !missing {
+                    if let Ok(path) = Self::config_file() {
+                        let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
+                        let mut name = path.file_name().unwrap_or_default().to_os_string();
+                        name.push(format!(".bak-{stamp}"));
+                        let backup = path.with_file_name(name);
+                        if std::fs::copy(&path, &backup).is_ok() {
+                            tracing::error!(
+                                "config.toml could not be parsed ({e}); backed up to {}",
+                                backup.display()
+                            );
+                            LOAD_PROBLEM.with(|c| {
+                                *c.borrow_mut() = Some(LoadProblem {
+                                    error: e.to_string(),
+                                    backup,
+                                });
+                            });
+                        }
+                    }
+                }
+                Self::default()
+            }
+        }
     }
 
     pub fn save(&self) -> Result<()> {
@@ -365,6 +454,23 @@ pub struct ProjectConfig {
     pub root_controls_dismissed: bool,
 }
 
+
+
+impl ProjectConfig {
+    pub fn load(project_root: &Path) -> Option<Self> {
+        let path = project_root.join(".zerkalo").join("config.toml");
+        let content = std::fs::read_to_string(path).ok()?;
+        toml::from_str(&content).ok()
+    }
+
+    pub fn save(&self, project_root: &Path) -> Result<()> {
+        let dir = project_root.join(".zerkalo");
+        std::fs::create_dir_all(&dir)?;
+        crate::error::atomic_write(&dir.join("config.toml"), toml::to_string(self)?.as_bytes())?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -404,8 +510,7 @@ mod tests {
 
     #[test]
     fn config_with_bib_path_round_trip() {
-        let mut cfg = Config::default();
-        cfg.bib_path = Some(PathBuf::from("/home/user/refs.bib"));
+        let cfg = Config { bib_path: Some(PathBuf::from("/home/user/refs.bib")), ..Default::default() };
         let toml_str = toml::to_string(&cfg).expect("serialize");
         let loaded: Config = toml::from_str(&toml_str).expect("deserialize");
         assert_eq!(loaded.bib_path, cfg.bib_path);
@@ -413,8 +518,7 @@ mod tests {
 
     #[test]
     fn config_with_cv_elements_path_round_trip() {
-        let mut cfg = Config::default();
-        cfg.cv_elements_path = Some(PathBuf::from("/home/user/cv-elements.yaml"));
+        let cfg = Config { cv_elements_path: Some(PathBuf::from("/home/user/cv-elements.yaml")), ..Default::default() };
         let toml_str = toml::to_string(&cfg).expect("serialize");
         let loaded: Config = toml::from_str(&toml_str).expect("deserialize");
         assert_eq!(loaded.cv_elements_path, cfg.cv_elements_path);
@@ -422,25 +526,9 @@ mod tests {
 
     #[test]
     fn project_config_cv_elements_path_round_trip() {
-        let mut cfg = ProjectConfig::default();
-        cfg.cv_elements_path = Some(PathBuf::from("cv-elements.yaml"));
+        let cfg = ProjectConfig { cv_elements_path: Some(PathBuf::from("cv-elements.yaml")), ..Default::default() };
         let toml_str = toml::to_string(&cfg).expect("serialize");
         let loaded: ProjectConfig = toml::from_str(&toml_str).expect("deserialize");
         assert_eq!(loaded.cv_elements_path, cfg.cv_elements_path);
-    }
-}
-
-impl ProjectConfig {
-    pub fn load(project_root: &Path) -> Option<Self> {
-        let path = project_root.join(".zerkalo").join("config.toml");
-        let content = std::fs::read_to_string(path).ok()?;
-        toml::from_str(&content).ok()
-    }
-
-    pub fn save(&self, project_root: &Path) -> Result<()> {
-        let dir = project_root.join(".zerkalo");
-        std::fs::create_dir_all(&dir)?;
-        crate::error::atomic_write(&dir.join("config.toml"), toml::to_string(self)?.as_bytes())?;
-        Ok(())
     }
 }

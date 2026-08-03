@@ -1,3 +1,9 @@
+// Nearly every UI struct stores its callbacks as
+// `Rc<RefCell<Option<Box<dyn Fn(..)>>>>` slots. Clippy counts each of those as a
+// complex type; naming ~90 one-use aliases would add indirection without making
+// anything clearer, and the shape is uniform enough to read at a glance.
+#![allow(clippy::type_complexity)]
+
 mod auto_save;
 mod bibliography;
 mod compile_stats;
@@ -37,7 +43,6 @@ use gtk4::gio::ApplicationFlags;
 use gtk4::prelude::*;
 use libadwaita as adw;
 
-use config::Config;
 use ui::app_window::AppWindow;
 
 fn main() -> ExitCode {
@@ -111,7 +116,10 @@ fn main() -> ExitCode {
 
     let sw_activate = shared_window.clone();
     app.connect_activate(move |app| {
-        let config = Config::load().unwrap_or_default();
+        // Migrate the old config-dir location and retire stale recovery copies
+        // before anything looks for one.
+        crate::auto_save::prune();
+        let config = crate::config::shared().borrow().clone();
         let window = AppWindow::new(app, config);
         window.setup_keybindings();
         window.open_initial_file(initial_file.clone());

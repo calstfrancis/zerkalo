@@ -160,7 +160,7 @@ impl LspPopup {
             return;
         }
 
-        new_items.sort_by(|a, b| a.label.to_lowercase().cmp(&b.label.to_lowercase()));
+        new_items.sort_by_key(|a| a.label.to_lowercase());
         *self.items.borrow_mut() = new_items;
         self.apply_filter("");
     }
@@ -204,7 +204,7 @@ impl LspPopup {
                 item.label.to_lowercase(),
             )
         };
-        scored.sort_by(|a, b| key(&a.0, &a.1).cmp(&key(&b.0, &b.1)));
+        scored.sort_by_key(|a| key(&a.0, &a.1));
         drop(local);
 
         self.total_matches.set(scored.len());
@@ -277,7 +277,7 @@ impl LspPopup {
         if prefix.is_empty() { return None; }
         let lprefix = prefix.to_lowercase();
         let items = self.items.borrow();
-        let mut candidates = items
+        let candidates = items
             .iter()
             .filter(|i| i.label.to_lowercase().starts_with(&lprefix));
         // A name chosen for this prefix before wins outright — the ghost is a
