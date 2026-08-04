@@ -1514,23 +1514,57 @@ impl AppWindow {
         preview_toolbar.set_margin_end(8);
         preview_toolbar.set_margin_top(4);
         preview_toolbar.set_margin_bottom(4);
-        preview_toolbar.append(&fit_width_btn);
-        preview_toolbar.append(&fit_page_btn);
-        preview_toolbar.append(&zoom_box);
-        preview_toolbar.append(&zoom_label);
-        preview_toolbar.append(&compile_time_label);
-        let preview_spacer = GtkBox::new(Orientation::Horizontal, 0);
-        preview_spacer.set_hexpand(true);
-        preview_toolbar.append(&preview_spacer);
-        // Page nav group
+        // The bar reads: where you are, how big, how the last compile went —
+        // then everything occasional behind one overflow. It carried ten
+        // controls, which is more chrome than the page it sits under.
+        preview_toolbar.add_css_class("fond-chrome");
+        preview_toolbar.add_css_class("fond-edge-top");
+
         let page_nav_box = GtkBox::new(Orientation::Horizontal, 0);
         page_nav_box.add_css_class("linked");
         page_nav_box.append(&page_prev_btn);
         page_nav_box.append(&page_next_btn);
         preview_toolbar.append(&page_nav_box);
         preview_toolbar.append(&page_label);
-        preview_toolbar.append(&ref_toggle_btn);
-        preview_toolbar.append(&popout_btn);
+        preview_toolbar.append(&zoom_box);
+        preview_toolbar.append(&zoom_label);
+
+        let preview_spacer = GtkBox::new(Orientation::Horizontal, 0);
+        preview_spacer.set_hexpand(true);
+        preview_toolbar.append(&preview_spacer);
+        preview_toolbar.append(&compile_time_label);
+
+        // Fit, Help and pop-out are reached from here rather than sitting in the
+        // bar. They are re-parented, not duplicated, so their existing handlers
+        // and toggle state carry over untouched.
+        let pv_more_box = GtkBox::new(Orientation::Vertical, 4);
+        pv_more_box.set_margin_top(8);
+        pv_more_box.set_margin_bottom(8);
+        pv_more_box.set_margin_start(8);
+        pv_more_box.set_margin_end(8);
+        for (label, w) in [
+            ("Fit width", fit_width_btn.clone().upcast::<gtk4::Widget>()),
+            ("Fit page", fit_page_btn.clone().upcast::<gtk4::Widget>()),
+            ("Cheatsheet & Help", ref_toggle_btn.clone().upcast::<gtk4::Widget>()),
+            ("Open in a window", popout_btn.clone().upcast::<gtk4::Widget>()),
+        ] {
+            let row = GtkBox::new(Orientation::Horizontal, 8);
+            let lab = Label::new(Some(label));
+            lab.set_xalign(0.0);
+            lab.set_hexpand(true);
+            row.append(&lab);
+            w.set_valign(gtk4::Align::Center);
+            row.append(&w);
+            pv_more_box.append(&row);
+        }
+        let pv_more_popover = gtk4::Popover::new();
+        pv_more_popover.set_child(Some(&pv_more_box));
+        let pv_more_btn = gtk4::MenuButton::new();
+        pv_more_btn.set_icon_name("view-more-symbolic");
+        pv_more_btn.add_css_class("flat");
+        pv_more_btn.set_tooltip_text(Some("Preview options"));
+        pv_more_btn.set_popover(Some(&pv_more_popover));
+        preview_toolbar.append(&pv_more_btn);
 
         // on_zoom_changed wires all zoom changes (including auto-fit) to the label
         {
