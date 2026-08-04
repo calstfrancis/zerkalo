@@ -5,13 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.20.0-dev2] — A print system worth the name, a leak closed, and saving you control
+## [0.20.0-dev3] — A print system worth the name, a leak closed, saving you control, and category colours restored
 
 ### Fixed
 - **Every category in the library sidebar was the same blue.** Categories are meant to take a colour derived from their name until you pick one deliberately, so they stay distinguishable at a glance — but the database gave each one that blue the moment it was created, so the code choosing a per-name colour never ran. Categories you have not coloured yourself now get their own colour again, in the sidebar and on document rows, and existing libraries pick it up on first open. Setting a category on a document no longer quietly locks in whatever colour the dialog happened to be showing; the colour is saved only when you choose one.
 
 ### Internal
-- **The library database and the spell checker's text scanner now have tests** — 71 of them, covering the two largest untested modules in the codebase. The document library's trash, restore and permanent-delete paths move real files around and had no coverage at all; the case that matters most is restoring a document when something new has since taken its original path, which must land beside the newer file rather than overwrite it. `Library` now takes its trash directory as a field rather than resolving it globally, so those tests run against a temp directory instead of the real data directory. First phase of the plan in `REFACTOR-PLAN.md`.
+- **The two largest untested modules now have tests, and the two largest files have been broken up.** The document library, the spell checker's text scanner and the editor's own helpers had no coverage at all between them; the suite goes from 269 tests to 371. The library's trash, restore and permanent-delete paths move real files around and were the most exposed — the case that matters most is restoring a document when something new has since taken its original path, which must land beside the newer file rather than overwrite it.
+- **`app_window.rs` and `template_dialog.rs` are no longer single enormous files.** The main window's constructor was 4,299 lines and is now 2,000, split across twelve files by what each part actually does — menus, panels, citations, the file tree, startup. The template dialog's constructor went from 1,247 lines to 229, and its three "read the form" paths, which each cloned 35 widgets and repeated the same 70-line block, now share one. No behaviour was changed; every step was checked against a running build. Full account in `REFACTOR-PLAN.md`.
 
 ### Added
 - **Typst packages are downloaded when a document first imports one.** `#import "@preview/…"` previously only worked if the package already happened to be in `~/.cache/typst/packages`; otherwise it failed with `file not found` naming an internal cache path. Packages — and their own dependencies — are now fetched on first use, the same way `typst-cli` does it, into the same shared cache. `@local` packages resolve too.

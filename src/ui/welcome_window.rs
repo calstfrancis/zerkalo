@@ -126,6 +126,7 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
+                "Fixed: every category in the library sidebar was the same blue. Categories you haven't coloured yourself get their own colour again, and existing libraries pick it up on first open",
                 "Fixed: memory grew for the whole time Zerkalo was open — every recompile added permanently to a cache nothing was clearing, so a long writing session leaked steadily",
                 "Changed: Zerkalo no longer writes your document to disk every 30 seconds. Files change when you save them, and the crash-recovery copy — which the old timer kept deleting — now actually works",
                 "Fixed: saving wasn't crash-safe; an interruption mid-write could truncate the file being saved. Documents are now written the same careful way settings always were",
