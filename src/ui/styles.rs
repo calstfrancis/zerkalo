@@ -12,7 +12,9 @@
 /// silently reverts you.
 const FOND_CSS: &str = include_str!("../../style/fond.css");
 
-const GLOBAL_CSS: &str = ".navigation-sidebar > row:hover:not(:selected) { \
+const GLOBAL_CSS: &str = ".fond-accent-outline { color: #1F5E75; } \
+    .fond-accent-citations { color: #8A6A24; } \
+    .navigation-sidebar > row:hover:not(:selected) { \
         background-color: alpha(@accent_color, 0.08); \
     } \
     .navigation-sidebar > row:selected { \
@@ -254,4 +256,40 @@ pub fn pin_icon_theme() {
     if let Some(settings) = gtk4::Settings::default() {
         settings.set_gtk_icon_theme_name(Some("Adwaita"));
     }
+}
+
+/// A section header in the suite's shared form: a coloured dot, a letterspaced
+/// small-caps title, and a count set immediately after it. Used by the sidebar
+/// panels so the outline and the citation list announce themselves the way a
+/// section does everywhere else in the suite.
+pub fn fond_section_header(title: &str, accent: &str) -> gtk4::Box {
+    use gtk4::prelude::*;
+    let bx = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+    bx.add_css_class("fond-section");
+    bx.set_margin_start(12);
+    bx.set_margin_end(8);
+    bx.set_margin_top(10);
+    bx.set_margin_bottom(2);
+
+    let dot = gtk4::Label::new(Some("\u{25cf}"));
+    dot.add_css_class("fond-section-dot");
+    dot.add_css_class(accent);
+    dot.set_valign(gtk4::Align::Center);
+    bx.append(&dot);
+
+    let lbl = gtk4::Label::new(Some(title));
+    lbl.add_css_class("fond-section-title");
+    lbl.set_valign(gtk4::Align::Center);
+    bx.append(&lbl);
+
+    bx
+}
+
+/// The count or summary that follows a section title.
+pub fn fond_section_meta() -> gtk4::Label {
+    use gtk4::prelude::*;
+    let lbl = gtk4::Label::new(None);
+    lbl.add_css_class("fond-section-meta");
+    lbl.set_valign(gtk4::Align::Center);
+    lbl
 }

@@ -25,6 +25,8 @@ pub struct OutlinePanel {
     max_depth: Rc<Cell<u32>>,
     /// Cached input for depth-filter re-renders.
     cached_files: Rc<RefCell<Vec<(PathBuf, String)>>>,
+    /// The count set beside the section title.
+    outline_count: Label,
 }
 
 impl OutlinePanel {
@@ -64,8 +66,12 @@ impl OutlinePanel {
         seg_box.append(&outline_btn);
         seg_box.append(&symbols_btn);
 
+        let outline_hdr = crate::ui::styles::fond_section_header("Outline", "fond-accent-outline");
+        let outline_count = crate::ui::styles::fond_section_meta();
+        outline_hdr.append(&outline_count);
+        widget.append(&outline_hdr);
+
         widget.append(&seg_box);
-        widget.append(&Separator::new(Orientation::Horizontal));
 
         // ── Depth filter row ─────────────────────────────────────────────────
         let max_depth: Rc<Cell<u32>> = Rc::new(Cell::new(u32::MAX));
@@ -210,6 +216,7 @@ impl OutlinePanel {
         }
 
         let panel = Self {
+            outline_count: outline_count.clone(),
             widget, list_box, on_jump, on_symbol_insert, stack, outline_btn, symbols_btn,
             row_positions, max_depth,
             cached_files: Rc::new(RefCell::new(Vec::new())),
@@ -358,7 +365,13 @@ impl OutlinePanel {
             self.list_box.append(&row);
         }
 
+        let shown = positions_vec.len();
         *self.row_positions.borrow_mut() = positions_vec;
+        self.outline_count.set_text(&if shown == 1 {
+            "\u{b7} 1 heading".to_string()
+        } else {
+            format!("\u{b7} {shown} headings")
+        });
     }
 
     /// Select the outline row nearest to (and not past) `line` in `path`.

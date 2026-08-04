@@ -126,6 +126,9 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
+                "Changed: the header bar is down from twelve controls to four. Simple, focus, Library and notes moved to the status bar with the other mode words, Git is a word there rather than an icon, and compile mode and compile-now moved next to the editor. Print is in the menu",
+                "Changed: the Outline and Citations panels now announce themselves with a coloured dot, their name in small capitals, and a count beside it",
+                "Removed: the Plan panel. Its button became the Notes toggle, which is how the right-hand sidebar opens",
                 "New: Zerkalo now draws on the shared style used across the whole suite, so it, Rubric and the rest describe a section, a row and a surface the same way",
                 "Changed: the header bar, status bar, sidebar panels and preview each sit on their own surface, instead of every part of the window being the same near-white",
                 "Fixed: icons came from the desktop's icon theme, so under KDE they were drawn from Breeze — the right names but a different family from the interface around them. They are drawn from Adwaita now, whatever the desktop uses. Colour scheme, accent and font still follow the system",

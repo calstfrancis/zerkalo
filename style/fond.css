@@ -27,6 +27,19 @@
 .fond-ground  { background: @secondary_sidebar_bg_color; }
 .fond-view    { background: @view_bg_color; }
 
+/* A surface class on a container is not enough on its own: GTK's list, view
+ * and scroller widgets paint their own background over whatever is behind
+ * them, so a sidebar full of lists comes out the same white as the content it
+ * is meant to sit behind. Descendants of a surface let it show through, and
+ * anything that genuinely wants its own colour — a card — asks for it. */
+.fond-sidebar list, .fond-sidebar listview, .fond-sidebar scrolledwindow,
+.fond-sidebar viewport, .fond-sidebar textview, .fond-sidebar treeview,
+.fond-ground  list, .fond-ground  listview, .fond-ground  scrolledwindow,
+.fond-ground  viewport,
+.fond-chrome  list, .fond-chrome  scrolledwindow {
+  background: transparent;
+}
+
 /* A hairline between a bar and what it borders. Toolbars raised through
  * AdwToolbarView get this for free; anything hand-built needs it. */
 .fond-edge-bottom { border-bottom: 1px solid alpha(@borders, 0.6); }
@@ -122,6 +135,11 @@ row.fond-row > box { padding-top: 7px; padding-bottom: 7px; margin-top: 0; margi
  * filled chip: nothing in a status bar should draw the eye. */
 
 .fond-statusbar { min-height: 18px; padding-top: 0; padding-bottom: 0; }
+/* GTK sets button labels bold. In a status bar of plain words that makes every
+   word look active, so weight is reset here and only an on toggle takes it back
+   (see .fond-toggle-active, and set the label's markup for apps that bold via
+   Pango rather than CSS). */
+.fond-statusbar button label { font-weight: 400; }
 .fond-statusbar button.flat { min-height: 0; padding-top: 1px; padding-bottom: 1px; }
 .fond-toggle-active { background: transparent; }
 .fond-toggle-active label { font-weight: 700; color: @window_fg_color; }
