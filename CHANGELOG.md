@@ -5,6 +5,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.20.0-dev6] — The sidebar gets the suite's cards; the preview canvas follows the theme
+
+### Changed
+
+- **The Outline and Citations lists are set the way the service order is in Rubric:** rows
+  grouped into one rounded card with hairlines between them, and a quiet wash marking the
+  current row rather than a filled accent bar. Both were loose rows with no grouping and no
+  separators.
+- **The preview canvas follows the colour scheme.** The ground the pages sit on was a fixed
+  light grey, so in a dark window the preview sat on a pale slab. It is resolved as the pane is
+  drawn, so switching light and dark is picked up straight away.
+
+---
+
 ## [0.20.0-dev5] — A far quieter window: four controls in the header, one line of words below
 
 ### Changed

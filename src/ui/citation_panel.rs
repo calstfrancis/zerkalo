@@ -103,7 +103,10 @@ impl CitationPanel {
         let list = ListBox::new();
         list.set_selection_mode(SelectionMode::Single);
         list.set_activate_on_single_click(true);
-        list.add_css_class("navigation-sidebar");
+        list.add_css_class("fond-list");
+        list.set_margin_start(12);
+        list.set_margin_end(12);
+        list.set_margin_bottom(8);
         scroll.set_child(Some(&list));
         widget.append(&scroll);
 
@@ -181,6 +184,20 @@ impl CitationPanel {
         }
 
         panel
+    }
+
+    /// First and last row carry the card's rounded corners; with none, there is
+    /// no card to round.
+    fn round_card_ends(&self, shown: usize) {
+        if shown == 0 {
+            return;
+        }
+        if let Some(first) = self.list.row_at_index(0) {
+            first.add_css_class("fond-card-first");
+        }
+        if let Some(last) = self.list.row_at_index(shown as i32 - 1) {
+            last.add_css_class("fond-card-last");
+        }
     }
 
     pub fn widget(&self) -> &GtkBox {
@@ -310,6 +327,8 @@ impl CitationPanel {
 
             let row = ListBoxRow::new();
             row.set_activatable(true);
+            row.add_css_class("fond-card");
+            row.add_css_class("fond-row");
             row.set_widget_name(&entry.key);
             row.set_tooltip_text(Some(&format!("Double-click or Enter to insert @{}", entry.key)));
 
@@ -360,6 +379,8 @@ impl CitationPanel {
             self.list.append(&row);
             shown += 1;
         }
+
+        self.round_card_ends(shown);
 
         if shown == 0 {
             self.append_placeholder("No matching entries");

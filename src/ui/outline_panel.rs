@@ -124,7 +124,12 @@ impl OutlinePanel {
 
         let list_box = ListBox::new();
         list_box.set_selection_mode(SelectionMode::Single);
-        list_box.add_css_class("navigation-sidebar");
+        // The suite's list: rows group into one rounded card with hairlines
+        // between them, and selection is a wash rather than an accent fill.
+        list_box.add_css_class("fond-list");
+        list_box.set_margin_start(12);
+        list_box.set_margin_end(12);
+        list_box.set_margin_bottom(8);
         outline_scroll.set_child(Some(&list_box));
 
         stack.add_named(&outline_scroll, Some("outline"));
@@ -318,6 +323,8 @@ impl OutlinePanel {
 
                 let row = ListBoxRow::new();
                 row.set_activatable(true);
+                row.add_css_class("fond-card");
+                row.add_css_class("fond-row");
 
                 let row_box = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
 
@@ -325,18 +332,16 @@ impl OutlinePanel {
                 label.set_xalign(0.0);
                 label.set_hexpand(true);
                 label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-                label.set_margin_start(8 + (*level as i32 - 1) * 14);
+                label.set_margin_start(10 + (*level as i32 - 1) * 14);
                 label.set_margin_end(4);
-                label.set_margin_top(4);
-                label.set_margin_bottom(4);
+                label.add_css_class("fond-row-title");
                 if *level == 1 {
                     label.add_css_class("heading");
                 }
 
                 let count_lbl = gtk4::Label::new(Some(&word_count.to_string()));
-                count_lbl.add_css_class("dim-label");
-                count_lbl.add_css_class("caption");
-                count_lbl.set_margin_end(8);
+                count_lbl.add_css_class("fond-row-meta");
+                count_lbl.set_margin_end(10);
                 count_lbl.set_valign(gtk4::Align::Center);
 
                 row_box.append(&label);
@@ -363,6 +368,15 @@ impl OutlinePanel {
             lbl.set_margin_bottom(16);
             row.set_child(Some(&lbl));
             self.list_box.append(&row);
+        }
+
+        if let Some(first) = self.list_box.row_at_index(0) {
+            first.add_css_class("fond-card-first");
+        }
+        if !positions_vec.is_empty() {
+            if let Some(last) = self.list_box.row_at_index(positions_vec.len() as i32 - 1) {
+                last.add_css_class("fond-card-last");
+            }
         }
 
         let shown = positions_vec.len();

@@ -177,8 +177,10 @@ impl PreviewPane {
             let pbs = pixbufs_draw.borrow();
             const PAGE_GAP: f64 = 20.0;
 
-            // Light gray canvas background (visible between pages)
-            ctx.set_source_rgb(0.82, 0.82, 0.82);
+            // The ground the pages sit on, resolved per draw so a light/dark
+            // switch is picked up immediately rather than after a restart.
+            let (gr, gg, gb) = crate::ui::theme::preview_ground();
+            ctx.set_source_rgb(gr, gg, gb);
             ctx.paint().ok();
 
             // Only paint pages that intersect the damaged region. Every page used
