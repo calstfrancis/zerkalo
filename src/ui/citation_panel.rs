@@ -38,6 +38,7 @@ pub struct CitationPanel {
 impl CitationPanel {
     pub fn new() -> Self {
         let widget = GtkBox::new(Orientation::Vertical, 0);
+        widget.add_css_class("fond-sidebar");
 
         let header_box = GtkBox::new(Orientation::Horizontal, 6);
         header_box.set_margin_start(10);

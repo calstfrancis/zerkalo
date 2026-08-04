@@ -358,6 +358,9 @@ impl EditorPane {
 
         let status_bar = GtkBox::new(Orientation::Horizontal, 0);
         status_bar.set_hexpand(true);
+        status_bar.add_css_class("fond-chrome");
+        status_bar.add_css_class("fond-statusbar");
+        status_bar.add_css_class("fond-edge-top");
 
         // Lives in the hamburger menu — a whole-UI font switch is a setting you
         // change once, not something to keep a status-bar chip for.

@@ -2883,6 +2883,7 @@ fn extract_doc_title(content: &str) -> Option<String> {
 #[cfg_attr(not(test), allow(dead_code))]
 fn load_app_css() {
     crate::ui::styles::load_global_css();
+    crate::ui::styles::pin_icon_theme();
 
     // If GNOME "Reduce Animations" is enabled, strip transitions so vestibular
     // disorder users aren't affected by the error revealer slide and sidebar fade.

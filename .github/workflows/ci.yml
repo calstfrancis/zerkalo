@@ -14,6 +14,9 @@ jobs:
       - name: Check version / metainfo consistency
         run: ./check-versions.sh
 
+      - name: Check the shared stylesheet has not drifted
+        run: ./check-fond-style.sh
+
   build:
     runs-on: ubuntu-24.04
 

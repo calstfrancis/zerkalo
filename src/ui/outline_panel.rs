@@ -30,6 +30,7 @@ pub struct OutlinePanel {
 impl OutlinePanel {
     pub fn new() -> Self {
         let widget = GtkBox::new(Orientation::Vertical, 0);
+        widget.add_css_class("fond-sidebar");
         widget.set_vexpand(true);
 
         // ── Gost-style segmented control: Outline | Symbols ──────────────────

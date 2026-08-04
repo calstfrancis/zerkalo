@@ -1,0 +1,171 @@
+/* fond.css — shared interface layer for the Fond suite.
+ *
+ * Rubric, Zerkalo, Skrizhal, Iskra and the rest are separate apps in separate
+ * languages, but they are one interface. This file is the part that should not
+ * differ between them: how surfaces stack, how a section is announced, how a
+ * row of content is set, and how the status bar behaves.
+ *
+ * Rules here use libadwaita's named colours only. Nothing is hardcoded, so a
+ * change of colour scheme or accent is picked up for free, in every app at once.
+ *
+ * Apps add their own classes on top; they do not redefine these. If a rule here
+ * is wrong for one app, it is probably wrong for all of them — change it here.
+ *
+ * ── Surfaces ──────────────────────────────────────────────────────────────
+ * Four planes, darkest chrome to lightest content. Adwaita's own header-bar
+ * colour is pure white in the light scheme, so the tint has to come from the
+ * sidebar colours; using @headerbar_bg_color gives no separation at all.
+ *
+ *   .fond-chrome    header bars, status bars
+ *   .fond-sidebar   navigation and palette panes
+ *   .fond-ground    the recessed pane that cards sit on
+ *   .fond-view      editors, previews, document surfaces
+ */
+
+.fond-chrome  { background: @sidebar_bg_color; }
+.fond-sidebar { background: @sidebar_bg_color; }
+.fond-ground  { background: @secondary_sidebar_bg_color; }
+.fond-view    { background: @view_bg_color; }
+
+/* A hairline between a bar and what it borders. Toolbars raised through
+ * AdwToolbarView get this for free; anything hand-built needs it. */
+.fond-edge-bottom { border-bottom: 1px solid alpha(@borders, 0.6); }
+.fond-edge-top    { border-top: 1px solid alpha(@borders, 0.6); }
+
+/* ── Section headers ────────────────────────────────────────────────────────
+ * A section is announced by a coloured dot, a letterspaced small-caps title,
+ * and a count or duration set immediately after it — never a title on one side
+ * of a rule with its meta flung to the other. */
+
+.fond-section { background: transparent; min-height: 26px; }
+.fond-section-title {
+  font-size: 0.78em;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+.fond-section-meta {
+  font-size: 0.78em;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
+.fond-section-dot { font-size: 0.7em; }
+
+/* ── Cards ──────────────────────────────────────────────────────────────────
+ * A group of rows reads as one object. Applied per row rather than to the list,
+ * so a single GtkListBox can hold several groups and keep one index model —
+ * splitting the list to get the look breaks drag-and-drop. */
+
+.fond-card {
+  background: @card_bg_color;
+  color: @window_fg_color;
+  border-left: 1px solid alpha(@borders, 0.55);
+  border-right: 1px solid alpha(@borders, 0.55);
+}
+.fond-card-first {
+  border-top: 1px solid alpha(@borders, 0.55);
+  border-top-left-radius: 10px;
+  border-top-right-radius: 10px;
+}
+.fond-card-last {
+  border-bottom: 1px solid alpha(@borders, 0.55);
+  border-bottom-left-radius: 10px;
+  border-bottom-right-radius: 10px;
+}
+.fond-card:not(.fond-card-first) { border-top: 1px solid alpha(@borders, 0.3); }
+
+/* ── Rows ───────────────────────────────────────────────────────────────────
+ * One line: a cue, a title, an optional dim reference, and an optional dim
+ * value at the right edge. Two-line rows double the height of a list and bury
+ * the titles, which are the thing being scanned.
+ *
+ * The selector carries `row` because Adwaita's `row.activatable` sets both a
+ * min-height and 10px of vertical padding on the row's child box; a bare class
+ * loses to it on specificity and the row silently stays 52px tall. */
+
+row.fond-row { min-height: 34px; }
+row.fond-row > box { padding-top: 7px; padding-bottom: 7px; margin-top: 0; margin-bottom: 0; }
+.compact-mode row.fond-row { min-height: 28px; }
+.compact-mode row.fond-row > box { padding-top: 4px; padding-bottom: 4px; margin-top: 0; margin-bottom: 0; }
+
+.fond-row-title  { font-size: 0.98em; }
+.fond-row-detail { font-size: 0.88em; opacity: 0.55; }
+.fond-row-meta   { font-size: 0.88em; opacity: 0.6; }
+
+/* Selection is a wash across the row. An accent outline plus a coloured bar
+ * makes the current item shout rather than simply read as current. alpha()
+ * over the foreground darkens on a light card and lightens on a dark one, so
+ * one rule serves both schemes. */
+.fond-list row.fond-row:selected,
+.fond-list row.fond-row:selected:focus {
+  background: alpha(@window_fg_color, 0.09);
+  color: @window_fg_color;
+  border-left: none;
+  outline: none;
+  box-shadow: none;
+}
+.fond-list { background: transparent; }
+
+/* ── Cues ───────────────────────────────────────────────────────────────────
+ * A drawn dot, not a glyph: "●" renders at roughly a third of its font size,
+ * so matching a 9px design target by font-size alone is hopeless. Give the
+ * widget a 9x9 size request and colour it from the app's own palette.
+ *
+ * An absolute radius, not 50% — a percentage does not round a box this small
+ * in GTK's renderer and the cues come out square. */
+.fond-cue { border-radius: 9999px; }
+
+/* ── Chrome ─────────────────────────────────────────────────────────────────
+ * The status bar is a line of plain words. Active state is weight, not a
+ * filled chip: nothing in a status bar should draw the eye. */
+
+.fond-statusbar { min-height: 18px; padding-top: 0; padding-bottom: 0; }
+.fond-statusbar button.flat { min-height: 0; padding-top: 1px; padding-bottom: 1px; }
+.fond-toggle-active { background: transparent; }
+.fond-toggle-active label { font-weight: 700; color: @window_fg_color; }
+
+/* Metric readouts are text, not chips. */
+.fond-metric { background: transparent; padding: 1px 4px; }
+
+/* A hairline capsule — the one bordered control in a header bar. The selector
+ * includes `headerbar button` because Adwaita's own header-bar button rule is
+ * more specific than a bare class and will otherwise impose min-height 32px
+ * and 4px padding. Give the button valign=center too, or it stretches to the
+ * bar's height and min-height cannot cap it. */
+headerbar button.fond-pill {
+  background: transparent;
+  box-shadow: none;
+  border: 1px solid alpha(@borders, 0.55);
+  border-radius: 9999px;
+  padding: 0 13px;
+  min-height: 25px;
+  min-width: 0;
+}
+headerbar button.fond-pill label { font-size: 0.88em; font-weight: 400; }
+headerbar button.fond-pill:hover { background: alpha(@window_fg_color, 0.05); }
+
+/* The window title is text, not a control. */
+headerbar .fond-title-btn,
+headerbar .fond-title-btn:hover {
+  background: transparent;
+  box-shadow: none;
+  border: none;
+}
+headerbar .fond-title-btn:hover label { opacity: 0.75; }
+
+/* GTK sets button labels bold by default, which makes every toolbar shout.
+ * Bold belongs to titles, section headers and active toggles. */
+.fond-quiet label { font-weight: 400; }
+.fond-quiet { opacity: 0.6; }
+.fond-quiet:hover, .fond-quiet:checked, .fond-quiet:focus { opacity: 1; }
+
+/* Handles and secondary affordances appear on hover, not permanently. */
+.fond-onhover { opacity: 0; transition: opacity 120ms; }
+*:hover > .fond-onhover, *:hover .fond-onhover { opacity: 0.45; }
+.fond-onhover:hover, .fond-onhover:focus { opacity: 1; }
+
+/* An unframed search field reads as part of the list rather than as chrome. */
+.fond-search { background: transparent; box-shadow: none; border: none; }
+.fond-search:focus-within { background: alpha(@window_fg_color, 0.05); }

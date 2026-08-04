@@ -70,6 +70,7 @@ pub(super) fn build_header() -> HeaderWidgets {
     // ── Header bar ──────────────────────────────────────────────────────
 
     let header = adw::HeaderBar::new();
+    header.add_css_class("fond-chrome");
 
     // Start: sidebar toggle + insert panel toggle (flat, left side)
     let sidebar_btn = Button::from_icon_name("sidebar-show-symbolic");

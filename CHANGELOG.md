@@ -5,6 +5,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.20.0-dev4] — A shared look across the suite, distinct surfaces, and icons that match the interface
+
+### Added
+
+- **Zerkalo now draws on a stylesheet shared across the whole suite.** Rubric, Zerkalo and the
+  rest describe a section, a row and a surface the same way, from one file, so a change to the
+  look lands everywhere at once instead of drifting app by app.
+
+### Changed
+
+- **The header bar, status bar, sidebar panels and preview each sit on their own surface.**
+  Every part of the window used to be the same near-white, so it read as one sheet with lines
+  ruled across it.
+
+### Fixed
+
+- **Icons were coming from the desktop's icon theme.** Under KDE that meant Breeze — the right
+  names, but drawings from a different family than the interface around them, so "save" was a
+  floppy disk rather than a download arrow. They are drawn from Adwaita now whatever the desktop
+  uses. Colour scheme, accent colour and font still follow the system.
+
+---
+
 ## [0.20.0-dev3] — A print system worth the name, a leak closed, saving you control, and category colours restored
 
 ### Fixed
