@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.20.0-dev8] — Two rows off the sidebar; Template joins the header
+
+### Changed
+
+- **Update Template is now simply "Template", in the header bar.** It was a full-width row
+  above the sidebar panels — the only thing in that column that was not a panel — and it
+  belongs with the other document-level actions.
+- **The heading-depth filter is a button in the Outline header** showing the level in force,
+  rather than a row of four chips above the outline. The Outline/Symbols switch moved into that
+  header too, so the sidebar is now its two panels and nothing else.
+
+---
+
 ## [0.20.0-dev7] — A quieter preview bar
 
 ### Changed

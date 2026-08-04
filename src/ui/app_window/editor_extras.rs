@@ -108,7 +108,11 @@ pub(super) struct SidebarToolbarCtx {
 }
 
 /// Returns the sidebar's left column, which the layout assembly then packs.
-pub(super) fn wire_sidebar_toolbar(ctx: &SidebarToolbarCtx) -> GtkBox {
+/// Returns the sidebar column and the Template button, which the caller packs
+/// into the header bar. The button used to be a full-width row above the
+/// panels: it is the only thing in that column that is not a panel, and it
+/// belongs with the other document-level actions.
+pub(super) fn wire_sidebar_toolbar(ctx: &SidebarToolbarCtx) -> (GtkBox, Button) {
     // ── GOST font toggle (status bar button wired here) ───────────────────
     let current_config_for_gost = ctx.current_config.clone();
     let ui_font_provider = gtk4::CssProvider::new();
@@ -142,18 +146,11 @@ pub(super) fn wire_sidebar_toolbar(ctx: &SidebarToolbarCtx) -> GtkBox {
 
     // ── Sidebar toolbar: Update Template button ───────────────────────────
     let update_template_btn = Button::new();
-    update_template_btn.set_label("Update Template…");
+    update_template_btn.set_label("Template");
     update_template_btn.add_css_class("flat");
-    update_template_btn.set_hexpand(true);
     update_template_btn.set_tooltip_text(Some(
         "Change formatting style, margins, fonts for this document",
     ));
-    let sidebar_toolbar = GtkBox::new(Orientation::Horizontal, 0);
-    sidebar_toolbar.set_margin_start(6);
-    sidebar_toolbar.set_margin_end(6);
-    sidebar_toolbar.set_margin_top(4);
-    sidebar_toolbar.set_margin_bottom(4);
-    sidebar_toolbar.append(&update_template_btn);
 
     {
         let win_ut = ctx.window.clone();
@@ -288,13 +285,11 @@ pub(super) fn wire_sidebar_toolbar(ctx: &SidebarToolbarCtx) -> GtkBox {
     left_box.set_vexpand(true);
     left_box.set_overflow(gtk4::Overflow::Hidden);
     left_box.add_css_class("zerkalo-sidebar");
-    left_box.append(&sidebar_toolbar);
-    left_box.append(&Separator::new(Orientation::Horizontal));
     left_box.append(ctx.outline_panel.widget());
     left_box.append(&Separator::new(Orientation::Horizontal));
     left_box.append(ctx.citation_panel.widget());
     *ctx.left_paned_holder.borrow_mut() = Some(left_box.clone());
 
 
-    left_box
+    (left_box, update_template_btn)
 }
