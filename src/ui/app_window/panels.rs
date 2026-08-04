@@ -19,7 +19,6 @@ use super::super::library_window::LibraryWindow;
 use super::super::notes_panel::NotesPanel;
 use super::super::outline_panel::OutlinePanel;
 use super::super::package_browser::PackageBrowser;
-use super::super::plan_panel::PlanPanel;
 use super::super::preview_pane::PreviewPane;
 use super::super::ref_manager::RefManager;
 
@@ -35,7 +34,6 @@ pub(super) struct Panels {
     pub(super) popout_window: Rc<RefCell<Option<adw::Window>>>,
     pub(super) ref_manager: RefManager,
     pub(super) session_start: Rc<RefCell<std::time::Instant>>,
-    pub(super) todo_panel: PlanPanel,
     pub(super) writing_log: Rc<RefCell<WritingLog>>,
 }
 
@@ -79,7 +77,6 @@ pub(super) fn build_panels(
     let ref_manager = RefManager::new();
     let dep_graph = DepGraph::new(project_root.to_path_buf());
     let package_browser = PackageBrowser::new();
-    let todo_panel = PlanPanel::new(config.work_dir.clone());
     let notes_panel = NotesPanel::new();
 
     let writing_log: Rc<RefCell<WritingLog>> = Rc::new(RefCell::new(WritingLog::load()));
@@ -204,7 +201,6 @@ pub(super) fn build_panels(
         popout_window,
         ref_manager,
         session_start,
-        todo_panel,
         writing_log,
     }
 }

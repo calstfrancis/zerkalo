@@ -198,7 +198,6 @@ impl AppWindow {
             popout_window,
             ref_manager,
             session_start,
-            todo_panel,
             writing_log,
         } = build_panels(
             app,
@@ -527,11 +526,61 @@ impl AppWindow {
 
         editor_pane.set_completion_picks(proj_cfg.completion_picks.clone());
 
-        // Document-view controls belong together in the header rather than
-        // scattered along the status bar; pack_start puts them right of Library.
-        header.pack_start(&editor_pane.simple_mode_button_for_header());
-        header.pack_start(&editor_pane.focus_button_for_header());
+        // The header held twelve controls, mixing six text buttons with six
+        // icons. What reports a mode — Simple, focus, Library, notes — moves to
+        // the status bar, which is a line of plain words and already carries the
+        // other mode toggles. What acts occasionally goes to the menu, and
+        // compiling moves next to the editor it compiles. The header keeps the
+        // sidebar toggle, the title, Save, Preview and the menu.
+        //
+        // status_bar_append_left inserts directly after the first toggle, so the
+        // last one added ends up leftmost: add them in reverse reading order.
         gost_menu_slot.append(&editor_pane.gost_button_for_menu());
+
+        // The Plan panel is gone, but its toggle was the only way to open the
+        // right sidebar, which still holds Notes — so it becomes the Notes
+        // toggle rather than being dropped with the panel.
+        header.remove(&todo_btn);
+        let notes_label = Label::new(Some("notes"));
+        notes_label.add_css_class("caption");
+        notes_label.add_css_class("dim-label");
+        todo_btn.set_child(Some(&notes_label));
+        todo_btn.set_tooltip_text(Some("Toggle the notes panel"));
+        todo_btn.update_property(&[gtk4::accessible::Property::Label("Toggle notes panel")]);
+        todo_btn.add_css_class("status-toggle");
+        editor_pane.status_bar_append_left(&todo_btn);
+
+        header.remove(&library_btn);
+        library_btn.add_css_class("status-toggle");
+        // The other status words are caption-sized; a default label beside them
+        // reads as a heading rather than as one of the row.
+        if let Some(l) = library_btn.child().and_downcast::<Label>() {
+            l.add_css_class("caption");
+            l.add_css_class("dim-label");
+        }
+        editor_pane.status_bar_append_left(&library_btn);
+
+        editor_pane.status_bar_append_left(&editor_pane.focus_button_for_header());
+        editor_pane.status_bar_append_left(&editor_pane.simple_mode_button_for_header());
+
+        // Git as a word, beside the other status-bar words, rather than an icon
+        // in a header that has too many already.
+        header.remove(&sync_btn);
+        let git_label = Label::new(Some("Git"));
+        git_label.add_css_class("caption");
+        git_label.add_css_class("dim-label");
+        sync_btn.set_child(Some(&git_label));
+        sync_btn.add_css_class("status-toggle");
+        editor_pane.status_bar_append_right(&sync_btn);
+
+        header.remove(&print_header_btn);
+        header.remove(&recompile_header_btn);
+        header.remove(&compile_mode_slot);
+        editor_pane.breadcrumb_bar_append(&compile_mode_slot);
+        editor_pane.breadcrumb_bar_append(&recompile_header_btn);
+
+        compile_btn.add_css_class("fond-pill");
+        compile_btn.set_valign(gtk4::Align::Center);
 
         // ── Simple mode wiring ──────────────────────────────────────────────
         {
@@ -634,7 +683,7 @@ impl AppWindow {
             }
         });
 
-        // ── Plan sidebar toggle ─────────────────────────────────────────────
+        // ── Notes sidebar toggle ────────────────────────────────────────────
         let rsh_for_todo = right_sidebar_holder.clone();
         todo_btn.connect_toggled(move |btn| {
             if let Some(rs) = rsh_for_todo.borrow().as_ref() {
@@ -945,7 +994,6 @@ impl AppWindow {
         let dep_graph_for_switch = dep_graph.clone();
         let title_widget_for_switch = file_title_widget.clone();
         let preview_for_switch = preview_pane.clone();
-        let todo_panel_for_switch = todo_panel.clone();
         let notes_panel_for_switch = notes_panel.clone();
         let style_btn_for_switch = style_btn.clone();
         let editor_pane_for_switch_delta = editor_pane.clone();
@@ -992,7 +1040,6 @@ impl AppWindow {
             if needs_compile {
                 preview_for_switch.trigger_compile();
             }
-            todo_panel_for_switch.set_current_file(Some(&path));
             let title = extract_doc_title(&content).or_else(|| {
                 path.file_name().and_then(|n| n.to_str())
                     .map(|n| n.strip_suffix(".typ").unwrap_or(n).to_string())
@@ -1050,7 +1097,6 @@ impl AppWindow {
 
         let lsp_for_open = lsp_client.clone();
         let current_config_for_open = current_config.clone();
-        let todo_panel_for_open = todo_panel.clone();
         let notes_panel_for_open = notes_panel.clone();
         // Recovery queue: at most one dialog on screen at a time. Each dialog's
         // response handler calls show_next to pop and show the next item.
@@ -1111,7 +1157,6 @@ impl AppWindow {
             if let Some(client) = lsp_for_open.borrow_mut().as_mut() {
                 client.did_open(&path, &content);
             }
-            todo_panel_for_open.set_current_file(Some(&path));
             notes_panel_for_open.update(&content, &path);
             let is_cv = super::template_dialog::parse_doc_kind(&content)
                 .map(|k| k == "cv")
@@ -1937,12 +1982,6 @@ impl AppWindow {
         let right_notebook = gtk4::Notebook::new();
         right_notebook.set_vexpand(true);
         right_notebook.set_tab_pos(gtk4::PositionType::Top);
-
-        todo_panel.widget().set_vexpand(true);
-        right_notebook.append_page(
-            todo_panel.widget(),
-            Some(&Label::new(Some("Plan"))),
-        );
 
         notes_panel.widget().set_vexpand(true);
         right_notebook.append_page(

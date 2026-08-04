@@ -1222,6 +1222,12 @@ impl EditorPane {
         format_bar_container.append(&format_bar_bin);
         format_bar_container.append(&Separator::new(Orientation::Horizontal));
 
+        // Two rows, deliberately. Merging them into one was tried and reverted:
+        // the formatting bar is an AdwBreakpointBin and needs most of the
+        // editor's width to show its buttons, so sharing a row with undo/redo
+        // and the citation style collapsed it to its smallest overflow stage —
+        // hiding the very buttons the row exists for. One row only works at a
+        // pane width this layout does not have.
         let outer = GtkBox::new(Orientation::Vertical, 0);
         outer.set_hexpand(true);
         outer.set_vexpand(true);
@@ -1874,6 +1880,19 @@ impl EditorPane {
 
     pub fn set_on_simple_mode_toggle(&self, f: impl Fn(bool) + 'static) {
         *self.on_simple_mode_toggle.borrow_mut() = Some(Box::new(f));
+    }
+
+    /// Put a widget in the status bar's left group, after the mode toggles.
+    /// Used to move header controls that report state rather than act on the
+    /// document — the status bar is a line of plain words, and a toggle reads
+    /// better there than as one more button in a crowded header.
+    pub fn status_bar_append_left(&self, w: &impl gtk4::prelude::IsA<gtk4::Widget>) {
+        self.status_bar.insert_child_after(w, Some(&self.format_bar_toggle_btn));
+    }
+
+    /// Put a widget in the status bar's right group, before the version button.
+    pub fn status_bar_append_right(&self, w: &impl gtk4::prelude::IsA<gtk4::Widget>) {
+        self.status_bar.append(w);
     }
 
     pub fn breadcrumb_bar_append(&self, w: &impl gtk4::prelude::IsA<gtk4::Widget>) {

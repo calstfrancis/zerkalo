@@ -5,6 +5,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.20.0-dev5] — A far quieter window: four controls in the header, one line of words below
+
+### Changed
+
+- **The header bar is down from twelve controls to four.** It had six text buttons and six
+  icons in no particular grouping. What reports a mode — Simple, focus, Library, notes — now
+  sits in the status bar with the other mode words; Git is a word there too, rather than an
+  icon; compile mode and compile-now moved next to the editor they compile; and Print is
+  reached from the menu, which already had it. The header keeps the sidebar toggle, the
+  document title, Save, Preview and the menu.
+- **The Outline and Citations panels announce themselves the way the rest of the suite does** —
+  a coloured dot, the name in small capitals, and a count beside it.
+- **The sidebar and the status bar sit on their own surface**, so the window reads as panels
+  rather than as one sheet with lines ruled across it. This did not work in the previous build:
+  a surface applied to a container is painted over by the lists and scrollers inside it, which
+  is now handled once in the shared stylesheet for every app.
+
+### Removed
+
+- **The Plan panel is gone.** Its toggle is not: it was the only way to open the right-hand
+  sidebar, which still holds Notes, so the button became the Notes toggle.
+
+---
+
 ## [0.20.0-dev4] — A shared look across the suite, distinct surfaces, and icons that match the interface
 
 ### Added

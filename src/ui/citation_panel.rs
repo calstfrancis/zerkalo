@@ -46,9 +46,15 @@ impl CitationPanel {
         header_box.set_margin_top(6);
         header_box.set_margin_bottom(6);
 
+        let dot = Label::new(Some("\u{25cf}"));
+        dot.add_css_class("fond-section-dot");
+        dot.add_css_class("fond-accent-citations");
+        dot.set_valign(Align::Center);
+        header_box.append(&dot);
+
         let title_label = Label::new(Some("Citations"));
         title_label.set_xalign(0.0);
-        title_label.add_css_class("heading");
+        title_label.add_css_class("fond-section-title");
         header_box.append(&title_label);
 
         let bib_name_label = Label::new(None);
