@@ -5,6 +5,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.20.0-dev7] — A quieter preview bar
+
+### Changed
+
+- **The bar under the preview is down from ten controls to five.** It now reads as where you
+  are, how large the page is, and how the last compile went; fit-width, fit-page, the
+  cheatsheet and open-in-a-window are behind a single button at its end. It also sits on the
+  same surface as the rest of the window's chrome, with a line above it.
+
+### Fixed
+
+- **Refreshing the screenshots failed whenever Zerkalo was already open.** The throwaway copy
+  used for capturing handed over to the running one and quietly exited, so nothing was ever
+  drawn on the isolated display and the run gave up claiming the app never rendered — while
+  opening a stray window in the real instance. It is given its own private session now.
+
+---
+
 ## [0.20.0-dev6] — The sidebar gets the suite's cards; the preview canvas follows the theme
 
 ### Changed

@@ -21,6 +21,15 @@
 # below. This avoids needing to navigate the preview to page 2: an earlier
 # version of this script tried simulating a click on the preview's "next
 # page" button, which proved unreliable (no window manager in the isolated
+# dbus-run-session is not optional: GApplication's single-instance check runs
+# over the *session* D-Bus bus, which none of the DISPLAY/HOME/XDG isolation
+# above touches. With Zerkalo already open for real, this launch registers,
+# finds a primary instance, hands off to it and exits — so the isolated display
+# stays empty, every capture is blank, and the run dies after five attempts
+# claiming the app never rendered. Worse, the hand-off opens a window in the
+# real instance. Giving the child its own bus makes it primary in its own
+# session. (Rubric's capture script had exactly this bug.)
+#
 # Xvfb means the app window never gets real X input focus, and getting a
 # synthetic click to register consistently wasn't worth the fragility).
 # Deleting the title page is simpler and doesn't depend on UI layout at all.
@@ -141,7 +150,7 @@ KEYFILE
 
   echo "==> Launching Zerkalo ($scheme) against demo data inside the isolated display"
   env -u WAYLAND_DISPLAY GDK_BACKEND=x11 ADW_DISABLE_PORTAL=1 GSETTINGS_BACKEND=keyfile \
-    DISPLAY=":$DISPLAY_NUM" "./$BINARY" &
+    DISPLAY=":$DISPLAY_NUM" dbus-run-session -- "./$BINARY" &
   APP_PID=$!
 
   echo "==> Waiting for window to render and document to compile"
