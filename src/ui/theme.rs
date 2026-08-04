@@ -130,3 +130,17 @@ pub fn ref_colors(widget: &impl IsA<gtk4::Widget>) -> RefColors {
         inline_fg: accent,
     }
 }
+
+/// The canvas the preview pages sit on, as (r, g, b) in 0..1.
+///
+/// Queried at draw time rather than cached: a colour-scheme change has to be
+/// reflected immediately, and a cached value would leave the preview on a light
+/// grey ground in a dark window. It was a hardcoded 0.82 grey before, which did
+/// exactly that.
+pub fn preview_ground() -> (f64, f64, f64) {
+    if is_dark() {
+        (0.10, 0.11, 0.12)
+    } else {
+        (0.82, 0.82, 0.82)
+    }
+}

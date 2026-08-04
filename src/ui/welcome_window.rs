@@ -127,7 +127,8 @@ impl WelcomeWindow {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
                 "Changed: the header bar is down from twelve controls to four. Simple, focus, Library and notes moved to the status bar with the other mode words, Git is a word there rather than an icon, and compile mode and compile-now moved next to the editor. Print is in the menu",
-                "Changed: the Outline and Citations panels now announce themselves with a coloured dot, their name in small capitals, and a count beside it",
+                "Changed: the Outline and Citations panels now announce themselves with a coloured dot, their name in small capitals, and a count beside it. Their rows are grouped into one rounded card with hairlines between them, and the current row is marked by a quiet wash",
+                "Fixed: the preview canvas was a fixed light grey, so in a dark window the pages sat on a pale slab. It follows the colour scheme now",
                 "Removed: the Plan panel. Its button became the Notes toggle, which is how the right-hand sidebar opens",
                 "New: Zerkalo now draws on the shared style used across the whole suite, so it, Rubric and the rest describe a section, a row and a surface the same way",
                 "Changed: the header bar, status bar, sidebar panels and preview each sit on their own surface, instead of every part of the window being the same near-white",
