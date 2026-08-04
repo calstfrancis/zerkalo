@@ -115,6 +115,7 @@ impl PreviewPane {
 
         // ── ready page: DrawingArea inside ScrolledWindow ─────────────────────
         let img_scroll = ScrolledWindow::new();
+        img_scroll.add_css_class("fond-ground");
         img_scroll.set_hexpand(true);
         img_scroll.set_vexpand(true);
 

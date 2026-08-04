@@ -126,6 +126,9 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
+                "New: Zerkalo now draws on the shared style used across the whole suite, so it, Rubric and the rest describe a section, a row and a surface the same way",
+                "Changed: the header bar, status bar, sidebar panels and preview each sit on their own surface, instead of every part of the window being the same near-white",
+                "Fixed: icons came from the desktop's icon theme, so under KDE they were drawn from Breeze — the right names but a different family from the interface around them. They are drawn from Adwaita now, whatever the desktop uses. Colour scheme, accent and font still follow the system",
                 "Fixed: every category in the library sidebar was the same blue. Categories you haven't coloured yourself get their own colour again, and existing libraries pick it up on first open",
                 "Fixed: memory grew for the whole time Zerkalo was open — every recompile added permanently to a cache nothing was clearing, so a long writing session leaked steadily",
                 "Changed: Zerkalo no longer writes your document to disk every 30 seconds. Files change when you save them, and the crash-recovery copy — which the old timer kept deleting — now actually works",

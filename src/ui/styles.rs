@@ -6,6 +6,12 @@
 //! colors for a specific category chip, live font-size providers, etc.)
 //! still lives next to the code that computes it.
 
+/// The suite's shared interface layer, vendored from fond-style. Loaded before
+/// GLOBAL_CSS so app rules can still override it. Do not edit the copy in
+/// `style/` — change it in fond-style and run its `sync.sh`, or the next sync
+/// silently reverts you.
+const FOND_CSS: &str = include_str!("../../style/fond.css");
+
 const GLOBAL_CSS: &str = ".navigation-sidebar > row:hover:not(:selected) { \
         background-color: alpha(@accent_color, 0.08); \
     } \
@@ -226,12 +232,26 @@ const GLOBAL_CSS: &str = ".navigation-sidebar > row:hover:not(:selected) { \
 /// per process at startup in practice).
 pub fn load_global_css() {
     let css = gtk4::CssProvider::new();
-    css.load_from_data(GLOBAL_CSS);
+    css.load_from_data(&format!("{FOND_CSS}\n{GLOBAL_CSS}"));
     if let Some(display) = gtk4::gdk::Display::default() {
         gtk4::style_context_add_provider_for_display(
             &display,
             &css,
             gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
         );
+    }
+}
+
+/// Draws icons from Adwaita whatever the desktop's icon theme is.
+///
+/// Symbolic icon *names* are shared between themes but the drawings are not.
+/// Under KDE this resolves them from Breeze, where `document-save-symbolic` is
+/// a floppy disk rather than a download arrow — fine icons, but a different
+/// family from the one a libadwaita interface is drawn against, so the window
+/// ends up mixing two icon languages. Only the icon theme is pinned; colour
+/// scheme, accent and font still come from the system.
+pub fn pin_icon_theme() {
+    if let Some(settings) = gtk4::Settings::default() {
+        settings.set_gtk_icon_theme_name(Some("Adwaita"));
     }
 }
