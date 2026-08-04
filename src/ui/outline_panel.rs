@@ -5,7 +5,7 @@ use std::rc::Rc;
 use gtk4::prelude::*;
 use gtk4::{
     Box as GtkBox, FlowBox, Image, Label, ListBox, ListBoxRow, Notebook, Orientation,
-    ScrolledWindow, SelectionMode, Separator, Stack, ToggleButton,
+    ScrolledWindow, SelectionMode, Stack, ToggleButton,
 };
 
 type JumpCb = Rc<RefCell<Option<Box<dyn Fn(PathBuf, u32)>>>>;
@@ -71,28 +71,34 @@ impl OutlinePanel {
         outline_hdr.append(&outline_count);
         widget.append(&outline_hdr);
 
-        widget.append(&seg_box);
 
         // ── Depth filter row ─────────────────────────────────────────────────
         let max_depth: Rc<Cell<u32>> = Rc::new(Cell::new(u32::MAX));
+
+        // Declared before the depth buttons: each of them updates it as it is
+        // chosen, so the header always says which level is in force.
+        let depth_btn_label = Label::new(Some("All"));
+        depth_btn_label.add_css_class("caption");
 
         let depth_box = GtkBox::new(Orientation::Horizontal, 0);
         depth_box.add_css_class("linked");
         depth_box.set_margin_start(8);
         depth_box.set_margin_end(8);
-        depth_box.set_margin_top(4);
-        depth_box.set_margin_bottom(4);
-
-        let depth_lbl = Label::new(Some("Depth: "));
-        depth_lbl.add_css_class("caption");
-        depth_lbl.add_css_class("dim-label");
-        depth_lbl.set_margin_end(4);
-        depth_box.append(&depth_lbl);
+        depth_box.set_margin_top(6);
+        depth_box.set_margin_bottom(6);
 
         let all_btn = ToggleButton::with_label("All");
         all_btn.set_active(true);
         all_btn.add_css_class("flat");
         all_btn.add_css_class("caption");
+        {
+            let lbl = depth_btn_label.clone();
+            all_btn.connect_toggled(move |b| {
+                if b.is_active() {
+                    lbl.set_text("All");
+                }
+            });
+        }
 
         // Depth buttons — closures stored for wiring after Self is built
         let depth_buttons: Vec<(ToggleButton, u32)> = [("H1", 1u32), ("H1–2", 2), ("H1–3", 3)]
@@ -103,13 +109,38 @@ impl OutlinePanel {
                 btn.add_css_class("flat");
                 btn.add_css_class("caption");
                 depth_box.append(&btn);
+                {
+                    let lbl = depth_btn_label.clone();
+                    let text = (*label).to_string();
+                    btn.connect_toggled(move |b| {
+                        if b.is_active() {
+                            lbl.set_text(&text);
+                        }
+                    });
+                }
                 (btn, *depth)
             })
             .collect();
         depth_box.append(&all_btn);
 
-        widget.append(&depth_box);
-        widget.append(&Separator::new(Orientation::Horizontal));
+        // Depth lives behind a button in the section header, showing the level
+        // in force. The four chips were a row of their own above the outline.
+        let depth_popover = gtk4::Popover::new();
+        depth_popover.set_child(Some(&depth_box));
+        let depth_btn = gtk4::MenuButton::new();
+        depth_btn.set_popover(Some(&depth_popover));
+        depth_btn.add_css_class("flat");
+        depth_btn.add_css_class("fond-quiet");
+        depth_btn.set_tooltip_text(Some("Which heading levels to show"));
+        depth_btn.set_child(Some(&depth_btn_label));
+        depth_btn.set_valign(gtk4::Align::Center);
+
+        let hdr_spacer = GtkBox::new(Orientation::Horizontal, 0);
+        hdr_spacer.set_hexpand(true);
+        outline_hdr.append(&hdr_spacer);
+        outline_hdr.append(&depth_btn);
+        seg_box.set_valign(gtk4::Align::Center);
+        outline_hdr.append(&seg_box);
 
         let stack = Stack::new();
         stack.set_vexpand(true);

@@ -1998,7 +1998,7 @@ impl AppWindow {
             current_config: current_config.clone(),
             project_root: project_root.clone(),
         });
-        let left_box = wire_sidebar_toolbar(&SidebarToolbarCtx {
+        let (left_box, template_btn) = wire_sidebar_toolbar(&SidebarToolbarCtx {
             window: window.clone(),
             editor_pane: editor_pane.clone(),
             preview_pane: preview_pane.clone(),
@@ -2008,7 +2008,11 @@ impl AppWindow {
             project_root: project_root.clone(),
             left_paned_holder: left_paned_holder.clone(),
         });
-        // ── Right sidebar (Plan + Notes tabs) ────────────────────────────────
+        // Template is a document-level action, so it sits with the others in the
+        // header rather than as the one non-panel row in the sidebar column.
+        header.pack_start(&template_btn);
+
+        // ── Right sidebar (Notes) ───────────────────────────────────────────
         let right_sidebar = GtkBox::new(Orientation::Vertical, 0);
         right_sidebar.set_width_request(260);
         right_sidebar.set_vexpand(true);
