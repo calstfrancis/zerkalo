@@ -24,6 +24,10 @@ use super::find_bar::FindBar;
 use super::lsp_popup::LspPopup;
 
 // Package names/descriptions matching EXTRA_PACKAGES in template_dialog.rs
+/// The buffer mark `jump_to_line` scrolls to. Named, so one mark per buffer is
+/// reused rather than created and destroyed per jump.
+const JUMP_MARK: &str = "zerkalo-jump";
+
 const IMPORT_PACKAGE_TOOLTIPS: &[(&str, &str)] = &[
     ("droplet", "Large decorative first-letter (dropcap)"),
     ("codly", "Beautiful code listings with syntax highlighting"),
@@ -5105,9 +5109,23 @@ impl EditorPane {
             line_end.forward_to_line_end();
             // Select the heading text so it's visually highlighted
             tab.buffer.select_range(&line_start, &line_end);
-            // Scroll so the heading is vertically centered
-            let mut scroll_iter = line_start;
-            tab.view.scroll_to_iter(&mut scroll_iter, 0.0, true, 0.0, 0.5);
+            // Scroll to a mark, not to the iter. scroll_to_iter works off the
+            // view's current idea of where that line is, which is wrong — and
+            // reported as fine — until the view has validated the lines in
+            // between; on a tab that was just switched to, or one never
+            // scrolled, the jump silently does nothing. GTK holds a mark until
+            // the layout is valid and then scrolls to it. One reused mark, not
+            // one per jump: a fresh mark would have to be deleted afterwards,
+            // and deleting it cancels the very scroll it was created for.
+            let mark = match tab.buffer.mark(JUMP_MARK) {
+                Some(mark) => {
+                    tab.buffer.move_mark(&mark, &line_start);
+                    mark
+                }
+                None => tab.buffer.create_mark(Some(JUMP_MARK), &line_start, false),
+            };
+            tab.view.scroll_to_mark(&mark, 0.0, true, 0.0, 0.5);
+            tab.view.grab_focus();
         }
     }
 

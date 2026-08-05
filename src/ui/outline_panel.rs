@@ -25,6 +25,10 @@ pub struct OutlinePanel {
     max_depth: Rc<Cell<u32>>,
     /// Cached input for depth-filter re-renders.
     cached_files: Rc<RefCell<Vec<(PathBuf, String)>>>,
+    /// Set while the panel is selecting a row to follow the cursor, so that
+    /// selection does not bounce back and jump the editor to the heading the
+    /// user is merely typing under.
+    syncing: Rc<Cell<bool>>,
     /// The count set beside the section title.
     outline_count: Label,
 }
@@ -236,17 +240,42 @@ impl OutlinePanel {
 
         let on_jump: JumpCb = Rc::new(RefCell::new(None));
         let row_positions: Rc<RefCell<Vec<(PathBuf, u32)>>> = Rc::new(RefCell::new(Vec::new()));
+        let syncing: Rc<Cell<bool>> = Rc::new(Cell::new(false));
 
-        {
+        // Jump on both activation and selection. Activation alone is what a
+        // list is supposed to need, but it is one signal deep in a stack of
+        // gestures — if anything upstream claims the click, the heading does
+        // nothing when clicked, which is the whole point of an outline.
+        // Selection covers the click; activation covers Enter and a click on
+        // the row that is already selected. Jumping twice to the same line is
+        // harmless; not jumping at all is not.
+        let fire = {
             let on_jump_c = on_jump.clone();
             let row_positions_c = row_positions.clone();
-            list_box.connect_row_activated(move |_, row| {
-                let idx = row.index() as usize;
-                let positions = row_positions_c.borrow();
-                if let Some((path, ln)) = positions.get(idx).cloned() {
+            move |idx: usize| {
+                let target = row_positions_c.borrow().get(idx).cloned();
+                if let Some((path, ln)) = target {
                     if let Some(f) = on_jump_c.borrow().as_ref() {
                         f(path, ln);
                     }
+                }
+            }
+        };
+
+        {
+            let fire = fire.clone();
+            list_box.connect_row_activated(move |_, row| fire(row.index() as usize));
+        }
+        {
+            let syncing_c = syncing.clone();
+            list_box.connect_row_selected(move |_, row| {
+                // Following the cursor selects rows too; that must not drag the
+                // editor to wherever the user happens to be typing.
+                if syncing_c.get() {
+                    return;
+                }
+                if let Some(row) = row {
+                    fire(row.index() as usize);
                 }
             });
         }
@@ -256,6 +285,7 @@ impl OutlinePanel {
             widget, list_box, on_jump, on_symbol_insert, stack, outline_btn, symbols_btn,
             row_positions, max_depth,
             cached_files: Rc::new(RefCell::new(Vec::new())),
+            syncing,
         };
 
         // Wire depth toggle buttons
@@ -423,6 +453,7 @@ impl OutlinePanel {
     pub fn select_for_line(&self, path: &PathBuf, line: u32) {
         let positions = self.row_positions.borrow();
         let idx = positions.iter().rposition(|(p, l)| p == path && *l <= line);
+        self.syncing.set(true);
         match idx {
             Some(i) => {
                 self.list_box.select_row(self.list_box.row_at_index(i as i32).as_ref());
@@ -431,6 +462,7 @@ impl OutlinePanel {
                 self.list_box.unselect_all();
             }
         }
+        self.syncing.set(false);
     }
 
     pub fn set_on_jump(&self, f: impl Fn(PathBuf, u32) + 'static) {

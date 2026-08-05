@@ -2639,6 +2639,20 @@ impl AppWindow {
         });
 
         self.window.present();
+
+        // A window only reachable by clicking cannot be captured headlessly:
+        // on an Xvfb display with no window manager, neither synthetic clicks
+        // nor key presses activate anything (verified — the pointer hovers and
+        // nothing else lands). This opens the library at startup so a
+        // screenshot script can see it. Debug builds only; it cannot fire for
+        // a user.
+        #[cfg(debug_assertions)]
+        if std::env::var_os("ZERKALO_OPEN_LIBRARY").is_some() {
+            // The library DB is loaded on a worker and swapped in later, so
+            // opening now would refresh against the empty placeholder.
+            let lw = self.library_window.clone();
+            glib::timeout_add_local_once(Duration::from_secs(3), move || lw.toggle());
+        }
     }
 }
 

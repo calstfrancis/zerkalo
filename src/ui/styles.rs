@@ -14,6 +14,15 @@ const FOND_CSS: &str = include_str!("../../style/fond.css");
 
 const GLOBAL_CSS: &str = ".fond-accent-outline { color: #1F5E75; } \
     .fond-accent-citations { color: #8A6A24; } \
+    .fond-accent-library { color: #1F5E75; } \
+    .fond-accent-pinned { color: #8A6A24; } \
+    /* A cue for a row that has no colour of its own — themed, so it stays \
+       legible in both schemes, unlike a literal hex. */ \
+    .fond-cue-neutral { background: alpha(@window_fg_color, 0.22); } \
+    /* The library's multi-select. The list itself is SelectionMode::None \
+       because selection is tracked by the window, so the :selected rule in \
+       fond.css never applies — this says the same thing in a class. */ \
+    .doc-selected { background: alpha(@window_fg_color, 0.09); } \
     .navigation-sidebar > row:hover:not(:selected) { \
         background-color: alpha(@accent_color, 0.08); \
     } \
@@ -172,50 +181,8 @@ const GLOBAL_CSS: &str = ".fond-accent-outline { color: #1F5E75; } \
     .shake-banner { \
         animation: shake 0.5s ease-in-out; \
     } \
-    .category-chip { \
-        background: alpha(@accent_color, 0.15); \
-        color: @accent_color; \
-        border-radius: 4px; \
-        padding: 1px 6px; \
-        font-size: 0.8em; \
-    } \
-    .tag-chip { \
-        background: alpha(@window_fg_color, 0.12); \
-        border-radius: 4px; \
-        padding: 1px 6px; \
-        font-size: 0.75em; \
-    } \
-    .sidebar-header { \
-        font-size: 0.75em; \
-        font-weight: bold; \
-        color: alpha(@window_fg_color, 0.55); \
-        padding: 8px 12px 2px 12px; \
-    } \
     .doc-title { \
         font-weight: 600; \
-    } \
-    .selected-doc { \
-        background: alpha(@accent_color, 0.12); \
-        border-left: 3px solid @accent_color; \
-        padding-left: 5px; \
-    } \
-    .selected-doc:focus-visible { \
-        outline: 2px solid @accent_color; \
-        outline-offset: -2px; \
-    } \
-    .pinned-doc { \
-        border-left: 2px solid @accent_color; \
-        padding-left: 6px; \
-    } \
-    .compact-active { \
-        font-weight: bold; \
-    } \
-    .count-badge { \
-        min-width: 24px; \
-        border-radius: 8px; \
-        background: alpha(@window_fg_color, 0.08); \
-        padding: 0 4px; \
-        font-size: 0.8em; \
     } \
     .chip-active { \
         background: alpha(@accent_color, 0.25); \
@@ -283,6 +250,67 @@ pub fn fond_section_header(title: &str, accent: &str) -> gtk4::Box {
     bx.append(&lbl);
 
     bx
+}
+
+/// A cue dot in the suite's form: a drawn 9x9 box, not a glyph. "●" renders at
+/// roughly a third of its font size, so matching the design target by font-size
+/// alone is hopeless, and a 50% radius does not round a box this small in GTK's
+/// renderer — fond.css uses an absolute one.
+///
+/// Pass a hex colour for a cue that carries meaning (a category's colour), or
+/// `None` for a row that has none, which draws a faint neutral instead of
+/// leaving the titles unaligned.
+pub fn fond_cue(color: Option<&str>) -> gtk4::Box {
+    use gtk4::prelude::*;
+    let cue = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+    cue.add_css_class("fond-cue");
+    cue.set_size_request(9, 9);
+    cue.set_valign(gtk4::Align::Center);
+    match color {
+        Some(hex) => cue.add_css_class(&cue_class_for(hex)),
+        None => cue.add_css_class("fond-cue-neutral"),
+    }
+    cue
+}
+
+/// A CSS class that paints a cue in `hex`, registered display-wide the first
+/// time that colour is asked for.
+///
+/// The obvious way to colour one widget — its own `CssProvider` on its own
+/// style context — has been deprecated since GTK 4.10, and a library of a few
+/// hundred documents would build one provider per row besides. A class per
+/// distinct colour is registered once and shared by every row using it.
+fn cue_class_for(hex: &str) -> String {
+    use std::cell::RefCell;
+    use std::collections::HashSet;
+
+    thread_local! {
+        static REGISTERED: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
+    }
+
+    let slug: String = hex
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect::<String>()
+        .to_lowercase();
+    let class = format!("fond-cue-{slug}");
+
+    REGISTERED.with(|reg| {
+        if !reg.borrow_mut().insert(class.clone()) {
+            return;
+        }
+        let provider = gtk4::CssProvider::new();
+        provider.load_from_data(&format!(".{class} {{ background: {hex}; }}"));
+        if let Some(display) = gtk4::gdk::Display::default() {
+            gtk4::style_context_add_provider_for_display(
+                &display,
+                &provider,
+                gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+            );
+        }
+    });
+
+    class
 }
 
 /// The count or summary that follows a section title.
