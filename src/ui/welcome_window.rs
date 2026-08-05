@@ -127,6 +127,9 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
+                "Changed: the Library is drawn in the same design as the rest of Zerkalo — documents are single-line cards grouped under Pinned and Documents, each with one coloured dot for its category, its tags set quietly after the title, and the date and word count aligned right",
+                "Changed: a tag's dot in the Library sidebar is the colour that tag was given, rather than a red-to-blue ramp by how often it had been used",
+                "Fixed: clicking a heading in the Outline now moves the editor to it",
                 "Changed: the header bar is down from twelve controls to four. Simple, focus, Library and notes moved to the status bar with the other mode words, Git is a word there rather than an icon, and compile mode and compile-now moved next to the editor. Print is in the menu",
                 "Changed: the Outline and Citations panels now announce themselves with a coloured dot, their name in small capitals, and a count beside it. Their rows are grouped into one rounded card with hairlines between them, and the current row is marked by a quiet wash",
                 "Changed: Help is a button under the preview again rather than inside the overflow, and autocorrect moved to the menu beside the interface-font switch",
