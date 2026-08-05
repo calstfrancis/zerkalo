@@ -72,6 +72,7 @@ impl LibraryWindow {
         sidebar.set_width_request(220);
 
         let sidebar_header = adw::HeaderBar::new();
+        sidebar_header.add_css_class("fond-chrome");
         sidebar_header.add_css_class("flat");
         sidebar_header.set_show_start_title_buttons(false);
         sidebar_header.set_show_end_title_buttons(false);
@@ -128,9 +129,11 @@ impl LibraryWindow {
 
         // ── Right area ──────────────────────────────────────────────────────
         let right = adw::ToolbarView::new();
+        right.set_top_bar_style(adw::ToolbarStyle::RaisedBorder);
         right.set_hexpand(true);
 
         let right_header = adw::HeaderBar::new();
+        right_header.add_css_class("fond-chrome");
         right_header.set_show_title(false);
 
         let search_entry = SearchEntry::new();

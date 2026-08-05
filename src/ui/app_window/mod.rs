@@ -790,6 +790,7 @@ impl AppWindow {
             dlg.set_deletable(true);
 
             let header_dlg = adw::HeaderBar::new();
+            header_dlg.add_css_class("fond-chrome");
             let title_lbl = gtk4::Label::new(Some("Import"));
             title_lbl.add_css_class("heading");
             header_dlg.set_title_widget(Some(&title_lbl));
@@ -1876,6 +1877,7 @@ impl AppWindow {
             secondary.refresh_display();
 
             let header_po = adw::HeaderBar::new();
+            header_po.add_css_class("fond-chrome");
 
             let po_zoom_out = Button::from_icon_name("zoom-out-symbolic");
             po_zoom_out.add_css_class("flat");
@@ -1946,6 +1948,7 @@ impl AppWindow {
             header_po.pack_end(&print_btn);
 
             let tv_po = adw::ToolbarView::new();
+            tv_po.set_top_bar_style(adw::ToolbarStyle::RaisedBorder);
             tv_po.add_top_bar(&header_po);
             tv_po.set_content(Some(secondary.widget()));
 
@@ -2128,6 +2131,7 @@ impl AppWindow {
         toast_overlay.set_child(Some(&main_content));
 
         let toolbar_view = adw::ToolbarView::new();
+        toolbar_view.set_top_bar_style(adw::ToolbarStyle::RaisedBorder);
         toolbar_view.add_top_bar(&header);
         toolbar_view.add_bottom_bar(&compile_rev);
         toolbar_view.set_content(Some(&toast_overlay));

@@ -1584,6 +1584,7 @@ fn wire_preview_code_button(
             pwin.set_modal(false);
 
             let pheader = adw::HeaderBar::new();
+            pheader.add_css_class("fond-chrome");
             let close_btn = Button::with_label("Close");
             close_btn.add_css_class("flat");
             let pwin2 = pwin.clone();
@@ -1605,6 +1606,7 @@ fn wire_preview_code_button(
             scroll.set_child(Some(&tv));
 
             let toolbar_view = adw::ToolbarView::new();
+            toolbar_view.set_top_bar_style(adw::ToolbarStyle::RaisedBorder);
             toolbar_view.add_top_bar(&pheader);
             toolbar_view.set_content(Some(&scroll));
             pwin.set_content(Some(&toolbar_view));
@@ -1714,6 +1716,7 @@ impl TemplateDialog {
         let cv_elements_path: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
 
         let header = adw::HeaderBar::new();
+        header.add_css_class("fond-chrome");
         let cancel_btn = Button::with_label("Cancel");
         cancel_btn.add_css_class("flat");
         header.pack_start(&cancel_btn);
@@ -1890,6 +1893,7 @@ impl TemplateDialog {
 
         // ── Layout ───────────────────────────────────────────────────────────
         let toolbar_view = adw::ToolbarView::new();
+        toolbar_view.set_top_bar_style(adw::ToolbarStyle::RaisedBorder);
         toolbar_view.add_top_bar(&header);
         toolbar_view.set_content(Some(&notebook));
         window.set_content(Some(&toolbar_view));

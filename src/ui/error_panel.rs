@@ -307,7 +307,10 @@ impl ErrorPanel {
         // ── Error list ───────────────────────────────────────────────────────
         let list_box = ListBox::new();
         list_box.set_selection_mode(SelectionMode::Browse);
-        list_box.add_css_class("boxed-list");
+        list_box.add_css_class("fond-list");
+        list_box.set_margin_start(8);
+        list_box.set_margin_end(8);
+        list_box.set_margin_bottom(6);
 
         let scroll = ScrolledWindow::new();
         scroll.set_child(Some(&list_box));
@@ -637,6 +640,7 @@ impl ErrorPanel {
             }
             self.append_row(err);
         }
+        self.round_card_runs();
 
         if self.collapsed.get() {
             self.collapsed.set(false);
@@ -672,20 +676,52 @@ impl ErrorPanel {
         }
     }
 
+    /// Round the ends of each run of error rows. A file header breaks the run,
+    /// so a list covering several files reads as one card per file rather than
+    /// one long box with headings inside it.
+    fn round_card_runs(&self) {
+        let mut i = 0;
+        let mut run_start: Option<gtk4::ListBoxRow> = None;
+        let mut prev: Option<gtk4::ListBoxRow> = None;
+        loop {
+            let row = self.list_box.row_at_index(i);
+            let is_card = row.as_ref().is_some_and(|r| r.has_css_class("fond-card"));
+            if is_card {
+                let r = row.clone().unwrap();
+                if run_start.is_none() {
+                    r.add_css_class("fond-card-first");
+                    run_start = Some(r.clone());
+                }
+                prev = Some(r);
+            } else {
+                if let Some(last) = prev.take() {
+                    last.add_css_class("fond-card-last");
+                }
+                run_start = None;
+            }
+            if row.is_none() {
+                break;
+            }
+            i += 1;
+        }
+    }
+
     fn append_file_header(&self, file: &Path) {
         let row = ListBoxRow::new();
         row.set_activatable(false);
         row.set_selectable(false);
+        row.add_css_class("fond-section");
 
+        // A file name grouping errors beneath it is a section header, so it is
+        // set like one rather than as a dim caption.
         let lbl = Label::new(Some(
             file.file_name().and_then(|n| n.to_str()).unwrap_or("?")
         ));
         lbl.set_halign(Align::Start);
-        lbl.set_margin_start(10);
-        lbl.set_margin_top(4);
+        lbl.set_margin_start(4);
+        lbl.set_margin_top(8);
         lbl.set_margin_bottom(2);
-        lbl.add_css_class("caption");
-        lbl.add_css_class("dim-label");
+        lbl.add_css_class("fond-section-title");
 
         row.set_child(Some(&lbl));
         self.list_box.append(&row);
@@ -694,12 +730,12 @@ impl ErrorPanel {
     fn append_row(&self, err: CompileError) {
         let row = ListBoxRow::new();
         row.set_activatable(true);
+        row.add_css_class("fond-card");
+        row.add_css_class("fond-row");
         // Store the message as the widget name so the filter function can read it
         row.set_widget_name(&err.message.to_lowercase());
 
         let row_box = GtkBox::new(Orientation::Horizontal, 8);
-        row_box.set_margin_top(6);
-        row_box.set_margin_bottom(6);
         row_box.set_margin_start(10);
         row_box.set_margin_end(10);
 

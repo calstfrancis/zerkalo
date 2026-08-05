@@ -33,6 +33,7 @@ impl WelcomeWindow {
             .build();
 
         let header = adw::HeaderBar::new();
+        header.add_css_class("fond-chrome");
 
         let outer = GtkBox::new(Orientation::Vertical, 0);
 
@@ -128,6 +129,7 @@ impl WelcomeWindow {
             for item in [
                 "Changed: the header bar is down from twelve controls to four. Simple, focus, Library and notes moved to the status bar with the other mode words, Git is a word there rather than an icon, and compile mode and compile-now moved next to the editor. Print is in the menu",
                 "Changed: the Outline and Citations panels now announce themselves with a coloured dot, their name in small capitals, and a count beside it. Their rows are grouped into one rounded card with hairlines between them, and the current row is marked by a quiet wash",
+                "Changed: every window and dialog — Library, Settings, Help, Export, Font Management, the setup wizard and the rest — now shares the main window's header surface, so a window opened from Zerkalo looks like Zerkalo. The changelog announces its sections the same way the sidebar does",
                 "Changed: Update Template is now \"Template\" in the header bar, and the heading-depth filter is a button in the Outline header showing the level in force. The sidebar is its two panels and nothing else",
                 "Changed: the bar under the preview is down from ten controls to five — where you are, how large the page is, and how the last compile went, with fit, the cheatsheet and open-in-a-window behind one button",
                 "Fixed: the preview canvas was a fixed light grey, so in a dark window the pages sat on a pale slab. It follows the colour scheme now",
@@ -240,6 +242,7 @@ impl WelcomeWindow {
         outer.append(&footer);
 
         let toolbar_view = adw::ToolbarView::new();
+        toolbar_view.set_top_bar_style(adw::ToolbarStyle::RaisedBorder);
         toolbar_view.add_top_bar(&header);
         toolbar_view.set_content(Some(&outer));
         window.set_content(Some(&toolbar_view));

@@ -171,6 +171,7 @@ impl SnapshotDialog {
             Rc::new(RefCell::new(None));
 
         let header = adw::HeaderBar::new();
+        header.add_css_class("fond-chrome");
         let close_btn = Button::with_label("Close");
         header.pack_end(&close_btn);
 

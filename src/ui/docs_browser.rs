@@ -31,6 +31,7 @@ impl DocsBrowser {
         let on_open: OpenCb = Rc::new(RefCell::new(None));
 
         let header = adw::HeaderBar::new();
+        header.add_css_class("fond-chrome");
 
         let search_entry = Entry::new();
         search_entry.set_placeholder_text(Some("Search documents…"));
@@ -81,6 +82,7 @@ impl DocsBrowser {
         });
 
         let toolbar_view = adw::ToolbarView::new();
+        toolbar_view.set_top_bar_style(adw::ToolbarStyle::RaisedBorder);
         toolbar_view.add_top_bar(&header);
 
         let content = GtkBox::new(Orientation::Vertical, 0);

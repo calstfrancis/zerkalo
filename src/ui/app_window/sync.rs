@@ -113,6 +113,7 @@ fn show_github_token_dialog(
         .build();
 
     let header = adw::HeaderBar::new();
+    header.add_css_class("fond-chrome");
     header.set_show_end_title_buttons(false);
 
     let label = gtk4::Label::new(Some(message));
@@ -207,6 +208,7 @@ pub(super) fn show_backup_remote_dialog(window: &adw::ApplicationWindow, repo_pa
         .build();
 
     let header = adw::HeaderBar::new();
+    header.add_css_class("fond-chrome");
     header.set_show_end_title_buttons(false);
     let close_btn = Button::with_label("Close");
     close_btn.add_css_class("flat");
@@ -490,6 +492,7 @@ pub(super) fn show_backup_remote_dialog(window: &adw::ApplicationWindow, repo_pa
     page.add(&hint_group);
 
     let toolbar = adw::ToolbarView::new();
+    toolbar.set_top_bar_style(adw::ToolbarStyle::RaisedBorder);
     toolbar.add_top_bar(&header);
     toolbar.set_content(Some(&page));
     dialog.set_content(Some(&toolbar));

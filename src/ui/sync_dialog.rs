@@ -28,6 +28,7 @@ impl SyncDialog {
         // ── Header bar ──────────────────────────────────────────────────────
 
         let header = adw::HeaderBar::new();
+        header.add_css_class("fond-chrome");
         header.set_show_end_title_buttons(false);
 
         let cancel_btn = Button::with_label("Cancel");
@@ -62,6 +63,7 @@ impl SyncDialog {
         // ── Toolbar view ─────────────────────────────────────────────────────
 
         let toolbar_view = adw::ToolbarView::new();
+        toolbar_view.set_top_bar_style(adw::ToolbarStyle::RaisedBorder);
         toolbar_view.add_top_bar(&header);
         toolbar_view.set_content(Some(&content));
         window.set_content(Some(&toolbar_view));

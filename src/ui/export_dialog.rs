@@ -55,6 +55,7 @@ impl ExportDialog {
         window.set_resizable(true);
 
         let header = adw::HeaderBar::new();
+        header.add_css_class("fond-chrome");
 
         let content = GtkBox::new(Orientation::Vertical, 0);
 
@@ -132,6 +133,7 @@ impl ExportDialog {
         content.append(&btn_row);
 
         let toolbar_view = adw::ToolbarView::new();
+        toolbar_view.set_top_bar_style(adw::ToolbarStyle::RaisedBorder);
         toolbar_view.add_top_bar(&header);
         toolbar_view.set_content(Some(&content));
         window.set_content(Some(&toolbar_view));

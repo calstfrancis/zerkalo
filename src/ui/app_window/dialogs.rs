@@ -66,7 +66,9 @@ pub(super) fn show_doc_stats(
     scroll.set_child(Some(&group));
 
     let header = adw::HeaderBar::new();
+    header.add_css_class("fond-chrome");
     let toolbar = adw::ToolbarView::new();
+    toolbar.set_top_bar_style(adw::ToolbarStyle::RaisedBorder);
     toolbar.add_top_bar(&header);
     toolbar.set_content(Some(&scroll));
     win.set_content(Some(&toolbar));
@@ -85,6 +87,7 @@ pub(super) fn show_changelog(parent: &impl IsA<gtk4::Window>) {
     win.set_modal(false);
 
     let header = adw::HeaderBar::new();
+    header.add_css_class("fond-chrome");
     let title_widget = adw::WindowTitle::new(
         "Changelog",
         &format!("You're on v{CURRENT_VERSION}"),
@@ -140,14 +143,27 @@ pub(super) fn show_changelog(parent: &impl IsA<gtk4::Window>) {
                 body.append(&title_lbl);
             }
         } else if let Some(text) = trimmed.strip_prefix("### ") {
+            // Added / Changed / Fixed are sections, so they are announced the
+            // way every other section in the suite is: a dot, then the name in
+            // letterspaced small capitals.
+            let row = gtk4::Box::new(Orientation::Horizontal, 6);
+            row.add_css_class("fond-section");
+            row.set_margin_top(10);
+            row.set_margin_start(4);
+            row.set_margin_bottom(2);
+
+            let dot = gtk4::Label::new(Some("\u{25cf}"));
+            dot.add_css_class("fond-section-dot");
+            dot.add_css_class("dim-label");
+            dot.set_valign(gtk4::Align::Center);
+            row.append(&dot);
+
             let lbl = gtk4::Label::new(Some(text));
-            lbl.add_css_class("heading");
+            lbl.add_css_class("fond-section-title");
             lbl.set_xalign(0.0);
-            lbl.set_margin_top(8);
-            lbl.set_margin_start(4);
-            lbl.set_margin_bottom(2);
-            lbl.set_wrap(true);
-            body.append(&lbl);
+            lbl.set_valign(gtk4::Align::Center);
+            row.append(&lbl);
+            body.append(&row);
         } else if let Some(content) = trimmed.strip_prefix("- ") {
             body.append(&changelog_bullet(content));
         }
@@ -163,6 +179,7 @@ pub(super) fn show_changelog(parent: &impl IsA<gtk4::Window>) {
 
     let toolbar = adw::ToolbarView::new();
     toolbar.add_top_bar(&header);
+    toolbar.set_top_bar_style(adw::ToolbarStyle::RaisedBorder);
     toolbar.set_content(Some(&scroll));
     win.set_content(Some(&toolbar));
     win.present();
