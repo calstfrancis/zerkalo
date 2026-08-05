@@ -39,6 +39,7 @@ impl SetupWizard {
             .build();
 
         let header = adw::HeaderBar::new();
+        header.add_css_class("fond-chrome");
 
         let scroll = ScrolledWindow::new();
         scroll.set_vexpand(true);
@@ -186,6 +187,7 @@ impl SetupWizard {
         outer.append(&footer);
 
         let toolbar_view = adw::ToolbarView::new();
+        toolbar_view.set_top_bar_style(adw::ToolbarStyle::RaisedBorder);
         toolbar_view.add_top_bar(&header);
         toolbar_view.set_content(Some(&outer));
         window.set_content(Some(&toolbar_view));

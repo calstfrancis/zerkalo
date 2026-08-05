@@ -492,6 +492,7 @@ fn open_new_entry_dialog(parent: Option<&gtk4::Window>, panel: RefManager) {
     }
 
     let header = adw::HeaderBar::new();
+    header.add_css_class("fond-chrome");
     header.set_show_end_title_buttons(false);
 
     let cancel_btn = Button::with_label("Cancel");
@@ -535,6 +536,7 @@ fn open_new_entry_dialog(parent: Option<&gtk4::Window>, panel: RefManager) {
     page.add(&meta_group);
 
     let toolbar = adw::ToolbarView::new();
+    toolbar.set_top_bar_style(adw::ToolbarStyle::RaisedBorder);
     toolbar.add_top_bar(&header);
     toolbar.set_content(Some(&page));
     dialog.set_content(Some(&toolbar));

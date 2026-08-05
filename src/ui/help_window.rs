@@ -357,6 +357,7 @@ impl HelpWindow {
         window.set_modal(false);
 
         let header = adw::HeaderBar::new();
+        header.add_css_class("fond-chrome");
         let notebook = Notebook::new();
         notebook.set_scrollable(true);
 
@@ -387,6 +388,7 @@ impl HelpWindow {
         }
 
         let toolbar = adw::ToolbarView::new();
+        toolbar.set_top_bar_style(adw::ToolbarStyle::RaisedBorder);
         toolbar.add_top_bar(&header);
         toolbar.set_content(Some(&notebook));
         window.set_content(Some(&toolbar));

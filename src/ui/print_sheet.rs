@@ -65,6 +65,7 @@ impl PrintSheet {
 
         let content = GtkBox::new(Orientation::Vertical, 0);
         let header = adw::HeaderBar::new();
+        header.add_css_class("fond-chrome");
 
         // ── Document summary ─────────────────────────────────────────────────
         let doc_label = Label::new(Some(&request.job_name));
@@ -181,6 +182,7 @@ impl PrintSheet {
         content.append(&btn_row);
 
         let toolbar = adw::ToolbarView::new();
+        toolbar.set_top_bar_style(adw::ToolbarStyle::RaisedBorder);
         toolbar.add_top_bar(&header);
         toolbar.set_content(Some(&content));
         window.set_content(Some(&toolbar));

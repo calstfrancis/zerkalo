@@ -335,8 +335,6 @@ impl CitationPanel {
             let box_ = GtkBox::new(Orientation::Vertical, 2);
             box_.set_margin_start(8);
             box_.set_margin_end(8);
-            box_.set_margin_top(5);
-            box_.set_margin_bottom(5);
 
             let top = GtkBox::new(Orientation::Horizontal, 4);
             let key_lbl = Label::new(None);
@@ -423,8 +421,6 @@ impl CitationPanel {
             let box_ = GtkBox::new(Orientation::Vertical, 2);
             box_.set_margin_start(8);
             box_.set_margin_end(8);
-            box_.set_margin_top(5);
-            box_.set_margin_bottom(5);
 
             let top = GtkBox::new(Orientation::Horizontal, 4);
             let title_lbl = Label::new(None);

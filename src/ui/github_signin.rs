@@ -29,6 +29,7 @@ pub fn present(parent: &impl IsA<gtk4::Window>, on_connected: impl Fn(String) + 
         .build();
 
     let header = adw::HeaderBar::new();
+    header.add_css_class("fond-chrome");
     header.set_show_end_title_buttons(false);
     let cancel_btn = Button::with_label("Cancel");
     cancel_btn.add_css_class("flat");

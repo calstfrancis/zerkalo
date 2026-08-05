@@ -174,6 +174,7 @@ fn show_import_history_dialog_filtered(
     dlg.set_modal(true);
 
     let header = adw::HeaderBar::new();
+    header.add_css_class("fond-chrome");
     let title_lbl = gtk4::Label::new(Some("Import History"));
     title_lbl.add_css_class("heading");
     header.set_title_widget(Some(&title_lbl));
@@ -185,6 +186,7 @@ fn show_import_history_dialog_filtered(
         empty.set_description(Some("Documents you import will be listed here."));
         empty.set_vexpand(true);
         let toolbar_view = adw::ToolbarView::new();
+        toolbar_view.set_top_bar_style(adw::ToolbarStyle::RaisedBorder);
         toolbar_view.add_top_bar(&header);
         toolbar_view.set_content(Some(&empty));
         dlg.set_content(Some(&toolbar_view));
@@ -355,6 +357,7 @@ fn show_import_history_dialog_filtered(
     outer_box.append(&scroll);
 
     let toolbar_view = adw::ToolbarView::new();
+    toolbar_view.set_top_bar_style(adw::ToolbarStyle::RaisedBorder);
     toolbar_view.add_top_bar(&header);
     toolbar_view.set_content(Some(&outer_box));
     dlg.set_content(Some(&toolbar_view));
@@ -626,6 +629,7 @@ fn show_import_preview_dialog(
     dlg.set_modal(false);
 
     let header = adw::HeaderBar::new();
+    header.add_css_class("fond-chrome");
     let discard_btn = Button::with_label("Discard");
     discard_btn.add_css_class("flat");
     header.pack_start(&discard_btn);
@@ -714,6 +718,7 @@ fn show_import_preview_dialog(
     outer.append(&scroll);
 
     let toolbar_view = adw::ToolbarView::new();
+    toolbar_view.set_top_bar_style(adw::ToolbarStyle::RaisedBorder);
     toolbar_view.add_top_bar(&header);
     toolbar_view.set_content(Some(&outer));
     dlg.set_content(Some(&toolbar_view));
@@ -1240,6 +1245,7 @@ pub(super) fn import_folder_via_pandoc(
     dlg.set_transient_for(Some(window));
 
     let header = adw::HeaderBar::new();
+    header.add_css_class("fond-chrome");
     let title_lbl = gtk4::Label::new(Some("Import Folder"));
     title_lbl.add_css_class("heading");
     header.set_title_widget(Some(&title_lbl));

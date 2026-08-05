@@ -5,6 +5,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.20.0-dev9] — Every window and dialog joins the same design
+
+### Changed
+
+- **The header bar of every window and dialog now sits on the same surface as the main
+  window's, with a line under it** — the Library, Settings, Help, Export, Font Management, the
+  setup wizard, the template dialog and the rest. They were each taking whatever the toolkit
+  gave them, so a window opened from Zerkalo did not look like Zerkalo.
+- **The changelog window announces Added, Changed and Fixed the way sections are announced
+  everywhere else** — a dot, then the name in letterspaced small capitals.
+- **The compile-errors list is set like the rest of the suite:** each run of errors is one
+  rounded card with hairlines between the rows, and a file name grouping errors beneath it is
+  a section header rather than a dim caption.
+
+---
+
 ## [0.20.0-dev8] — Two rows off the sidebar; Template joins the header
 
 ### Changed

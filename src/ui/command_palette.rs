@@ -39,6 +39,7 @@ impl CommandPalette {
         window.set_hide_on_close(true);
 
         let header = adw::HeaderBar::new();
+        header.add_css_class("fond-chrome");
         header.set_show_end_title_buttons(false);
         header.set_show_start_title_buttons(false);
 
@@ -57,6 +58,7 @@ impl CommandPalette {
         scroll.set_vexpand(true);
 
         let toolbar = adw::ToolbarView::new();
+        toolbar.set_top_bar_style(adw::ToolbarStyle::RaisedBorder);
         toolbar.add_top_bar(&header);
         toolbar.set_content(Some(&scroll));
         window.set_content(Some(&toolbar));
