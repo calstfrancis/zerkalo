@@ -62,7 +62,6 @@ pub(super) struct HeaderWidgets {
     pub(super) style_popover: Popover,
     pub(super) sync_btn: Button,
     pub(super) title_extras: GtkBox,
-    pub(super) todo_btn: ToggleButton,
 }
 
 /// Builds the header bar, the hamburger popover and the open dropdown.
@@ -113,12 +112,6 @@ pub(super) fn build_header() -> HeaderWidgets {
     }
     // Wire style buttons after editor_pane is available (done below)
 
-    let todo_btn = ToggleButton::new();
-    todo_btn.set_icon_name("view-list-symbolic");
-    todo_btn.set_tooltip_text(Some("Toggle plan panel"));
-    todo_btn.add_css_class("flat");
-    todo_btn.set_active(false);
-    todo_btn.update_property(&[gtk4::accessible::Property::Label("Toggle plan panel")]);
 
     // ── Compilation profile toggle (status bar) ──────────────────────────
     let draft_label = gtk4::Label::new(Some("Final"));
@@ -244,7 +237,6 @@ pub(super) fn build_header() -> HeaderWidgets {
     header.pack_end(&compile_mode_slot);
     header.pack_end(&recompile_header_btn);
     header.pack_end(&print_header_btn);
-    header.pack_end(&todo_btn);
     header.pack_end(&save_btn);
     header.pack_end(&sync_btn);
 
@@ -337,6 +329,5 @@ pub(super) fn build_header() -> HeaderWidgets {
         style_popover,
         sync_btn,
         title_extras,
-        todo_btn,
     }
 }

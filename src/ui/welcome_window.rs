@@ -129,6 +129,8 @@ impl WelcomeWindow {
             for item in [
                 "Changed: the header bar is down from twelve controls to four. Simple, focus, Library and notes moved to the status bar with the other mode words, Git is a word there rather than an icon, and compile mode and compile-now moved next to the editor. Print is in the menu",
                 "Changed: the Outline and Citations panels now announce themselves with a coloured dot, their name in small capitals, and a count beside it. Their rows are grouped into one rounded card with hairlines between them, and the current row is marked by a quiet wash",
+                "Changed: Help is a button under the preview again rather than inside the overflow, and autocorrect moved to the menu beside the interface-font switch",
+                "Removed: the notes panel, the right-hand sidebar it was the last occupant of, and the toggle that opened it",
                 "Changed: every window and dialog — Library, Settings, Help, Export, Font Management, the setup wizard and the rest — now shares the main window's header surface, so a window opened from Zerkalo looks like Zerkalo. The changelog announces its sections the same way the sidebar does",
                 "Changed: Update Template is now \"Template\" in the header bar, and the heading-depth filter is a button in the Outline header showing the level in force. The sidebar is its two panels and nothing else",
                 "Changed: the bar under the preview is down from ten controls to five — where you are, how large the page is, and how the last compile went, with fit, the cheatsheet and open-in-a-window behind one button",

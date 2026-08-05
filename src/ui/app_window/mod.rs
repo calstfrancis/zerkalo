@@ -184,7 +184,6 @@ impl AppWindow {
             style_popover,
             sync_btn,
             title_extras,
-            todo_btn,
         } = build_header();
         let Panels {
             citation_panel,
@@ -192,7 +191,6 @@ impl AppWindow {
             editor_pane,
             file_start_words,
             library_window,
-            notes_panel,
             outline_panel,
             popout_pane,
             popout_window,
@@ -536,19 +534,7 @@ impl AppWindow {
         // status_bar_append_left inserts directly after the first toggle, so the
         // last one added ends up leftmost: add them in reverse reading order.
         gost_menu_slot.append(&editor_pane.gost_button_for_menu());
-
-        // The Plan panel is gone, but its toggle was the only way to open the
-        // right sidebar, which still holds Notes — so it becomes the Notes
-        // toggle rather than being dropped with the panel.
-        header.remove(&todo_btn);
-        let notes_label = Label::new(Some("notes"));
-        notes_label.add_css_class("caption");
-        notes_label.add_css_class("dim-label");
-        todo_btn.set_child(Some(&notes_label));
-        todo_btn.set_tooltip_text(Some("Toggle the notes panel"));
-        todo_btn.update_property(&[gtk4::accessible::Property::Label("Toggle notes panel")]);
-        todo_btn.add_css_class("status-toggle");
-        editor_pane.status_bar_append_left(&todo_btn);
+        gost_menu_slot.append(&editor_pane.autocorrect_button_for_menu());
 
         header.remove(&library_btn);
         library_btn.add_css_class("status-toggle");
@@ -673,7 +659,6 @@ impl AppWindow {
         let sidebar_visible_c = sidebar_visible.clone();
         // left_paned_ref set after layout — closure reads it through the Rc
         let left_paned_holder: Rc<RefCell<Option<GtkBox>>> = Rc::new(RefCell::new(None));
-        let right_sidebar_holder: Rc<RefCell<Option<GtkBox>>> = Rc::new(RefCell::new(None));
         let lpane_for_btn = left_paned_holder.clone();
         sidebar_btn.connect_clicked(move |_| {
             let mut v = sidebar_visible_c.borrow_mut();
@@ -683,20 +668,10 @@ impl AppWindow {
             }
         });
 
-        // ── Notes sidebar toggle ────────────────────────────────────────────
-        let rsh_for_todo = right_sidebar_holder.clone();
-        todo_btn.connect_toggled(move |btn| {
-            if let Some(rs) = rsh_for_todo.borrow().as_ref() {
-                rs.set_visible(btn.is_active());
-            }
-        });
-
         // ── Focus mode toggle — status bar button, dims sidebar, hides preview
         {
             let focus_active_c = focus_active.clone();
             let preview_vis_for_focus = preview_vis_holder.clone();
-            let rsh_for_focus = right_sidebar_holder.clone();
-            let todo_btn_for_focus = todo_btn.clone();
             let window_for_focus = window.clone();
             let editor_for_focus = editor_pane.clone();
             editor_pane.set_on_focus_toggle(move |focused| {
@@ -709,9 +684,6 @@ impl AppWindow {
                 editor_for_focus.set_zen_width(focused);
                 if let Some(pc) = preview_vis_for_focus.borrow().as_ref() {
                     pc.set_visible(!focused);
-                }
-                if let Some(rs) = rsh_for_focus.borrow().as_ref() {
-                    rs.set_visible(!focused && todo_btn_for_focus.is_active());
                 }
             });
         }
@@ -912,7 +884,6 @@ impl AppWindow {
         let compile_on_save_for_change = compile_on_save.clone();
         let manual_compile_only_for_change = manual_compile_only.clone();
         let outline_for_change = outline_panel.clone();
-        let notes_for_change = notes_panel.clone();
         let refs_for_change = ref_manager.clone();
         let lsp_for_change = lsp_client.clone();
         let last_edit_for_change = last_edit_instant.clone();
@@ -936,7 +907,6 @@ impl AppWindow {
             let cos = compile_on_save_for_change.clone();
             let mco = manual_compile_only_for_change.clone();
             let outline = outline_for_change.clone();
-            let notes = notes_for_change.clone();
             let refs = refs_for_change.clone();
             let lsp = lsp_for_change.clone();
             let delay = Duration::from_millis(*debounce_for_change.borrow());
@@ -959,7 +929,6 @@ impl AppWindow {
                     if let Some(path) = editor.get_active_path() {
                         if let Some(content) = editor.get_active_content() {
                             outline.update(&content, &path);
-                            notes.update(&content, &path);
                             refs.update_used_keys(&content);
                         }
                     }
@@ -995,7 +964,6 @@ impl AppWindow {
         let dep_graph_for_switch = dep_graph.clone();
         let title_widget_for_switch = file_title_widget.clone();
         let preview_for_switch = preview_pane.clone();
-        let notes_panel_for_switch = notes_panel.clone();
         let style_btn_for_switch = style_btn.clone();
         let editor_pane_for_switch_delta = editor_pane.clone();
         let cs_stack = gtk4::Stack::new();
@@ -1016,7 +984,6 @@ impl AppWindow {
             let delta = editor_pane_for_switch_delta.get_active_session_delta();
             editor_pane_for_switch_delta.set_session_delta(delta);
             outline_for_switch.update(&content, &path);
-            notes_panel_for_switch.update(&content, &path);
             refs_for_switch.update_used_keys(&content);
             dep_graph_for_switch.refresh(Some(&path));
             // Only recompile if the content has changed since the last compile for this file.
@@ -1098,7 +1065,6 @@ impl AppWindow {
 
         let lsp_for_open = lsp_client.clone();
         let current_config_for_open = current_config.clone();
-        let notes_panel_for_open = notes_panel.clone();
         // Recovery queue: at most one dialog on screen at a time. Each dialog's
         // response handler calls show_next to pop and show the next item.
         let recovery_queue: Rc<RefCell<std::collections::VecDeque<(PathBuf, String, String)>>> =
@@ -1158,7 +1124,6 @@ impl AppWindow {
             if let Some(client) = lsp_for_open.borrow_mut().as_mut() {
                 client.did_open(&path, &content);
             }
-            notes_panel_for_open.update(&content, &path);
             let is_cv = super::template_dialog::parse_doc_kind(&content)
                 .map(|k| k == "cv")
                 .unwrap_or(false);
@@ -1546,7 +1511,6 @@ impl AppWindow {
         for (label, w) in [
             ("Fit width", fit_width_btn.clone().upcast::<gtk4::Widget>()),
             ("Fit page", fit_page_btn.clone().upcast::<gtk4::Widget>()),
-            ("Cheatsheet & Help", ref_toggle_btn.clone().upcast::<gtk4::Widget>()),
             ("Open in a window", popout_btn.clone().upcast::<gtk4::Widget>()),
         ] {
             let row = GtkBox::new(Orientation::Horizontal, 8);
@@ -1565,6 +1529,7 @@ impl AppWindow {
         pv_more_btn.add_css_class("flat");
         pv_more_btn.set_tooltip_text(Some("Preview options"));
         pv_more_btn.set_popover(Some(&pv_more_popover));
+        preview_toolbar.append(&ref_toggle_btn);
         preview_toolbar.append(&pv_more_btn);
 
         // on_zoom_changed wires all zoom changes (including auto-fit) to the label
@@ -2015,25 +1980,6 @@ impl AppWindow {
         // header rather than as the one non-panel row in the sidebar column.
         header.pack_start(&template_btn);
 
-        // ── Right sidebar (Notes) ───────────────────────────────────────────
-        let right_sidebar = GtkBox::new(Orientation::Vertical, 0);
-        right_sidebar.set_width_request(260);
-        right_sidebar.set_vexpand(true);
-
-        let right_notebook = gtk4::Notebook::new();
-        right_notebook.set_vexpand(true);
-        right_notebook.set_tab_pos(gtk4::PositionType::Top);
-
-        notes_panel.widget().set_vexpand(true);
-        right_notebook.append_page(
-            notes_panel.widget(),
-            Some(&Label::new(Some("Notes"))),
-        );
-
-        right_sidebar.append(&right_notebook);
-        *right_sidebar_holder.borrow_mut() = Some(right_sidebar.clone());
-        right_sidebar.set_visible(todo_btn.is_active());
-
         let inner_paned = Paned::new(Orientation::Horizontal);
         inner_paned.set_position(config.preview_split);
         inner_paned.set_hexpand(true);
@@ -2099,7 +2045,6 @@ impl AppWindow {
         content_paned.set_resize_end_child(false);
         content_paned.set_shrink_end_child(false);
         content_paned.set_start_child(Some(&right_col));
-        content_paned.set_end_child(Some(&right_sidebar));
 
         let outer_paned = Paned::new(Orientation::Horizontal);
         outer_paned.set_position(config.sidebar_width);

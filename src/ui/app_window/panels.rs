@@ -16,7 +16,6 @@ use super::super::citation_panel::CitationPanel;
 use super::super::dep_graph::DepGraph;
 use super::super::editor_pane::EditorPane;
 use super::super::library_window::LibraryWindow;
-use super::super::notes_panel::NotesPanel;
 use super::super::outline_panel::OutlinePanel;
 use super::super::package_browser::PackageBrowser;
 use super::super::preview_pane::PreviewPane;
@@ -28,7 +27,6 @@ pub(super) struct Panels {
     pub(super) editor_pane: EditorPane,
     pub(super) file_start_words: FileStartWords,
     pub(super) library_window: LibraryWindow,
-    pub(super) notes_panel: NotesPanel,
     pub(super) outline_panel: OutlinePanel,
     pub(super) popout_pane: Rc<RefCell<Option<PreviewPane>>>,
     pub(super) popout_window: Rc<RefCell<Option<adw::Window>>>,
@@ -77,7 +75,6 @@ pub(super) fn build_panels(
     let ref_manager = RefManager::new();
     let dep_graph = DepGraph::new(project_root.to_path_buf());
     let package_browser = PackageBrowser::new();
-    let notes_panel = NotesPanel::new();
 
     let writing_log: Rc<RefCell<WritingLog>> = Rc::new(RefCell::new(WritingLog::load()));
     let file_start_words = new_file_start_words();
@@ -195,7 +192,6 @@ pub(super) fn build_panels(
         editor_pane,
         file_start_words,
         library_window,
-        notes_panel,
         outline_panel,
         popout_pane,
         popout_window,
