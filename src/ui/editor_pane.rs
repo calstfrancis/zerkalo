@@ -249,6 +249,7 @@ pub struct EditorPane {
     /// prefix → name last chosen for it, remembered per project.
     completion_picks: Rc<RefCell<std::collections::HashMap<String, String>>>,
     autocorrect_label: Label,
+    autocorrect_btn: Button,
     on_autocorrect_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
     gost_label: Label,
     on_gost_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
@@ -618,7 +619,6 @@ impl EditorPane {
         status_bar.append(&lsp_status_label);
         status_bar.append(&left_spacer);
         status_bar.append(&format_bar_toggle_btn);
-        status_bar.append(&autocorrect_btn);
         status_bar.append(&search_btn);
         status_bar.append(&sb_sep1);
         status_bar.append(&cursor_label);
@@ -1367,6 +1367,7 @@ impl EditorPane {
             lsp_ready: Rc::new(Cell::new(false)),
             completion_picks: Rc::new(RefCell::new(std::collections::HashMap::new())),
             autocorrect_label,
+            autocorrect_btn: autocorrect_btn.clone(),
             on_autocorrect_toggle,
             gost_label,
             on_gost_toggle,
@@ -1787,6 +1788,12 @@ impl EditorPane {
 
     pub fn gost_button_for_menu(&self) -> Button {
         self.gost_btn.clone()
+    }
+
+    /// Autocorrect is a setting you change once, not a status to keep on
+    /// screen, so it sits in the menu beside the font switch.
+    pub fn autocorrect_button_for_menu(&self) -> Button {
+        self.autocorrect_btn.clone()
     }
 
     /// Told by app_window once it knows whether tinymist actually started.

@@ -5,6 +5,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.20.0-dev10] — Help back where you can reach it; notes removed
+
+### Changed
+
+- **Help is a button under the preview again**, beside the page and zoom readouts, rather than
+  tucked into the overflow with fit-width and open-in-a-window. Reaching a cheatsheet should
+  not itself need looking up.
+- **Autocorrect moved to the menu**, beside the interface-font switch. It is something you set
+  once rather than a state worth a permanent word in the status bar.
+
+### Removed
+
+- **The notes panel is gone**, and with it the right-hand sidebar it was the last occupant of
+  and the toggle that opened it — a button that opens an empty column is worse than no button.
+
+---
+
 ## [0.20.0-dev9] — Every window and dialog joins the same design
 
 ### Changed
