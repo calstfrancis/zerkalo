@@ -70,6 +70,7 @@ impl LibraryWindow {
         // ── Left sidebar ────────────────────────────────────────────────────
         let sidebar = GtkBox::new(Orientation::Vertical, 0);
         sidebar.set_width_request(220);
+        sidebar.add_css_class("fond-sidebar");
 
         let sidebar_header = adw::HeaderBar::new();
         sidebar_header.add_css_class("fond-chrome");
@@ -87,13 +88,15 @@ impl LibraryWindow {
         let sidebar_inner = GtkBox::new(Orientation::Vertical, 0);
 
         let filter_list = ListBox::new();
-        filter_list.add_css_class("navigation-sidebar");
+        // The suite's list rather than navigation-sidebar: selection is a wash
+        // across the row, not an accent fill, so the sidebar stays quiet while
+        // still saying which filter is current.
+        filter_list.add_css_class("fond-list");
         filter_list.set_selection_mode(gtk4::SelectionMode::Single);
         sidebar_inner.append(&filter_list);
 
         let stats_label = Label::new(None);
-        stats_label.add_css_class("dim-label");
-        stats_label.add_css_class("caption");
+        stats_label.add_css_class("fond-row-meta");
 
         sidebar_scroll.set_child(Some(&sidebar_inner));
         sidebar.append(&sidebar_scroll);
@@ -102,7 +105,7 @@ impl LibraryWindow {
         sidebar.append(&Separator::new(Orientation::Horizontal));
 
         let bottom_filter_list = ListBox::new();
-        bottom_filter_list.add_css_class("navigation-sidebar");
+        bottom_filter_list.add_css_class("fond-list");
         bottom_filter_list.set_selection_mode(gtk4::SelectionMode::Single);
         sidebar.append(&bottom_filter_list);
 
@@ -115,12 +118,15 @@ impl LibraryWindow {
         manage_box.set_margin_end(8);
         let new_project_btn = Button::with_label("New Project");
         new_project_btn.add_css_class("flat");
+        new_project_btn.add_css_class("fond-quiet");
         manage_box.append(&new_project_btn);
         let new_cat_btn = Button::with_label("New Category");
         new_cat_btn.add_css_class("flat");
+        new_cat_btn.add_css_class("fond-quiet");
         manage_box.append(&new_cat_btn);
         let manage_tags_btn = Button::with_label("Manage Tags");
         manage_tags_btn.add_css_class("flat");
+        manage_tags_btn.add_css_class("fond-quiet");
         manage_box.append(&manage_tags_btn);
         sidebar.append(&manage_box);
 
@@ -143,10 +149,15 @@ impl LibraryWindow {
         start_box.append(&search_entry);
         right_header.pack_start(&start_box);
 
+        // One bordered control in the header, the way the main window has one.
+        // A filled suggested-action button next to a filled sort dropdown made
+        // the top of the window the loudest thing in it.
         let new_doc_btn = Button::with_label("New Document");
-        new_doc_btn.add_css_class("suggested-action");
+        new_doc_btn.add_css_class("fond-pill");
+        new_doc_btn.set_valign(Align::Center);
         let import_btn = Button::with_label("Import…");
         import_btn.add_css_class("flat");
+        import_btn.add_css_class("fond-quiet");
         let sort_dropdown =
             gtk4::DropDown::from_strings(&["Modified", "Created", "Opened", "A→Z"]);
         sort_dropdown.set_tooltip_text(Some("Sort order"));
@@ -158,8 +169,13 @@ impl LibraryWindow {
 
         let doc_scroll = ScrolledWindow::new();
         doc_scroll.set_vexpand(true);
+        doc_scroll.add_css_class("fond-ground");
         let doc_list = ListBox::new();
         doc_list.set_selection_mode(gtk4::SelectionMode::None);
+        doc_list.add_css_class("fond-list");
+        doc_list.set_margin_start(12);
+        doc_list.set_margin_end(12);
+        doc_list.set_margin_bottom(8);
         doc_scroll.set_child(Some(&doc_list));
 
         let empty_page = adw::StatusPage::new();
@@ -219,16 +235,17 @@ impl LibraryWindow {
 
         // ── Library status bar ─────────────────────────────────────────────
         let lib_status_bar = GtkBox::new(Orientation::Horizontal, 8);
+        lib_status_bar.add_css_class("fond-chrome");
+        lib_status_bar.add_css_class("fond-statusbar");
         lib_status_bar.set_margin_start(12);
         lib_status_bar.set_margin_end(8);
-        lib_status_bar.set_margin_top(4);
-        lib_status_bar.set_margin_bottom(4);
         lib_status_bar.append(&stats_label);
         stats_label.set_hexpand(true);
         stats_label.set_halign(Align::Start);
-        let compact_btn = Button::with_label("Compact");
+        // A status-bar toggle whose label is its own name, bold when on —
+        // the same control the editor's status bar uses.
+        let compact_btn = Button::with_label("compact");
         compact_btn.add_css_class("flat");
-        compact_btn.add_css_class("caption");
         lib_status_bar.append(&compact_btn);
         right.add_bottom_bar(&lib_status_bar);
 
@@ -312,9 +329,9 @@ impl LibraryWindow {
                     };
                 }
                 if *this.view_mode.borrow() == ViewMode::Compact {
-                    compact_btn_c.add_css_class("compact-active");
+                    compact_btn_c.add_css_class("fond-toggle-active");
                 } else {
-                    compact_btn_c.remove_css_class("compact-active");
+                    compact_btn_c.remove_css_class("fond-toggle-active");
                 }
                 this.populate_doc_list();
             });
@@ -463,7 +480,7 @@ impl LibraryWindow {
 
         self.filter_list.append(&make_filter_row(
             "all",
-            "document-open-recent-symbolic",
+            "view-list-symbolic",
             "All Documents",
             self.library.borrow().doc_count(&LibraryFilter::All).ok(),
         ));
@@ -475,7 +492,7 @@ impl LibraryWindow {
         ));
         self.filter_list.append(&make_filter_row(
             "untagged",
-            "window-close-symbolic",
+            "edit-clear-symbolic",
             "Untagged",
             self.library
                 .borrow()
@@ -673,11 +690,9 @@ impl LibraryWindow {
         let tags_with_counts = self.library.borrow().all_tags_with_counts().unwrap_or_default();
         if !tags_with_counts.is_empty() {
             self.filter_list.append(&header_row("TAGS"));
-            let total = tags_with_counts.len();
-            for (rank, (t, _)) in tags_with_counts.iter().enumerate() {
-                let heat = tag_heat_color(rank, total);
+            for (t, _) in tags_with_counts.iter() {
                 let count = self.library.borrow().doc_count(&LibraryFilter::Tag(t.id)).ok();
-                self.filter_list.append(&make_tag_filter_row(t.id, &t.name, heat, count));
+                self.filter_list.append(&make_tag_filter_row(t.id, &t.name, &t.color_hex, count));
             }
         }
 
@@ -769,32 +784,41 @@ impl LibraryWindow {
                 (name, color)
             })
             .collect();
-        let twc = self.library.borrow().all_tags_with_counts().unwrap_or_default();
-        let total_tags = twc.len();
-        let tag_heat_colors: HashMap<i64, String> = twc
-            .iter()
-            .enumerate()
-            .map(|(rank, (t, _))| (t.id, tag_heat_color(rank, total_tags).to_string()))
-            .collect();
         let mode = self.view_mode.borrow().clone();
 
-        let has_pinned = docs.iter().any(|d| d.pinned);
-        let has_unpinned = docs.iter().any(|d| !d.pinned);
-        let show_divider = has_pinned && has_unpinned;
-        let mut divider_inserted = false;
+        if mode == ViewMode::Compact {
+            self.doc_list.add_css_class("compact-mode");
+        } else {
+            self.doc_list.remove_css_class("compact-mode");
+        }
 
-        for doc in docs {
-            if show_divider && !divider_inserted && !doc.pinned {
-                let sep_row = ListBoxRow::new();
-                sep_row.set_selectable(false);
-                sep_row.set_activatable(false);
-                sep_row.set_child(Some(&Separator::new(Orientation::Horizontal)));
-                self.doc_list.append(&sep_row);
-                divider_inserted = true;
+        // Pinned documents are a section of their own, announced the way every
+        // other section in the suite is — a dot, a small-caps title and a count.
+        // A bare separator between the two groups said less and looked like a
+        // gap rather than a heading.
+        let (pinned, rest): (Vec<_>, Vec<_>) = docs.into_iter().partition(|d| d.pinned);
+        let groups: [(&str, &str, Vec<crate::library::Document>); 2] = [
+            ("Pinned", "fond-accent-pinned", pinned),
+            ("Documents", "fond-accent-library", rest),
+        ];
+
+        for (title, accent, group) in groups {
+            if group.is_empty() {
+                continue;
             }
-            let tags = self.library.borrow().doc_tags(doc.id).unwrap_or_default();
-            let row = self.make_doc_row(&doc, &tags, project_reorder, mode.clone(), &cat_colors, &tag_heat_colors);
-            self.doc_list.append(&row);
+            self.doc_list.append(&section_row(title, accent, group.len()));
+            let last_idx = group.len() - 1;
+            for (i, doc) in group.into_iter().enumerate() {
+                let tags = self.library.borrow().doc_tags(doc.id).unwrap_or_default();
+                let row = self.make_doc_row(&doc, &tags, project_reorder, mode.clone(), &cat_colors);
+                if i == 0 {
+                    row.add_css_class("fond-card-first");
+                }
+                if i == last_idx {
+                    row.add_css_class("fond-card-last");
+                }
+                self.doc_list.append(&row);
+            }
         }
     }
 
@@ -816,241 +840,123 @@ impl LibraryWindow {
         project_reorder: Option<i64>,
         mode: ViewMode,
         cat_colors: &HashMap<String, String>,
-        tag_heat_colors: &HashMap<i64, String>,
     ) -> ListBoxRow {
         let row = ListBoxRow::new();
         row.set_widget_name(&doc.id.to_string());
+        row.add_css_class("fond-card");
+        row.add_css_class("fond-row");
 
-        let hbox = if mode == ViewMode::Compact {
-            let hbox = GtkBox::new(Orientation::Horizontal, 8);
-            hbox.set_margin_top(4);
-            hbox.set_margin_bottom(4);
-            hbox.set_margin_start(4);
-            hbox.set_margin_end(4);
-
-            if doc.pinned {
-                let pin = Image::from_icon_name("view-pin-symbolic");
-                pin.set_pixel_size(12);
-                hbox.append(&pin);
-            }
-
-            let title = Label::new(Some(&doc.title));
-            title.add_css_class("doc-title");
-            title.set_halign(Align::Start);
-            title.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-            hbox.append(&title);
-
-            if let Some(cat) = &doc.category {
-                let sep = Label::new(Some("·"));
-                sep.add_css_class("dim-label");
-                hbox.append(&sep);
-                let color = cat_colors.get(cat).map(|s| s.as_str()).unwrap_or_else(|| stable_palette_color(cat));
-                let chip = Label::new(Some(cat));
-                chip.add_css_class("caption");
-                apply_cat_color(&chip, color);
-                hbox.append(&chip);
-            }
-            for tag in tags.iter().take(4) {
-                let sep = Label::new(Some("·"));
-                sep.add_css_class("dim-label");
-                hbox.append(&sep);
-                let chip = Label::new(Some(&tag.name));
-                chip.add_css_class("tag-chip");
-                chip.add_css_class("caption");
-                let heat = tag_heat_colors.get(&tag.id).map(|s| s.as_str()).unwrap_or("#3584e4");
-                apply_cat_color(&chip, heat);
-                hbox.append(&chip);
-                let chip_click = gtk4::GestureClick::new();
-                chip_click.set_button(1);
-                let this_chip = self.clone();
-                let tag_id = tag.id;
-                let chip_ref = chip.clone();
-                chip_click.connect_pressed(move |g, _, _, _| {
-                    g.set_state(gtk4::EventSequenceState::Claimed);
-                    chip_ref.add_css_class("chip-active");
-                    let chip_weak = chip_ref.downgrade();
-                    glib::timeout_add_local_once(std::time::Duration::from_millis(200), move || {
-                        if let Some(c) = chip_weak.upgrade() { c.remove_css_class("chip-active"); }
-                    });
-                    *this_chip.current_filter.borrow_mut() = LibraryFilter::Tag(tag_id);
-                    this_chip.populate_doc_list();
-                    let tag_name = format!("tag:{}", tag_id);
-                    let mut i = 0;
-                    while let Some(row) = this_chip.filter_list.row_at_index(i) {
-                        if row.widget_name().as_str() == tag_name {
-                            this_chip.filter_list.select_row(Some(&row));
-                            return;
-                        }
-                        i += 1;
-                    }
-                    let mut j = 0;
-                    while let Some(row) = this_chip.bottom_filter_list.row_at_index(j) {
-                        if row.widget_name().as_str() == tag_name {
-                            this_chip.bottom_filter_list.select_row(Some(&row));
-                            return;
-                        }
-                        j += 1;
-                    }
-                });
-                chip.add_controller(chip_click);
-            }
-
-            if let Some(notes) = &doc.notes {
-                if !notes.trim().is_empty() {
-                    hbox.set_tooltip_text(Some(notes.trim()));
-                }
-            }
-
-            let spacer = GtkBox::new(Orientation::Horizontal, 0);
-            spacer.set_hexpand(true);
-            hbox.append(&spacer);
-
-            if doc.archived {
-                let badge = Label::new(Some("[archived]"));
-                badge.add_css_class("dim-label");
-                badge.add_css_class("caption");
-                hbox.append(&badge);
-            }
-            let date = Label::new(Some(&format_date(&doc.modified_at)));
-            date.add_css_class("dim-label");
-            date.add_css_class("caption");
-            date.set_halign(Align::End);
-            hbox.append(&date);
-            hbox
-        } else {
-            let card = GtkBox::new(Orientation::Horizontal, 0);
-            card.add_css_class("card");
-            card.set_margin_top(4);
-            card.set_margin_bottom(4);
-            card.set_margin_start(8);
-            card.set_margin_end(8);
-
-            let hbox = GtkBox::new(Orientation::Horizontal, 12);
-            hbox.set_margin_top(10);
-            hbox.set_margin_bottom(10);
-            hbox.set_margin_start(12);
-            hbox.set_margin_end(12);
-            hbox.set_hexpand(true);
-
-            let icon = Image::from_icon_name("text-x-generic-symbolic");
-            icon.set_pixel_size(32);
-            hbox.append(&icon);
-
-            let vbox = GtkBox::new(Orientation::Vertical, 4);
-            vbox.set_hexpand(true);
-
-            let title_box = GtkBox::new(Orientation::Horizontal, 6);
-            if doc.pinned {
-                let pin = Image::from_icon_name("view-pin-symbolic");
-                pin.set_pixel_size(14);
-                title_box.append(&pin);
-            }
-            let title = Label::new(Some(&doc.title));
-            title.add_css_class("doc-title");
-            title.set_halign(Align::Start);
-            title.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-            title_box.append(&title);
-            vbox.append(&title_box);
-
-            let chips = GtkBox::new(Orientation::Horizontal, 4);
-            if let Some(cat) = &doc.category {
-                let color = cat_colors.get(cat).map(|s| s.as_str()).unwrap_or_else(|| stable_palette_color(cat));
-                let chip = Label::new(Some(cat));
-                chip.add_css_class("caption");
-                apply_cat_color(&chip, color);
-                chips.append(&chip);
-            }
-            for tag in tags.iter().take(4) {
-                let chip = Label::new(Some(&tag.name));
-                chip.add_css_class("tag-chip");
-                chip.add_css_class("caption");
-                let heat = tag_heat_colors.get(&tag.id).map(|s| s.as_str()).unwrap_or("#3584e4");
-                apply_cat_color(&chip, heat);
-                chips.append(&chip);
-                let chip_click = gtk4::GestureClick::new();
-                chip_click.set_button(1);
-                let this_chip = self.clone();
-                let tag_id = tag.id;
-                let chip_ref = chip.clone();
-                chip_click.connect_pressed(move |g, _, _, _| {
-                    g.set_state(gtk4::EventSequenceState::Claimed);
-                    chip_ref.add_css_class("chip-active");
-                    let chip_weak = chip_ref.downgrade();
-                    glib::timeout_add_local_once(std::time::Duration::from_millis(200), move || {
-                        if let Some(c) = chip_weak.upgrade() { c.remove_css_class("chip-active"); }
-                    });
-                    *this_chip.current_filter.borrow_mut() = LibraryFilter::Tag(tag_id);
-                    this_chip.populate_doc_list();
-                    let tag_name = format!("tag:{}", tag_id);
-                    let mut i = 0;
-                    while let Some(row) = this_chip.filter_list.row_at_index(i) {
-                        if row.widget_name().as_str() == tag_name {
-                            this_chip.filter_list.select_row(Some(&row));
-                            return;
-                        }
-                        i += 1;
-                    }
-                    let mut j = 0;
-                    while let Some(row) = this_chip.bottom_filter_list.row_at_index(j) {
-                        if row.widget_name().as_str() == tag_name {
-                            this_chip.bottom_filter_list.select_row(Some(&row));
-                            return;
-                        }
-                        j += 1;
-                    }
-                });
-                chip.add_controller(chip_click);
-            }
-            vbox.append(&chips);
-
-            if let Some(notes) = &doc.notes {
-                let first_line = notes.lines().next().unwrap_or("").trim().to_string();
-                if !first_line.is_empty() {
-                    let notes_lbl = Label::new(Some(&first_line));
-                    notes_lbl.add_css_class("dim-label");
-                    notes_lbl.add_css_class("caption");
-                    notes_lbl.set_halign(Align::Start);
-                    notes_lbl.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-                    vbox.append(&notes_lbl);
-                }
-            }
-
-            hbox.append(&vbox);
-
-            let meta = GtkBox::new(Orientation::Vertical, 2);
-            meta.set_halign(Align::End);
-            meta.set_valign(Align::Center);
-            let date = Label::new(Some(&format_date(&doc.modified_at)));
-            date.add_css_class("dim-label");
-            date.add_css_class("caption");
-            date.set_halign(Align::End);
-            meta.append(&date);
-            let word_count = count_prose_words(std::path::Path::new(&doc.path));
-            if word_count > 0 {
-                let words_lbl = Label::new(Some(&format!("{} words", word_count)));
-                words_lbl.add_css_class("dim-label");
-                words_lbl.add_css_class("caption");
-                words_lbl.set_halign(Align::End);
-                meta.append(&words_lbl);
-            }
-            if doc.archived {
-                let badge = Label::new(Some("[archived]"));
-                badge.add_css_class("dim-label");
-                badge.add_css_class("caption");
-                badge.set_halign(Align::End);
-                meta.append(&badge);
-            }
-            hbox.append(&meta);
-            card.append(&hbox);
-            card
-        };
+        // One line per document: a cue in the category's colour, the title, the
+        // category and tags as dim reference text, and the date and length at
+        // the right edge. What was here before was a three-line card with a
+        // 32px file icon, four coloured chips and a line of notes — the titles
+        // are what a library is scanned for, and they were the smallest thing
+        // on the row. Notes are the tooltip now; the tags stay clickable.
+        //
+        // Compact mode is the same row under a `.compact-mode` list (fond.css
+        // tightens the metrics), not a second row built by hand.
+        let hbox = GtkBox::new(Orientation::Horizontal, 8);
+        hbox.set_margin_start(10);
+        hbox.set_margin_end(10);
 
         if doc.pinned {
-            hbox.add_css_class("pinned-doc");
+            let pin = Image::from_icon_name("view-pin-symbolic");
+            pin.set_pixel_size(12);
+            pin.add_css_class("fond-row-meta");
+            hbox.append(&pin);
         }
 
+        let cue_color = doc.category.as_ref().map(|cat| {
+            cat_colors
+                .get(cat)
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| stable_palette_color(cat).to_string())
+        });
+        hbox.append(&crate::ui::styles::fond_cue(cue_color.as_deref()));
+
+        let title = Label::new(Some(&doc.title));
+        title.add_css_class("fond-row-title");
+        title.set_halign(Align::Start);
+        title.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+        hbox.append(&title);
+
+        if let Some(cat) = &doc.category {
+            let cat_lbl = Label::new(Some(cat));
+            cat_lbl.add_css_class("fond-row-detail");
+            hbox.append(&cat_lbl);
+        }
+        for tag in tags.iter().take(4) {
+            let chip = Label::new(Some(&tag.name));
+            chip.add_css_class("fond-row-detail");
+            chip.set_tooltip_text(Some(&format!("Show only {}", tag.name)));
+            hbox.append(&chip);
+            let chip_click = gtk4::GestureClick::new();
+            chip_click.set_button(1);
+            let this_chip = self.clone();
+            let tag_id = tag.id;
+            let chip_ref = chip.clone();
+            chip_click.connect_pressed(move |g, _, _, _| {
+                g.set_state(gtk4::EventSequenceState::Claimed);
+                chip_ref.add_css_class("chip-active");
+                let chip_weak = chip_ref.downgrade();
+                glib::timeout_add_local_once(std::time::Duration::from_millis(200), move || {
+                    if let Some(c) = chip_weak.upgrade() { c.remove_css_class("chip-active"); }
+                });
+                *this_chip.current_filter.borrow_mut() = LibraryFilter::Tag(tag_id);
+                this_chip.populate_doc_list();
+                let tag_name = format!("tag:{}", tag_id);
+                let mut i = 0;
+                while let Some(row) = this_chip.filter_list.row_at_index(i) {
+                    if row.widget_name().as_str() == tag_name {
+                        this_chip.filter_list.select_row(Some(&row));
+                        return;
+                    }
+                    i += 1;
+                }
+                let mut j = 0;
+                while let Some(row) = this_chip.bottom_filter_list.row_at_index(j) {
+                    if row.widget_name().as_str() == tag_name {
+                        this_chip.bottom_filter_list.select_row(Some(&row));
+                        return;
+                    }
+                    j += 1;
+                }
+            });
+            chip.add_controller(chip_click);
+        }
+
+        if let Some(notes) = &doc.notes {
+            if !notes.trim().is_empty() {
+                hbox.set_tooltip_text(Some(notes.trim()));
+            }
+        }
+
+        let spacer = GtkBox::new(Orientation::Horizontal, 0);
+        spacer.set_hexpand(true);
+        hbox.append(&spacer);
+
+        if doc.archived {
+            let badge = Label::new(Some("archived"));
+            badge.add_css_class("fond-row-meta");
+            hbox.append(&badge);
+        }
+
+        // The word count reads every file in the list, so it is worth having
+        // only where there is room to read it.
+        let mut meta_text = format_date(&doc.modified_at);
+        if mode != ViewMode::Compact {
+            let word_count = count_prose_words(std::path::Path::new(&doc.path));
+            if word_count > 0 {
+                meta_text = format!("{} \u{b7} {} words", meta_text, word_count);
+            }
+        }
+        let meta = Label::new(Some(&meta_text));
+        meta.add_css_class("fond-row-meta");
+        meta.set_halign(Align::End);
+        hbox.append(&meta);
+
         if self.selection.borrow().contains(&doc.id) {
-            hbox.add_css_class("selected-doc");
+            row.add_css_class("doc-selected");
         }
 
         row.set_child(Some(&hbox));
@@ -2742,62 +2648,46 @@ fn parse_filter_name(name: &str) -> LibraryFilter {
     }
 }
 
-fn make_filter_row(name: &str, icon: &str, label: &str, count: Option<i64>) -> ListBoxRow {
+/// The shell every sidebar filter row shares: the suite's single-line row, a
+/// cue or an icon at the left, the name, and a plain count at the right. The
+/// count used to be a filled pill, which made a sidebar of quiet names read as
+/// a column of badges.
+fn filter_row_shell(name: &str, label: &str, count: Option<i64>) -> (ListBoxRow, GtkBox) {
     let row = ListBoxRow::new();
     row.set_widget_name(name);
+    row.add_css_class("fond-row");
     let hbox = GtkBox::new(Orientation::Horizontal, 8);
-    hbox.set_margin_top(8);
-    hbox.set_margin_bottom(8);
-    hbox.set_margin_start(8);
-    hbox.set_margin_end(8);
-    let img = Image::from_icon_name(icon);
-    img.set_pixel_size(16);
-    hbox.append(&img);
+    hbox.set_margin_start(10);
+    hbox.set_margin_end(10);
     let lbl = Label::new(Some(label));
     lbl.set_hexpand(true);
     lbl.set_halign(Align::Start);
     lbl.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+    lbl.add_css_class("fond-row-title");
     hbox.append(&lbl);
     if let Some(c) = count {
         let c_lbl = Label::new(Some(&c.to_string()));
-        c_lbl.add_css_class("dim-label");
-        c_lbl.add_css_class("caption");
-        c_lbl.add_css_class("count-badge");
+        c_lbl.add_css_class("fond-row-meta");
         c_lbl.set_halign(Align::End);
         c_lbl.set_visible(c > 0);
         hbox.append(&c_lbl);
     }
     row.set_child(Some(&hbox));
+    (row, hbox)
+}
+
+fn make_filter_row(name: &str, icon: &str, label: &str, count: Option<i64>) -> ListBoxRow {
+    let (row, hbox) = filter_row_shell(name, label, count);
+    let img = Image::from_icon_name(icon);
+    img.set_pixel_size(14);
+    img.add_css_class("fond-quiet");
+    hbox.prepend(&img);
     row
 }
 
 fn make_category_filter_row(name: &str, color: &str, label: &str, count: Option<i64>) -> ListBoxRow {
-    let row = ListBoxRow::new();
-    row.set_widget_name(name);
-    let hbox = GtkBox::new(Orientation::Horizontal, 8);
-    hbox.set_margin_top(8);
-    hbox.set_margin_bottom(8);
-    hbox.set_margin_start(8);
-    hbox.set_margin_end(8);
-    let dot = Label::new(None);
-    dot.set_use_markup(true);
-    dot.set_markup(&format!("<span foreground=\"{color}\">●</span>"));
-    hbox.append(&dot);
-    let lbl = Label::new(Some(label));
-    lbl.set_hexpand(true);
-    lbl.set_halign(Align::Start);
-    lbl.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-    hbox.append(&lbl);
-    if let Some(c) = count {
-        let c_lbl = Label::new(Some(&c.to_string()));
-        c_lbl.add_css_class("dim-label");
-        c_lbl.add_css_class("caption");
-        c_lbl.add_css_class("count-badge");
-        c_lbl.set_halign(Align::End);
-        c_lbl.set_visible(c > 0);
-        hbox.append(&c_lbl);
-    }
-    row.set_child(Some(&hbox));
+    let (row, hbox) = filter_row_shell(name, label, count);
+    hbox.prepend(&crate::ui::styles::fond_cue(Some(color)));
     row
 }
 
@@ -2810,32 +2700,8 @@ fn make_category_filter_row_indented(name: &str, color: &str, label: &str, count
 }
 
 fn make_tag_filter_row(tag_id: i64, label: &str, color: &str, count: Option<i64>) -> ListBoxRow {
-    let row = ListBoxRow::new();
-    row.set_widget_name(&format!("tag:{tag_id}"));
-    let hbox = GtkBox::new(Orientation::Horizontal, 8);
-    hbox.set_margin_top(8);
-    hbox.set_margin_bottom(8);
-    hbox.set_margin_start(8);
-    hbox.set_margin_end(8);
-    let dot = Label::new(None);
-    dot.set_use_markup(true);
-    dot.set_markup(&format!("<span foreground=\"{color}\">●</span>"));
-    hbox.append(&dot);
-    let lbl = Label::new(Some(label));
-    lbl.set_hexpand(true);
-    lbl.set_halign(Align::Start);
-    lbl.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-    hbox.append(&lbl);
-    if let Some(c) = count {
-        let c_lbl = Label::new(Some(&c.to_string()));
-        c_lbl.add_css_class("dim-label");
-        c_lbl.add_css_class("caption");
-        c_lbl.add_css_class("count-badge");
-        c_lbl.set_halign(Align::End);
-        c_lbl.set_visible(c > 0);
-        hbox.append(&c_lbl);
-    }
-    row.set_child(Some(&hbox));
+    let (row, hbox) = filter_row_shell(&format!("tag:{tag_id}"), label, count);
+    hbox.prepend(&crate::ui::styles::fond_cue(Some(color)));
     row
 }
 
@@ -2846,11 +2712,37 @@ fn header_row(text: &str) -> ListBoxRow {
     if text.is_empty() {
         row.set_child(Some(&Separator::new(Orientation::Horizontal)));
     } else {
-        let lbl = Label::new(Some(text));
-        lbl.add_css_class("sidebar-header");
-        lbl.set_halign(Align::Start);
-        row.set_child(Some(&lbl));
+        // Title case, because the shared section style letterspaces and
+        // uppercases it in CSS — passing SHOUTING text through would come out
+        // spaced twice and read as a different typeface from every other
+        // section in the suite.
+        let title = title_case(text);
+        let accent = if title == "Tags" { "fond-accent-pinned" } else { "fond-accent-library" };
+        row.set_child(Some(&crate::ui::styles::fond_section_header(&title, accent)));
     }
+    row
+}
+
+fn title_case(text: &str) -> String {
+    let lower = text.to_lowercase();
+    let mut chars = lower.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        None => lower,
+    }
+}
+
+/// A section header inside the document list: the suite's dot-and-small-caps
+/// header, plus the number of documents under it.
+fn section_row(title: &str, accent: &str, count: usize) -> ListBoxRow {
+    let row = ListBoxRow::new();
+    row.set_selectable(false);
+    row.set_activatable(false);
+    let bx = crate::ui::styles::fond_section_header(title, accent);
+    let meta = crate::ui::styles::fond_section_meta();
+    meta.set_text(&format!("\u{b7} {count}"));
+    bx.append(&meta);
+    row.set_child(Some(&bx));
     row
 }
 
@@ -2883,18 +2775,6 @@ fn apply_color_css(widget: &impl IsA<gtk4::Widget>, color: &str) {
     let provider = gtk4::CssProvider::new();
     provider.load_from_data(&format!(
         "button {{ background: {color}; border-radius: 4px; min-width: 16px; min-height: 16px; }}"
-    ));
-    widget
-        .as_ref()
-        .style_context()
-        .add_provider(&provider, gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION);
-}
-
-#[allow(deprecated)]
-fn apply_cat_color(widget: &impl IsA<gtk4::Widget>, bg_hex: &str) {
-    let provider = gtk4::CssProvider::new();
-    provider.load_from_data(&format!(
-        "* {{ background: {bg_hex}22; color: {bg_hex}; border-radius: 4px; padding: 1px 6px; }}"
     ));
     widget
         .as_ref()
@@ -3025,17 +2905,6 @@ fn extract_author_tag(raw: &str) -> Option<String> {
         return Some(format!("{last}, {first}"));
     }
     Some(name.to_string())
-}
-
-fn tag_heat_color(rank: usize, total: usize) -> &'static str {
-    if total == 0 {
-        return "#3584e4";
-    }
-    match rank * 3 / total {
-        0 => "#e01b24", // hot — most used
-        1 => "#f6d32d", // warm — middle
-        _ => "#3584e4", // cool — least used
-    }
 }
 
 fn count_prose_words(path: &std::path::Path) -> usize {

@@ -5,6 +5,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- **The Library is drawn in the suite's shared design.** Documents are single-line cards
+  grouped under dotted small-caps headings — Pinned first, then Documents — each carrying one
+  coloured cue for its category, its tags set quietly after the title, and the date and word
+  count aligned right. The sidebar, list, and status bar sit on the same surfaces as every
+  other window, and the header keeps one bordered control.
+- **A tag's dot in the sidebar is its own colour**, not a red-to-blue ramp by how often it was
+  used. The colour a tag was given is the only thing it should signal.
+- **All Documents and Untagged have their own icons.** All Documents shared the recent-files
+  icon with Recently Opened, and Untagged wore a close button's ×.
+
+### Fixed
+
+- **Clicking a heading in the outline moves the editor to it.** The jump was only wired to row
+  activation, which a single click does not always raise, and it scrolled through a call that
+  silently does nothing before the view has measured its lines.
+
+---
+
 ## [0.20.0-dev10] — Help back where you can reach it; notes removed
 
 ### Changed
