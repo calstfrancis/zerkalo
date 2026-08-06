@@ -15,25 +15,63 @@ use regex::Regex;
 static LOC_RE: OnceLock<Regex> = OnceLock::new();
 
 fn loc_re() -> &'static Regex {
-    LOC_RE.get_or_init(|| Regex::new(r"-->\s+([^:]+):(\d+):(\d+)").unwrap())
+    // Greedy path capture, anchored on the trailing :line:col, so a folder
+    // name containing a colon doesn't truncate the path.
+    LOC_RE.get_or_init(|| Regex::new(r"-->\s+(.+):(\d+):(\d+)\s*$").unwrap())
 }
 
+#[derive(Debug)]
 pub enum Severity {
     Error,
     Warning,
 }
 
+#[derive(Debug)]
 pub struct CompileError {
     pub file: PathBuf,
     pub line: u32,
     pub col: u32,
+    /// A plain-language headline: what went wrong, in a sentence, with no
+    /// compiler jargon. This is what the panel shows first.
     pub message: String,
+    /// What to do about it, in plain language. Empty when we have nothing
+    /// better to say than the headline already does.
+    pub advice: String,
+    /// Typst's own hints. These are frequently the single most useful part of a
+    /// diagnostic ("if you meant subtraction, try adding spaces…") and were
+    /// being dropped on the floor by the parser.
+    pub hints: Vec<String>,
+    /// The compiler's original wording, kept so the exact text is still
+    /// available to copy, search for, or paste into a forum.
+    pub technical: String,
     pub severity: Severity,
 }
 
 pub fn parse_typst_errors(stderr: &str, project_root: &Path) -> Vec<CompileError> {
     let mut errors: Vec<CompileError> = Vec::new();
-    let mut current_msg: Option<(String, Severity)> = None;
+    // The diagnostic being accumulated: its raw text, severity, and any
+    // location and hints seen since. A diagnostic is only pushed once the next
+    // one starts or the input ends, because its ` --> ` and ` = hint: ` lines
+    // follow the `error:` line rather than preceding it.
+    let mut pending: Option<(String, Severity)> = None;
+    let mut loc: Option<(PathBuf, u32, u32)> = None;
+    let mut hints: Vec<String> = Vec::new();
+
+    macro_rules! flush {
+        () => {
+            if let Some((raw, sev)) = pending.take() {
+                let (file, line, col) = loc.take().unwrap_or_else(|| {
+                    (project_root.to_path_buf(), 1, 1)
+                });
+                errors.push(build_error(file, line, col, raw, std::mem::take(&mut hints), sev));
+            }
+            #[allow(unused_assignments)]
+            {
+                loc = None;
+            }
+            hints.clear();
+        };
+    }
 
     for line in stderr.lines() {
         let trimmed = line.trim();
@@ -42,47 +80,25 @@ pub fn parse_typst_errors(stderr: &str, project_root: &Path) -> Vec<CompileError
             let rel: &str = caps.get(1).map_or("", |m| m.as_str()).trim();
             let lineno: u32 = caps.get(2).and_then(|m| m.as_str().parse().ok()).unwrap_or(1);
             let col: u32 = caps.get(3).and_then(|m| m.as_str().parse().ok()).unwrap_or(1);
-
             let file = if Path::new(rel).is_absolute() {
                 PathBuf::from(rel)
             } else {
                 project_root.join(rel)
             };
-
-            if let Some((msg, sev)) = current_msg.take() {
-                errors.push(CompileError { file, line: lineno, col, message: msg, severity: sev });
-            } else {
-                errors.push(CompileError {
-                    file,
-                    line: lineno,
-                    col,
-                    message: "Compile error".into(),
-                    severity: Severity::Error,
-                });
-            }
-        } else if trimmed.starts_with("error:") {
-            let raw = trimmed.trim_start_matches("error:").trim().to_string();
-            current_msg = Some((enrich_error_message(&raw), Severity::Error));
-        } else if trimmed.starts_with("warning:") {
-            let msg = trimmed.trim_start_matches("warning:").trim().to_string();
-            current_msg = Some((msg, Severity::Warning));
+            loc = Some((file, lineno, col));
+        } else if let Some(hint) = trimmed.strip_prefix("= hint:") {
+            // Typst's own suggestion. Previously matched none of the arms here
+            // and was silently discarded along with the rest of the diagnostic.
+            hints.push(hint.trim().to_string());
+        } else if let Some(rest) = trimmed.strip_prefix("error:") {
+            flush!();
+            pending = Some((rest.trim().to_string(), Severity::Error));
+        } else if let Some(rest) = trimmed.strip_prefix("warning:") {
+            flush!();
+            pending = Some((rest.trim().to_string(), Severity::Warning));
         }
     }
-
-    // A diagnostic whose span Typst couldn't resolve has no ` --> file:line:col`
-    // line after it, so it never gets flushed by the loop above. Anchor it at the
-    // project root rather than dropping it — warnings in particular are often
-    // span-less, and silently discarding them is what this parser is being asked
-    // to stop doing.
-    if let Some((msg, sev)) = current_msg.take() {
-        errors.push(CompileError {
-            file: project_root.to_path_buf(),
-            line: 1,
-            col: 1,
-            message: msg,
-            severity: sev,
-        });
-    }
+    flush!();
 
     if errors.is_empty() && !stderr.trim().is_empty() {
         let first_line = stderr.lines()
@@ -94,110 +110,238 @@ pub fn parse_typst_errors(stderr: &str, project_root: &Path) -> Vec<CompileError
         } else {
             Severity::Error
         };
-        let first_msg = first_line
+        let raw = first_line
             .trim_start_matches("warning:")
             .trim_start_matches("error:")
             .trim()
             .to_string();
-        errors.push(CompileError {
-            file: project_root.to_path_buf(),
-            line: 1,
-            col: 1,
-            message: match severity {
-                Severity::Error => enrich_error_message(&first_msg),
-                _ => first_msg,
-            },
-            severity,
-        });
+        errors.push(build_error(
+            project_root.to_path_buf(), 1, 1, raw, Vec::new(), severity,
+        ));
     }
 
     errors
 }
 
-// ── Error enrichment ─────────────────────────────────────────────────────────
-
-pub fn enrich_error_message(msg: &str) -> String {
-    if msg.contains("does not exist in the document") && (msg.contains('<') || msg.contains('@')) {
-        return format!(
-            "{msg}\n\
-             → The bibliography key was not found. Check that:\n\
-             \x20 1. Your .bib file is referenced: #bibliography(\"refs.bib\")\n\
-             \x20 2. The .bib file is in the same folder as your .typ file\n\
-             \x20 3. The citation key spelling matches the .bib entry exactly"
-        );
-    }
-    if msg.contains("expected string or function") {
-        return format!(
-            "{msg}\n\
-             → A #show rule has an invalid or missing body. Try:\n\
-             \x20 1. Open 'Update Template Settings' and re-apply your chosen style\n\
-             \x20 2. Delete any incomplete '#show heading:' lines"
-        );
-    }
-    if msg.contains("file not found") || msg.contains("not found") && msg.contains(".typ") {
-        return format!(
-            "{msg}\n\
-             → A file your document includes could not be found. Check that all\n\
-             \x20 #include \"…\" and #import \"…\" paths are correct and the files exist."
-        );
-    }
-    if msg.contains("package not found") || msg.contains("@preview/") && msg.contains("not") {
-        return format!(
-            "{msg}\n\
-             → A Typst package is missing from the local cache. Packages are\n\
-             \x20 downloaded on first use; try compiling again while online.\n\
-             \x20 Cached packages live in: ~/.cache/typst/packages/"
-        );
-    }
-    if msg.contains("unexpected end of file") || msg.contains("unexpected token") {
-        return format!(
-            "{msg}\n\
-             → Usually a missing closing bracket, parenthesis, or quote.\n\
-             \x20 Check the line shown for an unclosed delimiter."
-        );
-    }
-    if msg.contains("unknown variable") || (msg.contains("not found in") && msg.contains("scope")) {
-        return format!(
-            "{msg}\n\
-             → A variable or function is used but not defined. Make sure any\n\
-             \x20 #let or #import statements appear before their first use."
-        );
-    }
-    if msg.to_lowercase().contains("font") && (msg.contains("not found") || msg.contains("missing")) {
-        return format!(
-            "{msg}\n\
-             → A font used in the document is not installed. Either install the font\n\
-             \x20 or change it in 'Update Template Settings' (Layout → Body Font)."
-        );
-    }
-    if msg.starts_with("missing argument") {
-        return format!(
-            "{msg}\n\
-             → A function is missing a required value. Check the function's\n\
-             \x20 parentheses for a missing value, e.g. #image(\"file.png\") needs a path."
-        );
-    }
-    if msg.starts_with("unexpected argument") {
-        return format!(
-            "{msg}\n\
-             → A function was given a value it doesn't accept — usually an extra\n\
-             \x20 argument, a misspelled named argument (e.g. 'colour:' instead of\n\
-             \x20 'fill:'), or a missing comma between two arguments."
-        );
-    }
-    if msg.starts_with("expected") && msg.contains(", found ") {
-        return format!(
-            "{msg}\n\
-             → A value has the wrong type for where it's used. Common fixes:\n\
-             \x20 wrap plain words in [brackets] for content, or in \"quotes\" for text;\n\
-             \x20 remove quotes around a number if one is expected."
-        );
-    }
-    msg.to_string()
+fn build_error(
+    file: PathBuf,
+    line: u32,
+    col: u32,
+    raw: String,
+    hints: Vec<String>,
+    severity: Severity,
+) -> CompileError {
+    let (message, advice) = humanize(&raw);
+    CompileError { file, line, col, message, advice, hints, technical: raw, severity }
 }
 
+/// Extracts the value after the first `:` in a Typst message, e.g.
+/// `unknown variable: foo` -> `foo`.
+fn subject(raw: &str) -> Option<String> {
+    let v = raw.split_once(':')?.1.trim();
+    if v.is_empty() { None } else { Some(v.trim_matches('`').to_string()) }
+}
+
+/// Turns a Typst diagnostic into (headline, advice) in plain language.
+///
+/// The old version prepended an arrow-bulleted explanation to the compiler's
+/// own wording, so the jargon still came first and the reader had to get past
+/// "unknown variable: foo" before reaching anything they could act on. Here the
+/// plain sentence *is* the message; Typst's exact text stays available under
+/// "Technical detail" for searching and reporting.
+///
+/// Wording rules: name the thing that's wrong, in the second person, and say
+/// what to do. No "invalid", no "malformed", no "expected token".
+pub fn humanize(raw: &str) -> (String, String) {
+    let lower = raw.to_lowercase();
+
+    if lower.starts_with("unknown variable") {
+        let name = subject(raw).unwrap_or_else(|| "that name".into());
+        return (
+            format!("Zerkalo doesn't know what \u{201c}{name}\u{201d} means"),
+            "It's used here but never defined. Check the spelling, or add a \
+             definition (#let) or an import above this point. If you meant to \
+             write it as ordinary text rather than a command, remove the # in \
+             front of it."
+                .into(),
+        );
+    }
+
+    if lower.starts_with("unknown font family") || (lower.contains("font") && lower.contains("not found")) {
+        let name = subject(raw).unwrap_or_else(|| "that font".into());
+        return (
+            format!("The font \u{201c}{name}\u{201d} isn't installed"),
+            "The document will use a substitute, so the layout may look wrong. \
+             Either install the font, or pick another in Template \u{2192} Body Font."
+                .into(),
+        );
+    }
+
+    if lower.contains("file not found") {
+        // Typst's real wording is `file not found (searched at /abs/path)`, so
+        // the name lives inside the parentheses rather than after a colon.
+        // Show the bare filename — the absolute path it searched is noise to
+        // someone who just wants to know which picture is missing.
+        let name = raw
+            .split_once("searched at ")
+            .map(|(_, rest)| rest.trim_end_matches(')').trim())
+            .map(|p| {
+                Path::new(p)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| p.to_string())
+            })
+            .or_else(|| {
+                raw.split_once("file not found")
+                    .and_then(|(_, rest)| rest.split('(').next())
+                    .map(|s| s.trim_matches(|c: char| c == ':' || c.is_whitespace()).to_string())
+            })
+            .filter(|s| !s.is_empty());
+        return (
+            match name {
+                Some(n) => format!("Zerkalo can't find the file \u{201c}{n}\u{201d}"),
+                None => "Zerkalo can't find a file this document uses".into(),
+            },
+            "Check the name is spelled the same as the real file, and that it \
+             sits in the same folder as your document (or that the path in the \
+             #include or #image line matches where it actually is)."
+                .into(),
+        );
+    }
+
+    if lower.contains("package not found") || lower.contains("failed to download package") {
+        return (
+            "A Typst package this document uses couldn't be fetched".into(),
+            "Packages download the first time they're used, so this usually means \
+             there was no internet connection. Reconnect and compile again."
+                .into(),
+        );
+    }
+
+    // Every unclosed-delimiter phrasing Typst uses, collapsed into one message.
+    for (needle, thing) in [
+        ("expected closing brace", "}"),
+        ("expected closing bracket", "]"),
+        ("expected closing paren", ")"),
+        ("unclosed delimiter", ""),
+    ] {
+        if lower.contains(needle) {
+            return (
+                if thing.is_empty() {
+                    "Something opened here was never closed".into()
+                } else {
+                    format!("A \u{201c}{thing}\u{201d} is missing")
+                },
+                "Every ( [ { and \" you open has to be closed again. The place \
+                 marked here is where Zerkalo ran out of document still looking \
+                 for the closing one."
+                    .into(),
+            );
+        }
+    }
+
+    if lower.contains("unexpected end of file") {
+        return (
+            "The document ends in the middle of something".into(),
+            "A bracket, parenthesis, brace or quotation mark was opened and never \
+             closed, so Zerkalo reached the end still waiting for it."
+                .into(),
+        );
+    }
+
+    if lower.starts_with("missing argument") {
+        return (
+            match subject(raw) {
+                Some(what) => format!("This command still needs \u{201c}{what}\u{201d}"),
+                None => "This command is missing something it needs".into(),
+            },
+            "A command was used without one of the things it needs \u{2014} for \
+             example #image() needs the name of a picture inside the brackets."
+                .into(),
+        );
+    }
+
+    if lower.starts_with("unexpected argument") {
+        return (
+            match subject(raw) {
+                Some(name) => format!("\u{201c}{name}\u{201d} isn't something this command accepts"),
+                None => "A command was given something it doesn't take".into(),
+            },
+            "This is usually a misspelled option name (fill: rather than colour:), \
+             a missing comma between two values, or one value too many."
+                .into(),
+        );
+    }
+
+    if lower.contains("does not exist in the document") {
+        let key = raw
+            .split_once("label ")
+            .and_then(|(_, rest)| rest.split_whitespace().next())
+            .map(|s| s.trim_matches(|c| c == '`' || c == '<' || c == '>').to_string())
+            .filter(|s| !s.is_empty());
+        return (
+            match key {
+                Some(k) => format!("Nothing in the document is labelled \u{201c}{k}\u{201d}"),
+                None => "A reference points at something that isn't in the document".into(),
+            },
+            "If this is a citation, check the key matches an entry in your .bib \
+             file exactly, and that the file is attached in Settings \u{2192} \
+             Bibliography. If it's a cross-reference, check the <label> it points \
+             at is really there and spelled the same."
+                .into(),
+        );
+    }
+
+    if lower.starts_with("expected") && lower.contains(", found ") {
+        return (
+            "A value here isn't the kind that was needed".into(),
+            "Words meant as text usually need to be in \"quotes\", and passages of \
+             document content need to be in [square brackets]. A number shouldn't \
+             be in quotes."
+                .into(),
+        );
+    }
+
+    if lower.contains("cannot divide by zero") {
+        return (
+            "Something here divides by zero".into(),
+            "Check the value being divided by \u{2014} it works out to zero.".into(),
+        );
+    }
+
+    if lower.contains("expected string or function") {
+        return (
+            "A styling rule here is incomplete".into(),
+            "Re-apply your style from Template to rewrite these rules, or delete \
+             any half-finished #show line at this spot."
+                .into(),
+        );
+    }
+
+    if lower.contains("cannot access file system") {
+        return (
+            "This document isn't allowed to read that file".into(),
+            "Typst can only read files inside your project folder. Move the file \
+             in beside your document."
+                .into(),
+        );
+    }
+
+    // Nothing matched: keep Typst's wording as the headline rather than
+    // inventing a vague one, but capitalise it so it reads as a sentence.
+    let mut chars = raw.chars();
+    let headline = match chars.next() {
+        Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
+        None => "Something went wrong while compiling".to_string(),
+    };
+    (headline, String::new())
+}
+
+/// Quick-fix patterns are written against Typst's own phrasing, so they must be
+/// matched on the untranslated text — matching the plain-language headline
+/// would silently retire every Fix button.
 fn is_quick_fixable(err: &CompileError) -> bool {
-    crate::error_patterns::match_fix(&err.message)
+    crate::error_patterns::match_fix(&err.technical)
         .is_some_and(|fix| fix.fix_fn.is_some())
 }
 
@@ -228,6 +372,9 @@ pub struct ErrorPanel {
     collapsed: Rc<Cell<bool>>,
     on_jump: Rc<RefCell<Option<Box<dyn Fn(PathBuf, u32)>>>>,
     on_try_fix: Rc<RefCell<Option<Box<dyn Fn(PathBuf, u32, String)>>>>,
+    /// Supplies the live text of a line from the editor's buffers.
+    #[allow(clippy::type_complexity)]
+    source_line: Rc<RefCell<Option<Box<dyn Fn(&Path, u32) -> Option<String>>>>>,
     on_export_done: Rc<RefCell<Option<Box<dyn Fn(String)>>>>,
     last_errors_key: Rc<RefCell<String>>,
     repeat_count: Rc<Cell<u32>>,
@@ -495,6 +642,7 @@ impl ErrorPanel {
             collapsed,
             on_jump: Rc::new(RefCell::new(None)),
             on_try_fix: Rc::new(RefCell::new(None)),
+            source_line: Rc::new(RefCell::new(None)),
             on_export_done,
             last_errors_key: Rc::new(RefCell::new(String::new())),
             repeat_count: Rc::new(Cell::new(0)),
@@ -519,6 +667,13 @@ impl ErrorPanel {
 
     pub fn set_on_try_fix(&self, f: impl Fn(PathBuf, u32, String) + 'static) {
         *self.on_try_fix.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn set_source_line_provider(
+        &self,
+        f: impl Fn(&Path, u32) -> Option<String> + 'static,
+    ) {
+        *self.source_line.borrow_mut() = Some(Box::new(f));
     }
 
     /// Callback receives the saved file path so the caller can show a toast.
@@ -733,7 +888,9 @@ impl ErrorPanel {
         row.add_css_class("fond-card");
         row.add_css_class("fond-row");
         // Store the message as the widget name so the filter function can read it
-        row.set_widget_name(&err.message.to_lowercase());
+        // Filtering searches the compiler's wording as well as the plain one,
+        // so a user who knows the Typst term can still find the row.
+        row.set_widget_name(&format!("{} {}", err.message, err.technical).to_lowercase());
 
         let row_box = GtkBox::new(Orientation::Horizontal, 8);
         row_box.set_margin_start(10);
@@ -761,32 +918,50 @@ impl ErrorPanel {
         let text_box = GtkBox::new(Orientation::Vertical, 2);
         text_box.set_hexpand(true);
 
-        let first_line = err.message.lines().next().unwrap_or(&err.message).to_string();
-        let msg_lbl = Label::new(Some(&first_line));
+        // Plain-language headline first — the compiler's own wording is kept
+        // below under "Technical detail" rather than leading with it.
+        let msg_lbl = Label::new(Some(&err.message));
         msg_lbl.set_halign(Align::Start);
         msg_lbl.set_wrap(true);
         msg_lbl.set_xalign(0.0);
+        msg_lbl.add_css_class("heading");
         text_box.append(&msg_lbl);
 
-        // Enrichment hint lines (dim, smaller)
-        if err.message.contains('\n') {
-            let hint: String = err.message.lines().skip(1).collect::<Vec<_>>().join("\n");
-            let hint_lbl = Label::new(Some(&hint));
+        if !err.advice.is_empty() {
+            let advice_lbl = Label::new(Some(&err.advice));
+            advice_lbl.set_halign(Align::Start);
+            advice_lbl.set_xalign(0.0);
+            advice_lbl.set_wrap(true);
+            text_box.append(&advice_lbl);
+        }
+
+        // Typst's own hints, which the parser used to discard. They are often
+        // the most specific thing anyone can say about the problem.
+        for hint in &err.hints {
+            let hint_lbl = Label::new(Some(&format!("\u{1f4a1} {hint}")));
             hint_lbl.set_halign(Align::Start);
             hint_lbl.set_xalign(0.0);
             hint_lbl.set_wrap(true);
-            hint_lbl.add_css_class("dim-label");
             hint_lbl.add_css_class("caption");
             text_box.append(&hint_lbl);
         }
 
-        // Source context: read the offending line from the file
-        let source_line = std::fs::read_to_string(&err.file)
-            .ok()
-            .and_then(|content| {
-                content.lines()
-                    .nth((err.line as usize).saturating_sub(1))
-                    .map(|l| l.trim().to_string())
+        // Source context: the offending line, taken from the open buffer when
+        // there is one. Compiles run against the unsaved buffer, so reading
+        // from disk quoted a line the compiler never saw whenever the document
+        // had unsaved edits.
+        let source_line = self
+            .source_line
+            .borrow()
+            .as_ref()
+            .and_then(|f| f(&err.file, err.line))
+            .or_else(|| {
+                std::fs::read_to_string(&err.file).ok().and_then(|content| {
+                    content
+                        .lines()
+                        .nth((err.line as usize).saturating_sub(1))
+                        .map(|l| l.trim().to_string())
+                })
             })
             .filter(|l| !l.is_empty());
         if let Some(src) = source_line {
@@ -798,6 +973,26 @@ impl ErrorPanel {
             src_lbl.add_css_class("dim-label");
             src_lbl.add_css_class("caption");
             text_box.append(&src_lbl);
+        }
+
+        // The compiler's exact words, behind a disclosure: useless to most
+        // readers, indispensable to anyone searching the Typst forum. Shown
+        // only when the plain-language pass actually changed the wording.
+        if err.technical != err.message {
+            let expander = gtk4::Expander::new(Some("Technical detail"));
+            expander.add_css_class("caption");
+            let tech_lbl = Label::new(Some(&err.technical));
+            tech_lbl.set_halign(Align::Start);
+            tech_lbl.set_xalign(0.0);
+            tech_lbl.set_wrap(true);
+            tech_lbl.set_selectable(true);
+            tech_lbl.add_css_class("monospace");
+            tech_lbl.add_css_class("caption");
+            tech_lbl.add_css_class("dim-label");
+            tech_lbl.set_margin_top(2);
+            tech_lbl.set_margin_start(4);
+            expander.set_child(Some(&tech_lbl));
+            text_box.append(&expander);
         }
 
         let filename = err.file.file_name().and_then(|n| n.to_str()).unwrap_or("?");
@@ -821,10 +1016,18 @@ impl ErrorPanel {
         copy_btn.set_tooltip_text(Some("Copy error message"));
         copy_btn.update_property(&[gtk4::accessible::Property::Label("Copy error message")]);
         {
+            // Copies the compiler's exact wording alongside the plain one —
+            // the technical text is what's worth pasting into a search.
             let msg_c = err.message.clone();
+            let tech_c = err.technical.clone();
+            let hints_c = err.hints.clone();
             let loc_c = loc_text.clone();
             copy_btn.connect_clicked(move |btn| {
-                btn.clipboard().set_text(&format!("{}\n{}", msg_c, loc_c));
+                let mut out = format!("{msg_c}\n{loc_c}\n\n{tech_c}");
+                for h in &hints_c {
+                    out.push_str(&format!("\nhint: {h}"));
+                }
+                btn.clipboard().set_text(&out);
             });
         }
         btn_box.append(&copy_btn);
@@ -856,7 +1059,7 @@ impl ErrorPanel {
             let on_fix = self.on_try_fix.clone();
             let file_f = err.file.clone();
             let line_f = err.line;
-            let msg_f = err.message.clone();
+            let msg_f = err.technical.clone();
             fix_btn.connect_clicked(move |_| {
                 if let Some(f) = on_fix.borrow().as_ref() {
                     f(file_f.clone(), line_f, msg_f.clone());
@@ -888,27 +1091,155 @@ impl ErrorPanel {
 mod tests {
     use super::*;
 
-    #[test]
-    fn enrich_missing_argument_explains_required_value() {
-        let out = enrich_error_message("missing argument: caption");
-        assert!(out.contains("required value"), "got: {out}");
+    fn parse(text: &str) -> Vec<CompileError> {
+        parse_typst_errors(text, Path::new("/project"))
     }
 
     #[test]
-    fn enrich_unexpected_argument_explains_extra_or_misspelled() {
-        let out = enrich_error_message("unexpected argument");
-        assert!(out.contains("misspelled named argument"), "got: {out}");
+    fn a_diagnostic_keeps_the_line_the_compiler_reported() {
+        let errs = parse("error: unknown variable: foo\n --> /project/main.typ:12:5");
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].line, 12);
+        assert_eq!(errs[0].col, 5);
+        assert_eq!(errs[0].file, PathBuf::from("/project/main.typ"));
     }
 
     #[test]
-    fn enrich_type_mismatch_explains_wrapping() {
-        let out = enrich_error_message("expected content, found string");
-        assert!(out.contains("[brackets]"), "got: {out}");
+    fn typst_hints_are_kept_rather_than_discarded() {
+        // The parser recognised only `error:`, `warning:` and ` --> ` lines, so
+        // every `= hint:` line — often the most useful part of the diagnostic —
+        // fell through every arm and was dropped.
+        let errs = parse(
+            "error: unknown variable: no-such\n \
+             --> /project/main.typ:5:1\n   \
+             = hint: if you meant subtraction, try adding spaces around the minus sign",
+        );
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].hints.len(), 1, "hint should survive: {:?}", errs[0].hints);
+        assert!(errs[0].hints[0].contains("subtraction"));
     }
 
     #[test]
-    fn enrich_leaves_unknown_messages_unchanged() {
-        let out = enrich_error_message("some completely novel error text");
-        assert_eq!(out, "some completely novel error text");
+    fn each_diagnostic_keeps_its_own_location_and_hints() {
+        // Two diagnostics in one run must not pool their locations: the second
+        // error's line has to stay with the second error.
+        let errs = parse(
+            "error: first problem\n \
+             --> /project/a.typ:3:1\n   \
+             = hint: hint for the first\n\
+             error: second problem\n \
+             --> /project/b.typ:99:2",
+        );
+        assert_eq!(errs.len(), 2);
+        assert_eq!(errs[0].line, 3);
+        assert_eq!(errs[0].hints.len(), 1);
+        assert_eq!(errs[1].line, 99);
+        assert_eq!(errs[1].file, PathBuf::from("/project/b.typ"));
+        assert!(errs[1].hints.is_empty(), "the first error's hint must not leak forward");
+    }
+
+    #[test]
+    fn a_diagnostic_with_no_location_still_reports_once() {
+        let errs = parse("warning: something vague");
+        assert_eq!(errs.len(), 1);
+        assert!(matches!(errs[0].severity, Severity::Warning));
+        assert_eq!(errs[0].line, 1);
+    }
+
+    #[test]
+    fn a_relative_path_is_resolved_against_the_project_root() {
+        let errs = parse("error: boom\n --> chapters/one.typ:7:1");
+        assert_eq!(errs[0].file, PathBuf::from("/project/chapters/one.typ"));
+    }
+
+    // ── Plain language ───────────────────────────────────────────────────────
+
+    #[test]
+    fn an_undefined_name_is_explained_without_jargon() {
+        let (headline, advice) = humanize("unknown variable: foo");
+        assert!(headline.contains("foo"), "should name it: {headline}");
+        assert!(
+            !headline.to_lowercase().contains("variable"),
+            "headline should not use compiler jargon: {headline}"
+        );
+        assert!(advice.contains('#'), "advice should say what to do: {advice}");
+    }
+
+    #[test]
+    fn a_missing_file_names_the_file() {
+        // Typst's actual phrasing puts the path in parentheses after
+        // "searched at", and gives it absolute. The reader wants the filename.
+        let (headline, _) =
+            humanize("file not found (searched at /home/me/docs/missing-picture.png)");
+        assert!(headline.contains("missing-picture.png"), "got: {headline}");
+        assert!(!headline.contains("/home/me"), "path noise leaked in: {headline}");
+
+        let (headline, _) = humanize("file not found: figures/plot.png");
+        assert!(headline.contains("plot.png"), "got: {headline}");
+    }
+
+    #[test]
+    fn a_wrong_option_name_is_quoted_in_the_headline() {
+        let (headline, advice) = humanize("unexpected argument: colour");
+        assert!(headline.contains("colour"), "should name it: {headline}");
+        assert!(advice.contains("fill:"), "should suggest the real one: {advice}");
+    }
+
+    #[test]
+    fn a_missing_argument_is_named() {
+        let (headline, _) = humanize("missing argument: body");
+        assert!(headline.contains("body"), "got: {headline}");
+    }
+
+    #[test]
+    fn every_unclosed_delimiter_phrasing_gets_the_same_explanation() {
+        for raw in [
+            "expected closing brace",
+            "expected closing bracket",
+            "expected closing paren",
+        ] {
+            let (headline, advice) = humanize(raw);
+            assert!(!advice.is_empty(), "{raw} should carry advice");
+            assert!(
+                !headline.to_lowercase().contains("expected"),
+                "{raw} still reads like a parser message: {headline}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_unrecognised_message_is_kept_verbatim_but_capitalised() {
+        // Better to show Typst's exact words than to invent a vague headline
+        // that tells the reader nothing.
+        let (headline, advice) = humanize("some completely novel error text");
+        assert_eq!(headline, "Some completely novel error text");
+        assert!(advice.is_empty());
+    }
+
+    #[test]
+    fn a_path_containing_a_colon_is_not_truncated() {
+        let errs = parse("error: boom\n --> /project/odd:name/one.typ:7:2");
+        assert_eq!(errs[0].file, PathBuf::from("/project/odd:name/one.typ"));
+        assert_eq!(errs[0].line, 7);
+    }
+
+    #[test]
+    fn quick_fixes_still_match_after_the_message_is_rewritten() {
+        // error_patterns matches Typst's phrasing ("expected closing brace").
+        // Once the headline became plain language it no longer contained those
+        // words, so matching on it would have quietly removed every Fix button.
+        let errs = parse("error: expected closing brace\n --> /project/main.typ:4:1");
+        assert!(
+            is_quick_fixable(&errs[0]),
+            "should still offer a fix; headline is now {:?}",
+            errs[0].message
+        );
+    }
+
+    #[test]
+    fn the_technical_wording_is_preserved_for_searching() {
+        let errs = parse("error: unknown variable: foo\n --> /project/main.typ:2:1");
+        assert_eq!(errs[0].technical, "unknown variable: foo");
+        assert_ne!(errs[0].message, errs[0].technical, "headline should be rewritten");
     }
 }

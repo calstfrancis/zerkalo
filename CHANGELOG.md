@@ -5,6 +5,44 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.20.0-dev13] — Errors that tell you where, and what to do
+
+### Fixed
+
+- **Compile errors point at the line they're actually on.** Every error and warning in
+  Zerkalo reported line 1, whatever had gone wrong and wherever it was. Typst attaches two
+  different kinds of source position to a diagnostic, and Zerkalo only decoded the kind that
+  almost never occurs — so no error ever carried a location at all, and the panel's fallback
+  put them all at the top of the file. This also means the source line quoted beside each
+  error was, until now, always the first line of the document.
+- **Errors in an included or imported file name that file**, instead of being attributed to
+  the document you happen to have open.
+- **Clicking an error jumps to the right file** when the root file lives in a subfolder. The
+  location was resolved against the project folder while the compiler had reported it relative
+  to the root file's own folder, so the two disagreed and the jump went nowhere.
+- **Typst's own suggestions are shown.** Diagnostics often carry a hint — frequently the most
+  useful sentence available, e.g. that `my-helper` was read as `my - helper` — and the parser
+  recognised no such line, so every one was silently discarded.
+- **The source line shown beside an error is the one that was compiled.** It was read from the
+  file on disk while compiling runs against the unsaved buffer, so with unsaved edits the panel
+  quoted a line the compiler never saw.
+- **A folder name containing a colon no longer truncates the path** in a reported location.
+
+### Changed
+
+- **Error messages are written in plain language.** The compiler's wording used to come first,
+  with an explanation bolted underneath, so you had to get past "unknown variable: my-helper"
+  before reaching anything you could act on. Now the plain sentence *is* the message —
+  "Zerkalo doesn't know what "my-helper" means" — followed by what to do about it. The exact
+  compiler text stays available under "Technical detail", and is what the copy button puts on
+  the clipboard, so it can still be searched for or pasted into a forum.
+- **Messages name the thing that's wrong** where Typst tells us what it is: the missing file,
+  the unrecognised option, the label nothing matches.
+- **Warnings from the language server read the same as warnings from the compiler**, rather
+  than being phrased differently depending on which one noticed the problem.
+
+---
+
 ## [0.20.0-dev12] — The menu means what it says
 
 ### Fixed — menu and settings audit

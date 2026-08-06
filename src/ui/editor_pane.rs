@@ -5061,6 +5061,23 @@ impl EditorPane {
         None
     }
 
+    /// The live text of one line of an open file (1-based), or None if the file
+    /// isn't open.
+    ///
+    /// The error panel shows the offending source line beside each diagnostic.
+    /// Reading it from disk was wrong whenever the buffer was dirty: compiles
+    /// run against the unsaved buffer, so the panel could quote a line the
+    /// compiler never saw.
+    pub fn line_text(&self, path: &std::path::Path, line: u32) -> Option<String> {
+        let state = self.state.borrow();
+        let tab = state.tabs.get(path)?;
+        let (s, e) = tab.buffer.bounds();
+        let text = tab.buffer.text(&s, &e, true);
+        text.lines()
+            .nth((line as usize).checked_sub(1)?)
+            .map(|l| l.trim().to_string())
+    }
+
     /// Whether the tab for `path` has unsaved modifications.
     pub fn is_modified(&self, path: &std::path::Path) -> bool {
         self.state.borrow().tabs.get(path).map(|t| t.modified).unwrap_or(false)

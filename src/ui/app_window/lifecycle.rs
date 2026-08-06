@@ -14,7 +14,7 @@ use libadwaita as adw;
 use crate::config::Config;
 use crate::lsp::{DiagSeverity, LspClient};
 use super::super::editor_pane::EditorPane;
-use super::super::error_panel::{CompileError, ErrorPanel, Severity, enrich_error_message};
+use super::super::error_panel::{CompileError, ErrorPanel, Severity, humanize};
 use super::{font_defaults, make_font_save_cb, show_alert};
 
 /// What the startup and lifecycle wiring needs from `AppWindow::new`.
@@ -253,12 +253,21 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
                             DiagSeverity::Error => Severity::Error,
                             _ => Severity::Warning,
                         };
-                        let message = if matches!(severity, Severity::Error) {
-                            enrich_error_message(&d.message)
-                        } else {
-                            d.message
-                        };
-                        CompileError { file: d.file, line: d.line, col: d.col, message, severity }
+                        // The language server's diagnostics go through the
+                        // same plain-language pass as the compiler's, so the
+                        // wording doesn't change depending on which one
+                        // happened to report the problem.
+                        let (message, advice) = humanize(&d.message);
+                        CompileError {
+                            file: d.file,
+                            line: d.line,
+                            col: d.col,
+                            message,
+                            advice,
+                            hints: Vec::new(),
+                            technical: d.message,
+                            severity,
+                        }
                     })
                     .collect();
                 let diag_marks: Vec<(std::path::PathBuf, u32, bool, String)> = errors
