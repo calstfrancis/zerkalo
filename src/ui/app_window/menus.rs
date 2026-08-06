@@ -8,7 +8,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use gtk4::prelude::*;
-use gtk4::{AlertDialog, Button, Label, Popover};
+use gtk4::{Button, Label, Popover};
 use libadwaita as adw;
 use adw::prelude::*;
 
@@ -18,6 +18,7 @@ use super::super::editor_pane::EditorPane;
 use super::super::error_panel::ErrorPanel;
 use super::super::preview_pane::PreviewPane;
 use super::header::Menus;
+use super::open_template_for_active_document;
 use super::super::docs_browser::DocsBrowser;
 use super::super::export_dialog::ExportDialog;
 use super::super::font_manager::FontManager;
@@ -29,7 +30,7 @@ use super::super::template_dialog::TemplateDialog;
 use crate::bibliography;
 use crate::git_sync;
 use super::{
-    apply_compile_mode_css, apply_template_result, apply_theme, compile_mode_label_str,
+    apply_compile_mode_css, apply_theme, compile_mode_label_str,
     font_defaults, make_font_save_cb, print_from_preview, restore_snapshot_with_confirm,
     show_alert,
 };
@@ -43,6 +44,7 @@ pub(super) struct MenuCtx {
     pub(super) editor_pane: EditorPane,
     pub(super) preview_pane: PreviewPane,
     pub(super) error_panel: ErrorPanel,
+    pub(super) citation_panel: super::super::citation_panel::CitationPanel,
     pub(super) toast_overlay: adw::ToastOverlay,
     pub(super) current_config: Rc<RefCell<Config>>,
     pub(super) project_root: std::path::PathBuf,
@@ -97,6 +99,8 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
     let import_item_for_settings = menus.menu_import_item.clone();
     let compile_mode_btn_for_settings = ctx.compile_mode_btn.clone();
     let compile_mode_label_for_settings = ctx.compile_mode_label.clone();
+    let preview_for_settings = ctx.preview_pane.clone();
+    let citation_for_settings = ctx.citation_panel.clone();
     menus.menu_settings_item.connect_clicked(move |_| {
         menu_popover_for_settings.popdown();
         let dialog = SettingsDialog::new(
@@ -113,6 +117,8 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
         let import_item_save = import_item_for_settings.clone();
         let cm_btn_save = compile_mode_btn_for_settings.clone();
         let cm_lbl_save = compile_mode_label_for_settings.clone();
+        let preview_for_save = preview_for_settings.clone();
+        let citation_for_save = citation_for_settings.clone();
 
         // Live preview — apply appearance changes immediately while dialog is open
         {
@@ -127,6 +133,7 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
                 editor_p.apply_tab_width(cfg.editor_tab_width);
                 editor_p.apply_line_spacing(cfg.editor_line_spacing);
                 editor_p.apply_typewriter_scroll(cfg.typewriter_scrolling);
+                editor_p.apply_word_count_goal(cfg.word_count_goal);
                 apply_theme(&cfg.theme);
                 editor_p.apply_style_scheme(adw::StyleManager::default().is_dark());
                 if cfg.high_contrast {
@@ -156,6 +163,7 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
             editor.apply_tab_width(new_cfg.editor_tab_width);
             editor.apply_line_spacing(new_cfg.editor_line_spacing);
             editor.apply_typewriter_scroll(new_cfg.typewriter_scrolling);
+            editor.apply_word_count_goal(new_cfg.word_count_goal);
             editor.set_spell_enabled(new_cfg.spell_enabled);
             editor.set_spell_autocorrect(new_cfg.spell_autocorrect);
             editor.set_spell_languages(new_cfg.spell_languages.clone());
@@ -175,20 +183,45 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
                 }
             }
             import_item_save.set_visible(new_cfg.developer_mode);
-            let work_dir_changed = new_cfg.work_dir != cfg_rc.borrow().work_dir;
+
+            // CV elements were resolved once at startup, so changing this path
+            // used to do nothing until the next launch, silently. It can be
+            // applied live, so it is.
+            let old_cv = cfg_rc.borrow().cv_elements_path.clone();
+            if old_cv != new_cfg.cv_elements_path {
+                preview_for_save.set_cv_elements_path(new_cfg.cv_elements_path.clone());
+                match new_cfg.cv_elements_path.as_ref() {
+                    Some(p) => {
+                        let entries = crate::cv_mode::load_cv_entries(p);
+                        editor.set_cv_entries(entries.clone());
+                        citation_for_save.load_cv_entries(entries);
+                    }
+                    None => {
+                        editor.set_cv_entries(Vec::new());
+                        citation_for_save.load_cv_entries(Vec::new());
+                    }
+                }
+                preview_for_save.trigger_compile();
+            }
+
+            // Everything else is live; these two are read once when the window
+            // is built, so say so rather than appearing to have applied.
+            let mut needs_restart: Vec<&str> = Vec::new();
+            if new_cfg.work_dir != cfg_rc.borrow().work_dir {
+                needs_restart.push("work folder");
+            }
+            if new_cfg.output_dir != cfg_rc.borrow().output_dir {
+                needs_restart.push("output folder");
+            }
             *cfg_rc.borrow_mut() = new_cfg;
-            if work_dir_changed {
-                let alert = AlertDialog::builder()
-                    .modal(true)
-                    .message("Restart required")
-                    .detail("The work folder change takes effect after restarting Zerkalo.")
-                    .buttons(["OK"])
-                    .default_button(0)
-                    .build();
-                alert.choose(
-                    Some(&window_for_save),
-                    None::<&gtk4::gio::Cancellable>,
-                    |_| {},
+            if !needs_restart.is_empty() {
+                show_alert(
+                    &window_for_save,
+                    "Restart required",
+                    &format!(
+                        "The {} change takes effect after restarting Zerkalo.",
+                        needs_restart.join(" and "),
+                    ),
                 );
             }
         });
@@ -203,6 +236,31 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
     menus.menu_help_item.connect_clicked(move |_| {
         menu_popover_for_help.popdown();
         HelpWindow::new(&window_for_help, editor_for_help.is_cv_mode()).present();
+    });
+
+    // ── Menu: Keyboard Shortcuts ────────────────────────────────────────
+    // Reads keybindings.toml live, so it's the accurate list even after a
+    // rebind — previously only reachable via its own shortcut.
+
+    let window_for_keys = ctx.window.clone();
+    let menu_popover_for_keys = ctx.menu_popover.clone();
+    menus.menu_shortcuts_item.connect_clicked(move |_| {
+        menu_popover_for_keys.popdown();
+        super::show_dynamic_shortcuts_window(
+            &window_for_keys,
+            &crate::keybindings::Keybindings::load(),
+        );
+    });
+
+    // ── Menu: What's New ────────────────────────────────────────────────
+    // The release-name window only ever appeared on first run and after an
+    // upgrade; nothing let a user open it again.
+
+    let window_for_whats_new = ctx.window.clone();
+    let menu_popover_for_whats_new = ctx.menu_popover.clone();
+    menus.menu_whats_new_item.connect_clicked(move |_| {
+        menu_popover_for_whats_new.popdown();
+        super::super::welcome_window::WelcomeWindow::new(&window_for_whats_new, false).present();
     });
 
     // ── Menu: Setup & Onboarding ────────────────────────────────────────
@@ -236,18 +294,30 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
     let menu_popover_for_about = ctx.menu_popover.clone();
     menus.menu_about_item.connect_clicked(move |_| {
         menu_popover_for_about.popdown();
-        let dlg = adw::MessageDialog::new(
-            Some(&window_for_about),
-            Some(concat!("Zerkalo ", env!("CARGO_PKG_VERSION"))),
-            Some(
+        // An AdwAboutWindow rather than a plain message dialog: the repo link
+        // is now clickable, the licence is stated, and the release name the
+        // release process assigns is actually visible in the app.
+        let about = adw::AboutWindow::builder()
+            .transient_for(&window_for_about)
+            .modal(true)
+            .application_name("Zerkalo")
+            .application_icon("io.github.calstfrancis.Zerkalo")
+            .version(format!(
+                "{} \u{201c}{}\u{201d}",
+                env!("CARGO_PKG_VERSION"),
+                super::super::welcome_window::RELEASE_NAME,
+            ))
+            .comments(
                 "A contemplative Typst editor.\n\n\
-                 Built with Rust · GTK4 · libadwaita · sourceview5\n\
-                 Embedded Typst compiler — no binary required\n\n\
-                 https://github.com/calstfrancis/zerkalo"
-            ),
-        );
-        dlg.add_response("ok", "OK");
-        dlg.present();
+                 Built with Rust · GTK4 · libadwaita · sourceview5.\n\
+                 Embedded Typst compiler — no external binary required.",
+            )
+            .website("https://github.com/calstfrancis/zerkalo")
+            .issue_url("https://github.com/calstfrancis/zerkalo/issues")
+            .developer_name("Cal St Francis")
+            .license_type(gtk4::License::MitX11)
+            .build();
+        about.present();
     });
 
     // ── Menu: Writing Stats ─────────────────────────────────────────────
@@ -440,151 +510,13 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
     let preview_for_reapply = ctx.preview_pane.clone();
     menus.menu_reapply_template_item.connect_clicked(move |_| {
         menu_popover_for_reapply.popdown();
-        let Some(current_path) = editor_for_reapply.get_active_path() else {
-            let t = adw::Toast::new("Open a document first");
-            t.set_timeout(3);
-            // ctx.toast_overlay captured below; use a ctx.window dialog as fallback
-            show_alert(&window_for_reapply, "No document open", "Open a .typ file first, then use Update Template Settings.");
-            return;
-        };
-        let current_content = editor_for_reapply.get_active_content().unwrap_or_default();
-        let last_advanced_reapply = cfg_for_reapply.borrow().last_used_advanced;
-        let dlg = TemplateDialog::new(&window_for_reapply, &project_root_for_reapply, last_advanced_reapply);
-        {
-            let cfg_adv = cfg_for_reapply.clone();
-            dlg.set_on_advanced_toggle(move |expanded| {
-                let mut c = cfg_adv.borrow_mut();
-                c.last_used_advanced = expanded;
-                let _ = c.save();
-            });
-        }
-        {
-            let cfg = cfg_for_reapply.borrow();
-            dlg.set_bib_path(cfg.bib_path.clone());
-            dlg.preselect_locked_identity(&cfg.locked_author.clone(), &cfg.locked_affiliation.clone());
-            dlg.set_cv_elements_path(cfg.cv_elements_path.clone());
-        }
-        {
-            let cfg = cfg_for_reapply.clone();
-            dlg.set_on_lock_identity(move |author, affiliation| {
-                let mut c = cfg.borrow_mut();
-                c.locked_author = author;
-                c.locked_affiliation = affiliation;
-                let _ = c.save();
-            });
-        }
-        {
-            let cfg = cfg_for_reapply.clone();
-            dlg.set_on_cv_elements_change(move |path| {
-                let mut c = cfg.borrow_mut();
-                c.cv_elements_path = Some(path);
-                let _ = c.save();
-            });
-        }
-
-        if let Some(sidecar) = super::super::template_dialog::load_sidecar(&current_path) {
-            dlg.preselect_from_sidecar(&sidecar);
-        } else {
-            let doc_kind = super::super::template_dialog::parse_doc_kind(&current_content);
-            dlg.preselect_cv_mode(doc_kind.as_deref() == Some("cv"));
-            dlg.preselect_body_kind(super::super::template_dialog::body_kind_from_key(
-                doc_kind.as_deref().unwrap_or(""),
-            ));
-            dlg.preselect_style(
-                &super::super::template_dialog::parse_style_key(&current_content)
-                    .unwrap_or_default(),
-            );
-            // A CV document's @zerkalo-style marker is just the literal "cv"
-            // (see generate_cv_template), so preselect_style above can't
-            // recover the actual CV style (Modern/Academic/Classic/
-            // Two-Column) from it — that's tracked separately via
-            // @zerkalo-cv-style.
-            if let Some(cv_style) = super::super::template_dialog::parse_cv_style(&current_content) {
-                if let Some(idx) = super::super::template_dialog::cv_style_index(&cv_style) {
-                    dlg.preselect_cv_style_index(idx);
-                }
-            }
-            if let Some(f) = super::super::template_dialog::parse_font(&current_content) {
-                dlg.preselect_font(&f);
-            }
-            if let Some(p) = super::super::template_dialog::parse_paper(&current_content) {
-                dlg.preselect_paper(&p, "", "");
-            }
-            if let Some(s) = super::super::template_dialog::parse_spacing(&current_content) {
-                dlg.preselect_spacing(&s);
-            }
-            dlg.preselect_margin(super::super::template_dialog::parse_margin(&current_content), "");
-            dlg.preselect_toc(
-                super::super::template_dialog::parse_has_toc(&current_content),
-                super::super::template_dialog::parse_toc_depth(&current_content),
-            );
-            dlg.preselect_abstract(
-                super::super::template_dialog::parse_has_abstract(&current_content),
-                &super::super::template_dialog::parse_abstract_text(&current_content),
-            );
-            dlg.preselect_keywords(
-                super::super::template_dialog::parse_has_keywords(&current_content),
-                &super::super::template_dialog::parse_keywords_text(&current_content),
-            );
-            if let Some(f) = super::super::template_dialog::parse_dropcap_font(&current_content) {
-                dlg.preselect_dropcap_font(&f);
-            }
-            if let Some(c) = super::super::template_dialog::parse_dropcap_color(&current_content) {
-                dlg.preselect_dropcap_color(&c);
-            }
-        }
-        // The body is ground truth for CV-ness: if the sidecar/marker path above
-        // disagrees with what the document's body actually calls (#cv-section, an
-        // import of cv-helpers.typ), trust the body — see body_looks_like_cv's doc
-        // comment. Without this, a document whose sidecar drifted to a non-CV kind
-        // would keep regenerating a non-CV preamble onto its still-CV body forever,
-        // producing a document that fails to compile ("unknown function: section").
-        if super::super::template_dialog::body_looks_like_cv(&current_content) {
-            dlg.preselect_cv_mode(true);
-            dlg.preselect_body_kind(super::super::template_dialog::body_kind_from_key("cv"));
-            // The sidecar/marker path above may have left the Style row on a
-            // stale or non-CV-meaningful selection (e.g. a sidecar that drifted
-            // to a non-CV body_kind never calls preselect_cv_style_index at
-            // all). Re-derive it from the body's actual @zerkalo-cv-style marker
-            // now that we know this is really a CV.
-            if let Some(cv_style) = super::super::template_dialog::parse_cv_style(&current_content) {
-                if let Some(idx) = super::super::template_dialog::cv_style_index(&cv_style) {
-                    dlg.preselect_cv_style_index(idx);
-                }
-            }
-        }
-        if let Some(doc_abstract) = super::super::template_dialog::parse_abstract_from_doc(&current_content) {
-            dlg.override_abstract_text(&doc_abstract);
-        }
-        // Always read metadata from the document — the user may have edited the
-        // #let doc-* variables directly, and the sidecar won't reflect those changes.
-        dlg.preselect_metadata(
-            &super::super::template_dialog::parse_meta(&current_content, "title"),
-            &super::super::template_dialog::parse_meta(&current_content, "subtitle"),
-            &super::super::template_dialog::parse_meta(&current_content, "author"),
-            &super::super::template_dialog::parse_meta(&current_content, "affiliation"),
-            &super::super::template_dialog::parse_meta(&current_content, "course"),
-            &super::super::template_dialog::parse_meta(&current_content, "professor"),
-            &super::super::template_dialog::parse_meta(&current_content, "date"),
+        open_template_for_active_document(
+            &window_for_reapply,
+            &editor_for_reapply,
+            &preview_for_reapply,
+            &project_root_for_reapply,
+            &cfg_for_reapply,
         );
-
-        let ep = editor_for_reapply.clone();
-        let win_for_apply = window_for_reapply.clone();
-        let preview_apply = preview_for_reapply.clone();
-        let current_content_for_apply = current_content.clone();
-        let current_path_for_apply = current_path.clone();
-        dlg.set_on_apply(move |new_content, sidecar| {
-            apply_template_result(
-                &win_for_apply,
-                &ep,
-                &preview_apply,
-                current_path_for_apply.clone(),
-                current_content_for_apply.clone(),
-                new_content,
-                sidecar,
-            );
-        });
-        dlg.present();
     });
 
     // ── Menu: Repair Template Markers ───────────────────────────────────

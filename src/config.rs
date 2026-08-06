@@ -146,6 +146,10 @@ pub struct Config {
     pub high_contrast: bool,
     #[serde(default)]
     pub word_count_goal: u32,
+    /// The hamburger's "GOST Type B font" toggle. Every other toggle in that
+    /// menu persists; this one used to reset on every launch.
+    #[serde(default)]
+    pub gost_font: bool,
     #[serde(default = "default_sidebar_width")]
     pub sidebar_width: i32,
     #[serde(default = "default_preview_split")]
@@ -244,6 +248,7 @@ impl Default for Config {
             typewriter_scrolling: false,
             high_contrast: false,
             word_count_goal: 0,
+            gost_font: false,
             sidebar_width: default_sidebar_width(),
             preview_split: default_preview_split(),
             developer_mode: false,

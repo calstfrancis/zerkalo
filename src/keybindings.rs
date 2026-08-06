@@ -106,6 +106,37 @@ pub fn parse_key(s: &str) -> Option<(bool, bool, bool, String)> {
     Some((ctrl, shift, alt, key_name))
 }
 
+/// Renders a binding string for display: `"ctrl+shift+p"` → `"Ctrl+Shift+P"`.
+///
+/// Menu rows and the help window both show shortcuts, and both used to hardcode
+/// them — so rebinding anything in keybindings.toml left the UI advertising the
+/// old key.
+pub fn display_binding(binding: &str) -> String {
+    binding
+        .split('+')
+        .map(|part| {
+            let p = part.trim();
+            match p.to_lowercase().as_str() {
+                "ctrl" | "control" => "Ctrl".to_string(),
+                "shift" => "Shift".to_string(),
+                "alt" => "Alt".to_string(),
+                "tab" => "Tab".to_string(),
+                "escape" | "esc" => "Esc".to_string(),
+                "return" | "enter" => "Enter".to_string(),
+                "space" => "Space".to_string(),
+                other => {
+                    let mut chars = other.chars();
+                    match chars.next() {
+                        Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
+                        None => String::new(),
+                    }
+                }
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("+")
+}
+
 /// Check if a pressed key matches a keybinding string.
 pub fn matches_binding(
     binding: &str,
@@ -158,7 +189,7 @@ fn name_to_gdk_key(name: &str) -> Option<gtk4::gdk::Key> {
     })
 }
 
-fn keybindings_path() -> PathBuf {
+pub fn keybindings_path() -> PathBuf {
     let base = shellexpand::tilde("~/.config/zerkalo").into_owned();
     PathBuf::from(base).join("keybindings.toml")
 }

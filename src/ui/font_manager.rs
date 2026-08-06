@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use gtk4::prelude::*;
 use gtk4::{
-    Align, AlertDialog, Box as GtkBox, Button, CheckButton, Entry, Label, Orientation,
+    Align, Box as GtkBox, Button, CheckButton, Entry, Label, Orientation,
     ScrolledWindow, Separator,
 };
 use libadwaita as adw;
@@ -95,19 +95,15 @@ impl FontManager {
                 cb.connect_toggled(move |btn| {
                     if !btn.is_active() && locked_c.iter().any(|l| l == &font_c) {
                         btn.set_active(true);
-                        let alert = AlertDialog::builder()
-                            .modal(true)
-                            .message("This is a default font")
-                            .detail(format!(
+                        super::confirm::notice(
+                            None,
+                            "This is a default font",
+                            &format!(
                                 "\"{font_c}\" is set as your default sans or serif font in \
                                  Setup & Onboarding → Default Fonts. Choose a different default \
                                  there before disabling it here."
-                            ))
-                            .buttons(["OK"])
-                            .cancel_button(0)
-                            .default_button(0)
-                            .build();
-                        alert.choose(None::<&gtk4::Window>, None::<&gtk4::gio::Cancellable>, |_| {});
+                            ),
+                        );
                         return;
                     }
                     prefs_c.borrow_mut().insert(font_c.clone(), btn.is_active());
@@ -157,18 +153,14 @@ impl FontManager {
             }
             rebuild_for_none(&search_for_none.text());
             if !locked_for_none.is_empty() {
-                let alert = AlertDialog::builder()
-                    .modal(true)
-                    .message("Default fonts kept enabled")
-                    .detail(format!(
+                super::confirm::notice(
+                    None,
+                    "Default fonts kept enabled",
+                    &format!(
                         "{} stayed enabled — they're your default fonts (Setup & Onboarding → Default Fonts).",
                         locked_for_none.join(" and ")
-                    ))
-                    .buttons(["OK"])
-                    .cancel_button(0)
-                    .default_button(0)
-                    .build();
-                alert.choose(None::<&gtk4::Window>, None::<&gtk4::gio::Cancellable>, |_| {});
+                    ),
+                );
             }
         });
 

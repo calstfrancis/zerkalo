@@ -5,7 +5,7 @@ use std::time::{Duration, SystemTime};
 
 use gtk4::prelude::*;
 use gtk4::{
-    AlertDialog, Align, Box as GtkBox, Button, Label,
+    Align, Box as GtkBox, Button, Label,
     Notebook, Orientation, Paned, Separator, Stack, ToggleButton,
 };
 use libadwaita as adw;
@@ -54,6 +54,19 @@ use import::{
     show_import_history_dialog,
 };
 
+/// Menu buttons the command palette forwards to, so every palette entry runs
+/// exactly the handler its hamburger row runs.
+#[derive(Clone)]
+struct PaletteTargets {
+    new_file: Button,
+    open_file: Button,
+    export: Button,
+    settings: Button,
+    template: Button,
+    save: Button,
+    sidebar: Button,
+}
+
 pub struct AppWindow {
     window: adw::ApplicationWindow,
     editor_pane: EditorPane,
@@ -82,6 +95,11 @@ pub struct AppWindow {
     library: Rc<RefCell<Library>>,
     library_window: LibraryWindow,
     menu_import_item: Button,
+    /// The hamburger rows the command palette and keyboard shortcuts dispatch
+    /// through. Routing to the real menu button rather than duplicating each
+    /// action keeps the two surfaces from drifting — half the palette's
+    /// commands used to be unhandled and silently did nothing.
+    menu_actions: PaletteTargets,
     /// Shared with every handler that persists a preference. Held on the
     /// window so keyboard shortcuts, which are wired in a separate pass from
     /// the menu items, reach the same instance rather than a stale clone.
@@ -145,7 +163,12 @@ impl AppWindow {
             .cv_elements_path
             .clone()
             .or_else(|| config.cv_elements_path.clone());
-        let effective_output_dir = proj_cfg.output_dir.clone();
+        // Project config wins, but the global Settings → Folders value is the
+        // fallback — without the `or_else` that setting saved and did nothing.
+        let effective_output_dir = proj_cfg
+            .output_dir
+            .clone()
+            .or_else(|| config.output_dir.clone());
         let extra_compiler_args = proj_cfg.compiler_args.clone();
 
         // ── Runtime-configurable values ─────────────────────────────────────
@@ -319,37 +342,23 @@ impl AppWindow {
                     del_btn.set_tooltip_text(Some("Delete file"));
 
                     let path_del = path.clone();
-                    let name_del = name.clone();
                     let outer_for_del = outer_row.clone();
                     let cfg_del = config_for_open.clone();
                     let ep_del = editor_for_open.clone();
                     del_btn.connect_clicked(move |_| {
-                        let alert = AlertDialog::builder()
-                            .modal(true)
-                            .message("Move to trash?")
-                            .detail(format!("'{}' will be moved to the system trash.", name_del))
-                            .buttons(["Cancel", "Move to Trash"])
-                            .cancel_button(0)
-                            .default_button(0)
-                            .build();
-                        let path_c = path_del.clone();
                         let outer_c = outer_for_del.clone();
                         let cfg_c = cfg_del.clone();
                         let ep_c = ep_del.clone();
-                        alert.choose(
-                            None::<&gtk4::Window>,
-                            None::<&gtk4::gio::Cancellable>,
-                            move |result| {
-                                if result == Ok(1) {
-                                    let _ = gtk4::gio::File::for_path(&path_c)
-                                        .trash(None::<&gtk4::gio::Cancellable>);
-                                    cfg_c.borrow_mut().recent_files.retain(|p| p != &path_c);
-                                    let _ = cfg_c.borrow().save();
-                                    ep_c.close_file_if_open(&path_c);
-                                    if let Some(parent) = outer_c.parent() {
-                                        if let Ok(p) = parent.downcast::<GtkBox>() {
-                                            p.remove(&outer_c);
-                                        }
+                        super::confirm::confirm_trash(
+                            None,
+                            path_del.clone(),
+                            move |path_c| {
+                                cfg_c.borrow_mut().recent_files.retain(|p| p != path_c);
+                                let _ = cfg_c.borrow().save();
+                                ep_c.close_file_if_open(&path_c.to_path_buf());
+                                if let Some(parent) = outer_c.parent() {
+                                    if let Ok(p) = parent.downcast::<GtkBox>() {
+                                        p.remove(&outer_c);
                                     }
                                 }
                             },
@@ -411,6 +420,7 @@ impl AppWindow {
         editor_pane.apply_tab_width(config.editor_tab_width);
         editor_pane.apply_line_spacing(config.editor_line_spacing);
         editor_pane.apply_typewriter_scroll(config.typewriter_scrolling);
+        editor_pane.apply_word_count_goal(config.word_count_goal);
         editor_pane.set_spell_enabled(config.spell_enabled);
         editor_pane.set_spell_autocorrect(config.spell_autocorrect);
         editor_pane.set_spell_languages(config.spell_languages.clone());
@@ -697,6 +707,7 @@ impl AppWindow {
             editor_pane: editor_pane.clone(),
             preview_pane: preview_pane.clone(),
             error_panel: error_panel.clone(),
+            citation_panel: citation_panel.clone(),
             toast_overlay: toast_overlay.clone(),
             current_config: current_config.clone(),
             project_root: project_root.clone(),
@@ -875,6 +886,27 @@ impl AppWindow {
         });
 
         wire_document_menus(&menu_ctx, &menus);
+
+        // Rows that act on the active document go insensitive when there isn't
+        // one, rather than being clickable and silently doing nothing. Computed
+        // when the popover opens so it needs no per-tab signal plumbing.
+        {
+            let document_rows = [
+                menus.menu_reapply_template_item.clone(),
+                menus.menu_repair_markers_item.clone(),
+                menus.menu_save_item.clone(),
+                menus.menu_save_as_item.clone(),
+                menus.menu_snapshots_item.clone(),
+                menus.menu_export_web_item.clone(),
+            ];
+            let editor_for_rows = editor_pane.clone();
+            menu_popover.connect_show(move |_| {
+                let has_doc = editor_for_rows.get_active_path().is_some();
+                for row in &document_rows {
+                    row.set_sensitive(has_doc);
+                }
+            });
+        }
         // ── Debounced compile + outline update + LSP ────────────────────────
 
         let preview_for_change = preview_pane.clone();
@@ -1975,7 +2007,13 @@ impl AppWindow {
             current_config: current_config.clone(),
             project_root: project_root.clone(),
             left_paned_holder: left_paned_holder.clone(),
+            toast_overlay: toast_overlay.clone(),
         });
+        // Restored only after the toggle callback above exists, so it applies
+        // the CSS rather than just flipping a label.
+        if config.gost_font {
+            editor_pane.set_gost_enabled(true);
+        }
         // Template is a document-level action, so it sits with the others in the
         // header rather than as the one non-panel row in the sidebar column.
         header.pack_start(&template_btn);
@@ -2111,6 +2149,15 @@ impl AppWindow {
             compile_btn,
             library,
             library_window,
+            menu_actions: PaletteTargets {
+                new_file: menus.menu_new_item,
+                open_file: menus.menu_open_item,
+                export: menus.menu_export_item,
+                settings: menus.menu_settings_item,
+                template: menus.menu_new_template_item,
+                save: menus.menu_save_item,
+                sidebar: sidebar_btn,
+            },
             menu_import_item: menus.menu_import_item,
             config: current_config,
         }
@@ -2153,6 +2200,10 @@ impl AppWindow {
             let toast_for_pal = self.toast_overlay.clone();
             let panel_for_pal = self.error_panel.clone();
             let config_for_pal = self.config.clone();
+            let targets_for_pal = self.menu_actions.clone();
+            let compile_btn_for_pal = self.compile_btn.clone();
+            let sync_btn_for_pal = self.sync_btn.clone();
+            let palette_for_outline = Rc::downgrade(&palette);
             palette.set_on_activate(move |id| {
                 let w = window_for_pal.clone();
                 if let Some(rest) = id.strip_prefix("heading:") {
@@ -2172,19 +2223,39 @@ impl AppWindow {
                 } else {
                     match id {
                         "toggle_find"    => editor_for_pal.toggle_find(),
-                        "save"           => { editor_for_pal.save_all_modified(); }
+                        // Forwarded to the menu row so this is the same save
+                        // the ≡ menu and Ctrl+S do — snapshot and recompile
+                        // included, which `save_all_modified` alone skips.
+                        "save"           => targets_for_pal.save.emit_clicked(),
+                        "new_file"       => targets_for_pal.new_file.emit_clicked(),
+                        "open_file"      => targets_for_pal.open_file.emit_clicked(),
+                        "export"         => targets_for_pal.export.emit_clicked(),
+                        "settings"       => targets_for_pal.settings.emit_clicked(),
+                        "template"       => targets_for_pal.template.emit_clicked(),
+                        "toggle_sidebar" => targets_for_pal.sidebar.emit_clicked(),
+                        "toggle_preview" => compile_btn_for_pal.emit_clicked(),
+                        "git_sync"       => sync_btn_for_pal.emit_clicked(),
+                        "focus_mode"     => editor_for_pal.focus_button_for_header().emit_clicked(),
                         "help"           => { HelpWindow::new(&w, editor_for_pal.is_cv_mode()).present(); }
                         "find_in_files"  => { search_for_pal.toggle(); }
                         "project_outline" => {
+                            // Re-entering the palette from inside its own
+                            // activate callback deadlocks on the items borrow,
+                            // so defer the reopen to the next main-loop turn.
                             if let (Some(content), Some(path)) = (
                                 editor_for_pal.get_active_content(),
                                 editor_for_pal.get_active_path(),
                             ) {
                                 let items = super::command_palette::heading_items(&content, &path);
-                                // Return early — caller will set items; here we can't re-open
-                                // the palette from inside its own callback, so we just no-op
-                                // if already showing headings. The Ctrl+G shortcut covers this.
-                                let _ = items;
+                                if !items.is_empty() {
+                                    let pal = palette_for_outline.clone();
+                                    glib::idle_add_local_once(move || {
+                                        if let Some(pal) = pal.upgrade() {
+                                            pal.set_items(items);
+                                            pal.show();
+                                        }
+                                    });
+                                }
                             }
                         }
                         "print" => {
@@ -2232,6 +2303,8 @@ impl AppWindow {
         let editor_for_palette_key = editor.clone();
         let error_panel_for_key = self.error_panel.clone();
         let menu_import_item_for_key = self.menu_import_item.clone();
+        let settings_item_for_key = self.menu_actions.settings.clone();
+        let config_for_experimental = self.config.clone();
         let window_for_paste_key = self.window.clone();
         let editor_for_paste_key = self.editor_pane.clone();
         let work_dir_for_paste_key = self.project_root.clone();
@@ -2283,23 +2356,38 @@ impl AppWindow {
                     }
                 }
             }
-            // Ctrl+Shift+I — open the Import picker
+            // Ctrl+, — Settings, the desktop-wide convention.
             {
                 use gtk4::gdk::Key;
-                if ctrl && shift && !alt && key == Key::i {
-                    menu_import_item_for_key.emit_clicked();
+                if ctrl && !shift && !alt && key == Key::comma {
+                    settings_item_for_key.emit_clicked();
                     return glib::Propagation::Stop;
                 }
             }
-            // Ctrl+Shift+V — Paste as Document
+            // Ctrl+Shift+I — open the Import picker. Import is experimental and
+            // its menu row is hidden unless developer_mode is on; the shortcut
+            // has to honour the same gate or the row hides nothing.
+            {
+                use gtk4::gdk::Key;
+                if ctrl && shift && !alt && key == Key::i {
+                    if config_for_experimental.borrow().developer_mode {
+                        menu_import_item_for_key.emit_clicked();
+                    }
+                    return glib::Propagation::Stop;
+                }
+            }
+            // Ctrl+Shift+V — Paste as Document, which lives inside that same
+            // experimental Import dialog, so it's gated with it.
             {
                 use gtk4::gdk::Key;
                 if ctrl && shift && !alt && key == Key::v {
                     let cfg = crate::config::shared();
-                    paste_as_document(
-                        &window_for_paste_key, &editor_for_paste_key, &work_dir_for_paste_key,
-                        &cfg, &toast_overlay_for_paste_key,
-                    );
+                    if cfg.borrow().developer_mode {
+                        paste_as_document(
+                            &window_for_paste_key, &editor_for_paste_key, &work_dir_for_paste_key,
+                            &cfg, &toast_overlay_for_paste_key,
+                        );
+                    }
                     return glib::Propagation::Stop;
                 }
             }
@@ -2965,33 +3053,46 @@ struct HamburgerItems {
     menu_setup_item: Button,
     menu_backup_remote_item: Button,
     menu_help_item: Button,
+    menu_shortcuts_item: Button,
     menu_writing_stats_item: Button,
     menu_about_item: Button,
+    menu_whats_new_item: Button,
     menu_import_pdf_item: Button,
 }
 
 fn build_hamburger_menu_items() -> HamburgerItems {
+    // Shortcut labels come from the user's bindings rather than string
+    // literals, so rebinding in keybindings.toml relabels the menu too.
+    let kb = crate::keybindings::Keybindings::load();
+    let d = crate::keybindings::display_binding;
+
     HamburgerItems {
         menu_new_template_item:    make_menu_item("New from Template…",         None),
         menu_reapply_template_item: make_menu_item("Update Template Settings…", None),
         menu_repair_markers_item:  make_menu_item("Repair Template Markers…",   None),
         menu_new_item:             make_menu_item("New Blank Document…",         None),
         menu_open_item:            make_menu_item("Open File…",                  None),
-        menu_save_item:              make_menu_item("Save",                      Some("Ctrl+S")),
+        menu_save_item:            make_menu_item("Save",                      Some(&d(&kb.save))),
         menu_save_as_item:         make_menu_item("Save As…",                    None),
         menu_snapshots_item:       make_menu_item("Browse Snapshots…",           None),
         menu_export_item:          make_menu_item("Export…",                     None),
         menu_export_web_item:      make_menu_item("Export for Web…",             None),
+        // Print and Import aren't in keybindings.toml — they're fixed in the
+        // key handler, so a literal is the honest label here.
         menu_print_item:           make_menu_item("Print\u{2026}",               Some("Ctrl+P")),
         menu_import_item:          make_menu_item("Import…",                     Some("Ctrl+Shift+I")),
         menu_docs_item:            make_menu_item("Browse Documents…",           None),
-        menu_fonts_item:           make_menu_item("Font Management…",            None),
+        menu_fonts_item:           make_menu_item("Document Fonts…",             None),
         menu_settings_item:        make_menu_item("Settings",                    None),
         menu_setup_item:           make_menu_item("Setup & Onboarding…",         None),
         menu_backup_remote_item:   make_menu_item("Git Remotes…",                 None),
-        menu_help_item:            make_menu_item("Keyboard Shortcuts & Help",   Some("Ctrl+?")),
+        menu_help_item:            make_menu_item("Help",                      Some("Ctrl+?")),
+        // The keybinding-aware shortcuts window was reachable only by its
+        // shortcut; nothing in the menu opened it.
+        menu_shortcuts_item:       make_menu_item("Keyboard Shortcuts", Some(&d(&kb.shortcuts_help))),
         menu_writing_stats_item:   make_menu_item("Writing Stats",               None),
         menu_about_item:           make_menu_item("About Zerkalo",               None),
+        menu_whats_new_item:       make_menu_item("What's New",                  None),
         menu_import_pdf_item:      make_menu_item("Import PDF File…",            None),
     }
 }
@@ -3035,21 +3136,173 @@ fn restore_snapshot_with_confirm(
         ep.set_content(path, &text);
         return;
     }
-    let alert = AlertDialog::builder()
-        .modal(true)
-        .message("Restore this snapshot?")
-        .detail("You have unsaved changes in this document. Restoring the snapshot will discard them.")
-        .buttons(["Cancel", "Restore"])
-        .cancel_button(0)
-        .default_button(0)
-        .build();
     let ep = ep.clone();
     let path = path.to_path_buf();
-    alert.choose(Some(window), None::<&gtk4::gio::Cancellable>, move |result| {
-        if result == Ok(1) {
-            ep.set_content(&path, &text);
+    super::confirm::confirm_destructive(
+        Some(window.upcast_ref()),
+        "Restore this snapshot?",
+        "You have unsaved changes in this document. Restoring the snapshot will discard them.",
+        "Restore",
+        move || ep.set_content(&path, &text),
+    );
+}
+
+/// Opens the template dialog preloaded from the active document, for both the
+/// hamburger's "Update Template Settings…" and the header's "Template" button.
+///
+/// These were two ~110-line copies of the same preselection sequence, and had
+/// already drifted: the header copy hardcoded the advanced-expander state,
+/// never passed the bib path, dropped the locked author/affiliation entirely,
+/// and silently did nothing with no document open.
+pub(super) fn open_template_for_active_document(
+    window: &adw::ApplicationWindow,
+    editor: &super::editor_pane::EditorPane,
+    preview: &super::preview_pane::PreviewPane,
+    project_root: &Path,
+    config: &Rc<RefCell<Config>>,
+) {
+    use super::template_dialog as td;
+
+    let Some(current_path) = editor.get_active_path() else {
+        show_alert(
+            window,
+            "No document open",
+            "Open a .typ file first, then use Update Template Settings.",
+        );
+        return;
+    };
+    let current_content = editor.get_active_content().unwrap_or_default();
+
+    let last_advanced = config.borrow().last_used_advanced;
+    let dlg = td::TemplateDialog::new(window, project_root, last_advanced);
+
+    {
+        let cfg = config.borrow();
+        dlg.set_bib_path(cfg.bib_path.clone());
+        dlg.preselect_locked_identity(&cfg.locked_author.clone(), &cfg.locked_affiliation.clone());
+        dlg.set_cv_elements_path(cfg.cv_elements_path.clone());
+    }
+    {
+        let cfg = config.clone();
+        dlg.set_on_advanced_toggle(move |expanded| {
+            let mut c = cfg.borrow_mut();
+            c.last_used_advanced = expanded;
+            let _ = c.save();
+        });
+    }
+    {
+        let cfg = config.clone();
+        dlg.set_on_lock_identity(move |author, affiliation| {
+            let mut c = cfg.borrow_mut();
+            c.locked_author = author;
+            c.locked_affiliation = affiliation;
+            let _ = c.save();
+        });
+    }
+    {
+        let cfg = config.clone();
+        dlg.set_on_cv_elements_change(move |path| {
+            let mut c = cfg.borrow_mut();
+            c.cv_elements_path = Some(path);
+            let _ = c.save();
+        });
+    }
+
+    if let Some(sidecar) = td::load_sidecar(&current_path) {
+        dlg.preselect_from_sidecar(&sidecar);
+    } else {
+        let doc_kind = td::parse_doc_kind(&current_content);
+        dlg.preselect_cv_mode(doc_kind.as_deref() == Some("cv"));
+        dlg.preselect_body_kind(td::body_kind_from_key(doc_kind.as_deref().unwrap_or("")));
+        dlg.preselect_style(&td::parse_style_key(&current_content).unwrap_or_default());
+        // A CV document's @zerkalo-style marker is just the literal "cv" (see
+        // generate_cv_template), so preselect_style above can't recover the
+        // actual CV style (Modern/Academic/Classic/Two-Column) from it — that's
+        // tracked separately via @zerkalo-cv-style.
+        if let Some(cv_style) = td::parse_cv_style(&current_content) {
+            if let Some(idx) = td::cv_style_index(&cv_style) {
+                dlg.preselect_cv_style_index(idx);
+            }
         }
+        if let Some(f) = td::parse_font(&current_content) {
+            dlg.preselect_font(&f);
+        }
+        if let Some(p) = td::parse_paper(&current_content) {
+            dlg.preselect_paper(&p, "", "");
+        }
+        if let Some(s) = td::parse_spacing(&current_content) {
+            dlg.preselect_spacing(&s);
+        }
+        dlg.preselect_margin(td::parse_margin(&current_content), "");
+        dlg.preselect_toc(
+            td::parse_has_toc(&current_content),
+            td::parse_toc_depth(&current_content),
+        );
+        dlg.preselect_abstract(
+            td::parse_has_abstract(&current_content),
+            &td::parse_abstract_text(&current_content),
+        );
+        dlg.preselect_keywords(
+            td::parse_has_keywords(&current_content),
+            &td::parse_keywords_text(&current_content),
+        );
+        if let Some(f) = td::parse_dropcap_font(&current_content) {
+            dlg.preselect_dropcap_font(&f);
+        }
+        if let Some(c) = td::parse_dropcap_color(&current_content) {
+            dlg.preselect_dropcap_color(&c);
+        }
+    }
+
+    // The body is ground truth for CV-ness: if the sidecar/marker path above
+    // disagrees with what the document's body actually calls (#cv-section, an
+    // import of cv-helpers.typ), trust the body — see body_looks_like_cv's doc
+    // comment. Without this, a document whose sidecar drifted to a non-CV kind
+    // would keep regenerating a non-CV preamble onto its still-CV body forever,
+    // producing a document that fails to compile ("unknown function: section").
+    if td::body_looks_like_cv(&current_content) {
+        dlg.preselect_cv_mode(true);
+        dlg.preselect_body_kind(td::body_kind_from_key("cv"));
+        // The sidecar/marker path above may have left the Style row on a stale
+        // or non-CV-meaningful selection, so re-derive it now.
+        if let Some(cv_style) = td::parse_cv_style(&current_content) {
+            if let Some(idx) = td::cv_style_index(&cv_style) {
+                dlg.preselect_cv_style_index(idx);
+            }
+        }
+    }
+    // If the user edited the abstract directly in the .typ file, that wins over
+    // what the sidecar recorded last time.
+    if let Some(doc_abstract) = td::parse_abstract_from_doc(&current_content) {
+        dlg.override_abstract_text(&doc_abstract);
+    }
+    // Always read metadata from the document — the user may have edited the
+    // #let doc-* variables directly, and the sidecar won't reflect that.
+    dlg.preselect_metadata(
+        &td::parse_meta(&current_content, "title"),
+        &td::parse_meta(&current_content, "subtitle"),
+        &td::parse_meta(&current_content, "author"),
+        &td::parse_meta(&current_content, "affiliation"),
+        &td::parse_meta(&current_content, "course"),
+        &td::parse_meta(&current_content, "professor"),
+        &td::parse_meta(&current_content, "date"),
+    );
+
+    let ep = editor.clone();
+    let win = window.clone();
+    let pv = preview.clone();
+    dlg.set_on_apply(move |new_content, sidecar| {
+        apply_template_result(
+            &win,
+            &ep,
+            &pv,
+            current_path.clone(),
+            current_content.clone(),
+            new_content,
+            sidecar,
+        );
     });
+    dlg.present();
 }
 
 /// Applies a template dialog's result to `path`, splicing the fresh template

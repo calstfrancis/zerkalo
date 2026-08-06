@@ -5,6 +5,65 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.20.0-dev12] — The menu means what it says
+
+### Fixed — menu and settings audit
+
+- **The Output folder setting works.** Setting it saved to config and nothing ever read it;
+  PDFs went on landing in the temporary folder. A per-project output folder still wins.
+- **The Word count goal setting works.** It was saved but never applied — the only way to get
+  the status-bar progress ring was a `// @zerkalo-goal:` comment in the document. The setting
+  now applies immediately and acts as the fallback for documents without their own goal.
+- **Every command in the palette does something.** Nine of the seventeen — New File, Open File,
+  Export, Git Sync, Settings, Toggle Preview, Toggle Sidebar, New from Template and Focus Mode —
+  had no handler and silently did nothing; Project Outline was a deliberate no-op. Each now runs
+  the same code its menu row runs, so the two can't drift apart again.
+- **The GOST Type B font toggle is remembered** between launches like every other toggle in the
+  menu, and says so when the font isn't installed rather than appearing to do nothing.
+- **Update Template Settings behaves the same from the menu and the header.** They were two
+  copies of the same 110 lines and had drifted: the header button ignored the saved advanced-panel
+  state, never passed the bibliography, and dropped the locked author and affiliation.
+- **Menu rows that need an open document are greyed out** instead of being clickable and doing
+  nothing — Update Template Settings, Repair Template Markers, Save, Save As, Browse Snapshots
+  and Export for Web.
+- **Abandoning Settings no longer leaves its live preview applied.** Closing the window with
+  Escape, Alt+F4 or the close button kept the previewed theme, font and contrast on screen over
+  an unchanged config; only the Cancel button reverted.
+- **Paths in Settings are checked when you save.** A mistyped folder or a missing bib, CSL or
+  Skrizhal file was accepted silently and only surfaced later as work going nowhere. Missing
+  folders are offered for creation; missing files are reported.
+- **Experimental mode actually gates the experiment.** Ctrl+Shift+I opened the hidden Import
+  dialog and Ctrl+Shift+V ran Paste as Document regardless of the setting.
+- **Changing the CV elements file takes effect immediately** instead of at the next launch, and
+  the restart notice now also covers the output folder, not just the work folder.
+
+### Changed
+
+- **The hamburger is regrouped.** Import moves up beside New and Open — bringing a document in
+  belongs with creating and opening one, not with exporting. Writing Stats leaves the settings
+  block, being a report rather than a setting. The GOST and Autocorrect toggles are fenced with
+  separators and set in Title Case so they stop reading as stray rows.
+- **Menu shortcut labels come from your keybindings**, so rebinding in `keybindings.toml`
+  relabels the menu instead of leaving it advertising the old key.
+- **Keyboard Shortcuts is in the menu.** The window that lists your actual bindings was only
+  reachable by pressing Ctrl+Shift+H, which you had to already know.
+- **What's New is in the menu**, so the release notes are reachable after the upgrade that
+  showed them.
+- **About is a proper about window** — clickable repository and issue links, the licence, and
+  the release name.
+- **Settings uses the platform's page switcher** rather than plain notebook tabs, gains a
+  Keyboard Shortcuts row pointing at `keybindings.toml`, has Ctrl+, as its shortcut, and greys
+  out Simultaneous imports until experimental mode is on.
+- **"Font Management…" is now "Document Fonts…"**, with tooltips distinguishing it from the
+  editor font in Settings.
+- **Every confirmation and notice in the app is drawn the same way.** Delete, Move to Trash,
+  Restore Snapshot, unsaved-changes and the rest came from two different toolkits, so dialogs
+  that ought to look like siblings didn't — most visibly on the destructive ones, where looking
+  trustworthy matters most. Destructive buttons are now marked as such throughout, and the two
+  separate copies of "Move to trash?" are one.
+
+---
+
 ## [0.20.0-dev11] — The Library joins the design; the outline takes you there
 
 ### Changed

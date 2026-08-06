@@ -16,9 +16,7 @@ use super::super::editor_pane::EditorPane;
 use super::super::file_tree::FileTree;
 use super::super::outline_panel::OutlinePanel;
 use super::super::preview_pane::PreviewPane;
-use super::super::template_dialog::TemplateDialog;
 use super::import::{IMPORT_FORMATS, run_pandoc_import, run_pdf_import};
-use super::apply_template_result;
 
 pub(super) struct EditorExtrasCtx {
     pub(super) window: adw::ApplicationWindow,
@@ -105,6 +103,7 @@ pub(super) struct SidebarToolbarCtx {
     pub(super) current_config: Rc<RefCell<Config>>,
     pub(super) project_root: PathBuf,
     pub(super) left_paned_holder: Rc<RefCell<Option<GtkBox>>>,
+    pub(super) toast_overlay: adw::ToastOverlay,
 }
 
 /// Returns the sidebar's left column, which the layout assembly then packs.
@@ -125,6 +124,8 @@ pub(super) fn wire_sidebar_toolbar(ctx: &SidebarToolbarCtx) -> (GtkBox, Button) 
     }
     {
         let ui_prov = ui_font_provider.clone();
+        let toast_for_gost = ctx.toast_overlay.clone();
+        let ep_for_gost = ctx.editor_pane.clone();
         ctx.editor_pane.set_on_gost_toggle(move |enabled| {
             if enabled {
                 let cfg = current_config_for_gost.borrow();
@@ -138,8 +139,20 @@ pub(super) fn wire_sidebar_toolbar(ctx: &SidebarToolbarCtx) -> (GtkBox, Button) 
                     "* {{ font-family: 'GOST type B'; }} \
                      textview {{ font-family: '{editor_font}'; {size_clause}}}",
                 ));
+                // Without the font installed the CSS above is a silent no-op,
+                // which reads as a broken toggle. Say so instead.
+                if !ep_for_gost.is_gost_restoring() && !ep_for_gost.gost_font_available() {
+                    let t = adw::Toast::new("GOST type B isn't installed — the UI font is unchanged");
+                    t.set_timeout(5);
+                    toast_for_gost.add_toast(t);
+                }
             } else {
                 ui_prov.load_from_data("* {}");
+            }
+            let mut cfg = current_config_for_gost.borrow_mut();
+            if cfg.gost_font != enabled {
+                cfg.gost_font = enabled;
+                let _ = cfg.save();
             }
         });
     }
@@ -156,127 +169,12 @@ pub(super) fn wire_sidebar_toolbar(ctx: &SidebarToolbarCtx) -> (GtkBox, Button) 
         let win_ut = ctx.window.clone();
         let ep_ut = ctx.editor_pane.clone();
         let root_ut = ctx.project_root.clone();
-        let current_config_for_ut = ctx.current_config.clone();
+        let cfg_ut = ctx.current_config.clone();
         let preview_ut = ctx.preview_pane.clone();
         update_template_btn.connect_clicked(move |_| {
-            let Some(current_path) = ep_ut.get_active_path() else { return };
-            let current_content = ep_ut.get_active_content().unwrap_or_default();
-            let dlg = TemplateDialog::new(&win_ut, &root_ut, false);
-
-            dlg.set_cv_elements_path(current_config_for_ut.borrow().cv_elements_path.clone());
-            {
-                let cfg = current_config_for_ut.clone();
-                dlg.set_on_cv_elements_change(move |path| {
-                    let mut c = cfg.borrow_mut();
-                    c.cv_elements_path = Some(path);
-                    let _ = c.save();
-                });
-            }
-
-            if let Some(sidecar) = super::super::template_dialog::load_sidecar(&current_path) {
-                dlg.preselect_from_sidecar(&sidecar);
-            } else {
-                let doc_kind = super::super::template_dialog::parse_doc_kind(&current_content);
-                dlg.preselect_cv_mode(doc_kind.as_deref() == Some("cv"));
-                dlg.preselect_body_kind(super::super::template_dialog::body_kind_from_key(
-                    doc_kind.as_deref().unwrap_or(""),
-                ));
-                dlg.preselect_style(
-                    &super::super::template_dialog::parse_style_key(&current_content)
-                        .unwrap_or_default(),
-                );
-                // A CV document's @zerkalo-style marker is just the literal "cv"
-                // (see generate_cv_template), so preselect_style above can't
-                // recover the actual CV style (Modern/Academic/Classic/
-                // Two-Column) from it — that's tracked separately via
-                // @zerkalo-cv-style.
-                if let Some(cv_style) = super::super::template_dialog::parse_cv_style(&current_content) {
-                    if let Some(idx) = super::super::template_dialog::cv_style_index(&cv_style) {
-                        dlg.preselect_cv_style_index(idx);
-                    }
-                }
-                if let Some(f) = super::super::template_dialog::parse_font(&current_content) {
-                    dlg.preselect_font(&f);
-                }
-                if let Some(p) = super::super::template_dialog::parse_paper(&current_content) {
-                    dlg.preselect_paper(&p, "", "");
-                }
-                if let Some(s) = super::super::template_dialog::parse_spacing(&current_content) {
-                    dlg.preselect_spacing(&s);
-                }
-                dlg.preselect_margin(super::super::template_dialog::parse_margin(&current_content), "");
-                dlg.preselect_toc(
-                    super::super::template_dialog::parse_has_toc(&current_content),
-                    super::super::template_dialog::parse_toc_depth(&current_content),
-                );
-                dlg.preselect_abstract(
-                    super::super::template_dialog::parse_has_abstract(&current_content),
-                    &super::super::template_dialog::parse_abstract_text(&current_content),
-                );
-                dlg.preselect_keywords(
-                    super::super::template_dialog::parse_has_keywords(&current_content),
-                    &super::super::template_dialog::parse_keywords_text(&current_content),
-                );
-                if let Some(f) = super::super::template_dialog::parse_dropcap_font(&current_content) {
-                    dlg.preselect_dropcap_font(&f);
-                }
-                if let Some(c) = super::super::template_dialog::parse_dropcap_color(&current_content) {
-                    dlg.preselect_dropcap_color(&c);
-                }
-            }
-            // The body is ground truth for CV-ness: if the sidecar/marker path above
-            // disagrees with what the document's body actually calls (#cv-section, an
-            // import of cv-helpers.typ), trust the body — see body_looks_like_cv's doc
-            // comment. Without this, a document whose sidecar drifted to a non-CV kind
-            // would keep regenerating a non-CV preamble onto its still-CV body forever,
-            // producing a document that fails to compile ("unknown function: section").
-            if super::super::template_dialog::body_looks_like_cv(&current_content) {
-                dlg.preselect_cv_mode(true);
-                dlg.preselect_body_kind(super::super::template_dialog::body_kind_from_key("cv"));
-                // See the identical fallback earlier in this file (the
-                // read-only "current document" path) for why this is needed:
-                // the sidecar/marker path above may have left Style on a
-                // stale or non-CV-meaningful selection.
-                if let Some(cv_style) = super::super::template_dialog::parse_cv_style(&current_content) {
-                    if let Some(idx) = super::super::template_dialog::cv_style_index(&cv_style) {
-                        dlg.preselect_cv_style_index(idx);
-                    }
-                }
-            }
-            // If the user edited the abstract directly in the .typ file, that wins
-            // over what the sidecar recorded last time. Override with doc's text.
-            if let Some(doc_abstract) = super::super::template_dialog::parse_abstract_from_doc(&current_content) {
-                dlg.override_abstract_text(&doc_abstract);
-            }
-            // Always read metadata from the document — the user may have edited the
-            // #let doc-* variables directly, and the sidecar won't reflect those changes.
-            dlg.preselect_metadata(
-                &super::super::template_dialog::parse_meta(&current_content, "title"),
-                &super::super::template_dialog::parse_meta(&current_content, "subtitle"),
-                &super::super::template_dialog::parse_meta(&current_content, "author"),
-                &super::super::template_dialog::parse_meta(&current_content, "affiliation"),
-                &super::super::template_dialog::parse_meta(&current_content, "course"),
-                &super::super::template_dialog::parse_meta(&current_content, "professor"),
-                &super::super::template_dialog::parse_meta(&current_content, "date"),
+            super::open_template_for_active_document(
+                &win_ut, &ep_ut, &preview_ut, &root_ut, &cfg_ut,
             );
-
-            let ep2 = ep_ut.clone();
-            let win_ut2 = win_ut.clone();
-            let preview_ut2 = preview_ut.clone();
-            let current_content_for_apply = current_content.clone();
-            let current_path_for_apply = current_path.clone();
-            dlg.set_on_apply(move |new_content, sidecar| {
-                apply_template_result(
-                    &win_ut2,
-                    &ep2,
-                    &preview_ut2,
-                    current_path_for_apply.clone(),
-                    current_content_for_apply.clone(),
-                    new_content,
-                    sidecar,
-                );
-            });
-            dlg.present();
         });
     }
 

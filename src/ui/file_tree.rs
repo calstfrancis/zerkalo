@@ -6,7 +6,7 @@ use std::rc::Rc;
 use gtk4::gdk::Rectangle;
 use gtk4::prelude::*;
 use gtk4::{
-    Align, AlertDialog, Box as GtkBox, Button, DragSource, DropTarget, Entry, EventControllerKey,
+    Align, Box as GtkBox, Button, DragSource, DropTarget, Entry, EventControllerKey,
     GestureClick, Label, ListBox, ListBoxRow, Orientation, Popover, PropagationPhase,
     ScrolledWindow, SelectionMode, Separator,
 };
@@ -631,25 +631,16 @@ impl FileTree {
         del_btn.connect_clicked(move |_| {
             pop_for_del.popdown();
 
-            let alert = AlertDialog::builder()
-                .modal(true)
-                .message("Delete this file?")
-                .detail(format!("'{}' will be permanently deleted.", name_del))
-                .buttons(["Cancel", "Delete"])
-                .cancel_button(0)
-                .default_button(0)
-                .build();
-
             let path_cb = path_del.clone();
             let cb = del_cb.clone();
-            alert.choose(
-                None::<&gtk4::Window>,
-                None::<&gtk4::gio::Cancellable>,
-                move |result| {
-                    if result == Ok(1) {
-                        if let Some(f) = cb.borrow().as_ref() {
-                            f(path_cb.clone());
-                        }
+            super::confirm::confirm_destructive(
+                None,
+                "Delete this file?",
+                &format!("'{name_del}' will be permanently deleted."),
+                "Delete",
+                move || {
+                    if let Some(f) = cb.borrow().as_ref() {
+                        f(path_cb.clone());
                     }
                 },
             );
