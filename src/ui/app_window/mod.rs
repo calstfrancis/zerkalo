@@ -1417,6 +1417,12 @@ impl AppWindow {
         // its fix at the reported line, via an undoable buffer replace.
         {
             let editor_for_fix = editor_pane.clone();
+            {
+                let editor_for_src = editor_pane.clone();
+                error_panel.set_source_line_provider(move |path, line| {
+                    editor_for_src.line_text(path, line)
+                });
+            }
             error_panel.set_on_try_fix(move |path, line, message| {
                 let Some(content) = editor_for_fix.get_active_content() else { return };
                 let Some(fix) = crate::error_patterns::match_fix(&message) else { return };

@@ -127,6 +127,13 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
+                "Fixed: compile errors point at the line they're actually on. Every error and warning reported line 1, whatever had gone wrong and wherever it was — which also meant the source line quoted beside each error was always the first line of the document",
+                "Fixed: an error inside an included or imported file names that file, rather than being blamed on whichever document you had open",
+                "Fixed: clicking an error jumps to the right place when the root file lives in a subfolder; the location and the folder it was resolved against disagreed, so the jump went nowhere",
+                "Fixed: Typst's own suggestions are shown — often the most useful sentence available, and every one of them was being silently discarded",
+                "Fixed: the source line shown beside an error is the one that was compiled, not the one saved on disk, so it no longer goes stale the moment you have unsaved edits",
+                "Changed: error messages are written in plain language. The compiler's wording used to come first, so you had to get past \"unknown variable: my-helper\" before reaching anything you could act on. Now the plain sentence is the message, followed by what to do about it — and the exact compiler text stays under \"Technical detail\" for searching or reporting",
+                "Changed: messages name the thing that's wrong where they can — the missing file, the unrecognised option, the label nothing matches",
                 "Fixed: the Output folder and Word count goal settings do something. Both were saved and then never read — the output folder never moved a PDF, and the goal ring only ever appeared for documents carrying a @zerkalo-goal comment",
                 "Fixed: nine of the seventeen commands in the palette did nothing at all — New File, Open File, Export, Git Sync, Settings, Toggle Preview, Toggle Sidebar, New from Template and Focus Mode. Each now runs exactly what its menu row runs",
                 "Fixed: the GOST Type B font toggle is remembered between launches, and says so when the font isn't installed instead of appearing to do nothing",

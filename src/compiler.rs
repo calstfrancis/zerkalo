@@ -9,7 +9,7 @@ use typst::layout::PagedDocument;
 use typst::syntax::{FileId, Source, VirtualPath};
 use typst::text::{Font, FontBook};
 use typst::utils::LazyHash;
-use typst::{Library, LibraryExt, World as TypstWorld};
+use typst::{Library, LibraryExt, World as TypstWorld, WorldExt};
 use typst_kit::download::{Downloader, ProgressSink};
 use typst_kit::fonts::{FontSearcher, FontSlot, Fonts};
 use typst_kit::package::PackageStorage;
@@ -232,12 +232,31 @@ fn format_one(world: &ZerkaloWorld, d: &SourceDiagnostic) -> String {
         Severity::Warning => "warning",
     };
 
-    // Try to resolve the source location from the span
+    // Resolve the source location from the span.
+    //
+    // This must go through `WorldExt::range`, not `Span::range`. A span is
+    // either a *raw range* (byte offsets packed into the span itself) or a
+    // *number* identifying a node in the source's syntax tree — and Typst
+    // attaches numbered spans to essentially every real diagnostic.
+    // `Span::range` only decodes the raw-range kind and returns None for the
+    // numbered kind, so this used to resolve a location for almost nothing:
+    // no ` --> file:line:col` line was emitted, and the panel's fallback
+    // pinned every error in the app to line 1. `WorldExt::range` tries the raw
+    // range first and then looks the number up in the source, which is what
+    // actually covers diagnostics from user documents.
     let location: Option<String> = d.span.id().and_then(|fid| {
         let src = TypstWorld::source(world, fid).ok()?;
-        let range = d.span.range()?;
+        let range = WorldExt::range(world, d.span)?;
         let (line, col) = offset_to_line_col(src.text(), range.start);
-        let path = src.id().vpath().as_rootless_path().display().to_string();
+        // Absolute where it can be resolved. The rootless vpath is relative to
+        // the *compile* root (the root file's own folder), which is not always
+        // the project root the panel joins against — when a root file sits in a
+        // subfolder, that join produced a path to a file that doesn't exist, so
+        // clicking the error jumped nowhere.
+        let path = world
+            .resolve(fid)
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|_| src.id().vpath().as_rootless_path().display().to_string());
         Some(format!("{path}:{line}:{col}"))
     });
 
@@ -384,6 +403,72 @@ mod tests {
         assert!(result.is_ok(), "trivial doc should compile: {:?}", result.err());
         let bytes = result.unwrap();
         assert!(bytes.starts_with(b"%PDF-"), "output should be valid PDF");
+    }
+
+    #[test]
+    fn an_error_reports_the_line_it_is_actually_on() {
+        // Every diagnostic used to come back pointing at line 1. `Span::range()`
+        // only resolves *raw range* spans; the spans Typst attaches to real
+        // syntax nodes are numbered, and for those it returns None — so no
+        // location was ever emitted and the UI's fallback pinned everything to
+        // line 1. Typst's own WorldExt::range covers both cases.
+        let path = write_temp_typ("= Title\n\nSome text.\n\n#no-such-function()\n");
+        let err = compile_to_pdf_bytes(&path, &HashMap::new(), &HashMap::new())
+            .expect_err("undefined function should fail to compile");
+        assert!(
+            err.contains(" --> "),
+            "diagnostic should carry a source location, got:\n{err}"
+        );
+        let loc = err.lines().find(|l| l.trim().starts_with("-->")).unwrap();
+        assert!(
+            loc.contains(":5:"),
+            "error is on line 5, but the location says: {loc}"
+        );
+    }
+
+    #[test]
+    fn an_error_inside_an_imported_file_points_at_that_file() {
+        let dir = std::path::PathBuf::from(format!(
+            "/tmp/zerkalo_test_import_{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("helper.typ"), "#let ok = 1\n\n#undefined-thing()\n").unwrap();
+        let main = dir.join("main.typ");
+        std::fs::write(&main, "= Doc\n\n#include \"helper.typ\"\n").unwrap();
+
+        let err = compile_to_pdf_bytes(&main, &HashMap::new(), &HashMap::new())
+            .expect_err("error in the included file should fail the compile");
+        let loc = err
+            .lines()
+            .find(|l| l.trim().starts_with("-->"))
+            .unwrap_or_else(|| panic!("no location in:\n{err}"));
+        assert!(
+            loc.contains("helper.typ") && loc.contains(":3:"),
+            "should point into helper.typ line 3, got: {loc}"
+        );
+    }
+
+    #[test]
+    fn a_real_diagnostic_survives_the_whole_pipeline_to_the_panel() {
+        // End-to-end: compile a document with a known error and push the real
+        // compiler output through the panel's parser, which is where the
+        // line-1 fallback used to swallow everything.
+        let path = write_temp_typ("= Title\n\nText.\n\n#no-such-thing()\n");
+        let err = compile_to_pdf_bytes(&path, &HashMap::new(), &HashMap::new()).unwrap_err();
+        let parsed = crate::ui::error_panel::parse_typst_errors(
+            &err,
+            path.parent().unwrap(),
+        );
+        assert_eq!(parsed.len(), 1, "one diagnostic expected, got {parsed:?}");
+        assert_eq!(parsed[0].line, 5, "should point at the offending line, not line 1");
+        assert_eq!(parsed[0].file, path, "should point at the real file");
+        assert!(!parsed[0].hints.is_empty(), "Typst's hint should reach the panel");
+        assert!(
+            !parsed[0].message.to_lowercase().contains("unknown variable"),
+            "headline should be plain language, got: {}",
+            parsed[0].message
+        );
     }
 
     #[test]
