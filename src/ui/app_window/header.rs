@@ -14,12 +14,14 @@ use super::{HamburgerItems, build_hamburger_menu_items};
 /// take one value instead of 22 parameters.
 pub(super) struct Menus {
     pub(super) menu_about_item: Button,
+    pub(super) menu_whats_new_item: Button,
     pub(super) menu_backup_remote_item: Button,
     pub(super) menu_docs_item: Button,
     pub(super) menu_export_item: Button,
     pub(super) menu_export_web_item: Button,
     pub(super) menu_fonts_item: Button,
     pub(super) menu_help_item: Button,
+    pub(super) menu_shortcuts_item: Button,
     pub(super) menu_import_item: Button,
     pub(super) menu_import_pdf_item: Button,
     pub(super) menu_new_item: Button,
@@ -160,6 +162,8 @@ pub(super) fn build_header() -> HeaderWidgets {
         menu_export_web_item,
         menu_fonts_item,
         menu_help_item,
+        menu_shortcuts_item,
+        menu_whats_new_item,
         menu_import_item,
         menu_import_pdf_item,
         menu_new_item,
@@ -182,12 +186,15 @@ pub(super) fn build_header() -> HeaderWidgets {
     menu_popover_box.set_margin_bottom(4);
     menu_popover_box.set_width_request(260);
 
-    // New / Open
+    // Get a document in: creating, opening, and bringing one in from another
+    // format all answer the same question, so Import sits here rather than
+    // down among the export actions where it used to be.
     menu_popover_box.append(&menu_new_template_item);
     menu_popover_box.append(&menu_new_item);
     menu_popover_box.append(&Separator::new(Orientation::Horizontal));
     menu_popover_box.append(&menu_open_item);
     menu_popover_box.append(&menu_docs_item);
+    menu_popover_box.append(&menu_import_item);
     menu_popover_box.append(&Separator::new(Orientation::Horizontal));
     // Current document
     menu_popover_box.append(&menu_reapply_template_item);
@@ -198,23 +205,39 @@ pub(super) fn build_header() -> HeaderWidgets {
     menu_popover_box.append(&menu_save_as_item);
     menu_popover_box.append(&menu_snapshots_item);
     menu_popover_box.append(&Separator::new(Orientation::Horizontal));
-    // Export / share
+    // Get a document out
     menu_popover_box.append(&menu_export_item);
     menu_popover_box.append(&menu_export_web_item);
     menu_popover_box.append(&menu_print_item);
-    menu_popover_box.append(&menu_import_item);
     menu_popover_box.append(&Separator::new(Orientation::Horizontal));
-    // App settings
-    menu_popover_box.append(&menu_fonts_item);
-    // Filled once editor_pane exists — it owns the button and its state.
-    let gost_menu_slot = GtkBox::new(Orientation::Vertical, 0);
-    menu_popover_box.append(&gost_menu_slot);
-    menu_popover_box.append(&menu_settings_item);
-    menu_popover_box.append(&menu_setup_item);
-    menu_popover_box.append(&menu_backup_remote_item);
+    // Writing/session info — a report, not a setting, so it no longer sits in
+    // the app-settings block below.
     menu_popover_box.append(&menu_writing_stats_item);
     menu_popover_box.append(&Separator::new(Orientation::Horizontal));
+    // App settings. The two toggles filled in from editor_pane are fenced off
+    // by separators so their bold-when-on styling reads as a group rather than
+    // as odd rows among the dialog-opening ones.
+    // Two different font surfaces used to sit here reading as competitors, so
+    // each now says which fonts it is about.
+    menu_settings_item.set_tooltip_text(Some(
+        "App preferences — including the font the editor text is displayed in",
+    ));
+    menu_fonts_item.set_tooltip_text(Some(
+        "Fonts used in the compiled document, not in the editor",
+    ));
+    menu_popover_box.append(&menu_settings_item);
+    menu_popover_box.append(&menu_fonts_item);
+    menu_popover_box.append(&Separator::new(Orientation::Horizontal));
+    // Filled once editor_pane exists — it owns the buttons and their state.
+    let gost_menu_slot = GtkBox::new(Orientation::Vertical, 0);
+    menu_popover_box.append(&gost_menu_slot);
+    menu_popover_box.append(&Separator::new(Orientation::Horizontal));
+    menu_popover_box.append(&menu_setup_item);
+    menu_popover_box.append(&menu_backup_remote_item);
+    menu_popover_box.append(&Separator::new(Orientation::Horizontal));
     menu_popover_box.append(&menu_help_item);
+    menu_popover_box.append(&menu_shortcuts_item);
+    menu_popover_box.append(&menu_whats_new_item);
     menu_popover_box.append(&menu_about_item);
 
     let menu_popover = Popover::new();
@@ -293,6 +316,8 @@ pub(super) fn build_header() -> HeaderWidgets {
             menu_export_web_item,
             menu_fonts_item,
             menu_help_item,
+            menu_shortcuts_item,
+            menu_whats_new_item,
             menu_import_item,
             menu_import_pdf_item,
             menu_new_item,

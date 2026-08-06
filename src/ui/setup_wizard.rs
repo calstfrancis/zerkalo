@@ -3,7 +3,7 @@ use std::rc::Rc;
 
 use gtk4::prelude::*;
 use gtk4::{
-    AlertDialog, Align, Box as GtkBox, Button, Image, Label, LinkButton, Orientation,
+    Align, Box as GtkBox, Button, Image, Label, LinkButton, Orientation,
     ScrolledWindow, Separator, SignalListItemFactory, StringObject, Switch,
 };
 use libadwaita as adw;
@@ -544,21 +544,24 @@ fn github_repo_group(parent: &adw::Window, work_dir: &Path) -> (adw::Preferences
 
             if has_git_remote(&wdir) {
                 let existing = get_git_remote(&wdir).unwrap_or_default();
-                let confirm = AlertDialog::builder()
-                    .modal(true)
-                    .message("Replace the existing remote?")
-                    .detail(format!(
+                super::confirm::confirm_destructive(
+                    Some(win_for_create.upcast_ref()),
+                    "Replace the existing remote?",
+                    &format!(
                         "This project is already linked to:\n{existing}\n\nCreating a new repository will replace this link. The old repository on GitHub is not deleted, but this project will stop tracking it."
-                    ))
-                    .buttons(["Cancel", "Create New Repository"])
-                    .cancel_button(0)
-                    .default_button(0)
-                    .build();
-                confirm.choose(Some(&win_for_create), None::<&gtk4::gio::Cancellable>, move |result| {
-                    if result == Ok(1) {
-                        go();
-                    }
-                });
+                    ),
+                    "Create New Repository",
+                    {
+                        // `go` runs once; the response handler is an Fn, so it
+                        // is taken out on first use.
+                        let go_once = std::cell::RefCell::new(Some(go));
+                        move || {
+                            if let Some(f) = go_once.borrow_mut().take() {
+                                f();
+                            }
+                        }
+                    },
+                );
                 return;
             }
             go();

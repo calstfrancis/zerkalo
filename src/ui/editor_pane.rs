@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use gtk4::prelude::*;
 use gtk4::{
-    AlertDialog, Box as GtkBox, Button, CssProvider, DrawingArea, DropTarget, Entry,
+    Box as GtkBox, Button, CssProvider, DrawingArea, DropTarget, Entry,
     EventControllerFocus, EventControllerKey, EventControllerMotion, GestureClick, Label,
     Notebook, Orientation, Popover, PropagationPhase, ScrolledWindow, Separator,
     TextSearchFlags, TextTag, TextWindowType, ToggleButton,
@@ -241,6 +241,11 @@ pub struct EditorPane {
     line_spacing: Rc<RefCell<u32>>,
     typewriter_scroll: Rc<RefCell<bool>>,
     word_count_goal: Rc<RefCell<u32>>,
+    /// The Settings → Editor goal, applied to any document that doesn't carry
+    /// its own `// @zerkalo-goal:` comment. Kept separate from
+    /// `word_count_goal` so opening a document with a goal comment and then one
+    /// without doesn't leave the first document's goal on screen.
+    default_word_count_goal: Rc<RefCell<u32>>,
     last_wc_text: Rc<RefCell<String>>,
     project_root: Rc<RefCell<Option<PathBuf>>>,
     status_bar: GtkBox,
@@ -256,6 +261,11 @@ pub struct EditorPane {
     autocorrect_btn: Button,
     on_autocorrect_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
     gost_label: Label,
+    gost_enabled: Rc<RefCell<bool>>,
+    /// True only while `set_gost_enabled` replays the saved state at startup,
+    /// so the toggle callback can tell a restore from a real click and skip
+    /// the "font isn't installed" toast on every launch.
+    gost_restoring: Rc<Cell<bool>>,
     on_gost_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
     on_version_click: Rc<RefCell<Option<Box<dyn Fn()>>>>,
     bib_active: Rc<RefCell<bool>>,
@@ -277,12 +287,10 @@ pub struct EditorPane {
     cv_style_label: Label,
 }
 
+/// Title Case, unlike the lowercase status-bar toggles: this label lives in the
+/// hamburger menu, between "Font Management…" and "Settings".
 fn set_autocorrect_label(label: &Label, enabled: bool) {
-    if enabled {
-        label.set_markup("<b>autocorrect</b>");
-    } else {
-        label.set_text("autocorrect");
-    }
+    set_toggle_label(label, "Autocorrect", enabled);
 }
 
 fn set_toggle_label(label: &Label, text: &str, enabled: bool) {
@@ -386,19 +394,23 @@ impl EditorPane {
         gost_btn.add_css_class("flat");
         gost_btn.set_tooltip_text(Some("Toggle GOST type B engineering font for the whole UI"));
 
-        let autocorrect_label = Label::new(Some("autocorrect"));
-        autocorrect_label.add_css_class("dim-label");
-        autocorrect_label.add_css_class("caption");
+        // Matches gost_label above and make_menu_item()'s rows: this button is
+        // packed into the hamburger, not the status bar, so it drops the
+        // dim/caption status-toggle styling that made it read as a stray.
+        let autocorrect_label = Label::new(Some("Autocorrect"));
         autocorrect_label.set_use_markup(true);
-        autocorrect_label.set_margin_top(3);
-        autocorrect_label.set_margin_bottom(3);
+        autocorrect_label.set_halign(gtk4::Align::Start);
+        autocorrect_label.set_hexpand(true);
+
+        let autocorrect_row = GtkBox::new(Orientation::Horizontal, 0);
+        autocorrect_row.set_margin_start(4);
+        autocorrect_row.set_margin_end(6);
+        autocorrect_row.append(&autocorrect_label);
 
         let autocorrect_btn = Button::new();
-        autocorrect_btn.set_child(Some(&autocorrect_label));
+        autocorrect_btn.set_child(Some(&autocorrect_row));
         autocorrect_btn.add_css_class("flat");
-        autocorrect_btn.add_css_class("status-toggle");
         autocorrect_btn.set_tooltip_text(Some("Toggle autocorrect (fixes spelling as you type)"));
-        autocorrect_btn.set_margin_end(4);
         autocorrect_btn.update_property(&[gtk4::accessible::Property::Label("Toggle autocorrect")]);
 
         let search_label = Label::new(Some("search"));
@@ -1275,6 +1287,7 @@ impl EditorPane {
         let line_spacing: Rc<RefCell<u32>> = Rc::new(RefCell::new(2));
         let typewriter_scroll: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
         let word_count_goal: Rc<RefCell<u32>> = Rc::new(RefCell::new(0));
+        let default_word_count_goal: Rc<RefCell<u32>> = Rc::new(RefCell::new(0));
         let last_wc_text: Rc<RefCell<String>> = Rc::new(RefCell::new(String::new()));
         let project_root: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
 
@@ -1362,6 +1375,7 @@ impl EditorPane {
             line_spacing,
             typewriter_scroll,
             word_count_goal,
+            default_word_count_goal,
             last_wc_text,
             project_root,
             status_bar,
@@ -1374,6 +1388,8 @@ impl EditorPane {
             autocorrect_btn: autocorrect_btn.clone(),
             on_autocorrect_toggle,
             gost_label,
+            gost_enabled: Rc::new(RefCell::new(false)),
+            gost_restoring: Rc::new(Cell::new(false)),
             on_gost_toggle,
             on_version_click,
             on_word_count_click,
@@ -1463,7 +1479,7 @@ impl EditorPane {
         {
             let lbl_g = ep.gost_label.clone();
             let cb_g = ep.on_gost_toggle.clone();
-            let gost_on: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
+            let gost_on = ep.gost_enabled.clone();
             gost_btn.connect_clicked(move |_| {
                 let new_val = !*gost_on.borrow();
                 *gost_on.borrow_mut() = new_val;
@@ -1985,15 +2001,21 @@ impl EditorPane {
         }
     }
 
-    #[allow(dead_code)]
+    /// Sets the global goal from Settings. A document whose text carries its
+    /// own `// @zerkalo-goal:` comment keeps that goal; everything else picks
+    /// this one up immediately.
     pub fn apply_word_count_goal(&self, goal: u32) {
-        *self.word_count_goal.borrow_mut() = goal;
-        if goal == 0 {
+        *self.default_word_count_goal.borrow_mut() = goal;
+        let text = self.get_active_content();
+        let effective = text
+            .as_deref()
+            .and_then(parse_goal_comment)
+            .unwrap_or(goal);
+        *self.word_count_goal.borrow_mut() = effective;
+        if effective == 0 {
             self.goal_ring.set_visible(false);
-        } else {
-            if let Some(text) = self.get_active_content() {
-                update_goal_ring(&self.goal_ring, &self.goal_fraction, &text, goal);
-            }
+        } else if let Some(text) = text {
+            update_goal_ring(&self.goal_ring, &self.goal_fraction, &text, effective);
         }
     }
 
@@ -2606,6 +2628,32 @@ impl EditorPane {
         *self.on_gost_toggle.borrow_mut() = Some(Box::new(f));
     }
 
+    /// Restores the saved GOST state at startup and fires the toggle callback
+    /// so the CSS is applied, matching what a click would have done.
+    pub fn set_gost_enabled(&self, enabled: bool) {
+        *self.gost_enabled.borrow_mut() = enabled;
+        set_toggle_label(&self.gost_label, "GOST Type B font", enabled);
+        self.gost_restoring.set(true);
+        if let Some(f) = self.on_gost_toggle.borrow().as_ref() {
+            f(enabled);
+        }
+        self.gost_restoring.set(false);
+    }
+
+    pub fn is_gost_restoring(&self) -> bool {
+        self.gost_restoring.get()
+    }
+
+    /// Whether "GOST type B" is actually installed. The toggle silently did
+    /// nothing when it wasn't, so callers use this to explain instead.
+    pub fn gost_font_available(&self) -> bool {
+        self.gost_btn
+            .pango_context()
+            .list_families()
+            .iter()
+            .any(|f| f.name().eq_ignore_ascii_case("GOST type B"))
+    }
+
     pub fn set_on_format_bar_toggle(&self, f: impl Fn(bool) + 'static) {
         *self.on_format_bar_toggle.borrow_mut() = Some(Box::new(f));
     }
@@ -3126,24 +3174,18 @@ impl EditorPane {
             let pop_di = popover.clone();
             del_item.connect_clicked(move |_| {
                 pop_di.popdown();
-                let alert = AlertDialog::builder()
-                    .modal(true)
-                    .message("Delete this file?")
-                    .detail(format!("'{}' will be permanently deleted.", name_di))
-                    .buttons(["Cancel", "Delete"])
-                    .cancel_button(0)
-                    .default_button(0)
-                    .build();
                 let path_confirm = path_di.clone();
                 let nb_confirm = nb_di.clone();
                 let sc_confirm = sc_di.clone();
                 let st_confirm = st_di.clone();
                 let cb_confirm = del_cb.clone();
-                alert.choose(
-                    None::<&gtk4::Window>,
-                    None::<&gtk4::gio::Cancellable>,
-                    move |result| {
-                        if result == Ok(1) {
+                super::confirm::confirm_destructive(
+                    None,
+                    "Delete this file?",
+                    &format!("'{name_di}' will be permanently deleted."),
+                    "Delete",
+                    move || {
+                        {
                             let _ = std::fs::remove_file(&path_confirm);
                             if let Some(n) = nb_confirm.page_num(&sc_confirm) {
                                 nb_confirm.remove_page(Some(n));
@@ -4818,9 +4860,13 @@ impl EditorPane {
         self.notebook.set_current_page(Some(page_index));
         set_wc_text_with_session(&self.word_count_label, content, session_start_words);
 
-        // Parse per-document goal from `// @zerkalo-goal: N`
-        if let Some(goal) = parse_goal_comment(content) {
-            *self.word_count_goal.borrow_mut() = goal;
+        // Per-document `// @zerkalo-goal: N` wins; otherwise the Settings goal.
+        let goal = parse_goal_comment(content)
+            .unwrap_or(*self.default_word_count_goal.borrow());
+        *self.word_count_goal.borrow_mut() = goal;
+        if goal == 0 {
+            self.goal_ring.set_visible(false);
+        } else {
             update_goal_ring(&self.goal_ring, &self.goal_fraction, content, goal);
         }
 
@@ -5864,25 +5910,31 @@ fn close_tab_with_dirty_check(
 ) {
     let is_modified = state.borrow().tabs.get(&path).map(|t| t.modified).unwrap_or(false);
     if is_modified {
-        let alert = AlertDialog::builder()
-            .modal(true)
-            .message(format!("Save changes to '{}'?", display_name))
-            .detail("Your changes will be lost if you close without saving.")
-            .buttons(["Cancel", "Discard", "Save"])
-            .cancel_button(0)
-            .default_button(2)
-            .build();
-        alert.choose(
+        // Three responses, so this one builds its own dialog rather than using
+        // the two-button helper in ui::confirm — same AdwMessageDialog either
+        // way, so it still matches every other confirmation in the app.
+        let alert = adw::MessageDialog::new(
             None::<&gtk4::Window>,
-            None::<&gtk4::gio::Cancellable>,
-            move |result| match result {
-                Ok(1) => {
+            Some(&format!("Save changes to '{display_name}'?")),
+            Some("Your changes will be lost if you close without saving."),
+        );
+        alert.add_response("cancel", "Cancel");
+        alert.add_response("discard", "Discard");
+        alert.add_response("save", "Save");
+        alert.set_response_appearance("discard", adw::ResponseAppearance::Destructive);
+        alert.set_response_appearance("save", adw::ResponseAppearance::Suggested);
+        alert.set_default_response(Some("save"));
+        alert.set_close_response("cancel");
+        alert.connect_response(
+            None,
+            move |_, response| match response {
+                "discard" => {
                     if let Some(n) = notebook.page_num(&scroll) {
                         notebook.remove_page(Some(n));
                     }
                     state.borrow_mut().tabs.remove(&path);
                 }
-                Ok(2) => {
+                "save" => {
                     let content = {
                         let st = state.borrow();
                         st.tabs.get(&path).map(|t| {
@@ -5903,6 +5955,7 @@ fn close_tab_with_dirty_check(
                 _ => {}
             },
         );
+        alert.present();
     } else {
         if let Some(n) = notebook.page_num(&scroll) {
             notebook.remove_page(Some(n));
@@ -7212,6 +7265,20 @@ Real prose here.
     #[test]
     fn an_unterminated_lorem_call_stops_the_count_rather_than_looping() {
         assert_eq!(count_words_typst("some words #lorem(30"), 2);
+    }
+
+    #[test]
+    fn a_document_without_a_goal_comment_falls_back_to_the_settings_goal() {
+        // The Settings goal was dead: never applied, and open_file only ever
+        // set a goal when the document carried its own comment — so opening a
+        // document with a comment then one without left the first one's goal on
+        // screen. Both call sites now resolve the goal this way.
+        let resolve = |content: &str, default: u32| {
+            parse_goal_comment(content).unwrap_or(default)
+        };
+        assert_eq!(resolve("// @zerkalo-goal: 1500\n= Doc\n", 800), 1500);
+        assert_eq!(resolve("= Doc\n", 800), 800);
+        assert_eq!(resolve("= Doc\n", 0), 0);
     }
 
     #[test]

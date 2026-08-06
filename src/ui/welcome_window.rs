@@ -7,7 +7,7 @@ use libadwaita as adw;
 use adw::prelude::*;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-const RELEASE_NAME: &str = "Quiet Silver";
+pub const RELEASE_NAME: &str = "Quiet Silver";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -127,6 +127,20 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
+                "Fixed: the Output folder and Word count goal settings do something. Both were saved and then never read — the output folder never moved a PDF, and the goal ring only ever appeared for documents carrying a @zerkalo-goal comment",
+                "Fixed: nine of the seventeen commands in the palette did nothing at all — New File, Open File, Export, Git Sync, Settings, Toggle Preview, Toggle Sidebar, New from Template and Focus Mode. Each now runs exactly what its menu row runs",
+                "Fixed: the GOST Type B font toggle is remembered between launches, and says so when the font isn't installed instead of appearing to do nothing",
+                "Fixed: Update Template Settings behaved differently depending on whether you opened it from the menu or the header — the header button lost your locked author and affiliation, and ignored the bibliography",
+                "Fixed: menu rows that need an open document are greyed out rather than clickable and silent",
+                "Fixed: closing Settings with Escape or the window's close button left the previewed theme and font applied over settings that were never saved",
+                "Fixed: mistyped folders and missing bib, CSL and Skrizhal files were accepted silently and only surfaced later as work going nowhere; they're checked when you save, and missing folders offered for creation",
+                "Fixed: Ctrl+Shift+I and Ctrl+Shift+V ran the experimental import features whether or not experimental mode was on",
+                "Changed: the menu is regrouped — Import sits with New and Open where bringing a document in belongs, Writing Stats leaves the settings block, and the two toggles are fenced off so they stop reading as stray rows",
+                "Changed: menu shortcut labels come from your keybindings, so rebinding relabels the menu instead of leaving it advertising the old key",
+                "New: Keyboard Shortcuts and What's New are in the menu — the shortcuts window was reachable only by a shortcut you had to already know, and the release notes vanished after the upgrade that showed them",
+                "New: Ctrl+, opens Settings, and Settings points at the keybindings file",
+                "Changed: About is a proper about window, with clickable links, the licence and the release name",
+                "Changed: every confirmation in the app is drawn the same way, with destructive actions marked as such",
                 "Changed: the Library is drawn in the same design as the rest of Zerkalo — documents are single-line cards grouped under Pinned and Documents, each with one coloured dot for its category, its tags set quietly after the title, and the date and word count aligned right",
                 "Changed: a tag's dot in the Library sidebar is the colour that tag was given, rather than a red-to-blue ramp by how often it had been used",
                 "Fixed: clicking a heading in the Outline now moves the editor to it",

@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use gtk4::prelude::*;
-use gtk4::{AlertDialog, Box as GtkBox, Button, Label, Orientation, ToggleButton};
+use gtk4::{Box as GtkBox, Button, Label, Orientation, ToggleButton};
 use libadwaita as adw;
 
 use crate::library::Library;
@@ -64,29 +64,11 @@ pub(super) fn wire_file_tree(ctx: &FileTreeCtx) -> FileTree {
         let ft = file_tree.clone();
         let win_for_ft_del = ctx.window.clone();
         file_tree.set_on_delete(move |path| {
-            let name = path.file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("this file")
-                .to_string();
-            let alert = AlertDialog::builder()
-                .modal(true)
-                .message("Move to trash?")
-                .detail(format!("'{}' will be moved to the system trash.", name))
-                .buttons(["Cancel", "Move to Trash"])
-                .cancel_button(0)
-                .default_button(0)
-                .build();
             let ft2 = ft.clone();
-            alert.choose(
-                Some(&win_for_ft_del),
-                None::<&gtk4::gio::Cancellable>,
-                move |result| {
-                    if result == Ok(1) {
-                        let _ = gtk4::gio::File::for_path(&path)
-                            .trash(None::<&gtk4::gio::Cancellable>);
-                        ft2.refresh();
-                    }
-                },
+            super::super::confirm::confirm_trash(
+                Some(win_for_ft_del.upcast_ref()),
+                path,
+                move |_| ft2.refresh(),
             );
         });
     }

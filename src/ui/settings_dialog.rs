@@ -3,11 +3,21 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use gtk4::prelude::*;
-use gtk4::{AlertDialog, Align, Box as GtkBox, Button, Label, ListBox, ListBoxRow, Notebook, Orientation};
+use gtk4::{Align, Box as GtkBox, Button, Label, ListBox, ListBoxRow, Orientation};
 use libadwaita as adw;
 use adw::prelude::*;
 
 use crate::config::{Config, Theme};
+
+/// Shows a modal notice on top of the settings window. Everything in this
+/// dialog reports through here so the app doesn't mix `gtk4::AlertDialog` and
+/// `adw::MessageDialog` for the same kind of message.
+fn notice(parent: &adw::Window, heading: &str, body: &str) {
+    let dlg = adw::MessageDialog::new(Some(parent), Some(heading), Some(body));
+    dlg.add_response("ok", "OK");
+    dlg.set_default_response(Some("ok"));
+    dlg.present();
+}
 
 /// Clears and rebuilds `lb`'s rows from `selected_langs`, wiring each row's
 /// remove button to mutate the shared list and rebuild again — a plain
@@ -66,6 +76,9 @@ impl SettingsDialog {
 
         let on_save: Rc<RefCell<Option<Box<dyn Fn(Config)>>>> = Rc::new(RefCell::new(None));
         let on_preview: Rc<RefCell<Option<Box<dyn Fn(Config)>>>> = Rc::new(RefCell::new(None));
+        // Set by Save so the close-request revert below leaves the newly saved
+        // appearance alone.
+        let saved_flag = Rc::new(std::cell::Cell::new(false));
 
         // ── Header bar ──────────────────────────────────────────────────────
 
@@ -412,11 +425,14 @@ impl SettingsDialog {
         spell_group.add(&lang_list_box);
         spell_group.add(&add_combo);
 
-        // ── Tabs ─────────────────────────────────────────────────────────────
+        // ── Pages ────────────────────────────────────────────────────────────
+        // An AdwViewStack driven by a header AdwViewSwitcher rather than a raw
+        // GtkNotebook: same three pages, but with the platform look and an
+        // adaptive switcher. (AdwPreferencesDialog would be the full answer,
+        // but it needs libadwaita 1.5 and this build pins v1_4.)
 
-        let notebook = Notebook::new();
-        notebook.set_tab_pos(gtk4::PositionType::Top);
-        notebook.set_vexpand(true);
+        let view_stack = adw::ViewStack::new();
+        view_stack.set_vexpand(true);
 
         // Developer mode
         let dev_group = adw::PreferencesGroup::new();
@@ -431,7 +447,46 @@ impl SettingsDialog {
         batch_concurrency_row.set_title("Simultaneous imports");
         batch_concurrency_row.set_subtitle("How many documents Import Folder converts at once");
         batch_concurrency_row.set_value(current.batch_import_concurrency as f64);
+        // Only meaningful once Import is reachable, so it follows the switch
+        // above rather than sitting there enabled with nothing to act on.
+        batch_concurrency_row.set_sensitive(current.developer_mode);
         dev_group.add(&batch_concurrency_row);
+        {
+            let bcr = batch_concurrency_row.clone();
+            dev_mode_row.connect_active_notify(move |r| bcr.set_sensitive(r.is_active()));
+        }
+
+        // ── Keyboard shortcuts ───────────────────────────────────────────────
+        // Bindings live in keybindings.toml with no editor UI; without this row
+        // there was nothing in the app saying the file exists.
+        let keys_group = adw::PreferencesGroup::new();
+        keys_group.set_title("Keyboard Shortcuts");
+        let keys_row = adw::ActionRow::new();
+        keys_row.set_title("Shortcut bindings");
+        keys_row.set_subtitle(&crate::keybindings::keybindings_path().to_string_lossy());
+        let keys_btn = Button::with_label("Open File");
+        keys_btn.set_valign(Align::Center);
+        {
+            let win_keys = window.clone();
+            keys_btn.connect_clicked(move |_| {
+                let path = crate::keybindings::keybindings_path();
+                crate::keybindings::Keybindings::write_default_if_missing();
+                let launched = gtk4::gio::AppInfo::launch_default_for_uri(
+                    &format!("file://{}", path.display()),
+                    None::<&gtk4::gio::AppLaunchContext>,
+                )
+                .is_ok();
+                if !launched {
+                    notice(
+                        &win_keys,
+                        "Couldn't open the file",
+                        &format!("Edit it by hand at:\n{}", path.display()),
+                    );
+                }
+            });
+        }
+        keys_row.add_suffix(&keys_btn);
+        keys_group.add(&keys_row);
 
         let sync_group = adw::PreferencesGroup::new();
         sync_group.set_title("GitHub Sync");
@@ -481,38 +536,80 @@ impl SettingsDialog {
         page_general.add(&folders_group);
         page_general.add(&compile_group);
         page_general.add(&sync_group);
+        page_general.add(&keys_group);
         page_general.add(&dev_group);
-        notebook.append_page(&page_general, Some(&Label::new(Some("General"))));
+        let sp_general = view_stack.add_titled(&page_general, Some("general"), "General");
+        sp_general.set_icon_name(Some("preferences-system-symbolic"));
 
         let page_editor = adw::PreferencesPage::new();
         page_editor.add(&editor_group);
         page_editor.add(&font_group);
-        notebook.append_page(&page_editor, Some(&Label::new(Some("Editor"))));
+        let sp_editor = view_stack.add_titled(&page_editor, Some("editor"), "Editor");
+        sp_editor.set_icon_name(Some("text-editor-symbolic"));
 
         let page_extras = adw::PreferencesPage::new();
         page_extras.add(&bib_group);
         page_extras.add(&cv_group);
         page_extras.add(&spell_group);
-        notebook.append_page(&page_extras, Some(&Label::new(Some("Extras"))));
+        let sp_extras = view_stack.add_titled(&page_extras, Some("extras"), "Extras");
+        sp_extras.set_icon_name(Some("view-list-symbolic"));
+
+        let switcher = adw::ViewSwitcher::new();
+        switcher.set_stack(Some(&view_stack));
+        switcher.set_policy(adw::ViewSwitcherPolicy::Wide);
+        header.set_title_widget(Some(&switcher));
 
         // ── Toolbar view ─────────────────────────────────────────────────────
 
         let toolbar_view = adw::ToolbarView::new();
         toolbar_view.set_top_bar_style(adw::ToolbarStyle::RaisedBorder);
         toolbar_view.add_top_bar(&header);
-        toolbar_view.set_content(Some(&notebook));
+        toolbar_view.set_content(Some(&view_stack));
         window.set_content(Some(&toolbar_view));
 
         // ── Wiring ──────────────────────────────────────────────────────────
 
+        // Every abandon route reverts the live appearance preview, not just the
+        // Cancel button: Escape, Alt+F4 and a window-manager close all used to
+        // leave the previewed theme/font applied over an unchanged config.
+        let revert_preview: Rc<dyn Fn()> = {
+            let on_preview_revert = on_preview.clone();
+            let revert_cfg = current.clone();
+            let saved = saved_flag.clone();
+            Rc::new(move || {
+                if saved.get() {
+                    return;
+                }
+                if let Some(f) = on_preview_revert.borrow().as_ref() {
+                    f(revert_cfg.clone());
+                }
+            })
+        };
+
+        {
+            let revert = revert_preview.clone();
+            window.connect_close_request(move |_| {
+                revert();
+                glib::Propagation::Proceed
+            });
+        }
+
+        {
+            let win_esc = window.clone();
+            let esc = gtk4::EventControllerKey::new();
+            esc.connect_key_pressed(move |_, key, _, _| {
+                if key == gtk4::gdk::Key::Escape {
+                    win_esc.close();
+                    return glib::Propagation::Stop;
+                }
+                glib::Propagation::Proceed
+            });
+            window.add_controller(esc);
+        }
+
         let win_cancel = window.clone();
-        let on_preview_cancel = on_preview.clone();
-        let revert_cfg = current.clone();
         cancel_btn.connect_clicked(move |_| {
-            // Revert appearance to original config on Cancel
-            if let Some(f) = on_preview_cancel.borrow().as_ref() {
-                f(revert_cfg.clone());
-            }
+            // close_request does the revert, so Cancel is just a close.
             win_cancel.close();
         });
 
@@ -543,7 +640,9 @@ impl SettingsDialog {
             let preview_zoom_cur = current.preview_zoom;
             let sidebar_width_cur = current.sidebar_width;
             let preview_split_cur = current.preview_split;
-            let _word_count_goal_cur = current.word_count_goal; // replaced by spin row
+            // Owned by the hamburger's own toggle, not this dialog — carried
+            // through so saving preferences doesn't switch the UI font back.
+            let gost_font_cur = current.gost_font;
             let last_export_format_cur = current.last_export_format;
             let auto_save_idle_ms_cur = current.auto_save_idle_ms;
             let active_profile_cur = current.active_profile.clone();
@@ -640,6 +739,7 @@ impl SettingsDialog {
                     editor_line_spacing,
                     typewriter_scrolling: typewriter_row.is_active(),
                     high_contrast: high_contrast_row.is_active(),
+                    gost_font: gost_font_cur,
                     word_count_goal: word_count_goal_spin.value() as u32,
                     sidebar_width: sidebar_width_cur,
                     preview_split: preview_split_cur,
@@ -683,22 +783,64 @@ impl SettingsDialog {
         wire_preview!(ws_row, connect_active_notify);
         wire_preview!(typewriter_row, connect_active_notify);
         wire_preview!(high_contrast_row, connect_active_notify);
+        wire_preview!(word_count_goal_spin, connect_value_notify);
 
         let on_save_cb = on_save.clone();
         let bc_save = build_config.clone();
         let win_save = window.clone();
+        let saved_on_save = saved_flag.clone();
         save_btn.connect_clicked(move |_| {
             let new_cfg = bc_save();
+
+            // Paths were saved unchecked, so a typo in a folder or file row
+            // only showed up later as a compile that quietly went nowhere.
+            if !new_cfg.work_dir.is_dir() {
+                match std::fs::create_dir_all(&new_cfg.work_dir) {
+                    Ok(()) => {}
+                    Err(e) => {
+                        notice(
+                            &win_save,
+                            "Work folder isn't usable",
+                            &format!("{} could not be created: {e}", new_cfg.work_dir.display()),
+                        );
+                        return;
+                    }
+                }
+            }
+            if let Some(dir) = new_cfg.output_dir.as_ref() {
+                if !dir.is_dir() {
+                    if let Err(e) = std::fs::create_dir_all(dir) {
+                        notice(
+                            &win_save,
+                            "Output folder isn't usable",
+                            &format!("{} could not be created: {e}", dir.display()),
+                        );
+                        return;
+                    }
+                }
+            }
+            for (label, path) in [
+                ("Bib file", new_cfg.bib_path.as_ref()),
+                ("Custom CSL file", new_cfg.custom_csl_path.as_ref()),
+                ("Skrizhal file", new_cfg.cv_elements_path.as_ref()),
+            ] {
+                if let Some(p) = path {
+                    if !p.is_file() {
+                        notice(
+                            &win_save,
+                            &format!("{label} not found"),
+                            &format!("{} doesn't exist. Clear the field or pick another file.", p.display()),
+                        );
+                        return;
+                    }
+                }
+            }
+
             if let Err(e) = new_cfg.save() {
-                let alert = AlertDialog::builder()
-                    .modal(true)
-                    .message("Failed to save settings")
-                    .detail(format!("{e}"))
-                    .buttons(["OK"])
-                    .build();
-                alert.choose(Some(&win_save), None::<&gtk4::gio::Cancellable>, |_| {});
+                notice(&win_save, "Failed to save settings", &format!("{e}"));
                 return;
             }
+            saved_on_save.set(true);
             win_save.close();
             if let Some(f) = on_save_cb.borrow().as_ref() {
                 f(new_cfg);
