@@ -5,6 +5,47 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.20.0] "Plain Sight" — A printer that prints, a window that reads as one thing, and errors that say what and where
+
+### Added
+- **A print system worth the name.** Ctrl+P opens a sheet showing what will actually be printed — the document, its page count, its real paper size — then hands off to the system dialog with everything already set. Page ranges are in the document's *own* numbering, so typing `12` gets you the page with 12 printed on it however the document numbers itself. Two or four pages a sheet and fold-and-staple booklets are imposed on the PDF itself, so ordering works on every printer and the output stays vector. Copies, two-sided, colour and layout are remembered between runs, with a proof, a finished copy and a booklet offered as starting points. "Print PDF" used to compile a file into a cache folder and open it in another application; it now goes to the printer.
+- **Typst packages download on first use.** `#import "@preview/…"` previously only worked if the package happened to already be cached, and failed naming an internal path if not.
+- **Typst warnings reach the error panel.** The compiler had been returning them all along and Zerkalo discarded every one.
+- **A shared stylesheet across the whole suite**, so Zerkalo, Rubric and the rest describe a section, a row and a surface the same way from one file.
+- **A save button in the header**, and Print reachable from the header and the command palette.
+
+### Changed
+- **Error messages are written in plain language.** The compiler's wording used to come first, with an explanation bolted underneath, so you had to get past "unknown variable: my-helper" before reaching anything you could act on. Now the plain sentence *is* the message — *Zerkalo doesn't know what "my-helper" means* — followed by what to do about it, and Typst's own suggestion where it has one. The exact compiler text stays under "Technical detail", and is what the copy button puts on the clipboard.
+- **The window reads as one thing.** The header is down from twelve controls to four and the preview bar from ten to five; what reports a mode moved to the status bar, compile controls moved beside the editor they compile. Every window and dialog — Library, Settings, Help, Export, Font Management, the wizards — now sits on the same surface as the main window instead of taking whatever the toolkit gave it. Sidebar panels announce themselves with a dot and small capitals, their rows grouped into cards, and the header bar, status bar, sidebar and preview each sit on their own surface rather than one undifferentiated sheet.
+- **The Library joins that design**, with single-line document cards, per-category colour cues, and tags set quietly after the title.
+- **Icons are drawn from Adwaita whatever the desktop uses.** Under KDE they had been coming from Breeze — the right names, a different family from the interface around them. Colour scheme, accent and font still follow the system.
+- **The menu is regrouped and says what it means.** Import sits with New and Open; Writing Stats leaves the settings block; menu shortcut labels come from your keybindings rather than being hardcoded; Keyboard Shortcuts and What's New are reachable from it at all; About is a proper about window; Ctrl+, opens Settings.
+- **The preview canvas follows the colour scheme** instead of being a fixed light grey slab under a dark window.
+
+### Removed
+- **The notes panel and the Plan panel**, and the right-hand sidebar they were the last occupants of.
+
+### Fixed
+- **Compile errors point at the line they're actually on.** Every error and warning reported line 1, whatever had gone wrong and wherever it was — so the source line quoted beside each one was always the first line of the document. Typst attaches two kinds of source position to a diagnostic and Zerkalo decoded only the kind that almost never occurs, so no error ever carried a location at all. Errors inside an included file now name that file, clicking one jumps to the right place when the root file lives in a subfolder, and the line quoted is the one that was compiled rather than the one last saved to disk.
+- **Memory grew for the whole time Zerkalo was open** — roughly 24 MB per thousand compiles of a three-line document, and far more for a real one.
+- **Zerkalo wrote your document to disk every 30 seconds whether you asked or not**, which also meant crash recovery could never trigger. Saving is now crash-safe, going through the same write-then-rename path settings always used.
+- **Settings changed in one dialog were silently reverted by another**, and a single bad line in `config.toml` discarded every setting and then overwrote the original.
+- **Typing stalled on every word boundary with autocorrect on**, and lagged badly on long documents — four separate pieces of work were running far more often than they needed to.
+- **Settings that did nothing now do something:** the Output folder was never read, and the Word count goal was saved and never applied.
+- **Nine of the seventeen command-palette entries had no handler at all** and silently did nothing.
+- **Update Template Settings behaved differently from the menu and the header**, the header route losing your locked author, affiliation and bibliography.
+- **Closing Settings with Escape or the close button** left a previewed theme and font applied over settings that were never saved, and mistyped paths were accepted without a word.
+- **Printing a CV produced nothing at all**, printing used the last saved version rather than what was on screen, failures were discarded silently, and the dialog opened on the desktop's default paper whatever size the document was.
+- **The preview redrew every page on every frame**, and every compile PNG-encoded each page only to decode it straight back.
+- **Every category in the library sidebar was the same blue.**
+- **Choosing a spelling suggestion threw the editor to the top of the document.**
+
+### Internal
+- **The screenshot script can see your installed fonts.** It redirects `XDG_DATA_HOME` for isolation, which is also where fontconfig looks for user fonts — so the demo document was captured with substitutes for EB Garamond and Goudy Initialen. Harmless while warnings were being discarded; the moment they reached the panel it put three spurious font warnings across the release screenshot.
+- **The suite goes from 269 tests to 385**, and the two largest files were broken up: the main window's constructor from 4,299 lines to roughly 2,000 across twelve files, and the template dialog's from 1,247 to 229.
+
+---
+
 ## [0.20.0-dev13] — Errors that tell you where, and what to do
 
 ### Fixed

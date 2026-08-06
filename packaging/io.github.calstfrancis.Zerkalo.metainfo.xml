@@ -75,6 +75,27 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.20.0" date="2026-08-06">
+      <description>
+        <p>0.20.0 "Plain Sight" — A printer that prints, a window that reads as one thing, and errors that say what and where.</p>
+        <ul>
+          <li>Added: a print system worth the name — a print sheet showing what will actually be printed, page ranges in the document's own numbering, two- and four-up and fold-and-staple booklets imposed on the PDF itself, and print settings remembered between runs</li>
+          <li>Added: Typst packages download on first use, instead of failing unless already cached</li>
+          <li>Added: Typst warnings reach the error panel — the compiler had been returning them all along</li>
+          <li>Added: a stylesheet shared across the suite, so every app describes a section, a row and a surface the same way</li>
+          <li>Changed: error messages are written in plain language, with what to do about them, and the compiler's exact wording kept under "Technical detail"</li>
+          <li>Changed: the window reads as one thing — the header down from twelve controls to four, the preview bar from ten to five, and every window and dialog on the same surface as the main window</li>
+          <li>Changed: icons are drawn from Adwaita whatever the desktop uses; colour scheme, accent and font still follow the system</li>
+          <li>Changed: the menu is regrouped, its shortcut labels come from your keybindings, and Keyboard Shortcuts, What's New and a proper About window are reachable from it</li>
+          <li>Fixed: compile errors point at the line they're actually on — every error reported line 1, whatever had gone wrong and wherever it was</li>
+          <li>Fixed: memory grew for the whole time Zerkalo was open, at roughly 24 MB per thousand compiles</li>
+          <li>Fixed: Zerkalo wrote your document to disk every 30 seconds whether you asked or not, which also kept crash recovery from ever working; saving is now crash-safe</li>
+          <li>Fixed: typing stalled on every word boundary with autocorrect on, and lagged badly on long documents</li>
+          <li>Fixed: settings that did nothing — the Output folder was never read, the Word count goal never applied — and nine of seventeen command-palette entries had no handler at all</li>
+          <li>Fixed: printing a CV produced nothing, printing used the last saved version rather than what was on screen, and the dialog ignored the document's real paper size</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.19.0" date="2026-08-01">
       <description>
         <p>0.19.0 "Quiet Silver" — Inline autocomplete, a status bar that stays out of the way, and a viewport that stays put.</p>

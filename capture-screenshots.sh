@@ -71,6 +71,10 @@ trap cleanup EXIT
 
 VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
 
+# Captured before HOME is redirected, so the font link below can still find the
+# real one.
+REAL_HOME="$HOME"
+
 export HOME="$DEMO_HOME"
 export XDG_CONFIG_HOME="$DEMO_HOME/.config"
 export XDG_DATA_HOME="$DEMO_HOME/.local/share"
@@ -79,6 +83,16 @@ export XDG_STATE_HOME="$DEMO_HOME/.local/state"
 
 echo "==> Seeding demo home in $DEMO_HOME"
 mkdir -p "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_CACHE_HOME"
+
+# Fontconfig finds user fonts in $XDG_DATA_HOME/fonts, which the isolation
+# above points at an empty directory — so the demo document's fonts (EB
+# Garamond, Goudy Initialen) came out as substitutes and the template reported
+# them missing. Harmless while warnings were being discarded; visible from
+# 0.20.0, which surfaces them, and it put three spurious font warnings across
+# the release screenshot. Linked read-only: fonts only, no config or data.
+if [ -d "$REAL_HOME/.local/share/fonts" ]; then
+  ln -sfn "$REAL_HOME/.local/share/fonts" "$XDG_DATA_HOME/fonts"
+fi
 
 # Git identity + a git-initialized work dir with a remote, so the first-run
 # setup wizard (which checks both) doesn't block startup.
