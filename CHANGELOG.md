@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.21.0-dev2] — Nothing to install, nothing to type
+## [0.21.0-dev3] — Nothing to install, nothing to type
 
 ### Added
 
