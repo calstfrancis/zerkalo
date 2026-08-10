@@ -29,7 +29,7 @@
     <p>Document workflow:</p>
     <ul>
       <li>New from Template — dialog generates a complete Typst preamble</li>
-      <li>Import from LaTeX, Word, Markdown, ODT, HTML, EPUB, RTF, or PDF via pandoc — drag-and-drop, batch/folder import, Paste as Document, and an Import History with retry, undo, and search</li>
+      <li>Import from Word, ODT, Markdown, LaTeX, HTML, EPUB, RTF, or PDF, previewed before anything is written — Word, ODT and Markdown are converted by Zerkalo itself with nothing to install; drag-and-drop, batch/folder import, Paste as Document, and an Import History with retry, undo, and search</li>
       <li>Export to PDF, HTML, DOCX, ODT, or LaTeX; Ctrl+Shift+E for instant PDF export</li>
       <li>Citation style switcher — APA, Chicago, GOST 7.32, and more, plus custom CSL styles</li>
       <li>BibTeX and Hayagriva YAML bibliography support, with cited-only bibliography export and project-wide citation key rename</li>

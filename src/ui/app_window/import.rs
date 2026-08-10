@@ -17,53 +17,6 @@ use crate::config::Config;
 use super::super::editor_pane::EditorPane;
 use super::show_alert;
 
-fn strip_pandoc_preamble(content: &str) -> String {
-    let lines: Vec<&str> = content.lines().collect();
-    let n = lines.len();
-    let mut i = 0;
-    while i < n {
-        let t = lines[i].trim();
-        if t.is_empty() || t.starts_with("//") {
-            i += 1;
-            continue;
-        }
-        // Strip #set rules (paren-depth aware for multi-line blocks)
-        if t.starts_with("#set ") {
-            let mut depth: i32 = 0;
-            loop {
-                for c in lines[i].chars() {
-                    match c { '(' => depth += 1, ')' => depth -= 1, _ => {} }
-                }
-                i += 1;
-                if depth <= 0 || i >= n { break; }
-            }
-            continue;
-        }
-        // Strip #show rules (bracket-depth aware) — pandoc emits #show heading: etc.
-        if t.starts_with("#show ") {
-            let mut depth: i32 = 0;
-            loop {
-                depth += lines[i].chars().filter(|&c| c == '[').count() as i32;
-                depth -= lines[i].chars().filter(|&c| c == ']').count() as i32;
-                i += 1;
-                if depth <= 0 || i >= n { break; }
-            }
-            continue;
-        }
-        // Strip standalone #import / #let lines in the preamble region.
-        if t.starts_with("#import ") || t.starts_with("#let ") {
-            i += 1;
-            continue;
-        }
-        break;
-    }
-    // Trim leading blank lines before actual content
-    while i < n && lines[i].trim().is_empty() { i += 1; }
-    if i >= n { return String::new(); }
-    let result = lines[i..].join("\n");
-    if result.ends_with('\n') { result } else { result + "\n" }
-}
-
 // ── Document import via pandoc (LaTeX, Word, Markdown, OpenDocument Text) ──────
 
 pub(super) struct ImportFormat {
@@ -390,11 +343,38 @@ fn describe_pandoc_failure(stderr: &str) -> String {
     if lower.contains("unknown writer") || lower.contains("unrecognized output format")
         || lower.contains("unknown output format")
     {
-        return "Your pandoc version doesn't support Typst output. Zerkalo needs \
-                pandoc 3.1 or later — you have an older version installed."
+        return format!(
+            "Your pandoc is too old to write Typst files — version 3.1 or later \
+             is required.\n\n{}",
+            pandoc_install_hint(),
+        );
+    }
+    // Inside the flatpak the spawn succeeds even with no pandoc installed,
+    // because what gets spawned is flatpak-spawn. A missing pandoc arrives
+    // here as a shell "not found" on stderr instead of a spawn error, and used
+    // to be shown raw.
+    if lower.contains("command not found")
+        || lower.contains("no such file or directory")
+        || lower.contains("failed to execute")
+        || lower.contains("executable file not found")
+    {
+        return pandoc_install_hint();
+    }
+    if lower.contains("permission denied") {
+        return "Zerkalo wasn't allowed to read that file, or to write next to \
+                it. Check the file's permissions, or copy it somewhere in your \
+                home folder and import it from there."
             .to_string();
     }
-    format!("pandoc error:\n{}", stderr.lines().take(5).collect::<Vec<_>>().join("\n"))
+    if lower.contains("does not exist") || lower.contains("cannot decode") || lower.contains("parse error") {
+        return format!(
+            "The file couldn't be read as the format it was imported as. If it \
+             was picked with the wrong format, try again with the right one.\n\n\
+             pandoc said:\n{}",
+            stderr.lines().take(4).collect::<Vec<_>>().join("\n"),
+        );
+    }
+    format!("pandoc couldn't convert this file.\n\n{}", stderr.lines().take(5).collect::<Vec<_>>().join("\n"))
 }
 
 /// Best-effort detection of Zotero/Mendeley/EndNote field codes inside a
@@ -418,18 +398,167 @@ fn docx_has_citation_manager_fields(path: &std::path::Path) -> bool {
     xml.contains("zotero") || xml.contains("mendeley") || xml.contains("endnote")
 }
 
+/// Reads a child's pipe to completion on its own thread, handing back a buffer
+/// the caller collects once the process has exited.
+///
+/// A child whose stdout/stderr are captured but never read blocks as soon as it
+/// fills the pipe buffer (64 KiB on Linux) and never exits — so waiting for
+/// exit before reading, as this used to, can hang forever on exactly the
+/// documents most likely to produce warnings.
+fn drain_pipe<R: std::io::Read + Send + 'static>(
+    pipe: Option<R>,
+) -> std::sync::Arc<std::sync::Mutex<String>> {
+    let buf = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    if let Some(mut pipe) = pipe {
+        let buf_c = buf.clone();
+        std::thread::spawn(move || {
+            let mut s = String::new();
+            let _ = std::io::Read::read_to_string(&mut pipe, &mut s);
+            if let Ok(mut guard) = buf_c.lock() {
+                *guard = s;
+            }
+        });
+    }
+    buf
+}
+
+fn take_drained(buf: &std::sync::Arc<std::sync::Mutex<String>>) -> String {
+    buf.lock().map(|g| g.clone()).unwrap_or_default()
+}
+
+/// Guidance for installing pandoc, correct for how Zerkalo is actually running.
+///
+/// Inside the flatpak, pandoc is run on the host through `flatpak-spawn`, so it
+/// has to be installed on the computer rather than into the sandbox — the old
+/// message listed distro commands without saying where to run them.
+fn pandoc_install_hint() -> String {
+    let where_ = if crate::git_sync::in_flatpak() {
+        "Zerkalo converts documents using pandoc, which runs outside the \
+         sandbox — install it on your computer, not into Zerkalo:"
+    } else {
+        "Zerkalo converts documents using pandoc. Install it with your \
+         package manager:"
+    };
+    format!(
+        "{where_}\n\
+         \n  sudo zypper install pandoc\
+         \n  sudo apt install pandoc\
+         \n  sudo dnf install pandoc\
+         \n  brew install pandoc\
+         \n\nVersion 3.1 or later is required for Typst output."
+    )
+}
+
+/// Checks pandoc is present and new enough *before* a conversion starts.
+///
+/// Returns `None` when it can be used, or a ready-to-show explanation when it
+/// can't. Previously the only check was whether the process could be spawned,
+/// which inside the flatpak is a check on `flatpak-spawn` rather than on pandoc
+/// — so for the app's primary distribution a missing pandoc produced a raw
+/// shell error instead of instructions, and too old a pandoc produced an
+/// "unknown writer" message from deep inside the conversion.
+fn pandoc_unavailable_reason() -> Option<String> {
+    let output = crate::git_sync::host_command("pandoc").arg("--version").output();
+    let Ok(output) = output else {
+        return Some(pandoc_install_hint());
+    };
+    if !output.status.success() {
+        return Some(pandoc_install_hint());
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    match parse_pandoc_version(&text) {
+        Some((major, minor)) if (major, minor) < (3, 1) => Some(format!(
+            "Your pandoc is version {major}.{minor}, which can't write Typst \
+             files. Version 3.1 or later is required.\n\n{}",
+            pandoc_install_hint(),
+        )),
+        // Unparseable version: let the conversion try rather than refuse over a
+        // banner we didn't recognise.
+        _ => None,
+    }
+}
+
+/// Pulls `(major, minor)` out of `pandoc --version`'s first line, e.g.
+/// `pandoc 3.1.11.1` -> `(3, 1)`.
+fn parse_pandoc_version(text: &str) -> Option<(u32, u32)> {
+    let first = text.lines().next()?;
+    let version = first.split_whitespace().nth(1)?;
+    let mut parts = version.split('.');
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next().and_then(|m| m.parse().ok()).unwrap_or(0);
+    Some((major, minor))
+}
+
+/// A private directory to convert into, so nothing is written beside the
+/// user's source file until they accept the result in the preview.
+///
+/// Deliberately under `~/.cache`, **not** `std::env::temp_dir()`: in the
+/// flatpak, pandoc runs on the host via `flatpak-spawn`, and `/tmp` inside the
+/// sandbox is not the host's `/tmp` — output written there would be invisible
+/// to the app. `--filesystem=home` makes a path under the real home resolve to
+/// the same file on both sides.
+fn import_staging_dir() -> std::io::Result<std::path::PathBuf> {
+    let base = shellexpand::tilde("~/.cache/zerkalo/import").into_owned();
+    // Nanosecond stamp plus pid: enough to keep concurrent batch workers and a
+    // second window out of each other's staging directories.
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let dir = std::path::PathBuf::from(base).join(format!("{}-{stamp}", std::process::id()));
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
+/// Retires staging directories left behind by a crash or a kill. Anything still
+/// present from a previous run is finished with — a live import holds its own
+/// directory for the length of one conversion, not across launches.
+pub fn prune_import_staging() {
+    let base = shellexpand::tilde("~/.cache/zerkalo/import").into_owned();
+    let Ok(entries) = std::fs::read_dir(&base) else { return };
+    let cutoff = std::time::SystemTime::now() - Duration::from_secs(60 * 60 * 6);
+    for entry in entries.flatten() {
+        let modified = entry.metadata().and_then(|m| m.modified()).ok();
+        if modified.map(|m| m < cutoff).unwrap_or(false) {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
+}
+
+/// Rewrites the absolute media paths pandoc emits into ones relative to the
+/// document, so the extracted images resolve once the document is saved.
+///
+/// `--extract-media` given an absolute directory makes pandoc write
+/// `#image("/abs/staging/foo_media/image1.png")`. Typst resolves a `/`-rooted
+/// path against the project root rather than the filesystem, so those would not
+/// load even before the staging directory is deleted.
+fn rewrite_media_paths(content: &str, staging_media: &std::path::Path, media_name: &str) -> String {
+    let abs = staging_media.display().to_string();
+    if abs.is_empty() {
+        return content.to_string();
+    }
+    content.replace(&abs, media_name)
+}
+
 /// Build the base pandoc invocation for converting `input_name` (a bare
 /// filename, relative to `input_dir`) to Typst. `.current_dir()` on the outer
 /// Command only moves `flatpak-spawn`'s own cwd inside the sandbox, not the
 /// host pandoc process's — flatpak-spawn needs an explicit `--directory=`,
 /// the same reason git_sync's `git_cmd` uses `-C <repo>` instead of relying
 /// on `.current_dir()`.
+///
+/// The working directory stays the *input's* folder even though the output goes
+/// elsewhere: pandoc resolves a source's own relative references (LaTeX
+/// `\includegraphics{fig.png}`, HTML `<img src="fig.png">`) against the working
+/// directory, so converting from somewhere else would silently lose every
+/// sibling image. Only `-o` and `--extract-media` are redirected, as absolute
+/// paths into the staging directory.
 fn build_pandoc_command(
     input_dir: &std::path::Path,
     input_name: &str,
     pandoc_from: &str,
-    out_name: &str,
-    media_name: &str,
+    out_path: &std::path::Path,
+    media_dir: &std::path::Path,
 ) -> std::process::Command {
     let mut cmd = if crate::git_sync::in_flatpak() {
         let mut c = std::process::Command::new("flatpak-spawn");
@@ -444,8 +573,8 @@ fn build_pandoc_command(
         .arg("-f").arg(pandoc_from)
         .arg("-t").arg("typst")
         .arg("--standalone")
-        .arg(format!("--extract-media={media_name}"))
-        .arg("-o").arg(out_name)
+        .arg(format!("--extract-media={}", media_dir.display()))
+        .arg("-o").arg(out_path)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
     cmd
@@ -614,13 +743,14 @@ fn show_import_preview_dialog(
     input_path: std::path::PathBuf,
     fmt_label: &'static str,
     processed: String,
-    temp_out_path: std::path::PathBuf,
+    staging: std::path::PathBuf,
     media_name: String,
     work_dir: std::path::PathBuf,
     pandoc_warnings: String,
 ) {
     let input_dir = input_path.parent().map(|p| p.to_path_buf()).unwrap_or_default();
-    let out_name = temp_out_path.file_name().and_then(|s| s.to_str()).unwrap_or("output.typ").to_string();
+    let stem = input_path.file_stem().and_then(|s| s.to_str()).unwrap_or("document").to_string();
+    let out_name = format!("{stem}.typ");
 
     let dlg = adw::Window::new();
     dlg.set_title(Some("Import Preview"));
@@ -666,8 +796,11 @@ fn show_import_preview_dialog(
 
     let warning_lines: Vec<&str> = pandoc_warnings.lines().filter(|l| !l.trim().is_empty()).collect();
     if !warning_lines.is_empty() {
+        // Neutral wording: this dialog now serves both the in-process readers
+        // and the pandoc hand-off, and "pandoc reported…" is wrong for the
+        // formats Zerkalo converts itself.
         let warn_lbl = gtk4::Label::new(Some(&format!(
-            "pandoc reported {} warning{} during conversion:\n{}",
+            "{} note{} about this conversion:\n{}",
             warning_lines.len(),
             if warning_lines.len() == 1 { "" } else { "s" },
             warning_lines.iter().take(5).copied().collect::<Vec<&str>>().join("\n"),
@@ -685,7 +818,12 @@ fn show_import_preview_dialog(
 
     let is_docx = input_path.extension().and_then(|e| e.to_str())
         .map(|e| e.eq_ignore_ascii_case("docx")).unwrap_or(false);
-    if is_docx && count_citations(&processed) == 0 && docx_has_citation_manager_fields(&input_path) {
+    // The in-process .docx reader already reports this in its notes above, so
+    // only fall back to the external check when it hasn't.
+    let already_flagged = pandoc_warnings.contains("reference manager");
+    if is_docx && !already_flagged && count_citations(&processed) == 0
+        && docx_has_citation_manager_fields(&input_path)
+    {
         let zotero_lbl = gtk4::Label::new(Some(
             "This document appears to use Zotero/Mendeley/EndNote-linked citations, \
              which pandoc can't read directly — that's likely why no citations \
@@ -723,17 +861,25 @@ fn show_import_preview_dialog(
     toolbar_view.set_content(Some(&outer));
     dlg.set_content(Some(&toolbar_view));
 
+    // Discard and closing the window are the same thing: both throw the
+    // conversion away. Only the Discard button used to clean up, so closing the
+    // preview with the window controls orphaned the staged files.
+    let accepted = Rc::new(std::cell::Cell::new(false));
     {
         let dlg_c = dlg.clone();
-        let temp_out = temp_out_path.clone();
-        let temp_media = input_dir.join(&media_name);
+        discard_btn.connect_clicked(move |_| dlg_c.close());
+    }
+    {
+        let staging_c = staging.clone();
         let input_path_c = input_path.clone();
-        discard_btn.connect_clicked(move |_| {
-            let _ = std::fs::remove_file(&temp_out);
-            let _ = std::fs::remove_dir_all(&temp_media);
-            let mut log = crate::import_log::ImportLog::load();
-            log.record(input_path_c.clone(), fmt_label, None, false, "Discarded by user");
-            dlg_c.close();
+        let accepted_c = accepted.clone();
+        dlg.connect_close_request(move |_| {
+            if !accepted_c.get() {
+                let _ = std::fs::remove_dir_all(&staging_c);
+                let mut log = crate::import_log::ImportLog::load();
+                log.record(input_path_c.clone(), fmt_label, None, false, "Discarded by user");
+            }
+            glib::Propagation::Proceed
         });
     }
 
@@ -744,7 +890,9 @@ fn show_import_preview_dialog(
         let toast_overlay_c = toast_overlay.clone();
         let input_path_c = input_path.clone();
         let input_dir_c = input_dir.clone();
-        let temp_out = temp_out_path.clone();
+        let staging_c = staging.clone();
+        let accepted_c2 = accepted.clone();
+        let win_c = window.clone();
         let out_name_c = out_name.clone();
         let media_name_c = media_name.clone();
         let dest_row_c = dest_row.clone();
@@ -752,17 +900,30 @@ fn show_import_preview_dialog(
         import_btn.connect_clicked(move |_| {
             let final_dir = if dest_row_c.selected() == 0 { work_dir.clone() } else { input_dir_c.clone() };
             let final_path = unique_typ_path(final_dir.join(&out_name_c));
-            let _ = std::fs::write(&final_path, &processed_c);
 
-            if final_dir != input_dir_c {
-                let src_media = input_dir_c.join(&media_name_c);
-                if src_media.is_dir() {
-                    let dst_media = final_dir.join(&media_name_c);
-                    let _ = copy_dir_recursive(&src_media, &dst_media);
-                    let _ = std::fs::remove_dir_all(&src_media);
-                }
-                let _ = std::fs::remove_file(&temp_out);
+            // First write anything into the destination the user chose. A
+            // failure here is reported rather than swallowed — writing to a
+            // folder that turns out not to be writable used to look exactly
+            // like a successful import of an empty document.
+            if let Err(e) = std::fs::write(&final_path, &processed_c) {
+                show_alert(&win_c, "Import Failed", &format!(
+                    "Couldn't save the converted document to {}:\n{e}",
+                    final_dir.display(),
+                ));
+                return;
             }
+
+            let staged_media = staging_c.join(&media_name_c);
+            if staged_media.is_dir() {
+                let dst_media = final_dir.join(&media_name_c);
+                if let Err(e) = copy_dir_recursive(&staged_media, &dst_media) {
+                    let t = adw::Toast::new(&format!("Images couldn't be saved: {e}"));
+                    t.set_timeout(6);
+                    toast_overlay_c.add_toast(t);
+                }
+            }
+            accepted_c2.set(true);
+            let _ = std::fs::remove_dir_all(&staging_c);
 
             editor_c.open_file(final_path.clone(), &processed_c);
             let found_bib = offer_bib_autodetect(&toast_overlay_c, &cfg_c, &input_dir_c);
@@ -893,6 +1054,73 @@ pub(super) fn run_pandoc_import(
     dlg.present();
 }
 
+/// Converts a document Zerkalo can read itself, then hands the result to the
+/// same preview dialog the pandoc path uses — so the two routes are identical
+/// from the user's point of view.
+///
+/// Everything is written into a staging directory first, exactly as the pandoc
+/// path does, so nothing appears beside the source until the preview is
+/// accepted.
+fn run_native_import(
+    window: &adw::ApplicationWindow,
+    editor: &EditorPane,
+    cfg: &Rc<RefCell<Config>>,
+    toast_overlay: &adw::ToastOverlay,
+    work_dir: &std::path::Path,
+    input_path: std::path::PathBuf,
+    fmt: &'static ImportFormat,
+) {
+    let stem = input_path.file_stem().and_then(|s| s.to_str()).unwrap_or("output").to_string();
+    let media_name = format!("{stem}_media");
+
+    let imported = match crate::doc_import::import(&input_path) {
+        Some(Ok(doc)) => doc,
+        Some(Err(e)) => {
+            show_alert(window, "Import Failed", &e);
+            let mut log = crate::import_log::ImportLog::load();
+            log.record(input_path, fmt.label, None, false, &e);
+            return;
+        }
+        None => return,
+    };
+
+    let staging = match import_staging_dir() {
+        Ok(dir) => dir,
+        Err(e) => {
+            show_alert(window, "Import Failed", &format!(
+                "Couldn't create a working folder for the conversion:\n{e}"
+            ));
+            return;
+        }
+    };
+
+    // Images travel with the document, written into the staging media folder
+    // and copied to the destination alongside the .typ.
+    if !imported.media.is_empty() {
+        let media_dir = staging.join(&media_name);
+        if std::fs::create_dir_all(&media_dir).is_ok() {
+            for item in &imported.media {
+                let _ = std::fs::write(media_dir.join(&item.name), &item.bytes);
+            }
+        }
+    }
+
+    let body = crate::doc_import::to_typst(&imported);
+    let bib_path = cfg.borrow().bib_path.clone();
+    // Reuses the pandoc path's post-processing so both routes produce a
+    // document with the same template markers and bibliography handling.
+    let processed = post_process_latex_import(&body, bib_path.as_deref());
+    // Image paths are already relative to the document, so nothing to rewrite.
+    let notes = imported.notes.join("\n");
+
+    show_import_preview_dialog(
+        window, editor, cfg, toast_overlay,
+        input_path, fmt.label, processed,
+        staging, media_name, work_dir.to_path_buf(),
+        notes,
+    );
+}
+
 /// Spawns pandoc for a single input file and wires up progress/cancel/result
 /// handling. Split out from `import_via_pandoc` so batch/folder import (which
 /// already has its file list, no picker dialog needed) can call it directly.
@@ -905,38 +1133,64 @@ fn run_pandoc_import_confirmed(
     input_path: std::path::PathBuf,
     fmt: &'static ImportFormat,
 ) {
+    // .docx, .odt and .md are read in-process — no pandoc, so these work with
+    // nothing installed outside Zerkalo. Everything else still hands off.
+    if crate::doc_import::handles(&input_path) {
+        run_native_import(window, editor, cfg, toast_overlay, work_dir, input_path, fmt);
+        return;
+    }
+
     let stem = input_path.file_stem().and_then(|s| s.to_str()).unwrap_or("output").to_string();
-    let out_path = unique_typ_path(input_path.with_file_name(format!("{stem}.typ")));
-    // Typst resolves `/`-rooted paths against the project root, not the OS
-    // filesystem — so pandoc must be run with cwd = the input's directory and
-    // given bare relative names, or `--extract-media`/`-o` with absolute paths
-    // makes it emit `#image("/abs/os/path...")`, which won't resolve as an
-    // image path inside the document (verified against a real pandoc run).
-    let out_stem = out_path.file_stem().and_then(|s| s.to_str()).unwrap_or(&stem).to_string();
-    let out_name = out_path.file_name().and_then(|s| s.to_str()).unwrap_or("output.typ").to_string();
-    let media_name = format!("{out_stem}_media");
+    // Conversion happens in a staging directory, so a source folder that is
+    // read-only, on a shared drive, or simply not somewhere the user wants
+    // Zerkalo writing is never touched — and an import that is cancelled,
+    // discarded, or interrupted leaves nothing behind next to the original.
+    // Nothing lands beside the source until the preview is accepted.
+    let staging = match import_staging_dir() {
+        Ok(dir) => dir,
+        Err(e) => {
+            show_alert(window, "Import Failed", &format!(
+                "Couldn't create a working folder for the conversion:\n{e}"
+            ));
+            return;
+        }
+    };
+    let out_name = format!("{stem}.typ");
+    let media_name = format!("{stem}_media");
+    let staged_out = staging.join(&out_name);
+    let staged_media = staging.join(&media_name);
     let input_dir = input_path.parent().map(|p| p.to_path_buf()).unwrap_or_default();
     let input_name = input_path.file_name().and_then(|s| s.to_str()).unwrap_or("input").to_string();
 
-    let mut cmd = build_pandoc_command(&input_dir, &input_name, fmt.pandoc_from, &out_name, &media_name);
+    if let Some(problem) = pandoc_unavailable_reason() {
+        show_alert(window, "Import Failed", &problem);
+        let mut log = crate::import_log::ImportLog::load();
+        log.record(input_path, fmt.label, None, false, "pandoc not available");
+        let _ = std::fs::remove_dir_all(&staging);
+        return;
+    }
+
+    let mut cmd = build_pandoc_command(&input_dir, &input_name, fmt.pandoc_from, &staged_out, &staged_media);
     let child = match cmd.spawn() {
         Ok(c) => c,
-        Err(_) => {
+        Err(e) => {
             show_alert(window, "Import Failed", &format!(
-                "pandoc was not found. Install it to use {} import:\n\
-                 \n  zypper install pandoc\
-                 \n  apt   install pandoc\
-                 \n  brew  install pandoc\
-                 \n  dnf   install pandoc\
-                 \nVersion 3.1 or later is required.",
-                fmt.label
+                "Couldn't start the conversion: {e}\n\n{}",
+                pandoc_install_hint(),
             ));
             let mut log = crate::import_log::ImportLog::load();
             log.record(input_path, fmt.label, None, false, "pandoc not found");
+            let _ = std::fs::remove_dir_all(&staging);
             return;
         }
     };
     let child = Rc::new(RefCell::new(Some(child)));
+    // Drained on background threads rather than after exit: both pipes are
+    // captured, and a conversion that emits more warnings than the pipe buffer
+    // holds (a messy .docx easily does) would otherwise block writing to a pipe
+    // nobody is reading, never exit, and hang the import indefinitely.
+    let stderr_buf = drain_pipe(child.borrow_mut().as_mut().and_then(|c| c.stderr.take()));
+    let stdout_buf = drain_pipe(child.borrow_mut().as_mut().and_then(|c| c.stdout.take()));
 
     let toast = adw::Toast::new(&format!("Importing {}…", fmt.label));
     toast.set_priority(adw::ToastPriority::High);
@@ -951,6 +1205,7 @@ fn run_pandoc_import_confirmed(
         let toast_for_cancel = toast.clone();
         let toast_overlay_for_cancel = toast_overlay.clone();
         let input_path_for_cancel = input_path.clone();
+        let staging_for_cancel = staging.clone();
         toast.connect_button_clicked(move |_| {
             if let Some(mut c) = child_for_cancel.borrow_mut().take() {
                 let _ = c.kill();
@@ -959,6 +1214,9 @@ fn run_pandoc_import_confirmed(
             let cancelled = adw::Toast::new("Import cancelled");
             cancelled.set_timeout(3);
             toast_overlay_for_cancel.add_toast(cancelled);
+            // Whatever pandoc had written so far goes with it; a cancelled
+            // import used to leave a half-converted .typ beside the source.
+            let _ = std::fs::remove_dir_all(&staging_for_cancel);
             let mut log = crate::import_log::ImportLog::load();
             log.record(input_path_for_cancel.clone(), fmt.label, None, false, "Cancelled by user");
         });
@@ -972,7 +1230,9 @@ fn run_pandoc_import_confirmed(
     let cfg = cfg.clone();
     let toast_overlay = toast_overlay.clone();
     let work_dir = work_dir.to_path_buf();
-    let out_path = out_path.clone();
+    let staged_out_poll = staged_out.clone();
+    let staged_media_poll = staged_media.clone();
+    let staging_poll = staging.clone();
     glib::timeout_add_local(Duration::from_millis(150), move || {
         let mut guard = child_poll.borrow_mut();
         let Some(c) = guard.as_mut() else {
@@ -981,35 +1241,37 @@ fn run_pandoc_import_confirmed(
         };
         match c.try_wait() {
             Ok(Some(status)) => {
-                let stdout = c.stdout.take();
-                let stderr = c.stderr.take();
                 drop(guard);
                 toast.dismiss();
-                use std::io::Read;
-                let mut stderr_text = String::new();
-                if let Some(mut s) = stderr { let _ = s.read_to_string(&mut stderr_text); }
-                let _ = stdout;
+                let stderr_text = take_drained(&stderr_buf);
+                let _ = take_drained(&stdout_buf);
 
                 if status.success() {
-                    if let Ok(raw) = std::fs::read_to_string(&out_path) {
+                    if let Ok(raw) = std::fs::read_to_string(&staged_out_poll) {
                         let bib_path = cfg.borrow().bib_path.clone();
-                        let processed = post_process_latex_import(&raw, bib_path.as_deref());
+                        // The media paths pandoc wrote point into the staging
+                        // directory; make them relative before the text is ever
+                        // shown, so the preview matches what gets saved.
+                        let relocated = rewrite_media_paths(&raw, &staged_media_poll, &media_name);
+                        let processed = post_process_latex_import(&relocated, bib_path.as_deref());
                         show_import_preview_dialog(
                             &win, &ep, &cfg, &toast_overlay,
                             input_path.clone(), fmt.label, processed,
-                            out_path.clone(), media_name.clone(), work_dir.clone(),
+                            staging_poll.clone(), media_name.clone(), work_dir.clone(),
                             stderr_text.clone(),
                         );
                     } else {
                         show_alert(&win, "Import Failed", "pandoc reported success but the output file could not be read.");
                         let mut log = crate::import_log::ImportLog::load();
                         log.record(input_path.clone(), fmt.label, None, false, "Output file unreadable");
+                        let _ = std::fs::remove_dir_all(&staging_poll);
                     }
                 } else {
                     let description = describe_pandoc_failure(&stderr_text);
                     show_alert(&win, "Import Failed", &description);
                     let mut log = crate::import_log::ImportLog::load();
                     log.record(input_path.clone(), fmt.label, None, false, &description);
+                    let _ = std::fs::remove_dir_all(&staging_poll);
                 }
                 glib::ControlFlow::Break
             }
@@ -1024,6 +1286,7 @@ fn run_pandoc_import_confirmed(
                 drop(guard);
                 toast.dismiss();
                 show_alert(&win, "Import Failed", "Failed to check the import process's status.");
+                let _ = std::fs::remove_dir_all(&staging_poll);
                 glib::ControlFlow::Break
             }
         }
@@ -1118,15 +1381,17 @@ fn prompt_paste_filename(
         let insert_at_cursor = has_open_doc && dest_row.selected() == 0;
         let name = entry_c.text().to_string();
         let stem = if name.trim().is_empty() { "Untitled".to_string() } else { name.trim().to_string() };
-        run_pandoc_import_from_stdin(&win, &editor, &cfg, &toast_overlay, &work_dir_c, text.clone(), &stem, insert_at_cursor);
+        run_paste_import(&win, &editor, &cfg, &toast_overlay, &work_dir_c, text.clone(), &stem, insert_at_cursor);
     });
     dlg.present();
 }
 
-/// Like `run_pandoc_import`, but for content that isn't a file on disk yet —
-/// pandoc reads from stdin (`-` as input) instead of a named file.
+/// Like `run_pandoc_import`, but for content that isn't a file on disk yet.
+/// Pasted text is read as Markdown, which Zerkalo converts in-process — so
+/// this needs no pandoc and no subprocess, and can't deadlock on its pipes the
+/// way feeding a large paste to pandoc's stdin could.
 #[allow(clippy::too_many_arguments)]
-fn run_pandoc_import_from_stdin(
+fn run_paste_import(
     window: &adw::ApplicationWindow,
     editor: &EditorPane,
     cfg: &Rc<RefCell<Config>>,
@@ -1136,99 +1401,38 @@ fn run_pandoc_import_from_stdin(
     stem: &str,
     insert_at_cursor: bool,
 ) {
-    let out_path = unique_typ_path(work_dir.join(format!("{stem}.typ")));
-    let out_name = out_path.file_name().and_then(|s| s.to_str()).unwrap_or("output.typ").to_string();
-
-    let mut cmd = if crate::git_sync::in_flatpak() {
-        let mut c = std::process::Command::new("flatpak-spawn");
-        c.arg("--host").arg(format!("--directory={}", work_dir.display())).arg("pandoc");
-        c
-    } else {
-        let mut c = std::process::Command::new("pandoc");
-        c.current_dir(work_dir);
-        c
-    };
-    cmd.arg("-f").arg("markdown")
-        .arg("-t").arg("typst")
-        .arg("--standalone")
-        .arg("-o").arg(&out_name)
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
-
-    let mut child = match cmd.spawn() {
-        Ok(c) => c,
-        Err(_) => {
-            show_alert(window, "Import Failed", "pandoc was not found. Install it to use Paste as Document.");
-            return;
-        }
-    };
-    {
-        use std::io::Write;
-        if let Some(mut stdin) = child.stdin.take() {
-            let _ = stdin.write_all(text.as_bytes());
-        }
-    }
-    let child = Rc::new(RefCell::new(Some(child)));
-
-    let toast = adw::Toast::new("Importing pasted text…");
-    toast.set_priority(adw::ToastPriority::High);
-    toast.set_timeout(0);
-    toast_overlay.add_toast(toast.clone());
-
-    let win = window.clone();
-    let ep = editor.clone();
-    let cfg = cfg.clone();
+    let imported = crate::doc_import::markdown::read(&text);
+    let body = crate::doc_import::to_typst(&imported);
     let source_label = std::path::PathBuf::from(format!("Pasted text ({stem})"));
-    glib::timeout_add_local(Duration::from_millis(150), move || {
-        let mut guard = child.borrow_mut();
-        let Some(c) = guard.as_mut() else { return glib::ControlFlow::Break };
-        match c.try_wait() {
-            Ok(Some(status)) => {
-                let stderr = c.stderr.take();
-                drop(guard);
-                toast.dismiss();
-                use std::io::Read;
-                let mut stderr_text = String::new();
-                if let Some(mut s) = stderr { let _ = s.read_to_string(&mut stderr_text); }
+    let mut log = crate::import_log::ImportLog::load();
 
-                let mut log = crate::import_log::ImportLog::load();
-                if status.success() {
-                    if let Ok(raw) = std::fs::read_to_string(&out_path) {
-                        if insert_at_cursor {
-                            // Body only — no Zerkalo preamble, since this is
-                            // going into a document that (if templated) already
-                            // has one.
-                            let body = strip_pandoc_preamble(&raw);
-                            let _ = std::fs::remove_file(&out_path);
-                            ep.insert_at_cursor(&body);
-                            log.record(source_label.clone(), "Paste as Document", None, true, "Inserted at cursor");
-                        } else {
-                            let bib_path = cfg.borrow().bib_path.clone();
-                            let processed = post_process_latex_import(&raw, bib_path.as_deref());
-                            let _ = std::fs::write(&out_path, &processed);
-                            ep.open_file(out_path.clone(), &processed);
-                            log.record(source_label.clone(), "Paste as Document", Some(out_path.clone()), true, "Imported successfully");
-                        }
-                    } else {
-                        show_alert(&win, "Import Failed", "pandoc reported success but the output file could not be read.");
-                        log.record(source_label.clone(), "Paste as Document", None, false, "Output file unreadable");
-                    }
-                } else {
-                    let description = describe_pandoc_failure(&stderr_text);
-                    show_alert(&win, "Import Failed", &description);
-                    log.record(source_label.clone(), "Paste as Document", None, false, &description);
-                }
-                glib::ControlFlow::Break
-            }
-            Ok(None) => glib::ControlFlow::Continue,
-            Err(_) => {
-                drop(guard);
-                toast.dismiss();
-                glib::ControlFlow::Break
-            }
-        }
-    });
+    // There is no preview step for a paste, so anything the conversion
+    // couldn't carry across is said here instead of being dropped in silence.
+    for note in &imported.notes {
+        let toast = adw::Toast::new(note);
+        toast.set_timeout(8);
+        toast_overlay.add_toast(toast);
+    }
+
+    if insert_at_cursor {
+        // Body only — no Zerkalo preamble, since this is going into a document
+        // that (if templated) already has one.
+        editor.insert_at_cursor(&body);
+        log.record(source_label, "Paste as Document", None, true, "Inserted at cursor");
+        return;
+    }
+
+    let out_path = unique_typ_path(work_dir.join(format!("{stem}.typ")));
+    let bib_path = cfg.borrow().bib_path.clone();
+    let processed = post_process_latex_import(&body, bib_path.as_deref());
+    if let Err(e) = std::fs::write(&out_path, &processed) {
+        let description = format!("Couldn't write the new document:\n{e}");
+        show_alert(window, "Import Failed", &description);
+        log.record(source_label, "Paste as Document", None, false, &description);
+        return;
+    }
+    editor.open_file(out_path.clone(), &processed);
+    log.record(source_label, "Paste as Document", Some(out_path), true, "Imported successfully");
 }
 
 pub(super) fn import_folder_via_pandoc(
@@ -1471,14 +1675,28 @@ fn run_next_batch_worker(
     active.set(active.get() + 1);
 
     let stem = input_path.file_stem().and_then(|s| s.to_str()).unwrap_or("output").to_string();
-    let out_path = unique_typ_path(input_path.with_file_name(format!("{stem}.typ")));
-    let out_stem = out_path.file_stem().and_then(|s| s.to_str()).unwrap_or(&stem).to_string();
-    let out_name = out_path.file_name().and_then(|s| s.to_str()).unwrap_or("output.typ").to_string();
-    let media_name = format!("{out_stem}_media");
+    let out_name = format!("{stem}.typ");
+    let media_name = format!("{stem}_media");
+    // Same staging rule as single-file import: nothing is written next to the
+    // source, so a read-only or unwanted source folder isn't a failure and an
+    // interrupted batch leaves no half-converted files across the tree.
+    let staging = match import_staging_dir() {
+        Ok(dir) => dir,
+        Err(_) => {
+            let mut log = crate::import_log::ImportLog::load();
+            log.record(input_path, fmt.label, None, false, "Couldn't create a working folder");
+            failed.set(failed.get() + 1);
+            active.set(active.get() - 1);
+            run_next_batch_worker(window, editor, cfg, toast_overlay, work_dir, dest_this_project, queue, fmt, done, failed, active, total, progress, written);
+            return;
+        }
+    };
+    let staged_out = staging.join(&out_name);
+    let staged_media = staging.join(&media_name);
     let input_dir = input_path.parent().map(|p| p.to_path_buf()).unwrap_or_default();
     let input_name = input_path.file_name().and_then(|s| s.to_str()).unwrap_or("input").to_string();
 
-    let mut cmd = build_pandoc_command(&input_dir, &input_name, fmt.pandoc_from, &out_name, &media_name);
+    let mut cmd = build_pandoc_command(&input_dir, &input_name, fmt.pandoc_from, &staged_out, &staged_media);
     let child = match cmd.spawn() {
         Ok(c) => c,
         Err(_) => {
@@ -1486,44 +1704,49 @@ fn run_next_batch_worker(
             log.record(input_path, fmt.label, None, false, "pandoc not found");
             failed.set(failed.get() + 1);
             active.set(active.get() - 1);
-            show_alert(&window, "Import Failed", "pandoc was not found. Install it to use folder import.");
+            let _ = std::fs::remove_dir_all(&staging);
+            show_alert(&window, "Import Failed", &pandoc_install_hint());
             run_next_batch_worker(window, editor, cfg, toast_overlay, work_dir, dest_this_project, queue, fmt, done, failed, active, total, progress, written);
             return;
         }
     };
     let child = Rc::new(RefCell::new(Some(child)));
+    let stderr_buf = drain_pipe(child.borrow_mut().as_mut().and_then(|c| c.stderr.take()));
+    let stdout_buf = drain_pipe(child.borrow_mut().as_mut().and_then(|c| c.stdout.take()));
 
     glib::timeout_add_local(Duration::from_millis(150), move || {
         let mut guard = child.borrow_mut();
         let Some(c) = guard.as_mut() else { return glib::ControlFlow::Break };
         match c.try_wait() {
             Ok(Some(status)) => {
-                let stderr = c.stderr.take();
                 drop(guard);
-                use std::io::Read;
-                let mut stderr_text = String::new();
-                if let Some(mut s) = stderr { let _ = s.read_to_string(&mut stderr_text); }
+                let stderr_text = take_drained(&stderr_buf);
+                let _ = take_drained(&stdout_buf);
 
                 if status.success() {
-                    if let Ok(raw) = std::fs::read_to_string(&out_path) {
+                    if let Ok(raw) = std::fs::read_to_string(&staged_out) {
                         let bib_path = cfg.borrow().bib_path.clone();
-                        let processed = post_process_latex_import(&raw, bib_path.as_deref());
+                        let relocated = rewrite_media_paths(&raw, &staged_media, &media_name);
+                        let processed = post_process_latex_import(&relocated, bib_path.as_deref());
                         let final_dir = if dest_this_project { work_dir.clone() } else { input_dir.clone() };
                         let final_path = unique_typ_path(final_dir.join(&out_name));
-                        let _ = std::fs::write(&final_path, &processed);
-                        if final_dir != input_dir {
-                            let src_media = input_dir.join(&media_name);
-                            if src_media.is_dir() {
-                                let dst_media = final_dir.join(&media_name);
-                                let _ = copy_dir_recursive(&src_media, &dst_media);
-                                let _ = std::fs::remove_dir_all(&src_media);
-                            }
-                            let _ = std::fs::remove_file(&out_path);
+                        let written_ok = std::fs::write(&final_path, &processed).is_ok();
+                        if staged_media.is_dir() {
+                            let _ = copy_dir_recursive(&staged_media, &final_dir.join(&media_name));
                         }
+                        let _ = std::fs::remove_dir_all(&staging);
                         let mut log = crate::import_log::ImportLog::load();
-                        log.record(input_path.clone(), fmt.label, Some(final_path.clone()), true, "Imported successfully (batch)");
-                        written.borrow_mut().push(final_path);
-                        done.set(done.get() + 1);
+                        if written_ok {
+                            log.record(input_path.clone(), fmt.label, Some(final_path.clone()), true, "Imported successfully (batch)");
+                            written.borrow_mut().push(final_path);
+                            done.set(done.get() + 1);
+                        } else {
+                            // A destination that can't be written to is a real
+                            // failure, not a silent no-op that still counts as
+                            // an import.
+                            log.record(input_path.clone(), fmt.label, None, false, "Couldn't write to the destination folder");
+                            failed.set(failed.get() + 1);
+                        }
                     } else {
                         let mut log = crate::import_log::ImportLog::load();
                         log.record(input_path.clone(), fmt.label, None, false, "Output file unreadable");
@@ -1868,9 +2091,49 @@ fn post_process_pdf_import(text: &str, title: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        describe_pandoc_failure, format_pdf_body, post_process_latex_import,
-        scan_files_recursive, strip_pandoc_preamble, summarize_import_content, unique_typ_path,
+        describe_pandoc_failure, format_pdf_body, parse_pandoc_version, post_process_latex_import,
+        rewrite_media_paths, scan_files_recursive, summarize_import_content,
+        unique_typ_path,
     };
+
+    #[test]
+    fn media_paths_are_made_relative_to_the_document() {
+        // --extract-media with an absolute directory makes pandoc emit absolute
+        // #image paths. Typst resolves a /-rooted path against the project
+        // root, not the filesystem, so these would not load even if the
+        // staging directory still existed.
+        let staging_media = std::path::Path::new("/home/me/.cache/zerkalo/import/12-99/doc_media");
+        let content = "#figure(image(\"/home/me/.cache/zerkalo/import/12-99/doc_media/media/image1.png\"))\n";
+        let out = rewrite_media_paths(content, staging_media, "doc_media");
+        assert_eq!(out, "#figure(image(\"doc_media/media/image1.png\"))\n");
+        assert!(!out.contains("/home/me"), "no absolute path should survive: {out}");
+    }
+
+    #[test]
+    fn rewriting_media_paths_leaves_a_document_without_images_alone() {
+        let staging_media = std::path::Path::new("/tmp/staging/doc_media");
+        let content = "= Heading\n\nJust text.\n";
+        assert_eq!(rewrite_media_paths(content, staging_media, "doc_media"), content);
+    }
+
+    #[test]
+    fn pandoc_version_is_read_from_its_banner() {
+        assert_eq!(parse_pandoc_version("pandoc 3.1.11.1\nFeatures..."), Some((3, 1)));
+        assert_eq!(parse_pandoc_version("pandoc 2.19.2"), Some((2, 19)));
+        assert_eq!(parse_pandoc_version("pandoc 3"), Some((3, 0)));
+        assert_eq!(parse_pandoc_version(""), None);
+        assert_eq!(parse_pandoc_version("something else entirely"), None);
+    }
+
+    #[test]
+    fn a_pandoc_too_old_for_typst_output_is_recognised_by_version() {
+        // 3.1 is the first release that can write Typst. Below it, the old code
+        // only found out mid-conversion, via an "unknown writer" message.
+        for (v, want_ok) in [("pandoc 2.19.2", false), ("pandoc 3.0.1", false), ("pandoc 3.1.0", true), ("pandoc 3.5", true)] {
+            let parsed = parse_pandoc_version(v).unwrap();
+            assert_eq!(parsed >= (3, 1), want_ok, "for {v}");
+        }
+    }
 
     // ── document import helpers ───────────────────────────────────────────────
 
@@ -1897,14 +2160,31 @@ mod tests {
     #[test]
     fn describe_pandoc_failure_recognizes_unknown_writer() {
         let msg = describe_pandoc_failure("Error: Unknown writer: typst");
-        assert!(msg.contains("pandoc 3.1 or later"), "got: {msg}");
+        assert!(msg.contains("3.1 or later"), "got: {msg}");
+        assert!(msg.contains("install"), "should say how to fix it: {msg}");
     }
 
     #[test]
-    fn describe_pandoc_failure_falls_back_to_raw_stderr() {
+    fn a_missing_pandoc_reported_on_stderr_gives_install_instructions() {
+        // Inside the flatpak the spawn succeeds regardless — what is spawned is
+        // flatpak-spawn — so a missing pandoc arrives as a shell error on
+        // stderr rather than a spawn failure, and used to be shown raw.
+        for raw in [
+            "bash: line 1: pandoc: command not found",
+            "flatpak-spawn: Failed to execute child process \"pandoc\"",
+            "execvp: No such file or directory",
+        ] {
+            let msg = describe_pandoc_failure(raw);
+            assert!(msg.contains("install"), "for {raw:?} got: {msg}");
+            assert!(!msg.contains("command not found"), "raw text leaked: {msg}");
+        }
+    }
+
+    #[test]
+    fn describe_pandoc_failure_falls_back_to_the_compilers_own_words() {
         let msg = describe_pandoc_failure("some other pandoc error\nline two");
-        assert!(msg.starts_with("pandoc error:\n"), "got: {msg}");
-        assert!(msg.contains("some other pandoc error"));
+        assert!(msg.contains("some other pandoc error"), "got: {msg}");
+        assert!(!msg.starts_with("pandoc error:"), "should lead with plain language: {msg}");
     }
 
     // ── format_pdf_body ────────────────────────────────────────────────────────
@@ -2115,44 +2395,5 @@ Body.\n";
         let input = "= Heading\n\nText.\n";
         let result = post_process_latex_import(input, None);
         assert!(result.contains("// ── Document body"), "body marker present");
-    }
-
-    #[test]
-    fn strip_pandoc_empty_input() {
-        assert_eq!(strip_pandoc_preamble(""), "");
-    }
-
-    #[test]
-    fn strip_pandoc_only_set_rules() {
-        let input = "#set text(font: \"Arial\")\n#set page(paper: \"a4\")\n";
-        assert_eq!(strip_pandoc_preamble(input), "");
-    }
-
-    #[test]
-    fn strip_pandoc_preserves_body() {
-        let input = "#set text(font: \"Arial\")\n\n= Introduction\n\nBody text.\n";
-        let result = strip_pandoc_preamble(input);
-        assert_eq!(result, "= Introduction\n\nBody text.\n");
-    }
-
-    #[test]
-    fn strip_pandoc_multiline_set_rule() {
-        let input = "#set text(\n  font: \"Arial\",\n  size: 12pt,\n)\n\n= Heading\n";
-        let result = strip_pandoc_preamble(input);
-        assert_eq!(result, "= Heading\n");
-    }
-
-    #[test]
-    fn strip_pandoc_skips_leading_comments() {
-        let input = "// Generated by pandoc\n#set text(font: \"Arial\")\n\n= Body\n";
-        let result = strip_pandoc_preamble(input);
-        assert_eq!(result, "= Body\n");
-    }
-
-    #[test]
-    fn strip_pandoc_no_preamble() {
-        let input = "= Just a heading\n\nSome text.\n";
-        let result = strip_pandoc_preamble(input);
-        assert_eq!(result, "= Just a heading\n\nSome text.\n");
     }
 }
