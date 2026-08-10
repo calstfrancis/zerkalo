@@ -142,18 +142,8 @@ impl ExportDialog {
         let parent_clone = parent.clone();
         let project_root_for_cv = project_root.clone();
         install_btn.connect_clicked(move |_| {
-            let (sans, serif) = {
-                let c = crate::config::shared();
-                let c = c.borrow();
-                (c.default_sans_font.clone(), c.default_serif_font.clone())
-            };
-            let wizard = super::setup_wizard::SetupWizard::new(&parent_clone, &project_root, &sans, &serif, |sans, serif| {
-                let _ = crate::config::update(|c| {
-                    c.default_sans_font = sans;
-                    c.default_serif_font = serif;
-                });
-            });
-            wizard.present();
+            // Installing Skrizhal is a tools question, not a setup one.
+            super::tools_window::ToolsWindow::new(&parent_clone).present();
         });
 
         // Wire export button

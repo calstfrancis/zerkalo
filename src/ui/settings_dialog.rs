@@ -262,6 +262,41 @@ impl SettingsDialog {
         word_count_goal_spin.set_subtitle("Show progress bar in status bar (0 = disabled)");
         word_count_goal_spin.set_value(current.word_count_goal as f64);
 
+        // Document fonts. These used to be a step in setup, which put a font
+        // choice between a first-time user and getting started — for a setting
+        // whose defaults are already the right answer nearly always.
+        let doc_font_group = adw::PreferencesGroup::new();
+        doc_font_group.set_title("Document Fonts");
+        doc_font_group.set_description(Some(
+            "Used by new documents and template previews until a document picks its own.",
+        ));
+
+        let doc_fonts = super::font_manager::FontManager::enabled_fonts();
+        let doc_font_labels: Vec<&str> = doc_fonts.iter().map(|s| s.as_str()).collect();
+        let doc_font_model = gtk4::StringList::new(&doc_font_labels);
+        let preview_factory = font_preview_factory();
+
+        let sans_row = adw::ComboRow::new();
+        sans_row.set_title("Sans-serif");
+        sans_row.set_model(Some(&doc_font_model));
+        sans_row.set_factory(Some(&preview_factory));
+        sans_row.set_list_factory(Some(&preview_factory));
+        sans_row.set_selected(best_font_index(
+            &doc_fonts, &current.default_sans_font, SANS_FONT_PRIORITY,
+        ));
+
+        let serif_row = adw::ComboRow::new();
+        serif_row.set_title("Serif");
+        serif_row.set_model(Some(&doc_font_model));
+        serif_row.set_factory(Some(&preview_factory));
+        serif_row.set_list_factory(Some(&preview_factory));
+        serif_row.set_selected(best_font_index(
+            &doc_fonts, &current.default_serif_font, SERIF_FONT_PRIORITY,
+        ));
+
+        doc_font_group.add(&sans_row);
+        doc_font_group.add(&serif_row);
+
         font_group.add(&font_row);
         font_group.add(&tab_spin);
         font_group.add(&wrap_row);
@@ -544,6 +579,7 @@ impl SettingsDialog {
         let page_editor = adw::PreferencesPage::new();
         page_editor.add(&editor_group);
         page_editor.add(&font_group);
+        page_editor.add(&doc_font_group);
         let sp_editor = view_stack.add_titled(&page_editor, Some("editor"), "Editor");
         sp_editor.set_icon_name(Some("text-editor-symbolic"));
 
@@ -654,6 +690,8 @@ impl SettingsDialog {
             let last_used_advanced_cur = current.last_used_advanced;
             let default_sans_font_cur = current.default_sans_font.clone();
             let default_serif_font_cur = current.default_serif_font.clone();
+            let doc_fonts_cur = doc_fonts.clone();
+            let setup_done_cur = current.setup_done;
             // Owned by the print sheet, not this dialog — carried through so
             // saving preferences doesn't reset the last-used print settings.
             let print_cur = current.print.clone();
@@ -757,8 +795,15 @@ impl SettingsDialog {
                     format_bar_visible: format_bar_visible_cur,
                     last_used_advanced: last_used_advanced_cur,
                     snippets: snippets_cur.clone(),
-                    default_sans_font: default_sans_font_cur.clone(),
-                    default_serif_font: default_serif_font_cur.clone(),
+                    setup_done: setup_done_cur,
+                    default_sans_font: doc_fonts_cur
+                        .get(sans_row.selected() as usize)
+                        .cloned()
+                        .unwrap_or_else(|| default_sans_font_cur.clone()),
+                    default_serif_font: doc_fonts_cur
+                        .get(serif_row.selected() as usize)
+                        .cloned()
+                        .unwrap_or_else(|| default_serif_font_cur.clone()),
                     print: print_cur.clone(),
                 }
             }
@@ -860,5 +905,80 @@ impl SettingsDialog {
 
     pub fn present(&self) {
         self.window.present();
+    }
+}
+
+// Preference order for the document-font dropdowns' initial selection when
+// nothing has been chosen yet — common, broadly-available names first, so a
+// first-time user doesn't land on whatever happens to sort alphabetically
+// first in their system font list (often an obscure font).
+const SANS_FONT_PRIORITY: &[&str] = &["Noto Sans", "DejaVu Sans", "Cantarell", "Liberation Sans", "Arial", "Inter"];
+const SERIF_FONT_PRIORITY: &[&str] = &["Noto Serif", "Liberation Serif", "DejaVu Serif", "Linux Libertine", "Times New Roman", "Georgia"];
+
+/// Picks the best initial ComboRow selection: the user's already-chosen font
+/// if it's in the list, else the first name from `priority` that's actually
+/// available, else index 0 as a last resort.
+fn best_font_index(fonts: &[String], current: &str, priority: &[&str]) -> u32 {
+    if let Some(i) = fonts.iter().position(|f| f == current) {
+        return i as u32;
+    }
+    for name in priority {
+        if let Some(i) = fonts.iter().position(|f| f == name) {
+            return i as u32;
+        }
+    }
+    0
+}
+
+/// A list-item factory that renders each font name set in its own font, so
+/// the Sans/Serif dropdowns preview the choice instead of listing plain text.
+fn font_preview_factory() -> gtk4::SignalListItemFactory {
+    let factory = gtk4::SignalListItemFactory::new();
+    factory.connect_setup(move |_, obj| {
+        let Some(item) = obj.downcast_ref::<gtk4::ListItem>() else { return };
+        let label = Label::new(None);
+        label.set_xalign(0.0);
+        label.set_margin_start(6);
+        label.set_margin_end(6);
+        label.set_margin_top(4);
+        label.set_margin_bottom(4);
+        item.set_child(Some(&label));
+    });
+    factory.connect_bind(move |_, obj| {
+        let Some(item) = obj.downcast_ref::<gtk4::ListItem>() else { return };
+        let Some(label) = item.child().and_then(|w| w.downcast::<Label>().ok()) else { return };
+        let Some(text) = item.item().and_then(|o| o.downcast::<gtk4::StringObject>().ok()) else { return };
+        let name = text.string().to_string();
+        label.set_text(&name);
+        let mut desc = gtk4::pango::FontDescription::new();
+        desc.set_family(&name);
+        let attrs = gtk4::pango::AttrList::new();
+        attrs.insert(gtk4::pango::AttrFontDesc::new(&desc));
+        label.set_attributes(Some(&attrs));
+    });
+    factory
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_already_chosen_font_is_preselected() {
+        let fonts = vec!["Cantarell".to_string(), "Noto Sans".to_string()];
+        assert_eq!(best_font_index(&fonts, "Noto Sans", SANS_FONT_PRIORITY), 1);
+    }
+
+    #[test]
+    fn with_nothing_chosen_a_known_good_font_wins_over_alphabetical_order() {
+        // "Abyssinica" would otherwise be the default purely by sorting first.
+        let fonts = vec!["Abyssinica SIL".to_string(), "Noto Sans".to_string()];
+        assert_eq!(best_font_index(&fonts, "", SANS_FONT_PRIORITY), 1);
+    }
+
+    #[test]
+    fn a_font_list_with_none_of_the_preferred_names_still_selects_something() {
+        let fonts = vec!["Abyssinica SIL".to_string()];
+        assert_eq!(best_font_index(&fonts, "", SANS_FONT_PRIORITY), 0);
     }
 }

@@ -25,6 +25,7 @@ pub mod sync_dialog;
 pub mod template_dialog;
 pub mod search_panel;
 pub mod setup_wizard;
+pub mod tools_window;
 pub mod snapshot_dialog;
 pub mod welcome_window;
 pub mod library_window;

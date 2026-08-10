@@ -33,6 +33,40 @@ build-options:
     RUST_BACKTRACE: '1'
 
 modules:
+  # Module 0: git itself.
+  #
+  # org.gnome.Platform ships no git, so sync used to run the *host's* git
+  # through flatpak-spawn — which made "install git in a terminal" a
+  # prerequisite for saving your work in the app's main distribution. Bundling
+  # it means setup never has to ask the user to install anything.
+  #
+  # Everything this links against is already in the runtime: libcurl, zlib,
+  # openssl, expat and the CA bundle at /etc/ssl/certs. NO_PERL is safe because
+  # every command Zerkalo runs (init, add, commit, pull --rebase, push, status,
+  # rev-parse, config) is a C builtin; the perl-based extras are not used.
+  # INSTALL_SYMLINKS keeps the ~150 builtins as symlinks to one binary instead
+  # of copies.
+  - name: git
+    buildsystem: simple
+    sources:
+      - type: archive
+        url: https://mirrors.edge.kernel.org/pub/software/scm/git/git-2.55.0.tar.xz
+        sha256: 457fdb04dc8728e007d4688695e6912e6f680727920f2a40bf11eacc17505357
+    build-commands:
+      # Fail loudly rather than silently producing a git that can't do HTTPS —
+      # the Makefile's response to a missing curl-config is to build without
+      # it, which would leave push working only for SSH remotes.
+      - "test -x /usr/bin/curl-config || (echo 'curl-config missing, git would build without HTTPS' && false)"
+      - "make -j${FLATPAK_BUILDER_N_JOBS:-4} prefix=/app NO_TCLTK=1 NO_GETTEXT=1 NO_PERL=1 NO_PYTHON=1 NO_INSTALL_HARDLINKS=1 INSTALL_SYMLINKS=1 all"
+      - "make prefix=/app NO_TCLTK=1 NO_GETTEXT=1 NO_PERL=1 NO_PYTHON=1 NO_INSTALL_HARDLINKS=1 INSTALL_SYMLINKS=1 install"
+      - "strip /app/bin/git || true"
+    cleanup:
+      - /share/gitweb
+      - /share/git-gui
+      - /share/git-core/templates/hooks
+      - /libexec/git-core/git-cvsserver
+      - /libexec/git-core/git-daemon
+
   # Module 1: compile all cargo dependencies.
   # Cache key is based only on Cargo.toml, Cargo.lock, and cargo-sources.json.
   # This module is skipped (cache hit) on dev builds that don't change dependencies.

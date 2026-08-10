@@ -1,10 +1,22 @@
-use std::path::Path;
+//! Setup: three screens, one decision each.
+//!
+//! The old version was a single scrolling page of five independent sections,
+//! each with its own Apply button — seven separate actions, in an order
+//! nothing announced, starting with a request for a git name and email. This
+//! asks for as little as it can instead: signing in with GitHub supplies the
+//! identity, the folder name supplies the repository name, and everything
+//! else (creating the repository, initialising git, the first commit and
+//! push) happens behind one button.
+
+use std::cell::RefCell;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::mpsc::{sync_channel, Receiver, TryRecvError};
+use std::time::Duration;
 
 use gtk4::prelude::*;
 use gtk4::{
-    Align, Box as GtkBox, Button, Image, Label, LinkButton, Orientation,
-    ScrolledWindow, Separator, SignalListItemFactory, StringObject, Switch,
+    Align, Box as GtkBox, Button, Label, LinkButton, Orientation,
 };
 use libadwaita as adw;
 use adw::prelude::*;
@@ -15,185 +27,53 @@ pub struct SetupWizard {
     window: adw::Window,
 }
 
-// Preference order for the Default Fonts step's initial selection when
-// nothing has been chosen yet — common, broadly-available names first, so a
-// first-time user doesn't land on whatever happens to sort alphabetically
-// first in their system font list (often an obscure font).
-const SANS_FONT_PRIORITY: &[&str] = &["Noto Sans", "DejaVu Sans", "Cantarell", "Liberation Sans", "Arial", "Inter"];
-const SERIF_FONT_PRIORITY: &[&str] = &["Noto Serif", "Liberation Serif", "DejaVu Serif", "Linux Libertine", "Times New Roman", "Georgia"];
+/// What the user chose to do, resolved into the work the final screen runs.
+#[derive(Clone)]
+enum Plan {
+    /// Create a repository on the signed-in GitHub account and push to it.
+    Github { repo_name: String, private: bool },
+    /// Push to a repository the user already has.
+    ExistingRemote { url: String },
+    /// Push to a folder — a synced drive, a USB stick — with no account.
+    Folder { path: PathBuf },
+}
+
+/// One line of the progress list on the final screen.
+enum Progress {
+    Step(usize),
+    Done(String),
+    Failed { step: usize, message: String },
+}
+
+#[derive(Default)]
+struct State {
+    identity: Option<crate::github_auth::Identity>,
+}
 
 impl SetupWizard {
-    pub fn new(
-        parent: &impl IsA<gtk4::Window>,
-        work_dir: &Path,
-        current_sans_font: &str,
-        current_serif_font: &str,
-        on_fonts_saved: impl Fn(String, String) + 'static,
-    ) -> Self {
+    pub fn new(parent: &impl IsA<gtk4::Window>, work_dir: &Path) -> Self {
+        let work_dir = work_dir.to_path_buf();
+
         let window = adw::Window::builder()
-            .title("Setup & Onboarding")
+            .title("Set Up Zerkalo")
             .transient_for(parent)
             .modal(true)
-            .default_width(640)
-            .default_height(620)
+            // Tall enough that the connect screen's alternatives are all above
+            // the fold — a fallback nobody scrolls to is a fallback nobody has.
+            .default_width(560)
+            .default_height(680)
             .build();
 
-        let header = adw::HeaderBar::new();
-        header.add_css_class("fond-chrome");
+        let nav = adw::NavigationView::new();
+        let state = Rc::new(RefCell::new(State::default()));
 
-        let scroll = ScrolledWindow::new();
-        scroll.set_vexpand(true);
+        nav.add(&welcome_page(&window, &nav));
+        nav.add(&connect_page(&window, &nav, &state, &work_dir));
+        nav.add(&folder_page(&window, &nav, &work_dir));
+        nav.add(&existing_page(&window, &nav, &work_dir));
+        nav.add(&confirm_page(&window, &nav, &state, &work_dir));
 
-        let body = GtkBox::new(Orientation::Vertical, 20);
-        body.set_margin_start(16);
-        body.set_margin_end(16);
-        body.set_margin_top(16);
-        body.set_margin_bottom(16);
-
-        let intro = Label::new(Some(
-            "Let's make sure Zerkalo is set up for academic writing and version control.",
-        ));
-        intro.set_wrap(true);
-        intro.set_xalign(0.0);
-        intro.add_css_class("dim-label");
-        body.append(&intro);
-
-        // Progress summary — filled in once every section below has reported
-        // whether it's already configured, so there's an at-a-glance answer
-        // to "what's left" instead of having to scan five sections by eye.
-        let summary_lbl = Label::new(None);
-        summary_lbl.set_wrap(true);
-        summary_lbl.set_xalign(0.0);
-        summary_lbl.add_css_class("caption");
-        body.append(&summary_lbl);
-
-        body.append(&subheading_label("Account & Sync"));
-
-        // ── Section 1: Git identity ────────────────────────────────────────
-        let (git_group, git_complete) = git_identity_group();
-        body.append(&git_group);
-
-        // ── Section 2: GitHub repository ──────────────────────────────────
-        let (repo_group, repo_complete) = github_repo_group(&window, work_dir);
-        body.append(&repo_group);
-
-        // ── Section 3: Backup remote ───────────────────────────────────────
-        let (backup_group, backup_complete) = backup_remote_group(work_dir);
-        body.append(&backup_group);
-
-        body.append(&subheading_label("Editor Preferences"));
-
-        // ── Section 4: Default Fonts ────────────────────────────────────────
-        let (fonts_group, fonts_complete) =
-            default_fonts_group(current_sans_font, current_serif_font, on_fonts_saved);
-        body.append(&fonts_group);
-
-        // ── Section 5: Optional tools ──────────────────────────────────────
-        let (tools_group, tools_complete, tool_rechecks) = optional_tools_group();
-        body.append(&tools_group);
-
-        // Fill in the progress summary now that every section has reported in.
-        let sections: [(&str, bool); 5] = [
-            ("Git Identity", git_complete),
-            ("GitHub Repository", repo_complete),
-            ("Local Backup", backup_complete),
-            ("Default Fonts", fonts_complete),
-            ("Tools", tools_complete),
-        ];
-        let done = sections.iter().filter(|(_, c)| *c).count();
-        if done == sections.len() {
-            summary_lbl.set_label(&format!("✓ All {done} sections set up."));
-            summary_lbl.add_css_class("success");
-        } else {
-            let remaining: Vec<&str> = sections.iter().filter(|(_, c)| !*c).map(|(n, _)| *n).collect();
-            summary_lbl.set_label(&format!(
-                "{done} of {} sections set up — still to do: {}",
-                sections.len(),
-                remaining.join(", "),
-            ));
-            summary_lbl.add_css_class("dim-label");
-        }
-
-        // Auto-scroll to the first incomplete section so reopening the wizard
-        // when only e.g. Tools is left doesn't require scrolling past four
-        // already-configured sections every time.
-        let first_incomplete: Option<adw::PreferencesGroup> = [
-            (&git_group, git_complete),
-            (&repo_group, repo_complete),
-            (&backup_group, backup_complete),
-            (&fonts_group, fonts_complete),
-            (&tools_group, tools_complete),
-        ]
-        .into_iter()
-        .find_map(|(g, c)| if !c { Some(g.clone()) } else { None });
-
-        // Clamp caps the natural-width request so long content (e.g. the
-        // unwrapped install-hint commands below) can't force the window open
-        // 2-3x wider than intended — matches WelcomeWindow's use of Clamp for
-        // the same reason. Without this, GTK sizes the window to fit the
-        // widest child's natural width even though default_width is 640.
-        let clamp = adw::Clamp::new();
-        clamp.set_maximum_size(580);
-        clamp.set_child(Some(&body));
-
-        scroll.set_child(Some(&clamp));
-
-        if let Some(target) = first_incomplete {
-            let scroll_c = scroll.clone();
-            window.connect_map(move |_| {
-                let scroll_c2 = scroll_c.clone();
-                let target2 = target.clone();
-                // Deferred one tick: compute_bounds needs the widget tree to
-                // have been allocated at least once, which hasn't happened
-                // yet at the point "map" itself fires.
-                glib::idle_add_local_once(move || {
-                    if let Some(bounds) = target2.compute_bounds(&scroll_c2) {
-                        scroll_c2.vadjustment().set_value(bounds.y() as f64);
-                    }
-                });
-            });
-        }
-
-        // Re-check missing tools whenever the window regains focus, so
-        // installing something in a terminal and alt-tabbing back updates
-        // the status without an extra manual "Verify" click.
-        {
-            let rechecks = tool_rechecks;
-            window.connect_is_active_notify(move |w| {
-                if w.is_active() {
-                    for f in &rechecks {
-                        f();
-                    }
-                }
-            });
-        }
-
-        let outer = GtkBox::new(Orientation::Vertical, 0);
-        outer.append(&scroll);
-        outer.append(&Separator::new(Orientation::Horizontal));
-
-        let footer = GtkBox::new(Orientation::Horizontal, 0);
-        footer.set_margin_start(16);
-        footer.set_margin_end(16);
-        footer.set_margin_top(8);
-        footer.set_margin_bottom(12);
-        let spacer = GtkBox::new(Orientation::Horizontal, 0);
-        spacer.set_hexpand(true);
-        footer.append(&spacer);
-        let done_btn = Button::with_label("Done");
-        done_btn.add_css_class("suggested-action");
-        done_btn.add_css_class("pill");
-        footer.append(&done_btn);
-        outer.append(&footer);
-
-        let toolbar_view = adw::ToolbarView::new();
-        toolbar_view.set_top_bar_style(adw::ToolbarStyle::RaisedBorder);
-        toolbar_view.add_top_bar(&header);
-        toolbar_view.set_content(Some(&outer));
-        window.set_content(Some(&toolbar_view));
-
-        let win_c = window.clone();
-        done_btn.connect_clicked(move |_| win_c.close());
+        window.set_content(Some(&nav));
 
         Self { window }
     }
@@ -202,974 +82,802 @@ impl SetupWizard {
         self.window.present();
     }
 
-    /// Returns true when the wizard should auto-show on startup.
+    /// Whether setup should open by itself on startup.
+    ///
+    /// Once it has been finished or declined it never reappears — being asked
+    /// again on every launch reads as the app not having listened.
     pub fn should_show(work_dir: &Path) -> bool {
-        // Missing git identity
-        if !has_git_identity() {
-            return true;
+        if crate::config::shared().borrow().setup_done {
+            return false;
         }
-        // Work directory is not in a git repo or has no remote
-        if !has_git_remote(work_dir) {
-            return true;
-        }
-        false
+        !has_git_remote(work_dir)
+    }
+
+    fn mark_done() {
+        let _ = crate::config::update(|c| c.setup_done = true);
     }
 }
 
-// ── Section builders ──────────────────────────────────────────────────────────
+// ── Page scaffolding ─────────────────────────────────────────────────────────
 
-fn subheading_label(text: &str) -> Label {
-    let lbl = Label::new(Some(text));
-    lbl.set_xalign(0.0);
-    lbl.add_css_class("heading");
-    lbl.set_margin_top(4);
-    lbl
+/// Every screen is the same shape: a headline, a paragraph, content, and the
+/// buttons pinned at the bottom — so moving between them doesn't move the
+/// primary button around under the user's cursor.
+fn page_shell(title: &str, tag: &str, heading: &str, blurb: &str) -> (adw::NavigationPage, GtkBox, GtkBox) {
+    let header = adw::HeaderBar::new();
+    header.add_css_class("fond-chrome");
+
+    let body = GtkBox::new(Orientation::Vertical, 12);
+    body.set_margin_start(24);
+    body.set_margin_end(24);
+    body.set_margin_top(24);
+    body.set_margin_bottom(12);
+    body.set_valign(Align::Start);
+
+    let heading_lbl = Label::new(Some(heading));
+    heading_lbl.set_xalign(0.0);
+    heading_lbl.set_wrap(true);
+    heading_lbl.add_css_class("title-2");
+    body.append(&heading_lbl);
+
+    if !blurb.is_empty() {
+        let blurb_lbl = Label::new(Some(blurb));
+        blurb_lbl.set_xalign(0.0);
+        blurb_lbl.set_wrap(true);
+        blurb_lbl.add_css_class("dim-label");
+        blurb_lbl.set_margin_bottom(8);
+        body.append(&blurb_lbl);
+    }
+
+    let content = GtkBox::new(Orientation::Vertical, 12);
+    content.set_vexpand(true);
+    body.append(&content);
+
+    let buttons = GtkBox::new(Orientation::Horizontal, 8);
+    buttons.set_halign(Align::End);
+    buttons.set_margin_start(24);
+    buttons.set_margin_end(24);
+    buttons.set_margin_top(4);
+    buttons.set_margin_bottom(20);
+
+    let outer = GtkBox::new(Orientation::Vertical, 0);
+    let scroll = gtk4::ScrolledWindow::new();
+    scroll.set_vexpand(true);
+    let clamp = adw::Clamp::new();
+    clamp.set_maximum_size(460);
+    clamp.set_child(Some(&body));
+    scroll.set_child(Some(&clamp));
+    outer.append(&scroll);
+    outer.append(&buttons);
+
+    let toolbar_view = adw::ToolbarView::new();
+    toolbar_view.set_top_bar_style(adw::ToolbarStyle::Flat);
+    toolbar_view.add_top_bar(&header);
+    toolbar_view.set_content(Some(&outer));
+
+    let page = adw::NavigationPage::builder()
+        .title(title)
+        .tag(tag)
+        .child(&toolbar_view)
+        .build();
+
+    (page, content, buttons)
 }
 
-/// Small icon (+ an "Optional" badge, for sections that aren't required)
-/// shown at the end of a PreferencesGroup's title row — helps the section
-/// list read at a glance instead of as five identical-looking text blocks.
-fn group_header_suffix(icon_name: &str, optional: bool) -> GtkBox {
-    let suffix = GtkBox::new(Orientation::Horizontal, 6);
-    suffix.set_valign(Align::Center);
-    if optional {
-        let badge = Label::new(Some("Optional"));
-        badge.add_css_class("dim-label");
-        badge.add_css_class("caption");
-        suffix.append(&badge);
-    }
-    let icon = Image::from_icon_name(icon_name);
-    icon.add_css_class("dim-label");
-    suffix.append(&icon);
-    suffix
+fn primary(label: &str) -> Button {
+    let btn = Button::with_label(label);
+    btn.add_css_class("suggested-action");
+    btn.add_css_class("pill");
+    btn
 }
 
-fn git_identity_group() -> (adw::PreferencesGroup, bool) {
-    let group = adw::PreferencesGroup::new();
-    group.set_title("Git Identity");
-    group.set_description(Some(
-        "Git records your name and email on every save. Set these once, globally.",
-    ));
-    group.set_header_suffix(Some(&group_header_suffix("avatar-default-symbolic", false)));
-
-    let (current_name, current_email) = git_identity();
-    let complete = !current_name.is_empty() && !current_email.is_empty();
-
-    let name_row = adw::EntryRow::new();
-    name_row.set_title("Name");
-    name_row.set_text(&current_name);
-
-    let email_row = adw::EntryRow::new();
-    email_row.set_title("Email");
-    email_row.set_text(&current_email);
-
-    let status_lbl = Label::new(None);
-    status_lbl.set_xalign(0.0);
-    status_lbl.set_margin_top(4);
-    status_lbl.set_wrap(true);
-    if complete {
-        status_lbl.set_label("✓ Git identity is set.");
-        status_lbl.add_css_class("success");
-    } else {
-        status_lbl.set_label("Enter your name and email, then click Apply.");
-        status_lbl.add_css_class("dim-label");
-    }
-
-    let apply_btn = Button::with_label("Apply");
-    apply_btn.set_halign(Align::End);
-    apply_btn.add_css_class("suggested-action");
-
-    {
-        let name_c = name_row.clone();
-        let email_c = email_row.clone();
-        let lbl_c = status_lbl.clone();
-        apply_btn.connect_clicked(move |_| {
-            let name = name_c.text().to_string();
-            let email = email_c.text().to_string();
-            match set_git_identity(&name, &email) {
-                Ok(()) => {
-                    lbl_c.set_label("✓ Git identity saved.");
-                    lbl_c.remove_css_class("error");
-                    lbl_c.add_css_class("success");
-                }
-                Err(e) => {
-                    lbl_c.set_label(&format!("Error: {e}"));
-                    lbl_c.remove_css_class("success");
-                    lbl_c.add_css_class("error");
-                }
-            }
-        });
-    }
-
-    group.add(&name_row);
-    group.add(&email_row);
-
-    // suffix container for the Apply button + status
-    let suffix_box = GtkBox::new(Orientation::Vertical, 6);
-    suffix_box.set_margin_top(8);
-    suffix_box.set_margin_bottom(4);
-    suffix_box.append(&status_lbl);
-    suffix_box.append(&apply_btn);
-
-    // Wrap in a plain ActionRow-style container via a custom box
-    let wrapper = adw::ActionRow::new();
-    wrapper.set_activatable(false);
-    wrapper.add_suffix(&suffix_box);
-    group.add(&wrapper);
-
-    (group, complete)
+fn quiet(label: &str) -> Button {
+    let btn = Button::with_label(label);
+    btn.add_css_class("flat");
+    btn
 }
 
-fn github_repo_group(parent: &adw::Window, work_dir: &Path) -> (adw::PreferencesGroup, bool) {
-    let work_dir = work_dir.to_path_buf();
+// ── 1 · Welcome ──────────────────────────────────────────────────────────────
 
-    let group = adw::PreferencesGroup::new();
-    group.set_title("GitHub Repository");
-    group.set_description(Some(
-        "Back up your work and collaborate by connecting to a GitHub repository.",
-    ));
-    group.set_header_suffix(Some(&group_header_suffix("network-server-symbolic", false)));
-
-    let is_repo = git2::Repository::discover(&work_dir).is_ok();
-    let remote_url = get_git_remote(&work_dir);
-    let complete = remote_url.is_some();
-
-    // ── Row: repo status ────────────────────────────────────────────────
-    let repo_row = adw::ActionRow::new();
-    repo_row.set_title("Local repository");
-    if is_repo {
-        repo_row.set_subtitle("✓ Git repository found in work directory");
-    } else {
-        repo_row.set_subtitle("No git repository — click to initialise one");
-        let init_btn = Button::with_label("git init");
-        init_btn.set_valign(Align::Center);
-        init_btn.add_css_class("suggested-action");
-        let work_dir_c = work_dir.clone();
-        let row_c = repo_row.clone();
-        init_btn.connect_clicked(move |btn| {
-            match git2::Repository::init(&work_dir_c) {
-                Ok(_) => {
-                    row_c.set_subtitle("✓ Git repository initialised");
-                    btn.set_sensitive(false);
-                }
-                Err(e) => {
-                    row_c.set_subtitle(&format!("Error: {e}"));
-                }
-            }
-        });
-        repo_row.add_suffix(&init_btn);
-    }
-    group.add(&repo_row);
-
-    // ── Declare all remaining widgets up front, so the sign-in handler ──
-    // can reach into the "create repository" section below it.
-
-    // GitHub account row
-    let account_row = adw::ActionRow::new();
-    account_row.set_title("GitHub Account");
-    let has_token = crate::secret_store::load_github_token().is_some();
-    account_row.set_subtitle(if has_token { "Connected" } else { "Not connected" });
-
-    let signup_link = LinkButton::with_label(
-        "https://github.com/signup",
-        "Don't have an account? Create one (free) ↗",
+fn welcome_page(window: &adw::Window, nav: &adw::NavigationView) -> adw::NavigationPage {
+    let (page, content, buttons) = page_shell(
+        "Set Up Zerkalo",
+        "welcome",
+        "Keep your writing safe",
+        "Zerkalo can save a copy of everything you write to a private place online, \
+         and keep every earlier version of it. If your computer is lost or a document \
+         goes wrong, nothing is gone.",
     );
-    signup_link.add_css_class("flat");
-    signup_link.add_css_class("caption");
 
-    let signin_btn = Button::with_label(if has_token { "Reconnect" } else { "Sign in with GitHub" });
-    signin_btn.set_valign(Align::Center);
-    signin_btn.add_css_class("suggested-action");
-
-    // Create-a-repository section (the primary path)
-    let create_row = adw::EntryRow::new();
-    create_row.set_title("New repository name");
-    let default_name = work_dir
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("zerkalo-project")
-        .to_string();
-    create_row.set_text(&default_name);
-
-    let private_switch = Switch::new();
-    private_switch.set_active(true);
-    private_switch.set_valign(Align::Center);
-    let private_label = Label::new(Some("Private"));
-
-    let create_status_lbl = Label::new(None);
-    create_status_lbl.set_xalign(0.0);
-    create_status_lbl.set_margin_top(4);
-    create_status_lbl.set_wrap(true);
-    create_status_lbl.add_css_class("dim-label");
-    create_status_lbl.set_label(if has_token {
-        "Creates a repository on your GitHub account and links it here."
-    } else {
-        "Sign in with GitHub above, then create a repository here."
-    });
-
-    let create_btn = Button::with_label("Create & Link");
-    create_btn.set_halign(Align::End);
-    create_btn.add_css_class("suggested-action");
-
-    // Fallback: paste an existing repo's URL (demoted behind an expander)
-    let remote_entry = adw::EntryRow::new();
-    remote_entry.set_title("Remote URL (GitHub)");
-    if let Some(ref url) = remote_url {
-        remote_entry.set_text(url);
+    for (icon, text) in [
+        ("document-save-symbolic", "Saved as you work, not just when you remember"),
+        ("document-open-recent-symbolic", "Every past version kept, so you can go back"),
+        ("channel-secure-symbolic", "Private by default — only you can see it"),
+    ] {
+        let row = GtkBox::new(Orientation::Horizontal, 12);
+        let img = gtk4::Image::from_icon_name(icon);
+        img.add_css_class("dim-label");
+        row.append(&img);
+        let lbl = Label::new(Some(text));
+        lbl.set_xalign(0.0);
+        lbl.set_wrap(true);
+        row.append(&lbl);
+        content.append(&row);
     }
 
-    let status_lbl = Label::new(None);
-    status_lbl.set_xalign(0.0);
-    status_lbl.set_margin_top(4);
-    status_lbl.set_wrap(true);
-    match &remote_url {
-        Some(url) => {
-            status_lbl.set_label(&format!("✓ Remote: {url}"));
-            status_lbl.add_css_class("success");
-        }
-        None => {
-            status_lbl.set_label("Paste the URL of a repository you already created on GitHub.");
-            status_lbl.add_css_class("dim-label");
-        }
-    }
-
-    let apply_btn = Button::with_label("Apply");
-    apply_btn.set_halign(Align::End);
-    apply_btn.add_css_class("suggested-action");
-
-    // ── Wire up the sign-in button now that create_row/create_status_lbl exist ──
+    let not_now = quiet("Not now");
     {
-        let parent = parent.clone();
-        let row_c = account_row.clone();
-        let signin_btn_c = signin_btn.clone();
-        let create_row_c = create_row.clone();
-        let create_status_c = create_status_lbl.clone();
-        signin_btn.connect_clicked(move |_| {
-            let row_c2 = row_c.clone();
-            let signin_btn_c2 = signin_btn_c.clone();
-            let create_row_c2 = create_row_c.clone();
-            let create_status_c2 = create_status_c.clone();
-            github_signin::present(&parent, move |username| {
-                row_c2.set_subtitle(&format!("Connected as {username}"));
-                signin_btn_c2.set_label("Reconnect");
-                create_status_c2.set_label("Connected! Pick a name below and click Create & Link to finish.");
-                create_status_c2.remove_css_class("dim-label");
-                create_status_c2.add_css_class("success");
-                create_row_c2.grab_focus();
+        let window = window.clone();
+        not_now.connect_clicked(move |_| {
+            SetupWizard::mark_done();
+            window.close();
+        });
+    }
+
+    let start = primary("Set this up");
+    {
+        let nav = nav.clone();
+        start.connect_clicked(move |_| nav.push_by_tag("connect"));
+    }
+
+    buttons.append(&not_now);
+    buttons.append(&start);
+    page
+}
+
+// ── 2 · Connect ──────────────────────────────────────────────────────────────
+
+fn connect_page(
+    window: &adw::Window,
+    nav: &adw::NavigationView,
+    state: &Rc<RefCell<State>>,
+    work_dir: &Path,
+) -> adw::NavigationPage {
+    let (page, content, buttons) = page_shell(
+        "Connect",
+        "connect",
+        "Connect a GitHub account",
+        "GitHub stores the copy of your work. It's free, and it's where the versions live. \
+         Signing in shows you a short code to type into your browser — Zerkalo never sees \
+         your password.",
+    );
+
+    let signin = primary("Sign in with GitHub");
+    signin.set_halign(Align::Center);
+    signin.set_margin_top(8);
+    {
+        let window = window.clone();
+        let nav = nav.clone();
+        let state = state.clone();
+        signin.connect_clicked(move |_| {
+            let nav = nav.clone();
+            let state = state.clone();
+            github_signin::present(&window, move |username| {
+                // The display name and commit address come from the account, so
+                // the user is never asked to type either. Fetched in the
+                // background; the confirm page fills it in when it lands.
+                if let Some(token) = crate::secret_store::load_github_token() {
+                    let (tx, rx) = sync_channel(1);
+                    std::thread::spawn(move || {
+                        let _ = tx.send(crate::github_auth::fetch_identity(&token));
+                    });
+                    let state = state.clone();
+                    let login = username.clone();
+                    glib::timeout_add_local(Duration::from_millis(150), move || {
+                        match rx.try_recv() {
+                            Ok(Ok(identity)) => {
+                                state.borrow_mut().identity = Some(identity);
+                                glib::ControlFlow::Break
+                            }
+                            Ok(Err(_)) | Err(TryRecvError::Disconnected) => {
+                                // Falling back to the login alone still produces
+                                // a valid commit address.
+                                state.borrow_mut().identity = Some(crate::github_auth::Identity {
+                                    name: login.clone(),
+                                    email: format!("{login}@users.noreply.github.com"),
+                                    login: login.clone(),
+                                });
+                                glib::ControlFlow::Break
+                            }
+                            Err(TryRecvError::Empty) => glib::ControlFlow::Continue,
+                        }
+                    });
+                }
+                nav.push_by_tag("confirm");
             });
         });
     }
+    content.append(&signin);
 
-    // ── Wire up "Create & Link" ─────────────────────────────────────────
-    {
-        let name_c = create_row.clone();
-        let private_c = private_switch.clone();
-        let status_c = create_status_lbl.clone();
-        let wdir = work_dir.clone();
-        let remote_entry_c = remote_entry.clone();
-        let remote_status_c = status_lbl.clone();
-        let win_for_create = parent.clone();
-        create_btn.connect_clicked(move |btn| {
-            let Some(token) = crate::secret_store::load_github_token() else {
-                status_c.set_label("Sign in with GitHub first.");
-                status_c.remove_css_class("success");
-                status_c.add_css_class("error");
-                return;
-            };
-            let name = name_c.text().trim().to_string();
-            if name.is_empty() {
-                status_c.set_label("Enter a repository name.");
-                return;
-            }
-            let private = private_c.is_active();
+    let signup = LinkButton::with_label(
+        "https://github.com/signup",
+        "Don't have an account? Create one — it's free",
+    );
+    signup.add_css_class("flat");
+    signup.set_halign(Align::Center);
+    content.append(&signup);
 
-            let go = {
-                let btn = btn.clone();
-                let status_c = status_c.clone();
-                let wdir = wdir.clone();
-                let remote_entry_c = remote_entry_c.clone();
-                let remote_status_c = remote_status_c.clone();
-                move || {
-                    btn.set_sensitive(false);
-                    status_c.remove_css_class("error");
-                    status_c.set_label("Creating repository…");
-
-                    let (tx, rx) = std::sync::mpsc::sync_channel(1);
-                    std::thread::spawn(move || {
-                        let _ = tx.send(crate::github_auth::create_repo(&token, &name, private));
-                    });
-
-                    let btn = btn.clone();
-                    let wdir = wdir.clone();
-                    let status_c = status_c.clone();
-                    let remote_entry_c = remote_entry_c.clone();
-                    let remote_status_c = remote_status_c.clone();
-                    glib::timeout_add_local(std::time::Duration::from_millis(150), move || {
-                        match rx.try_recv() {
-                            Ok(result) => {
-                                match result {
-                                    Ok(clone_url) => match set_git_remote(&wdir, &clone_url) {
-                                        Ok(()) => {
-                                            status_c.set_label(&format!("✓ Created and linked: {clone_url}"));
-                                            status_c.add_css_class("success");
-                                            remote_entry_c.set_text(&clone_url);
-                                            remote_status_c.set_label(&format!("✓ Remote: {clone_url}"));
-                                            remote_status_c.remove_css_class("dim-label");
-                                            remote_status_c.add_css_class("success");
-                                        }
-                                        Err(e) => {
-                                            status_c.set_label(&format!("Repository created, but linking failed: {e}"));
-                                            status_c.add_css_class("error");
-                                        }
-                                    },
-                                    Err(e) => {
-                                        status_c.set_label(&format!("Error: {e}"));
-                                        status_c.add_css_class("error");
-                                    }
-                                }
-                                btn.set_sensitive(true);
-                                glib::ControlFlow::Break
-                            }
-                            Err(std::sync::mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
-                            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                                status_c.set_label("Error: repository creation task ended unexpectedly.");
-                                status_c.add_css_class("error");
-                                btn.set_sensitive(true);
-                                glib::ControlFlow::Break
-                            }
-                        }
-                    });
-                }
-            };
-
-            if has_git_remote(&wdir) {
-                let existing = get_git_remote(&wdir).unwrap_or_default();
-                super::confirm::confirm_destructive(
-                    Some(win_for_create.upcast_ref()),
-                    "Replace the existing remote?",
-                    &format!(
-                        "This project is already linked to:\n{existing}\n\nCreating a new repository will replace this link. The old repository on GitHub is not deleted, but this project will stop tracking it."
-                    ),
-                    "Create New Repository",
-                    {
-                        // `go` runs once; the response handler is an Fn, so it
-                        // is taken out on first use.
-                        let go_once = std::cell::RefCell::new(Some(go));
-                        move || {
-                            if let Some(f) = go_once.borrow_mut().take() {
-                                f();
-                            }
-                        }
-                    },
-                );
-                return;
-            }
-            go();
-        });
-    }
-
-    // ── Wire up manual "paste URL" apply ────────────────────────────────
-    {
-        let entry_c = remote_entry.clone();
-        let lbl_c = status_lbl.clone();
-        let wdir = work_dir.clone();
-        apply_btn.connect_clicked(move |_| {
-            let url = entry_c.text().to_string();
-            if url.is_empty() {
-                lbl_c.set_label("Please enter a repository URL.");
-                return;
-            }
-            match set_git_remote(&wdir, &url) {
-                Ok(()) => {
-                    lbl_c.set_label(&format!("✓ Remote set: {url}"));
-                    lbl_c.remove_css_class("error");
-                    lbl_c.add_css_class("success");
-                }
-                Err(e) => {
-                    lbl_c.set_label(&format!("Error: {e}"));
-                    lbl_c.remove_css_class("success");
-                    lbl_c.add_css_class("error");
-                }
-            }
-        });
-    }
-
-    // ── Layout, in guided order ──────────────────────────────────────────
-
-    let account_suffix = GtkBox::new(Orientation::Vertical, 4);
-    account_suffix.set_halign(Align::End);
-    account_suffix.append(&signin_btn);
-    account_suffix.append(&signup_link);
-    account_row.add_suffix(&account_suffix);
-    group.add(&account_row);
-
-    group.add(&create_row);
-
-    let private_box = GtkBox::new(Orientation::Horizontal, 6);
-    private_box.set_halign(Align::End);
-    private_box.append(&private_label);
-    private_box.append(&private_switch);
-
-    let create_suffix = GtkBox::new(Orientation::Vertical, 6);
-    create_suffix.set_margin_top(8);
-    create_suffix.set_margin_bottom(4);
-    create_suffix.append(&create_status_lbl);
-    let create_btn_row = GtkBox::new(Orientation::Horizontal, 8);
-    create_btn_row.set_halign(Align::End);
-    create_btn_row.append(&private_box);
-    create_btn_row.append(&create_btn);
-    create_suffix.append(&create_btn_row);
-
-    let create_wrapper = adw::ActionRow::new();
-    create_wrapper.set_activatable(false);
-    create_wrapper.add_suffix(&create_suffix);
-    group.add(&create_wrapper);
-
-    let fallback_expander = adw::ExpanderRow::new();
-    fallback_expander.set_title("Already have a repository?");
-    fallback_expander.set_subtitle("Paste its URL instead of creating a new one");
-    fallback_expander.add_row(&remote_entry);
-
-    let fallback_suffix_box = GtkBox::new(Orientation::Vertical, 6);
-    fallback_suffix_box.set_margin_top(8);
-    fallback_suffix_box.set_margin_bottom(4);
-    fallback_suffix_box.set_margin_start(12);
-    fallback_suffix_box.set_margin_end(12);
-    fallback_suffix_box.append(&status_lbl);
-    let fallback_btn_row = GtkBox::new(Orientation::Horizontal, 8);
-    fallback_btn_row.set_halign(Align::End);
-    fallback_btn_row.append(&apply_btn);
-    fallback_suffix_box.append(&fallback_btn_row);
-    let fallback_wrapper = adw::ActionRow::new();
-    fallback_wrapper.set_activatable(false);
-    fallback_wrapper.add_suffix(&fallback_suffix_box);
-    fallback_expander.add_row(&fallback_wrapper);
-
-    group.add(&fallback_expander);
-
-    (group, complete)
-}
-
-fn backup_remote_group(work_dir: &Path) -> (adw::PreferencesGroup, bool) {
-    let work_dir = work_dir.to_path_buf();
+    let sep = GtkBox::new(Orientation::Horizontal, 8);
+    sep.set_margin_top(12);
+    let other = Label::new(Some("Other ways to keep it safe"));
+    other.add_css_class("dim-label");
+    other.add_css_class("caption");
+    other.set_xalign(0.0);
+    sep.append(&other);
+    content.append(&sep);
 
     let group = adw::PreferencesGroup::new();
-    group.set_title("Local Backup");
-    group.set_description(Some(
-        "On every sync, push a copy to a second location. Use a mounted drive \
-         (pCloud, Nextcloud, USB), an external path, or any git URL.",
-    ));
-    group.set_header_suffix(Some(&group_header_suffix("drive-harddisk-symbolic", true)));
 
-    let current_url = crate::git_sync::get_remote_url(&work_dir, "backup")
-        .unwrap_or_default();
-    let complete = !current_url.is_empty();
-
-    let url_row = adw::EntryRow::new();
-    url_row.set_title("Path or URL (optional)");
-    url_row.set_text(&current_url);
-
-    // Folder-picker button for local paths
-    let pick_btn = Button::from_icon_name("document-open-symbolic");
-    pick_btn.set_valign(Align::Center);
-    pick_btn.add_css_class("flat");
-    pick_btn.set_tooltip_text(Some("Browse for a folder"));
+    let folder_row = adw::ActionRow::new();
+    folder_row.set_title("Back up to a folder or drive");
+    folder_row.set_subtitle("A synced folder like Nextcloud or pCloud, or a USB drive — no account needed");
+    folder_row.set_activatable(true);
+    folder_row.add_prefix(&gtk4::Image::from_icon_name("folder-symbolic"));
+    folder_row.add_suffix(&gtk4::Image::from_icon_name("go-next-symbolic"));
     {
-        let row_c = url_row.clone();
-        pick_btn.connect_clicked(move |_| {
-            // The folder picker needs a parent window — we use the default
-            // display's active window as a best-effort parent.
+        let nav = nav.clone();
+        folder_row.connect_activated(move |_| nav.push_by_tag("folder"));
+    }
+    group.add(&folder_row);
+
+    let existing_row = adw::ActionRow::new();
+    existing_row.set_title("I already have a repository");
+    existing_row.set_subtitle("Paste its address");
+    existing_row.set_activatable(true);
+    existing_row.add_prefix(&gtk4::Image::from_icon_name("insert-link-symbolic"));
+    existing_row.add_suffix(&gtk4::Image::from_icon_name("go-next-symbolic"));
+    {
+        let nav = nav.clone();
+        existing_row.connect_activated(move |_| nav.push_by_tag("existing"));
+    }
+    group.add(&existing_row);
+
+    content.append(&group);
+
+    let _ = work_dir;
+
+    let skip = quiet("Skip — don't back up my work");
+    {
+        let window = window.clone();
+        skip.connect_clicked(move |_| {
+            SetupWizard::mark_done();
+            window.close();
+        });
+    }
+    buttons.append(&skip);
+    page
+}
+
+// ── 3a · Folder backup ───────────────────────────────────────────────────────
+
+fn folder_page(window: &adw::Window, nav: &adw::NavigationView, work_dir: &Path) -> adw::NavigationPage {
+    let work_dir = work_dir.to_path_buf();
+    let (page, content, buttons) = page_shell(
+        "Folder Backup",
+        "folder",
+        "Back up to a folder",
+        "Pick somewhere that isn't this computer's own disk — a folder your cloud service \
+         syncs, or a drive you plug in. Every version of your work is copied there each \
+         time you sync.",
+    );
+
+    let chosen: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
+
+    let group = adw::PreferencesGroup::new();
+    let path_row = adw::ActionRow::new();
+    path_row.set_title("Backup folder");
+    path_row.set_subtitle("Nothing chosen yet");
+    path_row.set_activatable(true);
+    group.add(&path_row);
+    content.append(&group);
+
+    let finish = primary("Finish");
+    finish.set_sensitive(false);
+
+    {
+        let window = window.clone();
+        let chosen = chosen.clone();
+        let path_row_c = path_row.clone();
+        let finish_c = finish.clone();
+        path_row.connect_activated(move |_| {
             let fd = gtk4::FileDialog::new();
-            let row2 = row_c.clone();
-            fd.select_folder(None::<&gtk4::Window>, None::<&gtk4::gio::Cancellable>, move |result| {
+            let chosen = chosen.clone();
+            let path_row_c = path_row_c.clone();
+            let finish_c = finish_c.clone();
+            fd.select_folder(Some(&window), None::<&gtk4::gio::Cancellable>, move |result| {
                 if let Ok(file) = result {
                     if let Some(path) = file.path() {
-                        row2.set_text(path.to_str().unwrap_or(""));
+                        path_row_c.set_subtitle(&path.display().to_string());
+                        *chosen.borrow_mut() = Some(path);
+                        finish_c.set_sensitive(true);
                     }
                 }
             });
         });
     }
-    url_row.add_suffix(&pick_btn);
-
-    let status_lbl = Label::new(None);
-    status_lbl.set_xalign(0.0);
-    status_lbl.set_margin_top(4);
-    status_lbl.set_wrap(true);
-    if complete {
-        status_lbl.set_label(&format!("✓ Backup: {current_url}"));
-        status_lbl.add_css_class("success");
-    } else {
-        status_lbl.set_label("Optional — leave blank to skip.");
-        status_lbl.add_css_class("dim-label");
-    }
-
-    let apply_btn = Button::with_label("Save");
-    apply_btn.set_halign(Align::End);
-    apply_btn.add_css_class("suggested-action");
 
     {
-        let entry_c = url_row.clone();
-        let lbl_c = status_lbl.clone();
-        let wdir = work_dir.clone();
-        apply_btn.connect_clicked(move |_| {
-            let target = entry_c.text().trim().to_string();
-            if target.is_empty() {
-                lbl_c.set_label("No backup location set.");
+        let nav = nav.clone();
+        let chosen = chosen.clone();
+        let work_dir = work_dir.clone();
+        finish.connect_clicked(move |_| {
+            let Some(path) = chosen.borrow().clone() else { return };
+            nav.push(&working_page(&nav, &work_dir, Plan::Folder { path }, None));
+        });
+    }
+
+    buttons.append(&finish);
+    page
+}
+
+// ── 3b · An existing repository ──────────────────────────────────────────────
+
+fn existing_page(window: &adw::Window, nav: &adw::NavigationView, work_dir: &Path) -> adw::NavigationPage {
+    let work_dir = work_dir.to_path_buf();
+    let (page, content, buttons) = page_shell(
+        "Existing Repository",
+        "existing",
+        "Use a repository you already have",
+        "Paste the address you'd use to clone it. If it's on GitHub and you sign in \
+         first, Zerkalo can push to it without asking for a password each time.",
+    );
+
+    let group = adw::PreferencesGroup::new();
+    let url_row = adw::EntryRow::new();
+    url_row.set_title("Repository address");
+    group.add(&url_row);
+    content.append(&group);
+
+    let error_lbl = Label::new(None);
+    error_lbl.set_xalign(0.0);
+    error_lbl.set_wrap(true);
+    error_lbl.add_css_class("error");
+    error_lbl.set_visible(false);
+    content.append(&error_lbl);
+
+    let finish = primary("Finish");
+    {
+        let nav = nav.clone();
+        let url_row_c = url_row.clone();
+        let error_lbl_c = error_lbl.clone();
+        let work_dir = work_dir.clone();
+        finish.connect_clicked(move |_| {
+            let url = url_row_c.text().trim().to_string();
+            if url.is_empty() {
+                error_lbl_c.set_label("Paste the repository's address first.");
+                error_lbl_c.set_visible(true);
                 return;
             }
-            match crate::git_sync::add_backup_remote(&wdir, &target) {
-                Ok(()) => {
-                    lbl_c.set_label(&format!("✓ Backup saved: {target}"));
-                    lbl_c.remove_css_class("dim-label");
-                    lbl_c.remove_css_class("error");
-                    lbl_c.add_css_class("success");
-                }
-                Err(e) => {
-                    lbl_c.set_label(&format!("Error: {e}"));
-                    lbl_c.remove_css_class("success");
-                    lbl_c.add_css_class("error");
-                }
-            }
+            error_lbl_c.set_visible(false);
+            nav.push(&working_page(&nav, &work_dir, Plan::ExistingRemote { url }, None));
         });
     }
 
-    group.add(&url_row);
-
-    let suffix_box = GtkBox::new(Orientation::Vertical, 6);
-    suffix_box.set_margin_top(8);
-    suffix_box.set_margin_bottom(4);
-    suffix_box.append(&status_lbl);
-    suffix_box.append(&apply_btn);
-    let wrapper = adw::ActionRow::new();
-    wrapper.set_activatable(false);
-    wrapper.add_suffix(&suffix_box);
-
-    group.add(&wrapper);
-
-    (group, complete)
+    let _ = window;
+    buttons.append(&finish);
+    page
 }
 
-/// Picks the best initial ComboRow selection: the user's already-chosen font
-/// if it's in the list, else the first name from `priority` that's actually
-/// available, else index 0 as a last resort.
-fn best_font_index(fonts: &[String], current: &str, priority: &[&str]) -> u32 {
-    if let Some(i) = fonts.iter().position(|f| f == current) {
-        return i as u32;
-    }
-    for name in priority {
-        if let Some(i) = fonts.iter().position(|f| f == name) {
-            return i as u32;
-        }
-    }
-    0
-}
+// ── 4 · Confirm ──────────────────────────────────────────────────────────────
 
-/// A list-item factory that renders each font name set in its own font, so
-/// the Sans/Serif dropdowns preview the choice instead of listing plain text.
-fn font_preview_factory() -> SignalListItemFactory {
-    let factory = SignalListItemFactory::new();
-    factory.connect_setup(move |_, obj| {
-        let Some(item) = obj.downcast_ref::<gtk4::ListItem>() else { return };
-        let label = Label::new(None);
-        label.set_xalign(0.0);
-        label.set_margin_start(6);
-        label.set_margin_end(6);
-        label.set_margin_top(4);
-        label.set_margin_bottom(4);
-        item.set_child(Some(&label));
-    });
-    factory.connect_bind(move |_, obj| {
-        let Some(item) = obj.downcast_ref::<gtk4::ListItem>() else { return };
-        let Some(label) = item.child().and_then(|w| w.downcast::<Label>().ok()) else { return };
-        let Some(text) = item.item().and_then(|o| o.downcast::<StringObject>().ok()) else { return };
-        let name = text.string().to_string();
-        label.set_text(&name);
-        let mut desc = gtk4::pango::FontDescription::new();
-        desc.set_family(&name);
-        let attrs = gtk4::pango::AttrList::new();
-        attrs.insert(gtk4::pango::AttrFontDesc::new(&desc));
-        label.set_attributes(Some(&attrs));
-    });
-    factory
-}
-
-fn default_fonts_group(
-    current_sans: &str,
-    current_serif: &str,
-    on_save: impl Fn(String, String) + 'static,
-) -> (adw::PreferencesGroup, bool) {
-    let group = adw::PreferencesGroup::new();
-    group.set_title("Default Fonts");
-    group.set_description(Some(
-        "New documents and template previews use these until you pick a different font \
-         per-document. Once set, Font Management won't let you disable either one without \
-         choosing a replacement here first.",
-    ));
-    group.set_header_suffix(Some(&group_header_suffix("font-x-generic-symbolic", true)));
-
-    let complete = !current_sans.is_empty() && !current_serif.is_empty();
-
-    let fonts = super::font_manager::FontManager::enabled_fonts();
-    let font_labels: Vec<&str> = fonts.iter().map(|s| s.as_str()).collect();
-    let font_model = gtk4::StringList::new(&font_labels);
-    let preview_factory = font_preview_factory();
-
-    let sans_row = adw::ComboRow::new();
-    sans_row.set_title("Sans-serif");
-    sans_row.set_model(Some(&font_model));
-    sans_row.set_factory(Some(&preview_factory));
-    sans_row.set_list_factory(Some(&preview_factory));
-    sans_row.set_selected(best_font_index(&fonts, current_sans, SANS_FONT_PRIORITY));
-
-    let serif_row = adw::ComboRow::new();
-    serif_row.set_title("Serif");
-    serif_row.set_model(Some(&font_model));
-    serif_row.set_factory(Some(&preview_factory));
-    serif_row.set_list_factory(Some(&preview_factory));
-    serif_row.set_selected(best_font_index(&fonts, current_serif, SERIF_FONT_PRIORITY));
-
-    let status_lbl = Label::new(None);
-    status_lbl.set_xalign(0.0);
-    status_lbl.set_margin_top(4);
-    status_lbl.set_wrap(true);
-    if complete {
-        status_lbl.set_label(&format!("✓ Sans: {current_sans} · Serif: {current_serif}"));
-        status_lbl.add_css_class("success");
-    } else {
-        status_lbl.set_label("Not set yet — new documents fall back to a built-in font.");
-        status_lbl.add_css_class("dim-label");
-    }
-
-    let apply_btn = Button::with_label("Save");
-    apply_btn.set_halign(Align::End);
-    apply_btn.add_css_class("suggested-action");
-
-    {
-        let fonts_c = fonts.clone();
-        let sans_c = sans_row.clone();
-        let serif_c = serif_row.clone();
-        let lbl_c = status_lbl.clone();
-        apply_btn.connect_clicked(move |_| {
-            let sans = fonts_c.get(sans_c.selected() as usize).cloned().unwrap_or_default();
-            let serif = fonts_c.get(serif_c.selected() as usize).cloned().unwrap_or_default();
-            on_save(sans.clone(), serif.clone());
-            lbl_c.set_label(&format!("✓ Sans: {sans} · Serif: {serif}"));
-            lbl_c.remove_css_class("dim-label");
-            lbl_c.add_css_class("success");
-        });
-    }
-
-    group.add(&sans_row);
-    group.add(&serif_row);
-
-    let suffix_box = GtkBox::new(Orientation::Vertical, 6);
-    suffix_box.set_margin_top(8);
-    suffix_box.set_margin_bottom(4);
-    suffix_box.append(&status_lbl);
-    suffix_box.append(&apply_btn);
-    let wrapper = adw::ActionRow::new();
-    wrapper.set_activatable(false);
-    wrapper.add_suffix(&suffix_box);
-    group.add(&wrapper);
-
-    (group, complete)
-}
-
-fn optional_tools_group() -> (adw::PreferencesGroup, bool, Vec<Rc<dyn Fn()>>) {
-    let group = adw::PreferencesGroup::new();
-    group.set_title("Tools");
-    group.set_description(Some(
-        "tinymist and pandoc are bundled with Zerkalo. git is required for sync.",
-    ));
-    group.set_header_suffix(Some(&group_header_suffix("applications-utilities-symbolic", false)));
-
-    let distro = detect_distro();
-    let mut rechecks: Vec<Rc<dyn Fn()>> = Vec::new();
-    let mut required_ok = true;
-
-    let (row, ok, recheck) = tool_row("tinymist", "tinymist", "LSP completions — bundled", &distro, ToolKind::Bundled, false);
-    group.add(&row);
-    if let Some(f) = recheck { rechecks.push(f); }
-    let _ = ok;
-
-    let (row, ok, recheck) = tool_row("pandoc", "pandoc", "Export/import — bundled", &distro, ToolKind::Bundled, false);
-    group.add(&row);
-    if let Some(f) = recheck { rechecks.push(f); }
-    let _ = ok;
-
-    let (row, ok, recheck) = tool_row("git", "git", "Version control — required for sync", &distro, ToolKind::Package {
-        apt: "git", dnf: "git", pacman: "git", zypper: "git",
-    }, true);
-    group.add(&row);
-    if let Some(f) = recheck { rechecks.push(f); }
-    required_ok = required_ok && ok;
-
-    let (row, ok, recheck) = tool_row("hunspell", "hunspell", "Spellcheck — optional", &distro, ToolKind::Package {
-        apt: "hunspell", dnf: "hunspell", pacman: "hunspell", zypper: "hunspell",
-    }, false);
-    group.add(&row);
-    if let Some(f) = recheck { rechecks.push(f); }
-    let _ = ok;
-
-    let (row, ok, recheck) = tool_row(
-        "Skrizhal",
+fn confirm_page(
+    window: &adw::Window,
+    nav: &adw::NavigationView,
+    state: &Rc<RefCell<State>>,
+    work_dir: &Path,
+) -> adw::NavigationPage {
+    let work_dir = work_dir.to_path_buf();
+    let (page, content, buttons) = page_shell(
+        "Confirm",
+        "confirm",
+        "Where your work will be kept",
         "",
-        "Optional companion app for CV Mode — a structured YAML database of jobs, degrees, and awards you can reuse across résumés",
-        &distro,
-        ToolKind::Flatpak { app_id: "io.github.calstfrancis.Skrizhal" },
-        false,
     );
-    group.add(&row);
-    if let Some(f) = recheck { rechecks.push(f); }
-    let _ = ok;
 
-    (group, required_ok, rechecks)
+    let group = adw::PreferencesGroup::new();
+
+    let name_row = adw::EntryRow::new();
+    name_row.set_title("Repository name");
+    name_row.set_text(&crate::github_auth::suggested_repo_name(&work_dir));
+    group.add(&name_row);
+
+    let private_row = adw::SwitchRow::new();
+    private_row.set_title("Private");
+    private_row.set_subtitle("Only you can see it");
+    private_row.set_active(true);
+    group.add(&private_row);
+
+    content.append(&group);
+
+    // Shown, not asked: the name and address that will be recorded against each
+    // saved version, taken from the GitHub account.
+    let identity_lbl = Label::new(None);
+    identity_lbl.set_xalign(0.0);
+    identity_lbl.set_wrap(true);
+    identity_lbl.add_css_class("dim-label");
+    identity_lbl.add_css_class("caption");
+    content.append(&identity_lbl);
+
+    {
+        let state = state.clone();
+        let identity_lbl = identity_lbl.clone();
+        page.connect_shown(move |_| {
+            let text = match state.borrow().identity.as_ref() {
+                Some(id) => format!("Saved versions will be recorded as {} <{}>", id.name, id.email),
+                None => String::new(),
+            };
+            identity_lbl.set_label(&text);
+        });
+    }
+
+    let finish = primary("Finish");
+    {
+        let nav = nav.clone();
+        let name_row_c = name_row.clone();
+        let private_row_c = private_row.clone();
+        let state = state.clone();
+        let work_dir = work_dir.clone();
+        finish.connect_clicked(move |_| {
+            let repo_name = crate::github_auth::sanitize_repo_name(&name_row_c.text());
+            let private = private_row_c.is_active();
+            let identity = state.borrow().identity.clone();
+            nav.push(&working_page(
+                &nav,
+                &work_dir,
+                Plan::Github { repo_name, private },
+                identity,
+            ));
+        });
+    }
+
+    let _ = window;
+    buttons.append(&finish);
+    page
 }
 
-// ── Distro detection ──────────────────────────────────────────────────────────
+// ── 5 · Doing the work ───────────────────────────────────────────────────────
 
-#[derive(Clone)]
-enum Distro {
-    Debian,
-    Fedora,
-    Arch,
-    OpenSUSE,
-    Unknown,
-}
-
-fn detect_distro() -> Distro {
-    let content = std::fs::read_to_string("/etc/os-release").unwrap_or_default();
-    let id = content
-        .lines()
-        .find_map(|l| l.strip_prefix("ID="))
-        .unwrap_or("")
-        .trim_matches('"')
-        .to_lowercase();
-    let id_like = content
-        .lines()
-        .find_map(|l| l.strip_prefix("ID_LIKE="))
-        .unwrap_or("")
-        .trim_matches('"')
-        .to_lowercase();
-
-    if id.contains("ubuntu") || id.contains("debian") || id.contains("mint")
-        || id_like.contains("ubuntu") || id_like.contains("debian")
-    {
-        Distro::Debian
-    } else if id.contains("fedora") || id.contains("rhel") || id.contains("centos")
-        || id_like.contains("fedora") || id_like.contains("rhel")
-    {
-        Distro::Fedora
-    } else if id.contains("arch") || id.contains("manjaro") || id.contains("endeavour")
-        || id_like.contains("arch")
-    {
-        Distro::Arch
-    } else if id.contains("opensuse") || id.contains("suse") || id_like.contains("suse") {
-        Distro::OpenSUSE
-    } else {
-        Distro::Unknown
+fn step_labels(plan: &Plan) -> Vec<&'static str> {
+    match plan {
+        Plan::Github { .. } => vec![
+            "Preparing your folder",
+            "Creating the repository",
+            "Linking it to this folder",
+            "Uploading your work",
+        ],
+        Plan::ExistingRemote { .. } => vec![
+            "Preparing your folder",
+            "Linking it to this folder",
+            "Uploading your work",
+        ],
+        Plan::Folder { .. } => vec![
+            "Preparing your folder",
+            "Setting up the backup location",
+            "Copying your work across",
+        ],
     }
 }
 
-enum ToolKind<'a> {
-    Package { apt: &'a str, dnf: &'a str, pacman: &'a str, zypper: &'a str },
-    #[allow(dead_code)]
-    Cargo { crate_name: &'a str },
-    Flatpak { app_id: &'a str },
-    Bundled,
-}
+fn working_page(
+    nav: &adw::NavigationView,
+    work_dir: &Path,
+    plan: Plan,
+    identity: Option<crate::github_auth::Identity>,
+) -> adw::NavigationPage {
+    let work_dir = work_dir.to_path_buf();
+    let (page, content, buttons) = page_shell("Setting Up", "working", "Setting things up", "");
 
-fn install_hint(distro: &Distro, kind: &ToolKind) -> String {
-    match kind {
-        ToolKind::Package { apt, dnf, pacman, zypper } => match distro {
-            Distro::Debian  => format!("sudo apt install {apt}"),
-            Distro::Fedora  => format!("sudo dnf install {dnf}"),
-            Distro::Arch    => format!("sudo pacman -S {pacman}"),
-            Distro::OpenSUSE => format!("sudo zypper in {zypper}"),
-            Distro::Unknown => format!("apt: sudo apt install {apt}  |  dnf: sudo dnf install {dnf}  |  pacman: sudo pacman -S {pacman}"),
-        },
-        ToolKind::Cargo { crate_name } => {
-            if check_command("cargo") {
-                format!("cargo install {crate_name}")
-            } else {
-                format!("Install Rust first (rustup.rs), then: cargo install {crate_name}")
+    let labels = step_labels(&plan);
+    let mut rows: Vec<(adw::ActionRow, gtk4::Spinner, Label)> = Vec::new();
+    let group = adw::PreferencesGroup::new();
+    for label in &labels {
+        let row = adw::ActionRow::new();
+        row.set_title(label);
+        let spinner = gtk4::Spinner::new();
+        spinner.set_valign(Align::Center);
+        let tick = Label::new(None);
+        tick.set_valign(Align::Center);
+        row.add_suffix(&spinner);
+        row.add_suffix(&tick);
+        group.add(&row);
+        rows.push((row, spinner, tick));
+    }
+    content.append(&group);
+
+    let error_lbl = Label::new(None);
+    error_lbl.set_xalign(0.0);
+    error_lbl.set_wrap(true);
+    error_lbl.set_selectable(true);
+    error_lbl.add_css_class("error");
+    error_lbl.set_visible(false);
+    error_lbl.set_margin_top(12);
+    content.append(&error_lbl);
+
+    let back_btn = quiet("Back");
+    back_btn.set_visible(false);
+    {
+        let nav = nav.clone();
+        back_btn.connect_clicked(move |_| {
+            nav.pop();
+        });
+    }
+    buttons.append(&back_btn);
+
+    let rx = run_plan(work_dir, plan.clone(), identity);
+
+    let nav_c = nav.clone();
+    let rows = Rc::new(rows);
+    {
+        let rows = rows.clone();
+        let error_lbl = error_lbl.clone();
+        let back_btn = back_btn.clone();
+        if let Some((_, spinner, _)) = rows.first() {
+            spinner.set_spinning(true);
+        }
+        glib::timeout_add_local(Duration::from_millis(120), move || {
+            loop {
+                match rx.try_recv() {
+                    Ok(Progress::Step(i)) => {
+                        if i > 0 {
+                            if let Some((_, spinner, tick)) = rows.get(i - 1) {
+                                spinner.set_spinning(false);
+                                spinner.set_visible(false);
+                                tick.set_label("✓");
+                                tick.add_css_class("success");
+                            }
+                        }
+                        if let Some((_, spinner, _)) = rows.get(i) {
+                            spinner.set_spinning(true);
+                        }
+                    }
+                    Ok(Progress::Done(summary)) => {
+                        for (_, spinner, tick) in rows.iter() {
+                            spinner.set_spinning(false);
+                            spinner.set_visible(false);
+                            if tick.label().is_empty() {
+                                tick.set_label("✓");
+                                tick.add_css_class("success");
+                            }
+                        }
+                        SetupWizard::mark_done();
+                        nav_c.push(&done_page(&nav_c, &summary));
+                        return glib::ControlFlow::Break;
+                    }
+                    Ok(Progress::Failed { step, message }) => {
+                        for (_, spinner, _) in rows.iter() {
+                            spinner.set_spinning(false);
+                            spinner.set_visible(false);
+                        }
+                        if let Some((_, _, tick)) = rows.get(step) {
+                            tick.set_label("✗");
+                            tick.add_css_class("error");
+                        }
+                        error_lbl.set_label(&message);
+                        error_lbl.set_visible(true);
+                        back_btn.set_visible(true);
+                        return glib::ControlFlow::Break;
+                    }
+                    Err(TryRecvError::Empty) => return glib::ControlFlow::Continue,
+                    Err(TryRecvError::Disconnected) => return glib::ControlFlow::Break,
+                }
             }
-        }
-        ToolKind::Flatpak { app_id } => format!(
-            "flatpak remote-add --user calstfrancis https://calstfrancis.github.io/flatpak/calstfrancis.flatpakrepo\nflatpak install calstfrancis {app_id}"
-        ),
-        ToolKind::Bundled => String::new(),
+        });
     }
+
+    page
 }
 
-fn flatpak_installed(app_id: &str) -> bool {
-    crate::git_sync::host_command("flatpak")
-        .args(["info", app_id])
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
-}
+fn done_page(nav: &adw::NavigationView, summary: &str) -> adw::NavigationPage {
+    let (page, content, buttons) = page_shell("Done", "done", "You're set up", "");
 
-/// Builds one tool row. Returns the row, whether it's currently OK, and — for
-/// a missing, non-bundled tool — a re-check closure the caller can invoke
-/// later (e.g. when the window regains focus) to refresh its status without
-/// requiring the user to click "Verify" again.
-fn tool_row(
-    name: &str,
-    cmd: &str,
-    purpose: &str,
-    distro: &Distro,
-    kind: ToolKind,
-    required: bool,
-) -> (adw::ActionRow, bool, Option<Rc<dyn Fn()>>) {
-    let is_bundled = matches!(kind, ToolKind::Bundled);
-    let flatpak_app_id: Option<String> = match &kind {
-        ToolKind::Flatpak { app_id } => Some(app_id.to_string()),
-        _ => None,
-    };
-    let hint = install_hint(distro, &kind);
-    let ok = if let Some(app_id) = &flatpak_app_id {
-        flatpak_installed(app_id)
-    } else {
-        is_bundled || check_command(cmd)
-    };
-    let cmd = cmd.to_string();
+    let icon = gtk4::Image::from_icon_name("emblem-ok-symbolic");
+    icon.set_pixel_size(48);
+    icon.add_css_class("success");
+    icon.set_margin_top(8);
+    content.append(&icon);
 
-    let row = adw::ActionRow::new();
-    row.set_title(name);
-    row.set_subtitle(purpose);
+    let lbl = Label::new(Some(summary));
+    lbl.set_xalign(0.0);
+    lbl.set_wrap(true);
+    lbl.set_selectable(true);
+    content.append(&lbl);
 
-    if ok {
-        let icon = Label::new(Some("✓"));
-        icon.add_css_class("success");
-        row.add_suffix(&icon);
-        (row, true, None)
-    } else {
-        if required {
-            let badge = Label::new(Some("Required"));
-            badge.add_css_class("error");
-            badge.add_css_class("caption");
-            badge.set_valign(Align::Center);
-            row.add_suffix(&badge);
-        }
+    let hint = Label::new(Some(
+        "From now on, press Ctrl+Shift+S whenever you want to save a version and send it up. \
+         Zerkalo will tell you when it has.",
+    ));
+    hint.set_xalign(0.0);
+    hint.set_wrap(true);
+    hint.add_css_class("dim-label");
+    hint.set_margin_top(8);
+    content.append(&hint);
 
-        let outer = GtkBox::new(Orientation::Vertical, 0);
-        outer.set_valign(Align::Center);
-
-        let hint_box = GtkBox::new(Orientation::Vertical, 4);
-        hint_box.set_margin_top(4);
-        hint_box.set_margin_bottom(4);
-
-        let hint_row = GtkBox::new(Orientation::Horizontal, 4);
-        let hint_lbl = Label::new(Some(&hint));
-        hint_lbl.set_xalign(0.0);
-        hint_lbl.set_selectable(true);
-        hint_lbl.add_css_class("monospace");
-        hint_lbl.add_css_class("caption");
-        // Some hints are a single long line (the "Unknown" distro fallback
-        // joins three package-manager commands; the flatpak hint embeds a
-        // full URL) — without wrapping, this one label's minimum width forced
-        // the whole window open regardless of the Clamp above.
-        hint_lbl.set_wrap(true);
-        hint_lbl.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
-        hint_lbl.set_max_width_chars(40);
-        hint_lbl.set_hexpand(true);
-        hint_row.append(&hint_lbl);
-
-        let copy_btn = Button::from_icon_name("edit-copy-symbolic");
-        copy_btn.add_css_class("flat");
-        copy_btn.set_valign(Align::Start);
-        copy_btn.set_tooltip_text(Some("Copy command"));
-        {
-            let hint_c = hint.clone();
-            copy_btn.connect_clicked(move |btn| {
-                if let Some(display) = gtk4::gdk::Display::default() {
-                    display.clipboard().set_text(&hint_c);
+    let start = primary("Start writing");
+    {
+        let nav = nav.clone();
+        start.connect_clicked(move |btn| {
+            let _ = nav;
+            if let Some(root) = btn.root() {
+                if let Ok(win) = root.downcast::<gtk4::Window>() {
+                    win.close();
                 }
-                btn.set_icon_name("object-select-symbolic");
-                let btn2 = btn.clone();
-                glib::timeout_add_local_once(std::time::Duration::from_secs(2), move || {
-                    btn2.set_icon_name("edit-copy-symbolic");
-                });
-            });
-        }
-        hint_row.append(&copy_btn);
-        hint_box.append(&hint_row);
+            }
+        });
+    }
+    buttons.append(&start);
+    page
+}
 
-        let revealer = gtk4::Revealer::new();
-        revealer.set_reveal_child(false);
-        revealer.set_transition_type(gtk4::RevealerTransitionType::SlideDown);
-        revealer.set_child(Some(&hint_box));
+// ── The work itself ──────────────────────────────────────────────────────────
 
-        // Status indicator (✗ → ✓ after verify). Required-and-missing reads
-        // as an error; optional-and-missing is milder so a missing spellcheck
-        // dictionary doesn't look as alarming as a missing git binary.
-        let status_lbl = Label::new(Some("✗"));
-        status_lbl.add_css_class(if required { "error" } else { "warning" });
+/// Runs the plan on a background thread, reporting which step it is on.
+///
+/// Everything here blocks — process spawns and network calls — so none of it
+/// may touch the interface thread.
+fn run_plan(
+    work_dir: PathBuf,
+    plan: Plan,
+    identity: Option<crate::github_auth::Identity>,
+) -> Receiver<Progress> {
+    let (tx, rx) = sync_channel::<Progress>(8);
+    std::thread::spawn(move || {
+        let token = crate::secret_store::load_github_token();
+        let mut step = 0usize;
+        let _ = tx.send(Progress::Step(step));
 
-        let btn_box = GtkBox::new(Orientation::Horizontal, 4);
-        btn_box.set_valign(Align::Center);
-
-        let toggle_btn = Button::with_label("How to install");
-        toggle_btn.add_css_class("flat");
-        toggle_btn.add_css_class("caption");
-        {
-            let rev = revealer.clone();
-            toggle_btn.connect_clicked(move |_| {
-                rev.set_reveal_child(!rev.reveals_child());
-            });
+        // 1 · The folder is a git repository, and knows who is writing.
+        if let Err(e) = prepare_repo(&work_dir, identity.as_ref()) {
+            let _ = tx.send(Progress::Failed { step, message: e });
+            return;
         }
 
-        let verify_btn = Button::with_label("Verify");
-        verify_btn.add_css_class("flat");
-        verify_btn.add_css_class("caption");
-
-        let do_verify: Rc<dyn Fn()> = {
-            let cmd = cmd.clone();
-            let flatpak_app_id = flatpak_app_id.clone();
-            let status = status_lbl.clone();
-            let rev = revealer.clone();
-            Rc::new(move || {
-                let found = if let Some(app_id) = &flatpak_app_id {
-                    flatpak_installed(app_id)
-                } else {
-                    check_command(&cmd)
+        let summary = match plan {
+            Plan::Github { repo_name, private } => {
+                let Some(token) = token.clone() else {
+                    let _ = tx.send(Progress::Failed {
+                        step,
+                        message: "The GitHub sign-in didn't finish. Go back and sign in again.".into(),
+                    });
+                    return;
                 };
-                if found {
-                    status.set_label("✓");
-                    status.remove_css_class("error");
-                    status.remove_css_class("warning");
-                    status.add_css_class("success");
-                    rev.set_reveal_child(false);
-                } else {
-                    status.set_label("✗ not found yet");
+
+                step += 1;
+                let _ = tx.send(Progress::Step(step));
+                let clone_url = match crate::github_auth::create_repo(&token, &repo_name, private) {
+                    Ok(url) => url,
+                    Err(e) => {
+                        let _ = tx.send(Progress::Failed {
+                            step,
+                            message: describe_create_failure(&repo_name, &e),
+                        });
+                        return;
+                    }
+                };
+
+                step += 1;
+                let _ = tx.send(Progress::Step(step));
+                if let Err(e) = set_git_remote(&work_dir, &clone_url) {
+                    let _ = tx.send(Progress::Failed {
+                        step,
+                        message: format!("The repository was created, but linking it to this folder failed:\n{e}"),
+                    });
+                    return;
                 }
-            })
+
+                format!("Your work is saved to {}", clone_url.trim_end_matches(".git"))
+            }
+            Plan::ExistingRemote { url } => {
+                step += 1;
+                let _ = tx.send(Progress::Step(step));
+                if let Err(e) = set_git_remote(&work_dir, &url) {
+                    let _ = tx.send(Progress::Failed {
+                        step,
+                        message: format!("Couldn't use that address:\n{e}"),
+                    });
+                    return;
+                }
+                format!("Your work is saved to {}", url.trim_end_matches(".git"))
+            }
+            Plan::Folder { path } => {
+                step += 1;
+                let _ = tx.send(Progress::Step(step));
+                if let Err(e) = crate::git_sync::add_backup_remote(&work_dir, &path.display().to_string()) {
+                    let _ = tx.send(Progress::Failed {
+                        step,
+                        message: format!("Couldn't set up that folder as a backup:\n{e}"),
+                    });
+                    return;
+                }
+                format!("Your work is backed up to {}", path.display())
+            }
         };
-        {
-            let do_verify_c = do_verify.clone();
-            verify_btn.connect_clicked(move |_| do_verify_c());
+
+        // Last step, whichever route: commit what's there and push it.
+        step += 1;
+        let _ = tx.send(Progress::Step(step));
+        let result = crate::git_sync::sync(&work_dir, token.as_deref());
+        if let Some(err) = result.error {
+            let _ = tx.send(Progress::Failed {
+                step,
+                message: format!("Couldn't save the first version:\n{err}"),
+            });
+            return;
+        }
+        if !result.pushed && !result.push_errors.is_empty() {
+            let _ = tx.send(Progress::Failed {
+                step,
+                message: format!(
+                    "Everything is set up, but the first upload didn't go through:\n{}\n\n\
+                     Your work is saved on this computer. Try Sync again from the main window.",
+                    result.push_errors.join("\n")
+                ),
+            });
+            return;
         }
 
-        btn_box.append(&toggle_btn);
-        btn_box.append(&verify_btn);
-        outer.append(&btn_box);
-        outer.append(&revealer);
+        let _ = tx.send(Progress::Done(summary));
+    });
+    rx
+}
 
-        row.add_suffix(&status_lbl);
-        row.add_suffix(&outer);
+/// Makes the work folder a git repository and gives git a name and email to
+/// record, without asking for either.
+fn prepare_repo(work_dir: &Path, identity: Option<&crate::github_auth::Identity>) -> Result<(), String> {
+    std::fs::create_dir_all(work_dir)
+        .map_err(|e| format!("Couldn't create the folder {}:\n{e}", work_dir.display()))?;
 
-        (row, false, Some(do_verify))
+    if git2::Repository::discover(work_dir).is_err() {
+        let repo = git2::Repository::init(work_dir)
+            .map_err(|e| format!("Couldn't set up version history here:\n{}", e.message()))?;
+        // GitHub's default branch is main; without this, git2 starts on
+        // whatever init.defaultBranch says (often master) and the first push
+        // creates a second, unrelated branch.
+        let _ = repo.set_head("refs/heads/main");
     }
+
+    let (name, email) = git_identity();
+    if !name.is_empty() && !email.is_empty() {
+        return Ok(());
+    }
+
+    let (name, email) = match identity {
+        Some(id) => (id.name.clone(), id.email.clone()),
+        None => system_identity(),
+    };
+    set_git_identity(&name, &email)
+}
+
+/// A name and address derived from the account on this computer, for the paths
+/// that have no GitHub account to take one from. Git would otherwise refuse to
+/// commit at all on a machine where it can't guess one.
+fn system_identity() -> (String, String) {
+    let user = std::env::var("USER")
+        .or_else(|_| std::env::var("LOGNAME"))
+        .unwrap_or_else(|_| "writer".to_string());
+    let host = gtk4::glib::host_name().to_string();
+    let host = if host.is_empty() { "localhost".to_string() } else { host };
+    (user.clone(), format!("{user}@{host}"))
+}
+
+/// Turns GitHub's API errors into something that says what to do next.
+fn describe_create_failure(name: &str, e: &crate::github_auth::GithubAuthError) -> String {
+    let text = e.to_string();
+    if text.contains("already exists") || text.contains("name already exists") {
+        return format!(
+            "You already have a repository called \"{name}\". Go back and pick a different name, \
+             or use \"I already have a repository\" to point Zerkalo at the existing one."
+        );
+    }
+    if text.contains("401") || text.contains("Bad credentials") {
+        return "GitHub didn't accept the sign-in. Go back and sign in again.".to_string();
+    }
+    if text.contains("Network") {
+        return "Couldn't reach GitHub. Check your internet connection and try again.".to_string();
+    }
+    format!("GitHub couldn't create the repository:\n{text}")
 }
 
 // ── Git helpers ───────────────────────────────────────────────────────────────
-
-fn has_git_identity() -> bool {
-    let (name, email) = git_identity();
-    !name.is_empty() && !email.is_empty()
-}
 
 fn git_identity() -> (String, String) {
     let cfg = git2::Config::open_default().ok();
@@ -1184,7 +892,7 @@ fn git_identity() -> (String, String) {
     (name, email)
 }
 
-fn set_git_identity(name: &str, email: &str) -> Result<(), String> {
+pub fn set_git_identity(name: &str, email: &str) -> Result<(), String> {
     let mut cfg = git2::Config::open_default().map_err(|e| e.message().to_string())?;
     cfg.set_str("user.name", name).map_err(|e| e.message().to_string())?;
     cfg.set_str("user.email", email).map_err(|e| e.message().to_string())?;
@@ -1206,23 +914,78 @@ fn get_git_remote(work_dir: &Path) -> Option<String> {
 fn set_git_remote(work_dir: &Path, url: &str) -> Result<(), String> {
     let repo = git2::Repository::discover(work_dir)
         .map_err(|e| e.message().to_string())?;
-    // Remove existing origin if present, then add fresh
     let _ = repo.remote_delete("origin");
     repo.remote("origin", url).map_err(|e| e.message().to_string())?;
     Ok(())
 }
 
-fn check_command(cmd: &str) -> bool {
-    // tinymist may be bundled at a fixed path inside or outside the flatpak
-    if cmd == "tinymist" {
-        let bundled = ["/app/lib/zerkalo/tinymist", "/usr/lib/zerkalo/tinymist"];
-        if bundled.iter().any(|p| std::path::Path::new(p).exists()) {
-            return true;
-        }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn each_route_lists_the_steps_it_actually_runs() {
+        // The progress list is what tells the user how far along they are, so
+        // a route that skips repository creation must not display it.
+        assert_eq!(step_labels(&Plan::Github { repo_name: "x".into(), private: true }).len(), 4);
+        assert_eq!(step_labels(&Plan::ExistingRemote { url: "x".into() }).len(), 3);
+        assert_eq!(step_labels(&Plan::Folder { path: PathBuf::from("/tmp") }).len(), 3);
     }
-    crate::git_sync::host_command(cmd)
-        .arg("--version")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+
+    #[test]
+    fn a_system_identity_is_always_usable_as_a_commit_address() {
+        let (name, email) = system_identity();
+        assert!(!name.is_empty(), "git refuses to commit without a name");
+        assert!(email.contains('@'), "git requires an address shaped like an email: {email}");
+    }
+
+    #[test]
+    fn a_duplicate_repository_name_is_explained_rather_than_echoed() {
+        let e = crate::github_auth::GithubAuthError::Api(
+            "422: {\"message\":\"Repository creation failed.\",\"errors\":[{\"message\":\"name already exists on this account\"}]}".into(),
+        );
+        let msg = describe_create_failure("zerkalo-docs", &e);
+        assert!(msg.contains("already have a repository called \"zerkalo-docs\""), "got: {msg}");
+        assert!(!msg.contains("422"), "the raw status code is not useful here: {msg}");
+    }
+
+    #[test]
+    fn an_expired_sign_in_points_back_at_signing_in() {
+        let e = crate::github_auth::GithubAuthError::Api("401: Bad credentials".into());
+        let msg = describe_create_failure("zerkalo-docs", &e);
+        assert!(msg.contains("sign in again"), "got: {msg}");
+    }
+
+    #[test]
+    fn preparing_a_folder_creates_the_repository_and_sets_the_branch_to_main() {
+        let dir = tempfile::tempdir().unwrap();
+        let work = dir.path().join("Zerkalo");
+        let identity = crate::github_auth::Identity {
+            login: "octocat".into(),
+            name: "Octo Cat".into(),
+            email: "1+octocat@users.noreply.github.com".into(),
+        };
+        prepare_repo(&work, Some(&identity)).unwrap();
+
+        let repo = git2::Repository::discover(&work).expect("work folder is a repository");
+        assert_eq!(
+            repo.head().err().map(|_| "unborn"),
+            Some("unborn"),
+            "a fresh repository has no commits yet"
+        );
+        let head_ref = repo.find_reference("HEAD").unwrap();
+        assert_eq!(
+            head_ref.symbolic_target(),
+            Some("refs/heads/main"),
+            "GitHub's default branch is main; starting on master creates a second branch on first push"
+        );
+    }
+
+    #[test]
+    fn preparing_an_existing_repository_twice_is_harmless() {
+        let dir = tempfile::tempdir().unwrap();
+        let work = dir.path().to_path_buf();
+        prepare_repo(&work, None).unwrap();
+        prepare_repo(&work, None).expect("running setup again must not fail");
+    }
 }

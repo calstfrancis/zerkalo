@@ -5,9 +5,49 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.21.0-dev1] — Import that doesn't write until you say so
+## [0.21.0-dev2] — Nothing to install, nothing to type
 
 ### Added
+
+- **Setting up is three screens with one decision each.** It was one long page of five
+  sections, each with its own Apply button — seven separate actions in an order nothing
+  announced, the first of which asked for a git name and email. Now: what this is for, sign in,
+  confirm a name, done. Everything behind that last button — making the folder a repository,
+  creating the repository on GitHub, linking it, the first save and upload — runs on its own
+  with each step ticked off as it finishes, and any failure says which step and what to do.
+- **Signing in supplies your name and email, so you're never asked for them.** They come from
+  the GitHub account, using the address GitHub guarantees will attribute your work to you —
+  not the public email field, which is empty for anyone with email privacy on and silently
+  attributes every version to nobody. A typo here used to be permanent and invisible.
+- **git is bundled.** The GNOME runtime it's built on has none, so the flatpak — the main way
+  Zerkalo is installed — used to reach the host's git, meaning "install git in a terminal" was
+  a prerequisite for saving your work. Nothing needs installing now.
+- **No account needed.** The same screen offers backing up to a folder or drive — a synced
+  Nextcloud or pCloud folder, a USB stick — or pasting the address of a repository you already
+  have. Declining entirely is a plain option, and once declined you aren't asked again.
+- **The repository is named after your work, not the program** — the work folder's name with
+  `-docs` after it, so the default folder gives `zerkalo-docs`. Folder names that GitHub would
+  reject (spaces, brackets) are converted rather than sent and refused.
+- **A Tools window** (☰ → Tools) lists what's bundled and what's optional, replacing the last
+  step of setup.
+
+### Changed
+
+- **Zerkalo no longer opens with a modal alert listing `sudo` commands.** That was the first
+  thing a new user saw, about tools that are now bundled anyway. Missing optional tools are
+  logged and shown in Tools; only a missing git — which in the flatpak cannot happen —
+  still says anything, as a dismissible message.
+- **Document fonts moved to Settings → Editor.** They were a step in setup, putting a font
+  choice between a first-time user and getting started, for a setting whose defaults are
+  already right nearly always.
+
+### Fixed
+
+- **A new repository starts on `main`.** Setup used to leave the branch to git's own default,
+  which on many systems is `master` — so the first push created a second, unrelated branch
+  next to the `main` GitHub had made.
+
+### Import
 
 - **Word, OpenDocument and Markdown files are converted by Zerkalo itself, with nothing to
   install.** These three formats are a ZIP of XML, a ZIP of XML, and text — so they no longer
@@ -19,9 +59,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Anything a conversion couldn't carry across is said out loud** in the preview rather than
   quietly dropped — raw HTML in Markdown, and Word citations that come from a reference manager
   and can't be read at all.
-
-### Fixed
-
 - **Importing no longer writes into the folder your source file lives in.** The conversion ran
   with its output aimed straight at that folder, so the `.typ` and an extracted-images folder
   appeared beside your original *before* the preview asked whether you wanted them. Conversion
