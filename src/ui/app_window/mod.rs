@@ -45,6 +45,7 @@ mod panels;
 use panels::{Panels, build_panels};
 use header::{HeaderWidgets, build_header};
 mod import;
+pub use import::prune_import_staging;
 mod startup;
 mod sync;
 use startup::{PanePersistCtx, WatcherCtx, wire_file_watcher, wire_pane_persistence};
@@ -3234,12 +3235,18 @@ pub(super) fn open_template_for_active_document(
             dlg.preselect_font(&f);
         }
         if let Some(p) = td::parse_paper(&current_content) {
-            dlg.preselect_paper(&p, "", "");
+            // A custom-sized page has to carry its dimensions back into the
+            // Custom fields too, or Apply regenerates it at the 210×297 default.
+            let (w, h) = td::parse_custom_paper(&current_content).unwrap_or_default();
+            dlg.preselect_paper(&p, &w, &h);
         }
         if let Some(s) = td::parse_spacing(&current_content) {
             dlg.preselect_spacing(&s);
         }
-        dlg.preselect_margin(td::parse_margin(&current_content), "");
+        dlg.preselect_margin(
+            td::parse_margin(&current_content),
+            &td::parse_custom_margin(&current_content).unwrap_or_default(),
+        );
         dlg.preselect_toc(
             td::parse_has_toc(&current_content),
             td::parse_toc_depth(&current_content),

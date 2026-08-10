@@ -8,6 +8,7 @@ mod auto_save;
 mod bibliography;
 mod compile_stats;
 mod writing_log;
+mod doc_import;
 mod compiler;
 mod error_patterns;
 mod file_watcher;
@@ -119,6 +120,7 @@ fn main() -> ExitCode {
         // Migrate the old config-dir location and retire stale recovery copies
         // before anything looks for one.
         crate::auto_save::prune();
+        crate::ui::app_window::prune_import_staging();
         let config = crate::config::shared().borrow().clone();
         let window = AppWindow::new(app, config);
         window.setup_keybindings();

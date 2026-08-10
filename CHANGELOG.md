@@ -5,6 +5,56 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.21.0-dev1] — Import that doesn't write until you say so
+
+### Added
+
+- **Word, OpenDocument and Markdown files are converted by Zerkalo itself, with nothing to
+  install.** These three formats are a ZIP of XML, a ZIP of XML, and text — so they no longer
+  go through pandoc, which in the flatpak means a tool that has to be installed outside the
+  sandbox and which most people won't have. LaTeX, EPUB, RTF and HTML still hand off to pandoc.
+  Headings, bold and italic, lists (including nested ones), tables, links, block quotes, code
+  blocks and embedded images all convert; images travel with the document.
+  "Paste as Document" reads its clipboard text the same way, so it too needs no pandoc.
+- **Anything a conversion couldn't carry across is said out loud** in the preview rather than
+  quietly dropped — raw HTML in Markdown, and Word citations that come from a reference manager
+  and can't be read at all.
+
+### Fixed
+
+- **Importing no longer writes into the folder your source file lives in.** The conversion ran
+  with its output aimed straight at that folder, so the `.typ` and an extracted-images folder
+  appeared beside your original *before* the preview asked whether you wanted them. Conversion
+  now happens in a private working folder and nothing lands anywhere else until you press
+  Import. Three consequences: importing from a read-only or shared location works instead of
+  failing outright; cancelling an import no longer leaves a half-converted file behind; and
+  closing the preview window with its close button cleans up, where before only the Discard
+  button did.
+- **Extracted images resolve.** With conversion moved out of the source folder, pandoc writes
+  absolute image paths — and Typst reads a `/`-rooted path as relative to the project, not the
+  filesystem, so those never load. They're rewritten to sit beside the document.
+- **A large or noisy import can no longer hang.** Both output streams were captured and left
+  unread until the conversion finished, so a document producing more warnings than a pipe holds
+  would block forever with an "Importing…" toast and no way out. Streams are now drained as
+  they're written. "Paste as Document" had a worse form of this — it fed the text in on the
+  interface thread, so a large paste could freeze the whole window; it no longer runs a
+  process at all.
+- **Missing pandoc is detected before the conversion starts, and says how to fix it.** The only
+  check was whether the process could be launched, which inside the flatpak tests
+  `flatpak-spawn` rather than pandoc — so for the app's main distribution a missing pandoc
+  produced a raw shell error. The instructions now also say that pandoc goes on your computer,
+  not into Zerkalo, which is what running it outside the sandbox requires.
+- **Too old a pandoc is reported up front**, by version, rather than surfacing mid-conversion
+  as "unknown writer".
+- **A destination that can't be written to is reported.** Both the single-file and folder
+  imports discarded the result of writing the file, so an unwritable destination looked exactly
+  like a successful import — in a batch it was even counted as one.
+- **Import failures are explained in plain language** — the wrong format for the file,
+  permission problems, and pandoc's own words when there's nothing better to say.
+- **Working folders left behind by a crash are cleared out at startup.**
+
+---
+
 ## [0.20.0] "Plain Sight" — A printer that prints, a window that reads as one thing, and errors that say what and where
 
 ### Added

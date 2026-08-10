@@ -2433,23 +2433,12 @@ pub fn repair_template_markers(path: &std::path::Path) -> Result<bool, String> {
         return Ok(false);
     }
 
-    let backup = path.with_extension("typ.bak");
+    let backup = unique_backup_path(path);
     std::fs::write(&backup, &content)
         .map_err(|e| format!("Cannot create backup at {}: {e}", backup.display()))?;
 
-    // Find the end of the preamble: the last line from the top that is a
-    // #directive, // comment, or blank. The first body-content line (heading,
-    // paragraph text) follows it.
+    let insert_before = preamble_end_line(&content);
     let lines: Vec<&str> = content.lines().collect();
-    let mut insert_before = lines.len(); // default: append at end
-    for (i, line) in lines.iter().enumerate() {
-        let t = line.trim();
-        if !t.starts_with('#') && !t.starts_with("//") && !t.is_empty() {
-            insert_before = i;
-            break;
-        }
-    }
-
     let prefix = lines[..insert_before].join("\n");
     let suffix = lines[insert_before..].join("\n");
 
@@ -2469,6 +2458,58 @@ pub fn repair_template_markers(path: &std::path::Path) -> Result<bool, String> {
         .map_err(|e| format!("Cannot write repaired file: {e}"))?;
 
     Ok(true)
+}
+
+/// A `.typ.bak` path that doesn't already exist, so repairing a file twice
+/// doesn't destroy the backup taken the first time — which is the copy holding
+/// the last known-good version of the document.
+fn unique_backup_path(path: &std::path::Path) -> PathBuf {
+    let first = path.with_extension("typ.bak");
+    if !first.exists() {
+        return first;
+    }
+    for n in 2..1000 {
+        let candidate = path.with_extension(format!("typ.bak{n}"));
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    first
+}
+
+/// The line index where the preamble ends and body content begins.
+///
+/// Tracking bracket depth matters: a continuation line of a multi-line
+/// directive (`  paper: "a4",` inside `#set page(`) starts with neither `#`
+/// nor `//`, so a line-shape test alone reads it as the first body line and
+/// splices the marker into the middle of the call, leaving a document that
+/// can't compile.
+fn preamble_end_line(content: &str) -> usize {
+    let lines: Vec<&str> = content.lines().collect();
+    let mut depth = 0i32;
+    for (i, line) in lines.iter().enumerate() {
+        let code = match line.find("//") {
+            Some(p) => &line[..p],
+            None => line,
+        };
+        let t = code.trim();
+        if depth <= 0 && !t.starts_with('#') && !t.is_empty() && !line.trim().starts_with("//") {
+            return i;
+        }
+        let mut in_str = false;
+        for c in code.chars() {
+            match c {
+                '"' => in_str = !in_str,
+                '(' | '[' | '{' if !in_str => depth += 1,
+                ')' | ']' | '}' if !in_str => depth -= 1,
+                _ => {}
+            }
+        }
+        if depth < 0 {
+            depth = 0;
+        }
+    }
+    lines.len()
 }
 
 /// Returns true when the document has a body-section marker and `apply_body_splice`
@@ -2550,7 +2591,18 @@ pub fn apply_body_splice(existing: &str, fresh: &str) -> String {
 
             format!("{fresh_preamble}{updated_body}")
         }
-        _ => fresh.to_string(),
+        // The existing document has a body worth keeping but the regenerated
+        // one carries no marker to splice at. Returning `fresh` here — as this
+        // used to — overwrote the user's writing with a starter template, with
+        // no confirmation and no undo, on something as small as changing the
+        // font from the status bar. Every generator emits a marker, so reaching
+        // this arm means generation went wrong; keeping the body is always the
+        // safer answer.
+        (Some(old_p), None) => format!("{fresh}{}", &existing[old_p..]),
+        // No body to preserve. Callers that can reach this confirm the
+        // whole-document replacement with the user first (see
+        // `has_body_marker`'s call site in app_window).
+        (None, _) => fresh.to_string(),
     }
 }
 
@@ -2753,6 +2805,98 @@ fn typst_str(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
+/// Every value below reaches the generated document as raw Typst source, so an
+/// unvalidated one doesn't produce an ugly document — it produces a document
+/// that doesn't compile at all, with an error pointing at generated code the
+/// user never wrote. A custom margin of "wide" became the literal length
+/// `widein`; an empty spacing became `leading: ,`. These sanitisers are the
+/// single choke point: nothing user-entered goes into a generated template
+/// without passing through one of them.
+///
+/// Parse a user-entered length ("1.4", "1.4in", "20 mm", "33%") into a valid
+/// Typst length literal, appending `default_unit` when the user typed a bare
+/// number. Returns `None` for anything that isn't a non-negative length, so
+/// callers fall back to a preset instead of writing nonsense into the document.
+fn user_length(raw: &str, default_unit: &str) -> Option<String> {
+    let s = raw.trim();
+    if s.is_empty() {
+        return None;
+    }
+    let split = s
+        .find(|c: char| !(c.is_ascii_digit() || c == '.'))
+        .unwrap_or(s.len());
+    let value: f64 = s[..split].parse().ok()?;
+    if !value.is_finite() || value <= 0.0 {
+        return None;
+    }
+    let unit = s[split..].trim();
+    let unit = if unit.is_empty() { default_unit } else { unit };
+    if !matches!(unit, "in" | "mm" | "cm" | "pt" | "em" | "%") {
+        return None;
+    }
+    Some(format!("{value}{unit}"))
+}
+
+/// A length that must always resolve to something compilable.
+fn user_length_or(raw: &str, default_unit: &str, fallback: &str) -> String {
+    user_length(raw, default_unit).unwrap_or_else(|| fallback.to_string())
+}
+
+/// Validate a dropcap `fill:` value. Accepts the presets from
+/// [`DROPCAP_COLORS`] and a bare `#rrggbb` hex the user may have typed, and
+/// rejects everything else — an arbitrary string is emitted as a Typst
+/// *expression*, so "maroon" would compile but "notacolor" is an unknown
+/// variable that fails the whole document.
+fn user_color(raw: &str) -> Option<String> {
+    let s = raw.trim();
+    if s.is_empty() {
+        return None;
+    }
+    if DROPCAP_COLORS.iter().any(|(_, v)| !v.is_empty() && *v == s) {
+        return Some(s.to_string());
+    }
+    let hex = s.strip_prefix('#').unwrap_or(s);
+    if matches!(hex.len(), 6 | 8) && hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Some(format!("rgb(\"#{hex}\")"));
+    }
+    None
+}
+
+/// Escape user free text that lands in Typst *markup* context (the abstract
+/// body, the keywords line). Deliberate markup is left alone when its brackets
+/// balance; when they don't, every bracket is escaped — an unclosed `[`
+/// otherwise swallows the remainder of the document.
+fn typst_markup(s: &str) -> String {
+    let mut depth = 0i32;
+    for c in s.chars() {
+        match c {
+            '[' => depth += 1,
+            ']' => {
+                depth -= 1;
+                if depth < 0 {
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    if depth == 0 {
+        return s.to_string();
+    }
+    s.replace('[', "\\[").replace(']', "\\]")
+}
+
+/// The heading numbering pattern is emitted inside a Typst string literal, so
+/// a stray quote from the "Custom…" field would terminate it early.
+fn numbering_pattern(raw: &str) -> String {
+    let s = raw.trim();
+    if s.is_empty() {
+        "1.".to_string()
+    } else {
+        typst_str(s)
+    }
+}
+
 // ── Template generator ────────────────────────────────────────────────────────
 
 pub fn generate_typst_template(s: &TemplateSettings) -> String {
@@ -2763,24 +2907,24 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
     let style_name = CITATION_STYLES.get(s.style_idx).map(|(n, _)| *n).unwrap_or("Chicago");
     let bib = bib_style(style_key);
     let bib_line = s.bib_path.as_ref().map(|p| {
-        format!("#bibliography(\"{}\", style: \"{}\")", p.display(), bib)
+        format!("#bibliography(\"{}\", style: \"{}\")", typst_str(&p.to_string_lossy()), bib)
     });
 
     // GOST 7.32 mandates A4, specific margins, and 14 pt body text regardless of form selection.
     let (paper_line, mt, mb, ml, mr, font_size) = if style_key == "gost-r-705" {
-        let size = if s.font_size.is_empty() { "14pt" } else { &s.font_size };
+        let size = user_length_or(&s.font_size, "pt", "14pt");
         ("paper: \"a4\",".to_string(), "20mm".to_string(), "20mm".to_string(), "30mm".to_string(), "15mm".to_string(), size)
     } else {
         let p = PAPER_SIZES.get(s.paper_idx).map(|(_, k)| *k).unwrap_or("us-letter");
         let paper_line = if p == "custom" {
-            let w = if s.custom_paper_w.is_empty() { "210" } else { &s.custom_paper_w };
-            let h = if s.custom_paper_h.is_empty() { "297" } else { &s.custom_paper_h };
-            format!("width: {w}mm,\n  height: {h}mm,")
+            let w = user_length_or(&s.custom_paper_w, "mm", "210mm");
+            let h = user_length_or(&s.custom_paper_h, "mm", "297mm");
+            format!("width: {w},\n  height: {h},")
         } else {
             format!("paper: \"{p}\",")
         };
         let (mt, mb, ml, mr) = margin_values(s.margin_idx, &s.custom_margin);
-        let size = if s.font_size.is_empty() { "12pt" } else { &s.font_size };
+        let size = user_length_or(&s.font_size, "pt", "12pt");
         (paper_line, mt, mb, ml, mr, size)
     };
 
@@ -2801,12 +2945,12 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
     if s.packages.contains(&"pkg_droplet".to_string()) {
         let has_font = !s.dropcap_font.is_empty();
         let has_height = s.dropcap_lines != 3;
-        let has_color = !s.dropcap_color.is_empty();
-        if has_font || has_height || has_color {
+        let color = user_color(&s.dropcap_color);
+        if has_font || has_height || color.is_some() {
             let mut args = Vec::new();
             if has_font  { args.push(format!("font: \"{}\"", typst_str(&s.dropcap_font))); }
-            if has_height { args.push(format!("height: {}", s.dropcap_lines)); }
-            if has_color { args.push(format!("fill: {}", s.dropcap_color)); }
+            if has_height { args.push(format!("height: {}", s.dropcap_lines.clamp(2, 8))); }
+            if let Some(c) = color { args.push(format!("fill: {c}")); }
             let _ = writeln!(out, "#let dropcap = dropcap.with({})", args.join(", "));
         }
     }
@@ -2834,14 +2978,16 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
         let _ = writeln!(out, "#show raw: set text(font: \"New Computer Modern Mono\")");
         let _ = writeln!(out, "#show math.equation: set text(weight: \"regular\")");
     } else {
-        let _ = writeln!(out, "#set text(font: \"{}\", size: {font_size}, lang: \"en\")", typst_str(&s.font));
-        let _ = writeln!(out, "#set par(leading: {}, spacing: 1.2em, first-line-indent: 1em, justify: true)", s.spacing);
+        let font = if s.font.trim().is_empty() { "Libertinus Serif" } else { s.font.trim() };
+        let leading = user_length_or(&s.spacing, "em", "0.65em");
+        let _ = writeln!(out, "#set text(font: \"{}\", size: {font_size}, lang: \"en\")", typst_str(font));
+        let _ = writeln!(out, "#set par(leading: {leading}, spacing: 1.2em, first-line-indent: 1em, justify: true)");
     }
     let _ = writeln!(out);
 
     // Heading styles (with counter display injected when numbering is enabled)
     let num_fmt = if s.heading_numbering {
-        if s.numbering_format.is_empty() { "1.".to_string() } else { s.numbering_format.clone() }
+        numbering_pattern(&s.numbering_format)
     } else {
         String::new()
     };
@@ -2855,8 +3001,7 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
 
     // Heading numbering — user-controlled for all styles (IEEE, GOST, Vancouver default to on)
     if s.heading_numbering {
-        let fmt = if s.numbering_format.is_empty() { "1." } else { s.numbering_format.as_str() };
-        let _ = writeln!(out, "#set heading(numbering: \"{fmt}\")");
+        let _ = writeln!(out, "#set heading(numbering: \"{num_fmt}\")");
         let _ = writeln!(out);
     }
 
@@ -2892,7 +3037,7 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
         let _ = writeln!(out, "#align(center)[*Abstract*]");
         if !s.abstract_text.is_empty() {
             let _ = writeln!(out, "#block(inset: (x: 1in))[");
-            let _ = writeln!(out, "  {}", s.abstract_text);
+            let _ = writeln!(out, "  {}", typst_markup(&s.abstract_text));
             let _ = writeln!(out, "]");
         }
         let _ = writeln!(out);
@@ -2900,13 +3045,13 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
 
     // Keywords
     if s.include_keywords && !s.keywords.is_empty() {
-        let _ = writeln!(out, "_Keywords:_ {}", s.keywords);
+        let _ = writeln!(out, "_Keywords:_ {}", typst_markup(&s.keywords));
         let _ = writeln!(out);
     }
 
     // Table of contents (always followed by a page break)
     if s.include_toc {
-        let _ = writeln!(out, "#outline(depth: {})", s.toc_depth);
+        let _ = writeln!(out, "#outline(depth: {})", s.toc_depth.clamp(1, 6));
         let _ = writeln!(out, "#pagebreak()");
         let _ = writeln!(out);
     }
@@ -2983,11 +3128,27 @@ fn generate_cv_template(s: &TemplateSettings) -> String {
         3 => "sidebar",
         _ => "modern",
     };
+    // "custom" is a Zerkalo selector, not a Typst paper name — emitting it as
+    // one gives "expected paper name", so it becomes explicit width/height
+    // exactly as the academic generator does.
     let paper = PAPER_SIZES.get(s.paper_idx).map(|(_, k)| *k).unwrap_or("a4");
+    let page_size = if paper == "custom" {
+        format!(
+            "width: {}, height: {}",
+            user_length_or(&s.custom_paper_w, "mm", "210mm"),
+            user_length_or(&s.custom_paper_h, "mm", "297mm"),
+        )
+    } else {
+        format!("paper: \"{paper}\"")
+    };
     let (margin_x, margin_y) = match s.margin_idx {
-        1 => ("1.2cm", "1.2cm"),
-        2 => ("2.5cm", "2.5cm"),
-        _ => ("1.5cm", "1.5cm"),
+        1 => ("1.2cm".to_string(), "1.2cm".to_string()),
+        2 => ("2.5cm".to_string(), "2.5cm".to_string()),
+        5 => {
+            let m = user_length_or(&s.custom_margin, "in", "1.5cm");
+            (m.clone(), m)
+        }
+        _ => ("1.5cm".to_string(), "1.5cm".to_string()),
     };
     // "Linux Libertine" isn't an exact font-family match on any system (the
     // installed/embedded equivalent is named "Libertinus Serif"), so Typst
@@ -2996,8 +3157,8 @@ fn generate_cv_template(s: &TemplateSettings) -> String {
     // intended. "Libertinus Serif" is embedded directly in the Typst
     // compiler (see typst-kit's `embed-fonts` feature), so it renders
     // correctly regardless of what fonts the host system has installed.
-    let font = if s.font.is_empty() || s.font == "Times New Roman" { "Libertinus Serif" } else { &s.font };
-    let font_size = if s.font_size.is_empty() { "10.5pt" } else { &s.font_size };
+    let font = if s.font.trim().is_empty() || s.font == "Times New Roman" { "Libertinus Serif" } else { s.font.trim() };
+    let font_size = user_length_or(&s.font_size, "pt", "10.5pt");
     let name = if s.author.is_empty() { "Your Name" } else { &s.author };
     // In CV mode the Metadata group's academic-paper rows are relabeled to
     // CV-relevant fields (see the cv_switch handler in TemplateDialog::new):
@@ -3015,7 +3176,7 @@ fn generate_cv_template(s: &TemplateSettings) -> String {
     let _ = writeln!(out, "// @zerkalo-cv-style: {cv_style}");
     let _ = writeln!(out, "// @zerkalo-version: {}", env!("CARGO_PKG_VERSION"));
     let _ = writeln!(out);
-    let _ = writeln!(out, "#set page(paper: \"{paper}\", margin: (x: {margin_x}, y: {margin_y}))");
+    let _ = writeln!(out, "#set page({page_size}, margin: (x: {margin_x}, y: {margin_y}))");
     let _ = writeln!(out, "#set text(font: \"{font}\", size: {font_size}, lang: \"en\")", font = typst_str(font));
     let _ = writeln!(out, "#set par(spacing: 0.55em, leading: 0.65em)");
     let _ = writeln!(out);
@@ -3458,8 +3619,7 @@ fn margin_values(idx: usize, custom_in: &str) -> (String, String, String, String
         // page width directly, so this stays correct across paper sizes.
         4 => ("1.25in".into(), "1.25in".into(), "1.25in".into(), "33%".into()),
         5 => {
-            let v = if custom_in.is_empty() { "1" } else { custom_in };
-            let m = format!("{v}in");
+            let m = user_length_or(custom_in, "in", "1in");
             (m.clone(), m.clone(), m.clone(), m)
         }
         _ => ("1in".into(), "1in".into(), "1.25in".into(), "1.25in".into()),
@@ -4099,7 +4259,7 @@ pub fn style_name_for_key(key: &str) -> Option<&'static str> {
 }
 
 pub fn parse_style_key(content: &str) -> Option<String> {
-    for line in content.lines() {
+    for line in preamble_region(content).lines() {
         if let Some(rest) = line.trim().strip_prefix("// @zerkalo-style:") {
             let key = rest.trim().to_string();
             if !key.is_empty() {
@@ -4236,23 +4396,172 @@ pub fn parse_font_size(content: &str) -> Option<String> {
     last_found
 }
 
-/// Parse `paper: "…"` from `#set page(…)` in document content.
-pub fn parse_paper(content: &str) -> Option<String> {
-    for line in content.lines() {
-        let t = line.trim();
-        if t.starts_with("paper:") || t.contains("paper:") {
-            if let Some(start) = t.find("paper:") {
-                let after = t[start + 6..].trim_start();
-                if let Some(after) = after.strip_prefix('"') {
-                    if let Some(end) = after.find('"') {
-                        let p = after[..end].to_string();
-                        if !p.is_empty() { return Some(p); }
-                    }
-                }
-            }
+/// The region a generated template owns: the `ZERKALO-TEMPLATE-BEGIN`…`-END`
+/// block when present, otherwise everything before the body marker, otherwise
+/// the whole document. The page parsers below scope themselves to this so a
+/// `paper:`/`left:` the user wrote in their own prose — or in a
+/// `#block(inset: (left: 0.5in))` — can't be read back as a page setting.
+fn preamble_region(content: &str) -> &str {
+    if let (Some(b), Some(e)) = (content.find(TEMPLATE_BEGIN), content.find(TEMPLATE_END)) {
+        if b < e {
+            return &content[b..e];
         }
     }
-    None
+    const BODY_MARKERS: &[&str] = &["// ── Document body", "// ── Chapters"];
+    match BODY_MARKERS.iter().filter_map(|m| content.find(m)).min() {
+        Some(p) => &content[..p],
+        None => content,
+    }
+}
+
+/// The argument text of every `#set page(…)` in `content`, comments stripped
+/// and balanced across line breaks, so a multi-line call is one string.
+fn set_page_args(content: &str) -> Vec<String> {
+    let code: String = content
+        .lines()
+        .map(|l| match l.find("//") {
+            Some(p) => &l[..p],
+            None => l,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let mut out = Vec::new();
+    let mut rest = code.as_str();
+    while let Some(pos) = rest.find("#set page(") {
+        let args_start = pos + "#set page(".len();
+        let mut depth = 1i32;
+        let mut in_str = false;
+        let mut end = None;
+        for (i, c) in rest[args_start..].char_indices() {
+            match c {
+                '"' => in_str = !in_str,
+                '(' if !in_str => depth += 1,
+                ')' if !in_str => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = Some(args_start + i);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        match end {
+            Some(e) => {
+                out.push(rest[args_start..e].to_string());
+                rest = &rest[e..];
+            }
+            None => break,
+        }
+    }
+    out
+}
+
+/// The value of `key:` in a `#set page(…)` argument list, up to the next comma
+/// or closing paren at the same nesting depth.
+fn page_arg(args: &str, key: &str) -> Option<String> {
+    let needle = format!("{key}:");
+    let mut search = args;
+    let mut offset = 0usize;
+    let pos = loop {
+        let hit = search.find(&needle)?;
+        let abs = offset + hit;
+        // Reject `x-margin:` matching `margin:` — the key must start a token.
+        let preceded_ok = abs == 0
+            || !args[..abs]
+                .chars()
+                .next_back()
+                .map(|c| c.is_alphanumeric() || c == '-' || c == '_')
+                .unwrap_or(false);
+        if preceded_ok {
+            break abs;
+        }
+        offset = abs + needle.len();
+        search = &args[offset..];
+    };
+    let after = args[pos + needle.len()..].trim_start();
+    let mut depth = 0i32;
+    let mut in_str = false;
+    let mut end = after.len();
+    for (i, c) in after.char_indices() {
+        match c {
+            '"' => in_str = !in_str,
+            '(' if !in_str => depth += 1,
+            ')' if !in_str => {
+                if depth == 0 {
+                    end = i;
+                    break;
+                }
+                depth -= 1;
+            }
+            ',' if !in_str && depth == 0 => {
+                end = i;
+                break;
+            }
+            _ => {}
+        }
+    }
+    let v = after[..end].trim();
+    if v.is_empty() { None } else { Some(v.to_string()) }
+}
+
+fn unquote(v: &str) -> Option<String> {
+    let t = v.trim();
+    let inner = t.strip_prefix('"')?.strip_suffix('"')?;
+    if inner.is_empty() { None } else { Some(parse_typst_string_value(&format!("{inner}\""))) }
+}
+
+/// Parse the paper selection from `#set page(…)`. Returns `"custom"` for a
+/// document sized with explicit `width:`/`height:` — without that, re-opening
+/// "Update Template Settings" on a custom-sized document silently reset it to
+/// US Letter, because nothing here reported a size at all.
+pub fn parse_paper(content: &str) -> Option<String> {
+    let mut found = None;
+    for args in set_page_args(preamble_region(content)) {
+        if let Some(p) = page_arg(&args, "paper").and_then(|v| unquote(&v)) {
+            found = Some(p);
+        } else if page_arg(&args, "width").is_some() && page_arg(&args, "height").is_some() {
+            found = Some("custom".to_string());
+        }
+    }
+    found
+}
+
+/// The explicit `width:`/`height:` of a custom-sized page, normalised to the
+/// bare millimetre numbers the dialog's Custom fields hold.
+pub fn parse_custom_paper(content: &str) -> Option<(String, String)> {
+    let mut found = None;
+    for args in set_page_args(preamble_region(content)) {
+        if let (Some(w), Some(h)) = (page_arg(&args, "width"), page_arg(&args, "height")) {
+            found = Some((length_as(&w, "mm")?, length_as(&h, "mm")?));
+        }
+    }
+    found
+}
+
+/// Convert a Typst length literal to a bare number in `unit`, for round-tripping
+/// back into the dialog's unit-less Custom entries. Returns `None` for a unit
+/// that can't be converted (`%`, `em` — both relative).
+fn length_as(v: &str, unit: &str) -> Option<String> {
+    let t = v.trim();
+    let split = t.find(|c: char| !(c.is_ascii_digit() || c == '.'))?;
+    let value: f64 = t[..split].parse().ok()?;
+    let in_mm = match t[split..].trim() {
+        "mm" => value,
+        "cm" => value * 10.0,
+        "in" => value * 25.4,
+        "pt" => value * 25.4 / 72.0,
+        _ => return None,
+    };
+    let out = match unit {
+        "mm" => in_mm,
+        "cm" => in_mm / 10.0,
+        "in" => in_mm / 25.4,
+        "pt" => in_mm * 72.0 / 25.4,
+        _ => return None,
+    };
+    Some(format!("{}", (out * 1000.0).round() / 1000.0))
 }
 
 /// Parse `leading: …` from `#set par(…)` in document content.
@@ -4279,51 +4588,69 @@ pub fn parse_spacing(content: &str) -> Option<String> {
     last_found
 }
 
-/// Detect the margin preset index (0=Normal, 1=Narrow, 2=Wide, 3=LaTeX, 4=Ross)
-/// from the content. Reads the left/right-margin values from
-/// `#set page(margin: (...))` (generated on one line) and maps them to a preset.
+/// Detect the margin preset index (0=Normal, 1=Narrow, 2=Wide, 3=LaTeX,
+/// 4=Ross, 5=Custom) from the `#set page(margin: …)` call in the preamble.
 pub fn parse_margin(content: &str) -> usize {
-    let mut in_page = false;
-    let mut in_margin = false;
-    let mut paren_depth = 0i32;
-    for line in content.lines() {
-        let t = line.trim();
-        if t.starts_with("//") { continue; }
-        if t.starts_with("#set page(") { in_page = true; }
-        if in_page {
-            if t.contains("margin:") { in_margin = true; }
-            if in_margin {
-                if let Some(pos) = t.find("left:") {
-                    let after = t[pos + 5..].trim_start();
-                    let val: String = after.chars()
-                        .take_while(|c| !matches!(c, ',' | ')'))
-                        .collect();
-                    let val = val.trim();
-                    // Ross's distinctive percentage right margin is checked first
-                    // since its left value (1.25in) is otherwise identical to Normal's.
-                    if let Some(rpos) = t.find("right:") {
-                        let rafter = t[rpos + 6..].trim_start();
-                        let rval: String = rafter.chars()
-                            .take_while(|c| !matches!(c, ',' | ')'))
-                            .collect();
-                        if rval.trim().contains('%') { return 4; }
-                    }
-                    if val.starts_with("0.5") { return 1; }
-                    if val.starts_with("2in") || val == "2in" { return 2; }
-                    if val.starts_with("1.75in") { return 3; }
-                    return 0; // Normal (1.25in) or unrecognised
-                }
-                paren_depth += t.chars().filter(|&c| c == '(').count() as i32;
-                paren_depth -= t.chars().filter(|&c| c == ')').count() as i32;
-                if paren_depth <= 0 { in_margin = false; paren_depth = 0; }
-            }
-            // End of #set page block
-            let inline = t.starts_with("#set page(") && t.ends_with(')');
-            let alone  = !t.starts_with("#set page(") && t.trim() == ")";
-            if inline || alone { in_page = false; in_margin = false; }
+    let Some((t, b, l, r)) = page_margins(content) else { return 0 };
+    // Ross's distinctive percentage right margin is checked first since its
+    // left value (1.25in) is otherwise identical to Normal's.
+    if r.contains('%') {
+        return 4;
+    }
+    for idx in [0usize, 1, 2, 3] {
+        let (pt, pb, pl, pr) = margin_values(idx, "");
+        if (pt.as_str(), pb.as_str(), pl.as_str(), pr.as_str()) == (t.as_str(), b.as_str(), l.as_str(), r.as_str()) {
+            return idx;
         }
     }
+    // All four equal but matching no preset is the shape margin_values emits
+    // for a Custom margin — reporting Normal here is what silently reset a
+    // user's custom margin every time the dialog was re-opened.
+    if t == b && b == l && l == r {
+        return 5;
+    }
     0
+}
+
+/// The custom margin value, as the bare inch number the dialog's Custom field
+/// holds. `None` unless the document actually uses a custom margin.
+pub fn parse_custom_margin(content: &str) -> Option<String> {
+    if parse_margin(content) != 5 {
+        return None;
+    }
+    let (t, ..) = page_margins(content)?;
+    length_as(&t, "in")
+}
+
+/// The four resolved margin values from the last `#set page(margin: …)` in the
+/// preamble. Accepts both the `(top:, bottom:, left:, right:)` form the
+/// academic generator emits and the `(x:, y:)` form the CV generator uses.
+fn page_margins(content: &str) -> Option<(String, String, String, String)> {
+    let mut found = None;
+    for args in set_page_args(preamble_region(content)) {
+        let Some(m) = page_arg(&args, "margin") else { continue };
+        let inner = m.trim().strip_prefix('(').and_then(|v| v.strip_suffix(')')).unwrap_or(&m);
+        let get = |k: &str| page_arg(inner, k);
+        let quad = match (get("top"), get("bottom"), get("left"), get("right")) {
+            (Some(t), Some(b), Some(l), Some(r)) => Some((t, b, l, r)),
+            _ => match (get("x"), get("y")) {
+                (Some(x), Some(y)) => Some((y.clone(), y, x.clone(), x)),
+                _ => {
+                    // `margin: 1in` — a single length applies to all sides.
+                    let v = inner.trim();
+                    if v.is_empty() || v.contains(':') {
+                        None
+                    } else {
+                        Some((v.to_string(), v.to_string(), v.to_string(), v.to_string()))
+                    }
+                }
+            },
+        };
+        if quad.is_some() {
+            found = quad;
+        }
+    }
+    found
 }
 
 /// Remove the legacy ZERKALO-STYLE-BEGIN/END block if present. The template section
