@@ -28,6 +28,7 @@ Live preview · Academic styles · LSP completions · Git sync · Adwaita design
 | **Word-count goal** | Add `// @goal: 3000` in your file; a progress bar tracks progress in the status bar |
 | **Session delta** | Status bar shows `↑ N` words added since the file was opened |
 | **Cursor position** | Line and column in the editor status bar |
+| **What things do (F1)** | Labels every panel and control on screen with a bubble explaining it, drawn over the running window so the program stays visible underneath; Escape or a click dismisses |
 | **Command palette** | `Ctrl+K`; fuzzy search over app commands and document headings; `Ctrl+G` for headings only |
 | **Session restore** | Open files, active tab, and cursor positions are restored on next launch |
 | **Save-before-close** | Closing with unsaved files shows a dialog listing modified files with Save All / Discard / Cancel |
@@ -192,6 +193,7 @@ All settings are also editable via **☰ → Settings** inside the app.
 | `Ctrl+Tab` | Next tab |
 | `Ctrl+Shift+Tab` | Previous tab |
 | `Ctrl+Shift+R` | Add reference (citation autocomplete) |
+| `F1` | Label every panel and button on screen; Esc or a click closes |
 | `Ctrl+K` | Command palette (commands + headings) |
 | `Ctrl+G` | Command palette — headings only |
 | `Ctrl+Shift+S` | Git sync (commit & push) |

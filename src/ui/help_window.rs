@@ -221,6 +221,9 @@ fn shortcuts_blocks() -> Vec<Block<'static>> {
         Block::H2("Import"),
         Block::Code("Ctrl+Shift+I        Open the Import picker (LaTeX/Word/Markdown/ODT/HTML/EPUB/RTF/PDF)\nCtrl+Shift+V        Paste as Document (reads clipboard text as Markdown)\nDrag & drop         Drop a document file onto the editor to import it directly"),
         Block::Gap,
+        Block::H2("What things do"),
+        Block::Code("F1                  Label every button and panel on screen, in place\nEsc                 Take the labels away (clicking anywhere does too)"),
+        Block::Gap,
         Block::H2("Git & Window"),
         Block::Code("Ctrl+Shift+S        Commit & push (git sync)\nCtrl+Shift+H        Show keyboard shortcuts (dynamic)\nCtrl+R              Refresh file tree\nCtrl+Q              Quit\nCtrl+?              Open this help window\nSidebar button      Toggle left sidebar\nInsert button       Toggle insert snippets panel\nPop-out button      Open preview in a separate window"),
     ]

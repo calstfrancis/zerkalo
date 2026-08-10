@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.21.0-dev3] — Nothing to install, nothing to type
+## [0.21.0-dev4] — Nothing to install, nothing to type, and a window that explains itself
 
 ### Added
 
@@ -30,6 +30,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   reject (spaces, brackets) are converted rather than sent and refused.
 - **A Tools window** (☰ → Tools) lists what's bundled and what's optional, replacing the last
   step of setup.
+
+- **F1 labels everything on screen.** Press it and each panel and control gets a bubble saying
+  what it's for, drawn over the running window rather than replacing it — the program stays
+  visible underneath, because the point is to explain the thing you are looking at while you
+  look at it. Bubbles are tied to real widgets, so hiding a panel or resizing the window moves
+  them with it, and anything not on screen simply isn't labelled. Escape, another F1, or a
+  click anywhere puts them away. Rebindable as `help_overlay` in `keybindings.toml`.
 
 ### Changed
 

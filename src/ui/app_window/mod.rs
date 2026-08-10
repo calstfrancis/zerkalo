@@ -76,6 +76,7 @@ pub struct AppWindow {
     error_panel: ErrorPanel,
     #[allow(dead_code)]
     outline_panel: OutlinePanel,
+    help_overlay: Rc<super::help_overlay::HelpOverlay>,
     project_root: PathBuf,
     sync_btn: Button,
     search_panel: super::search_panel::SearchPanel,
@@ -194,6 +195,7 @@ impl AppWindow {
             gost_menu_slot,
             header,
             library_btn,
+            menu_btn,
             menu_popover,
             open_list_box,
             open_search,
@@ -2126,7 +2128,31 @@ impl AppWindow {
         toolbar_view.add_bottom_bar(&compile_rev);
         toolbar_view.set_content(Some(&toast_overlay));
 
-        window.set_content(Some(&toolbar_view));
+        // F1 labels everything on screen. Wrapping the toolbar view rather
+        // than its content means the header bar's controls can be labelled
+        // too — they're where most of the buttons are.
+        let help_overlay = super::help_overlay::HelpOverlay::new(&toolbar_view);
+        super::help_overlay::annotate_window(
+            &help_overlay,
+            &super::help_overlay::AnnotationTargets {
+                sidebar_btn: &sidebar_btn,
+                file_title_widget: &file_title_widget,
+                style_btn: &style_btn,
+                save_btn: &save_btn,
+                sync_btn: &sync_btn,
+                library_btn: &library_btn,
+                preview_label: &preview_label,
+                menu_btn: &menu_btn,
+                compile_btn: &compile_btn,
+                compile_mode_slot: &compile_mode_slot,
+                outline: outline_panel.widget(),
+                citations: citation_panel.widget(),
+                editor: editor_pane.widget(),
+                preview: preview_pane.widget(),
+                status_bar: editor_pane.status_bar_widget(),
+            },
+        );
+        window.set_content(Some(help_overlay.widget()));
         let file_watcher = wire_file_watcher(&WatcherCtx {
             editor_pane: editor_pane.clone(),
             preview_pane: preview_pane.clone(),
@@ -2142,6 +2168,7 @@ impl AppWindow {
             preview_pane,
             error_panel,
             outline_panel,
+            help_overlay,
             project_root,
             sync_btn,
             search_panel,
@@ -2316,12 +2343,25 @@ impl AppWindow {
         let editor_for_paste_key = self.editor_pane.clone();
         let work_dir_for_paste_key = self.project_root.clone();
         let toast_overlay_for_paste_key = self.toast_overlay.clone();
+        let help_overlay_for_key = self.help_overlay.clone();
 
         controller.connect_key_pressed(move |_, key, _, modifier| {
             use gtk4::gdk::ModifierType;
             let ctrl = modifier.contains(ModifierType::CONTROL_MASK);
             let shift = modifier.contains(ModifierType::SHIFT_MASK);
             let alt = modifier.contains(ModifierType::ALT_MASK);
+
+            // Labels everything on screen; Escape takes the labels away.
+            // Checked before anything else so the overlay can always be shut,
+            // whatever else Escape might mean to the widget with focus.
+            if matches_binding(&kb.help_overlay, ctrl, shift, alt, key) {
+                help_overlay_for_key.toggle();
+                return glib::Propagation::Stop;
+            }
+            if key == gtk4::gdk::Key::Escape && help_overlay_for_key.is_shown() {
+                help_overlay_for_key.hide();
+                return glib::Propagation::Stop;
+            }
 
             if matches_binding(&kb.save, ctrl, shift, alt, key) {
                 if let Some(path) = editor.get_active_path() {
@@ -2832,6 +2872,7 @@ fn show_dynamic_shortcuts_window(
          Git & App\n\
          \u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\n\
          Git Sync            {git_sync}\n\
+         What things do      {help_overlay}\n\
          Keyboard Shortcuts  {shortcuts_help}\n\
          Quit                {quit}\n\n\
          Keybindings file: ~/.config/zerkalo/keybindings.toml",
@@ -2844,6 +2885,7 @@ fn show_dynamic_shortcuts_window(
         compile = kb.compile,
         git_sync = kb.git_sync,
         shortcuts_help = kb.shortcuts_help,
+        help_overlay = kb.help_overlay,
         quit = kb.quit,
     );
     let dlg = adw::MessageDialog::new(
