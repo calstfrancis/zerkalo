@@ -25,17 +25,18 @@
       <li>Simple Mode — hides Typst front-matter, shows format bar, and hides line numbers for a clean writing view</li>
       <li>Configurable keybindings via keybindings.toml</li>
       <li>Font Management — enable/disable installed fonts and set default sans/serif fonts used for new documents and template previews</li>
+      <li>Press F1 for an in-place help overlay that labels every panel and control on screen</li>
     </ul>
     <p>Document workflow:</p>
     <ul>
-      <li>New from Template — dialog generates a complete Typst preamble</li>
+      <li>New from Template — dialog generates a complete Typst preamble; save your own customised templates alongside the built-in gallery</li>
       <li>Import from Word, ODT, Markdown, LaTeX, HTML, EPUB, RTF, or PDF, previewed before anything is written — Word, ODT and Markdown are converted by Zerkalo itself with nothing to install; drag-and-drop, batch/folder import, Paste as Document, and an Import History with retry, undo, and search</li>
       <li>Export to PDF, HTML, DOCX, ODT, or LaTeX; Ctrl+Shift+E for instant PDF export</li>
       <li>Citation style switcher — APA, Chicago, GOST 7.32, and more, plus custom CSL styles</li>
       <li>BibTeX and Hayagriva YAML bibliography support, with cited-only bibliography export and project-wide citation key rename</li>
       <li>Compile on save with live preview; scroll position preserved across recompiles</li>
       <li>Auto-save to recovery file on idle; periodic save every 30 seconds</li>
-      <li>Git sync — commit and push to all remotes in one click; sign in with GitHub via device flow, or create and link a new repository without leaving the app</li>
+      <li>Git sync — commit and push to all remotes in one click, with git bundled so there's nothing to install; three-screen setup signs in with GitHub (which supplies your name and email automatically), creates and links a new repository, or backs up to a plain folder or drive with no account at all</li>
     </ul>
     <p>CV mode:</p>
     <ul>
@@ -75,6 +76,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.21.0" date="2026-08-10">
+      <description>
+        <p>0.21.0 "New Ground" — Nothing to install, nothing to type, and a window that explains itself.</p>
+      </description>
+    </release>
     <release version="0.20.0" date="2026-08-06">
       <description>
         <p>0.20.0 "Plain Sight" — A printer that prints, a window that reads as one thing, and errors that say what and where.</p>

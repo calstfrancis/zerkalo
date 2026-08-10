@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.21.0-dev5] — Nothing to install, nothing to type, and a window that explains itself
+## [0.21.0] "New Ground" — Nothing to install, nothing to type, and a window that explains itself
 
 ### Added
 
