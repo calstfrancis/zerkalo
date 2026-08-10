@@ -29,6 +29,8 @@ fn overview_blocks() -> Vec<Block<'static>> {
         Block::Gap,
         Block::Body("Create a new document from the hamburger menu (≡) or use New from Template… for a complete preamble. The left sidebar shows the document outline and a symbol insert panel."),
         Block::Gap,
+        Block::Body("Once a template's settings are how you want them, press the save button beside \"Your Templates\" in that dialog to keep them under a name. Saved templates sit under the built-in presets and start a document exactly the way the last one started — the title, date, abstract and keywords are left out, since those belong to a single document rather than to a template."),
+        Block::Gap,
         Block::H2("Layout"),
         Block::Code("Left sidebar   Document outline, symbols, files, refs, history\nEditor         Tabbed, syntax-highlighted Typst editor\nFind bar       Persistent search/replace at editor bottom\nPreview        Live rendered output — use +/− to zoom\nError panel    Compile errors and LSP diagnostics"),
         Block::Gap,

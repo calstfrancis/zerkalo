@@ -30,6 +30,7 @@ mod session;
 mod spellcheck;
 mod styles;
 mod templates;
+mod user_templates;
 mod web_export;
 mod library;
 mod ui;

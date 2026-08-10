@@ -512,12 +512,14 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
     let project_root_for_reapply = ctx.project_root.clone();
     let cfg_for_reapply = ctx.current_config.clone();
     let preview_for_reapply = ctx.preview_pane.clone();
+    let toast_for_reapply = ctx.toast_overlay.clone();
     menus.menu_reapply_template_item.connect_clicked(move |_| {
         menu_popover_for_reapply.popdown();
         open_template_for_active_document(
             &window_for_reapply,
             &editor_for_reapply,
             &preview_for_reapply,
+            &toast_for_reapply,
             &project_root_for_reapply,
             &cfg_for_reapply,
         );
