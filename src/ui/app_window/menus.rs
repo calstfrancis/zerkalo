@@ -31,7 +31,7 @@ use crate::bibliography;
 use crate::git_sync;
 use super::{
     apply_compile_mode_css, apply_theme, compile_mode_label_str,
-    font_defaults, make_font_save_cb, print_from_preview, restore_snapshot_with_confirm,
+    print_from_preview, restore_snapshot_with_confirm,
     show_alert,
 };
 use super::import::run_pdf_import;
@@ -268,14 +268,18 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
     let window_for_setup = ctx.window.clone();
     let root_for_setup = ctx.project_root.clone();
     let menu_popover_for_setup = ctx.menu_popover.clone();
-    let cfg_for_setup = ctx.current_config.clone();
     menus.menu_setup_item.connect_clicked(move |_| {
         menu_popover_for_setup.popdown();
-        let (sans, serif) = font_defaults(&cfg_for_setup);
-        super::super::setup_wizard::SetupWizard::new(
-            &window_for_setup, &root_for_setup, &sans, &serif,
-            make_font_save_cb(cfg_for_setup.clone()),
-        ).present();
+        super::super::setup_wizard::SetupWizard::new(&window_for_setup, &root_for_setup).present();
+    });
+
+    // ── Menu: Tools ─────────────────────────────────────────────────────
+
+    let window_for_tools = ctx.window.clone();
+    let menu_popover_for_tools = ctx.menu_popover.clone();
+    menus.menu_tools_item.connect_clicked(move |_| {
+        menu_popover_for_tools.popdown();
+        super::super::tools_window::ToolsWindow::new(&window_for_tools).present();
     });
 
     // ── Menu: Backup Remotes ────────────────────────────────────────────

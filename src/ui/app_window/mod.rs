@@ -2751,20 +2751,6 @@ impl AppWindow {
     }
 }
 
-fn font_defaults(cfg: &Rc<RefCell<Config>>) -> (String, String) {
-    let c = cfg.borrow();
-    (c.default_sans_font.clone(), c.default_serif_font.clone())
-}
-
-fn make_font_save_cb(cfg: Rc<RefCell<Config>>) -> impl Fn(String, String) + 'static {
-    move |sans: String, serif: String| {
-        let mut c = cfg.borrow_mut();
-        c.default_sans_font = sans;
-        c.default_serif_font = serif;
-        let _ = c.save();
-    }
-}
-
 fn compile_mode_label_str(auto: bool, _cos: bool, mco: bool) -> &'static str {
     // Anything that isn't manual or auto compiles on save, whether or not the
     // compile_on_save flag is explicitly set.
@@ -3058,6 +3044,7 @@ struct HamburgerItems {
     menu_fonts_item: Button,
     menu_settings_item: Button,
     menu_setup_item: Button,
+    menu_tools_item: Button,
     menu_backup_remote_item: Button,
     menu_help_item: Button,
     menu_shortcuts_item: Button,
@@ -3091,7 +3078,8 @@ fn build_hamburger_menu_items() -> HamburgerItems {
         menu_docs_item:            make_menu_item("Browse Documents…",           None),
         menu_fonts_item:           make_menu_item("Document Fonts…",             None),
         menu_settings_item:        make_menu_item("Settings",                    None),
-        menu_setup_item:           make_menu_item("Setup & Onboarding…",         None),
+        menu_setup_item:           make_menu_item("Set Up Zerkalo…",             None),
+        menu_tools_item:           make_menu_item("Tools…",                      None),
         menu_backup_remote_item:   make_menu_item("Git Remotes…",                 None),
         menu_help_item:            make_menu_item("Help",                      Some("Ctrl+?")),
         // The keybinding-aware shortcuts window was reachable only by its

@@ -183,6 +183,11 @@ pub struct Config {
     pub simple_mode: bool,
     #[serde(default)]
     pub shown_simple_intro: bool,
+    /// Set when setup has either finished or been declined. Without it, a user
+    /// who chose not to back up their work is asked again on every launch,
+    /// which reads as the app not having listened.
+    #[serde(default)]
+    pub setup_done: bool,
     #[serde(default = "default_true")]
     pub format_bar_visible: bool,
     #[serde(default)]
@@ -264,6 +269,7 @@ impl Default for Config {
             locked_affiliation: String::new(),
             simple_mode: true,
             shown_simple_intro: false,
+            setup_done: false,
             format_bar_visible: true,
             last_used_advanced: false,
             snippets: Vec::new(),

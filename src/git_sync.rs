@@ -19,10 +19,37 @@ pub fn host_command(bin: &str) -> Command {
     }
 }
 
-/// Returns a `Command` pre-loaded with `git -C <repo>`, using
-/// `flatpak-spawn --host git` when running inside a flatpak sandbox.
+/// Absolute path to a git shipped inside the application, if there is one.
+///
+/// The flatpak bundles git because the GNOME runtime has none, and reaching
+/// the host's git through `flatpak-spawn` means sync works only for users who
+/// already installed git themselves — which for the app's main distribution
+/// made "run this in a terminal" a prerequisite for saving your work.
+pub fn bundled_git() -> Option<&'static str> {
+    const CANDIDATES: [&str; 2] = ["/app/bin/git", "/usr/lib/zerkalo/bin/git"];
+    CANDIDATES.into_iter().find(|p| Path::new(p).exists())
+}
+
+/// Whether a usable git exists at all — bundled, or on the host.
+pub fn git_available() -> bool {
+    if bundled_git().is_some() {
+        return true;
+    }
+    host_command("git")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// Returns a `Command` pre-loaded with `git -C <repo>`, using the bundled git
+/// when present and `flatpak-spawn --host git` otherwise.
 pub(crate) fn git_cmd(repo_path: &Path) -> Command {
-    let mut cmd = if in_flatpak() {
+    let mut cmd = if let Some(path) = bundled_git() {
+        let mut cmd = Command::new(path);
+        cmd.args(["-C", path_str(repo_path)]);
+        cmd
+    } else if in_flatpak() {
         let mut cmd = Command::new("flatpak-spawn");
         cmd.args(["--host", "git", "-C", path_str(repo_path)]);
         cmd

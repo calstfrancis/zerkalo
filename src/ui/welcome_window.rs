@@ -127,6 +127,15 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
+                "New: setting up is three screens with one decision each — what it's for, sign in, confirm a name. It used to be one long page of five sections with seven separate Apply buttons, in an order nothing announced, starting by asking for a git name and email. Creating the repository, linking it, the first save and the first upload all happen behind the last button, each step ticked off as it finishes",
+                "New: signing in with GitHub supplies your name and email, so you are never asked for them — and uses the address GitHub guarantees will attribute your work to you, rather than the public email field, which is empty for anyone with email privacy on and silently credits every version to nobody",
+                "New: git is bundled. The runtime Zerkalo is built on has none, so the flatpak used to run the host's git — making \"install git in a terminal\" a prerequisite for saving your work. There is nothing left to install",
+                "New: you don't need a GitHub account. The same screen offers backing up to a folder or drive — a synced Nextcloud or pCloud folder, a USB stick — or pasting the address of a repository you already have. Declining outright is a plain option, and you aren't asked again",
+                "New: the repository is named after your work rather than the program — the work folder's name with -docs after it. Folder names GitHub would reject are converted instead of being sent and refused",
+                "New: a Tools window (≡ → Tools) lists what's bundled and what's optional, replacing the last step of setup",
+                "Changed: Zerkalo no longer opens with an alert listing sudo commands — the first thing a new user saw, about tools that are now bundled anyway",
+                "Changed: document fonts moved to Settings, out of setup, where they were standing between a first-time user and getting started",
+                "Fixed: a new repository starts on main. Setup left the branch to git's own default, often master, so the first push created a second, unrelated branch beside the main GitHub had made",
                 "New: Word, OpenDocument and Markdown files are converted by Zerkalo itself, with nothing to install — three formats that used to need pandoc, which in the flatpak means a tool installed outside the sandbox that most people won't have. Headings, bold and italic, nested lists, tables, links, quotes, code blocks and embedded images all come across, and images travel with the document",
                 "New: \"Paste as Document\" reads what you pasted as Markdown the same way, so it too needs nothing installed — and a large paste no longer freezes the window while it converts",
                 "New: anything a conversion couldn't carry across is said out loud rather than quietly dropped — raw HTML in Markdown, footnotes reduced to plain markers, and Word citations from a reference manager that can't be read at all",

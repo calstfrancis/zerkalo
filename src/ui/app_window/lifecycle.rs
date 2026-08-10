@@ -15,7 +15,6 @@ use crate::config::Config;
 use crate::lsp::{DiagSeverity, LspClient};
 use super::super::editor_pane::EditorPane;
 use super::super::error_panel::{CompileError, ErrorPanel, Severity, humanize};
-use super::{font_defaults, make_font_save_cb, show_alert};
 
 /// What the startup and lifecycle wiring needs from `AppWindow::new`.
 pub(super) struct LifecycleCtx {
@@ -57,56 +56,34 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
         });
     }
 
-    // ── Startup: combined missing-tool check (single alert, not stacked) ───
-    let win_for_check = ctx.window.clone();
+    // ── Startup: optional tools ──────────────────────────────────────────
+    //
+    // This used to open a modal alert listing sudo commands over the top of a
+    // brand-new window — the first thing a first-time user saw, about tools
+    // that are now bundled anyway. Missing optional tools are logged and shown
+    // in ☰ → Tools; only a missing git, which nothing works without, still
+    // interrupts, and in the flatpak there is always one.
+    let toast_for_check = ctx.toast_overlay.clone();
     glib::timeout_add_local(Duration::from_millis(900), move || {
-        let in_flatpak = std::path::Path::new("/.flatpak-info").exists();
-        let git_ok = if in_flatpak {
-            std::process::Command::new("flatpak-spawn")
-                .args(["--host", "git", "--version"]).output().is_ok()
-        } else {
-            std::process::Command::new("git").arg("--version").output().is_ok()
-        };
-        let hunspell_ok = std::process::Command::new("hunspell")
-            .arg("--version").output().is_ok();
-        let pandoc_ok = crate::git_sync::host_command("pandoc")
-            .arg("--version").output().is_ok();
+        if !crate::git_sync::git_available() {
+            tracing::warn!("git not found");
+            let t = adw::Toast::new("git isn't installed — saving versions won't work. See ☰ → Tools.");
+            t.set_timeout(12);
+            toast_for_check.add_toast(t);
+        }
+        if std::process::Command::new("hunspell").arg("--version").output().is_err() {
+            tracing::info!("hunspell not found — spell check disabled");
+        }
+        if crate::git_sync::host_command("pandoc").arg("--version").output().is_err() {
+            tracing::info!("pandoc not found — LaTeX/HTML/EPUB/RTF import disabled");
+        }
         let tinymist_ok = ["/app/lib/zerkalo/tinymist", "/usr/lib/zerkalo/tinymist"]
             .iter()
             .find(|p| std::path::Path::new(p).exists())
             .map(|p| std::process::Command::new(p).arg("--version").output().is_ok())
             .unwrap_or_else(|| std::process::Command::new("tinymist").arg("--version").output().is_ok());
-
-        let mut missing: Vec<String> = Vec::new();
-        if !git_ok {
-            tracing::warn!("git not found in PATH");
-            missing.push(
-                "git — required for Git sync\n\
-                 \n  zypper install git  |  apt install git  |  dnf install git".to_string()
-            );
-        }
-        if !hunspell_ok {
-            tracing::warn!("hunspell not found in PATH — spell check disabled");
-            missing.push(
-                "hunspell — required for spell checking\n\
-                 \n  zypper install hunspell hunspell-en\
-                 \n  apt install hunspell hunspell-en-us\
-                 \n  dnf install hunspell hunspell-en".to_string()
-            );
-        }
-        if !pandoc_ok {
-            tracing::info!("pandoc not found — LaTeX/DOCX import disabled");
-        }
         if !tinymist_ok {
             tracing::info!("tinymist not found — LSP completions disabled");
-            missing.push(
-                "tinymist (optional) — enables LSP completions and diagnostics\n\
-                 \n  cargo install tinymist  |  https://github.com/Myriad-Dreamin/tinymist/releases".to_string()
-            );
-        }
-        if !missing.is_empty() {
-            let body = missing.join("\n\n");
-            show_alert(&win_for_check, "Some tools are missing", &body);
         }
         glib::ControlFlow::Break
     });
@@ -122,7 +99,6 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
 
     let win_for_welcome = ctx.window.clone();
     let root_for_welcome = ctx.project_root.clone();
-    let cfg_for_welcome = ctx.current_config.clone();
     glib::timeout_add_local(Duration::from_millis(1200), move || {
         if super::super::welcome_window::WelcomeWindow::should_show() {
             let is_first_run = super::super::welcome_window::WelcomeWindow::is_first_run();
@@ -131,23 +107,14 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
             // Chain: after "Get Started", check if setup wizard is needed.
             let win_chain = win_for_welcome.clone();
             let root_chain = root_for_welcome.clone();
-            let cfg_chain = cfg_for_welcome.clone();
             ww.set_on_dismissed(move || {
                 if super::super::setup_wizard::SetupWizard::should_show(&root_chain) {
-                    let (sans, serif) = font_defaults(&cfg_chain);
-                    super::super::setup_wizard::SetupWizard::new(
-                        &win_chain, &root_chain, &sans, &serif,
-                        make_font_save_cb(cfg_chain.clone()),
-                    ).present();
+                    super::super::setup_wizard::SetupWizard::new(&win_chain, &root_chain).present();
                 }
             });
             ww.present();
         } else if super::super::setup_wizard::SetupWizard::should_show(&root_for_welcome) {
-            let (sans, serif) = font_defaults(&cfg_for_welcome);
-            super::super::setup_wizard::SetupWizard::new(
-                &win_for_welcome, &root_for_welcome, &sans, &serif,
-                make_font_save_cb(cfg_for_welcome.clone()),
-            ).present();
+            super::super::setup_wizard::SetupWizard::new(&win_for_welcome, &root_for_welcome).present();
         }
         glib::ControlFlow::Break
     });

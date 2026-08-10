@@ -67,6 +67,7 @@ Live preview · Academic styles · LSP completions · Git sync · Adwaita design
 | **Font management** | ☰ → Font Management — searchable list of system fonts; enable/disable; persisted to `~/.config/zerkalo/font-preferences.toml` |
 | **GOST Type B font** | Bundled and installed automatically on first launch |
 | **Git sync** | Commit and push in one click or `Ctrl+Shift+S`; pushes to all configured remotes |
+| **Setup** | ☰ → Set Up Zerkalo — three screens: sign in with GitHub, confirm a repository name, done. The git identity comes from the account (never typed), the repository is created and linked, and the first version is pushed, all behind one button. A folder or drive works instead of an account; git is bundled, so nothing needs installing |
 
 ---
 
@@ -77,7 +78,7 @@ Live preview · Academic styles · LSP completions · Git sync · Adwaita design
 | `pandoc` | DOCX, ODT, LaTeX export; LaTeX, HTML, EPUB and RTF import (Word, OpenDocument and Markdown import need it no longer) | declared as a package dependency — installed automatically with .deb/.rpm |
 | `hunspell` | Spell checking | declared as a package dependency — installed automatically with .deb/.rpm |
 | `hunspell-en` | English dictionaries (example) | `apt install hunspell-en-us` · `dnf install hunspell-en` · `zypper install hunspell-en` |
-| `git` | Sync | system package |
+| `git` | Version history and sync | **bundled in the flatpak** — the GNOME runtime ships none; system package otherwise |
 | `tinymist` | LSP completions (optional) | bundled at `/usr/lib/zerkalo/tinymist` in .deb/.rpm; `cargo install tinymist` for source builds |
 
 > **Note:** `typst` and `pdftoppm` are no longer required. Compilation and preview rendering are handled in-process by the embedded Typst engine.
