@@ -12,7 +12,19 @@
 /// silently reverts you.
 const FOND_CSS: &str = include_str!("../../style/fond.css");
 
-const GLOBAL_CSS: &str = ".fond-accent-outline { color: #1F5E75; } \
+const GLOBAL_CSS: &str = "\
+    /* The F1 \"what things do\" overlay. Solid backgrounds, because these sit \
+       directly on top of the running window — a translucent bubble over an \
+       editor full of text is unreadable. Themed rather than literal colours \
+       so they follow light/dark like everything else. */ \
+    .help-bubble { background: @card_bg_color; border: 1px solid alpha(@accent_color, 0.55); \
+                   border-radius: 10px; padding: 8px 10px; \
+                   box-shadow: 0 2px 8px alpha(@window_fg_color, 0.28); } \
+    .help-bubble-title { font-weight: bold; } \
+    .help-bubble-body { font-size: 0.9em; color: alpha(@window_fg_color, 0.8); } \
+    .help-hint { background: @accent_color; color: @accent_fg_color; \
+                 border-radius: 999px; padding: 6px 14px; font-size: 0.9em; } \
+    .fond-accent-outline { color: #1F5E75; } \
     .fond-accent-citations { color: #8A6A24; } \
     .fond-accent-library { color: #1F5E75; } \
     .fond-accent-pinned { color: #8A6A24; } \

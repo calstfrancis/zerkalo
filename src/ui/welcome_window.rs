@@ -127,6 +127,7 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
+                "New: press F1 and every panel and button on screen gets a bubble saying what it does, drawn over the running window rather than replacing it — you can still see the thing being explained. Escape, F1 again, or a click anywhere puts them away",
                 "New: setting up is three screens with one decision each — what it's for, sign in, confirm a name. It used to be one long page of five sections with seven separate Apply buttons, in an order nothing announced, starting by asking for a git name and email. Creating the repository, linking it, the first save and the first upload all happen behind the last button, each step ticked off as it finishes",
                 "New: signing in with GitHub supplies your name and email, so you are never asked for them — and uses the address GitHub guarantees will attribute your work to you, rather than the public email field, which is empty for anyone with email privacy on and silently credits every version to nobody",
                 "New: git is bundled. The runtime Zerkalo is built on has none, so the flatpak used to run the host's git — making \"install git in a terminal\" a prerequisite for saving your work. There is nothing left to install",

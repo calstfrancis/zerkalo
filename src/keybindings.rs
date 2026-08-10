@@ -24,6 +24,8 @@ pub struct Keybindings {
     pub command_palette: String,
     #[serde(default = "default_shortcuts_help")]
     pub shortcuts_help: String,
+    #[serde(default = "default_help_overlay")]
+    pub help_overlay: String,
 }
 
 impl Default for Keybindings {
@@ -39,6 +41,7 @@ impl Default for Keybindings {
             git_sync: default_git_sync(),
             command_palette: default_command_palette(),
             shortcuts_help: default_shortcuts_help(),
+            help_overlay: default_help_overlay(),
         }
     }
 }
@@ -53,6 +56,7 @@ fn default_add_ref() -> String { "ctrl+shift+r".to_string() }
 fn default_git_sync() -> String { "ctrl+shift+s".to_string() }
 fn default_command_palette() -> String { "ctrl+k".to_string() }
 fn default_shortcuts_help() -> String { "ctrl+shift+h".to_string() }
+fn default_help_overlay() -> String { "f1".to_string() }
 
 impl Keybindings {
     pub fn load() -> Self {

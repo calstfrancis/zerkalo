@@ -12,6 +12,7 @@ pub mod file_tree;
 pub mod find_bar;
 pub mod font_manager;
 pub mod github_signin;
+pub mod help_overlay;
 pub mod help_window;
 pub mod lsp_popup;
 pub mod outline_panel;
