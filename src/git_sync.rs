@@ -317,26 +317,34 @@ pub fn sync(repo_path: &Path, github_token: Option<&str>) -> SyncResult {
         {
             if !pull_out.status.success() {
                 let msg = lossy_combined(&pull_out);
-                // Abort the rebase so the repo is left in a clean state.
-                match git_cmd(repo_path).args(["rebase", "--abort"]).output() {
-                    Ok(a) if !a.status.success() => {
-                        let abort_msg = lossy_combined(&a);
-                        push_errors.push(format!(
-                            "({remote}) Pull failed and rebase --abort also failed: {abort_msg}. \
-                             Repository may be in mid-rebase state — run 'git rebase --abort' manually."
-                        ));
+                if rebase_in_progress(repo_path) {
+                    // Abort the rebase so the repo is left in a clean state.
+                    match git_cmd(repo_path).args(["rebase", "--abort"]).output() {
+                        Ok(a) if !a.status.success() => {
+                            let abort_msg = lossy_combined(&a);
+                            push_errors.push(format!(
+                                "({remote}) Pull failed and rebase --abort also failed: {abort_msg}. \
+                                 Repository may be in mid-rebase state — run 'git rebase --abort' manually."
+                            ));
+                        }
+                        Err(e) => {
+                            push_errors.push(format!(
+                                "({remote}) Pull failed and could not run rebase --abort: {e}. \
+                                 Repository may be in mid-rebase state — run 'git rebase --abort' manually."
+                            ));
+                        }
+                        Ok(_) => {
+                            push_errors.push(format!("({remote}) Pull failed: {msg}"));
+                        }
                     }
-                    Err(e) => {
-                        push_errors.push(format!(
-                            "({remote}) Pull failed and could not run rebase --abort: {e}. \
-                             Repository may be in mid-rebase state — run 'git rebase --abort' manually."
-                        ));
-                    }
-                    Ok(_) => {
-                        push_errors.push(format!("({remote}) Pull failed: {msg}"));
-                    }
+                    continue;
                 }
-                continue;
+                if !is_missing_remote_branch(&msg) {
+                    push_errors.push(format!("({remote}) Pull failed: {msg}"));
+                    continue;
+                }
+                // Remote has no such branch yet (first sync to an empty repo):
+                // nothing was rebased, and the push below creates it.
             }
         }
 
@@ -389,6 +397,38 @@ fn base64_encode(input: &[u8]) -> String {
         out.push(if chunk.len() > 2 { ALPHABET[(n & 0x3F) as usize] as char } else { '=' });
     }
     out
+}
+
+/// Whether a rebase is actually stopped mid-flight. `git pull --rebase` can
+/// fail before starting one at all (empty remote, unreachable host), and
+/// running `rebase --abort` then fails with "no rebase in progress" — which
+/// used to be reported to the user as a scary mid-rebase warning on the very
+/// first sync to a brand-new repository.
+fn rebase_in_progress(repo_path: &Path) -> bool {
+    ["rebase-merge", "rebase-apply"].iter().any(|name| {
+        git_cmd(repo_path)
+            .args(["rev-parse", "--git-path", name])
+            .output()
+            .ok()
+            .filter(|out| out.status.success())
+            .map(|out| {
+                let p = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                let path = Path::new(&p);
+                !p.is_empty()
+                    && if path.is_absolute() { path.exists() } else { repo_path.join(path).exists() }
+            })
+            .unwrap_or(false)
+    })
+}
+
+/// A pull failure that only means the remote doesn't have this branch yet —
+/// the normal case when syncing to a freshly created, empty repository. The
+/// push that follows creates the branch, so this must not abort the sync.
+fn is_missing_remote_branch(msg: &str) -> bool {
+    msg.contains("couldn't find remote ref")
+        || msg.contains("Couldn't find remote ref")
+        || msg.contains("does not have any commits yet")
+        || msg.contains("no such ref was fetched")
 }
 
 fn is_auth_error(msg: &str) -> bool {
@@ -497,6 +537,22 @@ mod tests {
         assert!(is_auth_error("remote: Authentication failed"));
         assert!(is_auth_error("fatal: could not read Username for 'https://...'"));
         assert!(is_auth_error("received 403 Forbidden"));
+    }
+
+    #[test]
+    fn is_missing_remote_branch_detects_empty_remote() {
+        assert!(is_missing_remote_branch("fatal: couldn't find remote ref main"));
+        assert!(is_missing_remote_branch(
+            "Your configuration specifies to merge with the ref 'main' from the remote, \
+             but no such ref was fetched."
+        ));
+    }
+
+    #[test]
+    fn is_missing_remote_branch_false_for_real_failures() {
+        assert!(!is_missing_remote_branch("fatal: Authentication failed"));
+        assert!(!is_missing_remote_branch("CONFLICT (content): Merge conflict in main.typ"));
+        assert!(!is_missing_remote_branch("fatal: could not resolve host: github.com"));
     }
 
     #[test]

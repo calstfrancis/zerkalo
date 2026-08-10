@@ -171,9 +171,10 @@ pub(super) fn wire_sidebar_toolbar(ctx: &SidebarToolbarCtx) -> (GtkBox, Button) 
         let root_ut = ctx.project_root.clone();
         let cfg_ut = ctx.current_config.clone();
         let preview_ut = ctx.preview_pane.clone();
+        let toast_ut = ctx.toast_overlay.clone();
         update_template_btn.connect_clicked(move |_| {
             super::open_template_for_active_document(
-                &win_ut, &ep_ut, &preview_ut, &root_ut, &cfg_ut,
+                &win_ut, &ep_ut, &preview_ut, &toast_ut, &root_ut, &cfg_ut,
             );
         });
     }

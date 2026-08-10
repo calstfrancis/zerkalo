@@ -1579,10 +1579,11 @@ impl EditorPane {
             let fn2 = font_name.clone();
             let ep_f = ep.clone();
             let fp = font_popover.clone();
-            let fbl = ep.font_bar_label.clone();
+            // The label is set by the handler, not here: an edit the document
+            // can't take (no template block) used to leave the bar claiming a
+            // font the file never got.
             btn.connect_clicked(move |_| {
                 fp.popdown();
-                fbl.set_text(&fn2);
                 if let Some(f) = ep_f.on_doc_font.borrow().as_ref() { f(fn2.clone()); }
             });
         }
@@ -1591,10 +1592,8 @@ impl EditorPane {
             let sn2 = size_name.clone();
             let ep_s = ep.clone();
             let sp = size_popover.clone();
-            let sbl = ep.size_bar_label.clone();
             btn.connect_clicked(move |_| {
                 sp.popdown();
-                sbl.set_text(&sn2);
                 if let Some(f) = ep_s.on_doc_font_size.borrow().as_ref() { f(sn2.clone()); }
             });
         }

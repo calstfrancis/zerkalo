@@ -413,6 +413,11 @@ impl AppWindow {
 
         let lsp_client: Rc<RefCell<Option<LspClient>>> = Rc::new(RefCell::new(None));
 
+        // Created here rather than inside the Print menu section: the doc
+        // font/size wiring below needs it, the menu wiring does too, and so do
+        // several later sections.
+        let toast_overlay = adw::ToastOverlay::new();
+
         // ── Apply initial settings ──────────────────────────────────────────
 
         editor_pane.apply_font_size(config.editor_font_size);
@@ -442,48 +447,46 @@ impl AppWindow {
                 let _ = cfg.borrow().save();
             });
         }
-        // ── Doc font/size callbacks — update sidecar and regenerate template ──
+        // ── Doc font/size callbacks — edit the one line that holds the value ──
         {
             let ep = editor_pane.clone();
             let preview_for_font = preview_pane.clone();
+            let toast_for_font = toast_overlay.clone();
             editor_pane.set_on_doc_font(move |font_name| {
-                let Some(path) = ep.get_active_path() else { return };
-                let mut sc = super::template_dialog::load_sidecar(&path)
-                    .unwrap_or_default();
-                sc.font = font_name;
-                super::template_dialog::save_sidecar(&path, &sc);
-                let settings = super::template_dialog::sidecar_to_settings(&sc);
-                let fresh = super::template_dialog::generate_typst_template(&settings);
-                if let Some(content) = ep.get_active_content() {
-                    let updated = super::template_dialog::apply_body_splice(&content, &fresh);
-                    if let Err(e) = std::fs::write(&path, &updated) {
-                        tracing::error!("Failed to write font change: {e}");
-                    } else {
-                        ep.splice_preamble(path.clone(), &updated);
-                        preview_for_font.trigger_compile();
-                    }
+                let edited = super::template_dialog::set_template_font(
+                    &ep.get_active_content().unwrap_or_default(),
+                    &font_name,
+                );
+                let applied = apply_doc_font_edit(
+                    &ep,
+                    &preview_for_font,
+                    &toast_for_font,
+                    edited,
+                    |sc| sc.font = font_name.clone(),
+                );
+                if applied {
+                    ep.set_doc_font_label(&font_name);
                 }
             });
         }
         {
             let ep = editor_pane.clone();
             let preview_for_size = preview_pane.clone();
+            let toast_for_size = toast_overlay.clone();
             editor_pane.set_on_doc_font_size(move |size| {
-                let Some(path) = ep.get_active_path() else { return };
-                let mut sc = super::template_dialog::load_sidecar(&path)
-                    .unwrap_or_default();
-                sc.font_size = size;
-                super::template_dialog::save_sidecar(&path, &sc);
-                let settings = super::template_dialog::sidecar_to_settings(&sc);
-                let fresh = super::template_dialog::generate_typst_template(&settings);
-                if let Some(content) = ep.get_active_content() {
-                    let updated = super::template_dialog::apply_body_splice(&content, &fresh);
-                    if let Err(e) = std::fs::write(&path, &updated) {
-                        tracing::error!("Failed to write size change: {e}");
-                    } else {
-                        ep.splice_preamble(path.clone(), &updated);
-                        preview_for_size.trigger_compile();
-                    }
+                let edited = super::template_dialog::set_template_font_size(
+                    &ep.get_active_content().unwrap_or_default(),
+                    &size,
+                );
+                let applied = apply_doc_font_edit(
+                    &ep,
+                    &preview_for_size,
+                    &toast_for_size,
+                    edited,
+                    |sc| sc.font_size = size.clone(),
+                );
+                if applied {
+                    ep.set_doc_size_label(&size);
                 }
             });
         }
@@ -700,10 +703,6 @@ impl AppWindow {
                 }
             });
         }
-
-        // Created here rather than inside the Print menu section: the menu
-        // wiring extracted below needs it, and several later sections do too.
-        let toast_overlay = adw::ToastOverlay::new();
 
         let menu_ctx = MenuCtx {
             window: window.clone(),
@@ -1078,6 +1077,15 @@ impl AppWindow {
                 .and_then(|key| super::template_dialog::style_name_for_key(&key))
                 .unwrap_or("Style");
             style_btn_for_switch.set_label(style_name);
+            // Same refresh the open handler does: without it the format bar
+            // keeps showing the previous tab's font and size, so the picker
+            // reads as if this document were already set that way.
+            editor_pane_cv_switch.set_doc_font_label(
+                &super::template_dialog::parse_font(&content).unwrap_or_else(|| "font".into())
+            );
+            editor_pane_cv_switch.set_doc_size_label(
+                &super::template_dialog::parse_font_size(&content).unwrap_or_else(|| "size".into())
+            );
         });
 
         // ── Modified / autosave indicator ──────────────────────────────────────
@@ -3195,6 +3203,7 @@ pub(super) fn open_template_for_active_document(
     window: &adw::ApplicationWindow,
     editor: &super::editor_pane::EditorPane,
     preview: &super::preview_pane::PreviewPane,
+    toast_overlay: &adw::ToastOverlay,
     project_root: &Path,
     config: &Rc<RefCell<Config>>,
 ) {
@@ -3261,22 +3270,6 @@ pub(super) fn open_template_for_active_document(
                 dlg.preselect_cv_style_index(idx);
             }
         }
-        if let Some(f) = td::parse_font(&current_content) {
-            dlg.preselect_font(&f);
-        }
-        if let Some(p) = td::parse_paper(&current_content) {
-            // A custom-sized page has to carry its dimensions back into the
-            // Custom fields too, or Apply regenerates it at the 210×297 default.
-            let (w, h) = td::parse_custom_paper(&current_content).unwrap_or_default();
-            dlg.preselect_paper(&p, &w, &h);
-        }
-        if let Some(s) = td::parse_spacing(&current_content) {
-            dlg.preselect_spacing(&s);
-        }
-        dlg.preselect_margin(
-            td::parse_margin(&current_content),
-            &td::parse_custom_margin(&current_content).unwrap_or_default(),
-        );
         dlg.preselect_toc(
             td::parse_has_toc(&current_content),
             td::parse_toc_depth(&current_content),
@@ -3294,6 +3287,51 @@ pub(super) fn open_template_for_active_document(
         }
         if let Some(c) = td::parse_dropcap_color(&current_content) {
             dlg.preselect_dropcap_color(&c);
+        }
+    }
+
+    // Formatting the document *actually* carries, read back from the file
+    // itself. Applied whether or not a sidecar exists, because the sidecar is a
+    // cache of the last Apply and the document is what compiles: it can have
+    // been edited by hand, restored from a backup, or copied from a file whose
+    // sidecar belonged to a different version. Whatever isn't found in the
+    // document leaves the sidecar's (or the form's) value alone.
+    //
+    // Font size in particular had no reader at all on the no-sidecar path,
+    // so re-opening this dialog on a 14 pt document and pressing Apply reset
+    // it to 12 pt — the parser existed, it was just never called.
+    if let Some(f) = td::parse_font(&current_content) {
+        dlg.preselect_font(&f);
+    }
+    if let Some(sz) = td::parse_font_size(&current_content) {
+        dlg.preselect_font_size(&sz);
+    }
+    if let Some(p) = td::parse_paper(&current_content) {
+        // A custom-sized page has to carry its dimensions back into the
+        // Custom fields too, or Apply regenerates it at the 210×297 default.
+        let (w, h) = td::parse_custom_paper(&current_content).unwrap_or_default();
+        dlg.preselect_paper(&p, &w, &h);
+    }
+    if let Some(s) = td::parse_spacing(&current_content) {
+        dlg.preselect_spacing(&s);
+    }
+    if td::has_page_margins(&current_content) {
+        dlg.preselect_margin(
+            td::parse_margin(&current_content),
+            &td::parse_custom_margin(&current_content).unwrap_or_default(),
+        );
+    }
+    // Only meaningful for documents Zerkalo generated: on anything else these
+    // read as "off", which would turn a missing parse into a silent reset.
+    if td::has_template_block(&current_content) {
+        dlg.preselect_page_numbers(td::parse_page_numbers(&current_content));
+        dlg.preselect_header(td::parse_header_style(&current_content));
+        dlg.preselect_packages(&td::parse_packages(&current_content));
+        dlg.preselect_languages(&td::parse_languages(&current_content));
+        let (numbering_on, format) = td::parse_heading_numbering(&current_content);
+        dlg.preselect_heading_numbering(numbering_on);
+        if !format.is_empty() {
+            dlg.preselect_heading_format(&format);
         }
     }
 
@@ -3334,11 +3372,15 @@ pub(super) fn open_template_for_active_document(
     let ep = editor.clone();
     let win = window.clone();
     let pv = preview.clone();
+    let toasts = toast_overlay.clone();
+    let root = project_root.to_path_buf();
     dlg.set_on_apply(move |new_content, sidecar| {
         apply_template_result(
             &win,
             &ep,
             &pv,
+            &toasts,
+            &root,
             current_path.clone(),
             current_content.clone(),
             new_content,
@@ -3348,33 +3390,138 @@ pub(super) fn open_template_for_active_document(
     dlg.present();
 }
 
+/// Writes back a one-value preamble edit from the format bar's font/size
+/// pickers, keeps the sidecar in step, and recompiles.
+///
+/// `edited` is `None` when the document has no Zerkalo template block for the
+/// edit to land in — that's said out loud rather than papered over by
+/// regenerating a template onto a document that never had one.
+///
+/// The sidecar is only *updated*, never created here: an absent sidecar means
+/// the document itself is the record of its settings, and writing a fresh one
+/// from a single font pick would claim defaults for every setting it doesn't
+/// know, which "Update Template Settings" would then trust over the file.
+/// Returns whether the document actually changed, so the caller only relabels
+/// the format bar for an edit that landed.
+fn apply_doc_font_edit(
+    editor: &super::editor_pane::EditorPane,
+    preview: &super::preview_pane::PreviewPane,
+    toast_overlay: &adw::ToastOverlay,
+    edited: Option<String>,
+    update_sidecar: impl FnOnce(&mut super::template_dialog::SidecarSettings),
+) -> bool {
+    let Some(path) = editor.get_active_path() else { return false };
+    let Some(updated) = edited else {
+        toast_overlay.add_toast(adw::Toast::new(
+            "This document has no Zerkalo template block — nothing to change. \
+             Use Update Template Settings… to give it one.",
+        ));
+        return false;
+    };
+
+    if let Err(e) = super::template_dialog::write_atomically(&path, &updated) {
+        tracing::error!("Failed to write document font change: {e}");
+        toast_overlay.add_toast(adw::Toast::new(&format!("Couldn't save the change: {e}")));
+        return false;
+    }
+    if let Some(mut sc) = super::template_dialog::load_sidecar(&path) {
+        update_sidecar(&mut sc);
+        super::template_dialog::save_sidecar(&path, &sc);
+    }
+    editor.splice_preamble(path, &updated);
+    preview.trigger_compile();
+    true
+}
+
 /// Applies a template dialog's result to `path`, splicing the fresh template
 /// onto the editor buffer's *current* content (read fresh here, not a
 /// snapshot taken when the dialog was opened, so edits made while the
 /// non-modal dialog was open aren't discarded). Confirms first if the
 /// document has no body marker, since applying then replaces the whole file.
+#[allow(clippy::too_many_arguments)]
 fn apply_template_result(
     window: &adw::ApplicationWindow,
     editor: &super::editor_pane::EditorPane,
     preview: &super::preview_pane::PreviewPane,
+    toast_overlay: &adw::ToastOverlay,
+    project_root: &Path,
     path: PathBuf,
     current_content: String,
     new_content: String,
     sidecar: super::template_dialog::SidecarSettings,
 ) {
+    use super::template_dialog::SpliceOutcome;
+
     let do_apply = {
         let editor = editor.clone();
         let preview = preview.clone();
+        let toast_overlay = toast_overlay.clone();
         let path = path.clone();
+        let project_root = project_root.to_path_buf();
         move || {
             let cc = editor.get_active_content().unwrap_or_default();
-            let updated = super::template_dialog::apply_body_splice(&cc, &new_content);
-            super::template_dialog::save_sidecar(&path, &sidecar);
-            if let Err(e) = std::fs::write(&path, &updated) {
+            let (updated, outcome) =
+                super::template_dialog::apply_body_splice_reporting(&cc, &new_content);
+
+            // Nothing survives a refusal, so say so — this used to close the
+            // dialog and leave the document untouched with no explanation,
+            // reading as a dead Apply button.
+            if outcome == SpliceOutcome::RefusedIncompatible {
+                toast_overlay.add_toast(adw::Toast::new(
+                    "Settings not applied — these settings don't match this document's body.",
+                ));
+                return;
+            }
+
+            // Everything from ZERKALO-TEMPLATE-END down to the body marker —
+            // title page, abstract, keywords, contents — is regenerated even
+            // on a clean splice, so a title page the user had customised by
+            // hand goes with it. A snapshot first makes every Apply
+            // recoverable through Browse Snapshots…, which is cheaper than
+            // trying to detect which of those lines the user had touched.
+            save_snapshot(&project_root, &path, &cc);
+
+            // Anything that doesn't preserve the body verbatim gets a backup
+            // first too: those paths can discard the user's actual writing,
+            // and want a copy sitting visibly next to the document.
+            let mut backup_note = String::new();
+            if outcome != SpliceOutcome::Preserved {
+                match super::template_dialog::backup_document(&path) {
+                    Ok(b) => {
+                        backup_note = b
+                            .file_name()
+                            .map(|n| format!(" Backup saved as {}.", n.to_string_lossy()))
+                            .unwrap_or_default();
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to back up before template apply: {e}");
+                        toast_overlay.add_toast(adw::Toast::new(&format!(
+                            "Settings not applied — couldn't back up the document first: {e}"
+                        )));
+                        return;
+                    }
+                }
+            }
+
+            if let Err(e) = super::template_dialog::write_atomically(&path, &updated) {
                 tracing::error!("Failed to write updated template: {e}");
-            } else {
-                editor.splice_preamble(path.clone(), &updated);
-                preview.trigger_compile();
+                toast_overlay.add_toast(adw::Toast::new(&format!(
+                    "Couldn't save the updated document: {e}"
+                )));
+                return;
+            }
+            super::template_dialog::save_sidecar(&path, &sidecar);
+            editor.splice_preamble(path.clone(), &updated);
+            preview.trigger_compile();
+
+            match outcome {
+                SpliceOutcome::BodyRegenerated => toast_overlay.add_toast(adw::Toast::new(
+                    &format!("Layout changed, so the CV body was rebuilt.{backup_note}"),
+                )),
+                SpliceOutcome::WholeDocumentReplaced => toast_overlay.add_toast(
+                    adw::Toast::new(&format!("Document replaced.{backup_note}")),
+                ),
+                _ => {}
             }
         }
     };
@@ -3386,8 +3533,10 @@ fn apply_template_result(
             Some(window),
             Some("Replace entire document?"),
             Some("This document has no body marker, so the template \
-                  will replace the whole file. Your current text will \
-                  be lost. Make sure you have a backup."),
+                  will replace the whole file. Your current text will be \
+                  moved to a .typ.bak backup alongside it.\n\n\
+                  If you meant to keep this text, cancel and use \
+                  Repair Template Markers first."),
         );
         confirm.add_response("cancel", "Cancel");
         confirm.add_response("replace", "Replace Document");

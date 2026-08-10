@@ -9,6 +9,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Save your own templates.** Set the template dialog up how you want it, press the save
+  button beside "Your Templates", and give it a name — it joins the gallery under the
+  built-in presets, previews like them, and starts a document exactly the same way next
+  time. The title, date, abstract and keywords are deliberately left out, so a saved
+  template can't stamp one document's front matter onto the next; your name, affiliation
+  and the CV contact rows are kept, since a personal template is precisely where those
+  belong. One file per template in `~/.local/share/zerkalo/templates/`, and a corrupt or
+  hand-edited one is skipped rather than taking the gallery down with it.
+
 - **Setting up is three screens with one decision each.** It was one long page of five
   sections, each with its own Apply button — seven separate actions in an order nothing
   announced, the first of which asked for a git name and email. Now: what this is for, sign in,
@@ -50,6 +59,56 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **The first upload to a brand-new repository goes through.** Sync pulls before it pushes,
+  and on a repository that has no commits yet that pull fails — there is no branch there to
+  pull from. Zerkalo treated any failed pull as an interrupted rebase, tried to abort a rebase
+  that had never started, and reported the resulting "no rebase in progress" as a warning that
+  the repository might be mid-rebase — then skipped the push, so the setup that had just
+  finished successfully ended with nothing uploaded. A rebase is now only aborted when one is
+  genuinely in progress, and a pull that fails purely because the remote branch doesn't exist
+  yet carries on to the push that creates it.
+- **"Double" line spacing is now actually double.** Typst's `leading` is the gap between
+  lines, not a multiplier, so the old values had to be measured rather than assumed: Double
+  was rendering at about 1.4× single spacing and "1.5 Lines" at about 1.2×. Every style
+  Zerkalo offers — APA, MLA, Chicago, Turabian — requires true double spacing for
+  submission, so documents set to it were out of spec. Documents written with the old
+  values still open on the right setting instead of silently reverting to single.
+- **Paragraphs are marked once, not twice.** Generated documents set a first-line indent
+  *and* a fixed 1.2 em gap between paragraphs; academic manuscript style uses the indent
+  alone, and on a double-spaced document the extra gap also broke the even line grid.
+- **MLA documents keep their paragraph indents.** The MLA heading block turned off
+  first-line indentation for the whole document rather than for itself — leaving the one
+  style that most insists on indented paragraphs as the only one generated without them.
+- **APA 7th no longer prints "Running head:"**, a label the 7th edition removed.
+- **Executive paper size produced a document that wouldn't compile at all** — Typst calls
+  it `us-executive`, and the template wrote `executive`.
+- **An abstract fits on small paper.** It was inset a fixed inch on each side regardless of
+  page size, which on A5 with wide margins left a column a few characters wide.
+- **Changing the document font or size no longer rewrites the whole document.** The two
+  pickers in the format bar used to regenerate the entire preamble from the settings file
+  saved beside the document — so on a document without one (copied without its
+  `.zerkalo.toml`, written before those existed, or corrupt) picking a font silently reset
+  paper size, margins, citation style, title page and metadata to defaults. On a `.typ` file
+  Zerkalo didn't create, it replaced the whole file with a starter template, with no
+  confirmation and no backup. Both now edit only the one line that holds the value, and say
+  so plainly when a document has no Zerkalo template block to edit.
+- **Update Template Settings reads the document, not just its settings file.** Font, size,
+  paper, margins, line spacing, page numbers, running header, packages, languages and heading
+  numbering are all read back from the document itself, so settings you changed by hand, or
+  that were never recorded, survive pressing Apply. Font size in particular had no reader at
+  all: re-opening the dialog on a 14 pt document and applying reset it to 12 pt.
+- **Every Apply takes a snapshot first**, so a template change that regenerates a title page
+  you'd customised can be recovered from Browse Snapshots…. Applying to a document with no
+  body marker — the case that replaces the whole file — also saves a `.typ.bak` next to it,
+  and the confirmation says so instead of telling you to make your own backup.
+- **Settings that can't be applied say so.** Applying a non-CV template to a CV was refused
+  silently, which read as a dead Apply button.
+- **Documents are written atomically.** Template writes went through a truncate-then-fill
+  that could leave a `.typ` empty or half-written if Zerkalo died mid-save; they now write a
+  temporary file and rename it into place. A document that can't be created — read-only
+  folder, full disk — reports the error instead of closing the dialog as if it had worked.
+- **The format bar shows the current document's font and size.** It kept the previous tab's
+  values after switching tabs, and updated itself even when the change hadn't been applied.
 - **A new repository starts on `main`.** Setup used to leave the branch to git's own default,
   which on many systems is `master` — so the first push created a second, unrelated branch
   next to the `main` GitHub had made.

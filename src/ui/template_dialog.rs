@@ -63,7 +63,9 @@ const PAPER_SIZES: &[(&str, &str)] = &[
     ("A4", "a4"),
     ("A5", "a5"),
     ("Legal", "us-legal"),
-    ("Executive", "executive"),
+    // "us-executive", not "executive" — Typst rejects the latter outright, so
+    // choosing this paper size produced a document that couldn't compile.
+    ("Executive", "us-executive"),
     ("Custom…", "custom"),
 ];
 
@@ -95,11 +97,26 @@ const HEADER_OPTIONS: &[&str] = &[
     "Author · Title",
 ];
 
+// Typst's `leading` is the gap *between* lines, not a line-height multiple, so
+// these values can't be 1×/1.5×/2× of anything — they have to be worked out
+// from the actual rendered line pitch. Measured at 12 pt Libertinus Serif
+// (page height: auto, rendered, pixel heights compared): single spacing is a
+// pitch of ~1.35em, so 1.5× needs leading ~1.32em and 2× needs ~2em.
+//
+// The previous values (0.9em / 1.2em) rendered at ~1.19× and ~1.41× — so a
+// document set to "Double", as APA, MLA, Chicago and Turabian all require for
+// submission, came out barely wider than 1.4 spacing.
 const SPACING_OPTIONS: &[(&str, &str)] = &[
     ("Single", "0.65em"),
-    ("1.5 Lines", "0.9em"),
-    ("Double", "1.2em"),
+    ("1.5 Lines", "1.32em"),
+    ("Double", "2em"),
 ];
+
+/// Leading values written by earlier versions, mapped to the option they were
+/// then labelled with. Without these, re-opening the dialog on a document set
+/// to the old "Double" (`1.2em`) would match no option, leave the row on
+/// "Single", and quietly single-space the document on Apply.
+const LEGACY_SPACING: &[(&str, usize)] = &[("0.9em", 1), ("1.2em", 2)];
 
 // (display label, Typst color value used as the dropcap's `fill:` argument)
 const DROPCAP_COLORS: &[(&str, &str)] = &[
@@ -465,46 +482,14 @@ pub struct TemplateDialog {
     on_lock_identity: OnLockCb,
     on_advanced_toggle: OnAdvancedToggleCb,
     apply_btn: Button,
-    style_row: adw::ComboRow,
-    font_row: adw::ComboRow,
-    paper_row: adw::ComboRow,
-    custom_paper_w_row: adw::SpinRow,
-    custom_paper_h_row: adw::SpinRow,
-    margin_row: adw::ComboRow,
-    custom_margin_row: adw::SpinRow,
-    spacing_row: adw::ComboRow,
-    toc_row: adw::SwitchRow,
-    toc_depth_row: adw::ComboRow,
-    abstract_row: adw::SwitchRow,
-    abstract_text_row: adw::EntryRow,
-    keywords_row: adw::SwitchRow,
-    keywords_text_row: adw::EntryRow,
-    heading_numbering_row: adw::SwitchRow,
-    heading_format_row: adw::ComboRow,
-    font_size_row: adw::ComboRow,
-    custom_font_size_row: adw::SpinRow,
-    // metadata fields
-    title_row: adw::EntryRow,
-    subtitle_row: adw::EntryRow,
-    author_row: adw::EntryRow,
-    affil_row: adw::EntryRow,
-    course_row: adw::EntryRow,
-    professor_row: adw::EntryRow,
-    date_row: adw::EntryRow,
-    bib_path: Rc<RefCell<Option<PathBuf>>>,
-    pnum_row: adw::ComboRow,
-    header_row: adw::ComboRow,
-    lang_switches: Vec<(String, adw::SwitchRow)>,
-    pkg_switches: Vec<(String, adw::SwitchRow)>,
-    dropcap_expander: adw::ExpanderRow,
-    dropcap_font_row: adw::ComboRow,
-    dropcap_lines_row: adw::ComboRow,
-    dropcap_color_row: adw::ComboRow,
-    cv_switch: Switch,
+    /// Every settings widget in the dialog. The `preselect_*` methods below are
+    /// thin delegates onto it, so the gallery — which is built before this
+    /// struct exists and holds only the form — pre-fills through exactly the
+    /// same code path.
+    form: FormWidgets,
     cv_elements_row: adw::EntryRow,
     cv_elements_path: Rc<RefCell<Option<PathBuf>>>,
     on_cv_elements_change: OnCvElementsCb,
-    body_kind_state: Rc<RefCell<BodyKind>>,
 }
 
 // ── Tab builders ─────────────────────────────────────────────────────────────
@@ -1109,9 +1094,11 @@ struct FormWidgets {
     heading_fmt: adw::ComboRow,
     langs: Vec<(String, adw::SwitchRow)>,
     pkgs: Vec<(String, adw::SwitchRow)>,
+    dropcap_expander: adw::ExpanderRow,
     dropcap_font: adw::ComboRow,
     dropcap_lines: adw::ComboRow,
     dropcap_color: adw::ComboRow,
+    cv_switch: Switch,
     body_kind: Rc<RefCell<BodyKind>>,
     bib_path: Rc<RefCell<Option<PathBuf>>>,
 }
@@ -1201,206 +1188,695 @@ impl FormWidgets {
             bib_path: self.bib_path.borrow().clone(),
         }
     }
+
+    // ── Pre-filling ──────────────────────────────────────────────────────────
+    // The inverse of `collect`, living beside it so the two can't drift. Both
+    // the gallery (built before the dialog exists) and `TemplateDialog`'s
+    // public `preselect_*` methods drive these, which is why they're here and
+    // not on the dialog: a saved template applied from a gallery row has to set
+    // exactly the same widgets a sidecar does.
+
+    fn set_cv_mode(&self, active: bool) {
+        self.cv_switch.set_active(active);
+    }
+
+    fn set_body_kind(&self, kind: BodyKind) {
+        *self.body_kind.borrow_mut() = kind;
+    }
+
+    fn set_cv_style_index(&self, idx: usize) {
+        self.style.set_selected(idx as u32);
+    }
+
+    fn set_style(&self, style_key: &str) {
+        for (i, (_, key)) in CITATION_STYLES.iter().enumerate() {
+            if *key == style_key {
+                self.style.set_selected(i as u32);
+                break;
+            }
+        }
+        match style_key {
+            "ieee" => {
+                self.set_heading_numbering(true);
+                self.set_heading_format("I.A.1.");
+            }
+            "gost-r-705" | "vancouver" => {
+                self.set_heading_numbering(true);
+                self.set_heading_format("1.");
+            }
+            _ => {}
+        }
+    }
+
+    fn set_font(&self, font: &str) {
+        let available = build_font_list();
+        for (i, f) in available.iter().enumerate() {
+            if f.eq_ignore_ascii_case(font) {
+                self.font.set_selected(i as u32);
+                return;
+            }
+        }
+        // Not one of the listed faces: keep it rather than silently falling
+        // back, by selecting "Other…" and filling the free-text row.
+        if let Some(other) = available.len().checked_sub(1) {
+            self.font.set_selected(other as u32);
+            self.custom_font.set_text(font);
+        }
+    }
+
+    fn set_font_size(&self, size: &str) {
+        let idx = match size {
+            "10pt" => 0u32,
+            "11pt" => 1,
+            "12pt" => 2,
+            "14pt" => 3,
+            other => {
+                let digits: String = other.chars().take_while(|c| c.is_ascii_digit() || *c == '.').collect();
+                if let Ok(v) = digits.parse::<f64>() {
+                    self.custom_font_size.set_value(v);
+                }
+                4
+            }
+        };
+        self.font_size.set_selected(idx);
+    }
+
+    fn set_paper(&self, paper_key: &str, custom_w: &str, custom_h: &str) {
+        for (i, (_, key)) in PAPER_SIZES.iter().enumerate() {
+            if *key == paper_key {
+                self.paper.set_selected(i as u32);
+                if paper_key == "custom" {
+                    if let Ok(w) = custom_w.parse::<f64>() { self.custom_paper_w.set_value(w); }
+                    if let Ok(h) = custom_h.parse::<f64>() { self.custom_paper_h.set_value(h); }
+                }
+                return;
+            }
+        }
+    }
+
+    fn set_spacing(&self, spacing_value: &str) {
+        if let Some(i) = spacing_index(spacing_value) {
+            self.spacing.set_selected(i as u32);
+        }
+    }
+
+    fn set_margin(&self, idx: usize, custom_margin: &str) {
+        if idx < MARGIN_PRESETS.len() {
+            self.margin.set_selected(idx as u32);
+            if idx == MARGIN_PRESETS.len() - 1 {
+                if let Ok(v) = custom_margin.parse::<f64>() { self.custom_margin.set_value(v); }
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn set_metadata(
+        &self,
+        title: &str,
+        subtitle: &str,
+        author: &str,
+        affiliation: &str,
+        course: &str,
+        professor: &str,
+        date: &str,
+    ) {
+        if !title.is_empty()       { self.title.set_text(title); }
+        if !subtitle.is_empty()    { self.subtitle.set_text(subtitle); }
+        if !author.is_empty()      { self.author.set_text(author); }
+        if !affiliation.is_empty() { self.affil.set_text(affiliation); }
+        if !course.is_empty()      { self.course.set_text(course); }
+        if !professor.is_empty()   { self.professor.set_text(professor); }
+        if !date.is_empty()        { self.date.set_text(date); }
+    }
+
+    fn set_toc(&self, active: bool, depth: u32) {
+        self.toc.set_active(active);
+        let idx = match depth { 1 => 0u32, 3 => 2, _ => 1 };
+        self.toc_depth.set_selected(idx);
+        self.toc_depth.set_sensitive(active);
+    }
+
+    fn set_abstract(&self, active: bool, text: &str) {
+        self.abstract_sw.set_active(active);
+        if active && !text.is_empty() {
+            self.abstract_text.set_text(text);
+        }
+        self.abstract_text.set_visible(active);
+    }
+
+    fn set_keywords(&self, active: bool, text: &str) {
+        self.keywords.set_active(active);
+        if active && !text.is_empty() {
+            self.keywords_text.set_text(text);
+        }
+        self.keywords_text.set_visible(active);
+    }
+
+    fn set_heading_numbering(&self, active: bool) {
+        self.heading_num.set_active(active);
+        self.heading_fmt.set_visible(active);
+    }
+
+    fn set_heading_format(&self, format: &str) {
+        for (i, (_, pat)) in NUMBERING_FORMATS.iter().enumerate() {
+            if *pat == format {
+                self.heading_fmt.set_selected(i as u32);
+                return;
+            }
+        }
+    }
+
+    fn set_page_numbers(&self, pos: u32) {
+        if (pos as usize) < PAGE_NUM_OPTIONS.len() {
+            self.pnum.set_selected(pos);
+        }
+    }
+
+    fn set_header(&self, style: u32) {
+        if (style as usize) < HEADER_OPTIONS.len() {
+            self.header.set_selected(style);
+        }
+    }
+
+    fn set_languages(&self, langs: &[String]) {
+        for (key, sw) in &self.langs {
+            sw.set_active(langs.iter().any(|l| l == key));
+        }
+    }
+
+    fn set_packages(&self, pkgs: &[String]) {
+        for (key, sw) in &self.pkgs {
+            sw.set_active(pkgs.iter().any(|p| p == key));
+        }
+        let droplet_on = pkgs.iter().any(|p| p == "pkg_droplet");
+        self.dropcap_expander.set_enable_expansion(droplet_on);
+    }
+
+    fn set_dropcap_font(&self, font: &str) {
+        if font.is_empty() {
+            self.dropcap_font.set_selected(0);
+            return;
+        }
+        if let Some(model) = self.dropcap_font.model()
+            .and_then(|m| m.downcast::<gtk4::StringList>().ok())
+        {
+            for i in 0..model.n_items() {
+                if model.string(i).map(|s| s.to_string()).as_deref() == Some(font) {
+                    self.dropcap_font.set_selected(i);
+                    return;
+                }
+            }
+        }
+        self.dropcap_font.set_selected(0);
+    }
+
+    fn set_dropcap_lines(&self, lines: u32) {
+        self.dropcap_lines.set_selected(lines.saturating_sub(2).min(4));
+    }
+
+    fn set_dropcap_color(&self, color: &str) {
+        let idx = DROPCAP_COLORS.iter().position(|(_, v)| *v == color).unwrap_or(0);
+        self.dropcap_color.set_selected(idx as u32);
+    }
+
+    /// Fill every field from a saved settings set — a document's sidecar or a
+    /// user-saved template, which are the same shape by design.
+    fn apply_settings(&self, s: &SidecarSettings) {
+        self.set_cv_mode(s.body_kind == "cv");
+        self.set_body_kind(body_kind_from_key(&s.body_kind));
+        self.set_style(&s.style);
+        // For CVs, `s.cv_style` (when present) is authoritative over the
+        // `style` aliasing above — see CV_STYLE_OPTIONS' doc comment. Legacy
+        // sidecars saved before this field existed leave it empty, and fall
+        // back to the coincidental CITATION_STYLES-index match `set_style`
+        // just performed.
+        if s.body_kind == "cv" && !s.cv_style.is_empty() {
+            if let Some(idx) = cv_style_index(&s.cv_style) {
+                self.set_cv_style_index(idx);
+            }
+        }
+        if !s.font.is_empty()      { self.set_font(&s.font); }
+        if !s.font_size.is_empty() { self.set_font_size(&s.font_size); }
+        if !s.paper.is_empty()     { self.set_paper(&s.paper, &s.custom_paper_w, &s.custom_paper_h); }
+        if !s.spacing.is_empty()   { self.set_spacing(&s.spacing); }
+        self.set_margin(s.margin as usize, &s.custom_margin);
+        self.set_page_numbers(s.page_numbers);
+        self.set_header(s.header_style);
+        self.set_metadata(&s.title, &s.subtitle, &s.author, &s.affiliation, &s.course, &s.professor, &s.date);
+        self.set_toc(s.toc, s.toc_depth);
+        self.set_abstract(s.abstract_enabled, &s.abstract_text);
+        self.set_keywords(s.keywords_enabled, &s.keywords_text);
+        self.set_heading_numbering(s.heading_numbering);
+        if !s.numbering_format.is_empty() {
+            self.set_heading_format(&s.numbering_format);
+        }
+        self.set_languages(&s.languages);
+        self.set_packages(&s.packages);
+        self.set_dropcap_font(&s.dropcap_font);
+        self.set_dropcap_lines(s.dropcap_lines);
+        self.set_dropcap_color(&s.dropcap_color);
+        if let Some(ref p) = s.bib_path {
+            if !p.is_empty() {
+                *self.bib_path.borrow_mut() = Some(PathBuf::from(p));
+            }
+        }
+    }
 }
 
 /// The preset gallery: Tab 0. Clicking a preset pre-fills the form and renders
 /// a preview. `gallery_rows` is populated so CV Mode can filter which presets
 /// are visible without rebuilding the list.
 fn build_templates_gallery(
+    window: &adw::Window,
     form: &FormWidgets,
     gallery_rows: &Rc<RefCell<Vec<(adw::ActionRow, BodyKind)>>>,
     cv_elements_group: &adw::PreferencesGroup,
 ) -> GtkBox {
-    
-        let gallery_outer = GtkBox::new(Orientation::Horizontal, 0);
-        gallery_outer.set_hexpand(true);
-        gallery_outer.set_vexpand(true);
+    let gallery_outer = GtkBox::new(Orientation::Horizontal, 0);
+    gallery_outer.set_hexpand(true);
+    gallery_outer.set_vexpand(true);
 
-        // Left: scrollable preset list
-        let gallery_group = adw::PreferencesGroup::new();
-        gallery_group.set_title("Starting Template");
-        gallery_group.set_description(Some(
-            "Click a preset to pre-fill the form and see a preview.",
-        ));
-        let left_box = pref_tab_box();
-        left_box.append(&gallery_group);
-        left_box.append(cv_elements_group);
-        let left_scroll = ScrolledWindow::new();
-        left_scroll.set_width_request(300);
-        left_scroll.set_vexpand(true);
-        left_scroll.set_hscrollbar_policy(PolicyType::Never);
-        left_scroll.set_child(Some(&left_box));
-        gallery_outer.append(&left_scroll);
-        gallery_outer.append(&Separator::new(Orientation::Vertical));
+    // Left: scrollable preset list
+    let gallery_group = adw::PreferencesGroup::new();
+    gallery_group.set_title("Starting Template");
+    gallery_group.set_description(Some(
+        "Click a preset to pre-fill the form and see a preview.",
+    ));
 
-        // Right: preview pane
-        let preview_overlay = Overlay::new();
-        preview_overlay.set_hexpand(true);
-        preview_overlay.set_vexpand(true);
+    let saved_group = adw::PreferencesGroup::new();
+    saved_group.set_title("Your Templates");
+    saved_group.set_description(Some(
+        "Settings you saved, ready to start another document from.",
+    ));
 
-        let preview_picture = Picture::new();
-        preview_picture.set_hexpand(true);
-        preview_picture.set_vexpand(true);
-        preview_picture.set_can_shrink(true);
-        preview_picture.set_content_fit(gtk4::ContentFit::Contain);
-        preview_picture.set_margin_top(16);
-        preview_picture.set_margin_bottom(16);
-        preview_picture.set_margin_start(16);
-        preview_picture.set_margin_end(16);
-        preview_overlay.set_child(Some(&preview_picture));
+    let save_btn = Button::from_icon_name("document-save-symbolic");
+    save_btn.add_css_class("flat");
+    save_btn.set_tooltip_text(Some("Save the current settings as a template"));
+    save_btn.set_valign(Align::Center);
+    saved_group.set_header_suffix(Some(&save_btn));
 
-        let preview_spinner = Spinner::new();
-        preview_spinner.set_halign(Align::Center);
-        preview_spinner.set_valign(Align::Center);
-        preview_spinner.set_width_request(32);
-        preview_spinner.set_height_request(32);
-        preview_spinner.set_visible(false);
-        preview_overlay.add_overlay(&preview_spinner);
+    let left_box = pref_tab_box();
+    left_box.append(&gallery_group);
+    left_box.append(&saved_group);
+    left_box.append(cv_elements_group);
+    let left_scroll = ScrolledWindow::new();
+    left_scroll.set_width_request(300);
+    left_scroll.set_vexpand(true);
+    left_scroll.set_hscrollbar_policy(PolicyType::Never);
+    left_scroll.set_child(Some(&left_box));
+    gallery_outer.append(&left_scroll);
+    gallery_outer.append(&Separator::new(Orientation::Vertical));
 
-        let hint_label = Label::new(Some("Select a template\nto preview it here"));
-        hint_label.add_css_class("dim-label");
-        hint_label.set_halign(Align::Center);
-        hint_label.set_valign(Align::Center);
-        hint_label.set_justify(gtk4::Justification::Center);
-        preview_overlay.add_overlay(&hint_label);
+    // Right: preview pane
+    let preview_overlay = Overlay::new();
+    preview_overlay.set_hexpand(true);
+    preview_overlay.set_vexpand(true);
 
-        gallery_outer.append(&preview_overlay);
+    let preview_picture = Picture::new();
+    preview_picture.set_hexpand(true);
+    preview_picture.set_vexpand(true);
+    preview_picture.set_can_shrink(true);
+    preview_picture.set_content_fit(gtk4::ContentFit::Contain);
+    preview_picture.set_margin_top(16);
+    preview_picture.set_margin_bottom(16);
+    preview_picture.set_margin_start(16);
+    preview_picture.set_margin_end(16);
+    preview_overlay.set_child(Some(&preview_picture));
 
-        // Form widget captures for preset application
-        let g_style = form.style.clone();
-        let g_paper = form.paper.clone();
-        let g_margin = form.margin.clone();
-        let g_spacing = form.spacing.clone();
-        let g_pnum = form.pnum.clone();
-        let g_header = form.header.clone();
-        let g_toc = form.toc.clone();
-        let g_abstract = form.abstract_sw.clone();
-        let g_keywords = form.keywords.clone();
+    let preview_spinner = Spinner::new();
+    preview_spinner.set_halign(Align::Center);
+    preview_spinner.set_valign(Align::Center);
+    preview_spinner.set_width_request(32);
+    preview_spinner.set_height_request(32);
+    preview_spinner.set_visible(false);
+    preview_overlay.add_overlay(&preview_spinner);
 
-        for (idx, preset) in TEMPLATE_PRESETS.iter().enumerate() {
-            let row = adw::ActionRow::new();
-            row.set_title(preset.name);
-            row.set_subtitle(preset.description);
-            row.set_activatable(true);
-            row.add_suffix(&gtk4::Image::from_icon_name("go-next-symbolic"));
+    let hint_label = Label::new(Some("Select a template\nto preview it here"));
+    hint_label.add_css_class("dim-label");
+    hint_label.set_halign(Align::Center);
+    hint_label.set_valign(Align::Center);
+    hint_label.set_justify(gtk4::Justification::Center);
+    preview_overlay.add_overlay(&hint_label);
 
-            let g_style_c = g_style.clone();
-            let g_paper_c = g_paper.clone();
-            let g_margin_c = g_margin.clone();
-            let g_spacing_c = g_spacing.clone();
-            let g_pnum_c = g_pnum.clone();
-            let g_header_c = g_header.clone();
-            let g_toc_c = g_toc.clone();
-            let g_abstract_c = g_abstract.clone();
-            let g_keywords_c = g_keywords.clone();
-            let pic_c = preview_picture.clone();
-            let spin_c = preview_spinner.clone();
-            let hint_c = hint_label.clone();
-            let bk_state_c = form.body_kind.clone();
+    gallery_outer.append(&preview_overlay);
 
-            row.connect_activated(move |_| {
-                // Apply preset values to form
-                let p = &TEMPLATE_PRESETS[idx];
-                *bk_state_c.borrow_mut() = p.body_kind;
-                g_style_c.set_selected(p.style_idx);
-                g_paper_c.set_selected(p.paper_idx);
-                g_margin_c.set_selected(p.margin_idx);
-                g_spacing_c.set_selected(p.spacing_idx);
-                g_pnum_c.set_selected(p.page_num_pos);
-                g_header_c.set_selected(p.header_idx);
-                g_toc_c.set_active(p.include_toc);
-                g_abstract_c.set_active(p.include_abstract);
-                g_keywords_c.set_active(p.include_keywords);
+    let preview_widgets = PreviewTarget {
+        picture: preview_picture.clone(),
+        spinner: preview_spinner.clone(),
+        hint: hint_label.clone(),
+    };
 
-                // Kick off preview render
-                hint_c.set_visible(false);
-                pic_c.set_paintable(None::<&gtk4::gdk::Paintable>);
-                spin_c.set_visible(true);
-                spin_c.start();
+    // ── Built-in presets ─────────────────────────────────────────────────────
+    for (idx, preset) in TEMPLATE_PRESETS.iter().enumerate() {
+        let row = adw::ActionRow::new();
+        row.set_title(preset.name);
+        row.set_subtitle(preset.description);
+        row.set_activatable(true);
+        row.add_suffix(&gtk4::Image::from_icon_name("go-next-symbolic"));
 
-                let (tx, rx) = std::sync::mpsc::sync_channel::<Result<Vec<u8>, String>>(1);
-                std::thread::spawn(move || {
-                    tx.send(generate_preset_preview(idx)).ok();
+        let form_c = form.clone();
+        let target = preview_widgets.clone();
+        row.connect_activated(move |_| {
+            let p = &TEMPLATE_PRESETS[idx];
+            form_c.set_body_kind(p.body_kind);
+            // Picking a CV preset puts the dialog in CV mode. Without this,
+            // choosing "CV — Modern" from the unfiltered gallery gave a CV body
+            // with the Metadata rows still labelled Subtitle/Course/Professor
+            // and the CV Elements picker hidden — the CV switch had to be found
+            // first for the rest of the dialog to make sense.
+            form_c.set_cv_mode(matches!(p.body_kind, BodyKind::Cv));
+            form_c.style.set_selected(p.style_idx);
+            form_c.paper.set_selected(p.paper_idx);
+            form_c.margin.set_selected(p.margin_idx);
+            form_c.spacing.set_selected(p.spacing_idx);
+            form_c.pnum.set_selected(p.page_num_pos);
+            form_c.header.set_selected(p.header_idx);
+            form_c.toc.set_active(p.include_toc);
+            form_c.abstract_sw.set_active(p.include_abstract);
+            form_c.keywords.set_active(p.include_keywords);
+            target.start(PreviewJob::Preset(idx));
+        });
+
+        gallery_group.add(&row);
+        gallery_rows.borrow_mut().push((row, preset.body_kind));
+    }
+
+    // ── Saved templates ──────────────────────────────────────────────────────
+    // Rebuilt from disk rather than kept in memory, so a template saved (or
+    // deleted) in another window shows up here on the next refresh.
+    let saved_rows: Rc<RefCell<Vec<adw::ActionRow>>> = Rc::new(RefCell::new(Vec::new()));
+    let refresh: Rc<dyn Fn()> = {
+        let group = saved_group.clone();
+        let saved_rows = saved_rows.clone();
+        let gallery_rows = gallery_rows.clone();
+        let form = form.clone();
+        let window = window.clone();
+        let target = preview_widgets.clone();
+        // A weak self-reference so a row's Delete button can trigger another
+        // refresh. Weak, not strong: an Rc pointing at the closure that owns it
+        // would keep the whole gallery alive for the process's lifetime, every
+        // time the dialog is opened.
+        let self_ref: Rc<RefCell<Option<std::rc::Weak<dyn Fn()>>>> = Rc::new(RefCell::new(None));
+        let self_for_body = self_ref.clone();
+        let body: Rc<dyn Fn()> = Rc::new(move || {
+            for row in saved_rows.borrow_mut().drain(..) {
+                group.remove(&row);
+                gallery_rows.borrow_mut().retain(|(r, _)| r != &row);
+            }
+            let templates = crate::user_templates::list();
+            group.set_description(Some(if templates.is_empty() {
+                "None yet — set the form up how you like it, then press the save button above."
+            } else {
+                "Settings you saved, ready to start another document from."
+            }));
+
+            for template in templates {
+                let kind = body_kind_from_key(&template.settings.body_kind);
+                let row = adw::ActionRow::new();
+                row.set_title(&template.name);
+                row.set_subtitle(&describe_settings(&template.settings));
+                row.set_activatable(true);
+
+                let delete_btn = Button::from_icon_name("user-trash-symbolic");
+                delete_btn.add_css_class("flat");
+                delete_btn.set_valign(Align::Center);
+                delete_btn.set_tooltip_text(Some("Delete this template"));
+                {
+                    let name = template.name.clone();
+                    let window = window.clone();
+                    let again = self_for_body.clone();
+                    delete_btn.connect_clicked(move |_| {
+                        let confirm = adw::MessageDialog::new(
+                            Some(&window),
+                            Some("Delete this template?"),
+                            Some(&format!(
+                                "\u{201c}{name}\u{201d} will be removed. Documents already made from it are not affected."
+                            )),
+                        );
+                        confirm.add_response("cancel", "Cancel");
+                        confirm.add_response("delete", "Delete");
+                        confirm.set_response_appearance("delete", adw::ResponseAppearance::Destructive);
+                        confirm.set_default_response(Some("cancel"));
+                        confirm.set_close_response("cancel");
+                        let name = name.clone();
+                        let again = again.clone();
+                        let window = window.clone();
+                        confirm.connect_response(None, move |_, id| {
+                            if id != "delete" { return }
+                            if let Err(e) = crate::user_templates::delete(&name) {
+                                show_template_error(&window, "Couldn't delete the template", &e);
+                                return;
+                            }
+                            if let Some(f) = again.borrow().as_ref().and_then(|w| w.upgrade()) {
+                                f();
+                            }
+                        });
+                        confirm.present();
+                    });
+                }
+                row.add_suffix(&delete_btn);
+
+                let form_c = form.clone();
+                let target = target.clone();
+                let settings = template.settings.clone();
+                row.connect_activated(move |_| {
+                    form_c.apply_settings(&settings);
+                    target.start(PreviewJob::Saved(Box::new(settings.clone())));
                 });
 
-                let rx = std::rc::Rc::new(rx);
-                let pic = pic_c.clone();
-                let spin = spin_c.clone();
-                glib::timeout_add_local(
-                    std::time::Duration::from_millis(100),
-                    move || {
-                        use std::sync::mpsc::TryRecvError;
-                        match rx.try_recv() {
-                            Ok(Ok(png_bytes)) => {
-                                spin.stop();
-                                spin.set_visible(false);
-                                let bytes = glib::Bytes::from_owned(png_bytes);
-                                if let Ok(tex) = gtk4::gdk::Texture::from_bytes(&bytes) {
-                                    pic.set_paintable(Some(
-                                        tex.upcast_ref::<gtk4::gdk::Paintable>(),
-                                    ));
-                                }
-                                glib::ControlFlow::Break
-                            }
-                            Ok(Err(_)) => {
-                                spin.stop();
-                                spin.set_visible(false);
-                                glib::ControlFlow::Break
-                            }
-                            Err(TryRecvError::Empty) => glib::ControlFlow::Continue,
-                            Err(TryRecvError::Disconnected) => {
-                                spin.stop();
-                                glib::ControlFlow::Break
-                            }
-                        }
-                    },
-                );
-            });
+                group.add(&row);
+                saved_rows.borrow_mut().push(row.clone());
+                gallery_rows.borrow_mut().push((row, kind));
+            }
+            // While CV Mode is on the gallery is CV-only, so a saved essay
+            // template must not appear in it. With CV Mode off the list is left
+            // as it is — unfiltered until the switch is actually used, so a CV
+            // template is still findable without knowing the switch exists.
+            if form.cv_switch.is_active() {
+                for (row, kind) in gallery_rows.borrow().iter() {
+                    row.set_visible(*kind == BodyKind::Cv);
+                }
+            }
+        });
+        *self_ref.borrow_mut() = Some(Rc::downgrade(&body));
+        body
+    };
+    refresh();
 
-            gallery_group.add(&row);
-            gallery_rows.borrow_mut().push((row, preset.body_kind));
-        }
+    {
+        let form = form.clone();
+        let window = window.clone();
+        let refresh = refresh.clone();
+        save_btn.connect_clicked(move |_| {
+            prompt_and_save_template(&window, &form, refresh.clone());
+        });
+    }
 
-        // Auto-preview the first preset when the gallery opens
-        if !TEMPLATE_PRESETS.is_empty() {
-            let p = &TEMPLATE_PRESETS[0];
-            *form.body_kind.borrow_mut() = p.body_kind;
-            g_style.set_selected(p.style_idx);
-            g_paper.set_selected(p.paper_idx);
-            g_margin.set_selected(p.margin_idx);
-            g_spacing.set_selected(p.spacing_idx);
-            g_pnum.set_selected(p.page_num_pos);
-            g_header.set_selected(p.header_idx);
-            g_toc.set_active(p.include_toc);
-            g_abstract.set_active(p.include_abstract);
-            g_keywords.set_active(p.include_keywords);
-            hint_label.set_visible(false);
-            preview_spinner.set_visible(true);
-            preview_spinner.start();
-            let pic = preview_picture.clone();
-            let spin = preview_spinner.clone();
-            let (tx, rx) = std::sync::mpsc::sync_channel::<Result<Vec<u8>, String>>(1);
-            std::thread::spawn(move || { tx.send(generate_preset_preview(0)).ok(); });
-            let rx = std::rc::Rc::new(rx);
-            glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
-                use std::sync::mpsc::TryRecvError;
-                match rx.try_recv() {
-                    Ok(Ok(png_bytes)) => {
-                        spin.stop(); spin.set_visible(false);
-                        let bytes = glib::Bytes::from_owned(png_bytes);
-                        if let Ok(tex) = gtk4::gdk::Texture::from_bytes(&bytes) {
-                            pic.set_paintable(Some(tex.upcast_ref::<gtk4::gdk::Paintable>()));
-                        }
-                        glib::ControlFlow::Break
+    // Auto-preview the first preset when the gallery opens
+    if let Some(p) = TEMPLATE_PRESETS.first() {
+        form.set_body_kind(p.body_kind);
+        form.style.set_selected(p.style_idx);
+        form.paper.set_selected(p.paper_idx);
+        form.margin.set_selected(p.margin_idx);
+        form.spacing.set_selected(p.spacing_idx);
+        form.pnum.set_selected(p.page_num_pos);
+        form.header.set_selected(p.header_idx);
+        form.toc.set_active(p.include_toc);
+        form.abstract_sw.set_active(p.include_abstract);
+        form.keywords.set_active(p.include_keywords);
+        preview_widgets.start(PreviewJob::Preset(0));
+    }
+
+    gallery_outer
+}
+
+/// Which template the preview pane is being asked to render.
+enum PreviewJob {
+    Preset(usize),
+    Saved(Box<SidecarSettings>),
+}
+
+/// The three widgets a preview render drives. Bundled because both the preset
+/// rows, the saved-template rows and the initial auto-preview do the same
+/// spinner → compile-off-thread → paintable dance, which was written out three
+/// times before.
+#[derive(Clone)]
+struct PreviewTarget {
+    picture: Picture,
+    spinner: Spinner,
+    hint: Label,
+}
+
+impl PreviewTarget {
+    fn start(&self, job: PreviewJob) {
+        self.hint.set_visible(false);
+        self.picture.set_paintable(None::<&gtk4::gdk::Paintable>);
+        self.spinner.set_visible(true);
+        self.spinner.start();
+
+        let (tx, rx) = std::sync::mpsc::sync_channel::<Result<Vec<u8>, String>>(1);
+        std::thread::spawn(move || {
+            let result = match job {
+                PreviewJob::Preset(idx) => generate_preset_preview(idx),
+                PreviewJob::Saved(settings) => generate_saved_preview(&settings),
+            };
+            tx.send(result).ok();
+        });
+
+        let rx = std::rc::Rc::new(rx);
+        let pic = self.picture.clone();
+        let spin = self.spinner.clone();
+        let hint = self.hint.clone();
+        glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
+            use std::sync::mpsc::TryRecvError;
+            match rx.try_recv() {
+                Ok(Ok(png_bytes)) => {
+                    spin.stop();
+                    spin.set_visible(false);
+                    let bytes = glib::Bytes::from_owned(png_bytes);
+                    if let Ok(tex) = gtk4::gdk::Texture::from_bytes(&bytes) {
+                        pic.set_paintable(Some(tex.upcast_ref::<gtk4::gdk::Paintable>()));
                     }
-                    Ok(Err(_)) => { spin.stop(); spin.set_visible(false); glib::ControlFlow::Break }
-                    Err(TryRecvError::Empty) => glib::ControlFlow::Continue,
-                    Err(TryRecvError::Disconnected) => { spin.stop(); glib::ControlFlow::Break }
+                    glib::ControlFlow::Break
+                }
+                Ok(Err(e)) => {
+                    // A preview that fails used to leave a blank pane with no
+                    // spinner and no explanation, indistinguishable from one
+                    // still rendering.
+                    tracing::warn!("Template preview failed: {e}");
+                    spin.stop();
+                    spin.set_visible(false);
+                    hint.set_text("This template couldn't be previewed.\nIts settings still apply.");
+                    hint.set_visible(true);
+                    glib::ControlFlow::Break
+                }
+                Err(TryRecvError::Empty) => glib::ControlFlow::Continue,
+                Err(TryRecvError::Disconnected) => {
+                    spin.stop();
+                    spin.set_visible(false);
+                    glib::ControlFlow::Break
+                }
+            }
+        });
+    }
+}
+
+/// A one-line summary of what a saved template does, for its gallery row.
+/// Derived at display time rather than stored, so it can't describe a template
+/// as something it no longer is.
+pub fn describe_settings(s: &SidecarSettings) -> String {
+    let mut parts: Vec<String> = Vec::new();
+
+    if s.body_kind == "cv" {
+        let style = CV_STYLE_OPTIONS
+            .iter()
+            .find(|(_, k, _)| *k == s.cv_style)
+            .map(|(n, _, _)| *n)
+            .unwrap_or("CV");
+        parts.push(format!("CV · {style}"));
+    } else {
+        parts.push(match s.body_kind.as_str() {
+            "book"   => "Book".to_string(),
+            "letter" => "Letter".to_string(),
+            _ => style_name_for_key(&s.style).unwrap_or("Academic").to_string(),
+        });
+    }
+
+    if let Some((label, _)) = PAPER_SIZES.iter().find(|(_, k)| *k == s.paper) {
+        parts.push(label.to_string());
+    }
+    if !s.font.is_empty() {
+        parts.push(s.font.clone());
+    }
+    if !s.font_size.is_empty() {
+        parts.push(s.font_size.clone());
+    }
+    if let Some(label) = MARGIN_PRESETS.get(s.margin as usize) {
+        parts.push(format!("{} margins", label.split_whitespace().next().unwrap_or(label).to_lowercase()));
+    }
+    if s.toc { parts.push("contents".into()); }
+    if s.abstract_enabled { parts.push("abstract".into()); }
+
+    parts.join(" · ")
+}
+
+/// Ask for a name, then save the form's current settings under it.
+fn prompt_and_save_template(window: &adw::Window, form: &FormWidgets, refresh: Rc<dyn Fn()>) {
+    let dialog = adw::MessageDialog::new(
+        Some(window),
+        Some("Save as template"),
+        Some("Everything on this form except the title, date, abstract and keywords is saved, \
+              so you can start future documents the same way."),
+    );
+    let entry = adw::EntryRow::new();
+    entry.set_title("Template name");
+    let list = gtk4::ListBox::new();
+    list.add_css_class("boxed-list");
+    list.set_selection_mode(gtk4::SelectionMode::None);
+    list.append(&entry);
+    list.set_margin_top(8);
+    dialog.set_extra_child(Some(&list));
+
+    dialog.add_response("cancel", "Cancel");
+    dialog.add_response("save", "Save");
+    dialog.set_response_appearance("save", adw::ResponseAppearance::Suggested);
+    dialog.set_default_response(Some("save"));
+    dialog.set_close_response("cancel");
+    dialog.set_response_enabled("save", false);
+    {
+        let dialog = dialog.clone();
+        entry.connect_changed(move |e| {
+            dialog.set_response_enabled("save", !e.text().trim().is_empty());
+        });
+    }
+
+    let form = form.clone();
+    let window = window.clone();
+    dialog.connect_response(None, move |_, id| {
+        if id != "save" { return }
+        let name = entry.text().trim().to_string();
+        let settings = build_sidecar(&form.collect());
+        let refresh = refresh.clone();
+        let window_for_save = window.clone();
+
+        let do_save = move || {
+            match crate::user_templates::save(&name, &settings) {
+                Ok(_) => refresh(),
+                Err(e) => show_template_error(&window_for_save, "Couldn't save the template", &e),
+            }
+        };
+
+        if crate::user_templates::exists(entry.text().trim()) {
+            let confirm = adw::MessageDialog::new(
+                Some(&window),
+                Some("Replace that template?"),
+                Some("A template with that name already exists. Saving replaces it."),
+            );
+            confirm.add_response("cancel", "Cancel");
+            confirm.add_response("replace", "Replace");
+            confirm.set_response_appearance("replace", adw::ResponseAppearance::Destructive);
+            confirm.set_default_response(Some("cancel"));
+            confirm.set_close_response("cancel");
+            let do_save = std::cell::RefCell::new(Some(do_save));
+            confirm.connect_response(None, move |_, id| {
+                if id == "replace" {
+                    if let Some(f) = do_save.borrow_mut().take() { f(); }
                 }
             });
+            confirm.present();
+        } else {
+            do_save();
         }
+    });
 
-        gallery_outer
+    dialog.present();
+}
+
+fn show_template_error(window: &adw::Window, title: &str, body: &str) {
+    let alert = adw::MessageDialog::new(Some(window), Some(title), Some(body));
+    alert.add_response("ok", "OK");
+    alert.set_default_response(Some("ok"));
+    alert.present();
 }
 
 /// The Style row's two interchangeable models — citation styles normally, CV
@@ -1668,14 +2144,27 @@ fn wire_action_buttons(
             Some(&win_for_create),
             None::<&gtk4::gio::Cancellable>,
             move |result| {
-                if let Ok(file) = result {
-                    if let Some(path) = file.path() {
-                        let _ = std::fs::write(&path, &content);
-                        save_sidecar(&path, &sidecar);
-                        if let Some(f) = cb.borrow().as_ref() {
-                            f(path);
-                        }
-                    }
+                let Ok(file) = result else { return };  // user cancelled the save dialog
+                let Some(path) = file.path() else { return };
+
+                // A failed write used to be discarded, and the dialog closed
+                // as if the document had been created — leaving the user
+                // looking for a file that was never written. Keep the dialog
+                // open instead, so they can pick somewhere writable.
+                if let Err(e) = write_atomically(&path, &content) {
+                    let alert = adw::MessageDialog::new(
+                        Some(&win_c),
+                        Some("Couldn't create the document"),
+                        Some(&format!("{} could not be written: {e}", path.display())),
+                    );
+                    alert.add_response("ok", "OK");
+                    alert.set_default_response(Some("ok"));
+                    alert.present();
+                    return;
+                }
+                save_sidecar(&path, &sidecar);
+                if let Some(f) = cb.borrow().as_ref() {
+                    f(path);
                 }
                 win_c.close();
             },
@@ -1855,14 +2344,16 @@ impl TemplateDialog {
             heading_fmt: heading_format_row.clone(),
             langs: lang_switches.clone(),
             pkgs: pkg_switches.clone(),
+            dropcap_expander: dropcap_expander.clone(),
             dropcap_font: dropcap_font_row.clone(),
             dropcap_lines: dropcap_lines_row.clone(),
             dropcap_color: dropcap_color_row.clone(),
+            cv_switch: cv_switch.clone(),
             body_kind: body_kind_state.clone(),
             bib_path: bib_path.clone(),
         };
 
-        let gallery_outer = build_templates_gallery(&form, &gallery_rows, &cv_elements_group);
+        let gallery_outer = build_templates_gallery(&window, &form, &gallery_rows, &cv_elements_group);
 
         // ── Simple form group ────────────────────────────────────────────────
         // Gallery is Tab 0 — it fills the full window and has internal scrolling
@@ -1919,28 +2410,19 @@ impl TemplateDialog {
 
         Self {
             window, on_create, on_apply, on_lock_identity, on_advanced_toggle, apply_btn,
-            style_row, font_row, font_size_row, custom_font_size_row,
-            paper_row, custom_paper_w_row, custom_paper_h_row,
-            margin_row, custom_margin_row, spacing_row,
-            toc_row, toc_depth_row, abstract_row, abstract_text_row,
-            keywords_row, keywords_text_row, heading_numbering_row, heading_format_row,
-            title_row, subtitle_row, author_row, affil_row, course_row, professor_row, date_row,
-            bib_path, pnum_row, header_row, lang_switches, pkg_switches,
-            dropcap_expander, dropcap_font_row, dropcap_lines_row, dropcap_color_row,
-            cv_switch, cv_elements_row, cv_elements_path, on_cv_elements_change,
-            body_kind_state,
+            form, cv_elements_row, cv_elements_path, on_cv_elements_change,
         }
     }
 
     pub fn set_bib_path(&self, path: Option<PathBuf>) {
-        *self.bib_path.borrow_mut() = path;
+        *self.form.bib_path.borrow_mut() = path;
     }
 
     /// Turns CV Mode on/off, which filters the gallery to CV-only (or
     /// non-CV-only) presets, hides the Sections/Packages tabs, and reveals
     /// the Skrizhal CV Elements selector.
     pub fn preselect_cv_mode(&self, active: bool) {
-        self.cv_switch.set_active(active);
+        self.form.set_cv_mode(active);
     }
 
     /// Restores which template kind (Academic/Book/CV/Letter) "Apply to Current" should
@@ -1951,7 +2433,7 @@ impl TemplateDialog {
     /// Apply regenerates an Academic preamble even for a CV/Book/Letter document — for CVs
     /// this drops the `#section` helper the preserved body still calls, breaking compilation.
     pub(crate) fn preselect_body_kind(&self, kind: BodyKind) {
-        *self.body_kind_state.borrow_mut() = kind;
+        self.form.set_body_kind(kind);
     }
 
     /// Restores the CV style (Modern/Academic/Classic/Two-Column) from the
@@ -1960,7 +2442,7 @@ impl TemplateDialog {
     /// and leaves the selection untouched for a CV's "cv" `@zerkalo-style`.
     /// `idx` comes from `cv_style_index`.
     pub(crate) fn preselect_cv_style_index(&self, idx: usize) {
-        self.style_row.set_selected(idx as u32);
+        self.form.set_cv_style_index(idx);
     }
 
     pub fn set_cv_elements_path(&self, path: Option<PathBuf>) {
@@ -1994,96 +2476,35 @@ impl TemplateDialog {
     /// Pre-select a citation style by its internal key (e.g. "sbl", "apa").
     /// Also sets style-appropriate heading numbering defaults (overridable by sidecar).
     pub fn preselect_style(&self, style_key: &str) {
-        for (i, (_, key)) in CITATION_STYLES.iter().enumerate() {
-            if *key == style_key {
-                self.style_row.set_selected(i as u32);
-                break;
-            }
-        }
-        match style_key {
-            "ieee" => {
-                self.preselect_heading_numbering(true);
-                self.preselect_heading_format("I.A.1.");
-            }
-            "gost-r-705" | "vancouver" => {
-                self.preselect_heading_numbering(true);
-                self.preselect_heading_format("1.");
-            }
-            _ => {}
-        }
+        self.form.set_style(style_key);
     }
 
     pub fn preselect_dropcap_font(&self, font: &str) {
-        if font.is_empty() {
-            self.dropcap_font_row.set_selected(0);
-            return;
-        }
-        if let Some(model) = self.dropcap_font_row.model()
-            .and_then(|m| m.downcast::<gtk4::StringList>().ok())
-        {
-            for i in 0..model.n_items() {
-                if model.string(i).map(|s| s.to_string()).as_deref() == Some(font) {
-                    self.dropcap_font_row.set_selected(i);
-                    return;
-                }
-            }
-        }
-        self.dropcap_font_row.set_selected(0);
-    }
-
-    pub fn preselect_dropcap_lines(&self, lines: u32) {
-        let idx = lines.saturating_sub(2).min(4);
-        self.dropcap_lines_row.set_selected(idx);
+        self.form.set_dropcap_font(font);
     }
 
     pub fn preselect_dropcap_color(&self, color: &str) {
-        let idx = DROPCAP_COLORS.iter().position(|(_, v)| *v == color).unwrap_or(0);
-        self.dropcap_color_row.set_selected(idx as u32);
+        self.form.set_dropcap_color(color);
     }
 
     /// Pre-select the body font by name.
     pub fn preselect_font(&self, font: &str) {
-        let available = build_font_list();
-        for (i, f) in available.iter().enumerate() {
-            if f.eq_ignore_ascii_case(font) {
-                self.font_row.set_selected(i as u32);
-                return;
-            }
-        }
+        self.form.set_font(font);
     }
 
     /// Pre-select paper size by its Typst key (e.g. "us-letter", "a4").
     pub fn preselect_paper(&self, paper_key: &str, custom_w: &str, custom_h: &str) {
-        for (i, (_, key)) in PAPER_SIZES.iter().enumerate() {
-            if *key == paper_key {
-                self.paper_row.set_selected(i as u32);
-                if paper_key == "custom" {
-                    if let Ok(w) = custom_w.parse::<f64>() { self.custom_paper_w_row.set_value(w); }
-                    if let Ok(h) = custom_h.parse::<f64>() { self.custom_paper_h_row.set_value(h); }
-                }
-                return;
-            }
-        }
+        self.form.set_paper(paper_key, custom_w, custom_h);
     }
 
-    /// Pre-select line spacing by its value string (e.g. "1.5em", "2.0em").
+    /// Pre-select line spacing by its value string (e.g. "0.9em", "1.2em").
     pub fn preselect_spacing(&self, spacing_value: &str) {
-        for (i, (_, val)) in SPACING_OPTIONS.iter().enumerate() {
-            if *val == spacing_value {
-                self.spacing_row.set_selected(i as u32);
-                return;
-            }
-        }
+        self.form.set_spacing(spacing_value);
     }
 
     /// Pre-select the margin preset by index (0=Normal, 1=Narrow, 2=Wide, 3=LaTeX, 4=Ross).
     pub fn preselect_margin(&self, idx: usize, custom_margin: &str) {
-        if idx < MARGIN_PRESETS.len() {
-            self.margin_row.set_selected(idx as u32);
-            if idx == MARGIN_PRESETS.len() - 1 {
-                if let Ok(v) = custom_margin.parse::<f64>() { self.custom_margin_row.set_value(v); }
-            }
-        }
+        self.form.set_margin(idx, custom_margin);
     }
 
     /// Register a callback fired when the user clicks a pin button.
@@ -2094,11 +2515,11 @@ impl TemplateDialog {
 
     /// Pre-fill author and affiliation from saved defaults (only if the field is currently empty).
     pub fn preselect_locked_identity(&self, author: &str, affiliation: &str) {
-        if self.author_row.text().is_empty() && !author.is_empty() {
-            self.author_row.set_text(author);
+        if self.form.author.text().is_empty() && !author.is_empty() {
+            self.form.author.set_text(author);
         }
-        if self.affil_row.text().is_empty() && !affiliation.is_empty() {
-            self.affil_row.set_text(affiliation);
+        if self.form.affil.text().is_empty() && !affiliation.is_empty() {
+            self.form.affil.set_text(affiliation);
         }
     }
 
@@ -2113,146 +2534,61 @@ impl TemplateDialog {
         professor: &str,
         date: &str,
     ) {
-        if !title.is_empty()       { self.title_row.set_text(title); }
-        if !subtitle.is_empty()    { self.subtitle_row.set_text(subtitle); }
-        if !author.is_empty()      { self.author_row.set_text(author); }
-        if !affiliation.is_empty() { self.affil_row.set_text(affiliation); }
-        if !course.is_empty()      { self.course_row.set_text(course); }
-        if !professor.is_empty()   { self.professor_row.set_text(professor); }
-        if !date.is_empty()        { self.date_row.set_text(date); }
+        self.form.set_metadata(title, subtitle, author, affiliation, course, professor, date);
     }
 
     pub fn preselect_toc(&self, active: bool, depth: u32) {
-        self.toc_row.set_active(active);
-        let idx = match depth { 1 => 0u32, 3 => 2, _ => 1 };
-        self.toc_depth_row.set_selected(idx);
-        self.toc_depth_row.set_sensitive(active);
+        self.form.set_toc(active, depth);
     }
 
     pub fn preselect_abstract(&self, active: bool, text: &str) {
-        self.abstract_row.set_active(active);
-        if active && !text.is_empty() {
-            self.abstract_text_row.set_text(text);
-        }
-        self.abstract_text_row.set_visible(active);
+        self.form.set_abstract(active, text);
     }
 
     /// Pre-fill abstract text, overriding whatever the sidecar has. Used to
     /// populate the dialog from the text found directly in the .typ file.
     pub fn override_abstract_text(&self, text: &str) {
         if !text.is_empty() {
-            self.abstract_text_row.set_text(text);
-            self.abstract_row.set_active(true);
-            self.abstract_text_row.set_visible(true);
+            self.form.set_abstract(true, text);
         }
     }
 
     pub fn preselect_font_size(&self, size: &str) {
-        let idx = match size {
-            "10pt" => 0u32,
-            "11pt" => 1,
-            "12pt" => 2,
-            "14pt" => 3,
-            other => {
-                let digits: String = other.chars().take_while(|c| c.is_ascii_digit() || *c == '.').collect();
-                if let Ok(v) = digits.parse::<f64>() {
-                    self.custom_font_size_row.set_value(v);
-                }
-                4
-            }
-        };
-        self.font_size_row.set_selected(idx);
+        self.form.set_font_size(size);
     }
 
     pub fn preselect_heading_numbering(&self, active: bool) {
-        self.heading_numbering_row.set_active(active);
-        self.heading_format_row.set_visible(active);
+        self.form.set_heading_numbering(active);
     }
 
     pub fn preselect_heading_format(&self, format: &str) {
-        for (i, (_, pat)) in NUMBERING_FORMATS.iter().enumerate() {
-            if *pat == format {
-                self.heading_format_row.set_selected(i as u32);
-                return;
-            }
-        }
+        self.form.set_heading_format(format);
     }
 
     pub fn preselect_keywords(&self, active: bool, text: &str) {
-        self.keywords_row.set_active(active);
-        if active && !text.is_empty() {
-            self.keywords_text_row.set_text(text);
-        }
-        self.keywords_text_row.set_visible(active);
+        self.form.set_keywords(active, text);
     }
 
     pub fn preselect_page_numbers(&self, pos: u32) {
-        if (pos as usize) < PAGE_NUM_OPTIONS.len() {
-            self.pnum_row.set_selected(pos);
-        }
+        self.form.set_page_numbers(pos);
     }
 
     pub fn preselect_header(&self, style: u32) {
-        if (style as usize) < HEADER_OPTIONS.len() {
-            self.header_row.set_selected(style);
-        }
+        self.form.set_header(style);
     }
 
     pub fn preselect_languages(&self, langs: &[String]) {
-        for (key, sw) in &self.lang_switches {
-            sw.set_active(langs.iter().any(|l| l == key));
-        }
+        self.form.set_languages(langs);
     }
 
     pub fn preselect_packages(&self, pkgs: &[String]) {
-        for (key, sw) in &self.pkg_switches {
-            sw.set_active(pkgs.iter().any(|p| p == key));
-        }
-        let droplet_on = pkgs.iter().any(|p| p == "pkg_droplet");
-        self.dropcap_expander.set_enable_expansion(droplet_on);
+        self.form.set_packages(pkgs);
     }
 
     /// Pre-fill all dialog fields from a sidecar. Called when opening
     /// "Update Template Settings" for a document that has a sidecar file.
     pub fn preselect_from_sidecar(&self, s: &SidecarSettings) {
-        self.preselect_cv_mode(s.body_kind == "cv");
-        self.preselect_body_kind(body_kind_from_key(&s.body_kind));
-        self.preselect_style(&s.style);
-        // For CVs, `s.cv_style` (when present) is authoritative over the
-        // `style` aliasing above — see CV_STYLE_OPTIONS' doc comment. Legacy
-        // sidecars saved before this field existed leave it empty, and fall
-        // back to the coincidental CITATION_STYLES-index match `preselect_style`
-        // just performed.
-        if s.body_kind == "cv" && !s.cv_style.is_empty() {
-            if let Some(idx) = cv_style_index(&s.cv_style) {
-                self.preselect_cv_style_index(idx);
-            }
-        }
-        if !s.font.is_empty()      { self.preselect_font(&s.font); }
-        if !s.font_size.is_empty() { self.preselect_font_size(&s.font_size); }
-        if !s.paper.is_empty()     { self.preselect_paper(&s.paper, &s.custom_paper_w, &s.custom_paper_h); }
-        if !s.spacing.is_empty()   { self.preselect_spacing(&s.spacing); }
-        self.preselect_margin(s.margin as usize, &s.custom_margin);
-        self.preselect_page_numbers(s.page_numbers);
-        self.preselect_header(s.header_style);
-        self.preselect_metadata(&s.title, &s.subtitle, &s.author, &s.affiliation, &s.course, &s.professor, &s.date);
-        self.preselect_toc(s.toc, s.toc_depth);
-        self.preselect_abstract(s.abstract_enabled, &s.abstract_text);
-        self.preselect_keywords(s.keywords_enabled, &s.keywords_text);
-        self.preselect_heading_numbering(s.heading_numbering);
-        if !s.numbering_format.is_empty() {
-            self.preselect_heading_format(&s.numbering_format);
-        }
-        self.preselect_languages(&s.languages);
-        self.preselect_packages(&s.packages);
-        self.preselect_dropcap_font(&s.dropcap_font);
-        self.preselect_dropcap_lines(s.dropcap_lines);
-        self.preselect_dropcap_color(&s.dropcap_color);
-        if let Some(ref p) = s.bib_path {
-            if !p.is_empty() {
-                *self.bib_path.borrow_mut() = Some(PathBuf::from(p));
-            }
-        }
+        self.form.apply_settings(s);
     }
 
     pub fn present(&self) {
@@ -2270,8 +2606,47 @@ pub fn sidecar_path(typ_path: &std::path::Path) -> PathBuf {
 
 pub fn save_sidecar(typ_path: &std::path::Path, s: &SidecarSettings) {
     if let Ok(text) = toml::to_string_pretty(s) {
-        let _ = std::fs::write(sidecar_path(typ_path), text);
+        let _ = write_atomically(&sidecar_path(typ_path), &text);
     }
+}
+
+/// Write `contents` to `path` without ever leaving a half-written file behind:
+/// a temp file in the same directory, flushed, then renamed over the target.
+///
+/// Every write in this module lands on a document the user has been writing
+/// for hours. A plain `fs::write` truncates first and fills after, so a crash,
+/// a full disk, or a killed flatpak between those two steps leaves a truncated
+/// or empty `.typ` — the document is gone with no backup and no undo. The
+/// rename is atomic on every filesystem Zerkalo runs on, so the file is either
+/// entirely the old content or entirely the new one.
+pub fn write_atomically(path: &std::path::Path, contents: &str) -> std::io::Result<()> {
+    use std::io::Write;
+
+    let dir = path.parent().unwrap_or(std::path::Path::new("."));
+    let stem = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let tmp = dir.join(format!(".{stem}.zerkalo-tmp"));
+
+    {
+        let mut f = std::fs::File::create(&tmp)?;
+        f.write_all(contents.as_bytes())?;
+        f.sync_all()?;
+    }
+    match std::fs::rename(&tmp, path) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            let _ = std::fs::remove_file(&tmp);
+            Err(e)
+        }
+    }
+}
+
+/// Copy `path` to a fresh `.typ.bak` before something destructive happens to
+/// it. Returns the backup's path so the caller can name it to the user.
+pub fn backup_document(path: &std::path::Path) -> std::io::Result<PathBuf> {
+    let contents = std::fs::read_to_string(path)?;
+    let backup = unique_backup_path(path);
+    write_atomically(&backup, &contents)?;
+    Ok(backup)
 }
 
 pub fn load_sidecar(typ_path: &std::path::Path) -> Option<SidecarSettings> {
@@ -2434,7 +2809,7 @@ pub fn repair_template_markers(path: &std::path::Path) -> Result<bool, String> {
     }
 
     let backup = unique_backup_path(path);
-    std::fs::write(&backup, &content)
+    write_atomically(&backup, &content)
         .map_err(|e| format!("Cannot create backup at {}: {e}", backup.display()))?;
 
     let insert_before = preamble_end_line(&content);
@@ -2454,7 +2829,7 @@ pub fn repair_template_markers(path: &std::path::Path) -> Result<bool, String> {
         new_content.push('\n');
     }
 
-    std::fs::write(path, &new_content)
+    write_atomically(path, &new_content)
         .map_err(|e| format!("Cannot write repaired file: {e}"))?;
 
     Ok(true)
@@ -2519,11 +2894,31 @@ pub fn has_body_marker(content: &str) -> bool {
     BODY_MARKERS.iter().any(|m| content.contains(m))
 }
 
+/// What `apply_body_splice` actually did, so the caller can tell the user
+/// instead of leaving a click that appears to have done nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpliceOutcome {
+    /// Preamble regenerated, the user's body preserved verbatim. The normal case.
+    Preserved,
+    /// Body regenerated because the CV layout crossed the sidebar boundary.
+    BodyRegenerated,
+    /// Nothing applied: the new preamble would not compile against this body.
+    RefusedIncompatible,
+    /// The whole document was replaced — there was no body to preserve.
+    WholeDocumentReplaced,
+}
+
 /// Regenerate the document preamble and front-matter from fresh settings while
 /// preserving the user's body content. Splices at the `// ── Document body` /
 /// `// ── Chapters` marker so the body is never touched, and updates the
 /// bibliography style in the preserved body.
+#[cfg(test)]
 pub fn apply_body_splice(existing: &str, fresh: &str) -> String {
+    apply_body_splice_reporting(existing, fresh).0
+}
+
+/// [`apply_body_splice`], plus what it decided to do — see [`SpliceOutcome`].
+pub fn apply_body_splice_reporting(existing: &str, fresh: &str) -> (String, SpliceOutcome) {
     const BODY_MARKERS: &[&str] = &["// ── Document body", "// ── Chapters"];
 
     let old_pos   = BODY_MARKERS.iter().filter_map(|m| existing.find(m)).min();
@@ -2567,7 +2962,7 @@ pub fn apply_body_splice(existing: &str, fresh: &str) -> String {
             let old_body_needs_cv_helpers = old_body.contains("#section(") || old_body.contains("#cv-section(");
             let fresh_defines_cv_helpers = fresh_preamble.contains("#let section(");
             if old_body_needs_cv_helpers && !fresh_defines_cv_helpers {
-                return existing.to_string();
+                return (existing.to_string(), SpliceOutcome::RefusedIncompatible);
             }
 
             // Still a CV, but the style changed: "sidebar" (Two-Column) is the
@@ -2585,11 +2980,14 @@ pub fn apply_body_splice(existing: &str, fresh: &str) -> String {
             let new_cv_style = parse_cv_style(&fresh_preamble);
             if let (Some(old_style), Some(new_style)) = (&old_cv_style, &new_cv_style) {
                 if (old_style == "sidebar") != (new_style == "sidebar") {
-                    return format!("{fresh_preamble}{}", generate_cv_body(new_style));
+                    return (
+                        format!("{fresh_preamble}{}", generate_cv_body(new_style)),
+                        SpliceOutcome::BodyRegenerated,
+                    );
                 }
             }
 
-            format!("{fresh_preamble}{updated_body}")
+            (format!("{fresh_preamble}{updated_body}"), SpliceOutcome::Preserved)
         }
         // The existing document has a body worth keeping but the regenerated
         // one carries no marker to splice at. Returning `fresh` here — as this
@@ -2598,11 +2996,14 @@ pub fn apply_body_splice(existing: &str, fresh: &str) -> String {
         // font from the status bar. Every generator emits a marker, so reaching
         // this arm means generation went wrong; keeping the body is always the
         // safer answer.
-        (Some(old_p), None) => format!("{fresh}{}", &existing[old_p..]),
+        (Some(old_p), None) => (
+            format!("{fresh}{}", &existing[old_p..]),
+            SpliceOutcome::Preserved,
+        ),
         // No body to preserve. Callers that can reach this confirm the
         // whole-document replacement with the user first (see
         // `has_body_marker`'s call site in app_window).
-        (None, _) => fresh.to_string(),
+        (None, _) => (fresh.to_string(), SpliceOutcome::WholeDocumentReplaced),
     }
 }
 
@@ -2981,7 +3382,12 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
         let font = if s.font.trim().is_empty() { "Libertinus Serif" } else { s.font.trim() };
         let leading = user_length_or(&s.spacing, "em", "0.65em");
         let _ = writeln!(out, "#set text(font: \"{}\", size: {font_size}, lang: \"en\")", typst_str(font));
-        let _ = writeln!(out, "#set par(leading: {leading}, spacing: 1.2em, first-line-indent: 1em, justify: true)");
+        // `spacing` matches `leading` so paragraphs are marked by the indent
+        // alone. A fixed 1.2em gap on top of the indent marked every paragraph
+        // twice — and on a double-spaced document it also broke the even line
+        // grid that APA, MLA, Chicago and Turabian all specify. The LaTeX Look
+        // branch above has always tied the two together; this is the same rule.
+        let _ = writeln!(out, "#set par(leading: {leading}, spacing: {leading}, first-line-indent: 1em, justify: true)");
     }
     let _ = writeln!(out);
 
@@ -3036,7 +3442,10 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
     if s.include_abstract {
         let _ = writeln!(out, "#align(center)[*Abstract*]");
         if !s.abstract_text.is_empty() {
-            let _ = writeln!(out, "#block(inset: (x: 1in))[");
+            // Inset as a share of the text width, not a fixed inch. On A5 or
+            // Legal-with-wide-margins, an inch either side left the abstract in
+            // a column a few characters wide.
+            let _ = writeln!(out, "#block(inset: (x: 8%), width: 100%)[");
             let _ = writeln!(out, "  {}", typst_markup(&s.abstract_text));
             let _ = writeln!(out, "]");
         }
@@ -3457,15 +3866,25 @@ fn generate_title_page(style_key: &str, s: &TemplateSettings) -> String {
     match style_key {
         // MLA: no separate title page — left-aligned header block then centred title
         "mla" => {
-            let _ = writeln!(out, "#set par(first-line-indent: 0pt)");
-            let _ = writeln!(out, "#if doc-author != \"\" [#doc-author \\ ]");
-            let _ = writeln!(out, "#if doc-affil != \"\" [#doc-affil \\ ]");
-            let _ = writeln!(out, "#if doc-course != \"\" [#doc-course \\ ]");
-            let _ = writeln!(out, "#if doc-professor != \"\" [#doc-professor \\ ]");
-            let _ = writeln!(out, "#if doc-date != \"\" [#doc-date]");
+            // The un-indented heading block is scoped inside its own content
+            // block. As a bare top-level `#set` it turned off first-line
+            // indentation for the entire document — MLA's own requirement is a
+            // half-inch indent on every body paragraph, so the one style that
+            // most insists on indentation was the only one generated without it.
+            let _ = writeln!(out, "#block[");
+            let _ = writeln!(out, "  #set par(first-line-indent: 0pt)");
+            let _ = writeln!(out, "  #if doc-author != \"\" [#doc-author \\ ]");
+            let _ = writeln!(out, "  #if doc-affil != \"\" [#doc-affil \\ ]");
+            let _ = writeln!(out, "  #if doc-course != \"\" [#doc-course \\ ]");
+            let _ = writeln!(out, "  #if doc-professor != \"\" [#doc-professor \\ ]");
+            let _ = writeln!(out, "  #if doc-date != \"\" [#doc-date]");
+            let _ = writeln!(out, "]");
             let _ = writeln!(out);
-            let _ = writeln!(out, "#align(center)[#doc-title]");
-            let _ = writeln!(out, "#if doc-subtitle != \"\" [#align(center)[#text(style: \"italic\")[#doc-subtitle]]]");
+            let _ = writeln!(out, "#block[");
+            let _ = writeln!(out, "  #set par(first-line-indent: 0pt)");
+            let _ = writeln!(out, "  #align(center)[#doc-title]");
+            let _ = writeln!(out, "  #if doc-subtitle != \"\" [#align(center)[#text(style: \"italic\")[#doc-subtitle]]]");
+            let _ = writeln!(out, "]");
             let _ = writeln!(out);
         }
         // IEEE: no title page — title + authors as header block in two-column layout
@@ -3480,7 +3899,9 @@ fn generate_title_page(style_key: &str, s: &TemplateSettings) -> String {
         }
         // APA / ASA / Harvard: title page with running head, all centred
         "apa" | "asa" | "harvard" => {
-            let _ = writeln!(out, "#page(header: align(left)[#text(size: 10pt)[Running head: #upper[#doc-title]]])[");
+            // No "Running head:" label — the 7th edition dropped it, and this
+            // style is offered as APA 7th. The shortened title in caps stays.
+            let _ = writeln!(out, "#page(header: align(left)[#text(size: 10pt)[#upper[#doc-title]]])[");
             let _ = writeln!(out, "  #set align(center)");
             let _ = writeln!(out, "  #v(2.5in)");
             let _ = writeln!(out, "  #text(size: 14pt, weight: \"bold\")[#doc-title]");
@@ -4041,11 +4462,46 @@ fn generate_preset_preview(idx: usize) -> Result<Vec<u8>, String> {
     }
 
     let p = &TEMPLATE_PRESETS[idx];
-    let bib_key = CITATION_STYLES
-        .get(p.style_idx as usize)
-        .map(|(_, k)| *k)
-        .unwrap_or("chicago-notes");
-    let bib_style_name = bib_style(bib_key);
+    let settings = preview_settings_for_preset(p);
+    render_template_preview(&settings, &idx.to_string(), Some(cache_path))
+}
+
+/// A preview of a user-saved template. Uncached: there are few of them, and a
+/// stale thumbnail after re-saving one under the same name would be worse than
+/// the second it takes to render.
+fn generate_saved_preview(saved: &SidecarSettings) -> Result<Vec<u8>, String> {
+    let settings = preview_settings_for_saved(saved);
+    render_template_preview(&settings, "saved", None)
+}
+
+/// The sample document a saved template is previewed with: the template's own
+/// formatting, but placeholder metadata — the saved template deliberately
+/// carries no title or date (see `user_templates::strip_document_fields`), and
+/// an empty title page would show nothing of what the template looks like.
+fn preview_settings_for_saved(saved: &SidecarSettings) -> TemplateSettings {
+    let mut s = sidecar_to_settings(saved);
+    let is_cv = matches!(s.body_kind, BodyKind::Cv);
+    s.title = "Sample Document".to_string();
+    s.date = "2026".to_string();
+    if s.author.is_empty() { s.author = "Author Name".to_string(); }
+    if s.affiliation.is_empty() {
+        s.affiliation = if is_cv { "San Francisco, CA".to_string() } else { "Sample University".to_string() };
+    }
+    if is_cv {
+        if s.subtitle.is_empty()  { s.subtitle = "jane.doe@example.com".to_string(); }
+        if s.course.is_empty()    { s.course = "+1 555 012 3456".to_string(); }
+        if s.professor.is_empty() { s.professor = "linkedin.com/in/janedoe".to_string(); }
+    }
+    if s.include_abstract && s.abstract_text.is_empty() {
+        s.abstract_text = PREVIEW_ABSTRACT.to_string();
+    }
+    // The saved .bib is deliberately not carried into templates, and the
+    // preview supplies its own sample bibliography below.
+    s.bib_path = None;
+    s
+}
+
+fn preview_settings_for_preset(p: &TemplatePreset) -> TemplateSettings {
     let spacing = SPACING_OPTIONS
         .get(p.spacing_idx as usize)
         .map(|(_, v)| v.to_string())
@@ -4069,7 +4525,7 @@ fn generate_preset_preview(idx: usize) -> Result<Vec<u8>, String> {
         if chosen.is_empty() { "Libertinus Serif".to_string() } else { chosen }
     };
 
-    let settings = TemplateSettings {
+    TemplateSettings {
         title: "Sample Document".to_string(),
         subtitle: if is_cv_preview { "jane.doe@example.com".to_string() } else { String::new() },
         author: "Author Name".to_string(),
@@ -4091,9 +4547,7 @@ fn generate_preset_preview(idx: usize) -> Result<Vec<u8>, String> {
         include_toc: false,
         toc_depth: 2,
         include_abstract: p.include_abstract,
-        abstract_text: "This sample abstract demonstrates the layout for this template style. \
-            It summarises the main argument and methodology of the paper."
-            .to_string(),
+        abstract_text: PREVIEW_ABSTRACT.to_string(),
         include_keywords: false,
         keywords: String::new(),
         heading_numbering: false,
@@ -4105,38 +4559,56 @@ fn generate_preset_preview(idx: usize) -> Result<Vec<u8>, String> {
         dropcap_color: String::new(),
         body_kind: p.body_kind,
         bib_path: None,
-    };
+    }
+}
 
-    let mut preamble = generate_typst_template(&settings);
+const PREVIEW_ABSTRACT: &str = "This sample abstract demonstrates the layout for this template style. \
+    It summarises the main argument and methodology of the paper.";
+
+/// Compile `settings` into a one-page PNG, with sample body content so the
+/// preview shows headings, citations and a bibliography rather than an empty
+/// starter document. `tag` only keeps concurrent previews' temp files apart;
+/// `cache_path`, when given, is where the rendered page is remembered.
+fn render_template_preview(
+    settings: &TemplateSettings,
+    tag: &str,
+    cache_path: Option<PathBuf>,
+) -> Result<Vec<u8>, String> {
+    let body_kind = settings.body_kind;
+    let bib_style_name = CITATION_STYLES
+        .get(settings.style_idx)
+        .map(|(_, k)| bib_style(k))
+        .unwrap_or("apa");
+    let mut preamble = generate_typst_template(settings);
 
     // For CVs and letters the template already contains full content — no body to append.
-    if matches!(p.body_kind, BodyKind::Cv | BodyKind::Letter) {
+    if matches!(body_kind, BodyKind::Cv | BodyKind::Letter) {
         let tmp_dir = std::env::temp_dir();
-        let typ_path = tmp_dir.join(format!("zerkalo_tmpl_preview_{idx}.typ"));
+        let typ_path = tmp_dir.join(format!("zerkalo_tmpl_preview_{tag}.typ"));
         std::fs::write(&typ_path, &preamble).map_err(|e| e.to_string())?;
         // CV templates `#import "cv-helpers.typ"` — inject it as a virtual
         // override next to the preview file rather than relying on a real
         // file existing at that path (nothing else in the app writes one
         // there, so every CV preset preview failed to compile before this).
         let mut overrides = std::collections::HashMap::new();
-        if matches!(p.body_kind, BodyKind::Cv) {
+        if matches!(body_kind, BodyKind::Cv) {
             overrides.insert(tmp_dir.join("cv-helpers.typ"), crate::cv_mode::CV_HELPERS_TYPST.to_string());
         }
         return crate::compiler::compile_to_png_bytes(&typ_path, 1.5, &overrides, &std::collections::HashMap::new())
             .map(|pages| {
                 let png = pages.into_iter().next().unwrap_or_default();
-                let _ = std::fs::write(&cache_path, &png);
+                if let Some(ref c) = cache_path { let _ = std::fs::write(c, &png); }
                 png
             });
     }
 
     // Replace the starter body with richer sample content
-    let body = match p.body_kind {
+    let body = match body_kind {
         BodyKind::Book => PREVIEW_BOOK_BODY,
         BodyKind::Academic | BodyKind::Cv | BodyKind::Letter => PREVIEW_ACADEMIC_BODY,
     };
     // Strip everything from the first chapter/section marker onward and append rich body
-    let marker = match p.body_kind {
+    let marker = match body_kind {
         BodyKind::Book => "// ── Chapters",
         BodyKind::Academic | BodyKind::Cv | BodyKind::Letter => "// ── Document body",
     };
@@ -4151,7 +4623,7 @@ fn generate_preset_preview(idx: usize) -> Result<Vec<u8>, String> {
 
     let tmp_dir = std::env::temp_dir();
     let bib_path = tmp_dir.join("zerkalo_preview_refs.bib");
-    let typ_path = tmp_dir.join(format!("zerkalo_tmpl_preview_{idx}.typ"));
+    let typ_path = tmp_dir.join(format!("zerkalo_tmpl_preview_{tag}.typ"));
     std::fs::write(&bib_path, PREVIEW_BIB).map_err(|e| e.to_string())?;
     std::fs::write(&typ_path, &preamble).map_err(|e| e.to_string())?;
 
@@ -4160,7 +4632,7 @@ fn generate_preset_preview(idx: usize) -> Result<Vec<u8>, String> {
             // Page 2 shows the content style; fall back to page 1 if only one page
             let page_idx = if pages.len() > 1 { 1 } else { 0 };
             let png = pages.into_iter().nth(page_idx).unwrap_or_default();
-            let _ = std::fs::write(&cache_path, &png);
+            if let Some(ref c) = cache_path { let _ = std::fs::write(c, &png); }
             png
         })
 }
@@ -4319,11 +4791,12 @@ pub fn parse_font(content: &str) -> Option<String> {
         if in_set_text {
             if let Some(start) = t.find("font:") {
                 let after = t[start + 5..].trim_start();
+                // Escape-aware: a font name written with an escaped quote is
+                // emitted correctly by typst_str, so reading it back by
+                // stopping at the first raw `"` would round-trip it to junk.
                 if let Some(after) = after.strip_prefix('"') {
-                    if let Some(end) = after.find('"') {
-                        let f = after[..end].to_string();
-                        if !f.is_empty() { last_found = Some(f); }
-                    }
+                    let f = parse_typst_string_value(after);
+                    if !f.is_empty() { last_found = Some(f); }
                 }
             }
             // Close the block: inline form ends with ")" on same line as "#set text(",
@@ -4394,6 +4867,232 @@ pub fn parse_font_size(content: &str) -> Option<String> {
         }
     }
     last_found
+}
+
+/// Which line-spacing option a document's `leading:` corresponds to, including
+/// the values older versions wrote for the same labels — see [`LEGACY_SPACING`].
+fn spacing_index(value: &str) -> Option<usize> {
+    SPACING_OPTIONS
+        .iter()
+        .position(|(_, v)| *v == value)
+        .or_else(|| LEGACY_SPACING.iter().find(|(v, _)| *v == value).map(|(_, i)| *i))
+}
+
+// ── Preamble parsers for documents with no sidecar ───────────────────────────
+// True when the document carries the generated block this module owns. Callers
+// use it to tell "the document says this setting is off" apart from "this isn't
+// a Zerkalo document, so nothing can be read from it" — the two look identical
+// to a parser that returns a plain value.
+pub fn has_template_block(content: &str) -> bool {
+    template_block_line_span(&content.lines().collect::<Vec<_>>()).is_some()
+}
+
+/// True when the preamble actually sets page margins. `parse_margin` reports
+/// preset 0 ("Normal") for a document that sets none, so a caller that can't
+/// tell the two apart would overwrite a remembered custom margin with Normal.
+pub fn has_page_margins(content: &str) -> bool {
+    page_margins(content).is_some()
+}
+
+// "Update Template Settings" pre-fills from the sidecar, and falls back to
+// reading the document when there isn't one. Every setting missing from that
+// fallback comes back as a form default, and Apply then writes that default
+// into the document — so a setting with no parser here is a setting the dialog
+// silently resets on a sidecar-less file. These close that gap for the
+// remaining generated settings.
+
+/// The page-number position index (see `PAGE_NUM_OPTIONS`) from the
+/// `number-align:` the generator emitted, or 4 ("None") when numbering is off.
+pub fn parse_page_numbers(content: &str) -> u32 {
+    let region = preamble_region(content);
+    let mut found = None;
+    for args in set_page_args(region) {
+        if page_arg(&args, "numbering").is_none() {
+            continue;
+        }
+        found = Some(match page_arg(&args, "number-align").as_deref().map(str::trim) {
+            Some("bottom + right") => 1,
+            Some("top + center")   => 2,
+            Some("top + right")    => 3,
+            _                      => 0,
+        });
+    }
+    found.unwrap_or(4)
+}
+
+/// The running-header index (see `HEADER_OPTIONS`) — matched against the exact
+/// blocks `header_block` emits, so only a header Zerkalo wrote is recognised.
+pub fn parse_header_style(content: &str) -> u32 {
+    let region = preamble_region_with_frontmatter(content);
+    for style in 1..=7u32 {
+        if let Some(block) = header_block(style) {
+            if let Some(first) = block.lines().next() {
+                if region.lines().any(|l| l.trim() == first.trim()) {
+                    return style;
+                }
+            }
+        }
+    }
+    0
+}
+
+/// The `EXTRA_PACKAGES` keys the document already imports.
+pub fn parse_packages(content: &str) -> Vec<String> {
+    let region = preamble_region(content);
+    EXTRA_PACKAGES
+        .iter()
+        .map(|(key, _, _)| *key)
+        .filter(|key| {
+            package_import(key)
+                .and_then(|imp| imp.lines().next())
+                .and_then(|line| line.split_once("@preview/"))
+                .and_then(|(_, rest)| rest.split(':').next())
+                .is_some_and(|pkg| region.contains(&format!("@preview/{pkg}:")))
+        })
+        .map(str::to_string)
+        .collect()
+}
+
+/// The `LANGUAGES` keys whose inline helper the document already defines.
+pub fn parse_languages(content: &str) -> Vec<String> {
+    let region = preamble_region(content);
+    LANGUAGES
+        .iter()
+        .map(|(key, _, _)| *key)
+        .filter(|key| {
+            key.strip_prefix("lang_")
+                .is_some_and(|short| region.contains(&format!("#let {short}(content)")))
+        })
+        .map(str::to_string)
+        .collect()
+}
+
+/// Whether heading numbering is on, and the pattern it uses.
+pub fn parse_heading_numbering(content: &str) -> (bool, String) {
+    extract_heading_numbering(preamble_region(content))
+}
+
+/// `preamble_region` stops at `ZERKALO-TEMPLATE-END`, but the header block and
+/// title metadata are emitted *after* it — this covers both, stopping at the
+/// body marker so the user's own writing is still out of scope.
+fn preamble_region_with_frontmatter(content: &str) -> &str {
+    const BODY_MARKERS: &[&str] = &["// ── Document body", "// ── Chapters"];
+    match BODY_MARKERS.iter().filter_map(|m| content.find(m)).min() {
+        Some(p) => &content[..p],
+        None => content,
+    }
+}
+
+// ── Surgical preamble edits ──────────────────────────────────────────────────
+// The format bar's font and size pickers used to change one value by
+// regenerating the entire preamble from the sidecar. That made a two-field
+// tweak as destructive as a full "Apply": with no sidecar on disk (a document
+// copied without its `.zerkalo.toml`, one written before sidecars existed, or
+// a corrupt one) the regeneration ran from `SidecarSettings::default()` and
+// silently reset paper, margins, citation style, title page and metadata — and
+// on a document with no body marker at all it replaced the user's whole file
+// with a starter template. These edit the one line that actually holds the
+// value, so nothing else in the document can be lost by picking a font.
+
+/// Rewrite `font:` in the template block's `#set text(…)`. `None` when the
+/// document has no template block for Zerkalo to edit.
+pub fn set_template_font(content: &str, font: &str) -> Option<String> {
+    let font = font.trim();
+    if font.is_empty() {
+        return None;
+    }
+    replace_set_text_arg(content, "font", &format!("\"{}\"", typst_str(font)))
+}
+
+/// Rewrite `size:` in the template block's `#set text(…)`. `None` when the
+/// document has no template block, or when `size` isn't a valid length.
+pub fn set_template_font_size(content: &str, size: &str) -> Option<String> {
+    let value = user_length(size, "pt")?;
+    replace_set_text_arg(content, "size", &value)
+}
+
+/// The line span of the `ZERKALO-TEMPLATE-BEGIN`…`-END` block, so edits stay
+/// inside the region Zerkalo generated and can't touch a `#set text` the user
+/// wrote in their own body.
+fn template_block_line_span(lines: &[&str]) -> Option<(usize, usize)> {
+    let begin = lines.iter().position(|l| l.trim_start().starts_with(TEMPLATE_BEGIN))?;
+    let end   = lines.iter().position(|l| l.trim_start().starts_with(TEMPLATE_END))?;
+    (begin < end).then_some((begin, end))
+}
+
+fn replace_set_text_arg(content: &str, key: &str, new_value: &str) -> Option<String> {
+    let lines: Vec<&str> = content.lines().collect();
+    let (begin, end) = template_block_line_span(&lines)?;
+
+    // The last `#set text` wins in Typst, so that's the one worth editing.
+    let needle = format!("{key}:");
+    let mut target = None;
+    let mut in_set_text = false;
+    for (i, line) in lines.iter().enumerate().take(end).skip(begin) {
+        let t = line.trim();
+        if t.starts_with("//") {
+            continue;
+        }
+        if t.starts_with("#set text(") {
+            in_set_text = true;
+        }
+        if in_set_text {
+            if t.contains(&needle) {
+                target = Some(i);
+            }
+            let opened_inline = t.starts_with("#set text(") && t.contains(')');
+            let closed_alone  = !t.starts_with("#set text(") && t.starts_with(')');
+            if opened_inline || closed_alone {
+                in_set_text = false;
+            }
+        }
+    }
+
+    let idx = target?;
+    let replaced = replace_arg_value(lines[idx], key, new_value)?;
+    let mut out: Vec<&str> = lines.clone();
+    out[idx] = &replaced;
+    let mut joined = out.join("\n");
+    if content.ends_with('\n') {
+        joined.push('\n');
+    }
+    Some(joined)
+}
+
+/// Replace the value of `key:` in one line of Typst arguments, leaving the
+/// surrounding arguments, spacing and trailing comment exactly as they were.
+fn replace_arg_value(line: &str, key: &str, new_value: &str) -> Option<String> {
+    let at = line.find(&format!("{key}:"))?;
+    let value_at = at + key.len() + 1;
+    let rest = &line[value_at..];
+    let indent: usize = rest.len() - rest.trim_start().len();
+    let value = &rest[indent..];
+
+    let len = if value.starts_with('"') {
+        let bytes = value.as_bytes();
+        let mut i = 1;
+        loop {
+            match bytes.get(i) {
+                Some(b'\\') => i += 2,
+                Some(b'"') => { i += 1; break }
+                Some(_) => i += 1,
+                None => return None, // unterminated string — leave the line alone
+            }
+        }
+        i
+    } else {
+        let n = value.find([',', ')'])?;
+        if n == 0 { return None }
+        n
+    };
+
+    Some(format!(
+        "{}{}{}{}",
+        &line[..value_at],
+        &rest[..indent],
+        new_value,
+        &value[len..],
+    ))
 }
 
 /// The region a generated template owns: the `ZERKALO-TEMPLATE-BEGIN`…`-END`
@@ -5253,6 +5952,470 @@ pub fn replace_title_page(existing: &str, new_template: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An academic template as the generator actually emits it, for the
+    /// document-is-the-truth parsers and the surgical preamble edits.
+    fn generated_document() -> String {
+        let mut s = sidecar_to_settings(&SidecarSettings::default());
+        s.title = "A Study".into();
+        s.author = "Jane Doe".into();
+        s.style_idx = 1;
+        s.paper_idx = 1;
+        s.margin_idx = 2;
+        s.font = "EB Garamond".into();
+        s.font_size = "14pt".into();
+        s.page_num_pos = 3;
+        s.header_style = 2;
+        s.heading_numbering = true;
+        s.numbering_format = "1.".into();
+        s.packages = vec!["pkg_showybox".into()];
+        s.languages = vec!["lang_el".into()];
+        generate_typst_template(&s)
+    }
+
+    #[test]
+    fn changing_the_font_touches_only_the_font() {
+        let doc = generated_document();
+        let edited = set_template_font(&doc, "Palatino").expect("template block is present");
+
+        assert_eq!(parse_font(&edited).as_deref(), Some("Palatino"));
+        // Everything else survives byte-for-byte: exactly one line differs.
+        let changed: Vec<_> = doc.lines().zip(edited.lines()).filter(|(a, b)| a != b).collect();
+        assert_eq!(changed.len(), 1, "expected one changed line, got {changed:?}");
+        assert_eq!(doc.lines().count(), edited.lines().count());
+    }
+
+    #[test]
+    fn changing_the_font_size_touches_only_the_size() {
+        let doc = generated_document();
+        let edited = set_template_font_size(&doc, "11pt").expect("template block is present");
+
+        assert_eq!(parse_font_size(&edited).as_deref(), Some("11pt"));
+        assert_eq!(parse_font(&edited).as_deref(), Some("EB Garamond"));
+        let changed = doc.lines().zip(edited.lines()).filter(|(a, b)| a != b).count();
+        assert_eq!(changed, 1);
+    }
+
+    #[test]
+    fn font_change_on_a_cv_keeps_the_cv_preamble() {
+        let mut s = sidecar_to_settings(&SidecarSettings::default());
+        s.body_kind = BodyKind::Cv;
+        s.author = "Jane Doe".into();
+        let doc = generate_typst_template(&s);
+
+        let edited = set_template_font(&doc, "Palatino").expect("CV has a template block");
+        assert_eq!(parse_font(&edited).as_deref(), Some("Palatino"));
+        assert!(edited.contains("#import \"cv-helpers.typ\""));
+        assert!(edited.contains("#let CV_STYLE ="));
+    }
+
+    #[test]
+    fn a_document_zerkalo_did_not_generate_is_never_rewritten() {
+        // The format bar's font picker used to regenerate the whole preamble
+        // here, which for a hand-written .typ meant apply_body_splice found no
+        // body marker and replaced the entire file with a starter template —
+        // no confirmation, no backup. Refusing is the only safe answer.
+        let hand_written = "#set text(font: \"Times New Roman\", size: 12pt)\n\n= My Notes\n\nText.\n";
+        assert!(set_template_font(hand_written, "Palatino").is_none());
+        assert!(set_template_font_size(hand_written, "11pt").is_none());
+        assert!(!has_template_block(hand_written));
+    }
+
+    #[test]
+    fn an_unparseable_font_size_is_refused_rather_than_written() {
+        let doc = generated_document();
+        assert!(set_template_font_size(&doc, "huge").is_none());
+        assert!(set_template_font_size(&doc, "-3pt").is_none());
+        assert!(set_template_font(&doc, "  ").is_none());
+    }
+
+    #[test]
+    fn a_font_name_with_a_quote_stays_inside_its_string_literal() {
+        let doc = generated_document();
+        let edited = set_template_font(&doc, "Weird \"Quoted\" Face").unwrap();
+        assert!(edited.contains(r#"font: "Weird \"Quoted\" Face""#));
+        assert_eq!(parse_font(&edited).as_deref(), Some("Weird \"Quoted\" Face"));
+    }
+
+    #[test]
+    fn generated_settings_round_trip_back_out_of_the_document() {
+        // Without these, "Update Template Settings" on a document with no
+        // sidecar showed form defaults, and Apply then wrote those defaults in
+        // — silently resetting size, page numbers, headers, packages and
+        // languages the document already had.
+        let doc = generated_document();
+
+        assert_eq!(parse_font_size(&doc).as_deref(), Some("14pt"));
+        assert_eq!(parse_page_numbers(&doc), 3);
+        assert_eq!(parse_header_style(&doc), 2);
+        assert_eq!(parse_packages(&doc), vec!["pkg_showybox".to_string()]);
+        assert_eq!(parse_languages(&doc), vec!["lang_el".to_string()]);
+        assert_eq!(parse_heading_numbering(&doc), (true, "1.".to_string()));
+        assert!(has_page_margins(&doc));
+        assert_eq!(parse_margin(&doc), 2);
+    }
+
+    #[test]
+    fn page_numbers_read_as_none_when_the_generator_emitted_none() {
+        let mut s = sidecar_to_settings(&SidecarSettings::default());
+        s.page_num_pos = 4;
+        let doc = generate_typst_template(&s);
+        assert_eq!(parse_page_numbers(&doc), 4);
+        assert_eq!(parse_header_style(&doc), 0);
+        assert!(parse_packages(&doc).is_empty());
+        assert!(parse_languages(&doc).is_empty());
+    }
+
+    #[test]
+    fn a_hand_written_document_reports_no_margins_to_copy() {
+        // parse_margin answers "Normal" for a document that sets no margins at
+        // all, so callers need has_page_margins to tell the two apart or a
+        // remembered custom margin gets overwritten with a preset.
+        assert!(!has_page_margins("= Heading\n\nText.\n"));
+    }
+
+    #[test]
+    fn splice_reports_when_it_refuses_an_incompatible_template() {
+        let mut cv = sidecar_to_settings(&SidecarSettings::default());
+        cv.body_kind = BodyKind::Cv;
+        let cv_doc = generate_typst_template(&cv);
+        let academic = generate_typst_template(&sidecar_to_settings(&SidecarSettings::default()));
+
+        let (out, outcome) = apply_body_splice_reporting(&cv_doc, &academic);
+        assert_eq!(outcome, SpliceOutcome::RefusedIncompatible);
+        assert_eq!(out, cv_doc, "a refusal must leave the document untouched");
+    }
+
+    #[test]
+    fn splice_reports_a_whole_document_replacement() {
+        let fresh = generate_typst_template(&sidecar_to_settings(&SidecarSettings::default()));
+        let (_, outcome) = apply_body_splice_reporting("= Just my notes\n", &fresh);
+        assert_eq!(outcome, SpliceOutcome::WholeDocumentReplaced);
+    }
+
+    #[test]
+    fn splice_reports_an_ordinary_preserved_body() {
+        let doc = generated_document();
+        let (out, outcome) = apply_body_splice_reporting(&doc, &doc);
+        assert_eq!(outcome, SpliceOutcome::Preserved);
+        assert_eq!(out, doc);
+    }
+
+    #[test]
+    fn an_atomic_write_leaves_no_temp_file_behind() {
+        let dir = std::env::temp_dir().join(format!("zerkalo-atomic-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("doc.typ");
+
+        write_atomically(&path, "first\n").unwrap();
+        write_atomically(&path, "second\n").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "second\n");
+
+        let leftovers: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n != "doc.typ")
+            .collect();
+        assert!(leftovers.is_empty(), "stray files left behind: {leftovers:?}");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn backing_up_never_overwrites_an_earlier_backup() {
+        let dir = std::env::temp_dir().join(format!("zerkalo-backup-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("doc.typ");
+
+        std::fs::write(&path, "original\n").unwrap();
+        let first = backup_document(&path).unwrap();
+        std::fs::write(&path, "damaged\n").unwrap();
+        let second = backup_document(&path).unwrap();
+
+        assert_ne!(first, second);
+        assert_eq!(std::fs::read_to_string(&first).unwrap(), "original\n");
+        assert_eq!(std::fs::read_to_string(&second).unwrap(), "damaged\n");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Compile `settings` and return the failure message, if any.
+    fn compile_failure(settings: &TemplateSettings) -> Option<String> {
+        use std::collections::HashMap;
+        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!("zerkalo_matrix_{}_{n}.typ", std::process::id()));
+        std::fs::write(&path, generate_typst_template(settings)).unwrap();
+
+        let mut overrides = HashMap::new();
+        overrides.insert(
+            dir.join("cv-helpers.typ"),
+            include_str!("../../templates/cv-helpers.typ").to_string(),
+        );
+        let result = crate::compiler::compile_to_pdf_bytes(&path, &overrides, &HashMap::new());
+        let _ = std::fs::remove_file(&path);
+        result.err()
+    }
+
+    fn matrix_base() -> TemplateSettings {
+        let mut s = sidecar_to_settings(&SidecarSettings::default());
+        s.title = "Sample Document".into();
+        s.author = "Author Name".into();
+        s.affiliation = "Sample University".into();
+        s.font = "Libertinus Serif".into();
+        s.font_size = "12pt".into();
+        s.spacing = "0.65em".into();
+        s
+    }
+
+    /// Every generated combination has to compile. A setting that produces
+    /// broken Typst doesn't give the user an ugly document — it gives them one
+    /// that won't build, with an error pointing at source they never wrote.
+    #[test]
+    fn every_citation_style_compiles_for_every_body_kind() {
+        let mut failures = Vec::new();
+        for (idx, (name, _)) in CITATION_STYLES.iter().enumerate() {
+            for kind in [BodyKind::Academic, BodyKind::Book, BodyKind::Letter] {
+                let mut s = matrix_base();
+                s.style_idx = idx;
+                s.body_kind = kind;
+                if let Some(e) = compile_failure(&s) {
+                    failures.push(format!("{name} / {kind:?}: {e}"));
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    #[test]
+    fn every_page_setting_compiles() {
+        let mut failures = Vec::new();
+
+        for (idx, (name, _)) in PAPER_SIZES.iter().enumerate() {
+            let mut s = matrix_base();
+            s.paper_idx = idx;
+            s.custom_paper_w = "180".into();
+            s.custom_paper_h = "250".into();
+            if let Some(e) = compile_failure(&s) {
+                failures.push(format!("paper {name}: {e}"));
+            }
+        }
+        for (idx, name) in MARGIN_PRESETS.iter().enumerate() {
+            let mut s = matrix_base();
+            s.margin_idx = idx;
+            s.custom_margin = "1.4".into();
+            if let Some(e) = compile_failure(&s) {
+                failures.push(format!("margin {name}: {e}"));
+            }
+        }
+        for (pos, name) in PAGE_NUM_OPTIONS.iter().enumerate() {
+            let mut s = matrix_base();
+            s.page_num_pos = pos as u32;
+            if let Some(e) = compile_failure(&s) {
+                failures.push(format!("page numbers {name}: {e}"));
+            }
+        }
+        for (style, name) in HEADER_OPTIONS.iter().enumerate() {
+            let mut s = matrix_base();
+            s.header_style = style as u32;
+            if let Some(e) = compile_failure(&s) {
+                failures.push(format!("header {name}: {e}"));
+            }
+        }
+        for (_, value) in SPACING_OPTIONS {
+            let mut s = matrix_base();
+            s.spacing = value.to_string();
+            if let Some(e) = compile_failure(&s) {
+                failures.push(format!("spacing {value}: {e}"));
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    #[test]
+    fn every_section_and_language_option_compiles() {
+        let mut failures = Vec::new();
+
+        for (_, pattern) in NUMBERING_FORMATS {
+            let mut s = matrix_base();
+            s.heading_numbering = true;
+            s.numbering_format = pattern.to_string();
+            if let Some(e) = compile_failure(&s) {
+                failures.push(format!("numbering {pattern}: {e}"));
+            }
+        }
+        {
+            let mut s = matrix_base();
+            s.include_toc = true;
+            s.toc_depth = 3;
+            s.include_abstract = true;
+            s.abstract_text = "An abstract with *emphasis* in it.".into();
+            s.include_keywords = true;
+            s.keywords = "one, two, three".into();
+            if let Some(e) = compile_failure(&s) {
+                failures.push(format!("front matter: {e}"));
+            }
+        }
+        for (key, name, _) in LANGUAGES {
+            let mut s = matrix_base();
+            s.languages = vec![key.to_string()];
+            if let Some(e) = compile_failure(&s) {
+                failures.push(format!("language {name}: {e}"));
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    #[test]
+    fn every_cv_style_compiles_on_every_paper_and_margin() {
+        let mut failures = Vec::new();
+        for style_idx in 0..CV_STYLE_OPTIONS.len() {
+            for paper_idx in 0..PAPER_SIZES.len() {
+                for margin_idx in 0..MARGIN_PRESETS.len() {
+                    let mut s = matrix_base();
+                    s.body_kind = BodyKind::Cv;
+                    s.style_idx = style_idx;
+                    s.paper_idx = paper_idx;
+                    s.custom_paper_w = "180".into();
+                    s.custom_paper_h = "250".into();
+                    s.margin_idx = margin_idx;
+                    s.custom_margin = "1.4".into();
+                    if let Some(e) = compile_failure(&s) {
+                        failures.push(format!(
+                            "CV {} / {} / {}: {e}",
+                            CV_STYLE_OPTIONS[style_idx].0,
+                            PAPER_SIZES[paper_idx].0,
+                            MARGIN_PRESETS[margin_idx],
+                        ));
+                    }
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    /// Needs the Typst package cache (or network) for `@preview` imports, so
+    /// it's opt-in: `cargo test -- --ignored packages`.
+    #[test]
+    #[ignore]
+    fn every_extra_package_compiles() {
+        let mut failures = Vec::new();
+        for (key, name, _) in EXTRA_PACKAGES {
+            let mut s = matrix_base();
+            s.packages = vec![key.to_string()];
+            if *key == "pkg_droplet" {
+                s.dropcap_font = "Libertinus Serif".into();
+                s.dropcap_lines = 4;
+                s.dropcap_color = "rgb(\"#a3231f\")".into();
+            }
+            if let Some(e) = compile_failure(&s) {
+                failures.push(format!("package {name}: {e}"));
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    /// Render a paragraph at `leading` on an auto-height page and report how
+    /// tall it came out, in pixels — the only honest way to check line spacing,
+    /// since Typst's `leading` is a gap between lines and not a multiplier.
+    fn rendered_height(leading: &str) -> f64 {
+        use std::collections::HashMap;
+        let src = format!(
+            "#set page(width: 6in, height: auto, margin: 0pt)\n\
+             #set text(font: \"Libertinus Serif\", size: 12pt)\n\
+             #set par(leading: {leading}, spacing: {leading}, justify: true)\n\
+             {}\n",
+            "Lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor. ".repeat(20)
+        );
+        let path = std::env::temp_dir()
+            .join(format!("zerkalo_leading_{}_{leading}.typ", std::process::id()));
+        std::fs::write(&path, src).unwrap();
+        let pages = crate::compiler::compile_to_png_bytes(&path, 1.0, &HashMap::new(), &HashMap::new())
+            .expect("leading probe compiles");
+        let _ = std::fs::remove_file(&path);
+        // PNG height is the second u32 of the IHDR chunk.
+        let b = &pages[0];
+        u32::from_be_bytes([b[20], b[21], b[22], b[23]]) as f64
+    }
+
+    #[test]
+    fn the_spacing_options_render_at_the_multiples_they_are_labelled_with() {
+        let single = rendered_height(SPACING_OPTIONS[0].1);
+        for (idx, expected) in [(1usize, 1.5f64), (2, 2.0)] {
+            let (label, value) = SPACING_OPTIONS[idx];
+            let ratio = rendered_height(value) / single;
+            assert!(
+                (ratio - expected).abs() < 0.05,
+                "{label} ({value}) renders at {ratio:.2}x single spacing, not {expected}x"
+            );
+        }
+    }
+
+    #[test]
+    fn the_spacing_written_by_older_versions_still_maps_to_its_option() {
+        // A document set to the old "Double" must re-open on Double, not fall
+        // through to Single and get single-spaced by the next Apply.
+        assert_eq!(spacing_index("1.2em"), Some(2));
+        assert_eq!(spacing_index("0.9em"), Some(1));
+        assert_eq!(spacing_index("0.65em"), Some(0));
+        assert_eq!(spacing_index("2em"), Some(2));
+        assert_eq!(spacing_index("nonsense"), None);
+    }
+
+    #[test]
+    fn mla_leaves_body_paragraphs_indented() {
+        // The heading block's `first-line-indent: 0pt` must stay scoped to it.
+        let mut s = matrix_base();
+        s.style_idx = CITATION_STYLES.iter().position(|(_, k)| *k == "mla").unwrap();
+        let doc = generate_typst_template(&s);
+
+        assert!(doc.contains("first-line-indent: 1em"), "body indent is set");
+        for line in doc.lines() {
+            if line.contains("first-line-indent: 0pt") {
+                assert!(
+                    line.starts_with("  "),
+                    "the zero-indent rule must be inside a block, not top level: {line:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn paragraph_spacing_matches_leading_rather_than_doubling_the_cue() {
+        for (_, leading) in SPACING_OPTIONS {
+            let mut s = matrix_base();
+            s.spacing = leading.to_string();
+            let doc = generate_typst_template(&s);
+            assert!(
+                doc.contains(&format!("leading: {leading}, spacing: {leading}")),
+                "expected paragraph spacing to track leading for {leading}"
+            );
+        }
+    }
+
+    #[test]
+    fn apa_does_not_print_the_label_the_seventh_edition_removed() {
+        let mut s = matrix_base();
+        s.style_idx = CITATION_STYLES.iter().position(|(_, k)| *k == "apa").unwrap();
+        let doc = generate_typst_template(&s);
+        assert!(doc.contains("#upper[#doc-title]"));
+        assert!(!doc.contains("Running head:"));
+    }
+
+    #[test]
+    fn an_abstract_still_fits_on_the_smallest_paper() {
+        let mut s = matrix_base();
+        s.paper_idx = PAPER_SIZES.iter().position(|(_, k)| *k == "a5").unwrap();
+        s.margin_idx = 2; // Wide — 2in left and right, on a 148mm-wide page
+        s.include_abstract = true;
+        s.abstract_text = "A short abstract that must not be squeezed into a sliver.".into();
+        let doc = generate_typst_template(&s);
+        assert!(!doc.contains("inset: (x: 1in)"), "fixed-inch inset is paper-dependent");
+        assert!(compile_failure(&s).is_none());
+        assert!(doc.contains("inset: (x: 8%)"));
+    }
 
     #[test]
     fn every_gallery_preset_preview_compiles() {
