@@ -2822,7 +2822,7 @@ pub fn repair_template_markers(path: &std::path::Path) -> Result<bool, String> {
     if !prefix.is_empty() {
         new_content.push('\n');
     }
-    new_content.push_str("// ── Document body – DO NOT DELETE or Zerkalo template system will break\n");
+    new_content.push_str("// ── Document body — Zerkalo uses this exact line to find where your writing starts. Leave it in place; everything below it is yours to edit freely.\n");
     new_content.push_str("// ── Document body ───────────────────────────────────────────────────\n\n");
     new_content.push_str(&suffix);
     if !suffix.is_empty() && !new_content.ends_with('\n') {
@@ -3468,7 +3468,7 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
     // Body
     match s.body_kind {
         BodyKind::Book => {
-            let _ = writeln!(out, "// ── Chapters – DO NOT DELETE or Zerkalo template system will break");
+            let _ = writeln!(out, "// ── Chapters — Zerkalo uses this exact line to find where your chapters start. Leave it in place; everything below it is yours to edit freely.");
             let _ = writeln!(out, "// ── Chapters ────────────────────────────────────────────────────────");
             let _ = writeln!(out);
             let _ = writeln!(out, "= Chapter One: The Beginning");
@@ -3492,7 +3492,7 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
             }
         }
         BodyKind::Academic => {
-            let _ = writeln!(out, "// ── Document body – DO NOT DELETE or Zerkalo template system will break");
+            let _ = writeln!(out, "// ── Document body — Zerkalo uses this exact line to find where your writing starts. Leave it in place; everything below it is yours to edit freely.");
             let _ = writeln!(out, "// ── Document body ───────────────────────────────────────────────────");
             let _ = writeln!(out);
             let _ = writeln!(out, "= Introduction");
@@ -3510,7 +3510,7 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
             }
         }
         BodyKind::Letter => {
-            let _ = writeln!(out, "// ── Document body – DO NOT DELETE or Zerkalo template system will break");
+            let _ = writeln!(out, "// ── Document body — Zerkalo uses this exact line to find where your writing starts. Leave it in place; everything below it is yours to edit freely.");
             let _ = writeln!(out, "// ── Document body ───────────────────────────────────────────────────");
             let _ = writeln!(out);
             let _ = writeln!(out, "Start writing your letter here...");

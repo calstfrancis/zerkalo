@@ -101,8 +101,32 @@ pub(super) fn show_changelog(parent: &impl IsA<gtk4::Window>) {
     body.set_margin_bottom(24);
 
     let mut first_heading = true;
+    let mut pending_bullet: Option<String> = None;
+    let flush_bullet = |body: &gtk4::Box, pending: &mut Option<String>| {
+        if let Some(text) = pending.take() {
+            body.append(&changelog_bullet(&text));
+        }
+    };
     for line in CHANGELOG.lines() {
         let trimmed = line.trim();
+        if trimmed.is_empty() {
+            flush_bullet(&body, &mut pending_bullet);
+            continue;
+        }
+        if let Some(content) = trimmed.strip_prefix("- ") {
+            flush_bullet(&body, &mut pending_bullet);
+            pending_bullet = Some(content.to_string());
+            continue;
+        }
+        if !trimmed.starts_with("## [") && !trimmed.starts_with("### ") {
+            // A wrapped continuation line of the current bullet.
+            if let Some(text) = pending_bullet.as_mut() {
+                text.push(' ');
+                text.push_str(trimmed);
+                continue;
+            }
+        }
+        flush_bullet(&body, &mut pending_bullet);
         if let Some(inner) = trimmed.strip_prefix("## [") {
             // "## [0.16.1-dev4] — Skrizhal CV element integration"
             // Version and title are split onto their own rows — a version
@@ -150,7 +174,7 @@ pub(super) fn show_changelog(parent: &impl IsA<gtk4::Window>) {
             row.add_css_class("fond-section");
             row.set_margin_top(10);
             row.set_margin_start(4);
-            row.set_margin_bottom(2);
+            row.set_margin_bottom(8);
 
             let dot = gtk4::Label::new(Some("\u{25cf}"));
             dot.add_css_class("fond-section-dot");
@@ -164,10 +188,9 @@ pub(super) fn show_changelog(parent: &impl IsA<gtk4::Window>) {
             lbl.set_valign(gtk4::Align::Center);
             row.append(&lbl);
             body.append(&row);
-        } else if let Some(content) = trimmed.strip_prefix("- ") {
-            body.append(&changelog_bullet(content));
         }
     }
+    flush_bullet(&body, &mut pending_bullet);
 
     let scroll = gtk4::ScrolledWindow::new();
     scroll.set_vexpand(true);

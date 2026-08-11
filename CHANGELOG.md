@@ -5,6 +5,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.21.1-dev1] — The changelog reads whole, and the icon shows up
+
+### Fixed
+
+- **The in-app changelog window only ever showed the first line of every bullet.** Every
+  entry in `CHANGELOG.md` is hand-wrapped across several lines, but the window's parser only
+  recognised a line starting with `## [`, `### `, or `- ` — every wrapped continuation line
+  matched none of those and was silently dropped, so each bullet read as a bold fragment
+  cut off mid-sentence. Continuation lines are now folded back into the bullet they belong
+  to before it's rendered.
+- **Section headers in the changelog window sat almost flush against the text below them.**
+  10px above, 2px below — now 8px below, closer to matching.
+- **Typst keywords lit up red inside ordinary prose.** The syntax highlighter matched bare
+  words like `in`, `else`, `for`, `if`, `set` and `while` anywhere in the document, including
+  plain writing with no code in sight. It turned out to not even help real code: `#if`,
+  `#for`, `#let` and the rest were already being caught by the function-call rule, which
+  starts matching one character earlier at the `#` and always wins — so the keyword rule
+  never highlighted actual Typst code, only English words that happened to match. Removed.
+- **The flatpak build only ever shipped a scalable SVG icon.** `install.sh`, the non-flatpak
+  path, has long rasterised the same icon to PNG at 16–256px with `rsvg-convert`, because a
+  launcher that doesn't invoke an SVG loader shows a blank or generic icon for an SVG-only
+  app. The flatpak manifest never did the same, so the app icon showed inconsistently for
+  flatpak installs depending on the launcher. It now rasterises the same sizes at build time.
+- **The "Document body" and "Chapters" markers read as a bare warning with no explanation.**
+  "DO NOT DELETE or Zerkalo template system will break" didn't say what shouldn't be
+  deleted — the marker line itself, not the writing below it. Reworded to say so plainly.
+
+---
+
 ## [0.21.0] "New Ground" — Nothing to install, nothing to type, and a window that explains itself
 
 ### Added
