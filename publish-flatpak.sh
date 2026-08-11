@@ -74,6 +74,19 @@ flatpak build-update-repo \
   --gpg-sign="$GPG_KEY" \
   "$FLATPAK_REPO"
 
+# ── verify the commit actually got signed ──────────────────────────────────
+# build-export produces an unsigned commit if --gpg-sign is missing or the key
+# is unavailable, and says nothing. The repo summary still signs fine, so the
+# breakage only surfaces later as a GPG failure on someone else's install.
+APP_ID="$(basename "$MANIFEST" .yml)"
+COMMIT="$(cat "$FLATPAK_REPO/refs/heads/app/$APP_ID/x86_64/master")"
+if [[ ! -f "$FLATPAK_REPO/objects/${COMMIT:0:2}/${COMMIT:2}.commitmeta" ]]; then
+  echo "ERROR: commit $COMMIT for $APP_ID carries no GPG signature."
+  echo "Refusing to push. Re-run build-export with --gpg-sign=\"$GPG_KEY\"."
+  exit 1
+fi
+echo "==> Signature verified for $APP_ID"
+
 # ── 6. commit and push flatpak repo ──────────────────────────────────────────
 echo "==> Pushing flatpak repo..."
 cd "$FLATPAK_REPO"
