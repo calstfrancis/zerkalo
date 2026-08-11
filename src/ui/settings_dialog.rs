@@ -13,10 +13,7 @@ use crate::config::{Config, Theme};
 /// dialog reports through here so the app doesn't mix `gtk4::AlertDialog` and
 /// `adw::MessageDialog` for the same kind of message.
 fn notice(parent: &adw::Window, heading: &str, body: &str) {
-    let dlg = adw::MessageDialog::new(Some(parent), Some(heading), Some(body));
-    dlg.add_response("ok", "OK");
-    dlg.set_default_response(Some("ok"));
-    dlg.present();
+    super::confirm::notice(Some(parent.upcast_ref()), heading, body);
 }
 
 /// Clears and rebuilds `lb`'s rows from `selected_langs`, wiring each row's

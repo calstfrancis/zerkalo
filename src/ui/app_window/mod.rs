@@ -2884,9 +2884,7 @@ fn apply_theme(theme: &Theme) {
 // ── Sync helpers ──────────────────────────────────────────────────────────────
 
 fn show_alert(window: &adw::ApplicationWindow, title: &str, body: &str) {
-    let dlg = adw::MessageDialog::new(Some(window), Some(title), Some(body));
-    dlg.add_response("ok", "OK");
-    dlg.present();
+    super::confirm::notice(Some(window.upcast_ref()), title, body);
 }
 
 fn show_dynamic_shortcuts_window(
