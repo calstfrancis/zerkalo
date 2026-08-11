@@ -50,7 +50,6 @@ const TYPST_LANG: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
   <styles>
     <style id="comment"  name="Comment"  map-to="def:comment"/>
     <style id="string"   name="String"   map-to="def:string"/>
-    <style id="keyword"  name="Keyword"  map-to="def:keyword"/>
     <style id="function" name="Function" map-to="def:identifier"/>
     <style id="heading"  name="Heading"  map-to="def:type"/>
     <style id="markup"   name="Markup"   map-to="def:preprocessor"/>
@@ -85,25 +84,6 @@ const TYPST_LANG: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
         </context>
         <context id="label-def" style-ref="markup">
           <match>&lt;[a-zA-Z][a-zA-Z0-9:_-]*&gt;</match>
-        </context>
-        <context id="keywords" style-ref="keyword">
-          <keyword>let</keyword>
-          <keyword>set</keyword>
-          <keyword>show</keyword>
-          <keyword>if</keyword>
-          <keyword>else</keyword>
-          <keyword>for</keyword>
-          <keyword>in</keyword>
-          <keyword>while</keyword>
-          <keyword>break</keyword>
-          <keyword>continue</keyword>
-          <keyword>return</keyword>
-          <keyword>import</keyword>
-          <keyword>include</keyword>
-          <keyword>none</keyword>
-          <keyword>auto</keyword>
-          <keyword>true</keyword>
-          <keyword>false</keyword>
         </context>
       </include>
     </context>
@@ -5340,8 +5320,8 @@ fn apply_simple_mode_tag(buffer: &Buffer, on: bool) {
     let body_line = text.lines().position(|l| l.starts_with(BODY_SEPARATOR));
     let Some(body_line_idx) = body_line else { return };
 
-    // Count consecutive separator lines (typically 2: the "DO NOT DELETE"
-    // warning and the decorative rule beneath it) so we hide those too.
+    // Count consecutive separator lines (typically 2: the explanatory line
+    // and the decorative rule beneath it) so we hide those too.
     let sep_count = text.lines()
         .skip(body_line_idx)
         .take_while(|l| l.starts_with(BODY_SEPARATOR))

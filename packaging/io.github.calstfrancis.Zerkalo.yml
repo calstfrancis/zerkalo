@@ -143,5 +143,17 @@ modules:
       - sed -i 's/^Icon=zerkalo/Icon=io.github.calstfrancis.Zerkalo/' packaging/io.github.calstfrancis.Zerkalo.desktop
       - install -Dm644 packaging/io.github.calstfrancis.Zerkalo.desktop /app/share/applications/io.github.calstfrancis.Zerkalo.desktop
       - install -Dm644 packaging/zerkalo.svg /app/share/icons/hicolor/scalable/apps/io.github.calstfrancis.Zerkalo.svg
+      # install.sh (the non-flatpak path) has always rasterised these same sizes
+      # alongside the SVG, because launchers/docks that don't invoke an SVG
+      # loader (missing librsvg's gdk-pixbuf loader on the host, some app
+      # grids and panels) show a blank or generic icon for SVG-only apps. The
+      # flatpak manifest only ever installed the scalable SVG, so the icon
+      # showed inconsistently for flatpak installs depending on the launcher.
+      - |
+        for SIZE in 16 24 32 48 64 96 128 256; do
+          mkdir -p "/app/share/icons/hicolor/${SIZE}x${SIZE}/apps"
+          rsvg-convert -w "${SIZE}" -h "${SIZE}" packaging/zerkalo.svg \
+            -o "/app/share/icons/hicolor/${SIZE}x${SIZE}/apps/io.github.calstfrancis.Zerkalo.png"
+        done
       - install -Dm644 io.github.calstfrancis.Zerkalo.metainfo.xml /app/share/metainfo/io.github.calstfrancis.Zerkalo.metainfo.xml
       - install -Dm644 packaging/gosttypeb.ttf /app/share/fonts/gosttypeb.ttf
