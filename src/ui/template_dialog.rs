@@ -6271,9 +6271,9 @@ mod tests {
     #[test]
     fn every_cv_style_compiles_on_every_paper_and_margin() {
         let mut failures = Vec::new();
-        for style_idx in 0..CV_STYLE_OPTIONS.len() {
-            for paper_idx in 0..PAPER_SIZES.len() {
-                for margin_idx in 0..MARGIN_PRESETS.len() {
+        for (style_idx, cv_style) in CV_STYLE_OPTIONS.iter().enumerate() {
+            for (paper_idx, paper_size) in PAPER_SIZES.iter().enumerate() {
+                for (margin_idx, margin_preset) in MARGIN_PRESETS.iter().enumerate() {
                     let mut s = matrix_base();
                     s.body_kind = BodyKind::Cv;
                     s.style_idx = style_idx;
@@ -6285,9 +6285,7 @@ mod tests {
                     if let Some(e) = compile_failure(&s) {
                         failures.push(format!(
                             "CV {} / {} / {}: {e}",
-                            CV_STYLE_OPTIONS[style_idx].0,
-                            PAPER_SIZES[paper_idx].0,
-                            MARGIN_PRESETS[margin_idx],
+                            cv_style.0, paper_size.0, margin_preset,
                         ));
                     }
                 }
