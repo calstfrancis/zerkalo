@@ -25,6 +25,7 @@ pub(super) struct LifecycleCtx {
     pub(super) current_config: Rc<RefCell<Config>>,
     pub(super) project_root: PathBuf,
     pub(super) auto_save_idle_ms: Rc<RefCell<u64>>,
+    pub(super) sync_btn: gtk4::Button,
     pub(super) lsp_client: Rc<RefCell<Option<LspClient>>>,
     pub(super) lsp_has_diags: Rc<RefCell<bool>>,
     pub(super) last_completion_request: Rc<RefCell<Option<u64>>>,
@@ -145,6 +146,51 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
                     *last_edit_for_autosave.borrow_mut() = None;
                 }
             }
+        }
+        glib::ControlFlow::Continue
+    });
+
+    // ── Backup: sync periodically, so non-technical users never have to find
+    // the Sync button themselves ─────────────────────────────────────────
+    //
+    // Only runs once a backup location is configured (the setup wizard or
+    // ☰ → Backup Locations…), and only when there's something uncommitted —
+    // otherwise it's a no-op check every 30s, not a sync. Quiet: failures
+    // show a toast, never a blocking dialog, so an offline user isn't
+    // interrupted while writing.
+    const AUTO_SYNC_INTERVAL: Duration = Duration::from_secs(12 * 60);
+    let editor_for_autosync = ctx.editor_pane.clone();
+    let overlay_for_autosync = ctx.toast_overlay.clone();
+    let sync_btn_for_autosync = ctx.sync_btn.clone();
+    let root_for_autosync = ctx.project_root.clone();
+    let last_auto_sync: Rc<RefCell<Option<std::time::Instant>>> = Rc::new(RefCell::new(None));
+    glib::timeout_add_local(Duration::from_secs(30), move || {
+        let root = editor_for_autosync
+            .get_active_path()
+            .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+            .and_then(|dir| crate::git_sync::git_repo_root(&dir))
+            .unwrap_or_else(|| root_for_autosync.clone());
+
+        let due = last_auto_sync
+            .borrow()
+            .map(|t| t.elapsed() >= AUTO_SYNC_INTERVAL)
+            .unwrap_or(true);
+
+        if due
+            && sync_btn_for_autosync.is_sensitive()
+            && crate::git_sync::has_remote(&root)
+            && !crate::git_sync::changed_files(&root).is_empty()
+        {
+            *last_auto_sync.borrow_mut() = Some(std::time::Instant::now());
+            editor_for_autosync.save_all_modified();
+            sync_btn_for_autosync.set_sensitive(false);
+            let btn_done = sync_btn_for_autosync.clone();
+            super::sync::auto_sync_quiet(
+                root,
+                Some(overlay_for_autosync.clone()),
+                crate::secret_store::load_github_token(),
+                move || btn_done.set_sensitive(true),
+            );
         }
         glib::ControlFlow::Continue
     });

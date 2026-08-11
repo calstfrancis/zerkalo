@@ -48,6 +48,55 @@ pub(super) fn do_sync(
     });
 }
 
+/// A background sync with no button to disable and no blocking dialogs —
+/// used by the periodic auto-backup and the on-quit backup. Both are silent
+/// by design: an offline user shouldn't get a modal popup every few minutes,
+/// so failures surface as a toast (or nothing at all, for the on-quit case,
+/// since the window is already on its way out).
+pub(super) fn auto_sync_quiet(
+    root: PathBuf,
+    overlay: Option<adw::ToastOverlay>,
+    token: Option<String>,
+    on_done: impl FnOnce() + 'static,
+) {
+    use std::sync::mpsc::TryRecvError;
+
+    let (tx, rx) = std::sync::mpsc::sync_channel::<git_sync::SyncResult>(1);
+    std::thread::spawn(move || {
+        tx.send(git_sync::sync(&root, token.as_deref())).ok();
+    });
+
+    let rx = Rc::new(rx);
+    let on_done = Rc::new(RefCell::new(Some(on_done)));
+    glib::timeout_add_local(Duration::from_millis(200), move || match rx.try_recv() {
+        Ok(result) => {
+            if let Some(overlay) = &overlay {
+                if result.error.is_some() || !result.push_errors.is_empty() {
+                    let t = adw::Toast::new("Backup didn't go through — try Sync from the menu.");
+                    t.set_timeout(6);
+                    overlay.add_toast(t);
+                } else if result.pushed {
+                    let summary = result.commit_message.lines().next().unwrap_or("Synced").to_string();
+                    let t = adw::Toast::new(&format!("Backed up — {summary}"));
+                    t.set_timeout(3);
+                    overlay.add_toast(t);
+                }
+            }
+            if let Some(f) = on_done.borrow_mut().take() {
+                f();
+            }
+            glib::ControlFlow::Break
+        }
+        Err(TryRecvError::Empty) => glib::ControlFlow::Continue,
+        Err(TryRecvError::Disconnected) => {
+            if let Some(f) = on_done.borrow_mut().take() {
+                f();
+            }
+            glib::ControlFlow::Break
+        }
+    });
+}
+
 fn show_sync_result(
     window: &adw::ApplicationWindow,
     overlay: &adw::ToastOverlay,
@@ -67,7 +116,9 @@ fn show_sync_result(
                 overlay,
                 root,
                 current_config,
-                "GitHub authentication failed. Enter a Personal Access Token (PAT) to continue.\n\nGenerate one at github.com → Settings → Developer settings → Personal access tokens.",
+                "Zerkalo's sign-in to GitHub has stopped working, so backups can't go through. \
+                 Paste an access code below to reconnect.\n\nTo get one: on github.com, go to \
+                 Settings → Developer settings → Personal access tokens, and create one there.",
             );
             return;
         }
@@ -75,12 +126,14 @@ fn show_sync_result(
         if result.pushed {
             let summary = result.commit_message.lines().next().unwrap_or("Synced").to_string();
             overlay.add_toast(adw::Toast::new(&format!("Synced — {summary}")));
-            show_alert(window, "Some remotes failed", &detail);
+            show_alert(window, "Some backups failed", &detail);
         } else if is_conflict {
             show_alert(
                 window,
-                "Merge conflict — sync aborted",
-                "Remote changes conflict with your local edits. Your work is safe and unchanged.\n\nResolve the conflict by editing the file manually or force-pushing from the command line.",
+                "Can't save — changes conflict",
+                "The online copy has changes that don't match what's on this computer. Your \
+                 work here is safe and unchanged, but it needs someone to look at both \
+                 versions and decide what to keep before syncing again.",
             );
         } else {
             show_alert(window, "Push Failed", &detail);
@@ -91,7 +144,7 @@ fn show_sync_result(
         let summary = result.commit_message.lines().next().unwrap_or("Synced").to_string();
         overlay.add_toast(adw::Toast::new(&format!("Synced — {summary}")));
     } else if result.committed {
-        overlay.add_toast(adw::Toast::new("Committed locally — no remote push"));
+        overlay.add_toast(adw::Toast::new("Saved a version — not backed up online yet"));
     } else {
         overlay.add_toast(adw::Toast::new("Nothing to sync"));
     }
@@ -200,7 +253,7 @@ fn show_github_token_dialog(
 
 pub(super) fn show_backup_remote_dialog(window: &adw::ApplicationWindow, repo_path: &std::path::Path) {
     let dialog = adw::Window::builder()
-        .title("Git Remotes")
+        .title("Backup Locations")
         .transient_for(window)
         .modal(true)
         .default_width(520)
@@ -218,13 +271,13 @@ pub(super) fn show_backup_remote_dialog(window: &adw::ApplicationWindow, repo_pa
 
     // ── Primary remote (origin / GitHub) ─────────────────────────────────────
     let origin_group = adw::PreferencesGroup::new();
-    origin_group.set_title("Primary Remote");
+    origin_group.set_title("Main Backup");
     origin_group.set_description(Some(
-        "Every sync pushes here first. Paste a GitHub HTTPS URL.",
+        "Every save goes here first. Paste its GitHub address.",
     ));
 
     let origin_entry = adw::EntryRow::new();
-    origin_entry.set_title("URL");
+    origin_entry.set_title("Address");
     if let Some(url) = git_sync::get_remote_url(repo_path, "origin") {
         origin_entry.set_text(&url);
     }
@@ -244,13 +297,13 @@ pub(super) fn show_backup_remote_dialog(window: &adw::ApplicationWindow, repo_pa
         origin_apply.connect_clicked(move |_| {
             let url = entry.text().to_string();
             if url.is_empty() {
-                lbl.set_label("Enter a URL first.");
+                lbl.set_label("Paste an address first.");
                 return;
             }
             let _ = git_sync::remove_remote(&root, "origin");
             match git_sync::add_named_remote(&root, "origin", &url) {
                 Ok(()) => {
-                    lbl.set_label(&format!("✓ Origin set: {url}"));
+                    lbl.set_label(&format!("✓ Main backup set: {url}"));
                     lbl.remove_css_class("error");
                     lbl.add_css_class("success");
                 }
@@ -279,7 +332,7 @@ pub(super) fn show_backup_remote_dialog(window: &adw::ApplicationWindow, repo_pa
 
     // ── Additional remotes ────────────────────────────────────────────────────
     let current_group = adw::PreferencesGroup::new();
-    current_group.set_title("Additional Remotes");
+    current_group.set_title("Other Backup Locations");
 
     let root_for_rebuild = repo_path.to_path_buf();
     // Track only the rows we explicitly added so we can safely remove them
@@ -299,7 +352,7 @@ pub(super) fn show_backup_remote_dialog(window: &adw::ApplicationWindow, repo_pa
             let remotes = git_sync::list_backup_remotes(&root);
             if remotes.is_empty() {
                 let row = adw::ActionRow::new();
-                row.set_title("No backup remotes configured");
+                row.set_title("No other backup locations added yet");
                 row.add_css_class("dim-label");
                 group.add(&row);
                 tracked.borrow_mut().push(row);
@@ -312,7 +365,7 @@ pub(super) fn show_backup_remote_dialog(window: &adw::ApplicationWindow, repo_pa
                     rm_btn.add_css_class("flat");
                     rm_btn.add_css_class("destructive-action");
                     rm_btn.set_valign(Align::Center);
-                    rm_btn.set_tooltip_text(Some("Remove this backup remote"));
+                    rm_btn.set_tooltip_text(Some("Remove this backup location"));
                     let root2 = root.clone();
                     let tracked2 = tracked.clone();
                     let group2 = group.clone();
@@ -323,7 +376,7 @@ pub(super) fn show_backup_remote_dialog(window: &adw::ApplicationWindow, repo_pa
                         let remotes2 = git_sync::list_backup_remotes(&root2);
                         if remotes2.is_empty() {
                             let ph = adw::ActionRow::new();
-                            ph.set_title("No backup remotes configured");
+                            ph.set_title("No other backup locations added yet");
                             ph.add_css_class("dim-label");
                             group2.add(&ph);
                             tracked2.borrow_mut().push(ph);
@@ -350,17 +403,17 @@ pub(super) fn show_backup_remote_dialog(window: &adw::ApplicationWindow, repo_pa
 
     // ── Add a new backup remote ───────────────────────────────────────────────
     let add_group = adw::PreferencesGroup::new();
-    add_group.set_title("Add a Backup Remote");
+    add_group.set_title("Add Another Backup Location");
     add_group.set_description(Some(
-        "Sync pushes here in addition to the primary remote. Enter a name and a URL or local path.",
+        "Saves also go here, in addition to the main backup. Give it a name and an address or folder.",
     ));
 
     let name_row = adw::EntryRow::new();
-    name_row.set_title("Remote name");
+    name_row.set_title("Name");
     name_row.set_text("backup");
 
     let url_row = adw::EntryRow::new();
-    url_row.set_title("URL or path");
+    url_row.set_title("Address or folder");
 
     // Folder-picker button
     let pick_btn = Button::from_icon_name("document-open-symbolic");
@@ -389,7 +442,7 @@ pub(super) fn show_backup_remote_dialog(window: &adw::ApplicationWindow, repo_pa
     status_lbl.set_margin_top(4);
     status_lbl.add_css_class("dim-label");
 
-    let add_btn = Button::with_label("Add Remote");
+    let add_btn = Button::with_label("Add");
     add_btn.add_css_class("suggested-action");
     add_btn.set_halign(Align::End);
 
@@ -417,11 +470,11 @@ pub(super) fn show_backup_remote_dialog(window: &adw::ApplicationWindow, repo_pa
             let name = name_r.text().trim().to_string();
             let url  = url_r.text().trim().to_string();
             if name.is_empty() || url.is_empty() {
-                lbl_c.set_text("Enter both a name and a URL.");
+                lbl_c.set_text("Enter both a name and an address.");
                 return;
             }
             if name == "origin" {
-                lbl_c.set_text("\"origin\" is reserved for the primary remote.");
+                lbl_c.set_text("\"origin\" is reserved for the main backup.");
                 return;
             }
             match git_sync::add_named_remote(&root_c, &name, &url) {

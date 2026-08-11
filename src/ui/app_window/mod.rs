@@ -1454,6 +1454,7 @@ impl AppWindow {
             current_config: current_config.clone(),
             project_root: project_root.clone(),
             auto_save_idle_ms: auto_save_idle_ms.clone(),
+            sync_btn: sync_btn.clone(),
             lsp_client: lsp_client.clone(),
             lsp_has_diags: lsp_has_diags.clone(),
             last_completion_request: last_completion_request.clone(),
@@ -2697,88 +2698,121 @@ impl AppWindow {
         let ep = self.editor_pane.clone();
         let win = self.window.clone();
         let force_close: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
+        let git_synced: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
 
         let writing_log_for_close = self.writing_log.clone();
         let file_start_words_for_close = self.file_start_words.clone();
         let session_start_for_close = self.session_start.clone();
+        let project_root_for_close = self.project_root.clone();
 
         self.window.connect_close_request(move |_| {
-            // Second call after user confirmed — save session and proceed
-            if *force_close.borrow() {
-                record_writing_session(
-                    &ep, &writing_log_for_close,
-                    &file_start_words_for_close, &session_start_for_close,
-                );
-                let open_files = ep.get_open_paths_ordered();
-                let active_file = ep.get_active_path();
-                let cursor_positions = ep.get_cursor_positions();
-                Session { open_files, active_file, cursor_positions }.save();
-                return glib::Propagation::Proceed;
-            }
+            // Stage 1: an unsaved-buffer dialog resolves into a second call
+            // with force_close set — skip straight past it here.
+            if !*force_close.borrow() {
+                let unsaved = ep.modified_buffers();
+                if unsaved.is_empty() {
+                    *force_close.borrow_mut() = true;
+                } else {
+                    // Build file list for the dialog body
+                    let names: Vec<String> = unsaved
+                        .iter()
+                        .map(|(p, _)| {
+                            p.file_name()
+                                .and_then(|n| n.to_str())
+                                .unwrap_or("?")
+                                .to_string()
+                        })
+                        .collect();
+                    let body = format!(
+                        "The following file{} {} unsaved changes:\n\n{}",
+                        if names.len() == 1 { "" } else { "s" },
+                        if names.len() == 1 { "has" } else { "have" },
+                        names.join("\n"),
+                    );
 
-            let unsaved = ep.modified_buffers();
-            if unsaved.is_empty() {
-                record_writing_session(
-                    &ep, &writing_log_for_close,
-                    &file_start_words_for_close, &session_start_for_close,
-                );
-                let open_files = ep.get_open_paths_ordered();
-                let active_file = ep.get_active_path();
-                let cursor_positions = ep.get_cursor_positions();
-                Session { open_files, active_file, cursor_positions }.save();
-                return glib::Propagation::Proceed;
-            }
+                    let dlg = adw::MessageDialog::new(
+                        Some(&win),
+                        Some("Save before closing?"),
+                        Some(&body),
+                    );
+                    dlg.add_response("cancel", "Cancel");
+                    dlg.add_response("discard", "Discard");
+                    dlg.add_response("save", "Save All");
+                    dlg.set_response_appearance("discard", adw::ResponseAppearance::Destructive);
+                    dlg.set_response_appearance("save", adw::ResponseAppearance::Suggested);
+                    dlg.set_default_response(Some("save"));
+                    dlg.set_close_response("cancel");
 
-            // Build file list for the dialog body
-            let names: Vec<String> = unsaved
-                .iter()
-                .map(|(p, _)| {
-                    p.file_name()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or("?")
-                        .to_string()
-                })
-                .collect();
-            let body = format!(
-                "The following file{} {} unsaved changes:\n\n{}",
-                if names.len() == 1 { "" } else { "s" },
-                if names.len() == 1 { "has" } else { "have" },
-                names.join("\n"),
-            );
+                    let ep2 = ep.clone();
+                    let win2 = win.clone();
+                    let fc = force_close.clone();
+                    dlg.connect_response(None, move |_, resp| {
+                        match resp {
+                            "save" => {
+                                ep2.save_all_modified();
+                                *fc.borrow_mut() = true;
+                                win2.close();
+                            }
+                            "discard" => {
+                                *fc.borrow_mut() = true;
+                                win2.close();
+                            }
+                            _ => {} // cancel — do nothing
+                        }
+                    });
+                    dlg.present();
 
-            let dlg = adw::MessageDialog::new(
-                Some(&win),
-                Some("Save before closing?"),
-                Some(&body),
-            );
-            dlg.add_response("cancel", "Cancel");
-            dlg.add_response("discard", "Discard");
-            dlg.add_response("save", "Save All");
-            dlg.set_response_appearance("discard", adw::ResponseAppearance::Destructive);
-            dlg.set_response_appearance("save", adw::ResponseAppearance::Suggested);
-            dlg.set_default_response(Some("save"));
-            dlg.set_close_response("cancel");
-
-            let ep2 = ep.clone();
-            let win2 = win.clone();
-            let fc = force_close.clone();
-            dlg.connect_response(None, move |_, resp| {
-                match resp {
-                    "save" => {
-                        ep2.save_all_modified();
-                        *fc.borrow_mut() = true;
-                        win2.close();
-                    }
-                    "discard" => {
-                        *fc.borrow_mut() = true;
-                        win2.close();
-                    }
-                    _ => {} // cancel — do nothing
+                    return glib::Propagation::Stop;
                 }
-            });
-            dlg.present();
+            }
 
-            glib::Propagation::Stop
+            // Stage 2: back up before closing, if a backup location is
+            // configured and there's actually something to send — silent
+            // and best-effort, capped so an offline connection can't hang
+            // the app on quit.
+            if !*git_synced.borrow() {
+                *git_synced.borrow_mut() = true;
+                let root = crate::git_sync::git_repo_root(&project_root_for_close)
+                    .unwrap_or_else(|| project_root_for_close.clone());
+                if crate::git_sync::has_remote(&root)
+                    && !crate::git_sync::changed_files(&root).is_empty()
+                {
+                    let closed = Rc::new(RefCell::new(false));
+                    let win_for_sync = win.clone();
+                    let closed_a = closed.clone();
+                    sync::auto_sync_quiet(
+                        root,
+                        None,
+                        crate::secret_store::load_github_token(),
+                        move || {
+                            if !*closed_a.borrow() {
+                                *closed_a.borrow_mut() = true;
+                                win_for_sync.close();
+                            }
+                        },
+                    );
+                    let win_for_timeout = win.clone();
+                    let closed_b = closed.clone();
+                    glib::timeout_add_local_once(Duration::from_secs(6), move || {
+                        if !*closed_b.borrow() {
+                            *closed_b.borrow_mut() = true;
+                            win_for_timeout.close();
+                        }
+                    });
+                    return glib::Propagation::Stop;
+                }
+            }
+
+            // Stage 3: finalize.
+            record_writing_session(
+                &ep, &writing_log_for_close,
+                &file_start_words_for_close, &session_start_for_close,
+            );
+            let open_files = ep.get_open_paths_ordered();
+            let active_file = ep.get_active_path();
+            let cursor_positions = ep.get_cursor_positions();
+            Session { open_files, active_file, cursor_positions }.save();
+            glib::Propagation::Proceed
         });
 
         self.window.present();
@@ -2877,9 +2911,9 @@ fn show_dynamic_shortcuts_window(
          \u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\n\
          Compile             {compile}\n\
          Export PDF          Ctrl+Shift+E\n\n\
-         Git & App\n\
+         Backup & App\n\
          \u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\n\
-         Git Sync            {git_sync}\n\
+         Save a version      {git_sync}\n\
          What things do      {help_overlay}\n\
          Keyboard Shortcuts  {shortcuts_help}\n\
          Quit                {quit}\n\n\
@@ -3130,7 +3164,7 @@ fn build_hamburger_menu_items() -> HamburgerItems {
         menu_settings_item:        make_menu_item("Settings",                    None),
         menu_setup_item:           make_menu_item("Set Up Zerkalo…",             None),
         menu_tools_item:           make_menu_item("Tools…",                      None),
-        menu_backup_remote_item:   make_menu_item("Git Remotes…",                 None),
+        menu_backup_remote_item:   make_menu_item("Backup Locations…",            None),
         menu_help_item:            make_menu_item("Help",                      Some("Ctrl+?")),
         // The keybinding-aware shortcuts window was reachable only by its
         // shortcut; nothing in the menu opened it.

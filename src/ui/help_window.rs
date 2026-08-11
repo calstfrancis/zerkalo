@@ -1,7 +1,5 @@
 use gtk4::prelude::*;
-use gtk4::{
-    Notebook, ScrolledWindow, TextBuffer, TextIter, TextView, WrapMode,
-};
+use gtk4::{ScrolledWindow, TextBuffer, TextIter, TextView, WrapMode};
 use libadwaita::prelude::*;
 use libadwaita as adw;
 
@@ -356,15 +354,19 @@ impl HelpWindow {
     pub fn new(parent: &impl IsA<gtk4::Window>, cv_mode: bool) -> Self {
         let window = adw::Window::new();
         window.set_title(Some("Help — Zerkalo"));
-        window.set_default_width(720);
-        window.set_default_height(600);
+        window.set_default_width(760);
+        window.set_default_height(640);
         window.set_transient_for(Some(parent));
         window.set_modal(false);
 
         let header = adw::HeaderBar::new();
         header.add_css_class("fond-chrome");
-        let notebook = Notebook::new();
-        notebook.set_scrollable(true);
+
+        // An AdwViewStack driven by a header AdwViewSwitcher rather than a raw
+        // GtkNotebook — same pill-tab pattern as Settings, so Help matches the
+        // rest of the app instead of looking like a GTK3 leftover.
+        let view_stack = adw::ViewStack::new();
+        view_stack.set_vexpand(true);
 
         let cheatsheet_fn: fn() -> Vec<Block<'static>> = if cv_mode {
             cv_cheatsheet_blocks
@@ -372,30 +374,30 @@ impl HelpWindow {
             cheatsheet_blocks
         };
 
-        let tabs: &[(&str, fn() -> Vec<Block<'static>>)] = &[
-            ("Overview",   overview_blocks),
-            ("Projects",   projects_blocks),
-            ("Shortcuts",  shortcuts_blocks),
-            ("FAQ",        faq_blocks),
-            ("About",      about_blocks),
+        let tabs: &[(&str, &str, &str, fn() -> Vec<Block<'static>>)] = &[
+            ("cheatsheet", "Cheatsheet", "text-x-generic-symbolic",     cheatsheet_fn),
+            ("overview",   "Overview",   "dialog-information-symbolic", overview_blocks),
+            ("projects",   "Projects",   "folder-symbolic",             projects_blocks),
+            ("shortcuts",  "Shortcuts",  "input-keyboard-symbolic",     shortcuts_blocks),
+            ("faq",        "FAQ",        "dialog-question-symbolic",    faq_blocks),
+            ("about",      "About",      "help-about-symbolic",         about_blocks),
         ];
 
-        // Cheatsheet tab first, then the rest
-        {
-            let lbl = gtk4::Label::new(Some("Cheatsheet"));
-            let scroll = make_rich_tab(cheatsheet_fn());
-            notebook.append_page(&scroll, Some(&lbl));
-        }
-        for (title, blocks_fn) in tabs {
-            let lbl = gtk4::Label::new(Some(title));
+        for (tag, title, icon, blocks_fn) in tabs {
             let scroll = make_rich_tab(blocks_fn());
-            notebook.append_page(&scroll, Some(&lbl));
+            let sp = view_stack.add_titled(&scroll, Some(tag), title);
+            sp.set_icon_name(Some(icon));
         }
+
+        let switcher = adw::ViewSwitcher::new();
+        switcher.set_stack(Some(&view_stack));
+        switcher.set_policy(adw::ViewSwitcherPolicy::Wide);
+        header.set_title_widget(Some(&switcher));
 
         let toolbar = adw::ToolbarView::new();
         toolbar.set_top_bar_style(adw::ToolbarStyle::RaisedBorder);
         toolbar.add_top_bar(&header);
-        toolbar.set_content(Some(&notebook));
+        toolbar.set_content(Some(&view_stack));
         window.set_content(Some(&toolbar));
 
         Self { window }
@@ -418,10 +420,10 @@ pub(crate) fn make_rich_tab(blocks: Vec<Block<'_>>) -> ScrolledWindow {
     view.set_editable(false);
     view.set_cursor_visible(false);
     view.set_wrap_mode(WrapMode::WordChar);
-    view.set_left_margin(20);
-    view.set_right_margin(20);
-    view.set_top_margin(18);
-    view.set_bottom_margin(18);
+    view.set_left_margin(28);
+    view.set_right_margin(28);
+    view.set_top_margin(22);
+    view.set_bottom_margin(22);
     view.set_pixels_above_lines(1);
     view.set_monospace(false);
 
@@ -441,9 +443,11 @@ pub(crate) fn make_rich_tab(blocks: Vec<Block<'_>>) -> ScrolledWindow {
         Some("h2"),
         &[
             ("weight", &700i32),
-            ("scale", &1.15f64),
-            ("pixels-above-lines", &16i32),
-            ("pixels-below-lines", &6i32),
+            ("scale", &1.1f64),
+            ("foreground", &colors.heading_fg.as_str()),
+            ("paragraph-background", &colors.heading_bg),
+            ("pixels-above-lines", &22i32),
+            ("pixels-below-lines", &8i32),
         ],
     );
     buf.create_tag(
@@ -455,12 +459,11 @@ pub(crate) fn make_rich_tab(blocks: Vec<Block<'_>>) -> ScrolledWindow {
         &[
             ("family", &"Monospace"),
             ("scale", &0.95f64),
-            ("background", &colors.code_bg),
-            ("background-full-height", &true),
-            ("pixels-above-lines", &6i32),
-            ("pixels-below-lines", &6i32),
-            ("left-margin", &16i32),
-            ("right-margin", &12i32),
+            ("paragraph-background", &colors.code_bg),
+            ("pixels-above-lines", &10i32),
+            ("pixels-below-lines", &10i32),
+            ("left-margin", &18i32),
+            ("right-margin", &14i32),
         ],
     );
     buf.create_tag(
