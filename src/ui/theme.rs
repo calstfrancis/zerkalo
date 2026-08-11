@@ -114,6 +114,11 @@ pub struct RefColors {
     pub code_bg: &'static str,
     pub inline_bg: &'static str,
     pub inline_fg: String,
+    /// A faint accent-tinted band behind each section heading, so a new
+    /// question/section reads as a distinct, deliberately-styled block at a
+    /// glance instead of blending into the prose above it.
+    pub heading_bg: &'static str,
+    pub heading_fg: String,
 }
 
 pub fn ref_colors(widget: &impl IsA<gtk4::Widget>) -> RefColors {
@@ -125,9 +130,11 @@ pub fn ref_colors(widget: &impl IsA<gtk4::Widget>) -> RefColors {
     );
     RefColors {
         accent: accent.clone(),
-        code_bg: if dark { "#2a2d33" } else { "#f0eeec" },
+        code_bg: if dark { "#262a30" } else { "#ece9e4" },
         inline_bg: if dark { "#3a3e46" } else { "#e8e6e3" },
-        inline_fg: accent,
+        inline_fg: accent.clone(),
+        heading_bg: if dark { "#20293a" } else { "#eaf1fc" },
+        heading_fg: accent,
     }
 }
 

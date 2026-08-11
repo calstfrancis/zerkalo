@@ -127,11 +127,9 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
-                "Fixed: the in-app changelog window only ever showed the first line of every bullet. Every entry in CHANGELOG.md is hand-wrapped across several lines, and continuation lines were silently dropped instead of being folded back into the bullet they belong to",
-                "Fixed: section headers in the changelog window sat almost flush against the text below them",
-                "Fixed: Typst keywords like \"in\", \"else\", \"for\", \"if\", \"set\" and \"while\" lit up red inside ordinary prose, with no code in sight. Real code such as #if and #for was already being recognised separately, so the keyword rule was only ever matching English words — removed",
-                "Fixed: the flatpak build only shipped a scalable SVG icon. install.sh has long rasterised the same icon to PNG at several sizes, because a launcher that doesn't invoke an SVG loader shows a blank or generic icon for an SVG-only app — the flatpak build now does the same",
-                "Fixed: the \"Document body\" and \"Chapters\" markers read as a bare warning — \"DO NOT DELETE or Zerkalo template system will break\" — without saying what shouldn't be deleted. Reworded to say plainly that it's the marker line itself, not the writing below it",
+                "Added: backups now happen on their own. Once a backup location is set up, Zerkalo saves and sends a version automatically every so often while you write, and once more on the way out if anything's still unsent — quiet by design, so an offline moment shows a small toast instead of a popup, and it never blocks quitting for more than a few seconds",
+                "Changed: plain language throughout setup, sync, and backup screens — \"repository,\" \"remote,\" \"commit,\" and \"clone\" are now described in terms of what they do (\"online copy,\" \"backup location,\" \"save a version\")",
+                "Changed: the Help window's tabs are now a proper libadwaita view switcher instead of old-style notebook tabs, and section headings in Help/FAQ/Cheatsheet now sit on a soft accent-tinted band so each question reads as a distinct block while scrolling",
             ] {
                 body.append(&bullet_row(item));
             }
@@ -145,7 +143,7 @@ impl WelcomeWindow {
             ("Ctrl+K", "Command palette"),
             ("Ctrl+F", "Find in document"),
             ("Ctrl+Tab", "Next open file"),
-            ("Ctrl+Shift+G", "Git sync"),
+            ("Ctrl+Shift+G", "Save a version & back up"),
         ] {
             body.append(&shortcut_row(key, desc));
         }

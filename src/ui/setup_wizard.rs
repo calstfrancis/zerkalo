@@ -321,7 +321,7 @@ fn connect_page(
     group.add(&folder_row);
 
     let existing_row = adw::ActionRow::new();
-    existing_row.set_title("I already have a repository");
+    existing_row.set_title("I already have an online copy");
     existing_row.set_subtitle("Paste its address");
     existing_row.set_activatable(true);
     existing_row.add_prefix(&gtk4::Image::from_icon_name("insert-link-symbolic"));
@@ -415,16 +415,16 @@ fn folder_page(window: &adw::Window, nav: &adw::NavigationView, work_dir: &Path)
 fn existing_page(window: &adw::Window, nav: &adw::NavigationView, work_dir: &Path) -> adw::NavigationPage {
     let work_dir = work_dir.to_path_buf();
     let (page, content, buttons) = page_shell(
-        "Existing Repository",
+        "Existing Copy",
         "existing",
-        "Use a repository you already have",
-        "Paste the address you'd use to clone it. If it's on GitHub and you sign in \
-         first, Zerkalo can push to it without asking for a password each time.",
+        "Use an online copy you already have",
+        "Paste its address. If it's on GitHub and you sign in first, Zerkalo can \
+         save to it without asking for a password each time.",
     );
 
     let group = adw::PreferencesGroup::new();
     let url_row = adw::EntryRow::new();
-    url_row.set_title("Repository address");
+    url_row.set_title("Address");
     group.add(&url_row);
     content.append(&group);
 
@@ -444,7 +444,7 @@ fn existing_page(window: &adw::Window, nav: &adw::NavigationView, work_dir: &Pat
         finish.connect_clicked(move |_| {
             let url = url_row_c.text().trim().to_string();
             if url.is_empty() {
-                error_lbl_c.set_label("Paste the repository's address first.");
+                error_lbl_c.set_label("Paste its address first.");
                 error_lbl_c.set_visible(true);
                 return;
             }
@@ -477,7 +477,7 @@ fn confirm_page(
     let group = adw::PreferencesGroup::new();
 
     let name_row = adw::EntryRow::new();
-    name_row.set_title("Repository name");
+    name_row.set_title("What to call it on GitHub");
     name_row.set_text(&crate::github_auth::suggested_repo_name(&work_dir));
     group.add(&name_row);
 
@@ -759,7 +759,7 @@ fn run_plan(
                 if let Err(e) = set_git_remote(&work_dir, &clone_url) {
                     let _ = tx.send(Progress::Failed {
                         step,
-                        message: format!("The repository was created, but linking it to this folder failed:\n{e}"),
+                        message: format!("It was created on GitHub, but linking it to this folder failed:\n{e}"),
                     });
                     return;
                 }
@@ -864,8 +864,9 @@ fn describe_create_failure(name: &str, e: &crate::github_auth::GithubAuthError) 
     let text = e.to_string();
     if text.contains("already exists") || text.contains("name already exists") {
         return format!(
-            "You already have a repository called \"{name}\". Go back and pick a different name, \
-             or use \"I already have a repository\" to point Zerkalo at the existing one."
+            "You already have something called \"{name}\" on GitHub. Go back and pick a \
+             different name, or use \"I already have an online copy\" to point Zerkalo at \
+             the existing one."
         );
     }
     if text.contains("401") || text.contains("Bad credentials") {
@@ -874,7 +875,7 @@ fn describe_create_failure(name: &str, e: &crate::github_auth::GithubAuthError) 
     if text.contains("Network") {
         return "Couldn't reach GitHub. Check your internet connection and try again.".to_string();
     }
-    format!("GitHub couldn't create the repository:\n{text}")
+    format!("GitHub couldn't create it:\n{text}")
 }
 
 // ── Git helpers ───────────────────────────────────────────────────────────────
@@ -945,7 +946,7 @@ mod tests {
             "422: {\"message\":\"Repository creation failed.\",\"errors\":[{\"message\":\"name already exists on this account\"}]}".into(),
         );
         let msg = describe_create_failure("zerkalo-docs", &e);
-        assert!(msg.contains("already have a repository called \"zerkalo-docs\""), "got: {msg}");
+        assert!(msg.contains("already have something called \"zerkalo-docs\""), "got: {msg}");
         assert!(!msg.contains("422"), "the raw status code is not useful here: {msg}");
     }
 

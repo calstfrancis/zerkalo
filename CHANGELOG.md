@@ -5,7 +5,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.21.1-dev1] — The changelog reads whole, and the icon shows up
+## [0.22.0-dev1] — Backups that happen without being asked
+
+### Added
+
+- **Backups now happen on their own.** Once a backup location is set up, Zerkalo saves and
+  sends a version automatically every so often while you write, and once more on the way
+  out if anything's still unsent — so backing up no longer depends on remembering the sync
+  button. It's quiet by design: failures show as a small toast rather than a popup, so an
+  offline moment doesn't interrupt you, and it never blocks quitting for more than a few
+  seconds.
+
+### Changed
+
+- **Plain language throughout setup, sync, and backup screens.** "Repository," "remote,"
+  "commit," and "clone" — terms that meant nothing to a non-technical user — are now
+  described in terms of what they do ("online copy," "backup location," "save a version").
+  Covers the setup wizard's existing-copy path, the fallback sync dialog, the backup
+  locations manager, header tooltips, the command palette, and sync failure/conflict
+  messages.
+- **The Help window's tabs are now a proper libadwaita view switcher** (matching Settings)
+  instead of old-style GTK notebook tabs, with an icon per tab and more breathing room
+  around headings and code blocks.
+- **Help/FAQ/Cheatsheet section headings now sit on a soft accent-tinted band** instead of
+  plain bold text, so each question or section reads as a distinct block while scrolling
+  through reference material, and code blocks got a slightly more defined background to
+  set them apart from surrounding prose.
 
 ### Fixed
 

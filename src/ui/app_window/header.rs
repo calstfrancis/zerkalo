@@ -139,9 +139,9 @@ pub(super) fn build_header() -> HeaderWidgets {
     recompile_header_btn.update_property(&[gtk4::accessible::Property::Label("Compile now")]);
 
     let sync_btn = Button::from_icon_name("vcs-push-symbolic");
-    sync_btn.set_tooltip_text(Some("Commit & Push to Git (Ctrl+Shift+G)"));
+    sync_btn.set_tooltip_text(Some("Save a Version & Back It Up (Ctrl+Shift+G)"));
     sync_btn.add_css_class("flat");
-    sync_btn.update_property(&[gtk4::accessible::Property::Label("Commit and push to Git")]);
+    sync_btn.update_property(&[gtk4::accessible::Property::Label("Save a version and back it up")]);
 
     let save_btn = Button::from_icon_name("document-save-symbolic");
     save_btn.set_tooltip_text(Some("Save (Ctrl+S)"));

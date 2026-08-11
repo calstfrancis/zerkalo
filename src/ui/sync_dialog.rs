@@ -17,7 +17,7 @@ pub struct SyncDialog {
 impl SyncDialog {
     pub fn new(parent: &impl IsA<gtk4::Window>) -> Self {
         let window = adw::Window::builder()
-            .title("Link to GitHub")
+            .title("Keep This Work Safe")
             .transient_for(parent)
             .modal(true)
             .default_width(440)
@@ -39,14 +39,15 @@ impl SyncDialog {
 
         let group = adw::PreferencesGroup::new();
         group.set_description(Some(
-            "No GitHub remote found. Paste your repository URL to push.",
+            "This document isn't backed up anywhere yet. Paste the address of an online \
+             copy to save it there.",
         ));
 
         let url_row = adw::EntryRow::new();
-        url_row.set_title("Repository URL");
+        url_row.set_title("Address");
         group.add(&url_row);
 
-        let confirm_btn = Button::with_label("Add Remote & Push");
+        let confirm_btn = Button::with_label("Save There");
         confirm_btn.add_css_class("suggested-action");
         confirm_btn.add_css_class("pill");
         confirm_btn.set_halign(Align::Center);
