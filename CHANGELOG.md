@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.22.0-dev1] — Backups that happen without being asked
+## [0.22.0-dev2] — Backups that happen without being asked
 
 ### Added
 
@@ -27,10 +27,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **The Help window's tabs are now a proper libadwaita view switcher** (matching Settings)
   instead of old-style GTK notebook tabs, with an icon per tab and more breathing room
   around headings and code blocks.
-- **Help/FAQ/Cheatsheet section headings now sit on a soft accent-tinted band** instead of
-  plain bold text, so each question or section reads as a distinct block while scrolling
-  through reference material, and code blocks got a slightly more defined background to
-  set them apart from surrounding prose.
+- **Help/FAQ/Cheatsheet formatting redone for clarity.** A first pass added a colored band
+  behind section headings and a grey box around code — it read as clunky and more technical,
+  not less, so it's gone: hierarchy now comes from weight, scale, and whitespace alone, with
+  no color anywhere in the panel. In its place, the Cheatsheet's text-formatting, heading,
+  and list sections now show a real rendered example under the raw syntax — `*bold*` and
+  `_italic_` actually appear bold and italic, `= Heading` appears as a heading, bullets and
+  numbered items show real markers — instead of leaving it to the reader to imagine the
+  effect from the code alone.
 
 ### Fixed
 

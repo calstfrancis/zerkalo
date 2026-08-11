@@ -109,32 +109,19 @@ pub fn muted_fg_hex(widget: &impl IsA<gtk4::Widget>) -> String {
 /// render via `TextTag` and so can't consume `@accent_color` etc. from CSS
 /// directly — resolved from the widget's style context with theme-aware
 /// fallbacks for use before the widget is realized.
+///
+/// Deliberately colorless: an accent-tinted heading band and colored code
+/// text were tried here and read as clunky/technical rather than polished —
+/// hierarchy comes from weight, scale, and whitespace instead, with only a
+/// small neutral chip behind inline `code` spans (a near-universal, unobtrusive
+/// convention, unlike a full-width colored band).
 pub struct RefColors {
-    pub accent: String,
-    pub code_bg: &'static str,
     pub inline_bg: &'static str,
-    pub inline_fg: String,
-    /// A faint accent-tinted band behind each section heading, so a new
-    /// question/section reads as a distinct, deliberately-styled block at a
-    /// glance instead of blending into the prose above it.
-    pub heading_bg: &'static str,
-    pub heading_fg: String,
 }
 
-pub fn ref_colors(widget: &impl IsA<gtk4::Widget>) -> RefColors {
-    let dark = is_dark();
-    let accent = lookup_color_hex(
-        widget,
-        "accent_color",
-        if dark { "#78aeff" } else { "#3584e4" },
-    );
+pub fn ref_colors(_widget: &impl IsA<gtk4::Widget>) -> RefColors {
     RefColors {
-        accent: accent.clone(),
-        code_bg: if dark { "#262a30" } else { "#ece9e4" },
-        inline_bg: if dark { "#3a3e46" } else { "#e8e6e3" },
-        inline_fg: accent.clone(),
-        heading_bg: if dark { "#20293a" } else { "#eaf1fc" },
-        heading_fg: accent,
+        inline_bg: if is_dark() { "#34383f" } else { "#eeece8" },
     }
 }
 
