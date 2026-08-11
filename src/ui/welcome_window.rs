@@ -7,7 +7,7 @@ use libadwaita as adw;
 use adw::prelude::*;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const RELEASE_NAME: &str = "Plain Sight";
+pub const RELEASE_NAME: &str = "New Ground";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -139,6 +139,10 @@ impl WelcomeWindow {
                 "New: save the template dialog's settings as your own template — press the save button beside \"Your Templates\", name it, and it joins the gallery beside the built-in presets. Your name, affiliation and CV contact rows are kept; the title, date, abstract and keywords are not, so one document's front matter can't be stamped onto the next",
                 "Fixed: the first upload to a brand-new repository goes through. Sync pulls before it pushes, and a repository with no commits yet has no branch to pull from — that failed pull was read as an interrupted rebase, and the sync stopped with a warning about a mid-rebase repository without ever pushing",
                 "Fixed: a new repository starts on main. Setup left the branch to git's own default, often master, so the first push created a second, unrelated branch beside the main GitHub had made",
+                "Fixed: \"Double\" line spacing is now actually double, and \"1.5 Lines\" is actually 1.5 — Typst's leading is the gap between lines, not a multiplier, and the old values rendered at about 1.4x and 1.2x. APA, MLA, Chicago and Turabian all require true double spacing for submission. Documents written with the old values still open on the right setting",
+                "Fixed: paragraphs are marked once, not twice — generated documents set a first-line indent and a fixed gap between paragraphs, where academic manuscript style uses the indent alone, and the extra gap also broke the line grid on double-spaced documents",
+                "Fixed: MLA documents keep their paragraph indents, APA 7th no longer prints \"Running head:\", Executive paper size compiles (Typst calls it us-executive, the template wrote executive), and an abstract fits on small paper instead of losing most of the column to a fixed inset",
+                "Fixed: changing the document font or size only edits that one line, instead of regenerating the whole preamble — which on a document with no settings file, or one Zerkalo didn't create, could silently reset paper size, margins and metadata, or replace the file outright with no confirmation and no backup. Every Apply now takes a snapshot first, and documents are written atomically so a crash mid-save can't leave a .typ empty",
                 "New: Word, OpenDocument and Markdown files are converted by Zerkalo itself, with nothing to install — three formats that used to need pandoc, which in the flatpak means a tool installed outside the sandbox that most people won't have. Headings, bold and italic, nested lists, tables, links, quotes, code blocks and embedded images all come across, and images travel with the document",
                 "New: \"Paste as Document\" reads what you pasted as Markdown the same way, so it too needs nothing installed — and a large paste no longer freezes the window while it converts",
                 "New: anything a conversion couldn't carry across is said out loud rather than quietly dropped — raw HTML in Markdown, footnotes reduced to plain markers, and Word citations from a reference manager that can't be read at all",
