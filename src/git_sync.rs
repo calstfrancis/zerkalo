@@ -61,6 +61,14 @@ pub(crate) fn git_cmd(repo_path: &Path) -> Command {
     // Force English output so the substring matches in is_auth_error() and the
     // "nothing to commit" check below are reliable regardless of the user's locale.
     cmd.env("LANG", "C").env("LC_ALL", "C");
+    // Zerkalo's commits (made here, and replayed during `pull --rebase`) run
+    // from a background thread with no terminal — if the user's git config
+    // has commit.gpgsign on, git tries to launch pinentry to unlock the key
+    // and fails with "Inappropriate ioctl for device", silently breaking
+    // every sync. This overrides gpgsign for Zerkalo's own git invocations
+    // only, leaving the user's global config (and their own commits made
+    // elsewhere) untouched.
+    cmd.args(["-c", "commit.gpgsign=false"]);
     cmd
 }
 

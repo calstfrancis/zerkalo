@@ -5,10 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.22.0-dev3] — Backups that happen without being asked
+## [0.22.0] "Steady Hand" — Backups that happen without being asked
 
 ### Added
 
+- **Error and notice dialogs now have a Copy button** next to OK, so a raw error message —
+  a git failure, an export failure, anything shown in one of these boxes — can be pasted
+  into a bug report or a chat instead of retyped by hand from a screenshot. `AdwMessageDialog`'s
+  body text isn't selectable, so without this there was no way to get the text out at all.
 - **Backups now happen on their own.** Once a backup location is set up, Zerkalo saves and
   sends a version automatically every so often while you write, and once more on the way
   out if anything's still unsent — so backing up no longer depends on remembering the sync
@@ -36,6 +40,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Sync could fail outright if the system's git was configured to sign commits.** Zerkalo's
+  auto-backup and manual Sync both run `git commit` in the background, with no terminal
+  attached — if `commit.gpgsign` is on, git tries to launch an interactive prompt to unlock
+  the signing key, which can't work with no terminal to prompt on, and the whole sync failed
+  with a raw gpg/pinentry error ("Inappropriate ioctl for device"). Zerkalo's own commits now
+  explicitly skip signing; this doesn't touch the signing setting for anything else on the
+  system, including commits made by hand.
 - **The in-app changelog window only ever showed the first line of every bullet.** Every
   entry in `CHANGELOG.md` is hand-wrapped across several lines, but the window's parser only
   recognised a line starting with `## [`, `### `, or `- ` — every wrapped continuation line

@@ -36,7 +36,7 @@
       <li>BibTeX and Hayagriva YAML bibliography support, with cited-only bibliography export and project-wide citation key rename</li>
       <li>Compile on save with live preview; scroll position preserved across recompiles</li>
       <li>Auto-save to recovery file on idle; periodic save every 30 seconds</li>
-      <li>Git sync — commit and push to all remotes in one click, with git bundled so there's nothing to install; three-screen setup signs in with GitHub (which supplies your name and email automatically), creates and links a new repository, or backs up to a plain folder or drive with no account at all</li>
+      <li>Git sync — commit and push to all remotes in one click, with git bundled so there's nothing to install; three-screen setup signs in with GitHub (which supplies your name and email automatically), creates and links a new repository, or backs up to a plain folder or drive with no account at all; once set up, backups also happen automatically in the background and once more on quit, with no button to remember</li>
     </ul>
     <p>CV mode:</p>
     <ul>
@@ -76,6 +76,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.22.0" date="2026-08-11">
+      <description>
+        <p>0.22.0 "Steady Hand" — Backups that happen without being asked, plain language throughout setup and sync, and errors you can actually copy.</p>
+      </description>
+    </release>
     <release version="0.21.0" date="2026-08-10">
       <description>
         <p>0.21.0 "New Ground" — Nothing to install, nothing to type, and a window that explains itself.</p>

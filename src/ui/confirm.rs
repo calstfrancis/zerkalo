@@ -34,12 +34,24 @@ pub fn confirm_destructive(
     dlg.present();
 }
 
-/// A plain acknowledgement with a single OK.
+/// A plain acknowledgement, with a Copy button alongside OK so the message —
+/// often a raw error — can be pasted elsewhere instead of retyped by hand.
+/// `adw::MessageDialog`'s body label isn't selectable, so without this the
+/// only way to get an error out of the dialog was a screenshot.
 pub fn notice(parent: Option<&gtk4::Window>, heading: &str, body: &str) {
     let dlg = adw::MessageDialog::new(parent, Some(heading), Some(body));
+    dlg.add_response("copy", "Copy");
     dlg.add_response("ok", "OK");
     dlg.set_default_response(Some("ok"));
     dlg.set_close_response("ok");
+    let text = body.to_string();
+    dlg.connect_response(None, move |_, response| {
+        if response == "copy" {
+            if let Some(display) = gtk4::gdk::Display::default() {
+                display.clipboard().set_text(&text);
+            }
+        }
+    });
     dlg.present();
 }
 

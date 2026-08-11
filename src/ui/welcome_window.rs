@@ -7,7 +7,7 @@ use libadwaita as adw;
 use adw::prelude::*;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const RELEASE_NAME: &str = "New Ground";
+pub const RELEASE_NAME: &str = "Steady Hand";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -128,9 +128,11 @@ impl WelcomeWindow {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
                 "Added: backups now happen on their own. Once a backup location is set up, Zerkalo saves and sends a version automatically every so often while you write, and once more on the way out if anything's still unsent — quiet by design, so an offline moment shows a small toast instead of a popup, and it never blocks quitting for more than a few seconds",
+                "Added: error and notice dialogs now have a Copy button next to OK, so a raw error message can be pasted into a bug report instead of retyped from a screenshot",
                 "Changed: plain language throughout setup, sync, and backup screens — \"repository,\" \"remote,\" \"commit,\" and \"clone\" are now described in terms of what they do (\"online copy,\" \"backup location,\" \"save a version\")",
                 "Changed: the Help window's tabs are now a proper libadwaita view switcher instead of old-style notebook tabs",
                 "Changed: Help/FAQ/Cheatsheet formatting redone for clarity — no color anywhere in the panel, hierarchy comes from weight, scale, and whitespace instead",
+                "Fixed: sync could fail outright if the system's git was set up to sign commits — Zerkalo's own commits now skip signing, without touching your signing setup for anything else",
             ] {
                 body.append(&bullet_row(item));
             }
