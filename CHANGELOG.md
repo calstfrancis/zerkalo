@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.22.0-dev2] — Backups that happen without being asked
+## [0.22.0-dev3] — Backups that happen without being asked
 
 ### Added
 
@@ -30,11 +30,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Help/FAQ/Cheatsheet formatting redone for clarity.** A first pass added a colored band
   behind section headings and a grey box around code — it read as clunky and more technical,
   not less, so it's gone: hierarchy now comes from weight, scale, and whitespace alone, with
-  no color anywhere in the panel. In its place, the Cheatsheet's text-formatting, heading,
-  and list sections now show a real rendered example under the raw syntax — `*bold*` and
-  `_italic_` actually appear bold and italic, `= Heading` appears as a heading, bullets and
-  numbered items show real markers — instead of leaving it to the reader to imagine the
-  effect from the code alone.
+  no color anywhere in the panel. (A follow-up attempt to also render the Cheatsheet's markup
+  examples with real bold/italic/heading formatting didn't work reliably — reverted; the
+  syntax reference stays as plain code for now.)
 
 ### Fixed
 

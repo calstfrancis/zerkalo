@@ -12,16 +12,6 @@ pub(crate) enum Block<'a> {
     H2(&'a str),
     Body(&'a str),
     Code(&'a str),
-    /// A small Typst-markup subset, actually rendered instead of shown as
-    /// code: `= `/`== `/`=== ` become real headings, `*bold*`/`_italic_`/
-    /// `` `code` `` and the `#underline[]`/`#strike[]`/`#smallcaps[]`/
-    /// `#super[]`/`#sub[]`/`#emph[]`/`#strong[]` functions render with real
-    /// formatting, `- `/`+ `/`/ ` become real bullet/numbered/description
-    /// list items. One line per list/paragraph item; blank lines are gaps.
-    /// Meant for the handful of sections that teach basic text markup —
-    /// showing the effect alongside the syntax reads far more like a
-    /// finished reference than describing it in prose.
-    Example(&'a str),
     Gap,
 }
 
@@ -156,12 +146,8 @@ fn cv_cheatsheet_blocks() -> Vec<Block<'static>> {
         Block::H2("Common Typst Inline Formatting"),
         Block::Code("*bold*    _italic_    #link(\"https://...\")[text]\n#text(fill: luma(80))[dim text]\n#text(weight: \"bold\")[bold text]"),
         Block::Gap,
-        Block::Example("*bold*   _italic_   `inline code`"),
-        Block::Gap,
         Block::H2("Lists"),
         Block::Code("- Bullet item\n+ Numbered item\n/ Term: Definition"),
-        Block::Gap,
-        Block::Example("- First bullet\n- Second bullet\n+ First numbered\n+ Second numbered\n/ Term: Its definition"),
         Block::Gap,
         Block::H2("Spacing & Layout"),
         Block::Code("#v(0.5em)          Vertical gap\n#h(0.5em)          Horizontal gap\n#pagebreak()       Force new page\n#colbreak()        Column break (two-column CVs)"),
@@ -175,17 +161,11 @@ fn cheatsheet_blocks() -> Vec<Block<'static>> {
         Block::H2("Document Structure"),
         Block::Code("= Heading 1\n== Heading 2\n=== Heading 3\n==== Heading 4\n\nText paragraph. Blank lines start new paragraphs."),
         Block::Gap,
-        Block::Example("= Heading 1\n== Heading 2\n=== Heading 3"),
-        Block::Gap,
         Block::H2("Text Formatting"),
         Block::Code("*bold*            _italic_          `inline code`\n\"smart quotes\"    #underline[text]  #strike[text]\n#smallcaps[text]  #super[n]         #sub[n]\n#emph[emphasis]   #strong[strong]"),
         Block::Gap,
-        Block::Example("*bold*   _italic_   `inline code`\n\"smart quotes\"   #underline[underlined]   #strike[struck through]\n#smallcaps[small caps]   x#super[2]   y#sub[i]"),
-        Block::Gap,
         Block::H2("Lists"),
         Block::Code("- Bullet item        Unordered list\n+ Numbered item      Ordered list\n/ Term: Definition   Description list"),
-        Block::Gap,
-        Block::Example("- First bullet\n- Second bullet\n+ First numbered\n+ Second numbered\n/ Term: Its definition"),
         Block::Gap,
         Block::H2("Citations & Bibliography"),
         Block::Code("@authorYear                   In-text citation\n@authorYear[p.~5]             With page locator\n@[see @a, p.~1; @b, ch.~2]   Multiple sources\n\n#bibliography(\"refs.bib\", style: \"chicago-author-date\")\nStyles: \"apa\", \"mla\", \"chicago-author-date\",\n        \"chicago-notes\", \"ieee\", \"harvard-cite-them-right\",\n        \"gost-r-705-2008\""),
@@ -451,9 +431,7 @@ pub(crate) fn make_rich_tab(blocks: Vec<Block<'_>>) -> ScrolledWindow {
 
     // Hierarchy comes from weight, scale, and whitespace only — no color, no
     // background band. An accent-tinted heading and a filled-grey code block
-    // were tried and read as clunky/technical rather than polished; a quiet,
-    // near-monochrome page reads calmer and lets the one place that *should*
-    // stand out — the rendered `Example` blocks below — actually stand out.
+    // were tried and read as clunky/technical rather than polished.
     buf.create_tag(
         Some("h1"),
         &[
@@ -496,42 +474,6 @@ pub(crate) fn make_rich_tab(blocks: Vec<Block<'_>>) -> ScrolledWindow {
         ],
     );
 
-    // ── Tags for `Example` blocks — a rendered preview, indented like a
-    // quotation rather than boxed like code, so the formatting itself (not a
-    // color) is what sets it apart. ────────────────────────────────────────
-    buf.create_tag(
-        Some("ex-indent"),
-        &[
-            ("left-margin", &44i32),
-            ("right-margin", &28i32),
-            ("pixels-above-lines", &3i32),
-            ("pixels-below-lines", &3i32),
-        ],
-    );
-    buf.create_tag(
-        Some("ex-h1"),
-        &[("weight", &700i32), ("scale", &1.3f64), ("pixels-above-lines", &10i32), ("pixels-below-lines", &4i32)],
-    );
-    buf.create_tag(
-        Some("ex-h2"),
-        &[("weight", &700i32), ("scale", &1.15f64), ("pixels-above-lines", &8i32), ("pixels-below-lines", &4i32)],
-    );
-    buf.create_tag(
-        Some("ex-h3"),
-        &[("weight", &700i32), ("scale", &1.02f64), ("pixels-above-lines", &6i32), ("pixels-below-lines", &4i32)],
-    );
-    buf.create_tag(Some("ex-bold"), &[("weight", &700i32)]);
-    buf.create_tag(Some("ex-italic"), &[("style", &gtk4::pango::Style::Italic)]);
-    buf.create_tag(Some("ex-underline"), &[("underline", &gtk4::pango::Underline::Single)]);
-    buf.create_tag(Some("ex-strike"), &[("strikethrough", &true)]);
-    buf.create_tag(Some("ex-smallcaps"), &[("variant", &gtk4::pango::Variant::SmallCaps)]);
-    buf.create_tag(Some("ex-super"), &[("rise", &(6 * gtk4::pango::SCALE)), ("scale", &0.72f64)]);
-    buf.create_tag(Some("ex-sub"), &[("rise", &(-4 * gtk4::pango::SCALE)), ("scale", &0.72f64)]);
-    buf.create_tag(
-        Some("ex-code"),
-        &[("family", &"Monospace"), ("scale", &0.88f64), ("background", &colors.inline_bg)],
-    );
-
     let mut iter = buf.end_iter();
     for block in blocks {
         match block {
@@ -539,7 +481,6 @@ pub(crate) fn make_rich_tab(blocks: Vec<Block<'_>>) -> ScrolledWindow {
             Block::H2(text) => insert_inline(&buf, &mut iter, text, "h2"),
             Block::Body(text) => insert_inline(&buf, &mut iter, text, "body"),
             Block::Code(text) => insert_with_tag(&buf, &mut iter, &format!("{text}\n"), "code"),
-            Block::Example(text) => insert_example(&buf, &mut iter, text),
             Block::Gap => buf.insert(&mut iter, "\n"),
         }
     }
@@ -593,243 +534,3 @@ fn insert_inline(buf: &TextBuffer, iter: &mut TextIter, text: &str, base_tag: &s
     }
 }
 
-// ── `Example` block: a small Typst-markup subset, actually rendered ───────────
-
-/// Inserts `text` tagged with every name in `tags` — like `insert_with_tag`
-/// but for spans that need more than one tag at once (e.g. the shared
-/// indent plus a specific weight/style).
-fn insert_tagged(buf: &TextBuffer, iter: &mut TextIter, text: &str, tags: &[&str]) {
-    if text.is_empty() {
-        return;
-    }
-    let start_offset = iter.offset();
-    buf.insert(iter, text);
-    let start = buf.iter_at_offset(start_offset);
-    let tag_table = buf.tag_table();
-    for name in tags {
-        if let Some(tag) = tag_table.lookup(name) {
-            buf.apply_tag(&tag, &start, iter);
-        }
-    }
-}
-
-/// Replaces alternating `"` pairs with curly quotes, matching what Typst
-/// itself does to straight quotes — purely a character swap, no tag.
-fn smart_quotes(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut open = true;
-    for ch in s.chars() {
-        if ch == '"' {
-            out.push(if open { '\u{201C}' } else { '\u{201D}' });
-            open = !open;
-        } else {
-            out.push(ch);
-        }
-    }
-    out
-}
-
-/// `#name[...]` function spans this subset understands, each mapped to the
-/// tag that renders its effect.
-const EXAMPLE_FUNCS: &[(&str, &str)] = &[
-    ("#underline[", "ex-underline"),
-    ("#strike[", "ex-strike"),
-    ("#smallcaps[", "ex-smallcaps"),
-    ("#super[", "ex-super"),
-    ("#sub[", "ex-sub"),
-    ("#emph[", "ex-italic"),
-    ("#strong[", "ex-bold"),
-];
-
-/// Scans one line of the mini-markup for `*bold*`, `_italic_`, `` `code` ``
-/// and the `#func[...]` spans above, returning the (text, tag) runs it should
-/// render as — `None` for a plain run. Pure and GTK-free so the scanning
-/// logic can be unit tested without a display. Well-formed input only (this
-/// only ever tokenizes text we authored ourselves): an unmatched opener is
-/// returned as literal text rather than panicking.
-fn tokenize_example_spans(text: &str) -> Vec<(String, Option<&'static str>)> {
-    let text = smart_quotes(text);
-    let mut rest = text.as_str();
-    let mut runs: Vec<(String, Option<&'static str>)> = Vec::new();
-
-    // Adjacent plain runs happen whenever an opener turns out unmatched
-    // (its literal text and the text after it are both untagged) — merge
-    // them so a run boundary never appears where nothing actually changes.
-    let push_plain = |runs: &mut Vec<(String, Option<&'static str>)>, s: &str| {
-        if s.is_empty() {
-            return;
-        }
-        match runs.last_mut() {
-            Some((last, None)) => last.push_str(s),
-            _ => runs.push((s.to_string(), None)),
-        }
-    };
-
-    while !rest.is_empty() {
-        let mut best: Option<(usize, usize, &'static str, bool)> = None; // (pos, opener_len, tag, is_func)
-        for (prefix, tag) in EXAMPLE_FUNCS {
-            if let Some(pos) = rest.find(prefix) {
-                if best.is_none_or(|(bp, ..)| pos < bp) {
-                    best = Some((pos, prefix.len(), tag, true));
-                }
-            }
-        }
-        for (delim, tag) in [("*", "ex-bold"), ("_", "ex-italic"), ("`", "ex-code")] {
-            if let Some(pos) = rest.find(delim) {
-                if best.is_none_or(|(bp, ..)| pos < bp) {
-                    best = Some((pos, delim.len(), tag, false));
-                }
-            }
-        }
-
-        let Some((pos, opener_len, tag, is_func)) = best else {
-            push_plain(&mut runs, rest);
-            break;
-        };
-
-        push_plain(&mut runs, &rest[..pos]);
-        let after_open = &rest[pos + opener_len..];
-        let close = if is_func {
-            after_open.find(']')
-        } else {
-            after_open.find(&rest[pos..pos + opener_len])
-        };
-        match close {
-            Some(close_idx) => {
-                runs.push((after_open[..close_idx].to_string(), Some(tag)));
-                rest = &after_open[close_idx + 1..];
-            }
-            None => {
-                // No closing delimiter — keep the opener as literal text
-                // rather than losing it.
-                push_plain(&mut runs, &rest[..pos + opener_len]);
-                rest = &rest[pos + opener_len..];
-            }
-        }
-    }
-    runs
-}
-
-fn insert_example_spans(buf: &TextBuffer, iter: &mut TextIter, text: &str, indent_tag: &str) {
-    for (run, tag) in tokenize_example_spans(text) {
-        match tag {
-            Some(t) => insert_tagged(buf, iter, &run, &[indent_tag, t]),
-            None => insert_tagged(buf, iter, &run, &[indent_tag]),
-        }
-    }
-    buf.insert(iter, "\n");
-}
-
-fn insert_example(buf: &TextBuffer, iter: &mut TextIter, text: &str) {
-    let mut numbered = 0u32;
-    for line in text.split('\n') {
-        if line.is_empty() {
-            buf.insert(iter, "\n");
-            continue;
-        }
-        if let Some(rest) = line.strip_prefix("=== ") {
-            insert_tagged(buf, iter, rest, &["ex-indent", "ex-h3"]);
-            buf.insert(iter, "\n");
-        } else if let Some(rest) = line.strip_prefix("== ") {
-            insert_tagged(buf, iter, rest, &["ex-indent", "ex-h2"]);
-            buf.insert(iter, "\n");
-        } else if let Some(rest) = line.strip_prefix("= ") {
-            insert_tagged(buf, iter, rest, &["ex-indent", "ex-h1"]);
-            buf.insert(iter, "\n");
-        } else if let Some(rest) = line.strip_prefix("- ") {
-            insert_tagged(buf, iter, "\u{2022}  ", &["ex-indent"]);
-            insert_example_spans(buf, iter, rest, "ex-indent");
-        } else if let Some(rest) = line.strip_prefix("+ ") {
-            numbered += 1;
-            insert_tagged(buf, iter, &format!("{numbered}.  "), &["ex-indent"]);
-            insert_example_spans(buf, iter, rest, "ex-indent");
-        } else if let Some(rest) = line.strip_prefix("/ ") {
-            if let Some((term, def)) = rest.split_once(": ") {
-                insert_tagged(buf, iter, term, &["ex-indent", "ex-bold"]);
-                insert_tagged(buf, iter, "  \u{2014}  ", &["ex-indent"]);
-                insert_example_spans(buf, iter, def, "ex-indent");
-            } else {
-                insert_example_spans(buf, iter, rest, "ex-indent");
-            }
-        } else {
-            insert_example_spans(buf, iter, line, "ex-indent");
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn plain_text_is_a_single_untagged_run() {
-        assert_eq!(tokenize_example_spans("hello"), vec![("hello".to_string(), None)]);
-    }
-
-    #[test]
-    fn bold_italic_and_code_spans_are_tagged() {
-        assert_eq!(
-            tokenize_example_spans("a *b* c _d_ e `f`"),
-            vec![
-                ("a ".to_string(), None),
-                ("b".to_string(), Some("ex-bold")),
-                (" c ".to_string(), None),
-                ("d".to_string(), Some("ex-italic")),
-                (" e ".to_string(), None),
-                ("f".to_string(), Some("ex-code")),
-            ]
-        );
-    }
-
-    #[test]
-    fn function_spans_close_on_the_bracket_not_a_delimiter_char() {
-        assert_eq!(
-            tokenize_example_spans("#underline[under_line_d] done"),
-            vec![
-                ("under_line_d".to_string(), Some("ex-underline")),
-                (" done".to_string(), None),
-            ]
-        );
-    }
-
-    #[test]
-    fn every_supported_function_maps_to_its_tag() {
-        for (src, tag) in [
-            ("#strike[x]", "ex-strike"),
-            ("#smallcaps[x]", "ex-smallcaps"),
-            ("#super[x]", "ex-super"),
-            ("#sub[x]", "ex-sub"),
-            ("#emph[x]", "ex-italic"),
-            ("#strong[x]", "ex-bold"),
-        ] {
-            assert_eq!(tokenize_example_spans(src), vec![("x".to_string(), Some(tag))], "for {src}");
-        }
-    }
-
-    #[test]
-    fn straight_quotes_become_curly_and_carry_no_tag() {
-        assert_eq!(
-            tokenize_example_spans("\"hi\""),
-            vec![("\u{201C}hi\u{201D}".to_string(), None)]
-        );
-    }
-
-    #[test]
-    fn an_unmatched_opener_is_kept_as_literal_text_instead_of_panicking() {
-        assert_eq!(tokenize_example_spans("*no close"), vec![("*no close".to_string(), None)]);
-        assert_eq!(
-            tokenize_example_spans("#underline[no close either"),
-            vec![("#underline[no close either".to_string(), None)]
-        );
-    }
-
-    #[test]
-    fn a_func_span_wins_over_a_delimiter_that_starts_later() {
-        // The `_` inside "under_line_d" must not be read as an italic
-        // opener once `#underline[` has already claimed this span.
-        assert_eq!(
-            tokenize_example_spans("#underline[a_b]"),
-            vec![("a_b".to_string(), Some("ex-underline"))]
-        );
-    }
-}

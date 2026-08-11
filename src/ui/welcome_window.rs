@@ -130,7 +130,7 @@ impl WelcomeWindow {
                 "Added: backups now happen on their own. Once a backup location is set up, Zerkalo saves and sends a version automatically every so often while you write, and once more on the way out if anything's still unsent — quiet by design, so an offline moment shows a small toast instead of a popup, and it never blocks quitting for more than a few seconds",
                 "Changed: plain language throughout setup, sync, and backup screens — \"repository,\" \"remote,\" \"commit,\" and \"clone\" are now described in terms of what they do (\"online copy,\" \"backup location,\" \"save a version\")",
                 "Changed: the Help window's tabs are now a proper libadwaita view switcher instead of old-style notebook tabs",
-                "Changed: Help/FAQ/Cheatsheet formatting redone for clarity — no color anywhere in the panel, hierarchy comes from weight, scale, and whitespace, and the Cheatsheet's formatting/heading/list sections now show a real rendered example (bold actually bold, headings actually headings) under the raw syntax",
+                "Changed: Help/FAQ/Cheatsheet formatting redone for clarity — no color anywhere in the panel, hierarchy comes from weight, scale, and whitespace instead",
             ] {
                 body.append(&bullet_row(item));
             }
