@@ -39,6 +39,7 @@ fn rebuild_lang_rows(lb: &ListBox, selected_langs: &Rc<RefCell<Vec<String>>>) {
         let rm_btn = Button::from_icon_name("list-remove-symbolic");
         rm_btn.add_css_class("flat");
         rm_btn.set_tooltip_text(Some("Remove this language"));
+        rm_btn.update_property(&[gtk4::accessible::Property::Label("Remove this language")]);
         let sl = selected_langs.clone();
         let lb2 = lb.clone();
         rm_btn.connect_clicked(move |_| {
@@ -104,6 +105,7 @@ impl SettingsDialog {
         work_dir_btn.set_valign(Align::Center);
         work_dir_btn.add_css_class("flat");
         work_dir_btn.set_tooltip_text(Some("Browse for a folder"));
+        work_dir_btn.update_property(&[gtk4::accessible::Property::Label("Browse for a work folder")]);
         let work_dir_row_c = work_dir_row.clone();
         let win_c = window.clone();
         work_dir_btn.connect_clicked(move |_| {
@@ -130,6 +132,7 @@ impl SettingsDialog {
         output_dir_btn.set_valign(Align::Center);
         output_dir_btn.add_css_class("flat");
         output_dir_btn.set_tooltip_text(Some("Browse for a folder"));
+        output_dir_btn.update_property(&[gtk4::accessible::Property::Label("Browse for an output folder")]);
         let output_dir_row_c = output_dir_row.clone();
         let win_c2 = window.clone();
         output_dir_btn.connect_clicked(move |_| {
@@ -317,6 +320,7 @@ impl SettingsDialog {
         browse_btn.set_valign(Align::Center);
         browse_btn.add_css_class("flat");
         browse_btn.set_tooltip_text(Some("Browse for a .bib/.yaml file"));
+        browse_btn.update_property(&[gtk4::accessible::Property::Label("Browse for a bibliography file")]);
         let bib_row_browse = bib_row.clone();
         let window_browse = window.clone();
         browse_btn.connect_clicked(move |_| {
@@ -336,6 +340,7 @@ impl SettingsDialog {
         vault_browse_btn.set_valign(Align::Center);
         vault_browse_btn.add_css_class("flat");
         vault_browse_btn.set_tooltip_text(Some("Browse for a Kartoteka vault folder"));
+        vault_browse_btn.update_property(&[gtk4::accessible::Property::Label("Browse for a Kartoteka vault folder")]);
         let bib_row_vault = bib_row.clone();
         let window_vault = window.clone();
         vault_browse_btn.connect_clicked(move |_| {
@@ -364,6 +369,8 @@ impl SettingsDialog {
         let csl_browse_btn = Button::from_icon_name("document-open-symbolic");
         csl_browse_btn.set_valign(Align::Center);
         csl_browse_btn.add_css_class("flat");
+        csl_browse_btn.set_tooltip_text(Some("Browse for a .csl file"));
+        csl_browse_btn.update_property(&[gtk4::accessible::Property::Label("Browse for a CSL style file")]);
         let csl_row_browse = csl_row.clone();
         let window_browse_csl = window.clone();
         csl_browse_btn.connect_clicked(move |_| {
@@ -402,6 +409,8 @@ impl SettingsDialog {
         let cv_browse_btn = Button::from_icon_name("document-open-symbolic");
         cv_browse_btn.set_valign(Align::Center);
         cv_browse_btn.add_css_class("flat");
+        cv_browse_btn.set_tooltip_text(Some("Browse for a Skrizhal file"));
+        cv_browse_btn.update_property(&[gtk4::accessible::Property::Label("Browse for a Skrizhal file")]);
         let cv_row_browse = cv_row.clone();
         let window_browse_cv = window.clone();
         cv_browse_btn.connect_clicked(move |_| {
