@@ -2950,35 +2950,39 @@ fn handle_preview_click_jump(
     page: usize,
     rel_y: f64,
 ) {
-    match super::preview_pane::extract_page_text_via_pdftotext(preview, page, 0.0, 1.0) {
-        Some(text) => {
-            let lines: Vec<&str> = text.lines().collect();
-            if lines.is_empty() { return; }
-            let target = ((lines.len() as f64 * rel_y) as usize).min(lines.len().saturating_sub(1));
-            // Search a ±3 line window for a non-trivial snippet
-            let start = target.saturating_sub(3);
-            let end = (target + 3).min(lines.len().saturating_sub(1));
-            let snippet = (start..=end)
-                .filter_map(|i| {
-                    let l = lines[i].trim();
-                    if l.len() >= 6 { Some(l) } else { None }
-                })
-                .next()
-                .unwrap_or("");
-            if snippet.len() >= 6 {
-                let phrase: String = snippet.chars().take(40).collect();
-                editor.jump_to_text(&phrase);
+    let editor = editor.clone();
+    let window = window.clone();
+    super::preview_pane::extract_page_text_via_pdftotext_async(preview, page, move |result| {
+        match result {
+            Some(text) => {
+                let lines: Vec<&str> = text.lines().collect();
+                if lines.is_empty() { return; }
+                let target = ((lines.len() as f64 * rel_y) as usize).min(lines.len().saturating_sub(1));
+                // Search a ±3 line window for a non-trivial snippet
+                let start = target.saturating_sub(3);
+                let end = (target + 3).min(lines.len().saturating_sub(1));
+                let snippet = (start..=end)
+                    .filter_map(|i| {
+                        let l = lines[i].trim();
+                        if l.len() >= 6 { Some(l) } else { None }
+                    })
+                    .next()
+                    .unwrap_or("");
+                if snippet.len() >= 6 {
+                    let phrase: String = snippet.chars().take(40).collect();
+                    editor.jump_to_text(&phrase);
+                }
+            }
+            None => {
+                show_alert(&window, "Click-to-Jump",
+                    "Could not extract text from the preview. Make sure pdftotext \
+                     (poppler-utils) is installed and the document has been compiled at least once.\
+                     \n\n  apt install poppler-utils\
+                     \n  dnf install poppler-utils\
+                     \n  zypper install poppler-tools");
             }
         }
-        None => {
-            show_alert(window, "Click-to-Jump",
-                "Could not extract text from the preview. Make sure pdftotext \
-                 (poppler-utils) is installed and the document has been compiled at least once.\
-                 \n\n  apt install poppler-utils\
-                 \n  dnf install poppler-utils\
-                 \n  zypper install poppler-tools");
-        }
-    }
+    });
 }
 
 fn handle_preview_word_jump(
@@ -2989,20 +2993,24 @@ fn handle_preview_word_jump(
     rel_x: f64,
     rel_y: f64,
 ) {
-    match super::preview_pane::extract_word_at_position(preview, page, rel_x, rel_y) {
+    let editor = editor.clone();
+    let window = window.clone();
+    super::preview_pane::extract_word_at_position_async(preview, page, rel_x, rel_y, move |result| {
+        match result {
         Some(phrase) if !phrase.trim().is_empty() => {
             editor.jump_to_text(&phrase);
         }
         Some(_) => {}
         None => {
-            show_alert(window, "Jump to Word",
+            show_alert(&window, "Jump to Word",
                 "Could not extract text from the preview. Make sure pdftotext \
                  (poppler-utils) is installed and the document has been compiled at least once.\
                  \n\n  apt install poppler-utils\
                  \n  dnf install poppler-utils\
                  \n  zypper install poppler-tools");
         }
-    }
+        }
+    });
 }
 
 fn format_file_mtime(mtime: std::time::SystemTime) -> String {

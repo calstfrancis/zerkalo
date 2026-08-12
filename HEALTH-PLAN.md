@@ -242,17 +242,40 @@ just note that in this file rather than forcing a unification that isn't there.
 
 ## Phase 8 — Move `pdftotext` (and, if Phase 2 wires it in, `git log --follow`) off the main thread
 
-**Status:** ☐ not started
-**Risk:** low · **Effort:** small (pattern already exists) · **Depends on:** Phase 2 decision (for the git log half)
+**Status:** ☑ PARTIALLY DONE (2026-08-12) — `pdftotext` half done; `git log`
+half deliberately deferred (see below).
 
-`REFACTOR-PLAN.md`'s Phase 6 (deferred) already identified `preview_pane.rs:985,1019`
-(`pdftotext`) and `history_panel.rs:210,237` (`git log --follow`) as synchronous
-subprocess calls on the main thread, deferred as "only if it's felt in use."
-`pdftotext` sits in the live preview path, so it's a real freeze risk on large
-PDFs regardless of the HistoryPanel decision.
+`pdftotext` half: converted `extract_page_text_via_pdftotext` and
+`extract_word_at_position` (`preview_pane.rs`, backing click-to-jump and
+double-click-word-jump on the preview) from synchronous return-value functions
+to `*_async` versions taking an `on_done` callback, following `do_sync`'s
+spawn-thread + `mpsc::sync_channel` + `timeout_add_local` shape — this was
+more than a drop-in wrap, since the original functions returned `Option<String>`
+directly to a `match` in their callers; both call sites in
+`app_window/mod.rs` (`handle_preview_click_jump`, `handle_preview_word_jump`)
+were restructured to take the same match arms into the completion closure.
+The `PreviewPane` fields these read (`root_file`, `buffer_snapshot`) are
+`Rc<RefCell<...>>` and not `Send`, so a `gather_pdf_text_inputs` step clones
+the needed data on the main thread before the background thread spawns.
+`ensure_pdf_path` (which can trigger a full `compile_to_pdf_bytes` if the PDF
+isn't cached — the actual slow part on large documents) now always runs off
+the main thread. Verification: full gate green (484 tests, clippy clean,
+version guard clean); headless launch + document-open smoke test shows no
+startup regression. **Not verified interactively** — clicking the preview to
+trigger click-to-jump/word-jump can't be scripted reliably in this
+environment (same Xvfb-has-no-WM limitation as Phase 2's HistoryPanel
+verification), and this path had zero test coverage before or after this
+change. **Cal: worth clicking/double-clicking the preview once** after the
+next dev build to confirm jump-to-line and jump-to-word still work — this is
+the one behavior-changing edit in this phase that static checks can't cover.
 
-**Fix:** wrap both in the `do_sync` async pattern already used at
-`app_window.rs:4969` — no new pattern to invent, just apply the existing one.
+`git log`/`git show` half (`history_panel.rs`, backing the newly-wired File
+History window from Phase 2): **deliberately left synchronous.** Lower
+urgency than originally scoped — Phase 2 wired History behind an explicit
+modal-dialog-open action (menu click / palette), not something on the hot
+live-preview path or triggered on every keystroke, so a brief block while the
+dialog opens is a much smaller cost than the `pdftotext` case. Revisit if it's
+ever felt in practice (e.g. on a repo with very long file history).
 
 ---
 
