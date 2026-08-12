@@ -970,7 +970,7 @@ checksum = "3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1"
 [[package]]
 name = "fond-bib"
 version = "0.1.0"
-source = "git+https://github.com/calstfrancis/kartoteka#825238e651d983ad07c861891e2a42afb9240ede"
+source = "git+https://github.com/calstfrancis/kartoteka?rev=825238e651d983ad07c861891e2a42afb9240ede#825238e651d983ad07c861891e2a42afb9240ede"
 dependencies = [
  "biblatex",
  "blake3",
@@ -986,7 +986,7 @@ dependencies = [
 [[package]]
 name = "fond-vault"
 version = "0.1.0"
-source = "git+https://github.com/calstfrancis/kartoteka#825238e651d983ad07c861891e2a42afb9240ede"
+source = "git+https://github.com/calstfrancis/kartoteka?rev=825238e651d983ad07c861891e2a42afb9240ede#825238e651d983ad07c861891e2a42afb9240ede"
 dependencies = [
  "git2",
  "notify",

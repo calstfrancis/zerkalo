@@ -43,7 +43,7 @@ commit.
 
 ## Phase 1 — Fix `CLAUDE.md`'s stale Phased Improvement Plan
 
-**Status:** ☐ not started
+**Status:** ☑ DONE (2026-08-12)
 **Risk:** none · **Effort:** trivial · **Depends on:** nothing
 
 `CLAUDE.md` lines 78–87 hold a June-2026 "Phase 4" plan whose four items
@@ -101,7 +101,14 @@ turn a bad file into an unlaunchable app.
 
 ## Phase 4 — Pin `fond-bib`/`fond-vault` git dependencies
 
-**Status:** ☐ not started
+**Status:** ☑ DONE (2026-08-12) — pinned via `rev` (Kartoteka has no release
+tags yet; only `v0.1.0-devN` tags, none matching the locked commit). Required
+bootstrapping `flatpak-cargo-generator.py` (fetched from the public
+flatpak/flatpak-builder-tools repo — the usual `~/Projects/kartoteka/` copy
+wasn't present on this machine) plus `pip`/deps via `get-pip.py
+--break-system-packages` (no venv/pip preinstalled). Regenerating
+`cargo-sources.json` was required even though the pinned commit is unchanged,
+because `Cargo.lock`'s source URL gained a `?rev=` query param.
 **Risk:** none · **Effort:** trivial · **Depends on:** nothing
 
 `Cargo.toml` pins `skrizhal-core` to `tag = "v0.3.0"` but leaves `fond-bib`/
