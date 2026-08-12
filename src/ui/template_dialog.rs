@@ -531,6 +531,7 @@ fn build_document_tab(notebook: &Notebook, cv_switch: &Switch) -> DocumentTab {
     let author_pin = Button::from_icon_name("changes-prevent-symbolic");
     author_pin.add_css_class("flat");
     author_pin.set_tooltip_text(Some("Save as default for new documents"));
+    author_pin.update_property(&[gtk4::accessible::Property::Label("Save author as default for new documents")]);
     author_row.add_suffix(&author_pin);
     meta_group.add(&author_row);
 
@@ -539,6 +540,7 @@ fn build_document_tab(notebook: &Notebook, cv_switch: &Switch) -> DocumentTab {
     let affil_pin = Button::from_icon_name("changes-prevent-symbolic");
     affil_pin.add_css_class("flat");
     affil_pin.set_tooltip_text(Some("Save as default for new documents"));
+    affil_pin.update_property(&[gtk4::accessible::Property::Label("Save affiliation as default for new documents")]);
     affil_row.add_suffix(&affil_pin);
     meta_group.add(&affil_row);
 
@@ -1023,6 +1025,8 @@ fn build_cv_elements_group(
     let cv_browse_btn = Button::from_icon_name("document-open-symbolic");
     cv_browse_btn.set_valign(Align::Center);
     cv_browse_btn.add_css_class("flat");
+    cv_browse_btn.set_tooltip_text(Some("Browse for a Skrizhal file"));
+    cv_browse_btn.update_property(&[gtk4::accessible::Property::Label("Browse for a Skrizhal file")]);
     cv_elements_row.add_suffix(&cv_browse_btn);
     cv_elements_group.add(&cv_elements_row);
 
@@ -1472,6 +1476,7 @@ fn build_templates_gallery(
     let save_btn = Button::from_icon_name("document-save-symbolic");
     save_btn.add_css_class("flat");
     save_btn.set_tooltip_text(Some("Save the current settings as a template"));
+    save_btn.update_property(&[gtk4::accessible::Property::Label("Save the current settings as a template")]);
     save_btn.set_valign(Align::Center);
     saved_group.set_header_suffix(Some(&save_btn));
 
@@ -1601,6 +1606,7 @@ fn build_templates_gallery(
                 delete_btn.add_css_class("flat");
                 delete_btn.set_valign(Align::Center);
                 delete_btn.set_tooltip_text(Some("Delete this template"));
+                delete_btn.update_property(&[gtk4::accessible::Property::Label("Delete this template")]);
                 {
                     let name = template.name.clone();
                     let window = window.clone();
@@ -2230,6 +2236,7 @@ impl TemplateDialog {
         let cv_switch = Switch::new();
         cv_switch.set_valign(Align::Center);
         cv_switch.set_tooltip_text(Some("Show only CV templates and CV-relevant settings"));
+        cv_switch.update_property(&[gtk4::accessible::Property::Label("CV mode")]);
         let cv_title_lbl = Label::new(Some("CV"));
         let cv_toggle_box = GtkBox::new(Orientation::Horizontal, 6);
         cv_toggle_box.set_valign(Align::Center);
