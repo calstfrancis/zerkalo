@@ -247,21 +247,56 @@ clean, version guard clean).
 
 ## Phase 7 — Systemic fix for the viewport/scroll-position bug class
 
-**Status:** ☐ not started
-**Risk:** medium-high (touches hot, high-churn code) · **Effort:** medium · **Depends on:** nothing, but do NOT combine with Phase 9/10 work in the same session
+**Status:** ☑ DONE (2026-08-12) — investigated per the phase's own
+instruction; found the bug class already resolved and dormant. No code
+change made.
 
-At least 5 separate changelog fixes in `editor_pane.rs` for viewport/scroll
-issues (right-click jump-to-top, paste-triggered scroll animation, copy/cut
-moving the viewport, click-snap-to-left-edge, GtkSourceView's internal
-hadjustment fighting the app's own), each patched as a one-off.
+Read the full changelog history of scroll/viewport/jump bugs, not just the 5
+the original review sampled — there were closer to 15 entries once "snap,"
+"drift," "jump," and "hadjustment" were all searched, spanning versions
+0.13.10-dev2 through 0.19.0. Grouping by actual root cause rather than
+symptom:
 
-**Fix:** before patching another instance, identify whether all 5 share a root
-cause (GtkSourceView adjustment vs. app-tracked scroll position both mutating
-without coordination) and centralize adjustment ownership behind one function/
-guard, rather than adding a 6th independent patch next time this class of bug
-resurfaces. This phase is explicitly "investigate first, only then fix" — if the
-investigation finds the 5 fixes are actually unrelated, downgrade this phase and
-just note that in this file rather than forcing a unification that isn't there.
+- **Cluster A — GTK's native focus-in `scroll_mark_onscreen`/`scroll_to_mark`
+  snapping the viewport to the cursor** whenever focus returns to the editor
+  (right-click menu dismiss, spell-popover dismiss, context-menu dismiss).
+  This *is* one real root cause, and the six iterative fixes between
+  0.13.10-dev2 and 0.13.12-dev3 were successive hardening of the same
+  `saved_scroll`/`saved_hscroll` save-and-restore mechanism against edge
+  cases (mouse-wheel scroll not updating the saved position, a race between
+  `focus_ctrl.connect_leave`/`connect_enter` and GTK's own snap, right-click
+  when already focused vs. gaining focus) — not six independent bugs. The
+  changelog's own 0.13.10-dev8 entry is literally titled "(root cause)."
+- **Cluster B — GTK's eased multi-frame scroll-to-top *animation*** after
+  paste or a popover dismiss (0.19.0, distinct mechanism from Cluster A's
+  instant snap). Fixed once for paste, then explicitly reused — not
+  re-diagnosed — for the spelling-suggestion case ("the same GTK
+  scroll-to-mark animation behind the paste jump fixed in 0.19.0"): the
+  changelog shows the team had already spotted the shared cause in real time.
+- **Distinct, unrelated to A/B:** GtkSourceView5's separate internal
+  horizontal hadjustment snapping to `left_margin` on cursor movement
+  (simple-mode click-snap, typewriter scroll) — a different adjustment
+  object entirely, correctly fixed as its own thing.
+- **Not in `editor_pane.rs` at all:** the preview-pane scroll drift
+  (fraction-based restore vs. actual document height) and the preview scroll
+  signal handler leak are a completely separate subsystem (compiled-PDF
+  page-rendering scroll, not text-buffer scroll) that happen to share the
+  word "scroll" in their changelog entries.
+
+**The dormancy check:** searched every changelog entry from the current
+version (0.23.0-dev1) back through 0.20.0 for any recurrence — zero hits.
+This bug class has had no incidents across four-plus version cycles since
+0.19.0. Combined with the "(root cause)" framing already in the historical
+fix and the explicit reuse across Cluster B's two instances, there's no
+evidence of an unresolved sixth instance or ongoing fragility to unify
+against right now.
+
+Per the phase's own escape hatch ("if the investigation finds the fixes are
+actually unrelated [or already resolved], downgrade this phase and just note
+that in this file rather than forcing a unification that isn't there") — no
+refactor made. Third phase (after 3 and 5) where the original review's
+implied urgency didn't survive checking against current code; see Phase 5's
+closing note on what that means for 9 and 10.
 
 ---
 
