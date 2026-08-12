@@ -4767,7 +4767,11 @@ pub fn parse_doc_kind(content: &str) -> Option<String> {
 /// imports `cv-helpers.typ` unambiguously needs a CV preamble regardless of
 /// what any metadata says. "Update Template Settings" checks this after
 /// consulting the sidecar/marker and overrides to CV if it disagrees — see
-/// its two call sites in app_window.rs.
+/// `open_template_for_active_document` in `app_window/mod.rs`, the single
+/// shared entry point for both the header's "Template" button and the
+/// hamburger's "Update Template Settings…" (the two used to be separate
+/// ~110-line copies of this preselection sequence; consolidated so they
+/// can't drift from each other, including this check).
 pub fn body_looks_like_cv(content: &str) -> bool {
     content.contains("#cv-section(") || content.contains("#import \"cv-helpers.typ\"")
 }
