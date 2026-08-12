@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.23.0-dev1] — Kartoteka vault as a live bibliography source
+## [0.23.0-dev2] — Kartoteka vault as a live bibliography source
 
 ### Added
 
@@ -16,6 +16,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   vault — add or edit an entry in Kartoteka and it shows up in the `@`-autocomplete popup,
   the citation sidebar, and the reference manager within about a second, no restart needed.
   Plain `.bib`/`.yaml` files keep working exactly as before, unaffected.
+- **File History…**, in the hamburger menu (next to Browse Snapshots) and the Ctrl+K
+  palette, shows a document's git commit history and diffs without leaving the app.
+
+### Fixed
+
+- **Screen readers couldn't tell many icon-only buttons apart.** Folder/file browse
+  buttons, the CV-mode switch, per-tag edit and delete buttons, and a few others had no
+  accessible name, so a screen reader announced all of them as just "button". They're
+  labelled now, across the Settings, Template, and Document Library dialogs.
+
+### Internal
+
+- **Kartoteka's `fond-bib`/`fond-vault` git dependencies are now pinned to a commit**,
+  matching the convention already used for `skrizhal-core`. Previously a `cargo update`
+  or fresh lockfile could silently pull in whatever Kartoteka's current HEAD happened to
+  be — a young, actively-changing project.
+- **Clicking to jump from the preview to a line or word no longer blocks the interface**
+  while `pdftotext` runs (which can mean a full document recompile if the cached PDF is
+  missing). It now runs on a background thread, the same pattern already used elsewhere
+  in the app.
+- **`template_dialog.rs`, the largest file in the codebase at 7,585 lines, is now a
+  five-file module** — `generate.rs` (the Typst document generators), `parsing.rs`
+  (reading settings back out of a document), `sidecar.rs` (settings persistence),
+  `util.rs`, and a much smaller `mod.rs`. No behaviour changed; full account in
+  `HEALTH-PLAN.md`.
 
 ---
 
