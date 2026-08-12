@@ -419,9 +419,17 @@ widget-construction/wiring core, which stays as `mod.rs`):
   9a/9b's pattern) — compiled clean on the first try. No `include_str!`
   paths in this block. All 484 tests passed unchanged.
   `mod.rs`: 5,404 → **4,851 lines**.
-- **9d — `util.rs`** (~146 lines, lower priority): Typst-escaping helpers +
-  font list + small widget-builder helpers (lines 3161–3307). Mixed
-  pure/GTK, smallest chunk.
+- **9d ☑ DONE (2026-08-12) — `util.rs`** (155 lines). Font list, Typst
+  escaping/sanitizing helpers. New failure mode this sub-phase (not seen in
+  9a–9c): `build_font_list` referenced `super::font_manager::FontManager` —
+  correct when this code lived directly in `template_dialog.rs` (a child of
+  `ui`, so `super` meant `ui`), but wrong once nested one level deeper into
+  `template_dialog/util.rs` (`super` there means `template_dialog`, not
+  `ui`). Fixed with an absolute `crate::ui::font_manager::FontManager` path.
+  Proactively grepped all four extracted submodules for other `super::X`
+  references that might have the same problem — none found, this was the
+  only one in the whole file. All 484 tests passed unchanged.
+  `mod.rs`: 4,851 → **4,706 lines**.
 - **Stays in `mod.rs`**: static data tables, `BodyKind`/`TemplateSettings`,
   the `Dialog`/tab-builder/`FormWidgets` GTK construction, `TemplateDialog`
   impl itself, and the `#[cfg(test)] mod tests` block — all re-export via
