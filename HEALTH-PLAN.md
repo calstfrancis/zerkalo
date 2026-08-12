@@ -114,19 +114,35 @@ via an explicit user action, not on every keystroke.
 
 ## Phase 3 — Audit `library.rs` non-test `.unwrap()`s
 
-**Status:** ☐ not started
-**Risk:** low (read-heavy audit) · **Effort:** small–medium · **Depends on:** nothing
+**Status:** ☑ DONE (2026-08-12) — investigated, no action needed. The original
+review's "24 non-test unwraps" finding did not hold up.
 
-24 non-test `.unwrap()` calls in the DB/CRUD layer. A panic here (corrupt or
-locked SQLite file) crashes the whole app on startup or file access instead of
-surfacing through the error panel, violating `CLAUDE.md`'s own "no unwrap/expect
-in UI code paths" rule (this file backs UI-visible operations even if it isn't
-itself a UI file).
+Actual count of non-test code (lines 1–1134; everything from `#[cfg(test)]` at
+1136 to EOF is two test modules, `tests` and `sql_shape`): **zero**
+`.unwrap()`s, **one** `.expect()` — `Connection::open_in_memory().expect("in-memory
+DB")` at line 198, inside `in_memory_with_trash_dir`.
 
-**Fix:** go through each of the 24 non-test unwraps, convert to `thiserror`
-`Result` propagation per `src/error.rs`'s existing pattern, surface via the error
-panel. Prioritize any on the startup/open-library path — those are the ones that
-turn a bad file into an unlaunchable app.
+Traced its only two callers (`grep -rn "open_in_memory" src/`, both in
+`ui/app_window/mod.rs`): the placeholder DB the window opens with immediately
+on startup (line 118), and the fallback when the real on-disk `Library::open()`
+fails (line 128, already routed through `.unwrap_or_else` with a
+`tracing::warn!` and no panic). So the actual risky path — opening the
+real on-disk SQLite file, which genuinely can fail from corruption/locking/
+permissions — is already handled correctly with a graceful fallback. The one
+`.expect()` that exists is on an **in-memory** SQLite connection, which does not
+fail under any realistic condition, used only as a placeholder/fallback that's
+never itself exposed to a bad file on disk.
+
+`Library::open()` (the real disk path, line 182) returns `SqlResult<Self>` and
+uses `?` throughout — no unwraps there either.
+
+Conclusion: the DB/CRUD layer does not have the unwrap-panic problem the
+original review described. No code change made — adding error handling here
+would be validating a scenario that can't happen, which the project's own
+conventions say not to do. Worth noting for calibration: this is the one
+finding out of the ten that didn't survive verification: the review claimed a
+grep count without checking whether the matches were in test code, which
+`library.rs`'s two large test modules apparently threw off.
 
 ---
 
