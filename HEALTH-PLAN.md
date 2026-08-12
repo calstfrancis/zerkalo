@@ -360,21 +360,46 @@ inside this phase once started, using this file's verification gate.
 
 ## Phase 10 — `editor_pane.rs` / `app_window.rs` churn investigation
 
-**Status:** ☐ not started
-**Risk:** unknown until investigated · **Effort:** investigation first, fix scope TBD · **Depends on:** Phase 7 (the scroll-bug fix may remove a chunk of this churn on its own)
+**Status:** ☑ DONE (2026-08-12) — investigated, no action needed. Churn is
+diffuse, not concentrated — matches the plan's own "not a code smell"
+alternative outcome.
 
-125 and 121 touches respectively across the last 300 commits — both already went
-through `REFACTOR-PLAN.md`'s Phase 3a–5 splitting work, yet remain the two
-hottest files by a wide margin. This is the "fragile core" signal and the
-biggest unknown in this plan.
+**`editor_pane.rs`:** categorized its ~100 most recent touching commits
+(spanning v0.13.1 through v0.21.1, roughly 80% of its 125 lifetime touches)
+by type:
+- **~18 commits** are the scroll/viewport bug family — already fully
+  investigated and closed in Phase 7 as one hardened, now-dormant root cause
+  plus a couple of genuinely distinct, correctly-fixed-once issues.
+- **~7 commits** are the `Rc<RefCell<>>` re-entrant-borrow crash family
+  ("Fix crash when changing style twice (spell poll timer SourceId)", "Fix
+  SIGABRT crash: state borrow held across GTK ops," etc.) — this is the same
+  pattern the original review's finding #3 already named and
+  `REFACTOR-PLAN.md` explicitly declines to redesign project-wide; not new
+  information, and out of scope for this plan per this plan's own "Deliberately
+  excluded" section below.
+- **~6 commits** are other already-resolved, non-recurring correctness bugs
+  (undo reliability, Simple Mode tag reapplication, a full-codebase review
+  pass) with no evidence of the same failure resurfacing since.
+- **The remaining ~55+ commits — the majority — are new features and polish**
+  landing in the app's main editor widget: autocomplete, citation management,
+  CV templates, Skrizhal integration, import system, accessibility passes,
+  formatting toolbar, visual polish rounds. This is exactly what "this is
+  where all editor features land" looks like, not fragility.
 
-**Fix:** before writing any code, spend a session categorizing the last ~40
-commits touching each file (bug fix vs. new feature vs. refactor-churn) to find
-out whether the touches are concentrated in a few functions (→ targeted fix,
-possibly folds into Phase 7 or the `Rc<RefCell<>>` pattern) or spread evenly
-(→ likely just "this is where all editor features land," not a code smell, and
-this phase should be closed as "investigated, no action" rather than forced into
-a rewrite). Do not commit to a restructure until that categorization is done.
+**`app_window/mod.rs`:** its entire post-split lifetime (22 commits, since
+`REFACTOR-PLAN.md`'s Phase 3a) is the 5-commit split itself plus described,
+intentional feature/UX work ("every window and dialog takes the suite's
+chrome," "Template moves to the header," "Word/OpenDocument/Markdown convert
+without pandoc") — zero "fix regression from a previous fix" cycling. Recent
+churn rate (last 100 real repo commits) is 22% for both files, notably lower
+than each file's lifetime average, i.e. churn has been slowing, not
+accelerating, since the split.
+
+Conclusion: no targeted fix identified, no restructure justified. This is the
+fourth phase (after 3, 5, 7) where the original review's implied "ongoing
+fragility" framing didn't survive checking against the actual commit history
+— see Phase 5's closing note for what that pattern means when weighing
+Phase 9 next.
 
 ---
 
