@@ -341,7 +341,8 @@ ever felt in practice (e.g. on a repo with very long file history).
 
 ## Phase 9 — `template_dialog.rs` re-shrink
 
-**Status:** ☐ not started (rationale re-verified, not yet executed)
+**Status:** ☑ DONE (2026-08-12) — split into a 5-file module directory,
+4,706-line `mod.rs` down from a 7,585-line flat file. See "Result" below.
 **Risk:** medium-high · **Effort:** large · **Depends on:** Phase 5 (done)
 
 Now the largest file in the codebase (7,585 lines, 250 fns), despite the
@@ -441,6 +442,55 @@ widget-construction/wiring core, which stays as `mod.rs`):
 
 Each sub-phase gets its own commit and full verification-gate run, per the
 non-negotiable rule at the top of this file.
+
+### Result
+
+**All four sub-phases (9a–9d) done 2026-08-12.** `template_dialog.rs`
+(7,585 lines, one file) is now `template_dialog/` (5 files):
+
+| File | Lines |
+|---|---|
+| `mod.rs` | 4,706 |
+| `generate.rs` | 1,133 |
+| `parsing.rs` | 1,078 |
+| `sidecar.rs` | 562 |
+| `util.rs` | 155 |
+
+`mod.rs` holds exactly what was always meant to stay: static data tables,
+`BodyKind`/`TemplateSettings`, the GTK tab-builder/`FormWidgets` construction,
+the `TemplateDialog` impl itself, and the test module. Every extraction was a
+`sed`-based verbatim line move (no hand-retyping), and all 484 tests passed
+unchanged after every single sub-phase — strong evidence this was truly
+mechanical, not a rewrite wearing a refactor's clothes.
+
+**Manual verification, beyond the automated gate:** headless smoke test
+(Xvfb, isolated XDG/HOME, `dbus-run-session`) clicking the header's
+"Template" button — per `REFACTOR-PLAN.md`'s own notes, pointer clicks
+(XTEST) land in this no-window-manager setup even though keyboard input
+doesn't, unlike the Ctrl+K approach that failed for Phase 2/8's verification.
+The "Update Template Settings" dialog opened as a real, separate X window
+(captured via `import -window <id>`, since secondary GTK windows don't
+appear in a root screengrab — another `REFACTOR-PLAN.md` gotcha) and
+rendered correctly: all six tabs, the Document tab's metadata fields
+pre-filled from the demo document, the Style row correctly resolved to
+"Chicago (Notes-Bib)," lock icons on Author/Affiliation. This exercises the
+exact code that moved — `parsing.rs`'s field readers and `generate.rs`'s
+style resolution — at runtime, not just at compile time. (One pre-existing,
+unrelated cosmetic bug surfaced in the log: a few preset descriptions with a
+literal `&` — e.g. "Skills & Awards" — fail GTK markup parsing and log a
+warning; this text lives untouched in `mod.rs`'s static data and predates
+this refactor, not a regression from it.)
+
+**Recurring fixup patterns, worth remembering for any future split like
+this:** (1) a child module can see its parent's private items via `use
+super::*`, but not the reverse, so every extracted module's free functions
+needed bumping to `pub(crate)` — cheapest done pre-emptively before the
+first build rather than chasing one compiler error at a time; (2)
+`include_str!` paths are relative to the file, so moving a file one
+directory deeper breaks every relative include in it; (3) a `super::sibling`
+reference that was correct when code lived in the flat file breaks once
+that code nests one level deeper — worth grepping every extracted module
+for stray `super::` once, rather than waiting for each to surface.
 
 ---
 
