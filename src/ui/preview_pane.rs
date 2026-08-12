@@ -963,34 +963,98 @@ impl PreviewPane {
     }
 }
 
-fn ensure_pdf_path(pane: &PreviewPane) -> Option<PathBuf> {
+/// Inputs `ensure_pdf_path`/pdftotext need, gathered on the main thread from
+/// `PreviewPane`'s `Rc<RefCell<...>>` fields (not `Send`) before handing off
+/// to the background thread that does the actual (potentially slow) work.
+struct PdfTextInputs {
+    root: PathBuf,
+    output_dir: PathBuf,
+    snapshots: HashMap<PathBuf, String>,
+    sys_inputs: HashMap<String, String>,
+}
+
+fn gather_pdf_text_inputs(pane: &PreviewPane) -> Option<PdfTextInputs> {
     let root = pane.root_file.borrow().clone()?;
-    let stem = root.file_stem()?.to_str()?.to_string();
-    let pdf_path = pane.output_dir().join(format!("{stem}.pdf"));
+    let mut sys_inputs = HashMap::new();
+    if let Some((k, v)) = pane.cv_data_sys_input() {
+        sys_inputs.insert(k, v);
+    }
+    Some(PdfTextInputs {
+        root,
+        output_dir: pane.output_dir(),
+        snapshots: pane.buffer_snapshot.borrow().clone(),
+        sys_inputs,
+    })
+}
+
+fn ensure_pdf_path(inputs: &PdfTextInputs) -> Option<PathBuf> {
+    let stem = inputs.root.file_stem()?.to_str()?.to_string();
+    let pdf_path = inputs.output_dir.join(format!("{stem}.pdf"));
     if !pdf_path.exists() {
-        let snapshots = pane.buffer_snapshot.borrow().clone();
-        let mut sys_inputs = std::collections::HashMap::new();
-        if let Some((k, v)) = pane.cv_data_sys_input() {
-            sys_inputs.insert(k, v);
-        }
-        let bytes = crate::compiler::compile_to_pdf_bytes(&root, &snapshots, &sys_inputs).ok()?;
+        let bytes = crate::compiler::compile_to_pdf_bytes(&inputs.root, &inputs.snapshots, &inputs.sys_inputs).ok()?;
         std::fs::write(&pdf_path, bytes).ok()?;
     }
     Some(pdf_path)
 }
 
-pub fn extract_page_text_via_pdftotext(pane: &PreviewPane, page: usize, _y_start: f64, _y_end: f64) -> Option<String> {
-    let pdf_path = ensure_pdf_path(pane)?;
-    let page_str = (page + 1).to_string();
-    let out = crate::git_sync::host_command("pdftotext")
-        .args(["-layout", "-f", &page_str, "-l", &page_str,
-               pdf_path.to_str().unwrap_or(""), "-"])
-        .output().ok()?;
-    if out.status.success() {
-        Some(String::from_utf8_lossy(&out.stdout).to_string())
-    } else {
-        None
-    }
+/// Runs `ensure_pdf_path` + `pdftotext -layout` on a background thread (this
+/// can compile the whole document if the PDF isn't cached yet, which is slow
+/// enough on large documents to freeze the UI if run inline) and delivers the
+/// extracted page text to `on_done` on the main thread via the same
+/// spawn-thread/channel/`timeout_add_local` pattern used by `do_sync`.
+pub fn extract_page_text_via_pdftotext_async(
+    pane: &PreviewPane,
+    page: usize,
+    on_done: impl FnOnce(Option<String>) + 'static,
+) {
+    let Some(inputs) = gather_pdf_text_inputs(pane) else {
+        on_done(None);
+        return;
+    };
+
+    let (tx, rx) = mpsc::sync_channel::<Option<String>>(1);
+    std::thread::spawn(move || {
+        let result = (|| {
+            let pdf_path = ensure_pdf_path(&inputs)?;
+            let page_str = (page + 1).to_string();
+            let out = crate::git_sync::host_command("pdftotext")
+                .args(["-layout", "-f", &page_str, "-l", &page_str,
+                       pdf_path.to_str().unwrap_or(""), "-"])
+                .output().ok()?;
+            if out.status.success() {
+                Some(String::from_utf8_lossy(&out.stdout).to_string())
+            } else {
+                None
+            }
+        })();
+        tx.send(result).ok();
+    });
+
+    poll_pdf_text_result(rx, on_done);
+}
+
+/// Shared poll loop for the two `*_async` pdftotext extractors above.
+fn poll_pdf_text_result(
+    rx: mpsc::Receiver<Option<String>>,
+    on_done: impl FnOnce(Option<String>) + 'static,
+) {
+    let rx = Rc::new(rx);
+    let on_done = Rc::new(RefCell::new(Some(on_done)));
+    glib::timeout_add_local(Duration::from_millis(50), move || match rx.try_recv() {
+        Ok(result) => {
+            if let Some(f) = on_done.borrow_mut().take() {
+                f(result);
+            }
+            glib::ControlFlow::Break
+        }
+        Err(TryRecvError::Empty) => glib::ControlFlow::Continue,
+        Err(TryRecvError::Disconnected) => {
+            if let Some(f) = on_done.borrow_mut().take() {
+                f(None);
+            }
+            glib::ControlFlow::Break
+        }
+    });
 }
 
 struct PdfWord {
@@ -1009,24 +1073,48 @@ fn unescape_xml(s: &str) -> String {
         .replace("&apos;", "'")
 }
 
-/// Runs `pdftotext -bbox` on a single page and finds the word nearest the given
-/// fractional (rel_x, rel_y) click position, returning it together with its
-/// immediate neighbors as a short phrase — specific enough to disambiguate a
-/// single common word when searched for in the source buffer.
-pub fn extract_word_at_position(pane: &PreviewPane, page: usize, rel_x: f64, rel_y: f64) -> Option<String> {
-    let pdf_path = ensure_pdf_path(pane)?;
-    let page_str = (page + 1).to_string();
-    let out = crate::git_sync::host_command("pdftotext")
-        .args(["-bbox", "-f", &page_str, "-l", &page_str,
-               pdf_path.to_str().unwrap_or(""), "-"])
-        .output().ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let xml = String::from_utf8_lossy(&out.stdout);
+/// Runs `pdftotext -bbox` on a background thread and finds the word nearest
+/// the given fractional (rel_x, rel_y) click position, delivering it together
+/// with its immediate neighbors as a short phrase (specific enough to
+/// disambiguate a single common word when searched for in the source buffer)
+/// to `on_done` on the main thread. Same async shape as
+/// `extract_page_text_via_pdftotext_async` — see its doc comment.
+pub fn extract_word_at_position_async(
+    pane: &PreviewPane,
+    page: usize,
+    rel_x: f64,
+    rel_y: f64,
+    on_done: impl FnOnce(Option<String>) + 'static,
+) {
+    let Some(inputs) = gather_pdf_text_inputs(pane) else {
+        on_done(None);
+        return;
+    };
 
+    let (tx, rx) = mpsc::sync_channel::<Option<String>>(1);
+    std::thread::spawn(move || {
+        let result = (|| {
+            let pdf_path = ensure_pdf_path(&inputs)?;
+            let page_str = (page + 1).to_string();
+            let out = crate::git_sync::host_command("pdftotext")
+                .args(["-bbox", "-f", &page_str, "-l", &page_str,
+                       pdf_path.to_str().unwrap_or(""), "-"])
+                .output().ok()?;
+            if !out.status.success() {
+                return None;
+            }
+            let xml = String::from_utf8_lossy(&out.stdout);
+            word_at_position_from_bbox_xml(&xml, rel_x, rel_y)
+        })();
+        tx.send(result).ok();
+    });
+
+    poll_pdf_text_result(rx, on_done);
+}
+
+fn word_at_position_from_bbox_xml(xml: &str, rel_x: f64, rel_y: f64) -> Option<String> {
     let page_re = regex::Regex::new(r#"<page width="([0-9.]+)" height="([0-9.]+)">"#).ok()?;
-    let caps = page_re.captures(&xml)?;
+    let caps = page_re.captures(xml)?;
     let page_w: f64 = caps[1].parse().ok()?;
     let page_h: f64 = caps[2].parse().ok()?;
 
@@ -1034,7 +1122,7 @@ pub fn extract_word_at_position(pane: &PreviewPane, page: usize, rel_x: f64, rel
         r#"<word xMin="([0-9.]+)" yMin="([0-9.]+)" xMax="([0-9.]+)" yMax="([0-9.]+)">([^<]*)</word>"#,
     ).ok()?;
     let words: Vec<PdfWord> = word_re
-        .captures_iter(&xml)
+        .captures_iter(xml)
         .filter_map(|c| {
             Some(PdfWord {
                 x_min: c[1].parse().ok()?,
