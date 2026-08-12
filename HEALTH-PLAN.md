@@ -192,20 +192,31 @@ treat this phase as design-first, not a blind extraction.
 
 ## Phase 6 — Accessibility pass on dialogs
 
-**Status:** ☐ not started
-**Risk:** low · **Effort:** medium (breadth, not depth) · **Depends on:** nothing
+**Status:** ☑ DONE (2026-08-12) — all 5 named dialogs covered, 3 commits.
 
-Only `error_panel.rs` and `editor_pane.rs` use `AccessibleRole`/
-`AccessibleTristate`/`set_accessible` out of ~80 `src/ui/*.rs` files. None of
-`template_dialog.rs`, `settings_dialog.rs`, `setup_wizard.rs`,
-`library_window.rs`, `export_dialog.rs` do, despite the root `Projects/CLAUDE.md`
-holding up Zerkalo's own status-bar toggle pattern as the house reference.
+Went dialog by dialog per the plan, each its own commit:
+- `settings_dialog.rs` — 7 icon-only buttons (folder/file browse buttons,
+  remove-language) had no accessible name; 2 also lacked tooltips. All 7 fixed.
+- `template_dialog.rs` — 5 icon-only buttons (author/affiliation pin, Skrizhal
+  browse, save-as-template, delete-template) plus the CV-mode `Switch` (sits
+  next to a plain unassociated `Label`, not an `Adw.SwitchRow`, so GTK doesn't
+  auto-derive its name). All 6 fixed.
+- `library_window.rs` — the multi-select clear button and the per-tag
+  edit/delete buttons (which repeat once per tag row — folded the tag name
+  into the label so screen readers don't announce identical "Edit"/"Delete"
+  for every row). All 3 fixed.
+- `setup_wizard.rs`, `export_dialog.rs` — checked, no changes needed. Both
+  only use decorative `Image::from_icon_name` inside `ActionRow`s whose title
+  already carries the accessible name; no bare interactive icon-only widgets.
 
-**Fix:** go dialog by dialog, starting with the ones most used
-(`settings_dialog.rs`, `template_dialog.rs`), adding accessible roles/labels to
-interactive controls and `AccessibleTristate` to any toggle-like widgets. Land as
-several small commits (one dialog per commit) rather than one large sweep, so a
-regression is easy to bisect.
+Pattern used throughout: `gtk4::accessible::Property::Label` (the same one
+already established in `editor_pane.rs`), added alongside a tooltip where one
+didn't already exist. `Adw.SwitchRow`/`Adw.ComboRow` instances were left
+alone — their title text already serves as the accessible name by
+construction, so they were never part of the gap.
+
+Full verification gate green after each of the 3 commits (484 tests, clippy
+clean, version guard clean).
 
 ---
 
