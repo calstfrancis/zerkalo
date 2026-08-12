@@ -40,8 +40,8 @@ skrizhal-core = { git = "https://github.com/calstfrancis/skrizhal", tag = "v0.3.
 # integration with a Kartoteka vault as a live bibliography source (no
 # "acquire" feature — that pulls in reqwest/tokio for DOI/ISBN lookup,
 # irrelevant here).
-fond-bib = { git = "https://github.com/calstfrancis/kartoteka" }
-fond-vault = { git = "https://github.com/calstfrancis/kartoteka" }
+fond-bib = { git = "https://github.com/calstfrancis/kartoteka", rev = "825238e651d983ad07c861891e2a42afb9240ede" }
+fond-vault = { git = "https://github.com/calstfrancis/kartoteka", rev = "825238e651d983ad07c861891e2a42afb9240ede" }
 
 # Embedded Typst compiler
 typst = "0.14"
