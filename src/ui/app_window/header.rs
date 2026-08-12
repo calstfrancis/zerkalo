@@ -35,6 +35,7 @@ pub(super) struct Menus {
     pub(super) menu_settings_item: Button,
     pub(super) menu_setup_item: Button,
     pub(super) menu_snapshots_item: Button,
+    pub(super) menu_history_item: Button,
     pub(super) menu_tools_item: Button,
     pub(super) menu_writing_stats_item: Button,
 }
@@ -179,6 +180,7 @@ pub(super) fn build_header() -> HeaderWidgets {
         menu_settings_item,
         menu_setup_item,
         menu_snapshots_item,
+        menu_history_item,
         menu_tools_item,
         menu_writing_stats_item,
     } = build_hamburger_menu_items();
@@ -207,6 +209,7 @@ pub(super) fn build_header() -> HeaderWidgets {
     menu_popover_box.append(&menu_save_item);
     menu_popover_box.append(&menu_save_as_item);
     menu_popover_box.append(&menu_snapshots_item);
+    menu_popover_box.append(&menu_history_item);
     menu_popover_box.append(&Separator::new(Orientation::Horizontal));
     // Get a document out
     menu_popover_box.append(&menu_export_item);
@@ -335,6 +338,7 @@ pub(super) fn build_header() -> HeaderWidgets {
             menu_settings_item,
             menu_setup_item,
             menu_snapshots_item,
+            menu_history_item,
             menu_tools_item,
             menu_writing_stats_item,
         },

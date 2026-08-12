@@ -899,6 +899,7 @@ impl AppWindow {
                 menus.menu_save_item.clone(),
                 menus.menu_save_as_item.clone(),
                 menus.menu_snapshots_item.clone(),
+                menus.menu_history_item.clone(),
                 menus.menu_export_web_item.clone(),
             ];
             let editor_for_rows = editor_pane.clone();
@@ -2331,6 +2332,11 @@ impl AppWindow {
                                 dialog.present();
                             }
                         }
+                        "browse_history" => {
+                            if let Some(path) = editor_for_pal.get_active_path() {
+                                show_file_history_window(&w, &root_for_pal, &path);
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -3118,6 +3124,7 @@ struct HamburgerItems {
     menu_save_item: Button,
     menu_save_as_item: Button,
     menu_snapshots_item: Button,
+    menu_history_item: Button,
     menu_export_item: Button,
     menu_export_web_item: Button,
     menu_print_item: Button,
@@ -3151,6 +3158,7 @@ fn build_hamburger_menu_items() -> HamburgerItems {
         menu_save_item:            make_menu_item("Save",                      Some(&d(&kb.save))),
         menu_save_as_item:         make_menu_item("Save As…",                    None),
         menu_snapshots_item:       make_menu_item("Browse Snapshots…",           None),
+        menu_history_item:         make_menu_item("File History…",               None),
         menu_export_item:          make_menu_item("Export…",                     None),
         menu_export_web_item:      make_menu_item("Export for Web…",             None),
         // Print and Import aren't in keybindings.toml — they're fixed in the
@@ -3222,6 +3230,38 @@ fn restore_snapshot_with_confirm(
         "Restore",
         move || ep.set_content(&path, &text),
     );
+}
+
+/// Opens a small window showing `path`'s git commit history and diffs, for
+/// both the hamburger's "File History…" row and the Ctrl+K palette.
+pub(super) fn show_file_history_window(
+    parent: &adw::ApplicationWindow,
+    project_root: &Path,
+    path: &Path,
+) {
+    let history_window = adw::Window::builder()
+        .title("File History")
+        .transient_for(parent)
+        .modal(true)
+        .default_width(760)
+        .default_height(560)
+        .build();
+    let header = adw::HeaderBar::new();
+    header.add_css_class("fond-chrome");
+    let close_btn = Button::with_label("Close");
+    header.pack_end(&close_btn);
+    let content_box = GtkBox::new(Orientation::Vertical, 0);
+    content_box.append(&header);
+
+    let panel = super::history_panel::HistoryPanel::new(project_root.to_path_buf());
+    panel.load_file_history(path);
+    content_box.append(panel.widget());
+    history_window.set_content(Some(&content_box));
+
+    let win_close = history_window.clone();
+    close_btn.connect_clicked(move |_| win_close.close());
+
+    history_window.present();
 }
 
 /// Opens the template dialog preloaded from the active document, for both the

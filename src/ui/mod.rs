@@ -14,6 +14,7 @@ pub mod font_manager;
 pub mod github_signin;
 pub mod help_overlay;
 pub mod help_window;
+pub mod history_panel;
 pub mod lsp_popup;
 pub mod outline_panel;
 pub mod package_browser;

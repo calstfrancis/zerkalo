@@ -293,6 +293,7 @@ pub fn default_commands() -> Vec<PaletteItem> {
         PaletteItem { id: "git_sync".into(), label: "Save a Version & Back It Up".into(), subtitle: "Save this version and send it to all backup locations (Ctrl+Shift+S)".into() },
         PaletteItem { id: "toggle_profile".into(), label: "Toggle Profile".into(), subtitle: "Switch the preview between Final (full quality) and Draft (fast)".into() },
         PaletteItem { id: "browse_snapshots".into(), label: "Browse Snapshots\u{2026}".into(), subtitle: "View and restore version history for this file".into() },
+        PaletteItem { id: "browse_history".into(), label: "File History\u{2026}".into(), subtitle: "View this file's git commit history and diffs".into() },
         PaletteItem { id: "settings".into(), label: "Settings…".into(), subtitle: "Open the settings dialog".into() },
         PaletteItem { id: "toggle_preview".into(), label: "Toggle Preview".into(), subtitle: "Show or hide the live preview pane".into() },
         PaletteItem { id: "toggle_sidebar".into(), label: "Toggle Sidebar".into(), subtitle: "Show or hide the sidebar".into() },
