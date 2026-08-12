@@ -5,6 +5,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.23.0-dev1] — Kartoteka vault as a live bibliography source
+
+### Added
+
+- **Point the bibliography at a Kartoteka vault folder, not just a `.bib`/`.yaml` file.**
+  Settings → Bibliography now has a second browse button for choosing a vault directory
+  directly. Entries load through `fond-bib` (the same crate Kartoteka itself is built on)
+  and refresh live via `fond-vault`'s filesystem watch the moment something changes in the
+  vault — add or edit an entry in Kartoteka and it shows up in the `@`-autocomplete popup,
+  the citation sidebar, and the reference manager within about a second, no restart needed.
+  Plain `.bib`/`.yaml` files keep working exactly as before, unaffected.
+
+---
+
 ## [0.22.0] "Steady Hand" — Backups that happen without being asked
 
 ### Added

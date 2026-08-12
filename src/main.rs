@@ -31,6 +31,7 @@ mod spellcheck;
 mod styles;
 mod templates;
 mod user_templates;
+mod vault_watch;
 mod web_export;
 mod library;
 mod ui;

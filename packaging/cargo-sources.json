@@ -1,6 +1,12 @@
 [
     {
         "type": "git",
+        "url": "https://github.com/calstfrancis/kartoteka",
+        "commit": "825238e651d983ad07c861891e2a42afb9240ede",
+        "dest": "flatpak-cargo/git/kartoteka-825238e"
+    },
+    {
+        "type": "git",
         "url": "https://github.com/calstfrancis/skrizhal",
         "commit": "538bcf141eca860ed0050ee0277b2d62c4a18dd8",
         "dest": "flatpak-cargo/git/skrizhal-538bcf1"
@@ -328,6 +334,19 @@
         "type": "inline",
         "contents": "{\"package\": \"b588b76d00fde79687d7646a9b5bdf3cc0f655e0bbd080335a95d7e96f3587da\", \"files\": {}}",
         "dest": "cargo/vendor/bitflags-2.13.1",
+        "dest-filename": ".cargo-checksum.json"
+    },
+    {
+        "type": "archive",
+        "archive-type": "tar-gzip",
+        "url": "https://static.crates.io/crates/blake3/blake3-1.8.6.crate",
+        "sha256": "76ae7bad254120e9e4c63bafc385310756f90c484eac0e36b8317cf09cb92a77",
+        "dest": "cargo/vendor/blake3-1.8.6"
+    },
+    {
+        "type": "inline",
+        "contents": "{\"package\": \"76ae7bad254120e9e4c63bafc385310756f90c484eac0e36b8317cf09cb92a77\", \"files\": {}}",
+        "dest": "cargo/vendor/blake3-1.8.6",
         "dest-filename": ".cargo-checksum.json"
     },
     {
@@ -718,6 +737,19 @@
         "type": "inline",
         "contents": "{\"package\": \"a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c\", \"files\": {}}",
         "dest": "cargo/vendor/const-oid-0.10.2",
+        "dest-filename": ".cargo-checksum.json"
+    },
+    {
+        "type": "archive",
+        "archive-type": "tar-gzip",
+        "url": "https://static.crates.io/crates/constant_time_eq/constant_time_eq-0.4.2.crate",
+        "sha256": "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b",
+        "dest": "cargo/vendor/constant_time_eq-0.4.2"
+    },
+    {
+        "type": "inline",
+        "contents": "{\"package\": \"3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b\", \"files\": {}}",
+        "dest": "cargo/vendor/constant_time_eq-0.4.2",
         "dest-filename": ".cargo-checksum.json"
     },
     {
@@ -1407,6 +1439,42 @@
         "type": "inline",
         "contents": "{\"package\": \"3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1\", \"files\": {}}",
         "dest": "cargo/vendor/fnv-1.0.7",
+        "dest-filename": ".cargo-checksum.json"
+    },
+    {
+        "type": "shell",
+        "commands": [
+            "cp -r --reflink=auto \"flatpak-cargo/git/kartoteka-825238e/crates/fond-bib\" \"cargo/vendor/fond-bib\""
+        ]
+    },
+    {
+        "type": "inline",
+        "contents": "[package]\nname = \"fond-bib\"\nversion = \"0.1.0\"\ndescription = \"Hayagriva bibliography model, on-disk vault layout, citation keys \u2014 shared Fond crate\"\nlicense = \"MIT\"\nedition = \"2021\"\nrust-version = \"1.80\"\nauthors = [\"Cal St Francis <calstfrancis@gmail.com>\"]\nrepository = \"https://github.com/calstfrancis/kartoteka\"\n\n[dependencies]\nhayagriva = \"0.9\"\nbiblatex = \"0.11\"\nserde_yaml_ng = \"0.10\"\nserde_json = \"1\"\nblake3 = \"1\"\nwalkdir = \"2\"\nthiserror = \"2\"\n\n[dependencies.rusqlite]\nversion = \"0.32\"\nfeatures = [\"bundled\"]\n\n[dependencies.serde]\nversion = \"1\"\nfeatures = [\"derive\"]\n\n[dependencies.reqwest]\noptional = true\nversion = \"0.12\"\ndefault-features = false\nfeatures = [\"blocking\", \"rustls-tls\", \"json\"]\n\n[features]\nacquire = [\"dep:reqwest\"]\n\n[dev-dependencies]\ntempfile = \"3\"\nblake3 = \"1\"\n\n[dev-dependencies.rusqlite]\nversion = \"0.32\"\nfeatures = [\"bundled\"]\n",
+        "dest": "cargo/vendor/fond-bib",
+        "dest-filename": "Cargo.toml"
+    },
+    {
+        "type": "inline",
+        "contents": "{\"package\": null, \"files\": {}}",
+        "dest": "cargo/vendor/fond-bib",
+        "dest-filename": ".cargo-checksum.json"
+    },
+    {
+        "type": "shell",
+        "commands": [
+            "cp -r --reflink=auto \"flatpak-cargo/git/kartoteka-825238e/crates/fond-vault\" \"cargo/vendor/fond-vault\""
+        ]
+    },
+    {
+        "type": "inline",
+        "contents": "[package]\nname = \"fond-vault\"\nversion = \"0.1.0\"\ndescription = \"Git-backed vault operations and filesystem watching \u2014 shared Fond crate\"\nlicense = \"MIT\"\nedition = \"2021\"\nrust-version = \"1.80\"\nauthors = [\"Cal St Francis <calstfrancis@gmail.com>\"]\nrepository = \"https://github.com/calstfrancis/kartoteka\"\n\n[dependencies]\nnotify = \"6\"\nthiserror = \"2\"\n\n[dependencies.git2]\nversion = \"0.20\"\ndefault-features = false\nfeatures = [\"vendored-libgit2\", \"https\"]\n\n[dev-dependencies]\ntempfile = \"3\"\n",
+        "dest": "cargo/vendor/fond-vault",
+        "dest-filename": "Cargo.toml"
+    },
+    {
+        "type": "inline",
+        "contents": "{\"package\": null, \"files\": {}}",
+        "dest": "cargo/vendor/fond-vault",
         "dest-filename": ".cargo-checksum.json"
     },
     {
@@ -2907,14 +2975,14 @@
     {
         "type": "archive",
         "archive-type": "tar-gzip",
-        "url": "https://static.crates.io/crates/libsqlite3-sys/libsqlite3-sys-0.28.0.crate",
-        "sha256": "0c10584274047cb335c23d3e61bcef8e323adae7c5c8c760540f73610177fc3f",
-        "dest": "cargo/vendor/libsqlite3-sys-0.28.0"
+        "url": "https://static.crates.io/crates/libsqlite3-sys/libsqlite3-sys-0.30.1.crate",
+        "sha256": "2e99fb7a497b1e3339bc746195567ed8d3e24945ecd636e3619d20b9de9e9149",
+        "dest": "cargo/vendor/libsqlite3-sys-0.30.1"
     },
     {
         "type": "inline",
-        "contents": "{\"package\": \"0c10584274047cb335c23d3e61bcef8e323adae7c5c8c760540f73610177fc3f\", \"files\": {}}",
-        "dest": "cargo/vendor/libsqlite3-sys-0.28.0",
+        "contents": "{\"package\": \"2e99fb7a497b1e3339bc746195567ed8d3e24945ecd636e3619d20b9de9e9149\", \"files\": {}}",
+        "dest": "cargo/vendor/libsqlite3-sys-0.30.1",
         "dest-filename": ".cargo-checksum.json"
     },
     {
@@ -4285,14 +4353,14 @@
     {
         "type": "archive",
         "archive-type": "tar-gzip",
-        "url": "https://static.crates.io/crates/rusqlite/rusqlite-0.31.0.crate",
-        "sha256": "b838eba278d213a8beaf485bd313fd580ca4505a00d5871caeb1457c55322cae",
-        "dest": "cargo/vendor/rusqlite-0.31.0"
+        "url": "https://static.crates.io/crates/rusqlite/rusqlite-0.32.1.crate",
+        "sha256": "7753b721174eb8ff87a9a0e799e2d7bc3749323e773db92e0984debb00019d6e",
+        "dest": "cargo/vendor/rusqlite-0.32.1"
     },
     {
         "type": "inline",
-        "contents": "{\"package\": \"b838eba278d213a8beaf485bd313fd580ca4505a00d5871caeb1457c55322cae\", \"files\": {}}",
-        "dest": "cargo/vendor/rusqlite-0.31.0",
+        "contents": "{\"package\": \"7753b721174eb8ff87a9a0e799e2d7bc3749323e773db92e0984debb00019d6e\", \"files\": {}}",
+        "dest": "cargo/vendor/rusqlite-0.32.1",
         "dest-filename": ".cargo-checksum.json"
     },
     {
@@ -7357,7 +7425,7 @@
     },
     {
         "type": "inline",
-        "contents": "[source.vendored-sources]\ndirectory = \"cargo/vendor\"\n\n[source.crates-io]\nreplace-with = \"vendored-sources\"\n\n[source.\"https://github.com/calstfrancis/skrizhal\"]\ngit = \"https://github.com/calstfrancis/skrizhal\"\nreplace-with = \"vendored-sources\"\ntag = \"v0.3.0\"\n",
+        "contents": "[source.vendored-sources]\ndirectory = \"cargo/vendor\"\n\n[source.crates-io]\nreplace-with = \"vendored-sources\"\n\n[source.\"https://github.com/calstfrancis/kartoteka\"]\ngit = \"https://github.com/calstfrancis/kartoteka\"\nreplace-with = \"vendored-sources\"\n\n[source.\"https://github.com/calstfrancis/skrizhal\"]\ngit = \"https://github.com/calstfrancis/skrizhal\"\nreplace-with = \"vendored-sources\"\ntag = \"v0.3.0\"\n",
         "dest": "cargo",
         "dest-filename": "config"
     }

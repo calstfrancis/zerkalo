@@ -19,6 +19,9 @@ pub struct BibEntry {
 }
 
 pub fn load_bib(path: &Path) -> Vec<BibEntry> {
+    if is_vault_dir(path) {
+        return load_vault_entries(path);
+    }
     match path.extension().and_then(|e| e.to_str()) {
         Some(ext) if ext.eq_ignore_ascii_case("yaml") || ext.eq_ignore_ascii_case("yml") => {
             load_yaml_bib(path)
@@ -27,6 +30,53 @@ pub fn load_bib(path: &Path) -> Vec<BibEntry> {
             Ok(content) => parse_bib(&content),
             Err(_) => Vec::new(),
         },
+    }
+}
+
+/// Whether `path` is a Kartoteka vault root — recognized by its `entries/`
+/// subdirectory, the one part of the on-disk layout every vault has
+/// (`fond_bib::library::ENTRIES_DIR`).
+pub fn is_vault_dir(path: &Path) -> bool {
+    path.is_dir() && path.join("entries").is_dir()
+}
+
+/// Loads every entry from a Kartoteka vault directly through `fond-bib`,
+/// bypassing `library.yml` (a derived export) so this always reflects the
+/// authoritative `entries/*.yml` files on disk.
+pub fn load_vault_entries(dir: &Path) -> Vec<BibEntry> {
+    let Ok(library) = fond_bib::Library::open(dir) else {
+        return Vec::new();
+    };
+    let Ok(keys) = library.keys_sorted() else {
+        return Vec::new();
+    };
+    keys.iter()
+        .filter_map(|key| library.load_entry(key).ok())
+        .map(|parsed| bib_entry_from_hayagriva(&parsed.entry))
+        .collect()
+}
+
+fn bib_entry_from_hayagriva(entry: &hayagriva::Entry) -> BibEntry {
+    let author = entry
+        .authors()
+        .map(|people| {
+            people
+                .iter()
+                .map(format_hayagriva_person)
+                .collect::<Vec<_>>()
+                .join(" and ")
+        })
+        .unwrap_or_default();
+
+    let title = entry.title().map(|t| t.value.to_string()).unwrap_or_default();
+    let year = entry.date().map(|d| d.year.to_string()).unwrap_or_default();
+
+    BibEntry {
+        key: entry.key().to_string(),
+        entry_type: format!("{:?}", entry.entry_type()).to_lowercase(),
+        author,
+        title,
+        year,
     }
 }
 
@@ -43,32 +93,7 @@ pub fn parse_yaml_bib(content: &str) -> Vec<BibEntry> {
         Err(_) => return Vec::new(),
     };
 
-    library
-        .iter()
-        .map(|entry| {
-            let author = entry
-                .authors()
-                .map(|people| {
-                    people
-                        .iter()
-                        .map(format_hayagriva_person)
-                        .collect::<Vec<_>>()
-                        .join(" and ")
-                })
-                .unwrap_or_default();
-
-            let title = entry.title().map(|t| t.value.to_string()).unwrap_or_default();
-            let year = entry.date().map(|d| d.year.to_string()).unwrap_or_default();
-
-            BibEntry {
-                key: entry.key().to_string(),
-                entry_type: format!("{:?}", entry.entry_type()).to_lowercase(),
-                author,
-                title,
-                year,
-            }
-        })
-        .collect()
+    library.iter().map(bib_entry_from_hayagriva).collect()
 }
 
 fn format_hayagriva_person(p: &hayagriva::types::Person) -> String {
@@ -362,6 +387,33 @@ mod tests {
     fn load_bib_returns_empty_for_nonexistent_file() {
         let entries = load_bib(std::path::Path::new("/nonexistent/path/refs.bib"));
         assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn is_vault_dir_requires_entries_subdir() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(!is_vault_dir(dir.path()));
+        std::fs::create_dir(dir.path().join("entries")).unwrap();
+        assert!(is_vault_dir(dir.path()));
+    }
+
+    #[test]
+    fn load_bib_reads_a_kartoteka_vault_directly() {
+        let dir = tempfile::tempdir().unwrap();
+        let entries_dir = dir.path().join("entries");
+        std::fs::create_dir(&entries_dir).unwrap();
+        std::fs::write(
+            entries_dir.join("smith2020.yml"),
+            "smith2020:\n  type: article\n  title: A Great Paper\n  author: John Smith\n  date: 2020\n",
+        )
+        .unwrap();
+
+        let entries = load_bib(dir.path());
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].key, "smith2020");
+        assert_eq!(entries[0].title, "A Great Paper");
+        assert_eq!(entries[0].author, "John Smith");
+        assert_eq!(entries[0].year, "2020");
     }
 
     #[test]
