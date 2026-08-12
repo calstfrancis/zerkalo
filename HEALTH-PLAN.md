@@ -341,20 +341,40 @@ ever felt in practice (e.g. on a repo with very long file history).
 
 ## Phase 9 — `template_dialog.rs` re-shrink
 
-**Status:** ☐ not started
-**Risk:** medium-high · **Effort:** large · **Depends on:** Phase 5 (fix the state-desync issue before restructuring the file around it)
+**Status:** ☐ not started (rationale re-verified, not yet executed)
+**Risk:** medium-high · **Effort:** large · **Depends on:** Phase 5 (done)
 
 Now the largest file in the codebase (7,585 lines, 250 fns), despite the
-CHANGELOG recording its constructor already being cut from 1,247→229 lines once.
-It also carries the highest non-test unwrap/expect density in the codebase (32 +
-12). Treat this the same way `REFACTOR-PLAN.md` treats `AppWindow::new`/
-`open_file`: mechanical extraction along existing seams, not a redesign. If a
-seam requires a judgment call about behavior, stop and reconsider rather than
-pushing through.
+CHANGELOG recording its constructor already being cut from 1,247→229 lines
+once. The size claim is real and independently confirmed.
 
-Suggested approach: follow the same phase structure `REFACTOR-PLAN.md` used for
-`editor_pane.rs`/`app_window.rs` — write it up as its own numbered sub-plan
-inside this phase once started, using this file's verification gate.
+**The unwrap/expect-density half of the rationale does not hold** — checked
+the same way Phase 3 checked `library.rs`: with the test-module boundary
+correctly identified (`#[cfg(test)] mod tests` starts at line 5963; a
+single unrelated `#[cfg(test)]`-gated helper at 2922–2925 is the only other
+hit), non-test code (lines 1–5962) has **zero** `.unwrap()`/`.expect()` calls,
+not 32+12. This is the second file (after `library.rs` in Phase 3) where the
+original review's unwrap/expect count didn't survive a boundary-aware
+recount — worth treating any remaining raw grep-based unwrap/expect claims
+elsewhere in the original review with the same skepticism if they resurface.
+
+Size alone is still a legitimate reason to split this file — `REFACTOR-PLAN.md`
+already treats file size as sufficient justification on its own for
+`editor_pane.rs`/`app_window.rs`, without needing an unwrap-density argument.
+
+**Not started this session.** Unlike Phases 3/5/7/10, this one doesn't close
+with an investigation — the size finding holds, and closing it means actually
+doing the split. That's real, large, multi-commit mechanical work in the
+single highest-risk file left (structurally identical to
+`REFACTOR-PLAN.md`'s `AppWindow::new`/`open_file` splits: no behavior
+changes, no redesign, extract along existing seams, stop and reconsider if a
+seam needs a judgment call). Given the size of this already, it's the right
+place to check in before starting rather than launching into it.
+
+Suggested approach when it starts: follow the same phase structure
+`REFACTOR-PLAN.md` used for `editor_pane.rs`/`app_window.rs` — write it up as
+its own numbered sub-plan inside this phase, using this file's verification
+gate after every extraction.
 
 ---
 
