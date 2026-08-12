@@ -75,12 +75,16 @@
 
 ---
 
-## Phased Improvement Plan
+## Active plans
 
-This plan was defined in June 2026. After each phase, run `cargo check` and `cargo test --no-run` to confirm compilation. Commit with the phase version. Run `/clear` between phases — the plan lives here so it survives context resets.
+Several standing plan docs track multi-session work — read the relevant one
+before starting anything that overlaps it, and update its status boxes as you
+go so the plan (not the conversation) is the source of truth across `/clear`s:
 
-### Phase 4 — v0.12.0 (CLEANUP & POLISH)
-11. **Keyboard Shortcut Remap**: Command Palette Ctrl+K; Git sync Ctrl+Shift+S; add Ctrl+Shift+H "Keyboard Shortcuts Help" that reads keybindings.toml dynamically.
-12. **Compilation Time Display**: show "Compiled in Xs" in status bar; yellow warning for >3s with optimization tips; track stats in `~/.cache/zerkalo/compile_stats.json`.
-13. **Auto-backup on Idle**: `auto_save_idle_ms = 30000` in config; auto-save on idle; skip files with compilation errors.
-14. **Command Palette enhancements**: add "Find in Files…", "Project Outline", "Toggle Profile", "Browse Snapshots" commands.
+- **`HEALTH-PLAN.md`** — 10-phase plan from the 2026-08-12 codebase review
+  (fragile-core files, unwrap audits, dependency pinning, a11y, dead code).
+  Check this first for general codebase-health work.
+- **`REFACTOR-PLAN.md`** — file-splitting + `library.rs`/`spellcheck.rs` test
+  coverage.
+- **`PRINT-PLAN.md`**, **`zerk-polish.md`**, **`zerkalo-todo.md`**,
+  **`ROADMAP.md`** — feature-specific plans; see each file's own header.
