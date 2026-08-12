@@ -412,10 +412,13 @@ widget-construction/wiring core, which stays as `mod.rs`):
   block. All 484 tests passed unchanged.
   `mod.rs`: 6,528 → **5,404 lines** (down from the original 7,585 before
   9a/9b combined).
-- **9c — `sidecar.rs`** (~554 lines): "Sidecar persistence" +
-  body-splice/marker logic + legacy CV helpers (lines 2606–3160). Mostly pure,
-  plus file I/O (`write_atomically`, `backup_document`, `save_sidecar`) — no
-  GTK.
+- **9c ☑ DONE (2026-08-12) — `sidecar.rs`** (562 lines). "Sidecar
+  persistence" + body-splice/marker logic + legacy CV helpers, same
+  sed-extraction approach. Pre-emptively bumped all of `sidecar.rs`'s free
+  functions to `pub(crate)` before the first build attempt (learned from
+  9a/9b's pattern) — compiled clean on the first try. No `include_str!`
+  paths in this block. All 484 tests passed unchanged.
+  `mod.rs`: 5,404 → **4,851 lines**.
 - **9d — `util.rs`** (~146 lines, lower priority): Typst-escaping helpers +
   font list + small widget-builder helpers (lines 3161–3307). Mixed
   pure/GTK, smallest chunk.
