@@ -28,10 +28,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Internal
 
-- **Kartoteka's `fond-bib`/`fond-vault` git dependencies are now pinned to a commit**,
-  matching the convention already used for `skrizhal-core`. Previously a `cargo update`
-  or fresh lockfile could silently pull in whatever Kartoteka's current HEAD happened to
-  be — a young, actively-changing project.
 - **Clicking to jump from the preview to a line or word no longer blocks the interface**
   while `pdftotext` runs (which can mean a full document recompile if the cached PDF is
   missing). It now runs on a background thread, the same pattern already used elsewhere
