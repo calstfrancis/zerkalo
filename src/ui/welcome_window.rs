@@ -127,6 +127,7 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
+                "Added: point the bibliography at a Kartoteka vault folder instead of a .bib/.yaml file (Settings → Bibliography). Entries load live — add or edit something in Kartoteka and it shows up in the citation popup, sidebar, and reference manager within a second or two, no restart needed",
                 "Added: backups now happen on their own. Once a backup location is set up, Zerkalo saves and sends a version automatically every so often while you write, and once more on the way out if anything's still unsent — quiet by design, so an offline moment shows a small toast instead of a popup, and it never blocks quitting for more than a few seconds",
                 "Added: error and notice dialogs now have a Copy button next to OK, so a raw error message can be pasted into a bug report instead of retyped from a screenshot",
                 "Changed: plain language throughout setup, sync, and backup screens — \"repository,\" \"remote,\" \"commit,\" and \"clone\" are now described in terms of what they do (\"online copy,\" \"backup location,\" \"save a version\")",

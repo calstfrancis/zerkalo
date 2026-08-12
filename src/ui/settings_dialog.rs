@@ -308,7 +308,7 @@ impl SettingsDialog {
         bib_group.set_title("Bibliography");
 
         let bib_row = adw::EntryRow::new();
-        bib_row.set_title("Bib file");
+        bib_row.set_title("Bib file or Kartoteka vault");
         if let Some(ref p) = current.bib_path {
             bib_row.set_text(p.to_str().unwrap_or(""));
         }
@@ -316,6 +316,7 @@ impl SettingsDialog {
         let browse_btn = Button::from_icon_name("document-open-symbolic");
         browse_btn.set_valign(Align::Center);
         browse_btn.add_css_class("flat");
+        browse_btn.set_tooltip_text(Some("Browse for a .bib/.yaml file"));
         let bib_row_browse = bib_row.clone();
         let window_browse = window.clone();
         browse_btn.connect_clicked(move |_| {
@@ -330,7 +331,29 @@ impl SettingsDialog {
             });
         });
         bib_row.add_suffix(&browse_btn);
+
+        let vault_browse_btn = Button::from_icon_name("folder-symbolic");
+        vault_browse_btn.set_valign(Align::Center);
+        vault_browse_btn.add_css_class("flat");
+        vault_browse_btn.set_tooltip_text(Some("Browse for a Kartoteka vault folder"));
+        let bib_row_vault = bib_row.clone();
+        let window_vault = window.clone();
+        vault_browse_btn.connect_clicked(move |_| {
+            let row = bib_row_vault.clone();
+            let fd = gtk4::FileDialog::new();
+            fd.select_folder(Some(&window_vault), None::<&gtk4::gio::Cancellable>, move |result| {
+                if let Ok(file) = result {
+                    if let Some(path) = file.path() {
+                        row.set_text(path.to_str().unwrap_or(""));
+                    }
+                }
+            });
+        });
+        bib_row.add_suffix(&vault_browse_btn);
         bib_group.add(&bib_row);
+        bib_group.set_description(Some(
+            "A .bib/.yaml file, or a Kartoteka vault folder for live citation autocomplete as you edit the vault.",
+        ));
 
         let csl_row = adw::EntryRow::new();
         csl_row.set_title("Custom CSL file");

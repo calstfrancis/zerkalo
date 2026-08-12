@@ -16,6 +16,7 @@ Live preview · Academic styles · LSP completions · Git sync · Adwaita design
 | **Inline completions** | `#` shows the best match dim after the cursor, previewing what will be inserted; Tab accepts, and a compact ranked list joins in after two characters. Backed by [tinymist](https://github.com/Myriad-Dreamin/tinymist) where available |
 | **Built-in snippets** | Academic snippets (figure, table, footnote, bibliography, …) prepended to the LSP popup |
 | **Citation autocomplete** | `@` (BibTeX keys) and `!` (Skrizhal CV entries) behave the same way — inline suggestion, description in the status bar |
+| **Kartoteka vault as a bibliography source** | Point `bib_path` at a [Kartoteka](https://github.com/calstfrancis/kartoteka) vault folder instead of a `.bib`/`.yaml` file; entries load via `fond-bib` and refresh live via `fond-vault`'s filesystem watch — no restart needed to see new or edited entries |
 | **Inline diagnostics** | Compile errors and LSP warnings shown as red/amber underlines in the editor |
 | **Find & Replace** | `Ctrl+F`; forward/backward; animated slide-in bar; replace one or all |
 | **Spell check** | Blue wavy underlines on misspelled prose words; right-click for suggestions, Ignore All; language selector in Settings; optional autocorrect on word boundary |
@@ -156,7 +157,7 @@ Global config at `~/.config/zerkalo/config.toml`:
 
 ```toml
 work_dir               = "/path/to/your/work/folder"
-bib_path               = "/path/to/references.bib"   # optional
+bib_path               = "/path/to/references.bib"   # optional — a .bib/.yaml file, or a Kartoteka vault folder
 debounce_ms            = 800
 auto_compile           = true
 theme                  = "system"    # "system" | "light" | "dark"

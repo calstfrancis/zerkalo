@@ -1,6 +1,6 @@
 [package]
 name = "zerkalo"
-version = "0.22.0"
+version = "0.23.0-dev1"
 edition = "2021"
 license = "MIT"
 description = "Contemplative Typst editor with live preview, LSP completions, and git sync"
@@ -27,7 +27,7 @@ regex = "1.10"
 chrono = "0.4"
 shellexpand = "3.1"
 notify = "6"
-rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
 biblatex = "0.11"
 hayagriva = "0.9"
 
@@ -35,6 +35,13 @@ hayagriva = "0.9"
 # for why this is the core crate specifically, not the `skrizhal` GUI
 # package, which pins an incompatible gtk4/libadwaita version).
 skrizhal-core = { git = "https://github.com/calstfrancis/skrizhal", tag = "v0.3.0" }
+
+# Kartoteka's shared bibliography model and vault file-watcher, for tight
+# integration with a Kartoteka vault as a live bibliography source (no
+# "acquire" feature — that pulls in reqwest/tokio for DOI/ISBN lookup,
+# irrelevant here).
+fond-bib = { git = "https://github.com/calstfrancis/kartoteka" }
+fond-vault = { git = "https://github.com/calstfrancis/kartoteka" }
 
 # Embedded Typst compiler
 typst = "0.14"

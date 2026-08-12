@@ -43,32 +43,49 @@ pub(super) fn wire_citations(ctx: &CitationCtx) -> Rc<RefCell<Option<PathBuf>>> 
         ctx.citation_panel.set_bib_filename(bp.file_name().and_then(|n| n.to_str()));
         ctx.ref_manager.load_bib(bp);
 
-        let editor_for_bib = ctx.editor_pane.clone();
-        let citation_for_bib = ctx.citation_panel.clone();
-        let bib_for_watch = bp.clone();
-        let last_mtime: Rc<RefCell<Option<SystemTime>>> = Rc::new(RefCell::new(
-            std::fs::metadata(&bib_for_watch)
-                .and_then(|m| m.modified())
-                .ok(),
-        ));
-        glib::timeout_add_local(Duration::from_secs(5), move || {
-            let current = std::fs::metadata(&bib_for_watch)
-                .and_then(|m| m.modified())
-                .ok();
-            let changed = match (*last_mtime.borrow(), current) {
-                (Some(old), Some(new)) => old != new,
-                (None, Some(_)) => true,
-                _ => false,
-            };
-            if changed {
-                *last_mtime.borrow_mut() = current;
+        if bibliography::is_vault_dir(bp) {
+            let editor_for_bib = ctx.editor_pane.clone();
+            let citation_for_bib = ctx.citation_panel.clone();
+            let bib_for_watch = bp.clone();
+            // Leaked deliberately: the watch must outlive `wire_citations`
+            // (called once from `AppWindow::new`), and there is exactly one
+            // per window for the process's lifetime — same lifetime as the
+            // window itself, so there is nothing to reclaim it into.
+            let watch = crate::vault_watch::start(bp.clone(), move || {
                 let entries = bibliography::load_bib(&bib_for_watch);
-                tracing::info!("Reloaded {} bib entries", entries.len());
+                tracing::info!("Reloaded {} bib entries from vault", entries.len());
                 editor_for_bib.set_bib_entries(entries.clone());
                 citation_for_bib.load_bib(entries);
-            }
-            glib::ControlFlow::Continue
-        });
+            });
+            std::mem::forget(watch);
+        } else {
+            let editor_for_bib = ctx.editor_pane.clone();
+            let citation_for_bib = ctx.citation_panel.clone();
+            let bib_for_watch = bp.clone();
+            let last_mtime: Rc<RefCell<Option<SystemTime>>> = Rc::new(RefCell::new(
+                std::fs::metadata(&bib_for_watch)
+                    .and_then(|m| m.modified())
+                    .ok(),
+            ));
+            glib::timeout_add_local(Duration::from_secs(5), move || {
+                let current = std::fs::metadata(&bib_for_watch)
+                    .and_then(|m| m.modified())
+                    .ok();
+                let changed = match (*last_mtime.borrow(), current) {
+                    (Some(old), Some(new)) => old != new,
+                    (None, Some(_)) => true,
+                    _ => false,
+                };
+                if changed {
+                    *last_mtime.borrow_mut() = current;
+                    let entries = bibliography::load_bib(&bib_for_watch);
+                    tracing::info!("Reloaded {} bib entries", entries.len());
+                    editor_for_bib.set_bib_entries(entries.clone());
+                    citation_for_bib.load_bib(entries);
+                }
+                glib::ControlFlow::Continue
+            });
+        }
     }
 
     // ── Auto-detect .bib when no bib is configured ─────────────────────────

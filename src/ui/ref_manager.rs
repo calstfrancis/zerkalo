@@ -173,9 +173,13 @@ impl RefManager {
                         .and_then(|e| e.to_str())
                         .is_some_and(|ext| ext.eq_ignore_ascii_case("yaml") || ext.eq_ignore_ascii_case("yml"))
                 });
-                if bib.is_none() || is_yaml {
+                let is_vault = bib.as_ref().is_some_and(|path| crate::bibliography::is_vault_dir(path));
+                if bib.is_none() || is_yaml || is_vault {
                     let root = btn.root().and_then(|r| r.downcast::<gtk4::Window>().ok());
-                    let (title, body) = if is_yaml {
+                    let (title, body) = if is_vault {
+                        ("Kartoteka vault is read-only here",
+                         "Add or edit entries in Kartoteka — Zerkalo just reads the vault live.")
+                    } else if is_yaml {
                         ("YAML bibliography is read-only",
                          "Adding new entries is only supported for .bib files. Edit the .yaml file directly, or switch to a .bib bibliography in Settings.")
                     } else {
