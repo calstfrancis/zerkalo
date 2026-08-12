@@ -154,8 +154,8 @@ impl SettingsDialog {
         compile_group.set_title("Compilation");
 
         let debounce_spin = adw::SpinRow::with_range(100.0, 5000.0, 50.0);
-        debounce_spin.set_title("Debounce");
-        debounce_spin.set_subtitle("Milliseconds between last keystroke and recompile (Auto mode only)");
+        debounce_spin.set_title("Compile delay");
+        debounce_spin.set_subtitle("Milliseconds to wait after you stop typing before recompiling (Auto mode only)");
         debounce_spin.set_value(current.debounce_ms as f64);
 
         // 3-way pill: Auto | On Save | Manual
@@ -442,11 +442,6 @@ impl SettingsDialog {
         spell_enabled_row.set_title("Enable spell check");
         spell_enabled_row.set_active(current.spell_enabled);
 
-        let spell_autocorrect_row = adw::SwitchRow::new();
-        spell_autocorrect_row.set_title("Autocorrect");
-        spell_autocorrect_row.set_subtitle("Replace on word boundary (edit distance ≤ 1)");
-        spell_autocorrect_row.set_active(current.spell_autocorrect);
-
         let available_langs = crate::spellcheck::SpellChecker::available_languages();
 
         // ── Language list ─────────────────────────────────────────────────────
@@ -485,7 +480,6 @@ impl SettingsDialog {
         }
 
         spell_group.add(&spell_enabled_row);
-        spell_group.add(&spell_autocorrect_row);
         spell_group.add(&lang_list_box);
         spell_group.add(&add_combo);
 
@@ -527,7 +521,10 @@ impl SettingsDialog {
         keys_group.set_title("Keyboard Shortcuts");
         let keys_row = adw::ActionRow::new();
         keys_row.set_title("Shortcut bindings");
-        keys_row.set_subtitle(&crate::keybindings::keybindings_path().to_string_lossy());
+        keys_row.set_subtitle("Customize any shortcut by editing a text file");
+        keys_row.set_tooltip_text(Some(
+            &crate::keybindings::keybindings_path().to_string_lossy(),
+        ));
         let keys_btn = Button::with_label("Open File");
         keys_btn.set_valign(Align::Center);
         {
@@ -553,8 +550,8 @@ impl SettingsDialog {
         keys_group.add(&keys_row);
 
         let sync_group = adw::PreferencesGroup::new();
-        sync_group.set_title("GitHub Sync");
-        sync_group.set_description(Some("Sign in with GitHub to push your work when you click Sync."));
+        sync_group.set_title("Backup & Sync");
+        sync_group.set_description(Some("Sign in with GitHub to back up your work online when you sync."));
 
         let account_row = adw::ActionRow::new();
         account_row.set_title("Account");
@@ -616,8 +613,8 @@ impl SettingsDialog {
         page_extras.add(&bib_group);
         page_extras.add(&cv_group);
         page_extras.add(&spell_group);
-        let sp_extras = view_stack.add_titled(&page_extras, Some("extras"), "Extras");
-        sp_extras.set_icon_name(Some("view-list-symbolic"));
+        let sp_extras = view_stack.add_titled(&page_extras, Some("extras"), "References & Spelling");
+        sp_extras.set_icon_name(Some("accessories-dictionary-symbolic"));
 
         let switcher = adw::ViewSwitcher::new();
         switcher.set_stack(Some(&view_stack));
@@ -629,6 +626,10 @@ impl SettingsDialog {
         let toolbar_view = adw::ToolbarView::new();
         toolbar_view.set_top_bar_style(adw::ToolbarStyle::RaisedBorder);
         toolbar_view.add_top_bar(&header);
+        // .fond-ground: the recessed plane the suite's group/card rows sit on
+        // — previously only the header carried a Fond surface class, so the
+        // page content read as a plain, disconnected white box.
+        view_stack.add_css_class("fond-ground");
         toolbar_view.set_content(Some(&view_stack));
         window.set_content(Some(&toolbar_view));
 
@@ -695,7 +696,6 @@ impl SettingsDialog {
             let high_contrast_row = high_contrast_row.clone();
             let word_count_goal_spin = word_count_goal_spin.clone();
             let spell_enabled_row = spell_enabled_row.clone();
-            let spell_autocorrect_row = spell_autocorrect_row.clone();
             let selected_langs = selected_langs.clone();
             let dev_mode_row = dev_mode_row.clone();
             let batch_concurrency_row = batch_concurrency_row.clone();
@@ -708,6 +708,12 @@ impl SettingsDialog {
             // Owned by the hamburger's own toggle, not this dialog — carried
             // through so saving preferences doesn't switch the UI font back.
             let gost_font_cur = current.gost_font;
+            // Same story: the hamburger's Autocorrect toggle is the one
+            // control for this setting (matches the GOST-font pattern above)
+            // — Settings used to have a second, independently-wired switch
+            // for the same config field, which read back correctly but was a
+            // duplicate control for one setting.
+            let spell_autocorrect_cur = current.spell_autocorrect;
             let last_export_format_cur = current.last_export_format;
             let auto_save_idle_ms_cur = current.auto_save_idle_ms;
             let active_profile_cur = current.active_profile.clone();
@@ -801,7 +807,7 @@ impl SettingsDialog {
                     editor_tab_width: tab_spin.value() as u32,
                     preview_zoom: preview_zoom_cur,
                     spell_enabled: spell_enabled_row.is_active(),
-                    spell_autocorrect: spell_autocorrect_row.is_active(),
+                    spell_autocorrect: spell_autocorrect_cur,
                     spell_languages,
                     editor_line_spacing,
                     typewriter_scrolling: typewriter_row.is_active(),
