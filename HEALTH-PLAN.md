@@ -400,10 +400,18 @@ widget-construction/wiring core, which stays as `mod.rs`):
   cv-helpers.typ")` paths needed an extra `../` since the file moved one
   directory deeper. All 484 tests passed unchanged (pure move, confirmed by
   zero test-count or behavior change).
-- **9b — `generate.rs`** (~1,126 lines): "Template generator" +
-  "CV template generator" + "CV: two-column sidebar layout" +
-  `heading_styles` (lines 3308–4433). Pure `&TemplateSettings -> String`
-  functions, no GTK, covered by the "every X compiles" test family.
+- **9b ☑ DONE (2026-08-12) — `generate.rs`** (1,133 lines). "Template
+  generator" + "CV template generator" + "CV: two-column sidebar layout" +
+  `heading_styles`, same sed-extraction approach as 9a. Same two fixup
+  categories recurred: several `generate.rs` functions (`header_block`,
+  `package_import`, `margin_values`, `resolve_font_size`,
+  `default_dropcap_lines`, `extract_heading_numbering`,
+  `inject_heading_numbering`) are also called from `parsing.rs` (a sibling
+  module) and `mod.rs`, so all of `generate.rs`'s free functions got bumped
+  to `pub(crate)` uniformly, same fix as 9a. No `include_str!` paths in this
+  block. All 484 tests passed unchanged.
+  `mod.rs`: 6,528 → **5,404 lines** (down from the original 7,585 before
+  9a/9b combined).
 - **9c — `sidecar.rs`** (~554 lines): "Sidecar persistence" +
   body-splice/marker logic + legacy CV helpers (lines 2606–3160). Mostly pure,
   plus file I/O (`write_atomically`, `backup_document`, `save_sidecar`) — no
