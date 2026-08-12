@@ -228,6 +228,8 @@ impl LibraryWindow {
 
         let clear_btn = Button::from_icon_name("window-close-symbolic");
         clear_btn.add_css_class("flat");
+        clear_btn.set_tooltip_text(Some("Clear selection"));
+        clear_btn.update_property(&[gtk4::accessible::Property::Label("Clear selection")]);
         action_bar.append(&clear_btn);
 
         action_bar_revealer.set_child(Some(&action_bar));
@@ -2231,6 +2233,8 @@ impl LibraryWindow {
 
                 let edit = Button::from_icon_name("document-edit-symbolic");
                 edit.add_css_class("flat");
+                edit.set_tooltip_text(Some("Rename tag"));
+                edit.update_property(&[gtk4::accessible::Property::Label(&format!("Rename tag {}", tag.name))]);
                 let this_e = this.clone();
                 let tid_e = tag.id;
                 let tag_name_e = tag.name.clone();
@@ -2269,6 +2273,8 @@ impl LibraryWindow {
 
                 let del = Button::from_icon_name("user-trash-symbolic");
                 del.add_css_class("flat");
+                del.set_tooltip_text(Some("Delete tag"));
+                del.update_property(&[gtk4::accessible::Property::Label(&format!("Delete tag {}", tag.name))]);
                 let this2 = this.clone();
                 let tid = tag.id;
                 let rs_d = rs_outer.clone();
