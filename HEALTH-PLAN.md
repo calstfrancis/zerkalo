@@ -172,21 +172,46 @@ a `rev = "<sha>"` instead), matching the `skrizhal-core` convention.
 
 ## Phase 5 — CV template-kind desync (structural fix)
 
-**Status:** ☐ not started
-**Risk:** medium · **Effort:** medium · **Depends on:** nothing
+**Status:** ☑ DONE (2026-08-12) — investigated; the structural fix the phase
+called for already exists. One stale comment fixed, no behavioral change.
 
-CHANGELOG records the "Update Template Settings" crash on CV documents
-(`unknown variable: section`) being fixed twice — once by restoring template
-kind from sidecar/marker, again because an already-corrupted sidecar
-perpetuated itself, requiring a second fix that cross-checks body content.
-Template kind is tracked in more than one place that can desync.
+Mapped every place template kind is stored, per the phase's own instruction to
+design-first:
+1. **In-document marker** — `// @zerkalo-kind:` comment, read by
+   `parse_doc_kind`.
+2. **Sidecar file** — `SidecarSettings::body_kind: String`
+   (`load_sidecar`/`save_sidecar`), a cache of the last "Apply."
+3. **In-memory dialog state** — `TemplateDialog`'s `body_kind: Rc<RefCell<BodyKind>>`,
+   scoped to one dialog session only.
+4. **The document body itself** — whether it actually calls `#cv-section(...)`
+   or imports `cv-helpers.typ` (`body_looks_like_cv`).
 
-**Fix:** before touching code, map out every place template kind is stored
-(sidecar file, in-document marker, any in-memory `TemplateDialog` state) and
-pick one source of truth; the others become derived/cached, not independently
-writable. This is the kind of judgment-call refactor `REFACTOR-PLAN.md`
-explicitly says to stop and reconsider rather than push through mechanically —
-treat this phase as design-first, not a blind extraction.
+Reading `open_template_for_active_document` (`app_window/mod.rs`, the single
+function both the header's "Template" button and the hamburger's "Update
+Template Settings…" call — already consolidated from two drifting ~110-line
+copies, per its own doc comment) shows the second CHANGELOG fix already
+implemented exactly the "one source of truth" design this phase called for:
+sidecar/marker (1–2) are consulted first as a cache, every field the app can
+parse back out of the document is then re-derived from the document itself
+(3373–3416, "the sidecar is a cache of the last Apply and the document is
+what compiles"), and CV-ness specifically has an explicit final override
+(3418–3434) that trusts the body over sidecar/marker if they disagree —
+exactly closing the drift loop the CHANGELOG bug describes, and self-healing
+on every subsequent dialog-open even if something writes a stale sidecar
+again later.
+
+The one actual finding: `body_looks_like_cv`'s doc comment in
+`template_dialog.rs` still said "see its two call sites in app_window.rs" —
+stale since the consolidation above already reduced that to one. Fixed the
+comment to point at `open_template_for_active_document` and explain the
+consolidation, so a future reader doesn't go looking for a second site that
+no longer exists. No code behavior changed.
+
+Second finding worth the record even though it needed no fix: this is now the
+**second** phase (after Phase 3) where the original review's premise didn't
+survive investigation. Both undersold work already done — worth factoring in
+when weighing the remaining phases (7, 9, 10), which are review-sourced but
+not yet independently re-verified against current code the way 3 and 5 were.
 
 ---
 
