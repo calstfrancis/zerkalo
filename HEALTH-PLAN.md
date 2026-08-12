@@ -371,10 +371,57 @@ changes, no redesign, extract along existing seams, stop and reconsider if a
 seam needs a judgment call). Given the size of this already, it's the right
 place to check in before starting rather than launching into it.
 
-Suggested approach when it starts: follow the same phase structure
-`REFACTOR-PLAN.md` used for `editor_pane.rs`/`app_window.rs` — write it up as
-its own numbered sub-plan inside this phase, using this file's verification
-gate after every extraction.
+### Sub-plan (started 2026-08-12)
+
+`TemplateDialog::new` is already small (229 lines, per `REFACTOR-PLAN.md`
+Phase 2) — this isn't a monster-function problem like the other two files.
+It's ~150 free functions and impls with no internal module structure, none
+individually huge (largest ~500 lines). So this is a pure file split into a
+module directory, using the file's own `// ── banner ──` comments as seams,
+same principle as `REFACTOR-PLAN.md` Phase 3a/4. Ordered lowest-risk first
+(pure functions with existing dedicated tests) → highest-risk last (the GTK
+widget-construction/wiring core, which stays as `mod.rs`):
+
+- **9a ☑ DONE (2026-08-12) — `parsing.rs`** (1,078 lines incl. new header
+  comment). `template_dialog.rs` → `template_dialog/mod.rs` (6,528 lines) +
+  `template_dialog/parsing.rs`. "Preamble parsers for documents with no
+  sidecar" through "Title-page updater" banners, moved verbatim via `sed`
+  extraction (no hand-transcription). `parsing.rs` opens with `use super::*;`
+  (Rust's privacy rules already let a child module see its parent's private
+  items, so this needed no visibility changes on `mod.rs`'s side); `mod.rs`
+  gained `mod parsing; pub(crate) use parsing::*;` so external callers
+  (`template_dialog::parse_font` etc.) and the `#[cfg(test)] mod tests`
+  block's own `use super::*;` keep resolving unchanged. Two fixups the build
+  caught: a handful of `parsing.rs` functions turned out to also be called
+  from code that stayed in `mod.rs` (the reverse direction *isn't* automatic
+  — a parent can't see a child's private items), fixed by bumping all of
+  `parsing.rs`'s free functions to `pub(crate)` uniformly rather than
+  chasing individual call sites; and all six `include_str!("../../templates/
+  cv-helpers.typ")` paths needed an extra `../` since the file moved one
+  directory deeper. All 484 tests passed unchanged (pure move, confirmed by
+  zero test-count or behavior change).
+- **9b — `generate.rs`** (~1,126 lines): "Template generator" +
+  "CV template generator" + "CV: two-column sidebar layout" +
+  `heading_styles` (lines 3308–4433). Pure `&TemplateSettings -> String`
+  functions, no GTK, covered by the "every X compiles" test family.
+- **9c — `sidecar.rs`** (~554 lines): "Sidecar persistence" +
+  body-splice/marker logic + legacy CV helpers (lines 2606–3160). Mostly pure,
+  plus file I/O (`write_atomically`, `backup_document`, `save_sidecar`) — no
+  GTK.
+- **9d — `util.rs`** (~146 lines, lower priority): Typst-escaping helpers +
+  font list + small widget-builder helpers (lines 3161–3307). Mixed
+  pure/GTK, smallest chunk.
+- **Stays in `mod.rs`**: static data tables, `BodyKind`/`TemplateSettings`,
+  the `Dialog`/tab-builder/`FormWidgets` GTK construction, `TemplateDialog`
+  impl itself, and the `#[cfg(test)] mod tests` block — all re-export via
+  `pub use` from the split-out modules so external callers
+  (`template_dialog::parse_font` etc. from `app_window/mod.rs`) and the tests
+  keep working unchanged. No behavior change, no API change — same rule as
+  `REFACTOR-PLAN.md`: if a seam needs a judgment call, stop and leave it
+  inline rather than push through.
+
+Each sub-phase gets its own commit and full verification-gate run, per the
+non-negotiable rule at the top of this file.
 
 ---
 
