@@ -148,15 +148,37 @@ grep count without checking whether the matches were in test code, which
 
 ## Phase 4 — Pin `fond-bib`/`fond-vault` git dependencies
 
-**Status:** ☑ DONE (2026-08-12) — pinned via `rev` (Kartoteka has no release
-tags yet; only `v0.1.0-devN` tags, none matching the locked commit). Required
-bootstrapping `flatpak-cargo-generator.py` (fetched from the public
+**Status:** ☑ REVERTED (2026-08-12) — the `rev`-based pin broke the flatpak
+offline build; reverted to unpinned, matching what was already shipping.
+
+Originally pinned via `rev` (Kartoteka has no release tags yet; only
+`v0.1.0-devN` tags, none matching the locked commit at the time). That broke
+`./dev-build.sh`: flatpak-builder's offline cargo build failed trying to
+reach the network for the exact `?rev=...` source URL, even though
+`packaging/cargo-sources.json` was regenerated to match (its
+`[source."https://github.com/calstfrancis/kartoteka"]` table gained a
+matching `rev = "..."` field) — cargo's source-replacement matching did not
+treat that as equivalent to the `?rev=`-qualified URL cargo actually resolved
+in `Cargo.lock`. `skrizhal-core`'s `tag = "v0.3.0"` pin, by contrast, already
+works in this same pipeline — so this project's vendoring setup reliably
+matches `tag`-based git sources but not (at least not the way it was tried
+here) `rev`-based ones.
+
+**Reverted** `fond-bib`/`fond-vault` back to bare `git = "..."` (no rev),
+which re-resolved to Kartoteka's then-current HEAD (a newer commit than the
+one originally pinned) and regenerated `cargo-sources.json` to match — this
+is exactly the original unpinned/reproducibility-risk state the phase set
+out to fix, now knowingly left in place because the fix broke a working
+build. **Not re-attempted this session.** If this is worth revisiting: try
+pinning via `tag` once Kartoteka cuts a real release tag (matching
+`skrizhal-core`'s working pattern), rather than `rev` again.
+
+Required bootstrapping `flatpak-cargo-generator.py` (fetched from the public
 flatpak/flatpak-builder-tools repo — the usual `~/Projects/kartoteka/` copy
 wasn't present on this machine) plus `pip`/deps via `get-pip.py
---break-system-packages` (no venv/pip preinstalled). Regenerating
-`cargo-sources.json` was required even though the pinned commit is unchanged,
-because `Cargo.lock`'s source URL gained a `?rev=` query param.
-**Risk:** none · **Effort:** trivial · **Depends on:** nothing
+--break-system-packages` (no venv/pip preinstalled) — both reused for the
+revert.
+**Risk:** none (as reverted) · **Effort:** trivial · **Depends on:** nothing
 
 `Cargo.toml` pins `skrizhal-core` to `tag = "v0.3.0"` but leaves `fond-bib`/
 `fond-vault` (Kartoteka) as bare `git = "..."` with no tag/rev. `Cargo.lock`
