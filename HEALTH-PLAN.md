@@ -62,22 +62,53 @@ Doing this first so the next 9 phases don't add to the same clutter.
 
 ## Phase 2 — Wire in or delete `HistoryPanel`
 
-**Status:** ☐ not started
-**Risk:** low · **Effort:** small · **Depends on:** nothing
+**Status:** ☑ DONE (2026-08-12) — wired in, not deleted (Cal's call).
 
-`src/ui/history_panel.rs` (580 lines) is a complete git-history/diff panel that
-is never referenced from `app_window/*.rs` or `ui/mod.rs`. `theme.rs:21` has an
-`#[allow(dead_code)]` acknowledging it.
+Turned out `history_panel.rs` wasn't just unwired — it was never registered in
+`src/ui/mod.rs` at all, so it had never actually been compiled or linted as
+part of the binary. Wiring it in surfaced 3 pre-existing `clippy::ptr_arg`
+violations (`&PathBuf` params that should've been `&Path`) that had never been
+caught because the file was dead code from clippy's perspective too.
 
-**Decision needed first:** ask Cal whether this feature is still wanted before
-spending effort either way — don't default to "wire it in" without confirming
-it's still desired.
+What landed:
+- `mod history_panel;` registered in `src/ui/mod.rs`.
+- "File History…" row added to the hamburger menu (save/version group, right
+  after "Browse Snapshots…") and to the Ctrl+K command palette
+  (`browse_history`), both opening a small `adw::Window` wrapping
+  `HistoryPanel`'s existing widget — mirrors `SnapshotDialog`'s structure
+  closely, sharing the click-handler logic via a new
+  `app_window::show_file_history_window` helper used by both entry points.
+  Sensitivity-gated the same way as Browse Snapshots (insensitive with no
+  document open).
+- Removed the now-stale `#[allow(dead_code)]` on `theme::DiffColors::hunk_fg`
+  (was only unused because `HistoryPanel` wasn't reachable).
+- Added 3 unit tests for `git_log_for_file`/`git_diff_for_commit` against a
+  real temp git repo — this file had zero tests before. Did **not** add a
+  widget-construction test: no other file in the codebase calls `gtk4::init()`
+  in tests, and CI has no display, so that would've been a new (and likely
+  CI-breaking) precedent rather than following one.
 
-- If wiring in: add a sidebar/menu entry point, confirm `git log --follow`
-  call in `history_panel.rs:210,237` doesn't freeze the UI thread on large repos
-  (ties into Phase 8 below — consider async-wrapping at the same time).
-- If deleting: remove the file, the `theme.rs:21` dead-code allow, and check for
-  any other now-orphaned helpers it was the sole caller of.
+**Verification:** full gate green (484 tests, up from 481; clippy clean;
+version guard clean). Additionally ran the actual compiled binary headlessly
+(Xvfb + isolated XDG/HOME + `dbus-run-session`, per the root CLAUDE.md's
+documented recipe) against a demo project with real git history — app starts,
+loads the library DB, opens the document, and runs stably with the new code
+paths compiled in. **Could not get scripted UI interaction (Ctrl+K → type →
+Enter) to register** in this no-window-manager Xvfb setup — tried
+`xdotool key --window` (blocked by GDK's synthetic-XSendEvent guard) and
+`XTestFakeKeyEvent` after explicit `windowfocus` (silently didn't land either).
+This matches `capture-screenshots.sh`'s own documented conclusion that
+synthetic input isn't reliable without a WM in this environment — not a new
+problem, the existing screenshot scripts avoid interactive automation for the
+same reason. **Cal: worth a 10-second manual click on "File History…" the next
+time you're in the app**, since the actual menu-click → dialog-open path is the
+one thing untested by the above (the widget-construction code itself is a
+close structural copy of the already-shipped, production-used
+`SnapshotDialog`, so risk there is low).
+
+Deferred to Phase 8 (already tracked there): `git_log --follow` still runs
+synchronously on the main thread. Low urgency now that it's reachable but only
+via an explicit user action, not on every keystroke.
 
 ---
 

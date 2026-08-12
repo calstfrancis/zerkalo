@@ -32,7 +32,7 @@ use crate::git_sync;
 use super::{
     apply_compile_mode_css, apply_theme, compile_mode_label_str,
     print_from_preview, restore_snapshot_with_confirm,
-    show_alert,
+    show_alert, show_file_history_window,
 };
 use super::import::run_pdf_import;
 use super::sync::{do_sync, show_backup_remote_dialog};
@@ -701,6 +701,18 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
             restore_snapshot_with_confirm(&win_for_restore, &ep, &pp_path, text);
         });
         dialog.present();
+    });
+
+    // ── Menu: File History ────────────────────────────────────────────────
+
+    let window_for_history = ctx.window.clone();
+    let editor_for_history = ctx.editor_pane.clone();
+    let root_for_history = ctx.project_root.clone();
+    let menu_popover_for_history = ctx.menu_popover.clone();
+    menus.menu_history_item.connect_clicked(move |_| {
+        menu_popover_for_history.popdown();
+        let Some(path) = editor_for_history.get_active_path() else { return };
+        show_file_history_window(&window_for_history, &root_for_history, &path);
     });
 
     // ── Sync button ─────────────────────────────────────────────────────

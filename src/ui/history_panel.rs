@@ -1,9 +1,8 @@
 use std::cell::RefCell;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use gtk4::prelude::*;
-use libadwaita as adw;
 use gtk4::{
     Box as GtkBox, Label, ListBox, ListBoxRow, Orientation,
     ScrolledWindow, SelectionMode, Separator, TextTag, TextView, WrapMode,
@@ -111,8 +110,8 @@ impl HistoryPanel {
         &self.widget
     }
 
-    pub fn load_file_history(&self, file_path: &PathBuf) {
-        *self.current_file.borrow_mut() = Some(file_path.clone());
+    pub fn load_file_history(&self, file_path: &Path) {
+        *self.current_file.borrow_mut() = Some(file_path.to_path_buf());
 
         while let Some(child) = self.list_box.first_child() {
             self.list_box.remove(&child);
@@ -198,7 +197,7 @@ fn apply_colored_diff(buf: &gtk4::TextBuffer, diff: &str) {
     }
 }
 
-fn git_log_for_file(root: &PathBuf, file: &PathBuf) -> Vec<(String, String, String)> {
+fn git_log_for_file(root: &Path, file: &Path) -> Vec<(String, String, String)> {
     // Uses git_sync's `-C <repo>` invocation (rather than host_command() +
     // current_dir()) — under flatpak, current_dir() only sets the sandboxed
     // flatpak-spawn wrapper's cwd, not the host git process's, so it isn't a
@@ -230,7 +229,7 @@ fn git_log_for_file(root: &PathBuf, file: &PathBuf) -> Vec<(String, String, Stri
     }
 }
 
-fn git_diff_for_commit(root: &PathBuf, file: &PathBuf, oid: &str) -> String {
+fn git_diff_for_commit(root: &Path, file: &Path, oid: &str) -> String {
     let out = crate::git_sync::git_cmd(root)
         .args(["show", "--stat", "--patch", oid, "--"])
         .arg(file)
@@ -239,5 +238,69 @@ fn git_diff_for_commit(root: &PathBuf, file: &PathBuf, oid: &str) -> String {
     match out {
         Ok(o) => String::from_utf8_lossy(&o.stdout).into_owned(),
         Err(e) => format!("Could not load diff: {e}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::process::Command;
+
+    fn git(root: &Path, args: &[&str]) {
+        let status = Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(args)
+            .status()
+            .expect("git must be on PATH for this test");
+        assert!(status.success(), "git {args:?} failed in {root:?}");
+    }
+
+    /// Sets up a repo with two commits touching `main.typ`, so history/diff
+    /// lookups have real data to find.
+    fn repo_with_history() -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        git(&root, &["init", "-q"]);
+        git(&root, &["config", "user.email", "test@example.com"]);
+        git(&root, &["config", "user.name", "Test"]);
+
+        let file = root.join("main.typ");
+        std::fs::write(&file, "= First\n").unwrap();
+        git(&root, &["add", "main.typ"]);
+        git(&root, &["commit", "-q", "-m", "first commit"]);
+
+        std::fs::write(&file, "= First\n\n= Second\n").unwrap();
+        git(&root, &["add", "main.typ"]);
+        git(&root, &["commit", "-q", "-m", "second commit"]);
+
+        (dir, file)
+    }
+
+    #[test]
+    fn git_log_for_file_lists_commits_newest_first() {
+        let (dir, file) = repo_with_history();
+        let commits = git_log_for_file(dir.path(), &file);
+        assert_eq!(commits.len(), 2);
+        assert_eq!(commits[0].1, "second commit");
+        assert_eq!(commits[1].1, "first commit");
+    }
+
+    #[test]
+    fn git_log_for_file_is_empty_outside_a_repo() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("untracked.typ");
+        std::fs::write(&file, "content").unwrap();
+        let commits = git_log_for_file(dir.path(), &file);
+        assert!(commits.is_empty());
+    }
+
+    #[test]
+    fn git_diff_for_commit_shows_the_added_heading() {
+        let (dir, file) = repo_with_history();
+        let commits = git_log_for_file(dir.path(), &file);
+        let newest_oid = &commits[0].0;
+        let diff = git_diff_for_commit(dir.path(), &file, newest_oid);
+        assert!(diff.contains("+= Second"), "diff was: {diff}");
     }
 }

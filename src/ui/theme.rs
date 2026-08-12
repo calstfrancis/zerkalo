@@ -18,7 +18,6 @@ pub struct DiffColors {
     pub removed_fg: &'static str,
     pub added_bg: &'static str,
     pub added_fg: &'static str,
-    #[allow(dead_code)] // only read by history_panel.rs, which is not currently wired into the app
     pub hunk_fg: &'static str,
 }
 
