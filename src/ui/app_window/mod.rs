@@ -3138,11 +3138,7 @@ struct HamburgerItems {
     menu_print_item: Button,
     menu_import_item: Button,
     menu_docs_item: Button,
-    menu_fonts_item: Button,
     menu_settings_item: Button,
-    menu_setup_item: Button,
-    menu_tools_item: Button,
-    menu_backup_remote_item: Button,
     menu_help_item: Button,
     menu_shortcuts_item: Button,
     menu_writing_stats_item: Button,
@@ -3174,11 +3170,7 @@ fn build_hamburger_menu_items() -> HamburgerItems {
         menu_print_item:           make_menu_item("Print\u{2026}",               Some("Ctrl+P")),
         menu_import_item:          make_menu_item("Import…",                     Some("Ctrl+Shift+I")),
         menu_docs_item:            make_menu_item("Browse Documents…",           None),
-        menu_fonts_item:           make_menu_item("Document Fonts…",             None),
         menu_settings_item:        make_menu_item("Settings",                    None),
-        menu_setup_item:           make_menu_item("Set Up Zerkalo…",             None),
-        menu_tools_item:           make_menu_item("Tools…",                      None),
-        menu_backup_remote_item:   make_menu_item("Backup Locations…",            None),
         menu_help_item:            make_menu_item("Help",                      Some("Ctrl+?")),
         // The keybinding-aware shortcuts window was reachable only by its
         // shortcut; nothing in the menu opened it.

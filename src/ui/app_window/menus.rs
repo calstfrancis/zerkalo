@@ -101,12 +101,41 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
     let compile_mode_label_for_settings = ctx.compile_mode_label.clone();
     let preview_for_settings = ctx.preview_pane.clone();
     let citation_for_settings = ctx.citation_panel.clone();
+    let root_for_settings = ctx.project_root.clone();
     menus.menu_settings_item.connect_clicked(move |_| {
         menu_popover_for_settings.popdown();
         let dialog = SettingsDialog::new(
             &window_for_settings,
             &current_config_for_settings.borrow(),
         );
+
+        // These three used to be their own hamburger rows; the dialog itself
+        // doesn't know how to construct them (FontManager needs the
+        // adw::ApplicationWindow, the other two need project_root), so the
+        // caller supplies "open it" the same way it already supplies
+        // on_save/on_preview.
+        {
+            let win = window_for_settings.clone();
+            let cfg = current_config_for_settings.clone();
+            dialog.set_on_open_font_manager(move || {
+                let c = cfg.borrow();
+                FontManager::new(&win, &c.default_sans_font, &c.default_serif_font).present();
+            });
+        }
+        {
+            let win = window_for_settings.clone();
+            let root = root_for_settings.clone();
+            dialog.set_on_open_setup_wizard(move || {
+                super::super::setup_wizard::SetupWizard::new(&win, &root).present();
+            });
+        }
+        {
+            let win = window_for_settings.clone();
+            let root = root_for_settings.clone();
+            dialog.set_on_open_backup_locations(move || {
+                show_backup_remote_dialog(&win, &root);
+            });
+        }
         let editor = editor_for_settings.clone();
         let debounce = debounce_for_settings.clone();
         let auto_flag = auto_compile_for_settings.clone();
@@ -263,35 +292,6 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
         super::super::welcome_window::WelcomeWindow::new(&window_for_whats_new, false).present();
     });
 
-    // ── Menu: Setup & Onboarding ────────────────────────────────────────
-
-    let window_for_setup = ctx.window.clone();
-    let root_for_setup = ctx.project_root.clone();
-    let menu_popover_for_setup = ctx.menu_popover.clone();
-    menus.menu_setup_item.connect_clicked(move |_| {
-        menu_popover_for_setup.popdown();
-        super::super::setup_wizard::SetupWizard::new(&window_for_setup, &root_for_setup).present();
-    });
-
-    // ── Menu: Tools ─────────────────────────────────────────────────────
-
-    let window_for_tools = ctx.window.clone();
-    let menu_popover_for_tools = ctx.menu_popover.clone();
-    menus.menu_tools_item.connect_clicked(move |_| {
-        menu_popover_for_tools.popdown();
-        super::super::tools_window::ToolsWindow::new(&window_for_tools).present();
-    });
-
-    // ── Menu: Backup Remotes ────────────────────────────────────────────
-
-    let window_for_backup = ctx.window.clone();
-    let root_for_backup = ctx.project_root.clone();
-    let menu_popover_for_backup = ctx.menu_popover.clone();
-    menus.menu_backup_remote_item.connect_clicked(move |_| {
-        menu_popover_for_backup.popdown();
-        show_backup_remote_dialog(&window_for_backup, &root_for_backup);
-    });
-
     // ── Menu: About ─────────────────────────────────────────────────────
 
     let window_for_about = ctx.window.clone();
@@ -416,17 +416,6 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
         });
         ctx.print_header_btn.connect_clicked(move |_| open_print_sheet());
     }
-
-    // ── Menu: Font Management ───────────────────────────────────────────
-
-    let window_for_fonts = ctx.window.clone();
-    let menu_popover_for_fonts = ctx.menu_popover.clone();
-    let cfg_for_fonts = ctx.current_config.clone();
-    menus.menu_fonts_item.connect_clicked(move |_| {
-        menu_popover_for_fonts.popdown();
-        let cfg = cfg_for_fonts.borrow();
-        FontManager::new(&window_for_fonts, &cfg.default_sans_font, &cfg.default_serif_font).present();
-    });
 
 }
 

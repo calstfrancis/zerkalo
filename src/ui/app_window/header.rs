@@ -15,11 +15,9 @@ use super::{HamburgerItems, build_hamburger_menu_items};
 pub(super) struct Menus {
     pub(super) menu_about_item: Button,
     pub(super) menu_whats_new_item: Button,
-    pub(super) menu_backup_remote_item: Button,
     pub(super) menu_docs_item: Button,
     pub(super) menu_export_item: Button,
     pub(super) menu_export_web_item: Button,
-    pub(super) menu_fonts_item: Button,
     pub(super) menu_help_item: Button,
     pub(super) menu_shortcuts_item: Button,
     pub(super) menu_import_item: Button,
@@ -33,10 +31,8 @@ pub(super) struct Menus {
     pub(super) menu_save_as_item: Button,
     pub(super) menu_save_item: Button,
     pub(super) menu_settings_item: Button,
-    pub(super) menu_setup_item: Button,
     pub(super) menu_snapshots_item: Button,
     pub(super) menu_history_item: Button,
-    pub(super) menu_tools_item: Button,
     pub(super) menu_writing_stats_item: Button,
 }
 
@@ -159,11 +155,9 @@ pub(super) fn build_header() -> HeaderWidgets {
     // ── Hamburger menu items (using make_menu_item for left+shortcut layout) ──
     let HamburgerItems {
         menu_about_item,
-        menu_backup_remote_item,
         menu_docs_item,
         menu_export_item,
         menu_export_web_item,
-        menu_fonts_item,
         menu_help_item,
         menu_shortcuts_item,
         menu_whats_new_item,
@@ -178,27 +172,24 @@ pub(super) fn build_header() -> HeaderWidgets {
         menu_save_as_item,
         menu_save_item,
         menu_settings_item,
-        menu_setup_item,
         menu_snapshots_item,
         menu_history_item,
-        menu_tools_item,
         menu_writing_stats_item,
     } = build_hamburger_menu_items();
 
     // ── Popover layout ────────────────────────────────────────────────────
     //
     // Grouped into seven logical clusters (New & Open, Current Document,
-    // Save & Versions, Export & Print, App, Account & Backup, Help) — the
-    // regrouping itself is the real fix over the old ten-cluster layout.
-    // A first pass labelled each cluster with `fond_section_header` (the
-    // sidebar panels' section-header widget), which turned out to make the
-    // hamburger's `MenuButton` stop opening its `Popover` at all in real
-    // use — reproduced consistently, cause not yet isolated (a headless
-    // bisect couldn't distinguish it from known-good history, since
-    // Popovers don't appear to open reliably in this environment's
-    // headless test setup at all — see git history for the investigation).
-    // Reverted to plain separators between clusters until the labelled
-    // version can be root-caused and fixed without breaking the menu.
+    // Save & Versions, Export & Print, App, Help) — down from seven, since
+    // Document Fonts, Set Up Zerkalo, Backup Locations, and Tools moved into
+    // Settings (they're one-off/rarely-touched configuration, not everyday
+    // actions — Settings is also where people actually look for that kind of
+    // thing). A first pass labelled each cluster with `fond_section_header`
+    // (the sidebar panels' section-header widget), which turned out to make
+    // the hamburger's `MenuButton` stop opening its `Popover` at all in real
+    // use — reproduced consistently, cause not yet isolated. Left as plain
+    // separators between clusters until that can be root-caused and fixed
+    // without breaking the menu.
     let menu_popover_box = GtkBox::new(Orientation::Vertical, 0);
     menu_popover_box.set_margin_top(4);
     menu_popover_box.set_margin_bottom(4);
@@ -228,27 +219,14 @@ pub(super) fn build_header() -> HeaderWidgets {
     menu_popover_box.append(&menu_export_web_item);
     menu_popover_box.append(&menu_print_item);
     menu_popover_box.append(&Separator::new(Orientation::Horizontal));
-    // App. Two different font surfaces used to sit here reading as
-    // competitors, so each now says which fonts it is about. The two quick
-    // toggles filled in from editor_pane (GOST font, Autocorrect) join this
-    // section rather than getting their own — they're app-wide behaviour
-    // switches, the same category as Settings itself.
+    // App
     menu_settings_item.set_tooltip_text(Some(
         "App preferences — including the font the editor text is displayed in",
     ));
-    menu_fonts_item.set_tooltip_text(Some(
-        "Fonts used in the compiled document, not in the editor",
-    ));
     menu_popover_box.append(&menu_settings_item);
-    menu_popover_box.append(&menu_fonts_item);
     // Filled once editor_pane exists — it owns the buttons and their state.
     let gost_menu_slot = GtkBox::new(Orientation::Vertical, 0);
     menu_popover_box.append(&gost_menu_slot);
-    menu_popover_box.append(&Separator::new(Orientation::Horizontal));
-    // Account & backup
-    menu_popover_box.append(&menu_setup_item);
-    menu_popover_box.append(&menu_backup_remote_item);
-    menu_popover_box.append(&menu_tools_item);
     menu_popover_box.append(&Separator::new(Orientation::Horizontal));
     // Help: What's New and Writing Stats are both "look at information about
     // the app or your work," the same drawer as About/Help/Shortcuts, rather
@@ -329,11 +307,9 @@ pub(super) fn build_header() -> HeaderWidgets {
     HeaderWidgets {
         menus: Menus {
             menu_about_item,
-            menu_backup_remote_item,
             menu_docs_item,
             menu_export_item,
             menu_export_web_item,
-            menu_fonts_item,
             menu_help_item,
             menu_shortcuts_item,
             menu_whats_new_item,
@@ -348,10 +324,8 @@ pub(super) fn build_header() -> HeaderWidgets {
             menu_save_as_item,
             menu_save_item,
             menu_settings_item,
-            menu_setup_item,
             menu_snapshots_item,
             menu_history_item,
-            menu_tools_item,
             menu_writing_stats_item,
         },
         compile_btn,
