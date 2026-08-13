@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.23.0-dev2] — Kartoteka vault as a live bibliography source
+## [0.23.0-dev3] — Kartoteka vault as a live bibliography source
 
 ### Added
 
