@@ -21,11 +21,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
-- **The hamburger menu is grouped and labelled.** 26 rows used to sit in ten
-  clusters separated by plain lines, with nothing saying what each cluster was
-  for. They're now seven clearly labelled sections — New & Open, Current
-  Document, Save & Versions, Export & Print, App, Account & Backup, Help —
-  using the same section-header style the sidebar panels already use.
+- **The hamburger menu is regrouped into seven logical clusters** — New &
+  Open, Current Document, Save & Versions, Export & Print, App, Account &
+  Backup, Help — down from ten, still separated by plain lines. (A first pass
+  added an actual label to each cluster; that made the menu button stop
+  opening the popover at all in real use, so it's reverted to unlabelled
+  separators for now — the labelling is still worth doing once the cause is
+  found.)
 - **Settings dialog cleaned up for plain language.** "Debounce" is now
   "Compile delay"; "GitHub Sync" is now "Backup & Sync"; the Keyboard
   Shortcuts row no longer shows a raw file path as its description (the path
