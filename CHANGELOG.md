@@ -21,13 +21,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
-- **The hamburger menu is regrouped into seven logical clusters** — New &
-  Open, Current Document, Save & Versions, Export & Print, App, Account &
-  Backup, Help — down from ten, still separated by plain lines. (A first pass
-  added an actual label to each cluster; that made the menu button stop
-  opening the popover at all in real use, so it's reverted to unlabelled
-  separators for now — the labelling is still worth doing once the cause is
-  found.)
+- **The hamburger menu is down to 20 rows in five clusters** — New & Open,
+  Current Document, Save & Versions, Export & Print, App, Help — from 26 rows
+  in seven. Four rows that were one-off or rarely-touched configuration
+  moved into Settings instead, which is where people already look for that
+  kind of thing: **Document Fonts…** is now a "Manage…" button beside
+  Settings' existing font pickers; **Set Up Zerkalo…** is a "Run…" button in
+  a new Setup group; **Backup Locations…** is a "Manage…" button in Backup &
+  Sync; **Tools…** is embedded directly as its own group, still live-checking
+  installed tools when the window regains focus. (Separately: a first pass at
+  labelling each remaining hamburger cluster made the menu button stop
+  opening the popover at all in real use — reverted to plain separators for
+  now, worth revisiting once the cause is found.)
 - **Settings dialog cleaned up for plain language.** "Debounce" is now
   "Compile delay"; "GitHub Sync" is now "Backup & Sync"; the Keyboard
   Shortcuts row no longer shows a raw file path as its description (the path

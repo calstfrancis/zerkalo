@@ -57,6 +57,9 @@ pub struct SettingsDialog {
     window: adw::Window,
     on_save: Rc<RefCell<Option<Box<dyn Fn(Config)>>>>,
     on_preview: Rc<RefCell<Option<Box<dyn Fn(Config)>>>>,
+    on_open_font_manager: Rc<RefCell<Option<Box<dyn Fn()>>>>,
+    on_open_setup_wizard: Rc<RefCell<Option<Box<dyn Fn()>>>>,
+    on_open_backup_locations: Rc<RefCell<Option<Box<dyn Fn()>>>>,
 }
 
 impl SettingsDialog {
@@ -74,6 +77,9 @@ impl SettingsDialog {
 
         let on_save: Rc<RefCell<Option<Box<dyn Fn(Config)>>>> = Rc::new(RefCell::new(None));
         let on_preview: Rc<RefCell<Option<Box<dyn Fn(Config)>>>> = Rc::new(RefCell::new(None));
+        let on_open_font_manager: Rc<RefCell<Option<Box<dyn Fn()>>>> = Rc::new(RefCell::new(None));
+        let on_open_setup_wizard: Rc<RefCell<Option<Box<dyn Fn()>>>> = Rc::new(RefCell::new(None));
+        let on_open_backup_locations: Rc<RefCell<Option<Box<dyn Fn()>>>> = Rc::new(RefCell::new(None));
         // Set by Save so the close-request revert below leaves the newly saved
         // appearance alone.
         let saved_flag = Rc::new(std::cell::Cell::new(false));
@@ -294,8 +300,28 @@ impl SettingsDialog {
             &doc_fonts, &current.default_serif_font, SERIF_FONT_PRIORITY,
         ));
 
+        // Which fonts exist to choose from, not just which is the default —
+        // this used to be its own hamburger row ("Document Fonts…"), reading
+        // as a third font-related surface competing with the two rows above.
+        let manage_fonts_row = adw::ActionRow::new();
+        manage_fonts_row.set_title("Available fonts");
+        manage_fonts_row.set_subtitle("Enable or disable fonts Zerkalo can use");
+        let manage_fonts_btn = Button::with_label("Manage…");
+        manage_fonts_btn.set_valign(Align::Center);
+        manage_fonts_row.add_suffix(&manage_fonts_btn);
+        manage_fonts_row.set_activatable_widget(Some(&manage_fonts_btn));
+        {
+            let cb = on_open_font_manager.clone();
+            manage_fonts_btn.connect_clicked(move |_| {
+                if let Some(f) = cb.borrow().as_ref() {
+                    f();
+                }
+            });
+        }
+
         doc_font_group.add(&sans_row);
         doc_font_group.add(&serif_row);
+        doc_font_group.add(&manage_fonts_row);
 
         font_group.add(&font_row);
         font_group.add(&tab_spin);
@@ -593,10 +619,67 @@ impl SettingsDialog {
         account_row.add_suffix(&account_btn_box);
         sync_group.add(&account_row);
 
+        let backup_locations_row = adw::ActionRow::new();
+        backup_locations_row.set_title("Backup locations");
+        backup_locations_row.set_subtitle("Where saved versions get sent when you sync");
+        let backup_locations_btn = Button::with_label("Manage…");
+        backup_locations_btn.set_valign(Align::Center);
+        backup_locations_row.add_suffix(&backup_locations_btn);
+        backup_locations_row.set_activatable_widget(Some(&backup_locations_btn));
+        {
+            let cb = on_open_backup_locations.clone();
+            backup_locations_btn.connect_clicked(move |_| {
+                if let Some(f) = cb.borrow().as_ref() {
+                    f();
+                }
+            });
+        }
+        sync_group.add(&backup_locations_row);
+
+        // Tools status (git/tinymist/pandoc bundled, everything else optional)
+        // used to be its own hamburger row — a diagnostic you check when
+        // something looks wrong belongs beside the rest of setup, not
+        // floating as a top-level menu action.
+        let (tools_group, _tools_ok, tools_rechecks) = super::tools_window::tools_group();
+        // Re-check whenever the window regains focus, matching the
+        // standalone Tools window this group used to live in — installing
+        // something in a terminal and coming back updates the list without
+        // a click.
+        window.connect_is_active_notify(move |w| {
+            if w.is_active() {
+                for f in &tools_rechecks {
+                    f();
+                }
+            }
+        });
+
+        // Re-running setup used to have no way back in once the first-run
+        // wizard closed.
+        let setup_group = adw::PreferencesGroup::new();
+        setup_group.set_title("Setup");
+        let setup_row = adw::ActionRow::new();
+        setup_row.set_title("Setup wizard");
+        setup_row.set_subtitle("Re-run the guided first-time setup");
+        let setup_btn = Button::with_label("Run…");
+        setup_btn.set_valign(Align::Center);
+        setup_row.add_suffix(&setup_btn);
+        setup_row.set_activatable_widget(Some(&setup_btn));
+        {
+            let cb = on_open_setup_wizard.clone();
+            setup_btn.connect_clicked(move |_| {
+                if let Some(f) = cb.borrow().as_ref() {
+                    f();
+                }
+            });
+        }
+        setup_group.add(&setup_row);
+
         let page_general = adw::PreferencesPage::new();
         page_general.add(&folders_group);
         page_general.add(&compile_group);
         page_general.add(&sync_group);
+        page_general.add(&setup_group);
+        page_general.add(&tools_group);
         page_general.add(&keys_group);
         page_general.add(&dev_group);
         let sp_general = view_stack.add_titled(&page_general, Some("general"), "General");
@@ -927,7 +1010,14 @@ impl SettingsDialog {
             }
         });
 
-        Self { window, on_save, on_preview }
+        Self {
+            window,
+            on_save,
+            on_preview,
+            on_open_font_manager,
+            on_open_setup_wizard,
+            on_open_backup_locations,
+        }
     }
 
     pub fn set_on_save(&self, f: impl Fn(Config) + 'static) {
@@ -936,6 +1026,22 @@ impl SettingsDialog {
 
     pub fn set_on_preview(&self, f: impl Fn(Config) + 'static) {
         *self.on_preview.borrow_mut() = Some(Box::new(f));
+    }
+
+    /// Fired by the Document Fonts group's "Manage available fonts…" button —
+    /// the dialog itself doesn't know how to construct a `FontManager` (that
+    /// needs the `adw::ApplicationWindow`, which this dialog isn't), so the
+    /// caller supplies what "open it" means, same pattern as `on_save`.
+    pub fn set_on_open_font_manager(&self, f: impl Fn() + 'static) {
+        *self.on_open_font_manager.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn set_on_open_setup_wizard(&self, f: impl Fn() + 'static) {
+        *self.on_open_setup_wizard.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn set_on_open_backup_locations(&self, f: impl Fn() + 'static) {
+        *self.on_open_backup_locations.borrow_mut() = Some(Box::new(f));
     }
 
     pub fn present(&self) {
