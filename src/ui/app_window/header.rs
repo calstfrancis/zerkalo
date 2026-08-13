@@ -4,12 +4,11 @@
 use gtk4::prelude::*;
 use gtk4::{
     Align, Box as GtkBox, Button, Entry, Label, MenuButton, Orientation, Popover,
-    ScrolledWindow, ToggleButton,
+    ScrolledWindow, Separator, ToggleButton,
 };
 use libadwaita as adw;
 
 use super::{HamburgerItems, build_hamburger_menu_items};
-use crate::ui::styles::fond_section_header;
 
 /// The hamburger popover's rows, kept together so the menu-wiring helpers can
 /// take one value instead of 22 parameters.
@@ -188,44 +187,47 @@ pub(super) fn build_header() -> HeaderWidgets {
 
     // ── Popover layout ────────────────────────────────────────────────────
     //
-    // Sections carry an actual label (`fond_section_header`, the same
-    // hand-built-list vocabulary the sidebar panels use) instead of a bare
-    // separator — a 26-row flat list with unlabelled separator-groups made a
-    // non-technical user guess what each cluster was about. One accent colour
-    // throughout: sections here don't carry distinct meaning the way the
-    // library's Pinned/Documents split does, so a single hue reads as "one
-    // menu" rather than implying a colour-coded taxonomy that isn't there.
-    const MENU_ACCENT: &str = "fond-accent-outline";
-
+    // Grouped into seven logical clusters (New & Open, Current Document,
+    // Save & Versions, Export & Print, App, Account & Backup, Help) — the
+    // regrouping itself is the real fix over the old ten-cluster layout.
+    // A first pass labelled each cluster with `fond_section_header` (the
+    // sidebar panels' section-header widget), which turned out to make the
+    // hamburger's `MenuButton` stop opening its `Popover` at all in real
+    // use — reproduced consistently, cause not yet isolated (a headless
+    // bisect couldn't distinguish it from known-good history, since
+    // Popovers don't appear to open reliably in this environment's
+    // headless test setup at all — see git history for the investigation).
+    // Reverted to plain separators between clusters until the labelled
+    // version can be root-caused and fixed without breaking the menu.
     let menu_popover_box = GtkBox::new(Orientation::Vertical, 0);
     menu_popover_box.set_margin_top(4);
-    menu_popover_box.set_margin_bottom(8);
+    menu_popover_box.set_margin_bottom(4);
     menu_popover_box.set_width_request(260);
 
     // New & Open: creating, opening, and bringing a document in from another
     // format all answer the same question, so Import sits here too.
-    menu_popover_box.append(&fond_section_header("New & Open", MENU_ACCENT));
     menu_popover_box.append(&menu_new_template_item);
     menu_popover_box.append(&menu_new_item);
+    menu_popover_box.append(&Separator::new(Orientation::Horizontal));
     menu_popover_box.append(&menu_open_item);
     menu_popover_box.append(&menu_docs_item);
     menu_popover_box.append(&menu_import_item);
-
-    menu_popover_box.append(&fond_section_header("Current Document", MENU_ACCENT));
+    menu_popover_box.append(&Separator::new(Orientation::Horizontal));
+    // Current document
     menu_popover_box.append(&menu_reapply_template_item);
     menu_popover_box.append(&menu_repair_markers_item);
-
-    menu_popover_box.append(&fond_section_header("Save & Versions", MENU_ACCENT));
+    menu_popover_box.append(&Separator::new(Orientation::Horizontal));
+    // Save / versions
     menu_popover_box.append(&menu_save_item);
     menu_popover_box.append(&menu_save_as_item);
     menu_popover_box.append(&menu_snapshots_item);
     menu_popover_box.append(&menu_history_item);
-
-    menu_popover_box.append(&fond_section_header("Export & Print", MENU_ACCENT));
+    menu_popover_box.append(&Separator::new(Orientation::Horizontal));
+    // Export & print
     menu_popover_box.append(&menu_export_item);
     menu_popover_box.append(&menu_export_web_item);
     menu_popover_box.append(&menu_print_item);
-
+    menu_popover_box.append(&Separator::new(Orientation::Horizontal));
     // App. Two different font surfaces used to sit here reading as
     // competitors, so each now says which fonts it is about. The two quick
     // toggles filled in from editor_pane (GOST font, Autocorrect) join this
@@ -237,22 +239,20 @@ pub(super) fn build_header() -> HeaderWidgets {
     menu_fonts_item.set_tooltip_text(Some(
         "Fonts used in the compiled document, not in the editor",
     ));
-    menu_popover_box.append(&fond_section_header("App", MENU_ACCENT));
     menu_popover_box.append(&menu_settings_item);
     menu_popover_box.append(&menu_fonts_item);
     // Filled once editor_pane exists — it owns the buttons and their state.
     let gost_menu_slot = GtkBox::new(Orientation::Vertical, 0);
     menu_popover_box.append(&gost_menu_slot);
-
-    menu_popover_box.append(&fond_section_header("Account & Backup", MENU_ACCENT));
+    menu_popover_box.append(&Separator::new(Orientation::Horizontal));
+    // Account & backup
     menu_popover_box.append(&menu_setup_item);
     menu_popover_box.append(&menu_backup_remote_item);
     menu_popover_box.append(&menu_tools_item);
-
+    menu_popover_box.append(&Separator::new(Orientation::Horizontal));
     // Help: What's New and Writing Stats are both "look at information about
     // the app or your work," the same drawer as About/Help/Shortcuts, rather
     // than reading as settings.
-    menu_popover_box.append(&fond_section_header("Help", MENU_ACCENT));
     menu_popover_box.append(&menu_writing_stats_item);
     menu_popover_box.append(&menu_help_item);
     menu_popover_box.append(&menu_shortcuts_item);
