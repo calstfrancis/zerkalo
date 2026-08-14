@@ -7,7 +7,7 @@ use libadwaita as adw;
 use adw::prelude::*;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const RELEASE_NAME: &str = "Steady Hand";
+pub const RELEASE_NAME: &str = "Open Shelf";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -127,7 +127,8 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
-                "Added: point the bibliography at a Kartoteka vault folder instead of a .bib/.yaml file (Settings → Bibliography). Entries load live — add or edit something in Kartoteka and it shows up in the citation popup, sidebar, and reference manager within a second or two, no restart needed",
+                "Added: point the bibliography at a Kartoteka vault folder instead of a .bib/.yaml file (Settings → Bibliography, or the new folder button in the citation sidebar itself). Entries load live — add or edit something in Kartoteka and it shows up in the citation popup, sidebar, and reference manager within a second or two, no restart needed",
+                "Added: a \"K\" button in the citation sidebar launches Kartoteka directly, or focuses it if it's already running",
                 "Added: File History… in the ≡ menu and Ctrl+K palette shows a document's git commit history and diffs without leaving the app",
                 "Fixed: several icon-only buttons (browse buttons, the CV-mode switch, per-tag edit/delete) had no label a screen reader could read — they're announced properly now",
                 "Changed: the ≡ menu is down to 20 rows in five clusters (was 26 in seven) — Document Fonts, Set Up Zerkalo, Backup Locations, and Tools moved into Settings, where that kind of thing is easier to find; Settings itself drops jargon like \"Debounce\" and a raw file path for plain language",

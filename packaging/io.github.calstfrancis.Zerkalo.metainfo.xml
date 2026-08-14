@@ -76,6 +76,12 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.23.0" date="2026-08-14">
+      <description>
+        <p>0.23.0 "Open Shelf" — a Kartoteka vault as a live bibliography source, a trimmed
+        hamburger menu, and git history without leaving the app.</p>
+      </description>
+    </release>
     <release version="0.22.0" date="2026-08-11">
       <description>
         <p>0.22.0 "Steady Hand" — Backups that happen without being asked, plain language throughout setup and sync, and errors you can actually copy.</p>

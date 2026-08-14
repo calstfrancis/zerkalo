@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.23.0-dev5] — Kartoteka vault as a live bibliography source
+## [0.23.0] "Open Shelf" — 2026-08-14 — Kartoteka vault as a live bibliography source
 
 ### Added
 
@@ -16,6 +16,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   vault — add or edit an entry in Kartoteka and it shows up in the `@`-autocomplete popup,
   the citation sidebar, and the reference manager within about a second, no restart needed.
   Plain `.bib`/`.yaml` files keep working exactly as before, unaffected.
+- **The citation sidebar's own quick-access button can now pick a Kartoteka vault folder
+  too**, not just Settings — a new folder icon sits beside the existing file-picker button.
+  A new **"K" button** next to it launches Kartoteka directly (or focuses it, if already
+  running).
 - **File History…**, in the hamburger menu (next to Browse Snapshots) and the Ctrl+K
   palette, shows a document's git commit history and diffs without leaving the app.
 

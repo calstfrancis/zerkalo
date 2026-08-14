@@ -200,6 +200,38 @@ pub(super) fn wire_citations(ctx: &CitationCtx) -> Rc<RefCell<Option<PathBuf>>> 
         });
     }
 
+    // ── Citation panel: choose Kartoteka vault folder button ──────────────
+
+    {
+        let win_for_vault = ctx.window.clone();
+        let ep_for_vault = ctx.editor_pane.clone();
+        let cp_for_vault = ctx.citation_panel.clone();
+        let cfg_for_vault = ctx.current_config.clone();
+        let rm_for_vault = ctx.ref_manager.clone();
+        ctx.citation_panel.set_on_choose_vault(move || {
+            let dialog = gtk4::FileDialog::new();
+            dialog.set_title("Choose Kartoteka Vault Folder");
+            let win = win_for_vault.clone();
+            let ep = ep_for_vault.clone();
+            let cp = cp_for_vault.clone();
+            let cfg = cfg_for_vault.clone();
+            let rm = rm_for_vault.clone();
+            dialog.select_folder(Some(&win), None::<&gtk4::gio::Cancellable>, move |result| {
+                if let Ok(file) = result {
+                    if let Some(path) = file.path() {
+                        let entries = bibliography::load_bib(&path);
+                        ep.set_bib_entries(entries.clone());
+                        cp.load_bib(entries);
+                        cp.set_bib_filename(path.file_name().and_then(|n| n.to_str()));
+                        rm.load_bib(&path);
+                        cfg.borrow_mut().bib_path = Some(path);
+                        let _ = cfg.borrow().save();
+                    }
+                }
+            });
+        });
+    }
+
     // ── Citation panel: choose Skrizhal CV element file button ────────────
 
     {

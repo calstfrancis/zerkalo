@@ -1,4 +1,4 @@
-# Zerkalo v0.22.0 "Steady Hand"
+# Zerkalo v0.23.0 "Open Shelf"
 
 Install via Flatpak:
 
@@ -18,15 +18,15 @@ flatpak update io.github.calstfrancis.Zerkalo
 
 ### What's new
 
-**Backups now happen on their own.** Once a backup location is set up, Zerkalo saves and sends a version automatically every so often while you write, and once more on the way out if anything's still unsent — so backing up no longer depends on remembering the sync button. It's quiet by design: failures show as a small toast rather than a popup, so an offline moment doesn't interrupt you, and it never blocks quitting for more than a few seconds.
+**Point the bibliography at a Kartoteka vault folder, not just a `.bib`/`.yaml` file.** Settings → Bibliography — or a new folder-icon button right in the citation sidebar — now lets you choose a Kartoteka vault directory directly. Entries load through the same library code Kartoteka itself is built on, and refresh live the moment something changes in the vault: add or edit an entry in Kartoteka and it shows up in the `@`-autocomplete popup, the citation sidebar, and the reference manager within about a second, no restart needed. A new **"K" button** beside it launches Kartoteka directly, or focuses it if it's already running. Plain `.bib`/`.yaml` files keep working exactly as before.
 
-**Error messages can be copied now.** Every notice and error dialog has a Copy button next to OK, so the message — a sync failure, an export failure — can be pasted into a bug report instead of retyped by hand from a screenshot.
+**File History…**, in the hamburger menu (next to Browse Snapshots) and the Ctrl+K palette, shows a document's git commit history and diffs without leaving the app.
 
-**Plain language throughout setup, sync, and backup screens.** "Repository," "remote," "commit," and "clone" — terms that meant nothing to a non-technical user — are now described in terms of what they do: "online copy," "backup location," "save a version."
+**The hamburger menu is down to 20 rows in five clusters** (from 26 in seven). Document Fonts, Set Up Zerkalo, Backup Locations, and Tools moved into Settings, where that kind of configuration is easier to find. Settings itself got a plain-language pass — "Debounce" is now "Compile delay," and a few other rows dropped jargon or a raw file path shown as description text.
 
-**Help window redesigned for clarity.** Tabs are now a proper libadwaita view switcher instead of old-style notebook tabs, and the panel's typography was cleaned up — no color, just weight, scale, and whitespace doing the work of hierarchy.
+**Screen readers couldn't tell many icon-only buttons apart.** Folder/file browse buttons, the CV-mode switch, per-tag edit and delete buttons, and a few others had no accessible name — they're labelled now.
 
-**Fixed:** sync could fail outright if the system's git was configured to sign commits — Zerkalo's own commits now skip signing, without touching the signing setup for anything else on the system.
+**Internal:** clicking to jump from the preview to a line or word no longer blocks the interface while `pdftotext` runs; the largest file in the codebase (`template_dialog.rs`, 7,585 lines) is now a five-file module with no behaviour change.
 
 ---
 
