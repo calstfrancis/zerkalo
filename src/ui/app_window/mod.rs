@@ -757,6 +757,34 @@ impl AppWindow {
             });
         }
 
+        // ── Citation panel: "K" button launches Kartoteka ─────────────────
+
+        {
+            let toast_for_kartoteka = toast_overlay.clone();
+            citation_panel.set_on_open_kartoteka(move || {
+                let installed = crate::git_sync::host_command("flatpak")
+                    .args(["info", "io.github.calstfrancis.Kartoteka"])
+                    .output()
+                    .map(|o| o.status.success())
+                    .unwrap_or(false);
+                if !installed {
+                    toast_for_kartoteka.add_toast(adw::Toast::new(
+                        "Kartoteka isn't installed — see calstfrancis.github.io/flatpak",
+                    ));
+                    return;
+                }
+                // Kartoteka is single-instance (default GApplication flags), so this either
+                // launches a fresh process or activates the existing one over D-Bus.
+                let result = crate::git_sync::host_command("flatpak")
+                    .args(["run", "io.github.calstfrancis.Kartoteka"])
+                    .spawn();
+                if let Err(e) = result {
+                    tracing::warn!("Couldn't launch Kartoteka: {e}");
+                    toast_for_kartoteka.add_toast(adw::Toast::new("Couldn't open Kartoteka"));
+                }
+            });
+        }
+
         let window_for_import = window.clone();
         let editor_for_import = editor_pane.clone();
         let menu_popover_for_import = menu_popover.clone();

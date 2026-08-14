@@ -27,8 +27,12 @@ pub struct CitationPanel {
     on_insert: InsertCb,
     on_choose_bib: ChooseCb,
     on_choose_cv: ChooseCb,
+    on_choose_vault: ChooseCb,
     on_open_skrizhal: ChooseCb,
+    on_open_kartoteka: ChooseCb,
     choose_btn: Button,
+    vault_btn: Button,
+    kartoteka_btn: Button,
     bib_name_label: Label,
     skrizhal_btn: Button,
     bib_filename: Rc<RefCell<Option<String>>>,
@@ -76,6 +80,26 @@ impl CitationPanel {
         skrizhal_btn.set_visible(false);
         header_box.append(&skrizhal_btn);
 
+        // Bib mode only (hidden in CV mode, like bib_name_label) — Kartoteka's library is a
+        // vault folder, not a single file, so choose_btn's file-only dialog can't point at
+        // one; this opens a folder picker instead.
+        let vault_btn = Button::from_icon_name("folder-symbolic");
+        vault_btn.add_css_class("flat");
+        vault_btn.add_css_class("circular");
+        vault_btn.set_tooltip_text(Some("Choose a Kartoteka vault folder"));
+        vault_btn.update_property(&[gtk4::accessible::Property::Label(
+            "Choose a Kartoteka vault folder",
+        )]);
+        header_box.append(&vault_btn);
+
+        // Bib mode only — launches (or focuses, if already running) the actual Kartoteka
+        // app, same idea as skrizhal_btn does for CV elements.
+        let kartoteka_btn = Button::with_label("K");
+        kartoteka_btn.add_css_class("flat");
+        kartoteka_btn.add_css_class("circular");
+        kartoteka_btn.set_tooltip_text(Some("Open Kartoteka"));
+        header_box.append(&kartoteka_btn);
+
         let choose_btn = Button::from_icon_name("document-open-symbolic");
         choose_btn.add_css_class("flat");
         choose_btn.add_css_class("circular");
@@ -113,7 +137,9 @@ impl CitationPanel {
         let on_insert: InsertCb = Rc::new(RefCell::new(None));
         let on_choose_bib: ChooseCb = Rc::new(RefCell::new(None));
         let on_choose_cv: ChooseCb = Rc::new(RefCell::new(None));
+        let on_choose_vault: ChooseCb = Rc::new(RefCell::new(None));
         let on_open_skrizhal: ChooseCb = Rc::new(RefCell::new(None));
+        let on_open_kartoteka: ChooseCb = Rc::new(RefCell::new(None));
         let bib_entries: Rc<RefCell<Vec<BibEntry>>> = Rc::new(RefCell::new(Vec::new()));
         let cv_entries: Rc<RefCell<Vec<skrizhal_core::CvEntry>>> = Rc::new(RefCell::new(Vec::new()));
         let cv_mode: Rc<Cell<bool>> = Rc::new(Cell::new(false));
@@ -157,6 +183,20 @@ impl CitationPanel {
             });
         }
 
+        {
+            let cb = on_choose_vault.clone();
+            vault_btn.connect_clicked(move |_| {
+                if let Some(f) = cb.borrow().as_ref() { f(); }
+            });
+        }
+
+        {
+            let cb = on_open_kartoteka.clone();
+            kartoteka_btn.connect_clicked(move |_| {
+                if let Some(f) = cb.borrow().as_ref() { f(); }
+            });
+        }
+
         let panel = Self {
             widget,
             list,
@@ -168,8 +208,12 @@ impl CitationPanel {
             on_insert,
             on_choose_bib,
             on_choose_cv,
+            on_choose_vault,
             on_open_skrizhal,
+            on_open_kartoteka,
             choose_btn,
+            vault_btn,
+            kartoteka_btn,
             bib_name_label,
             skrizhal_btn,
             bib_filename: Rc::new(RefCell::new(None)),
@@ -237,6 +281,8 @@ impl CitationPanel {
             )]);
             self.bib_name_label.set_visible(false);
             self.skrizhal_btn.set_visible(true);
+            self.vault_btn.set_visible(false);
+            self.kartoteka_btn.set_visible(false);
         } else {
             self.title_label.set_text("Citations");
             self.search.set_placeholder_text(Some("Search by key, author, title…"));
@@ -245,6 +291,8 @@ impl CitationPanel {
                 "Choose bibliography file",
             )]);
             self.skrizhal_btn.set_visible(false);
+            self.vault_btn.set_visible(true);
+            self.kartoteka_btn.set_visible(true);
             self.refresh_filename_label(self.bib_filename.borrow().as_deref());
         }
         let query = self.search.text();
@@ -265,6 +313,14 @@ impl CitationPanel {
 
     pub fn set_on_open_skrizhal(&self, f: impl Fn() + 'static) {
         *self.on_open_skrizhal.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn set_on_choose_vault(&self, f: impl Fn() + 'static) {
+        *self.on_choose_vault.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn set_on_open_kartoteka(&self, f: impl Fn() + 'static) {
+        *self.on_open_kartoteka.borrow_mut() = Some(Box::new(f));
     }
 
     pub fn set_bib_filename(&self, name: Option<&str>) {
