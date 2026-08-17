@@ -137,11 +137,12 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
-                "Your bibliography can now live in a Kartoteka vault, not just a .bib or .yaml file — pick a vault folder from Settings, or the new folder button beside Citations. Add or edit a source in Kartoteka and it shows up here within a second or two, no restart needed. A \"K\" button next to it opens Kartoteka directly.",
-                "Backups now happen on their own. Once you've set up a backup location, Zerkalo saves and sends a version automatically while you write, quietly — an offline moment shows a small toast instead of interrupting you, and it never holds up quitting for more than a few seconds.",
-                "File History (≡ menu, or Ctrl+K) shows a document's earlier versions and what changed, without leaving the app.",
-                "Setup, sync, and backup screens are in plainer language throughout, and error messages now have a Copy button so you can paste one into a bug report instead of retyping it from a screenshot.",
-                "Several icon-only buttons that had no label for screen readers now do.",
+                "Importing an existing document (Ctrl+Shift+I) is a normal, always-available feature now, not something hidden behind a developer toggle.",
+                "The Citations panel can start a brand-new bibliography with one click, instead of needing one to already exist before you could add a source.",
+                "The file that actually gets compiled is now marked in the file tree, and the root/include/import buttons explain what they do.",
+                "Restoring an old snapshot now asks first, so it can't silently overwrite unsaved work.",
+                "Help (Ctrl+?) opens on a plain-language Overview instead of raw Typst syntax, and the \"what does this do\" overlay (F1) now covers the Library window too.",
+                "A first-time explanation of the source/preview split, and of what Simple Mode is hiding, shows up right where you need it instead of only in a tooltip.",
             ] {
                 body.append(&bullet_row(item));
             }
