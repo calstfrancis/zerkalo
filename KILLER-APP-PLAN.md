@@ -244,6 +244,95 @@ of picking a phase back up).
 
 ## Phase 4 — Typst Universe package browser: search + install
 
+**Status:** ☑ DONE (2026-08-17) — implemented, and two real pre-existing bugs
+found and fixed along the way (see below).
+
+**Index source, decided by investigation:** `https://packages.typst.org/preview/index.json`
+is a real, public, unauthenticated endpoint (confirmed live: `curl` returned
+2.1MB of JSON, one entry per package *version*) — this is what
+`packages.typst.org` itself serves and is the closest thing to an official
+index. New module `src/typst_universe.rs`: fetches it, folds down to the
+latest version per package name (proper numeric version comparison, not
+lexicographic — `0.9.0 < 0.10.0`), caches the raw response to
+`$XDG_CACHE_HOME/zerkalo/typst-universe-index.json`. Cache is used for
+instant first paint (`load_cached_only`); a background refresh runs whenever
+the cache is missing or older than 24h (`cache_is_fresh`), plus a manual
+refresh button. 5 unit tests (latest-version folding, alphabetical sort,
+numeric version ordering, malformed-JSON rejection, missing-description
+handling).
+
+**Install action:** `compiler::install_package()` (new `pub fn`) reuses the
+exact same `PackageStorage`/`prepare_package` the compiler itself resolves
+`#import`s through — parses `"@preview/name:version"` via
+`typst::syntax::package::PackageSpec`'s existing `FromStr`, so an install
+here is immediately visible to the next compile, no separate download path
+to maintain.
+
+**UI (`package_browser.rs`, substantially rewritten):** merges locally-
+installed packages with the Universe index into one filtered list, keyed by
+`(namespace, name)`. Each row shows installed/available version(s) and the
+Universe description; an Install button (spinner while in flight, via the
+same thread+`mpsc::sync_channel`+`glib::timeout_add_local` pattern
+`export_dialog.rs` already uses) for anything not yet installed, an Insert
+button (unchanged behavior) for anything that is. Search filters across
+name, namespace, and description.
+
+**Two real pre-existing bugs found and fixed, not just my new code:**
+
+1. **The package browser's widget was never attached to the UI at all.**
+   Discovered while trying to manually verify the new search/install feature
+   headlessly — the panel simply didn't appear anywhere. Traced it: `
+   PackageBrowser::new()` was constructed and wired (`set_on_insert`) in
+   `panels.rs`'s `build_panels()`, but never added to the `Panels` struct
+   that function returns, so it was silently dropped at the end of the
+   function — never reaching `editor_extras.rs`'s sidebar assembly the way
+   `outline_panel`/`citation_panel` do. The struct field also had
+   `#[allow(dead_code)]` on it already, which should have been a tell.
+   Fixed by threading it through properly: added `package_browser` to the
+   `Panels` struct (`panels.rs`) and its return, to the destructure in
+   `mod.rs`, to `SidebarToolbarCtx` (`editor_extras.rs`), and appended
+   `ctx.package_browser.widget()` (new accessor, field's `dead_code` allow
+   removed since it's now genuinely used) to the sidebar's `left_box` after
+   Citations, matching the existing Outline/Citations pattern exactly.
+   **Verified visually** (headless Xvfb screenshot): the "Packages" section
+   now renders in the sidebar with live Typst Universe entries.
+   **Related finding, not fixed (out of scope for this phase):**
+   `dep_graph` and `ref_manager` appear to have the *same* problem —
+   `dep_graph` has no `.widget()` method at all (cannot be shown by any
+   means as it stands), and `ref_manager.widget()` exists but is never
+   called anywhere in `src/`. Both are threaded through `Panels` and get
+   `.refresh()`/data calls, but neither's widget reaches the window. This
+   contradicts the README's description of the Dependency graph as a real
+   "opt-in view" — worth its own investigation session, matching how
+   `HEALTH-PLAN.md` Phase 2 found and fixed the identical situation for
+   `history_panel.rs`. Not touched here to keep this phase's diff scoped to
+   what search/install actually needed.
+
+2. **`scan_local_packages` was scanning the wrong directory**, independent
+   of anything above. It read `glib::user_data_dir().join("typst/packages")`
+   (XDG *data* dir), but `compiler::package_cache_root()` — where the
+   compiler actually downloads `@preview` packages, matching `typst-cli`'s
+   own convention, per that function's own doc comment — resolves to
+   `$XDG_CACHE_HOME/typst/packages` (XDG *cache* dir). These are different
+   directories, so **no package the compiler had ever downloaded, implicitly
+   or via this phase's new explicit Install button, was ever detected as
+   "installed."** Confirmed concretely: installed `@preview/a2c-nums` via the
+   new Install button, watched it land in `.cache/typst/packages/...` on
+   disk, and watched the row *not* flip to "installed" until this was fixed.
+   Fixed by making `compiler::package_cache_root()` `pub` and having
+   `scan_local_packages` call it directly instead of guessing its own path —
+   single source of truth, can't drift again. **Re-verified after the fix**:
+   same install flow, row correctly flips to "v0.0.1 installed" with the
+   Insert button.
+
+**Full verification gate green**: 491 tests (5 new), clippy clean, version
+guard clean, plus the headless manual verification above (real network
+fetch, real install, real UI render, confirmed via screenshot at each step).
+
+---
+
+**Original phase text preserved below:**
+
 **Status:** ☐ not started
 **Risk:** low-medium · **Effort:** medium · **Depends on:** nothing
 

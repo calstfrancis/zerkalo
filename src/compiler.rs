@@ -34,8 +34,10 @@ fn global_fonts() -> &'static (LazyHash<FontBook>, Vec<FontSlot>) {
 }
 
 /// Root under which downloaded `@preview` packages are cached, matching what
-/// `typst-cli` uses so a package fetched by either is seen by both.
-fn package_cache_root() -> PathBuf {
+/// `typst-cli` uses so a package fetched by either is seen by both. `pub`
+/// so `ui::package_browser` can scan the same directory the compiler
+/// actually downloads into, rather than guessing at a path of its own.
+pub fn package_cache_root() -> PathBuf {
     let cache_root = std::env::var("XDG_CACHE_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|_| {
@@ -61,6 +63,21 @@ fn package_storage() -> &'static PackageStorage {
             Downloader::new(concat!("zerkalo/", env!("CARGO_PKG_VERSION"))),
         )
     })
+}
+
+/// Downloads a `@preview` package into the shared cache ahead of time, so the
+/// package browser can offer an explicit "Install" action instead of relying
+/// only on the implicit download the first time a document imports it.
+/// Reuses the same [`PackageStorage`] the compiler itself resolves imports
+/// through, so an install here is immediately visible to the next compile.
+/// Blocking (network + disk) — callers must not run this on the main thread.
+pub fn install_package(spec_str: &str) -> Result<(), String> {
+    let spec: typst::syntax::package::PackageSpec =
+        spec_str.parse().map_err(|e| format!("{e}"))?;
+    package_storage()
+        .prepare_package(&spec, &mut ProgressSink)
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }
 
 /// Typst memoizes across compiles in a process-global `comemo` cache. Nothing
