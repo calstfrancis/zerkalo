@@ -3,19 +3,9 @@ set -euo pipefail
 
 BINARY_NAME="zerkalo"
 APP_ID="io.github.calstfrancis.Zerkalo"
-GITHUB_REPO="calstfrancis/zerkalo"
 INSTALL_BIN="${HOME}/.local/bin"
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
-
-_download() {
-    local url="$1" dest="$2"
-    if command -v curl &>/dev/null; then
-        curl -fsSL -o "$dest" "$url"
-    else
-        wget -qO "$dest" "$url"
-    fi
-}
 
 _install_icons_and_desktop() {
     local ICONS_BASE="${HOME}/.local/share/icons/hicolor"
@@ -70,57 +60,12 @@ if [ -f "target/release/${BINARY_NAME}" ]; then
     exit 0
 fi
 
-# ── Fetch latest release JSON ─────────────────────────────────────────────────
-LATEST_URL="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
-if command -v curl &>/dev/null; then
-    RELEASE_JSON=$(curl -fsSL "${LATEST_URL}" 2>/dev/null || true)
-else
-    RELEASE_JSON=$(wget -qO- "${LATEST_URL}" 2>/dev/null || true)
-fi
-
-# ── Prefer native packages ────────────────────────────────────────────────────
-
-if command -v dpkg &>/dev/null; then
-    DEB_URL=$(echo "${RELEASE_JSON}" | grep -o '"browser_download_url": *"[^"]*\.deb"' \
-        | head -1 | grep -o 'https://[^"]*' || true)
-    if [ -n "${DEB_URL}" ]; then
-        echo "Downloading .deb package..."
-        TMP_DEB=$(mktemp /tmp/zerkalo_XXXXXX.deb)
-        _download "${DEB_URL}" "${TMP_DEB}"
-        echo "Installing (you may be prompted for your password)..."
-        if command -v apt &>/dev/null; then
-            sudo apt install -y "${TMP_DEB}"
-        else
-            sudo dpkg -i "${TMP_DEB}"
-            sudo apt-get install -f -y 2>/dev/null || true
-        fi
-        rm -f "${TMP_DEB}"
-        echo "Zerkalo installed."
-        exit 0
-    fi
-fi
-
-if command -v rpm &>/dev/null; then
-    RPM_URL=$(echo "${RELEASE_JSON}" | grep -o '"browser_download_url": *"[^"]*\.rpm"' \
-        | head -1 | grep -o 'https://[^"]*' || true)
-    if [ -n "${RPM_URL}" ]; then
-        echo "Downloading .rpm package..."
-        TMP_RPM=$(mktemp /tmp/zerkalo_XXXXXX.rpm)
-        _download "${RPM_URL}" "${TMP_RPM}"
-        echo "Installing (you may be prompted for your password)..."
-        if command -v dnf &>/dev/null; then
-            sudo dnf install -y "${TMP_RPM}"
-        else
-            sudo rpm -i "${TMP_RPM}"
-        fi
-        rm -f "${TMP_RPM}"
-        echo "Zerkalo installed."
-        exit 0
-    fi
-fi
-
-# ── Last resort: build from source ───────────────────────────────────────────
-echo "No pre-built package found — building from source (this takes a few minutes)..."
+# ── Build from source ──────────────────────────────────────────────────────────
+# Zerkalo's pre-built packages are the flatpak at
+# https://calstfrancis.github.io/flatpak/ (see README.md) — GitHub Releases
+# don't carry .deb/.rpm assets. This script is for building locally instead.
+echo "Building from source (this takes a few minutes)..."
+echo "Tip: for a pre-built package, install the flatpak instead — see README.md."
 if ! command -v cargo &>/dev/null; then
     echo "Error: cargo not found. Install Rust from https://rustup.rs then re-run this script."
     exit 1
@@ -139,7 +84,7 @@ echo ""
 echo "If ${INSTALL_BIN} is not in your PATH, add this to ~/.bashrc or ~/.zshrc:"
 echo "  export PATH=\"\${HOME}/.local/bin:\${PATH}\""
 
-# tinymist prompt only for source-build path (deb/rpm bundle it automatically)
+# The flatpak bundles tinymist automatically; a source build needs it separately.
 if command -v tinymist &>/dev/null; then
     echo ""
     echo "tinymist (autocomplete/error-checking engine) is already installed."
