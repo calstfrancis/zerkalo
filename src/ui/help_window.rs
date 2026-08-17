@@ -377,9 +377,12 @@ impl HelpWindow {
             cheatsheet_blocks
         };
 
+        // Overview leads so Ctrl+? gives a first-time user plain-language
+        // orientation before the raw-syntax Cheatsheet — ViewStack shows
+        // whichever tab was added first.
         let tabs: &[(&str, &str, &str, fn() -> Vec<Block<'static>>)] = &[
-            ("cheatsheet", "Cheatsheet", "text-x-generic-symbolic",     cheatsheet_fn),
             ("overview",   "Overview",   "dialog-information-symbolic", overview_blocks),
+            ("cheatsheet", "Cheatsheet", "text-x-generic-symbolic",     cheatsheet_fn),
             ("projects",   "Projects",   "folder-symbolic",             projects_blocks),
             ("shortcuts",  "Shortcuts",  "input-keyboard-symbolic",     shortcuts_blocks),
             ("faq",        "FAQ",        "dialog-question-symbolic",    faq_blocks),

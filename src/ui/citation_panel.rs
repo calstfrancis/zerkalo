@@ -26,11 +26,13 @@ pub struct CitationPanel {
     cv_mode: Rc<Cell<bool>>,
     on_insert: InsertCb,
     on_choose_bib: ChooseCb,
+    on_new_bib: ChooseCb,
     on_choose_cv: ChooseCb,
     on_choose_vault: ChooseCb,
     on_open_skrizhal: ChooseCb,
     on_open_kartoteka: ChooseCb,
     choose_btn: Button,
+    new_bib_btn: Button,
     vault_btn: Button,
     kartoteka_btn: Button,
     bib_name_label: Label,
@@ -107,6 +109,15 @@ impl CitationPanel {
         choose_btn.update_property(&[gtk4::accessible::Property::Label("Choose bibliography file")]);
         header_box.append(&choose_btn);
 
+        // Bib mode only — creates a new, empty .bib file so a first-time user
+        // isn't stuck needing one to already exist before they can add a source.
+        let new_bib_btn = Button::from_icon_name("list-add-symbolic");
+        new_bib_btn.add_css_class("flat");
+        new_bib_btn.add_css_class("circular");
+        new_bib_btn.set_tooltip_text(Some("Start a new bibliography"));
+        new_bib_btn.update_property(&[gtk4::accessible::Property::Label("Start a new bibliography")]);
+        header_box.append(&new_bib_btn);
+
         widget.append(&Separator::new(Orientation::Horizontal));
         widget.append(&header_box);
         widget.append(&Separator::new(Orientation::Horizontal));
@@ -136,6 +147,7 @@ impl CitationPanel {
 
         let on_insert: InsertCb = Rc::new(RefCell::new(None));
         let on_choose_bib: ChooseCb = Rc::new(RefCell::new(None));
+        let on_new_bib: ChooseCb = Rc::new(RefCell::new(None));
         let on_choose_cv: ChooseCb = Rc::new(RefCell::new(None));
         let on_choose_vault: ChooseCb = Rc::new(RefCell::new(None));
         let on_open_skrizhal: ChooseCb = Rc::new(RefCell::new(None));
@@ -177,6 +189,13 @@ impl CitationPanel {
         }
 
         {
+            let cb = on_new_bib.clone();
+            new_bib_btn.connect_clicked(move |_| {
+                if let Some(f) = cb.borrow().as_ref() { f(); }
+            });
+        }
+
+        {
             let cb = on_open_skrizhal.clone();
             skrizhal_btn.connect_clicked(move |_| {
                 if let Some(f) = cb.borrow().as_ref() { f(); }
@@ -207,11 +226,13 @@ impl CitationPanel {
             cv_mode,
             on_insert,
             on_choose_bib,
+            on_new_bib,
             on_choose_cv,
             on_choose_vault,
             on_open_skrizhal,
             on_open_kartoteka,
             choose_btn,
+            new_bib_btn,
             vault_btn,
             kartoteka_btn,
             bib_name_label,
@@ -283,6 +304,7 @@ impl CitationPanel {
             self.skrizhal_btn.set_visible(true);
             self.vault_btn.set_visible(false);
             self.kartoteka_btn.set_visible(false);
+            self.new_bib_btn.set_visible(false);
         } else {
             self.title_label.set_text("Citations");
             self.search.set_placeholder_text(Some("Search by key, author, title…"));
@@ -293,6 +315,7 @@ impl CitationPanel {
             self.skrizhal_btn.set_visible(false);
             self.vault_btn.set_visible(true);
             self.kartoteka_btn.set_visible(true);
+            self.new_bib_btn.set_visible(true);
             self.refresh_filename_label(self.bib_filename.borrow().as_deref());
         }
         let query = self.search.text();
@@ -305,6 +328,10 @@ impl CitationPanel {
 
     pub fn set_on_choose_bib(&self, f: impl Fn() + 'static) {
         *self.on_choose_bib.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn set_on_new_bib(&self, f: impl Fn() + 'static) {
+        *self.on_new_bib.borrow_mut() = Some(Box::new(f));
     }
 
     pub fn set_on_choose_cv(&self, f: impl Fn() + 'static) {
@@ -367,7 +394,7 @@ impl CitationPanel {
         let entries = self.bib_entries.borrow();
 
         if entries.is_empty() {
-            self.append_placeholder("No bibliography loaded.\nSet a .bib file in Settings.");
+            self.append_placeholder("No bibliography loaded yet.\nUse + above to start one, or the folder icon to pick an existing file.");
             return;
         }
 

@@ -348,6 +348,11 @@ impl FileTree {
         });
         drop(custom);
 
+        // Effective compilation root — same resolution ProjectModel::scan uses
+        // (explicit config wins, else auto-detected) — so the tree's marker
+        // always matches what actually gets compiled.
+        let root_file = crate::project_model::ProjectModel::scan((*self.project_root).clone()).root_file;
+
         // Group by directory (preserve custom-sorted order within each group)
         let mut by_dir: BTreeMap<PathBuf, Vec<PathBuf>> = BTreeMap::new();
         for file in &ordered {
@@ -409,6 +414,7 @@ impl FileTree {
                     .to_string();
                 let has_error = self.file_errors.borrow().contains(file_path.as_path());
                 let is_modified = self.modified_files.borrow().contains(file_path.as_path());
+                let is_root = root_file.as_deref() == std::fs::canonicalize(file_path).ok().as_deref();
 
                 let row = ListBoxRow::new();
                 // Drag handle icon to signal reorderability
@@ -419,13 +425,28 @@ impl FileTree {
                 drag_icon.add_css_class("dim-label");
                 drag_icon.set_margin_start(4);
                 row_box.append(&drag_icon);
-                let lbl = Label::new(Some(&filename));
+                let lbl = Label::new(None);
+                if is_root {
+                    lbl.set_markup(&format!("<b>{}</b>", gtk4::glib::markup_escape_text(&filename)));
+                } else {
+                    lbl.set_text(&filename);
+                }
                 lbl.set_halign(Align::Start);
                 lbl.set_hexpand(true);
                 lbl.set_margin_start(indent.saturating_sub(4));
                 lbl.set_margin_top(5);
                 lbl.set_margin_bottom(5);
                 row_box.append(&lbl);
+                if is_root {
+                    let badge = Label::new(Some("root"));
+                    badge.add_css_class("caption");
+                    badge.add_css_class("accent");
+                    badge.set_margin_end(4);
+                    badge.set_tooltip_text(Some(
+                        "This is the file that gets compiled and shown in the preview",
+                    ));
+                    row_box.append(&badge);
+                }
                 if is_modified {
                     let dot = Label::new(Some("●"));
                     dot.add_css_class("accent");
@@ -549,18 +570,31 @@ impl FileTree {
 
         let set_root_btn = Button::with_label("Set as Root File");
         set_root_btn.add_css_class("flat");
+        set_root_btn.set_tooltip_text(Some(
+            "Make this the file that gets compiled and shown in the preview — \
+             other files can add their content into it",
+        ));
 
         let include_btn = Button::with_label("Insert #include");
         include_btn.add_css_class("flat");
+        include_btn.set_tooltip_text(Some(
+            "Add this file's content into the document at your cursor",
+        ));
 
         let import_btn = Button::with_label("Insert #import");
         import_btn.add_css_class("flat");
+        import_btn.set_tooltip_text(Some(
+            "Make this file's functions/variables usable from the document at your cursor",
+        ));
 
         let del_btn = Button::with_label("Delete");
         del_btn.add_css_class("destructive-action");
 
         let clear_root_btn = Button::with_label("Clear Root File");
         clear_root_btn.add_css_class("flat");
+        clear_root_btn.set_tooltip_text(Some(
+            "Go back to compiling whichever file you have open",
+        ));
 
         btn_box.append(&set_root_btn);
         btn_box.append(&include_btn);

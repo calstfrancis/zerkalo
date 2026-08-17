@@ -649,9 +649,6 @@ impl AppWindow {
         if config.high_contrast {
             window.add_css_class("high-contrast");
         }
-        // Import is experimental — only visible in developer mode
-        menus.menu_import_item.set_visible(config.developer_mode);
-
         let editor_for_dark = editor_pane.clone();
         adw::StyleManager::default().connect_dark_notify(move |mgr| {
             editor_for_dark.apply_style_scheme(mgr.is_dark());
@@ -1484,6 +1481,7 @@ impl AppWindow {
             project_root: project_root.clone(),
             auto_save_idle_ms: auto_save_idle_ms.clone(),
             sync_btn: sync_btn.clone(),
+            menu_new_template_item: menus.menu_new_template_item.clone(),
             lsp_client: lsp_client.clone(),
             lsp_has_diags: lsp_has_diags.clone(),
             last_completion_request: last_completion_request.clone(),
@@ -2381,7 +2379,6 @@ impl AppWindow {
         let error_panel_for_key = self.error_panel.clone();
         let menu_import_item_for_key = self.menu_import_item.clone();
         let settings_item_for_key = self.menu_actions.settings.clone();
-        let config_for_experimental = self.config.clone();
         let window_for_paste_key = self.window.clone();
         let editor_for_paste_key = self.editor_pane.clone();
         let work_dir_for_paste_key = self.project_root.clone();
@@ -2454,30 +2451,24 @@ impl AppWindow {
                     return glib::Propagation::Stop;
                 }
             }
-            // Ctrl+Shift+I — open the Import picker. Import is experimental and
-            // its menu row is hidden unless developer_mode is on; the shortcut
-            // has to honour the same gate or the row hides nothing.
+            // Ctrl+Shift+I — open the Import picker.
             {
                 use gtk4::gdk::Key;
                 if ctrl && shift && !alt && key == Key::i {
-                    if config_for_experimental.borrow().developer_mode {
-                        menu_import_item_for_key.emit_clicked();
-                    }
+                    menu_import_item_for_key.emit_clicked();
                     return glib::Propagation::Stop;
                 }
             }
             // Ctrl+Shift+V — Paste as Document, which lives inside that same
-            // experimental Import dialog, so it's gated with it.
+            // Import dialog.
             {
                 use gtk4::gdk::Key;
                 if ctrl && shift && !alt && key == Key::v {
                     let cfg = crate::config::shared();
-                    if cfg.borrow().developer_mode {
-                        paste_as_document(
-                            &window_for_paste_key, &editor_for_paste_key, &work_dir_for_paste_key,
-                            &cfg, &toast_overlay_for_paste_key,
-                        );
-                    }
+                    paste_as_document(
+                        &window_for_paste_key, &editor_for_paste_key, &work_dir_for_paste_key,
+                        &cfg, &toast_overlay_for_paste_key,
+                    );
                     return glib::Propagation::Stop;
                 }
             }

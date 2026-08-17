@@ -58,11 +58,8 @@ impl HistoryPanel {
         let tag_added = TextTag::new(Some("added"));
         tag_added.set_property("background", colors.added_bg);
         tag_added.set_property("foreground", colors.added_fg);
-        let tag_hunk = TextTag::new(Some("hunk"));
-        tag_hunk.set_property("foreground", colors.hunk_fg);
         diff_buf.tag_table().add(&tag_removed);
         diff_buf.tag_table().add(&tag_added);
-        diff_buf.tag_table().add(&tag_hunk);
 
         let diff_scroll = ScrolledWindow::new();
         diff_scroll.set_vexpand(true);
@@ -125,7 +122,7 @@ impl HistoryPanel {
             let row = ListBoxRow::new();
             row.set_selectable(false);
             row.set_activatable(false);
-            let lbl = Label::new(Some("No git history for this file.\nCommit your changes to start tracking."));
+            let lbl = Label::new(Some("No earlier versions of this file yet.\nSync to start keeping a history of changes."));
             lbl.add_css_class("dim-label");
             lbl.set_justify(gtk4::Justification::Center);
             lbl.set_margin_top(16);
@@ -172,29 +169,8 @@ impl HistoryPanel {
 }
 
 fn apply_colored_diff(buf: &gtk4::TextBuffer, diff: &str) {
-    buf.set_text("");
-    let mut iter = buf.start_iter();
-    for line in diff.lines() {
-        let tag_name = if line.starts_with("---") || line.starts_with("+++") {
-            None
-        } else if line.starts_with('-') {
-            Some("removed")
-        } else if line.starts_with('+') {
-            Some("added")
-        } else if line.starts_with("@@") {
-            Some("hunk")
-        } else {
-            None
-        };
-        let line_with_nl = format!("{line}\n");
-        if let Some(name) = tag_name {
-            if let Some(tag) = buf.tag_table().lookup(name) {
-                buf.insert_with_tags(&mut iter, &line_with_nl, &[&tag]);
-                continue;
-            }
-        }
-        buf.insert(&mut iter, &line_with_nl);
-    }
+    let cleaned = crate::ui::diff_render::clean_unified_diff(diff);
+    crate::ui::diff_render::render_clean_diff(buf, &cleaned);
 }
 
 fn git_log_for_file(root: &Path, file: &Path) -> Vec<(String, String, String)> {

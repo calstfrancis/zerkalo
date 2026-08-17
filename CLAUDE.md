@@ -84,6 +84,10 @@ go so the plan (not the conversation) is the source of truth across `/clear`s:
 - **`HEALTH-PLAN.md`** — 10-phase plan from the 2026-08-12 codebase review
   (fragile-core files, unwrap audits, dependency pinning, a11y, dead code).
   Check this first for general codebase-health work.
+- **`UX-AUDIT-PLAN.md`** — 32-item plan from the 2026-08-17 Word-migrant
+  usability audit (onboarding jargon, destructive-action confirmations,
+  Typst-complexity leakage, help/discoverability gaps). Check this first
+  for UX/copy/onboarding work.
 - **`REFACTOR-PLAN.md`** — file-splitting + `library.rs`/`spellcheck.rs` test
   coverage.
 - **`PRINT-PLAN.md`**, **`zerk-polish.md`**, **`zerkalo-todo.md`**,

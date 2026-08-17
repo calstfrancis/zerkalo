@@ -139,7 +139,7 @@ impl PackageBrowser {
             row.set_selectable(false);
             row.set_activatable(false);
             let msg = if pkgs.is_empty() {
-                "No local packages found.\n\nInstall packages via the\ntypst CLI or copy them to\n~/.local/share/typst/packages/"
+                "No packages downloaded yet.\n\nPackages install automatically the\nfirst time your document uses one —\nnothing to do here yet."
             } else {
                 "No matches"
             };

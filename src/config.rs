@@ -154,8 +154,6 @@ pub struct Config {
     pub sidebar_width: i32,
     #[serde(default = "default_preview_split")]
     pub preview_split: i32,
-    #[serde(default)]
-    pub developer_mode: bool,
     #[serde(default = "default_batch_import_concurrency")]
     pub batch_import_concurrency: u32,
     #[serde(default)]
@@ -256,7 +254,6 @@ impl Default for Config {
             gost_font: false,
             sidebar_width: default_sidebar_width(),
             preview_split: default_preview_split(),
-            developer_mode: false,
             batch_import_concurrency: default_batch_import_concurrency(),
             last_export_format: 0,
             compile_on_save: false,

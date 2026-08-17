@@ -18,7 +18,6 @@ pub struct DiffColors {
     pub removed_fg: &'static str,
     pub added_bg: &'static str,
     pub added_fg: &'static str,
-    pub hunk_fg: &'static str,
 }
 
 pub fn diff_colors() -> DiffColors {
@@ -28,7 +27,6 @@ pub fn diff_colors() -> DiffColors {
             removed_fg: "#ff9999",
             added_bg: "#1a3a1a",
             added_fg: "#99dd99",
-            hunk_fg: "#7aa8d6",
         }
     } else {
         DiffColors {
@@ -36,7 +34,6 @@ pub fn diff_colors() -> DiffColors {
             removed_fg: "#9a1010",
             added_bg: "#e6f7e6",
             added_fg: "#116b11",
-            hunk_fg: "#3865b0",
         }
     }
 }

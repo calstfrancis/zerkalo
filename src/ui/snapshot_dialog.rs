@@ -80,71 +80,6 @@ fn list_snapshots(dir: &Path) -> Vec<PathBuf> {
     files
 }
 
-fn simple_diff(old: &str, new: &str) -> String {
-    let old_lines: Vec<&str> = old.lines().collect();
-    let new_lines: Vec<&str> = new.lines().collect();
-    let m = old_lines.len().min(600);
-    let n = new_lines.len().min(600);
-    let old_lines = &old_lines[..m];
-    let new_lines = &new_lines[..n];
-
-    // LCS DP table
-    let mut dp = vec![vec![0u16; n + 1]; m + 1];
-    for i in 1..=m {
-        for j in 1..=n {
-            dp[i][j] = if old_lines[i - 1] == new_lines[j - 1] {
-                dp[i - 1][j - 1] + 1
-            } else {
-                dp[i - 1][j].max(dp[i][j - 1])
-            };
-        }
-    }
-
-    // Backtrack
-    let mut diff: Vec<(char, &str)> = Vec::new();
-    let (mut i, mut j) = (m, n);
-    while i > 0 || j > 0 {
-        if i > 0 && j > 0 && old_lines[i - 1] == new_lines[j - 1] {
-            diff.push((' ', old_lines[i - 1]));
-            i -= 1;
-            j -= 1;
-        } else if j > 0 && (i == 0 || dp[i][j - 1] >= dp[i - 1][j]) {
-            diff.push(('+', new_lines[j - 1]));
-            j -= 1;
-        } else {
-            diff.push(('-', old_lines[i - 1]));
-            i -= 1;
-        }
-    }
-    diff.reverse();
-
-    // Render with 2-line context around changes
-    let changed: Vec<bool> = diff.iter().map(|(c, _)| *c != ' ').collect();
-    let mut show = vec![false; diff.len()];
-    for (k, _) in changed.iter().enumerate().filter(|(_, c)| **c) {
-        let s = k.saturating_sub(2);
-        let e = (k + 3).min(diff.len());
-        show[s..e].iter_mut().for_each(|v| *v = true);
-    }
-
-    let mut out = String::new();
-    let mut gap = false;
-    for (idx, (ch, line)) in diff.iter().enumerate() {
-        if !show[idx] {
-            gap = true;
-            continue;
-        }
-        if gap { out.push_str("...\n"); gap = false; }
-        match ch {
-            '-' => out.push_str(&format!("- {line}\n")),
-            '+' => out.push_str(&format!("+ {line}\n")),
-            _ => out.push_str(&format!("  {line}\n")),
-        }
-    }
-
-    if out.is_empty() { "(no differences)".to_string() } else { out }
-}
-
 // ── SnapshotDialog ────────────────────────────────────────────────────────────
 
 pub struct SnapshotDialog {
@@ -304,28 +239,8 @@ impl SnapshotDialog {
                 let idx = row.index() as usize;
                 let Some(snap_path) = paths.get(idx) else { return };
                 let Ok(snap_text) = std::fs::read_to_string(snap_path) else { return };
-                let diff = simple_diff(&snap_text, &current_clone);
-                buf.set_text("");
-                let mut iter = buf.start_iter();
-                for line in diff.lines() {
-                    let tag_name = if line.starts_with("- ") {
-                        Some("removed")
-                    } else if line.starts_with("+ ") {
-                        Some("added")
-                    } else {
-                        None
-                    };
-                    let line_with_nl = format!("{line}\n");
-                    if let Some(name) = tag_name {
-                        if let Some(tag) = buf.tag_table().lookup(name) {
-                            buf.insert_with_tags(&mut iter, &line_with_nl, &[&tag]);
-                        } else {
-                            buf.insert(&mut iter, &line_with_nl);
-                        }
-                    } else {
-                        buf.insert(&mut iter, &line_with_nl);
-                    }
-                }
+                let diff = crate::ui::diff_render::simple_diff(&snap_text, &current_clone);
+                crate::ui::diff_render::render_clean_diff(&buf, &diff);
                 *sel.borrow_mut() = Some(snap_text.clone());
                 restore_btn_c.set_sensitive(true);
                 let wc = snap_text.split_whitespace().count();
@@ -352,11 +267,21 @@ impl SnapshotDialog {
             let cb = on_restore.clone();
             let win = window.clone();
             restore_btn.connect_clicked(move |_| {
-                if let Some(ref text) = *sel.borrow() {
-                    if let Some(f) = cb.borrow().as_ref() {
-                        f(text.clone());
-                    }
-                    win.close();
+                if let Some(text) = sel.borrow().clone() {
+                    let cb = cb.clone();
+                    let win_confirm = win.clone();
+                    super::confirm::confirm_destructive(
+                        Some(win.upcast_ref()),
+                        "Replace what's in the editor now?",
+                        "Unsaved changes since your last save will be lost.",
+                        "Restore",
+                        move || {
+                            if let Some(f) = cb.borrow().as_ref() {
+                                f(text.clone());
+                            }
+                            win_confirm.close();
+                        },
+                    );
                 }
             });
         }

@@ -254,7 +254,54 @@ impl LibraryWindow {
         root.append(&right);
 
         toast_overlay.set_child(Some(&root));
-        window.set_content(Some(&toast_overlay));
+
+        // F1 labels everything on screen, same as the main editor window —
+        // Library's Project/Category/Tag/Archive/Trash sidebar has no other
+        // in-app explanation anywhere.
+        let help_overlay = super::help_overlay::HelpOverlay::new(&toast_overlay);
+        help_overlay.annotate(
+            &filter_list,
+            "Filters",
+            "All Documents, plus any Projects, Categories, and Tags you've made. Click one to show only those documents.",
+        );
+        help_overlay.annotate(
+            &bottom_filter_list,
+            "Trash & Archive",
+            "Trash holds deleted documents until you empty it. Archive holds documents you're done with but want to keep.",
+        );
+        help_overlay.annotate(
+            &manage_box,
+            "Organize",
+            "Make a new Project or Category, or rename/recolor your Tags.",
+        );
+        help_overlay.annotate(
+            &search_entry,
+            "Search",
+            "Filters the document list below as you type.",
+        );
+        help_overlay.annotate(
+            &new_doc_btn,
+            "New Document",
+            "Starts a new document from a template.",
+        );
+        window.set_content(Some(help_overlay.widget()));
+
+        {
+            let overlay_for_key = help_overlay.clone();
+            let controller = gtk4::EventControllerKey::new();
+            controller.connect_key_pressed(move |_, key, _, _| {
+                if key == gtk4::gdk::Key::F1 {
+                    overlay_for_key.toggle();
+                    return glib::Propagation::Stop;
+                }
+                if key == gtk4::gdk::Key::Escape && overlay_for_key.is_shown() {
+                    overlay_for_key.hide();
+                    return glib::Propagation::Stop;
+                }
+                glib::Propagation::Proceed
+            });
+            window.add_controller(controller);
+        }
 
         window.connect_close_request(|win| {
             win.set_visible(false);
