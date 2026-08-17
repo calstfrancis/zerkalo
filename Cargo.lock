@@ -833,7 +833,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -970,7 +970,7 @@ checksum = "3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1"
 [[package]]
 name = "fond-bib"
 version = "0.1.0"
-source = "git+https://github.com/calstfrancis/kartoteka#a5eb2f401ba66a14744c9045f1b35594adfe767b"
+source = "git+https://github.com/calstfrancis/kartoteka?tag=v0.5.0#880d31420d5ca9f4f13f057ad41e918930173d79"
 dependencies = [
  "biblatex",
  "blake3",
@@ -986,7 +986,7 @@ dependencies = [
 [[package]]
 name = "fond-vault"
 version = "0.1.0"
-source = "git+https://github.com/calstfrancis/kartoteka#a5eb2f401ba66a14744c9045f1b35594adfe767b"
+source = "git+https://github.com/calstfrancis/kartoteka?tag=v0.5.0#880d31420d5ca9f4f13f057ad41e918930173d79"
 dependencies = [
  "git2",
  "notify",
@@ -3150,7 +3150,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3451,7 +3451,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4039,7 +4039,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5235,7 +5235,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
