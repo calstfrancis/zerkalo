@@ -79,16 +79,34 @@
 
 Several standing plan docs track multi-session work — read the relevant one
 before starting anything that overlaps it, and update its status boxes as you
-go so the plan (not the conversation) is the source of truth across `/clear`s:
+go so the plan (not the conversation) is the source of truth across `/clear`s.
+
+**As of 2026-08-17, every plan below is fully closed out** — no open phases,
+no unstarted items. Still worth reading before new codebase-health/UX/
+refactor work starts, both to avoid redoing something already investigated
+and closed, and because the next such initiative should probably become a
+new dated plan rather than reopening one of these:
 
 - **`HEALTH-PLAN.md`** — 10-phase plan from the 2026-08-12 codebase review
   (fragile-core files, unwrap audits, dependency pinning, a11y, dead code).
-  Check this first for general codebase-health work.
+  All 10 phases done.
 - **`UX-AUDIT-PLAN.md`** — 32-item plan from the 2026-08-17 Word-migrant
   usability audit (onboarding jargon, destructive-action confirmations,
-  Typst-complexity leakage, help/discoverability gaps). Check this first
-  for UX/copy/onboarding work.
+  Typst-complexity leakage, help/discoverability gaps). All 32 items done.
 - **`REFACTOR-PLAN.md`** — file-splitting + `library.rs`/`spellcheck.rs` test
-  coverage.
-- **`PRINT-PLAN.md`**, **`zerk-polish.md`**, **`zerkalo-todo.md`**,
-  **`ROADMAP.md`** — feature-specific plans; see each file's own header.
+  coverage. All phases done or explicitly, deliberately deferred (see the
+  plan's own notes on why).
+- **`PRINT-PLAN.md`**, **`zerk-polish.md`** — feature-specific plans, both
+  fully done; see each file's own header.
+
+Two older plans were archived to `docs/archive/` on 2026-08-17 since their
+own merge/completion criteria were already satisfied (not deleted — kept for
+history):
+- **`docs/archive/zerkalo-todo.md`** — multi-file project feature plan;
+  items 1–6 done and merged into `main` back at v0.12.18, items 7–8 were
+  explicitly optional "nice-to-have" stretch goals never required by the
+  plan's own merge criteria.
+- **`docs/archive/ROADMAP.md`** — pre-`CHANGELOG.md` release history,
+  superseded by `CHANGELOG.md` and stale by 17 versions at archive time
+  (still headed "Current release: 0.7.1" against an actual `main` at
+  v0.24.0-dev3).
