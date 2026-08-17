@@ -46,6 +46,26 @@ priority order — see `UX-AUDIT-PLAN.md` for the full list and status.
 - **Help (Ctrl+?) opens on Overview, not the raw-syntax Cheatsheet.** The
   F1 "what does this do" overlay now also covers the Library window's
   Project/Category/Tag/Archive/Trash sidebar, which had none before.
+- **A one-time banner explains the source/preview split** the first time
+  you open a document — what you type is plain text with light markup;
+  the preview pane shows the real formatting.
+- **Exporting to DOCX, HTML, ODT, LaTeX, or EPUB checks upfront whether
+  pandoc is available**, instead of only failing (with a terminal-style
+  log) after you've already chosen a format and clicked Export.
+- **Turning Simple Mode off explains itself inline**, not just in a
+  tooltip, the first time it shows you the document's technical setup.
+- **The bibliography entry-type dropdown uses plain labels** ("Conference
+  Paper," "PhD Thesis") instead of raw BibTeX vocabulary
+  ("inproceedings," "phdthesis").
+- **GitHub sign-in failures are translated to plain language**, matching
+  the rest of the setup flow, instead of showing a raw network error.
+- **Template package descriptions lead with plain English**; the
+  underlying Typst syntax for each one is now a tooltip instead of
+  always-visible text.
+- **"Remove from Library" now confirms first**, and says plainly that it
+  doesn't touch the file on disk — only "Move to Trash" does.
+- **The "What's New" dialog reads like release notes**, not a changelog
+  dump of every fix and internal change.
 
 ---
 

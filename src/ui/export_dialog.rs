@@ -67,10 +67,28 @@ impl ExportDialog {
         prefs_group.set_margin_top(16);
         prefs_group.set_margin_bottom(8);
 
+        // Checked once up front rather than only discovered at export time —
+        // PDF (index 0) compiles in-process and never needs this; every other
+        // format shells out to the host's pandoc, which a flatpak install may
+        // not have.
+        let pandoc_available = crate::git_sync::host_command("pandoc")
+            .arg("--version")
+            .output()
+            .is_ok();
+
         // One CheckButton per format; the "initial_format" is pre-checked
         let check_boxes: Vec<CheckButton> = FORMATS.iter().enumerate().map(|(i, (label, _))| {
             let cb = CheckButton::with_label(label);
-            cb.set_active(i == initial_format as usize);
+            let needs_pandoc = i != 0;
+            if needs_pandoc && !pandoc_available {
+                cb.set_active(false);
+                cb.set_sensitive(false);
+                cb.set_tooltip_text(Some(
+                    "Needs pandoc, which isn't installed — click Install Dependencies below",
+                ));
+            } else {
+                cb.set_active(i == initial_format as usize);
+            }
             cb
         }).collect();
 
@@ -83,6 +101,21 @@ impl ExportDialog {
         }
         prefs_group.add(&fmt_box);
         content.append(&prefs_group);
+
+        if !pandoc_available {
+            let note = Label::new(Some(
+                "Only PDF is available until pandoc is installed — it's needed for \
+                 HTML, DOCX, ODT, LaTeX, and EPUB export.",
+            ));
+            note.add_css_class("caption");
+            note.add_css_class("dim-label");
+            note.set_wrap(true);
+            note.set_xalign(0.0);
+            note.set_margin_start(16);
+            note.set_margin_end(16);
+            note.set_margin_bottom(4);
+            content.append(&note);
+        }
 
         content.append(&Separator::new(Orientation::Horizontal));
 

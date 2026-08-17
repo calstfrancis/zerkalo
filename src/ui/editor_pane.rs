@@ -230,6 +230,13 @@ pub struct EditorPane {
     project_root: Rc<RefCell<Option<PathBuf>>>,
     status_bar: GtkBox,
     simple_mode_btn: Button,
+    /// Shown once per session, the first time raw front-matter becomes
+    /// visible (Simple Mode turned off, or a document with no body marker) —
+    /// a tooltip alone is easy to never see, and a wall of Typst setup code
+    /// with no explanation is the scariest thing in the editor for someone
+    /// who's never seen it before.
+    frontmatter_banner: adw::Banner,
+    shown_frontmatter_banner: Rc<Cell<bool>>,
     focus_toggle_btn: Button,
     gost_btn: Button,
     /// Whether a language server is answering. Drives the "built-in snippets
@@ -1224,12 +1231,25 @@ impl EditorPane {
         // and the citation style collapsed it to its smallest overflow stage —
         // hiding the very buttons the row exists for. One row only works at a
         // pane width this layout does not have.
+        let frontmatter_banner = adw::Banner::new(
+            "This is your document's technical setup — most people don't need to touch it. \
+             Change it from the Template button instead of editing it directly.",
+        );
+        frontmatter_banner.set_button_label(Some("Got it"));
+        frontmatter_banner.set_revealed(false);
+        let shown_frontmatter_banner: Rc<Cell<bool>> = Rc::new(Cell::new(false));
+        {
+            let banner = frontmatter_banner.clone();
+            frontmatter_banner.connect_button_clicked(move |_| banner.set_revealed(false));
+        }
+
         let outer = GtkBox::new(Orientation::Vertical, 0);
         outer.set_hexpand(true);
         outer.set_vexpand(true);
         outer.append(&breadcrumb_bar);
         outer.append(&Separator::new(Orientation::Horizontal));
         outer.append(&format_bar_container);
+        outer.append(&frontmatter_banner);
         outer.append(&editor_overlay);
         outer.append(find_bar.widget());
         // Note: status_bar is intentionally NOT appended here.
@@ -1360,6 +1380,8 @@ impl EditorPane {
             project_root,
             status_bar,
             simple_mode_btn: simple_mode_btn.clone(),
+            frontmatter_banner: frontmatter_banner.clone(),
+            shown_frontmatter_banner: shown_frontmatter_banner.clone(),
             focus_toggle_btn: focus_toggle_btn.clone(),
             gost_btn: gost_btn.clone(),
             lsp_ready: Rc::new(Cell::new(false)),
@@ -1868,6 +1890,10 @@ impl EditorPane {
         if on && !self.format_bar_visible() && !*self.user_dismissed_format_bar.borrow() {
             self.set_format_bar_visible(true);
             if let Some(f) = self.on_format_bar_toggle.borrow().as_ref() { f(true); }
+        }
+        if !on && !self.shown_frontmatter_banner.get() {
+            self.shown_frontmatter_banner.set(true);
+            self.frontmatter_banner.set_revealed(true);
         }
     }
 

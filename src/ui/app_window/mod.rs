@@ -2063,11 +2063,36 @@ impl AppWindow {
         // header rather than as the one non-panel row in the sidebar column.
         header.pack_start(&template_btn);
 
+        // ── First-open orientation banner ─────────────────────────────────────
+        // Word migrants' single biggest expectation-break: the formatting
+        // toolbar inserts markup characters, not visually-formatted text —
+        // the real result only shows up in the preview pane. Said once, then
+        // never again.
+        let editor_outer = GtkBox::new(Orientation::Vertical, 0);
+        editor_outer.set_hexpand(true);
+        editor_outer.set_vexpand(true);
+        if !config.shown_editor_orientation {
+            let banner = adw::Banner::new(
+                "You're writing plain text with light markup — the preview on the \
+                 right shows the real formatting.",
+            );
+            banner.set_button_label(Some("Got it"));
+            banner.set_revealed(true);
+            let cfg_for_banner = current_config.clone();
+            banner.connect_button_clicked(move |b| {
+                b.set_revealed(false);
+                cfg_for_banner.borrow_mut().shown_editor_orientation = true;
+                let _ = cfg_for_banner.borrow().save();
+            });
+            editor_outer.append(&banner);
+        }
+        editor_outer.append(editor_pane.widget());
+
         let inner_paned = Paned::new(Orientation::Horizontal);
         inner_paned.set_position(config.preview_split);
         inner_paned.set_hexpand(true);
         inner_paned.set_vexpand(true);
-        inner_paned.set_start_child(Some(editor_pane.widget()));
+        inner_paned.set_start_child(Some(&editor_outer));
         inner_paned.set_end_child(Some(&preview_outer));
 
         // ── Global search panel (Ctrl+Shift+F) ───────────────────────────────

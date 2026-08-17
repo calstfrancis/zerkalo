@@ -457,14 +457,37 @@ impl LibraryWindow {
         }
         {
             let this = self.clone();
+            let win = self.window.clone();
             bulk_remove_btn.connect_clicked(move |_| {
                 let ids: Vec<i64> = this.selection.borrow().iter().cloned().collect();
-                for id in ids {
-                    this.library.borrow_mut().remove_document(id).ok();
+                if ids.is_empty() {
+                    return;
                 }
-                this.selection.borrow_mut().clear();
-                this.update_action_bar();
-                this.refresh();
+                let this2 = this.clone();
+                let count = ids.len();
+                let body = if count == 1 {
+                    "The document's file on disk isn't touched — this only removes it from \
+                     this list.".to_string()
+                } else {
+                    format!(
+                        "The {count} documents' files on disk aren't touched — this only \
+                         removes them from this list."
+                    )
+                };
+                super::confirm::confirm_destructive(
+                    Some(win.upcast_ref()),
+                    "Remove from Library?",
+                    &body,
+                    "Remove",
+                    move || {
+                        for id in &ids {
+                            this2.library.borrow_mut().remove_document(*id).ok();
+                        }
+                        this2.selection.borrow_mut().clear();
+                        this2.update_action_bar();
+                        this2.refresh();
+                    },
+                );
             });
         }
         {
@@ -1295,10 +1318,22 @@ impl LibraryWindow {
             let this = self.clone();
             let id = doc.id;
             let pop = popover.clone();
+            let win = self.window.clone();
             remove_b.connect_clicked(move |_| {
                 pop.popdown();
-                this.library.borrow_mut().remove_document(id).ok();
-                this.refresh();
+                let this2 = this.clone();
+                super::confirm::confirm_destructive(
+                    Some(win.upcast_ref()),
+                    "Remove from Library?",
+                    "The document's file on disk isn't touched — this only removes it from \
+                     this list. Zerkalo will find it again if you open it or its folder is \
+                     rescanned.",
+                    "Remove",
+                    move || {
+                        this2.library.borrow_mut().remove_document(id).ok();
+                        this2.refresh();
+                    },
+                );
             });
         }
         vbox.append(&remove_b);
