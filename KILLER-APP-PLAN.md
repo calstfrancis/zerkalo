@@ -89,7 +89,76 @@ the start of the next phase that touches `Cargo.lock`.
 
 ## Phase 2 — UI integration test infrastructure
 
-**Status:** ☐ not started
+**Status:** ☐ IN PROGRESS (2026-08-17) — investigation done, options 1 and a
+D-Bus-actions alternative both ruled out; option 2 (AT-SPI) identified as the
+viable path but the reusable test helper itself isn't built yet.
+
+**Option 1 (Xvfb + a WM) tested and ruled out.** Installed `fluxbox` (apt),
+ran it against an isolated `Xvfb :227`, launched a real headless Zerkalo
+instance in it (isolated HOME/XDG/D-Bus per the established recipe), and
+confirmed via screenshot that a real window renders. Pointer input (`xdotool
+mousemove` + `click`) works exactly as `HEALTH-PLAN.md` Phase 9 found —
+clicked "Get Started" on the Welcome dialog and it closed. **Keyboard
+synthesis still does not register**, even with a WM present and explicit
+`windowactivate`/`windowfocus` calls first: `xdotool key ctrl+k` produced no
+visible effect, and a direct `XSetInputFocus` attempt (via
+`xdotool windowfocus`) returned a hard X error (`BadMatch (invalid parameter
+attributes)`). This confirms the WM-presence hypothesis from this phase's
+original write-up does **not** hold — the blocker is elsewhere (almost
+certainly GDK's synthetic-XSendEvent guard, as originally suspected, which a
+WM being present doesn't route around).
+
+**Alternative considered and ruled out: invoking commands via GApplication's
+D-Bus `org.gtk.Actions` interface instead of any input synthesis at all** —
+would sidestep the input-synthesis problem entirely if it worked. Ruled out
+by inspection: `grep -rn "add_action\|ActionEntry\|SimpleAction" src/` finds
+zero hits. Zerkalo's hamburger menu and Ctrl+K palette are hand-built widgets
+dispatching to plain Rust closures (per `CLAUDE.md`'s documented "hand-built
+popover, not `gio::Menu`" design), not `GAction`s, so nothing is exposed on
+the app's D-Bus action-group interface to invoke this way.
+
+**Option 2 (AT-SPI) — identified as the live path, not yet built out.**
+The AT-SPI registry is confirmed present and already in use: Zerkalo's own
+startup log shows it activating `org.a11y.atspi.Registry` and registering
+with it (`SpiRegistry daemon is running with well-known name`) on every
+launch, with no extra setup needed — GTK4 apps register with AT-SPI
+automatically. `gi.repository.Atspi` (Python, via the already-installed
+`gir1.2-atspi-2.0` package) can walk an app's accessible tree and invoke
+actions on widgets directly, bypassing X input synthesis entirely — this is
+architecturally the right fix, not just a workaround. **Not yet proven
+end-to-end**: a first probe connected to the *real* desktop session's AT-SPI
+bus instead of the isolated `dbus-run-session` one Zerkalo was launched in
+(enumerated `gnome-shell`, `gsd-*`, etc. — the host's own apps, not Zerkalo),
+because the probe process didn't share the inner session's
+`DBUS_SESSION_BUS_ADDRESS`/AT-SPI bus address with the launched app. Fixing
+that is straightforward (capture and export the inner bus address to the
+probe process) but is real remaining work, not a two-minute fix — scoping it
+as the concrete next step rather than closing this phase now.
+
+**Unrelated finding surfaced during this investigation, flagged for Cal
+separately from this plan's scope:** launching Zerkalo fresh (no existing
+instance) **with a `.typ` file path as a CLI argument** appears to open no
+window at all and exit near-instantly (clean exit code 0, no error, no
+panic) — reproduced 3 times. Root cause appears structural: with only
+`ApplicationFlags::HANDLES_OPEN` set (no `HANDLES_COMMAND_LINE`), GLib's
+default command-line handling emits the `open` signal instead of `activate`
+whenever file arguments are present, and `main.rs`'s `connect_open` handler
+(`src/main.rs:137-147`) only acts on an *already-existing* window
+(`if let Some(w) = borrow.as_ref()`) — there's no fallback to create one.
+Launching with **no** file argument works perfectly (confirmed: window
+opens, Library DB loads, full startup log). **Not investigated further or
+fixed** — outside this plan's scope, and it needs verification against real
+desktop launch paths (a `.desktop` file's `Exec=zerkalo %U` and GNOME
+Files' double-click-to-open both go through D-Bus `Open()` activation, which
+may or may not hit this same code path in practice) before concluding it's a
+real user-facing bug rather than a headless-launch-only artifact. Worth its
+own investigation session.
+
+**Original phase text preserved below for the remaining Xvfb/WM background
+and the option-3 fallback description, still accurate:**
+
+**Risk:** low (investigation) → medium (if a working approach is adopted
+project-wide) · **Effort:** medium · **Depends on:** nothing
 **Risk:** low (investigation) → medium (if a working approach is adopted
 project-wide) · **Effort:** medium · **Depends on:** nothing
 
