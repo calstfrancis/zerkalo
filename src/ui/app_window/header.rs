@@ -28,6 +28,8 @@ pub(super) struct Menus {
     pub(super) menu_print_item: Button,
     pub(super) menu_reapply_template_item: Button,
     pub(super) menu_repair_markers_item: Button,
+    pub(super) menu_refs_item: Button,
+    pub(super) menu_depgraph_item: Button,
     pub(super) menu_save_as_item: Button,
     pub(super) menu_save_item: Button,
     pub(super) menu_settings_item: Button,
@@ -169,6 +171,8 @@ pub(super) fn build_header() -> HeaderWidgets {
         menu_print_item,
         menu_reapply_template_item,
         menu_repair_markers_item,
+        menu_refs_item,
+        menu_depgraph_item,
         menu_save_as_item,
         menu_save_item,
         menu_settings_item,
@@ -207,6 +211,8 @@ pub(super) fn build_header() -> HeaderWidgets {
     // Current document
     menu_popover_box.append(&menu_reapply_template_item);
     menu_popover_box.append(&menu_repair_markers_item);
+    menu_popover_box.append(&menu_refs_item);
+    menu_popover_box.append(&menu_depgraph_item);
     menu_popover_box.append(&Separator::new(Orientation::Horizontal));
     // Save / versions
     menu_popover_box.append(&menu_save_item);
@@ -321,6 +327,8 @@ pub(super) fn build_header() -> HeaderWidgets {
             menu_print_item,
             menu_reapply_template_item,
             menu_repair_markers_item,
+            menu_refs_item,
+            menu_depgraph_item,
             menu_save_as_item,
             menu_save_item,
             menu_settings_item,

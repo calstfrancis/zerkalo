@@ -31,7 +31,7 @@ use crate::git_sync;
 use super::{
     apply_compile_mode_css, apply_theme, compile_mode_label_str,
     print_from_preview, restore_snapshot_with_confirm,
-    show_alert, show_file_history_window,
+    show_alert, show_file_history_window, show_dep_graph_window, show_ref_manager_window,
 };
 use super::import::run_pdf_import;
 use super::sync::{do_sync, show_backup_remote_dialog};
@@ -44,6 +44,8 @@ pub(super) struct MenuCtx {
     pub(super) preview_pane: PreviewPane,
     pub(super) error_panel: ErrorPanel,
     pub(super) citation_panel: super::super::citation_panel::CitationPanel,
+    pub(super) dep_graph: super::super::dep_graph::DepGraph,
+    pub(super) ref_manager: super::super::ref_manager::RefManager,
     pub(super) toast_overlay: adw::ToastOverlay,
     pub(super) current_config: Rc<RefCell<Config>>,
     pub(super) project_root: std::path::PathBuf,
@@ -697,6 +699,26 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
         menu_popover_for_history.popdown();
         let Some(path) = editor_for_history.get_active_path() else { return };
         show_file_history_window(&window_for_history, &root_for_history, &path);
+    });
+
+    // ── Menu: Reference Manager ──────────────────────────────────────────
+
+    let window_for_refs = ctx.window.clone();
+    let ref_manager_for_menu = ctx.ref_manager.clone();
+    let menu_popover_for_refs = ctx.menu_popover.clone();
+    menus.menu_refs_item.connect_clicked(move |_| {
+        menu_popover_for_refs.popdown();
+        show_ref_manager_window(&window_for_refs, &ref_manager_for_menu);
+    });
+
+    // ── Menu: Dependency Graph ───────────────────────────────────────────
+
+    let window_for_depgraph = ctx.window.clone();
+    let dep_graph_for_menu = ctx.dep_graph.clone();
+    let menu_popover_for_depgraph = ctx.menu_popover.clone();
+    menus.menu_depgraph_item.connect_clicked(move |_| {
+        menu_popover_for_depgraph.popdown();
+        show_dep_graph_window(&window_for_depgraph, &dep_graph_for_menu);
     });
 
     // ── Sync button ─────────────────────────────────────────────────────

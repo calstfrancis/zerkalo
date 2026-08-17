@@ -29,7 +29,6 @@ fn cite_re() -> &'static Regex {
 
 #[derive(Clone)]
 pub struct RefManager {
-    #[allow(dead_code)]
     widget: GtkBox,
     list_box: ListBox,
     filter_entry: Entry,

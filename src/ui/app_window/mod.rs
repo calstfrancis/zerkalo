@@ -708,6 +708,8 @@ impl AppWindow {
             preview_pane: preview_pane.clone(),
             error_panel: error_panel.clone(),
             citation_panel: citation_panel.clone(),
+            dep_graph: dep_graph.clone(),
+            ref_manager: ref_manager.clone(),
             toast_overlay: toast_overlay.clone(),
             current_config: current_config.clone(),
             project_root: project_root.clone(),
@@ -3173,6 +3175,8 @@ struct HamburgerItems {
     menu_new_template_item: Button,
     menu_reapply_template_item: Button,
     menu_repair_markers_item: Button,
+    menu_refs_item: Button,
+    menu_depgraph_item: Button,
     menu_new_item: Button,
     menu_open_item: Button,
     menu_save_item: Button,
@@ -3203,6 +3207,8 @@ fn build_hamburger_menu_items() -> HamburgerItems {
         menu_new_template_item:    make_menu_item("New from Template…",         None),
         menu_reapply_template_item: make_menu_item("Update Template Settings…", None),
         menu_repair_markers_item:  make_menu_item("Repair Template Markers…",   None),
+        menu_refs_item:            make_menu_item("Reference Manager…",        None),
+        menu_depgraph_item:        make_menu_item("Dependency Graph…",         None),
         menu_new_item:             make_menu_item("New Blank Document…",         None),
         menu_open_item:            make_menu_item("Open File…",                  None),
         menu_save_item:            make_menu_item("Save",                      Some(&d(&kb.save))),
@@ -3308,6 +3314,69 @@ pub(super) fn show_file_history_window(
     close_btn.connect_clicked(move |_| win_close.close());
 
     history_window.present();
+}
+
+/// Opens a small window around `dep_graph`'s already-live widget — the same
+/// long-lived instance kept in sync by `.refresh()` calls elsewhere, not a
+/// fresh one, so it shows the current project's real dependency graph rather
+/// than starting empty. Unparents first since a widget can only have one
+/// parent at a time and this may be a second-or-later open.
+pub(super) fn show_dep_graph_window(parent: &adw::ApplicationWindow, dep_graph: &super::dep_graph::DepGraph) {
+    let graph_window = adw::Window::builder()
+        .title("Dependency Graph")
+        .transient_for(parent)
+        .modal(true)
+        .default_width(760)
+        .default_height(560)
+        .build();
+    let header = adw::HeaderBar::new();
+    header.add_css_class("fond-chrome");
+    let close_btn = Button::with_label("Close");
+    header.pack_end(&close_btn);
+    let content_box = GtkBox::new(Orientation::Vertical, 0);
+    content_box.append(&header);
+
+    if dep_graph.widget().parent().is_some() {
+        dep_graph.widget().unparent();
+    }
+    content_box.append(dep_graph.widget());
+    graph_window.set_content(Some(&content_box));
+
+    let win_close = graph_window.clone();
+    close_btn.connect_clicked(move |_| win_close.close());
+
+    graph_window.present();
+}
+
+/// Opens a small window around `ref_manager`'s already-live widget — same
+/// singleton-reuse rationale as `show_dep_graph_window` above: it's kept in
+/// sync with the current bibliography via `load_bib`/rename callbacks wired
+/// once at startup, so a fresh instance here would show nothing.
+pub(super) fn show_ref_manager_window(parent: &adw::ApplicationWindow, ref_manager: &super::ref_manager::RefManager) {
+    let refs_window = adw::Window::builder()
+        .title("Reference Manager")
+        .transient_for(parent)
+        .modal(true)
+        .default_width(560)
+        .default_height(640)
+        .build();
+    let header = adw::HeaderBar::new();
+    header.add_css_class("fond-chrome");
+    let close_btn = Button::with_label("Close");
+    header.pack_end(&close_btn);
+    let content_box = GtkBox::new(Orientation::Vertical, 0);
+    content_box.append(&header);
+
+    if ref_manager.widget().parent().is_some() {
+        ref_manager.widget().unparent();
+    }
+    content_box.append(ref_manager.widget());
+    refs_window.set_content(Some(&content_box));
+
+    let win_close = refs_window.clone();
+    close_btn.connect_clicked(move |_| win_close.close());
+
+    refs_window.present();
 }
 
 /// Opens the template dialog preloaded from the active document, for both the
