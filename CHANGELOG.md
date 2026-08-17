@@ -5,12 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.24.0-dev3] — Word-migrant usability pass
+## [0.24.0-dev4] — Word-migrant usability pass, and package search
 
 A 4-way UX audit found 32 issues that trip up someone coming from Word who's
 never used Typst, git, or a markup language. All 32 are fixed — see
 `UX-AUDIT-PLAN.md` for the full list, and a future "merge History and
 Snapshots into one Versions system" project noted at the bottom of it.
+
+### Added
+
+- **Search and install packages from Typst Universe, right from the
+  Packages panel.** Previously it only listed packages already downloaded
+  to the local cache; it now shows the full public package index too, with
+  a description for each and a one-click Install.
 
 ### Changed
 
@@ -80,6 +87,12 @@ Snapshots into one Versions system" project noted at the bottom of it.
   → Document Fonts.
 - The dependency graph's empty state no longer says "imports."
 - The Skrizhal CV Elements field explains that Skrizhal is a separate app.
+- **The Packages panel wasn't actually visible anywhere in the app** —
+  built and wired, but never attached to the sidebar. It now appears
+  alongside Outline and Citations.
+- **A package the compiler had already downloaded was never shown as
+  installed**, because the panel was checking a different folder than the
+  one packages actually download into.
 
 ---
 

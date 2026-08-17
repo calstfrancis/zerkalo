@@ -143,6 +143,7 @@ impl WelcomeWindow {
                 "Restoring an old snapshot now asks first, so it can't silently overwrite unsaved work.",
                 "Help (Ctrl+?) opens on a plain-language Overview instead of raw Typst syntax, and the \"what does this do\" overlay (F1) now covers the Library window too.",
                 "A first-time explanation of the source/preview split, and of what Simple Mode is hiding, shows up right where you need it instead of only in a tooltip.",
+                "The Packages panel can now search and install from Typst Universe, not just list what's already downloaded — and it actually shows up in the sidebar now.",
             ] {
                 body.append(&bullet_row(item));
             }
