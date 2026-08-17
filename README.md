@@ -161,8 +161,8 @@ apt install libgtk-4-dev libadwaita-1-dev libgtksourceview-5-dev libgit2-dev lib
 cargo build --release
 ```
 
-`./install.sh` will also attempt a source build automatically as a last resort if it can't find a
-matching pre-built package for your system.
+`./install.sh` does this for you — building from source and installing to `~/.local/bin`, with icons
+and a `.desktop` file — for anyone who'd rather not use the flatpak.
 
 ---
 
