@@ -521,9 +521,49 @@ test. Check them after each sub-phase.
 
 **Status:** ◐ **PARTLY DONE** (2026-08-03; resumed 2026-08-17) — 4a ☑ tests,
 4b ☑ six sections, 4c ☑ drag-and-drop, 4d ☑ tab label, 4e ☑ citation
-autocomplete, 4f ☑ LSP autocomplete, 4g ☑ key controller. Two sections
-remain, both deliberately left inline (below).
+autocomplete, 4f ☑ LSP autocomplete, 4g ☑ key controller, 4h ☑ right-click
+menu. One section remains, deliberately left for last (below).
 **Risk:** high · **Depends on:** Phase 3 (hardest last)
+
+### 4h ☑ — Right-click context menu extracted (2026-08-17)
+
+Extracted as `wire_right_click_menu(&self, view, buffer, scroll,
+hold_position, hold_until) -> (Rc<Cell<f64>>, Rc<Cell<f64>>, impl Fn() +
+Clone + 'static)` — 344 lines, byte-for-byte moved. Covers the right-click
+spell-suggestion popover (fetch suggestions on a background thread so
+hunspell's fork/exec doesn't stall the popup appearing, Ignore/Add to
+Dictionary/Add to Project Dictionary) plus the scroll-position tracking
+(`saved_scroll`/`saved_hscroll`, updated on every `vadjustment`/
+`hadjustment` change rather than sampled on discrete events — the fix for a
+prior bug where scrolling by wheel or Page Down without a click/focus event
+left the saved position stale) and the `pause_tracking` closure that
+suppresses that tracking around GTK's own focus-snap.
+
+`pause_tracking` is the interesting one: it's a `move` closure over an
+`Rc<Cell<Instant>>`, needed `Clone` at every call site (the still-inline
+focus-snap-suppression code five lines down clones it five separate times),
+and doesn't have a nameable concrete type — so the method returns `impl
+Fn() + Clone + 'static` rather than boxing it as `Rc<dyn Fn()>`, keeping the
+zero-cost closure instead of introducing a vtable call for what's a two-line
+`Cell::set`.
+
+The plan's own note about this section turned out to matter here: it named
+this as producing `saved_scroll`, `saved_hscroll`, `pause_tracking` for
+consumption downstream — accurate, but the downstream consumer is not the
+still-fully-inline "Inline error assistant" banner's hover-popover code
+(that part only reads `self.last_diagnostics`/`view`/`buffer`); it's the
+*focus-snap suppression* block physically sitting inside that same banner's
+line range (grep on `── ── ──` banners undercounts sections — this one
+isn't preceded by its own banner comment). Left that block untouched as
+planned; it stays part of Phase 4's last remaining piece.
+
+Full gate green: 486 tests (unchanged), clippy clean (the `impl Trait`
+return type raised no lint), release build clean on the first attempt,
+version guard clean. **Not manually smoke-tested interactively** (no GTK
+session here) — worth checking next time you're in the app: right-click a
+misspelled word (suggestions populate after a beat, Ignore All / Add to
+Dictionary / Add to Project Dictionary all work), and that scrolling by
+wheel or Page Down doesn't get silently reset by a later click.
 
 ### 4g ☑ — Key controller extracted (2026-08-17)
 
@@ -682,13 +722,19 @@ extracting them means returning 3–8 values and threading them back in:
 
 | Section | Lines | Produces |
 |---|---|---|
-| Right-click context menu | 345 | `saved_scroll`, `saved_hscroll`, `pause_tracking` |
-| Inline error assistant | 295 | — but *consumes* 10 of the above |
+| Inline error assistant | 295 | — but *consumes* ~13 of the above |
 
 The error assistant is the one worth revisiting: it produces nothing, so it is
-extractable, but it needs ten values including `pause_tracking`, which is a
-**closure** and would have to be boxed as `Rc<dyn Fn()>` to travel in a struct.
-That is a real change in shape, not a move, so it was left alone.
+extractable, but the still-inline focus-snap-suppression code sitting inside
+its line range (see 4h's note — it isn't under its own banner comment) needs
+`saved_scroll`, `saved_hscroll`, and `pause_tracking` from 4h on top of the 10
+values 4e/4f/4g already produced. **Update from the original note below:**
+`pause_tracking` turned out not to need boxing as `Rc<dyn Fn()>` — 4h returned
+it as `impl Fn() + Clone + 'static` from `wire_right_click_menu` and that
+type-checked cleanly (clippy raised no lint on it either), so the same
+approach — a plain generic/`impl Trait` parameter rather than a boxed
+trait object — should work for whatever still-inline section ends up
+consuming it next, rather than reaching for `Rc<dyn Fn()>` by default.
 
 ### Smoke-verified
 

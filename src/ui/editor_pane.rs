@@ -3084,350 +3084,9 @@ impl EditorPane {
         self.wire_spell_suggestions(&tab, &hold_position, &hold_until);
         self.wire_spellcheck(&tab);
         self.wire_autocorrect(&tab);
-        // ── Right-click context menu (spell suggestions + ignore) ─────────────
-        //
-        // saved_scroll is defined here (not in the focus-snap block below) so
-        // the right-click gesture can also update it. If we don't, the sequence:
-        //   right-click → GTK snaps scroll → focus_leave saves snapped value
-        //   → idle restores real value → dismiss popover → focus_enter restores
-        //   wrong (snapped) value → visible jump.
-        let saved_scroll: Rc<Cell<f64>> = Rc::new(Cell::new(-1.0));
-        let saved_hscroll: Rc<Cell<f64>> = Rc::new(Cell::new(-1.0));
-
-        // Track every scroll, rather than sampling the position on the handful
-        // of events (pointer enter/leave, click, focus leave) that used to be
-        // the only writers. Anything that scrolled without one of those firing
-        // — a wheel scroll with the pointer already inside, Page Down, a jump
-        // from the outline — left the saved value stale, usually still at the
-        // top of the file where the pointer first entered. The next focus-enter
-        // then "restored" that, which is why copying or pasting (both of which
-        // hand focus to the clipboard manager and back) threw the view to the
-        // top of the document.
-        //
-        // GTK's focus-snap must not be recorded as the user's position, so
-        // tracking pauses around the events that provoke one (a click into the
-        // view, a right-click, focus arriving or leaving). The pause is a short
-        // deadline rather than a flag cleared on the next tick because the snap
-        // doesn't reliably land within one: taking Copy from the right-click
-        // menu snapped the view *after* the restore that was meant to undo it,
-        // and the snapped position — the cursor, typically still at the top of
-        // the file — became the position every later restore aimed at.
-        let track_paused_until: Rc<Cell<Instant>> = Rc::new(Cell::new(Instant::now()));
-        // Pasting makes GTK animate the viewport to the top of the buffer — an
-        // eased curve over a dozen frames, ending at 0, with focus never leaving
-        // the editor and the cursor still mid-document. Nothing in Zerkalo asks
-        // for it and there's no signal to decline it, so instead the position is
-        // *held*: for a moment after a paste, every frame of that animation is
-        // put straight back. Snapping back once at the end would be visible;
-        // countering each frame means nothing moves at all.
-        let pause_tracking = {
-            let until = track_paused_until.clone();
-            move || until.set(Instant::now() + Duration::from_millis(150))
-        };
-        {
-            let sv = saved_scroll.clone();
-            let until = track_paused_until.clone();
-            let held = hold_position.clone();
-            let held_until = hold_until.clone();
-            let reasserting: Rc<Cell<bool>> = Rc::new(Cell::new(false));
-            scroll.vadjustment().connect_value_changed(move |adj| {
-                if let Some((v, _)) = held.get() {
-                    if Instant::now() < held_until.get() {
-                        // Re-assert, guarding against our own recursion.
-                        if !reasserting.get() && (adj.value() - v).abs() > 0.5 {
-                            reasserting.set(true);
-                            adj.set_value(v);
-                            reasserting.set(false);
-                        }
-                        return;
-                    }
-                    held.set(None);
-                }
-                if Instant::now() >= until.get() { sv.set(adj.value()); }
-            });
-            let sh = saved_hscroll.clone();
-            let until = track_paused_until.clone();
-            let held_h = hold_position.clone();
-            let held_until_h = hold_until.clone();
-            let reasserting_h: Rc<Cell<bool>> = Rc::new(Cell::new(false));
-            scroll.hadjustment().connect_value_changed(move |adj| {
-                if let Some((_, h)) = held_h.get() {
-                    if Instant::now() < held_until_h.get() {
-                        if !reasserting_h.get() && (adj.value() - h).abs() > 0.5 {
-                            reasserting_h.set(true);
-                            adj.set_value(h);
-                            reasserting_h.set(false);
-                        }
-                        return;
-                    }
-                }
-                if Instant::now() >= until.get() { sh.set(adj.value()); }
-            });
-        }
-
-        {
-            let spell_rc = self.spell_checker.clone();
-            let buf_rc = buffer.clone();
-            let view_rc = view.clone();
-            let hold_pos_spell = hold_position.clone();
-            let hold_until_spell = hold_until.clone();
-            let scroll_rc = scroll.clone();
-            let pause_rc = pause_tracking.clone();
-
-            // Use connect_pressed, not connect_released. GtkSourceView processes
-            // button-3 internally and may grab the pointer before the release
-            // event reaches our gesture, so connect_released is unreliable.
-            // connect_pressed fires before any widget-level handling.
-            let gesture = GestureClick::new();
-            gesture.set_button(3); // right button
-            // Capture phase + claiming the sequence below: GtkTextView has its
-            // own right-click handler that opens the standard context menu, and
-            // it was opening *on top of* the spell suggestions, hiding the thing
-            // the right-click was for. Claiming stops the view ever seeing it.
-            gesture.set_propagation_phase(PropagationPhase::Capture);
-
-            gesture.connect_pressed(move |gesture, _, x, y| {
-                // Suppress the focus-snap that right-click can trigger even
-                // when the view already has focus.
-                let scroll_val = scroll_rc.vadjustment().value();
-                let hscroll_val = scroll_rc.hadjustment().value();
-                {
-                    let sc = scroll_rc.clone();
-                    pause_rc();
-                    glib::timeout_add_local_once(Duration::ZERO, move || {
-                        sc.vadjustment().set_value(scroll_val);
-                        sc.hadjustment().set_value(hscroll_val);
-                    });
-                }
-
-                // Move cursor to the right-click position (unless it's inside
-                // the current selection). This makes GTK's focus-in scroll-to-mark
-                // target a position already in the viewport, so the snap is a no-op.
-                let (bx, by) = view_rc.window_to_buffer_coords(
-                    TextWindowType::Widget, x as i32, y as i32,
-                );
-                if let Some(iter) = view_rc.iter_at_location(bx, by) {
-                    let ofs = iter.offset();
-                    let inside_sel = buf_rc.selection_bounds()
-                        .map(|(s, e)| ofs >= s.offset() && ofs <= e.offset())
-                        .unwrap_or(false);
-                    if !inside_sel {
-                        buf_rc.place_cursor(&iter);
-                    }
-                }
-
-                let sc = spell_rc.borrow();
-                if !sc.enabled { return; }
-
-                let (bx, by) = view_rc.window_to_buffer_coords(
-                    TextWindowType::Widget, x as i32, y as i32,
-                );
-                let Some(iter) = view_rc.iter_at_location(bx, by) else { return };
-
-                let table = buf_rc.tag_table();
-                let Some(tag) = table.lookup("zerkalo-spell") else { return };
-                if !iter.has_tag(&tag) { return; }
-
-                // Find word boundaries
-                let mut word_start = iter;
-                loop {
-                    let mut prev = word_start;
-                    if !prev.backward_char() { break; }
-                    if !prev.char().is_alphabetic() { break; }
-                    word_start = prev;
-                }
-                let mut word_end = iter;
-                while word_end.char().is_alphabetic() {
-                    if !word_end.forward_char() { break; }
-                }
-                let word = buf_rc.text(&word_start, &word_end, false).to_string();
-                if word.is_empty() { return; }
-
-                let already_ignored = sc.is_ignored(&word);
-                let lang = sc.primary_language().to_string();
-                drop(sc);
-                // From here a spell popover is definitely going up, so take the
-                // click: no built-in menu, no two menus stacked.
-                gesture.set_state(gtk4::EventSequenceState::Claimed);
-
-                let popover = Popover::new();
-                popover.set_parent(&view_rc);
-                let rect = gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1);
-                popover.set_pointing_to(Some(&rect));
-                popover.set_has_arrow(true);
-
-                let vbox = GtkBox::new(Orientation::Vertical, 2);
-                vbox.set_margin_top(6);
-                vbox.set_margin_bottom(6);
-                vbox.set_margin_start(4);
-                vbox.set_margin_end(4);
-
-                // Suggestions live in their own box so they can be filled in
-                // once hunspell answers, without disturbing the fixed actions
-                // below. Asking it inline delayed the menu appearing by the
-                // whole fork/exec/wait, on the main loop.
-                let sugg_box = GtkBox::new(Orientation::Vertical, 2);
-                let pending = Label::new(Some("Checking\u{2026}"));
-                pending.add_css_class("dim-label");
-                pending.set_margin_top(4);
-                pending.set_margin_bottom(4);
-                sugg_box.append(&pending);
-                vbox.append(&sugg_box);
-
-                // Offsets, not TextIters: the reply arrives after this handler
-                // returns, and any edit in between invalidates an iterator.
-                let ws_off = word_start.offset();
-                let we_off = word_end.offset();
-
-                let (tx, rx) = std::sync::mpsc::sync_channel::<Vec<String>>(1);
-                {
-                    let word_bg = word.clone();
-                    std::thread::spawn(move || {
-                        let out = if already_ignored {
-                            Vec::new()
-                        } else {
-                            crate::spellcheck::suggestions_for_word(&word_bg, &lang)
-                        };
-                        tx.send(out).ok();
-                    });
-                }
-
-                let rx = Rc::new(rx);
-                let sugg_box_fill = sugg_box.clone();
-                let pending_fill = pending.clone();
-                let popover_fill = popover.clone();
-                let buf_fill = buf_rc.clone();
-                let scroll_fill = scroll_rc.clone();
-                let hold_pos_fill = hold_pos_spell.clone();
-                let hold_until_fill = hold_until_spell.clone();
-                let word_fill = word.clone();
-                glib::timeout_add_local(Duration::from_millis(30), move || {
-                    let suggestions = match rx.try_recv() {
-                        Ok(s) => s,
-                        Err(std::sync::mpsc::TryRecvError::Empty) => {
-                            if !popover_fill.is_visible() {
-                                return glib::ControlFlow::Break;
-                            }
-                            return glib::ControlFlow::Continue;
-                        }
-                        Err(_) => return glib::ControlFlow::Break,
-                    };
-                    if !popover_fill.is_visible() {
-                        return glib::ControlFlow::Break;
-                    }
-                    sugg_box_fill.remove(&pending_fill);
-
-                    if suggestions.is_empty() {
-                        let lbl = Label::new(Some("No suggestions"));
-                        lbl.add_css_class("dim-label");
-                        lbl.set_margin_top(4);
-                        lbl.set_margin_bottom(4);
-                        sugg_box_fill.append(&lbl);
-                    } else {
-                        for sugg in suggestions.iter().take(6) {
-                            let btn = Button::with_label(sugg);
-                            btn.add_css_class("flat");
-                            let buf2 = buf_fill.clone();
-                            let s = sugg.clone();
-                            let pop2 = popover_fill.clone();
-                            let scroll_sg = scroll_fill.clone();
-                            let hold_p = hold_pos_fill.clone();
-                            let hold_u = hold_until_fill.clone();
-                            let expected = word_fill.clone();
-                            btn.connect_clicked(move |_| {
-                                // Popping the popover down hands focus back to the view,
-                                // and GTK answers with the same scroll-to-mark animation
-                                // that follows a paste. Hold the viewport through it.
-                                let vpos = scroll_sg.vadjustment().value();
-                                let hpos = scroll_sg.hadjustment().value();
-                                hold_p.set(Some((vpos, hpos)));
-                                hold_u.set(Instant::now() + PASTE_HOLD);
-
-                                let mut a = buf2.iter_at_offset(ws_off);
-                                let mut b = buf2.iter_at_offset(we_off);
-                                if buf2.text(&a, &b, false) == expected.as_str() {
-                                    buf2.begin_user_action();
-                                    buf2.delete(&mut a, &mut b);
-                                    buf2.insert(&mut a, &s);
-                                    buf2.end_user_action();
-                                }
-                                pop2.popdown();
-
-                                let release = hold_p.clone();
-                                glib::timeout_add_local_once(PASTE_HOLD, move || release.set(None));
-                            });
-                            sugg_box_fill.append(&btn);
-                        }
-                    }
-                    glib::ControlFlow::Break
-                });
-
-                vbox.append(&Separator::new(Orientation::Horizontal));
-
-                let ignore_btn = Button::with_label("Ignore All");
-                ignore_btn.add_css_class("flat");
-                let spell_ign = spell_rc.clone();
-                let buf_ign = buf_rc.clone();
-                let word_ign = word.clone();
-                let pop_ign = popover.clone();
-                ignore_btn.connect_clicked(move |_| {
-                    spell_ign.borrow_mut().ignore(&word_ign);
-                    let tag_table = buf_ign.tag_table();
-                    if let Some(t) = tag_table.lookup("zerkalo-spell") {
-                        remove_spell_word_tags(&buf_ign, &t, &word_ign);
-                    }
-                    pop_ign.popdown();
-                });
-                vbox.append(&ignore_btn);
-
-                let add_dict_btn = Button::with_label("Add to Dictionary");
-                add_dict_btn.add_css_class("flat");
-                let spell_dict = spell_rc.clone();
-                let buf_dict = buf_rc.clone();
-                let word_dict = word.clone();
-                let pop_dict = popover.clone();
-                add_dict_btn.connect_clicked(move |_| {
-                    spell_dict.borrow_mut().add_to_user_dict(&word_dict);
-                    let tag_table = buf_dict.tag_table();
-                    if let Some(t) = tag_table.lookup("zerkalo-spell") {
-                        remove_spell_word_tags(&buf_dict, &t, &word_dict);
-                    }
-                    pop_dict.popdown();
-                });
-                vbox.append(&add_dict_btn);
-
-                if spell_rc.borrow().has_project_dict() {
-                    let add_proj_btn = Button::with_label("Add to Project Dictionary");
-                    add_proj_btn.add_css_class("flat");
-                    let spell_proj = spell_rc.clone();
-                    let buf_proj = buf_rc.clone();
-                    let word_proj = word.clone();
-                    let pop_proj = popover.clone();
-                    add_proj_btn.connect_clicked(move |_| {
-                        spell_proj.borrow_mut().add_to_project_dict(&word_proj);
-                        let tag_table = buf_proj.tag_table();
-                        if let Some(t) = tag_table.lookup("zerkalo-spell") {
-                            remove_spell_word_tags(&buf_proj, &t, &word_proj);
-                        }
-                        pop_proj.popdown();
-                    });
-                    vbox.append(&add_proj_btn);
-                }
-
-                popover.set_child(Some(&vbox));
-
-                let pop_close = popover.clone();
-                popover.connect_closed(move |_| {
-                    pop_close.unparent();
-                    // Do NOT restore scroll here. The idle in popup() already
-                    // anchored the view. Restoring on close fights with whatever
-                    // the user clicked to dismiss the popover.
-                });
-
-                popover.popup();
-            });
-            view.add_controller(gesture);
-        }
+        let (saved_scroll, saved_hscroll, pause_tracking) = self.wire_right_click_menu(
+            &view, &buffer, &scroll, &hold_position, &hold_until,
+        );
 
         // ── Inline error assistant — hover over error-tagged line ─────────────
         {
@@ -6548,6 +6207,361 @@ impl EditorPane {
         let hold_until: Rc<Cell<Instant>> = Rc::new(Cell::new(Instant::now()));
 
         (hold_position, hold_until)
+    }
+
+    fn wire_right_click_menu(
+        &self,
+        view: &View,
+        buffer: &Buffer,
+        scroll: &ScrolledWindow,
+        hold_position: &Rc<Cell<Option<(f64, f64)>>>,
+        hold_until: &Rc<Cell<Instant>>,
+    ) -> (Rc<Cell<f64>>, Rc<Cell<f64>>, impl Fn() + Clone + 'static) {
+        //
+        // saved_scroll is defined here (not in the focus-snap block below) so
+        // the right-click gesture can also update it. If we don't, the sequence:
+        //   right-click → GTK snaps scroll → focus_leave saves snapped value
+        //   → idle restores real value → dismiss popover → focus_enter restores
+        //   wrong (snapped) value → visible jump.
+        let saved_scroll: Rc<Cell<f64>> = Rc::new(Cell::new(-1.0));
+        let saved_hscroll: Rc<Cell<f64>> = Rc::new(Cell::new(-1.0));
+
+        // Track every scroll, rather than sampling the position on the handful
+        // of events (pointer enter/leave, click, focus leave) that used to be
+        // the only writers. Anything that scrolled without one of those firing
+        // — a wheel scroll with the pointer already inside, Page Down, a jump
+        // from the outline — left the saved value stale, usually still at the
+        // top of the file where the pointer first entered. The next focus-enter
+        // then "restored" that, which is why copying or pasting (both of which
+        // hand focus to the clipboard manager and back) threw the view to the
+        // top of the document.
+        //
+        // GTK's focus-snap must not be recorded as the user's position, so
+        // tracking pauses around the events that provoke one (a click into the
+        // view, a right-click, focus arriving or leaving). The pause is a short
+        // deadline rather than a flag cleared on the next tick because the snap
+        // doesn't reliably land within one: taking Copy from the right-click
+        // menu snapped the view *after* the restore that was meant to undo it,
+        // and the snapped position — the cursor, typically still at the top of
+        // the file — became the position every later restore aimed at.
+        let track_paused_until: Rc<Cell<Instant>> = Rc::new(Cell::new(Instant::now()));
+        // Pasting makes GTK animate the viewport to the top of the buffer — an
+        // eased curve over a dozen frames, ending at 0, with focus never leaving
+        // the editor and the cursor still mid-document. Nothing in Zerkalo asks
+        // for it and there's no signal to decline it, so instead the position is
+        // *held*: for a moment after a paste, every frame of that animation is
+        // put straight back. Snapping back once at the end would be visible;
+        // countering each frame means nothing moves at all.
+        let pause_tracking = {
+            let until = track_paused_until.clone();
+            move || until.set(Instant::now() + Duration::from_millis(150))
+        };
+        {
+            let sv = saved_scroll.clone();
+            let until = track_paused_until.clone();
+            let held = hold_position.clone();
+            let held_until = hold_until.clone();
+            let reasserting: Rc<Cell<bool>> = Rc::new(Cell::new(false));
+            scroll.vadjustment().connect_value_changed(move |adj| {
+                if let Some((v, _)) = held.get() {
+                    if Instant::now() < held_until.get() {
+                        // Re-assert, guarding against our own recursion.
+                        if !reasserting.get() && (adj.value() - v).abs() > 0.5 {
+                            reasserting.set(true);
+                            adj.set_value(v);
+                            reasserting.set(false);
+                        }
+                        return;
+                    }
+                    held.set(None);
+                }
+                if Instant::now() >= until.get() { sv.set(adj.value()); }
+            });
+            let sh = saved_hscroll.clone();
+            let until = track_paused_until.clone();
+            let held_h = hold_position.clone();
+            let held_until_h = hold_until.clone();
+            let reasserting_h: Rc<Cell<bool>> = Rc::new(Cell::new(false));
+            scroll.hadjustment().connect_value_changed(move |adj| {
+                if let Some((_, h)) = held_h.get() {
+                    if Instant::now() < held_until_h.get() {
+                        if !reasserting_h.get() && (adj.value() - h).abs() > 0.5 {
+                            reasserting_h.set(true);
+                            adj.set_value(h);
+                            reasserting_h.set(false);
+                        }
+                        return;
+                    }
+                }
+                if Instant::now() >= until.get() { sh.set(adj.value()); }
+            });
+        }
+
+        {
+            let spell_rc = self.spell_checker.clone();
+            let buf_rc = buffer.clone();
+            let view_rc = view.clone();
+            let hold_pos_spell = hold_position.clone();
+            let hold_until_spell = hold_until.clone();
+            let scroll_rc = scroll.clone();
+            let pause_rc = pause_tracking.clone();
+
+            // Use connect_pressed, not connect_released. GtkSourceView processes
+            // button-3 internally and may grab the pointer before the release
+            // event reaches our gesture, so connect_released is unreliable.
+            // connect_pressed fires before any widget-level handling.
+            let gesture = GestureClick::new();
+            gesture.set_button(3); // right button
+            // Capture phase + claiming the sequence below: GtkTextView has its
+            // own right-click handler that opens the standard context menu, and
+            // it was opening *on top of* the spell suggestions, hiding the thing
+            // the right-click was for. Claiming stops the view ever seeing it.
+            gesture.set_propagation_phase(PropagationPhase::Capture);
+
+            gesture.connect_pressed(move |gesture, _, x, y| {
+                // Suppress the focus-snap that right-click can trigger even
+                // when the view already has focus.
+                let scroll_val = scroll_rc.vadjustment().value();
+                let hscroll_val = scroll_rc.hadjustment().value();
+                {
+                    let sc = scroll_rc.clone();
+                    pause_rc();
+                    glib::timeout_add_local_once(Duration::ZERO, move || {
+                        sc.vadjustment().set_value(scroll_val);
+                        sc.hadjustment().set_value(hscroll_val);
+                    });
+                }
+
+                // Move cursor to the right-click position (unless it's inside
+                // the current selection). This makes GTK's focus-in scroll-to-mark
+                // target a position already in the viewport, so the snap is a no-op.
+                let (bx, by) = view_rc.window_to_buffer_coords(
+                    TextWindowType::Widget, x as i32, y as i32,
+                );
+                if let Some(iter) = view_rc.iter_at_location(bx, by) {
+                    let ofs = iter.offset();
+                    let inside_sel = buf_rc.selection_bounds()
+                        .map(|(s, e)| ofs >= s.offset() && ofs <= e.offset())
+                        .unwrap_or(false);
+                    if !inside_sel {
+                        buf_rc.place_cursor(&iter);
+                    }
+                }
+
+                let sc = spell_rc.borrow();
+                if !sc.enabled { return; }
+
+                let (bx, by) = view_rc.window_to_buffer_coords(
+                    TextWindowType::Widget, x as i32, y as i32,
+                );
+                let Some(iter) = view_rc.iter_at_location(bx, by) else { return };
+
+                let table = buf_rc.tag_table();
+                let Some(tag) = table.lookup("zerkalo-spell") else { return };
+                if !iter.has_tag(&tag) { return; }
+
+                // Find word boundaries
+                let mut word_start = iter;
+                loop {
+                    let mut prev = word_start;
+                    if !prev.backward_char() { break; }
+                    if !prev.char().is_alphabetic() { break; }
+                    word_start = prev;
+                }
+                let mut word_end = iter;
+                while word_end.char().is_alphabetic() {
+                    if !word_end.forward_char() { break; }
+                }
+                let word = buf_rc.text(&word_start, &word_end, false).to_string();
+                if word.is_empty() { return; }
+
+                let already_ignored = sc.is_ignored(&word);
+                let lang = sc.primary_language().to_string();
+                drop(sc);
+                // From here a spell popover is definitely going up, so take the
+                // click: no built-in menu, no two menus stacked.
+                gesture.set_state(gtk4::EventSequenceState::Claimed);
+
+                let popover = Popover::new();
+                popover.set_parent(&view_rc);
+                let rect = gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1);
+                popover.set_pointing_to(Some(&rect));
+                popover.set_has_arrow(true);
+
+                let vbox = GtkBox::new(Orientation::Vertical, 2);
+                vbox.set_margin_top(6);
+                vbox.set_margin_bottom(6);
+                vbox.set_margin_start(4);
+                vbox.set_margin_end(4);
+
+                // Suggestions live in their own box so they can be filled in
+                // once hunspell answers, without disturbing the fixed actions
+                // below. Asking it inline delayed the menu appearing by the
+                // whole fork/exec/wait, on the main loop.
+                let sugg_box = GtkBox::new(Orientation::Vertical, 2);
+                let pending = Label::new(Some("Checking\u{2026}"));
+                pending.add_css_class("dim-label");
+                pending.set_margin_top(4);
+                pending.set_margin_bottom(4);
+                sugg_box.append(&pending);
+                vbox.append(&sugg_box);
+
+                // Offsets, not TextIters: the reply arrives after this handler
+                // returns, and any edit in between invalidates an iterator.
+                let ws_off = word_start.offset();
+                let we_off = word_end.offset();
+
+                let (tx, rx) = std::sync::mpsc::sync_channel::<Vec<String>>(1);
+                {
+                    let word_bg = word.clone();
+                    std::thread::spawn(move || {
+                        let out = if already_ignored {
+                            Vec::new()
+                        } else {
+                            crate::spellcheck::suggestions_for_word(&word_bg, &lang)
+                        };
+                        tx.send(out).ok();
+                    });
+                }
+
+                let rx = Rc::new(rx);
+                let sugg_box_fill = sugg_box.clone();
+                let pending_fill = pending.clone();
+                let popover_fill = popover.clone();
+                let buf_fill = buf_rc.clone();
+                let scroll_fill = scroll_rc.clone();
+                let hold_pos_fill = hold_pos_spell.clone();
+                let hold_until_fill = hold_until_spell.clone();
+                let word_fill = word.clone();
+                glib::timeout_add_local(Duration::from_millis(30), move || {
+                    let suggestions = match rx.try_recv() {
+                        Ok(s) => s,
+                        Err(std::sync::mpsc::TryRecvError::Empty) => {
+                            if !popover_fill.is_visible() {
+                                return glib::ControlFlow::Break;
+                            }
+                            return glib::ControlFlow::Continue;
+                        }
+                        Err(_) => return glib::ControlFlow::Break,
+                    };
+                    if !popover_fill.is_visible() {
+                        return glib::ControlFlow::Break;
+                    }
+                    sugg_box_fill.remove(&pending_fill);
+
+                    if suggestions.is_empty() {
+                        let lbl = Label::new(Some("No suggestions"));
+                        lbl.add_css_class("dim-label");
+                        lbl.set_margin_top(4);
+                        lbl.set_margin_bottom(4);
+                        sugg_box_fill.append(&lbl);
+                    } else {
+                        for sugg in suggestions.iter().take(6) {
+                            let btn = Button::with_label(sugg);
+                            btn.add_css_class("flat");
+                            let buf2 = buf_fill.clone();
+                            let s = sugg.clone();
+                            let pop2 = popover_fill.clone();
+                            let scroll_sg = scroll_fill.clone();
+                            let hold_p = hold_pos_fill.clone();
+                            let hold_u = hold_until_fill.clone();
+                            let expected = word_fill.clone();
+                            btn.connect_clicked(move |_| {
+                                // Popping the popover down hands focus back to the view,
+                                // and GTK answers with the same scroll-to-mark animation
+                                // that follows a paste. Hold the viewport through it.
+                                let vpos = scroll_sg.vadjustment().value();
+                                let hpos = scroll_sg.hadjustment().value();
+                                hold_p.set(Some((vpos, hpos)));
+                                hold_u.set(Instant::now() + PASTE_HOLD);
+
+                                let mut a = buf2.iter_at_offset(ws_off);
+                                let mut b = buf2.iter_at_offset(we_off);
+                                if buf2.text(&a, &b, false) == expected.as_str() {
+                                    buf2.begin_user_action();
+                                    buf2.delete(&mut a, &mut b);
+                                    buf2.insert(&mut a, &s);
+                                    buf2.end_user_action();
+                                }
+                                pop2.popdown();
+
+                                let release = hold_p.clone();
+                                glib::timeout_add_local_once(PASTE_HOLD, move || release.set(None));
+                            });
+                            sugg_box_fill.append(&btn);
+                        }
+                    }
+                    glib::ControlFlow::Break
+                });
+
+                vbox.append(&Separator::new(Orientation::Horizontal));
+
+                let ignore_btn = Button::with_label("Ignore All");
+                ignore_btn.add_css_class("flat");
+                let spell_ign = spell_rc.clone();
+                let buf_ign = buf_rc.clone();
+                let word_ign = word.clone();
+                let pop_ign = popover.clone();
+                ignore_btn.connect_clicked(move |_| {
+                    spell_ign.borrow_mut().ignore(&word_ign);
+                    let tag_table = buf_ign.tag_table();
+                    if let Some(t) = tag_table.lookup("zerkalo-spell") {
+                        remove_spell_word_tags(&buf_ign, &t, &word_ign);
+                    }
+                    pop_ign.popdown();
+                });
+                vbox.append(&ignore_btn);
+
+                let add_dict_btn = Button::with_label("Add to Dictionary");
+                add_dict_btn.add_css_class("flat");
+                let spell_dict = spell_rc.clone();
+                let buf_dict = buf_rc.clone();
+                let word_dict = word.clone();
+                let pop_dict = popover.clone();
+                add_dict_btn.connect_clicked(move |_| {
+                    spell_dict.borrow_mut().add_to_user_dict(&word_dict);
+                    let tag_table = buf_dict.tag_table();
+                    if let Some(t) = tag_table.lookup("zerkalo-spell") {
+                        remove_spell_word_tags(&buf_dict, &t, &word_dict);
+                    }
+                    pop_dict.popdown();
+                });
+                vbox.append(&add_dict_btn);
+
+                if spell_rc.borrow().has_project_dict() {
+                    let add_proj_btn = Button::with_label("Add to Project Dictionary");
+                    add_proj_btn.add_css_class("flat");
+                    let spell_proj = spell_rc.clone();
+                    let buf_proj = buf_rc.clone();
+                    let word_proj = word.clone();
+                    let pop_proj = popover.clone();
+                    add_proj_btn.connect_clicked(move |_| {
+                        spell_proj.borrow_mut().add_to_project_dict(&word_proj);
+                        let tag_table = buf_proj.tag_table();
+                        if let Some(t) = tag_table.lookup("zerkalo-spell") {
+                            remove_spell_word_tags(&buf_proj, &t, &word_proj);
+                        }
+                        pop_proj.popdown();
+                    });
+                    vbox.append(&add_proj_btn);
+                }
+
+                popover.set_child(Some(&vbox));
+
+                let pop_close = popover.clone();
+                popover.connect_closed(move |_| {
+                    pop_close.unparent();
+                    // Do NOT restore scroll here. The idle in popup() already
+                    // anchored the view. Restoring on close fights with whatever
+                    // the user clicked to dismiss the popover.
+                });
+
+                popover.popup();
+            });
+            view.add_controller(gesture);
+        }
+
+        (saved_scroll, saved_hscroll, pause_tracking)
     }
 
     fn wire_modified_and_word_count(&self, tab: &TabContext, content: &str) {
