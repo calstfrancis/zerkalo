@@ -518,27 +518,15 @@ impl SettingsDialog {
         let view_stack = adw::ViewStack::new();
         view_stack.set_vexpand(true);
 
-        // Developer mode
+        // Advanced
         let dev_group = adw::PreferencesGroup::new();
         dev_group.set_title("Advanced");
-        let dev_mode_row = adw::SwitchRow::new();
-        dev_mode_row.set_title("Experimental mode");
-        dev_mode_row.set_subtitle("Show experimental features (Import…)");
-        dev_mode_row.set_active(current.developer_mode);
-        dev_group.add(&dev_mode_row);
 
         let batch_concurrency_row = adw::SpinRow::with_range(1.0, 5.0, 1.0);
         batch_concurrency_row.set_title("Simultaneous imports");
         batch_concurrency_row.set_subtitle("How many documents Import Folder converts at once");
         batch_concurrency_row.set_value(current.batch_import_concurrency as f64);
-        // Only meaningful once Import is reachable, so it follows the switch
-        // above rather than sitting there enabled with nothing to act on.
-        batch_concurrency_row.set_sensitive(current.developer_mode);
         dev_group.add(&batch_concurrency_row);
-        {
-            let bcr = batch_concurrency_row.clone();
-            dev_mode_row.connect_active_notify(move |r| bcr.set_sensitive(r.is_active()));
-        }
 
         // ── Keyboard shortcuts ───────────────────────────────────────────────
         // Bindings live in keybindings.toml with no editor UI; without this row
@@ -780,7 +768,6 @@ impl SettingsDialog {
             let word_count_goal_spin = word_count_goal_spin.clone();
             let spell_enabled_row = spell_enabled_row.clone();
             let selected_langs = selected_langs.clone();
-            let dev_mode_row = dev_mode_row.clone();
             let batch_concurrency_row = batch_concurrency_row.clone();
             let recent_files_cur = current.recent_files.clone();
             let recent_projects_cur = current.recent_projects.clone();
@@ -899,7 +886,6 @@ impl SettingsDialog {
                     word_count_goal: word_count_goal_spin.value() as u32,
                     sidebar_width: sidebar_width_cur,
                     preview_split: preview_split_cur,
-                    developer_mode: dev_mode_row.is_active(),
                     batch_import_concurrency: batch_concurrency_row.value() as u32,
                     last_export_format: last_export_format_cur,
                     recent_searches: recent_searches_cur.clone(),

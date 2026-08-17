@@ -25,7 +25,6 @@ use super::super::font_manager::FontManager;
 use super::super::help_window::HelpWindow;
 use super::super::settings_dialog::SettingsDialog;
 use super::super::snapshot_dialog::{SnapshotDialog, save_snapshot};
-use super::super::sync_dialog::SyncDialog;
 use super::super::template_dialog::TemplateDialog;
 use crate::bibliography;
 use crate::git_sync;
@@ -96,7 +95,6 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
     let manual_compile_only_for_settings = ctx.manual_compile_only.clone();
     let current_config_for_settings = ctx.current_config.clone();
     let menu_popover_for_settings = ctx.menu_popover.clone();
-    let import_item_for_settings = menus.menu_import_item.clone();
     let compile_mode_btn_for_settings = ctx.compile_mode_btn.clone();
     let compile_mode_label_for_settings = ctx.compile_mode_label.clone();
     let preview_for_settings = ctx.preview_pane.clone();
@@ -143,7 +141,6 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
         let mco_flag = manual_compile_only_for_settings.clone();
         let cfg_rc = current_config_for_settings.clone();
         let window_for_save = window_for_settings.clone();
-        let import_item_save = import_item_for_settings.clone();
         let cm_btn_save = compile_mode_btn_for_settings.clone();
         let cm_lbl_save = compile_mode_label_for_settings.clone();
         let preview_for_save = preview_for_settings.clone();
@@ -211,8 +208,6 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
                     None => editor.set_bib_entries(Vec::new()),
                 }
             }
-            import_item_save.set_visible(new_cfg.developer_mode);
-
             // CV elements were resolved once at startup, so changing this path
             // used to do nothing until the next launch, silently. It can be
             // applied live, so it is.
@@ -775,36 +770,20 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
         let cfg_rc = config_for_sync.clone();
 
         if !git_sync::has_remote(&root) {
-            let dialog = SyncDialog::new(&win);
-            let root2 = root.clone();
-            let win2 = win.clone();
-            let btn2 = btn.clone();
-            let toasts2 = toasts.clone();
-            let token2 = token.clone();
-            let cfg_rc2 = cfg_rc.clone();
-
-            let confirmed = Rc::new(RefCell::new(false));
-            let confirmed_set = confirmed.clone();
-            dialog.set_on_confirm(move |url| {
-                *confirmed_set.borrow_mut() = true;
-                match git_sync::add_remote(&root2, &url) {
-                    Ok(()) => do_sync(root2.clone(), win2.clone(), toasts2.clone(), btn2.clone(), token2.clone(), cfg_rc2.clone()),
-                    Err(e) => {
-                        show_alert(&win2, "Remote Setup Failed", &e);
-                        btn2.set_sensitive(true);
-                    }
-                }
-            });
-
-            let btn_cancel = btn.clone();
-            dialog.window.connect_destroy(move |_| {
-                if !*confirmed.borrow() {
-                    btn_cancel.set_sensitive(true);
-                }
+            // No remote configured yet — send the user through the full
+            // Setup Wizard (GitHub sign-in, folder backup, etc.) rather than
+            // the bare "paste a git URL" dialog, which has no sign-in path
+            // and assumes the user already has a URL to paste. The wizard
+            // does its own push once finished, so there's nothing to chain
+            // into afterward — just restore the button.
+            let wizard = super::super::setup_wizard::SetupWizard::new(&win, &root);
+            let btn_reenable = btn.clone();
+            wizard.window().connect_destroy(move |_| {
+                btn_reenable.set_sensitive(true);
             });
 
             btn.set_sensitive(false);
-            dialog.present();
+            wizard.present();
             return;
         }
 

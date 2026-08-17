@@ -484,7 +484,7 @@ pub fn annotate_window(overlay: &HelpOverlay, t: &AnnotationTargets) {
     );
     overlay.annotate(
         t.sync_btn,
-        "Git",
+        "Save & Back Up",
         "Saves a version and sends it to your backup, so it survives losing this computer. Ctrl+Shift+S.",
     );
     overlay.annotate(

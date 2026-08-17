@@ -5,6 +5,50 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [dev] Word-migrant usability pass (in progress)
+
+A 4-way UX audit found 32 issues that trip up someone coming from Word who's
+never used Typst, git, or a markup language. Working through them in
+priority order — see `UX-AUDIT-PLAN.md` for the full list and status.
+
+### Changed
+
+- **Import is no longer hidden behind "Experimental mode."** It's a normal,
+  always-available feature now (Ctrl+Shift+I, or the Library window's
+  Import button, as before) — not a developer-only toggle.
+- **Restoring a snapshot now asks first.** Previously it replaced the
+  editor's contents immediately; it now confirms, since unsaved changes
+  since your last save would otherwise be lost with no way back.
+- **Sync, when no backup location is set up yet, opens the full Setup
+  Wizard** (GitHub sign-in or a folder backup) instead of a bare "paste a
+  git address" dialog with no sign-in path.
+- **History panel and command palette no longer say "git" or "commit."**
+  Wording now matches the rest of the app ("earlier versions," "save a
+  version"), and the History panel's diff view is now the same clean
+  `+`/`-` view Snapshots already used, instead of raw unified-diff hunk
+  markers.
+- **The citation panel can create a new bibliography.** Previously, adding
+  a citation source required a `.bib` file to already exist, with nothing
+  in the app able to create one — a dead end for a first bibliography.
+  A new + button in the Citations panel (and a matching option in the
+  reference manager) starts one.
+- **The file tree explains itself.** "Set as Root File," "Insert
+  #include," and "Insert #import" now have tooltips, and the file that
+  actually gets compiled is marked in bold with a small "root" badge, so
+  a misclick doesn't silently redirect the whole project.
+- **The package browser's empty state no longer points at a terminal.**
+  It used to tell you to use "the typst CLI" or copy files into a hidden
+  folder by hand; packages actually just download automatically.
+- **The welcome window doesn't open with raw Typst syntax.** The
+  first-run list is split into "get writing now" and "when you're ready,"
+  and "Get Started" now leads straight into creating your first document
+  instead of just closing the window.
+- **Help (Ctrl+?) opens on Overview, not the raw-syntax Cheatsheet.** The
+  F1 "what does this do" overlay now also covers the Library window's
+  Project/Category/Tag/Archive/Trash sidebar, which had none before.
+
+---
+
 ## [0.23.0] "Open Shelf" — 2026-08-14 — Kartoteka vault as a live bibliography source
 
 ### Added

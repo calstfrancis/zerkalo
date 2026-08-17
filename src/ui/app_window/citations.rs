@@ -200,6 +200,31 @@ pub(super) fn wire_citations(ctx: &CitationCtx) -> Rc<RefCell<Option<PathBuf>>> 
         });
     }
 
+    // ── Citation panel + reference manager: start a new bibliography ──────
+    // Both surfaces hit the same dead end without this: a first-time user has
+    // no `.bib` file yet, and neither panel could previously create one.
+
+    {
+        let win = ctx.window.clone();
+        let ep = ctx.editor_pane.clone();
+        let cp = ctx.citation_panel.clone();
+        let cfg = ctx.current_config.clone();
+        let rm = ctx.ref_manager.clone();
+        ctx.citation_panel.set_on_new_bib(move || {
+            open_create_bib_dialog(&win, &ep, &cp, &cfg, &rm);
+        });
+    }
+    {
+        let win = ctx.window.clone();
+        let ep = ctx.editor_pane.clone();
+        let cp = ctx.citation_panel.clone();
+        let cfg = ctx.current_config.clone();
+        let rm = ctx.ref_manager.clone();
+        ctx.ref_manager.set_on_create_bib(move || {
+            open_create_bib_dialog(&win, &ep, &cp, &cfg, &rm);
+        });
+    }
+
     // ── Citation panel: choose Kartoteka vault folder button ──────────────
 
     {
@@ -388,4 +413,39 @@ pub(super) fn wire_citations(ctx: &CitationCtx) -> Rc<RefCell<Option<PathBuf>>> 
 
 
     auto_detected_bib
+}
+
+/// Opens a save dialog for a brand-new, empty `.bib` file, then wires it up
+/// exactly like picking an existing one: loads it (empty) into the editor,
+/// citation panel and reference manager, and remembers it in config.
+fn open_create_bib_dialog(
+    win: &adw::ApplicationWindow,
+    ep: &EditorPane,
+    cp: &CitationPanel,
+    cfg: &Rc<RefCell<Config>>,
+    rm: &RefManager,
+) {
+    let dialog = gtk4::FileDialog::new();
+    dialog.set_title("Create Bibliography File");
+    dialog.set_initial_name(Some("references.bib"));
+    let win = win.clone();
+    let ep = ep.clone();
+    let cp = cp.clone();
+    let cfg = cfg.clone();
+    let rm = rm.clone();
+    dialog.save(Some(&win), None::<&gtk4::gio::Cancellable>, move |result| {
+        if let Ok(file) = result {
+            if let Some(path) = file.path() {
+                if std::fs::write(&path, "").is_ok() {
+                    let entries = bibliography::load_bib(&path);
+                    ep.set_bib_entries(entries.clone());
+                    cp.load_bib(entries);
+                    cp.set_bib_filename(path.file_name().and_then(|n| n.to_str()));
+                    rm.load_bib(&path);
+                    cfg.borrow_mut().bib_path = Some(path);
+                    let _ = cfg.borrow().save();
+                }
+            }
+        }
+    });
 }

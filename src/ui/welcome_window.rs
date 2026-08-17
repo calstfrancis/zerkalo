@@ -87,7 +87,7 @@ impl WelcomeWindow {
                  ├─────────────────┤                  │\n\
                  │                 │  ┌────────────┐  │\n\
                  │   Editor        │  │  PDF page  │  │\n\
-                 │   (Typst text)  │  │            │  │\n\
+                 │   (light markup)│  │            │  │\n\
                  │                 │  └────────────┘  │\n\
                  ├─────────────────┴──────────────────┤\n\
                  │  Status bar  (word count, cursor)   │\n\
@@ -101,14 +101,23 @@ impl WelcomeWindow {
             diagram.set_margin_bottom(4);
             body.append(&diagram);
 
+            let diagram_note = Label::new(Some(
+                "You type short instructions like *bold* — the preview on the right shows \
+                 the real formatting."
+            ));
+            diagram_note.add_css_class("dim-label");
+            diagram_note.add_css_class("caption");
+            diagram_note.set_wrap(true);
+            diagram_note.set_xalign(0.0);
+            diagram_note.set_margin_bottom(4);
+            body.append(&diagram_note);
+
             body.append(&Separator::new(Orientation::Horizontal));
             body.append(&section_label("Getting Started"));
             for item in [
                 "Open or create a .typ file from the title-bar dropdown",
                 "Press Ctrl+S to save — the preview on the right updates immediately",
                 "Use the formatting bar above the editor for Bold, Italic, and Headings",
-                "Type @ to insert a citation (configure your .bib file in Settings ≡)",
-                "Type # for Typst function completions — e.g. #figure(), #bibliography()",
                 "Use Update Template Settings in the ≡ menu to change title, author, and style",
                 "The Outline panel on the left shows your document structure — click to navigate",
             ] {
@@ -116,11 +125,12 @@ impl WelcomeWindow {
             }
 
             body.append(&Separator::new(Orientation::Horizontal));
-            body.append(&section_label("Simple Mode"));
+            body.append(&section_label("When You're Ready"));
             for item in [
-                "Zerkalo hides the Typst front-matter so you can focus on writing prose",
-                "To change template settings use Update Template Settings in the ≡ menu",
-                "Turn Simple Mode off with the SIMPLE button in the header, beside Library",
+                "Type @ to insert a citation, once you've added a bibliography from the Citations panel",
+                "Type # to see suggestions for tables, figures, and other building blocks",
+                "Zerkalo hides the technical setup lines at the top of the file — change them from Update Template Settings in the ≡ menu, not by scrolling up",
+                "Turn Simple Mode off with the SIMPLE button in the header, beside Library, if you ever want to see that setup section directly",
             ] {
                 body.append(&bullet_row(item));
             }

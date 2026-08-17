@@ -26,6 +26,10 @@ pub(super) struct LifecycleCtx {
     pub(super) project_root: PathBuf,
     pub(super) auto_save_idle_ms: Rc<RefCell<u64>>,
     pub(super) sync_btn: gtk4::Button,
+    /// "New from Template…" menu button — the welcome window's "Get Started"
+    /// fires this directly rather than just closing, so a first-time user
+    /// lands in document creation instead of a blank window.
+    pub(super) menu_new_template_item: gtk4::Button,
     pub(super) lsp_client: Rc<RefCell<Option<LspClient>>>,
     pub(super) lsp_has_diags: Rc<RefCell<bool>>,
     pub(super) last_completion_request: Rc<RefCell<Option<u64>>>,
@@ -100,19 +104,29 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
 
     let win_for_welcome = ctx.window.clone();
     let root_for_welcome = ctx.project_root.clone();
+    let new_template_for_welcome = ctx.menu_new_template_item.clone();
     glib::timeout_add_local(Duration::from_millis(1200), move || {
         if super::super::welcome_window::WelcomeWindow::should_show() {
             let is_first_run = super::super::welcome_window::WelcomeWindow::is_first_run();
             super::super::welcome_window::WelcomeWindow::mark_shown();
             let ww = super::super::welcome_window::WelcomeWindow::new(&win_for_welcome, is_first_run);
-            // Chain: after "Get Started", check if setup wizard is needed.
-            let win_chain = win_for_welcome.clone();
-            let root_chain = root_for_welcome.clone();
-            ww.set_on_dismissed(move || {
-                if super::super::setup_wizard::SetupWizard::should_show(&root_chain) {
-                    super::super::setup_wizard::SetupWizard::new(&win_chain, &root_chain).present();
-                }
-            });
+            if is_first_run {
+                // "Get Started" leads straight into creating a first document
+                // instead of just closing the window on a blank editor.
+                let new_template = new_template_for_welcome.clone();
+                ww.set_on_dismissed(move || {
+                    new_template.emit_clicked();
+                });
+            } else {
+                // Chain: after "Close", check if setup wizard is needed.
+                let win_chain = win_for_welcome.clone();
+                let root_chain = root_for_welcome.clone();
+                ww.set_on_dismissed(move || {
+                    if super::super::setup_wizard::SetupWizard::should_show(&root_chain) {
+                        super::super::setup_wizard::SetupWizard::new(&win_chain, &root_chain).present();
+                    }
+                });
+            }
             ww.present();
         } else if super::super::setup_wizard::SetupWizard::should_show(&root_for_welcome) {
             super::super::setup_wizard::SetupWizard::new(&win_for_welcome, &root_for_welcome).present();

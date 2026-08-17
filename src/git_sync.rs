@@ -257,11 +257,6 @@ pub fn craft_message(changed: &[String]) -> String {
 
 // ── Write operations ─────────────────────────────────────────────────────────
 
-/// Add a remote named "origin".
-pub fn add_remote(repo_path: &Path, url: &str) -> Result<(), String> {
-    run_git(repo_path, &["remote", "add", "origin", url])
-}
-
 /// Stage everything, commit with an auto-crafted message, pull from each remote
 /// (rebase), then push to every configured remote.
 ///

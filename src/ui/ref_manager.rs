@@ -37,6 +37,7 @@ pub struct RefManager {
     on_insert: InsertCb,
     on_jump_citation: JumpCb,
     on_rename: RenameCb,
+    on_create_bib: Rc<RefCell<Option<Box<dyn Fn()>>>>,
     used_keys: Rc<RefCell<HashSet<String>>>,
     bib_path: Rc<RefCell<Option<PathBuf>>>,
 }
@@ -93,11 +94,12 @@ impl RefManager {
         let on_insert: InsertCb = Rc::new(RefCell::new(None));
         let on_jump_citation: JumpCb = Rc::new(RefCell::new(None));
         let on_rename: RenameCb = Rc::new(RefCell::new(None));
+        let on_create_bib: Rc<RefCell<Option<Box<dyn Fn()>>>> = Rc::new(RefCell::new(None));
         let entries: Rc<RefCell<Vec<BibEntry>>> = Rc::new(RefCell::new(Vec::new()));
         let used_keys: Rc<RefCell<HashSet<String>>> = Rc::new(RefCell::new(HashSet::new()));
         let bib_path: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
 
-        let panel = Self { widget, list_box, filter_entry, entries, on_insert, on_jump_citation, on_rename, used_keys, bib_path };
+        let panel = Self { widget, list_box, filter_entry, entries, on_insert, on_jump_citation, on_rename, on_create_bib, used_keys, bib_path };
 
         // Filter entry → rebuild list
         {
@@ -176,15 +178,33 @@ impl RefManager {
                 let is_vault = bib.as_ref().is_some_and(|path| crate::bibliography::is_vault_dir(path));
                 if bib.is_none() || is_yaml || is_vault {
                     let root = btn.root().and_then(|r| r.downcast::<gtk4::Window>().ok());
+                    if bib.is_none() {
+                        let dlg = adw::MessageDialog::new(
+                            root.as_ref(),
+                            Some("No bibliography yet"),
+                            Some("Start a new one, or pick an existing .bib file in Settings."),
+                        );
+                        dlg.add_response("cancel", "Cancel");
+                        dlg.add_response("create", "Start a New Bibliography");
+                        dlg.set_response_appearance("create", adw::ResponseAppearance::Suggested);
+                        dlg.set_default_response(Some("create"));
+                        let create_cb = p.on_create_bib.clone();
+                        dlg.connect_response(None, move |_, response| {
+                            if response == "create" {
+                                if let Some(f) = create_cb.borrow().as_ref() {
+                                    f();
+                                }
+                            }
+                        });
+                        dlg.present();
+                        return;
+                    }
                     let (title, body) = if is_vault {
                         ("Kartoteka vault is read-only here",
                          "Add or edit entries in Kartoteka — Zerkalo just reads the vault live.")
-                    } else if is_yaml {
+                    } else {
                         ("YAML bibliography is read-only",
                          "Adding new entries is only supported for .bib files. Edit the .yaml file directly, or switch to a .bib bibliography in Settings.")
-                    } else {
-                        ("No bibliography configured",
-                         "Set a .bib file in Settings before adding entries.")
                     };
                     let dlg = adw::MessageDialog::new(root.as_ref(), Some(title), Some(body));
                     dlg.add_response("ok", "OK");
@@ -216,6 +236,10 @@ impl RefManager {
     /// the per-entry rename popover.
     pub fn set_on_rename(&self, f: impl Fn(String, String) + 'static) {
         *self.on_rename.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn set_on_create_bib(&self, f: impl Fn() + 'static) {
+        *self.on_create_bib.borrow_mut() = Some(Box::new(f));
     }
 
     pub fn bib_path(&self) -> Option<PathBuf> {
@@ -307,7 +331,7 @@ impl RefManager {
             let row = ListBoxRow::new();
             row.set_selectable(false);
             row.set_activatable(false);
-            let lbl = Label::new(Some("No bibliography loaded.\nSet a .bib file in Settings."));
+            let lbl = Label::new(Some("No bibliography loaded yet.\nClick + above to start one."));
             lbl.add_css_class("dim-label");
             lbl.set_justify(gtk4::Justification::Center);
             lbl.set_margin_top(16);

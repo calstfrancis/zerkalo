@@ -82,6 +82,10 @@ impl SetupWizard {
         self.window.present();
     }
 
+    pub fn window(&self) -> &adw::Window {
+        &self.window
+    }
+
     /// Whether setup should open by itself on startup.
     ///
     /// Once it has been finished or declined it never reappears — being asked
