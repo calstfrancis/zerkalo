@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [dev] Word-migrant usability pass
+## [0.24.0-dev1] — Word-migrant usability pass
 
 A 4-way UX audit found 32 issues that trip up someone coming from Word who's
 never used Typst, git, or a markup language. All 32 are fixed — see
