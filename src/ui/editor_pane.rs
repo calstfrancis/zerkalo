@@ -3075,553 +3075,11 @@ impl EditorPane {
             &completion_suppressed_at, &ghost_bib_entry,
         );
 
-        // ── Key controller ────────────────────────────────────────────────────
-
-        let bib_popup_key = bib_popup.clone();
-        let lsp_popup_key = lsp_popup.clone();
-        let buf_key = buffer.clone();
-        let mark_key = ac_mark.clone();
-        let lsp_mark_key = lsp_mark.clone();
-        let completing_key = completing.clone();
-        let lsp_completing_key = lsp_completing.clone();
-        let view_key = view.clone();
-        let bib_active_key = self.bib_active.clone();
-        let ghost_item_key = ghost_item.clone();
-        let ghost_label_key = ghost_label.clone();
-        let hint_lbl_key = self.lsp_status_label.clone();
-        let suppressed_key = completion_suppressed_at.clone();
-        let lsp_mark_suppress = lsp_mark.clone();
-        let ghost_bib_key = ghost_bib_entry.clone();
-        let view_bib_key = view.clone();
-
-        let key_ctrl = EventControllerKey::new();
-        key_ctrl.set_propagation_phase(PropagationPhase::Capture);
-        key_ctrl.connect_key_pressed(move |_, key, _, _mods| {
-            use gtk4::gdk::Key;
-
-            // Tab accepts the inline ghost suggestion even when no list is up —
-            // the fish-shell gesture, and the whole point of showing the ghost
-            // before the list appears. Escape dismisses just the ghost, leaving
-            // what the user actually typed alone.
-            if !lsp_popup_key.is_visible() && !bib_popup_key.is_visible()
-                && ghost_label_key.is_visible()
-            {
-                // A citation ghost is taken the citation way — same key, same
-                // feel, different insertion.
-                if key == Key::Tab {
-                    let entry = ghost_bib_key.borrow().clone();
-                    if let Some(entry) = entry {
-                        clear_citation_ghost(&ghost_label_key, &ghost_bib_key, &hint_lbl_key);
-                        *bib_active_key.borrow_mut() = false;
-                        do_bib_complete(
-                            &buf_key, &mark_key, &completing_key, &bib_popup_key,
-                            &view_bib_key, &entry,
-                        );
-                        return glib::Propagation::Stop;
-                    }
-                }
-                match key {
-                    Key::Tab => {
-                        let item = ghost_item_key.borrow().clone();
-                        if let Some(i) = item {
-                            clear_ghost(&ghost_label_key, &ghost_item_key, &hint_lbl_key);
-                            do_lsp_complete(
-                                &buf_key,
-                                &lsp_mark_key,
-                                &lsp_completing_key,
-                                &lsp_popup_key,
-                                &view_key,
-                                i,
-                            );
-                            return glib::Propagation::Stop;
-                        }
-                    }
-                    Key::Escape => {
-                        suppress_current_completion(
-                            &buf_key, &lsp_mark_suppress, &suppressed_key,
-                        );
-                        clear_citation_ghost(&ghost_label_key, &ghost_bib_key, &hint_lbl_key);
-                        clear_ghost(&ghost_label_key, &ghost_item_key, &hint_lbl_key);
-                        return glib::Propagation::Stop;
-                    }
-                    _ => {}
-                }
-            }
-
-            // LSP popup takes priority
-            if lsp_popup_key.is_visible() {
-                return match key {
-                    Key::Escape => {
-                        // Dismiss, and leave what was typed alone. Escape used to
-                        // delete back to the `#`, which threw away the user's own
-                        // text for the crime of not wanting a suggestion — and it
-                        // made "quiet for this word" impossible, there being no
-                        // word left to be quiet about.
-                        suppress_current_completion(
-                            &buf_key, &lsp_mark_suppress, &suppressed_key,
-                        );
-                        lsp_popup_key.hide();
-                        clear_ghost(&ghost_label_key, &ghost_item_key, &hint_lbl_key);
-                        glib::Propagation::Stop
-                    }
-                    Key::Tab => {
-                        let item = lsp_popup_key
-                            .selected_item()
-                            .or_else(|| lsp_popup_key.first_item());
-                        if let Some(i) = item {
-                            clear_ghost(&ghost_label_key, &ghost_item_key, &hint_lbl_key);
-                            do_lsp_complete(
-                                &buf_key,
-                                &lsp_mark_key,
-                                &lsp_completing_key,
-                                &lsp_popup_key,
-                                &view_key,
-                                i,
-                            );
-                        }
-                        glib::Propagation::Stop
-                    }
-                    Key::Return => {
-                        if let Some(i) = lsp_popup_key.selected_item() {
-                            clear_ghost(&ghost_label_key, &ghost_item_key, &hint_lbl_key);
-                            do_lsp_complete(
-                                &buf_key,
-                                &lsp_mark_key,
-                                &lsp_completing_key,
-                                &lsp_popup_key,
-                                &view_key,
-                                i,
-                            );
-                            glib::Propagation::Stop
-                        } else {
-                            glib::Propagation::Proceed
-                        }
-                    }
-                    Key::Down => {
-                        lsp_popup_key.move_selection(1);
-                        glib::Propagation::Stop
-                    }
-                    Key::Up => {
-                        lsp_popup_key.move_selection(-1);
-                        glib::Propagation::Stop
-                    }
-                    _ => glib::Propagation::Proceed,
-                };
-            }
-
-            // Bib popup
-            if !bib_popup_key.is_visible() {
-                return glib::Propagation::Proceed;
-            }
-            match key {
-                Key::Escape => {
-                    *bib_active_key.borrow_mut() = false;
-                    dismiss_popup_only(&bib_popup_key, &buf_key, &mark_key);
-                    glib::Propagation::Stop
-                }
-                Key::Tab => {
-                    let chosen = bib_popup_key
-                        .selected_entry()
-                        .or_else(|| bib_popup_key.first_filtered_entry());
-                    if let Some(entry) = chosen {
-                        *bib_active_key.borrow_mut() = false;
-                        do_bib_complete(
-                            &buf_key, &mark_key, &completing_key, &bib_popup_key, &view_key, &entry,
-                        );
-                    }
-                    glib::Propagation::Stop
-                }
-                Key::Return => {
-                    if let Some(entry) = bib_popup_key.selected_entry() {
-                        *bib_active_key.borrow_mut() = false;
-                        do_bib_complete(
-                            &buf_key, &mark_key, &completing_key, &bib_popup_key, &view_key, &entry,
-                        );
-                        glib::Propagation::Stop
-                    } else {
-                        glib::Propagation::Proceed
-                    }
-                }
-                Key::Down => {
-                    bib_popup_key.move_selection(1);
-                    glib::Propagation::Stop
-                }
-                Key::Up => {
-                    bib_popup_key.move_selection(-1);
-                    glib::Propagation::Stop
-                }
-                _ => glib::Propagation::Proceed,
-            }
-        });
-        view.add_controller(key_ctrl);
-
-        // ── Auto-pair brackets and quotes ─────────────────────────────────────
-        let last_was_autopair: Rc<std::cell::Cell<bool>> = Rc::new(std::cell::Cell::new(false));
-        {
-            let buf_pair = buffer.clone();
-            let pair_ctrl = EventControllerKey::new();
-            pair_ctrl.set_propagation_phase(PropagationPhase::Capture);
-            let last_ap = last_was_autopair.clone();
-            pair_ctrl.connect_key_pressed(move |_, key, _, mods| {
-                use gtk4::gdk::Key;
-                // Don't interfere when modifier keys are held (shortcuts)
-                if mods.intersects(
-                    gtk4::gdk::ModifierType::CONTROL_MASK | gtk4::gdk::ModifierType::ALT_MASK,
-                ) {
-                    last_ap.set(false);
-                    return glib::Propagation::Proceed;
-                }
-                // Don't auto-pair when there is a selection
-                if buf_pair.has_selection() {
-                    last_ap.set(false);
-                    return glib::Propagation::Proceed;
-                }
-
-                // Skip-forward if the closing char is already there from a prior autopair
-                let skip_char: Option<char> = match key {
-                    Key::parenright   => Some(')'),
-                    Key::bracketright => Some(']'),
-                    Key::braceright   => Some('}'),
-                    // Only skip " when we know it was auto-inserted
-                    Key::quotedbl if last_ap.get() => Some('"'),
-                    _ => None,
-                };
-                if let Some(expected) = skip_char {
-                    let pos = buf_pair.cursor_position();
-                    let next = buf_pair.iter_at_offset(pos);
-                    if next.char() == expected {
-                        let ahead = buf_pair.iter_at_offset(pos + 1);
-                        buf_pair.place_cursor(&ahead);
-                        last_ap.set(false);
-                        return glib::Propagation::Stop;
-                    }
-                }
-
-                let pair = match key {
-                    Key::parenleft      => Some(("(", ")")),
-                    Key::bracketleft    => Some(("[", "]")),
-                    Key::braceleft      => Some(("{", "}")),
-                    Key::quotedbl       => Some(("\"", "\"")),
-                    Key::dollar         => Some(("$", "$")),
-                    _ => None,
-                };
-                if let Some((open, close)) = pair {
-                    buf_pair.begin_user_action();
-                    buf_pair.insert_at_cursor(open);
-                    buf_pair.insert_at_cursor(close);
-                    // Move cursor back one character to sit between the pair
-                    let pos = buf_pair.cursor_position();
-                    let iter = buf_pair.iter_at_offset(pos - 1);
-                    buf_pair.place_cursor(&iter);
-                    buf_pair.end_user_action();
-                    last_ap.set(true);
-                    return glib::Propagation::Stop;
-                }
-                last_ap.set(false);
-                glib::Propagation::Proceed
-            });
-            view.add_controller(pair_ctrl);
-        }
-
-        // ── Comment toggle (Ctrl+/) ───────────────────────────────────────────
-        {
-            let buf_cmt = buffer.clone();
-            let cmt_ctrl = EventControllerKey::new();
-            cmt_ctrl.set_propagation_phase(PropagationPhase::Capture);
-            cmt_ctrl.connect_key_pressed(move |_, key, _, mods| {
-                use gtk4::gdk::Key;
-                let ctrl = mods.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
-                if !ctrl || key != Key::slash {
-                    return glib::Propagation::Proceed;
-                }
-
-                let (first_line, last_line) = if let Some((s, e)) = buf_cmt.selection_bounds() {
-                    let end_line = if e.line_offset() == 0 && e.line() > s.line() {
-                        e.line() - 1
-                    } else {
-                        e.line()
-                    };
-                    (s.line(), end_line)
-                } else {
-                    let line = buf_cmt.iter_at_offset(buf_cmt.cursor_position()).line();
-                    (line, line)
-                };
-
-                // Determine whether all non-empty lines start with "//"
-                let all_commented = (first_line..=last_line).all(|ln| {
-                    if let Some(it) = buf_cmt.iter_at_line(ln) {
-                        let mut end = it;
-                        end.forward_to_line_end();
-                        let line_text = buf_cmt.text(&it, &end, false).to_string();
-                        line_text.trim_start().is_empty() || line_text.trim_start().starts_with("//")
-                    } else {
-                        true
-                    }
-                });
-
-                buf_cmt.begin_user_action();
-                for ln in (first_line..=last_line).rev() {
-                    let Some(line_start) = buf_cmt.iter_at_line(ln) else { continue };
-                    let mut line_end = line_start;
-                    line_end.forward_to_line_end();
-                    let line_text = buf_cmt.text(&line_start, &line_end, false).to_string();
-                    if line_text.trim_start().is_empty() { continue; }
-
-                    if all_commented {
-                        // Remove "// " or "//" prefix
-                        let stripped = line_text.trim_start();
-                        let indent_len = (line_text.len() - stripped.len()) as i32;
-                        if let Some(mut del_start) = buf_cmt.iter_at_line_offset(ln, indent_len) {
-                            let remove = if stripped.starts_with("// ") { 3 } else { 2 };
-                            let mut del_end = del_start;
-                            del_end.forward_chars(remove);
-                            buf_cmt.delete(&mut del_start, &mut del_end);
-                        }
-                    } else {
-                        // Insert "// " at indent level
-                        let stripped = line_text.trim_start();
-                        let indent_len = (line_text.len() - stripped.len()) as i32;
-                        if let Some(mut ins) = buf_cmt.iter_at_line_offset(ln, indent_len) {
-                            buf_cmt.insert(&mut ins, "// ");
-                        }
-                    }
-                }
-                buf_cmt.end_user_action();
-                glib::Propagation::Stop
-            });
-            view.add_controller(cmt_ctrl);
-        }
-
-        // ── Bold (Ctrl+B) / Italic (Ctrl+I) ─────────────────────────────────
-        {
-            let buf_bi = buffer.clone();
-            let bi_ctrl = EventControllerKey::new();
-            bi_ctrl.set_propagation_phase(PropagationPhase::Capture);
-            bi_ctrl.connect_key_pressed(move |_, key, _, mods| {
-                use gtk4::gdk::Key;
-                let ctrl = mods.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
-                let shift = mods.contains(gtk4::gdk::ModifierType::SHIFT_MASK);
-                if !ctrl || shift { return glib::Propagation::Proceed; }
-                let marker = match key {
-                    Key::b => "*",
-                    Key::i => "_",
-                    _ => return glib::Propagation::Proceed,
-                };
-                let mlen = marker.len() as i32;
-                if let Some((sel_s, sel_e)) = buf_bi.selection_bounds() {
-                    let start_off = sel_s.offset();
-                    let end_off = sel_e.offset();
-                    let text = buf_bi.text(&sel_s, &sel_e, false).to_string();
-                    buf_bi.begin_user_action();
-                    if text.starts_with(marker) && text.ends_with(marker)
-                        && text.len() > 2 * marker.len()
-                    {
-                        let inner = text[marker.len()..text.len() - marker.len()].to_string();
-                        let inner_len = inner.chars().count() as i32;
-                        let mut s = buf_bi.iter_at_offset(start_off);
-                        let mut e = buf_bi.iter_at_offset(end_off);
-                        buf_bi.delete(&mut s, &mut e);
-                        let mut ins = buf_bi.iter_at_offset(start_off);
-                        buf_bi.insert(&mut ins, &inner);
-                        let ns = buf_bi.iter_at_offset(start_off);
-                        let ne = buf_bi.iter_at_offset(start_off + inner_len);
-                        buf_bi.select_range(&ns, &ne);
-                    } else {
-                        let tlen = text.chars().count() as i32;
-                        let mut s = buf_bi.iter_at_offset(start_off);
-                        let mut e = buf_bi.iter_at_offset(end_off);
-                        buf_bi.delete(&mut s, &mut e);
-                        let mut ins = buf_bi.iter_at_offset(start_off);
-                        buf_bi.insert(&mut ins, &format!("{marker}{text}{marker}"));
-                        let ns = buf_bi.iter_at_offset(start_off + mlen);
-                        let ne = buf_bi.iter_at_offset(start_off + mlen + tlen);
-                        buf_bi.select_range(&ns, &ne);
-                    }
-                    buf_bi.end_user_action();
-                } else {
-                    buf_bi.begin_user_action();
-                    let pos = buf_bi.cursor_position();
-                    let mut ins = buf_bi.iter_at_offset(pos);
-                    buf_bi.insert(&mut ins, &format!("{marker}{marker}"));
-                    let cursor = buf_bi.iter_at_offset(pos + mlen);
-                    buf_bi.place_cursor(&cursor);
-                    buf_bi.end_user_action();
-                }
-                glib::Propagation::Stop
-            });
-            view.add_controller(bi_ctrl);
-        }
-
-        // ── Duplicate line / selection (Ctrl+D) ──────────────────────────────
-        {
-            let buf_dup = buffer.clone();
-            let dup_ctrl = EventControllerKey::new();
-            dup_ctrl.set_propagation_phase(PropagationPhase::Capture);
-            dup_ctrl.connect_key_pressed(move |_, key, _, mods| {
-                use gtk4::gdk::Key;
-                let ctrl = mods.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
-                let shift = mods.contains(gtk4::gdk::ModifierType::SHIFT_MASK);
-                if !ctrl || shift || key != Key::d {
-                    return glib::Propagation::Proceed;
-                }
-                buf_dup.begin_user_action();
-                if let Some((sel_s, sel_e)) = buf_dup.selection_bounds() {
-                    let text = buf_dup.text(&sel_s, &sel_e, false).to_string();
-                    let mut ins = sel_e;
-                    buf_dup.insert(&mut ins, &text);
-                } else {
-                    let cursor_pos = buf_dup.cursor_position();
-                    let cursor = buf_dup.iter_at_offset(cursor_pos);
-                    let ln = cursor.line();
-                    let Some(line_start) = buf_dup.iter_at_line(ln) else {
-                        buf_dup.end_user_action();
-                        return glib::Propagation::Stop;
-                    };
-                    let mut line_end = line_start;
-                    if !line_end.ends_line() {
-                        line_end.forward_to_line_end();
-                    }
-                    let text = buf_dup.text(&line_start, &line_end, false).to_string();
-                    let mut ins = line_end;
-                    buf_dup.insert(&mut ins, &format!("\n{text}"));
-                }
-                buf_dup.end_user_action();
-                glib::Propagation::Stop
-            });
-            view.add_controller(dup_ctrl);
-        }
-
-        // ── Page break (Ctrl+Enter) ───────────────────────────────────────────
-        {
-            let buf_pb = buffer.clone();
-            let pb_ctrl = EventControllerKey::new();
-            pb_ctrl.set_propagation_phase(PropagationPhase::Capture);
-            pb_ctrl.connect_key_pressed(move |_, key, _, mods| {
-                use gtk4::gdk::Key;
-                let ctrl = mods.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
-                if !ctrl || key != Key::Return {
-                    return glib::Propagation::Proceed;
-                }
-                buf_pb.begin_user_action();
-                buf_pb.insert_at_cursor("\n#pagebreak()\n");
-                buf_pb.end_user_action();
-                glib::Propagation::Stop
-            });
-            view.add_controller(pb_ctrl);
-        }
-
-        // ── Undo / Redo keyboard shortcuts ───────────────────────────────────
-        // GTK4 GtkTextView has built-in Ctrl+Z / Ctrl+Shift+Z bindings, but we add
-        // explicit handling here so our nav_ctrl (Capture phase) can also update the
-        // button sensitivity immediately rather than waiting for the next idle cycle.
-        {
-            let buf_undo = buffer.clone();
-            let undo_ctrl = EventControllerKey::new();
-            undo_ctrl.set_propagation_phase(PropagationPhase::Capture);
-            undo_ctrl.connect_key_pressed(move |_, key, _, mods| {
-                use gtk4::gdk::Key;
-                let ctrl  = mods.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
-                let shift = mods.contains(gtk4::gdk::ModifierType::SHIFT_MASK);
-                let alt   = mods.contains(gtk4::gdk::ModifierType::ALT_MASK);
-                if !ctrl || alt { return glib::Propagation::Proceed; }
-                if key == Key::z {
-                    if shift {
-                        if buf_undo.can_redo() { buf_undo.redo(); }
-                    } else {
-                        if buf_undo.can_undo() { buf_undo.undo(); }
-                    }
-                } else if key == Key::y && !shift {
-                    if buf_undo.can_redo() { buf_undo.redo(); }
-                } else {
-                    return glib::Propagation::Proceed;
-                }
-                glib::Propagation::Stop
-            });
-            view.add_controller(undo_ctrl);
-        }
-
-        // ── Typst-aware word navigation (Ctrl+Left/Right) ────────────────────
-        // GTK's default word boundaries stop at '#' and '@', forcing two presses to
-        // skip past `#set`, `@citation`, etc.  This controller intercepts Ctrl+arrow
-        // and moves to the true end of the token (including the sigil character).
-        {
-            let buf_nav = buffer.clone();
-            let view_nav = view.clone();
-            let nav_ctrl = EventControllerKey::new();
-            nav_ctrl.set_propagation_phase(PropagationPhase::Capture);
-            nav_ctrl.connect_key_pressed(move |_, key, _, mods| {
-                use gtk4::gdk::Key;
-                let ctrl  = mods.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
-                let shift = mods.contains(gtk4::gdk::ModifierType::SHIFT_MASK);
-                let alt   = mods.contains(gtk4::gdk::ModifierType::ALT_MASK);
-                if !ctrl || alt { return glib::Propagation::Proceed; }
-
-                // ── Heading jump: Ctrl+Shift+Up / Ctrl+Shift+Down ────────────
-                if shift && (key == Key::Up || key == Key::Down) {
-                    let pos = buf_nav.cursor_position();
-                    let cur_line = buf_nav.iter_at_offset(pos).line();
-                    let line_count = buf_nav.line_count();
-                    let target_line = if key == Key::Up {
-                        (0..cur_line).rev().find(|&ln| is_heading_line(&buf_nav, ln))
-                    } else {
-                        (cur_line + 1..line_count).find(|&ln| is_heading_line(&buf_nav, ln))
-                    };
-                    if let Some(ln) = target_line {
-                        if let Some(it) = buf_nav.iter_at_line(ln) {
-                            buf_nav.place_cursor(&it);
-                            let mut it2 = it;
-                            view_nav.scroll_to_iter(&mut it2, 0.1, false, 0.0, 0.3);
-                        }
-                    }
-                    return glib::Propagation::Stop;
-                }
-
-                // ── Typst-aware word movement: Ctrl+Left / Ctrl+Right ────────
-                if shift { return glib::Propagation::Proceed; } // let Ctrl+Shift+Left/Right select
-                if key != Key::Left && key != Key::Right { return glib::Propagation::Proceed; }
-
-                let pos = buf_nav.cursor_position();
-                let mut it = buf_nav.iter_at_offset(pos);
-                let forward = key == Key::Right;
-
-                if forward {
-                    // Skip leading whitespace first (mirrors GtkTextView default)
-                    while !it.is_end() && it.char().is_whitespace() {
-                        it.forward_char();
-                    }
-                    // If we're now on '#' or '@' (Typst sigils), absorb the sigil so
-                    // the next word_end lands after the whole `#keyword` or `@key`.
-                    if matches!(it.char(), '#' | '@') {
-                        it.forward_char();
-                    }
-                    it.forward_word_end();
-                } else {
-                    // Skip trailing whitespace
-                    while !it.is_start() && it.char().is_whitespace() {
-                        it.backward_char();
-                    }
-                    it.backward_word_start();
-                    // If the character just before the new position is '#' or '@', absorb it
-                    let mut probe = it;
-                    if probe.backward_char() && matches!(probe.char(), '#' | '@') {
-                        it = probe;
-                    }
-                }
-
-                buf_nav.place_cursor(&it);
-                let mut sc = it;
-                view_nav.scroll_to_iter(&mut sc, 0.07, false, 0.0, 0.5);
-                glib::Propagation::Stop
-            });
-            view.add_controller(nav_ctrl);
-        }
-
-        // Viewport hold, shared by every edit that hands focus back to the view
-        // and so provokes GTK's scroll-to-mark animation: paste, and applying a
-        // spell suggestion from either popover. The vadjustment/hadjustment
-        // handlers that honour these live further down.
-        let hold_position: Rc<Cell<Option<(f64, f64)>>> = Rc::new(Cell::new(None));
-        let hold_until: Rc<Cell<Instant>> = Rc::new(Cell::new(Instant::now()));
+        let (hold_position, hold_until) = self.wire_key_controller(
+            &view, &buffer, &bib_popup, &lsp_popup, &ac_mark, &lsp_mark,
+            &completing, &lsp_completing, &ghost_item, &ghost_label,
+            &completion_suppressed_at, &ghost_bib_entry,
+        );
 
         self.wire_spell_suggestions(&tab, &hold_position, &hold_until);
         self.wire_spellcheck(&tab);
@@ -6525,6 +5983,571 @@ impl EditorPane {
         }
 
         LspAutocomplete { lsp_popup, lsp_mark, lsp_completing }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn wire_key_controller(
+        &self,
+        view: &View,
+        buffer: &Buffer,
+        bib_popup: &BibPopup,
+        lsp_popup: &LspPopup,
+        ac_mark: &Rc<RefCell<Option<gtk4::TextMark>>>,
+        lsp_mark: &Rc<RefCell<Option<gtk4::TextMark>>>,
+        completing: &Rc<RefCell<bool>>,
+        lsp_completing: &Rc<RefCell<bool>>,
+        ghost_item: &Rc<RefCell<Option<CompletionItem>>>,
+        ghost_label: &Label,
+        completion_suppressed_at: &Rc<Cell<i32>>,
+        ghost_bib_entry: &Rc<RefCell<Option<PopupEntry>>>,
+    ) -> (Rc<Cell<Option<(f64, f64)>>>, Rc<Cell<Instant>>) {
+        let bib_popup_key = bib_popup.clone();
+        let lsp_popup_key = lsp_popup.clone();
+        let buf_key = buffer.clone();
+        let mark_key = ac_mark.clone();
+        let lsp_mark_key = lsp_mark.clone();
+        let completing_key = completing.clone();
+        let lsp_completing_key = lsp_completing.clone();
+        let view_key = view.clone();
+        let bib_active_key = self.bib_active.clone();
+        let ghost_item_key = ghost_item.clone();
+        let ghost_label_key = ghost_label.clone();
+        let hint_lbl_key = self.lsp_status_label.clone();
+        let suppressed_key = completion_suppressed_at.clone();
+        let lsp_mark_suppress = lsp_mark.clone();
+        let ghost_bib_key = ghost_bib_entry.clone();
+        let view_bib_key = view.clone();
+
+        let key_ctrl = EventControllerKey::new();
+        key_ctrl.set_propagation_phase(PropagationPhase::Capture);
+        key_ctrl.connect_key_pressed(move |_, key, _, _mods| {
+            use gtk4::gdk::Key;
+
+            // Tab accepts the inline ghost suggestion even when no list is up —
+            // the fish-shell gesture, and the whole point of showing the ghost
+            // before the list appears. Escape dismisses just the ghost, leaving
+            // what the user actually typed alone.
+            if !lsp_popup_key.is_visible() && !bib_popup_key.is_visible()
+                && ghost_label_key.is_visible()
+            {
+                // A citation ghost is taken the citation way — same key, same
+                // feel, different insertion.
+                if key == Key::Tab {
+                    let entry = ghost_bib_key.borrow().clone();
+                    if let Some(entry) = entry {
+                        clear_citation_ghost(&ghost_label_key, &ghost_bib_key, &hint_lbl_key);
+                        *bib_active_key.borrow_mut() = false;
+                        do_bib_complete(
+                            &buf_key, &mark_key, &completing_key, &bib_popup_key,
+                            &view_bib_key, &entry,
+                        );
+                        return glib::Propagation::Stop;
+                    }
+                }
+                match key {
+                    Key::Tab => {
+                        let item = ghost_item_key.borrow().clone();
+                        if let Some(i) = item {
+                            clear_ghost(&ghost_label_key, &ghost_item_key, &hint_lbl_key);
+                            do_lsp_complete(
+                                &buf_key,
+                                &lsp_mark_key,
+                                &lsp_completing_key,
+                                &lsp_popup_key,
+                                &view_key,
+                                i,
+                            );
+                            return glib::Propagation::Stop;
+                        }
+                    }
+                    Key::Escape => {
+                        suppress_current_completion(
+                            &buf_key, &lsp_mark_suppress, &suppressed_key,
+                        );
+                        clear_citation_ghost(&ghost_label_key, &ghost_bib_key, &hint_lbl_key);
+                        clear_ghost(&ghost_label_key, &ghost_item_key, &hint_lbl_key);
+                        return glib::Propagation::Stop;
+                    }
+                    _ => {}
+                }
+            }
+
+            // LSP popup takes priority
+            if lsp_popup_key.is_visible() {
+                return match key {
+                    Key::Escape => {
+                        // Dismiss, and leave what was typed alone. Escape used to
+                        // delete back to the `#`, which threw away the user's own
+                        // text for the crime of not wanting a suggestion — and it
+                        // made "quiet for this word" impossible, there being no
+                        // word left to be quiet about.
+                        suppress_current_completion(
+                            &buf_key, &lsp_mark_suppress, &suppressed_key,
+                        );
+                        lsp_popup_key.hide();
+                        clear_ghost(&ghost_label_key, &ghost_item_key, &hint_lbl_key);
+                        glib::Propagation::Stop
+                    }
+                    Key::Tab => {
+                        let item = lsp_popup_key
+                            .selected_item()
+                            .or_else(|| lsp_popup_key.first_item());
+                        if let Some(i) = item {
+                            clear_ghost(&ghost_label_key, &ghost_item_key, &hint_lbl_key);
+                            do_lsp_complete(
+                                &buf_key,
+                                &lsp_mark_key,
+                                &lsp_completing_key,
+                                &lsp_popup_key,
+                                &view_key,
+                                i,
+                            );
+                        }
+                        glib::Propagation::Stop
+                    }
+                    Key::Return => {
+                        if let Some(i) = lsp_popup_key.selected_item() {
+                            clear_ghost(&ghost_label_key, &ghost_item_key, &hint_lbl_key);
+                            do_lsp_complete(
+                                &buf_key,
+                                &lsp_mark_key,
+                                &lsp_completing_key,
+                                &lsp_popup_key,
+                                &view_key,
+                                i,
+                            );
+                            glib::Propagation::Stop
+                        } else {
+                            glib::Propagation::Proceed
+                        }
+                    }
+                    Key::Down => {
+                        lsp_popup_key.move_selection(1);
+                        glib::Propagation::Stop
+                    }
+                    Key::Up => {
+                        lsp_popup_key.move_selection(-1);
+                        glib::Propagation::Stop
+                    }
+                    _ => glib::Propagation::Proceed,
+                };
+            }
+
+            // Bib popup
+            if !bib_popup_key.is_visible() {
+                return glib::Propagation::Proceed;
+            }
+            match key {
+                Key::Escape => {
+                    *bib_active_key.borrow_mut() = false;
+                    dismiss_popup_only(&bib_popup_key, &buf_key, &mark_key);
+                    glib::Propagation::Stop
+                }
+                Key::Tab => {
+                    let chosen = bib_popup_key
+                        .selected_entry()
+                        .or_else(|| bib_popup_key.first_filtered_entry());
+                    if let Some(entry) = chosen {
+                        *bib_active_key.borrow_mut() = false;
+                        do_bib_complete(
+                            &buf_key, &mark_key, &completing_key, &bib_popup_key, &view_key, &entry,
+                        );
+                    }
+                    glib::Propagation::Stop
+                }
+                Key::Return => {
+                    if let Some(entry) = bib_popup_key.selected_entry() {
+                        *bib_active_key.borrow_mut() = false;
+                        do_bib_complete(
+                            &buf_key, &mark_key, &completing_key, &bib_popup_key, &view_key, &entry,
+                        );
+                        glib::Propagation::Stop
+                    } else {
+                        glib::Propagation::Proceed
+                    }
+                }
+                Key::Down => {
+                    bib_popup_key.move_selection(1);
+                    glib::Propagation::Stop
+                }
+                Key::Up => {
+                    bib_popup_key.move_selection(-1);
+                    glib::Propagation::Stop
+                }
+                _ => glib::Propagation::Proceed,
+            }
+        });
+        view.add_controller(key_ctrl);
+
+        // ── Auto-pair brackets and quotes ─────────────────────────────────────
+        let last_was_autopair: Rc<std::cell::Cell<bool>> = Rc::new(std::cell::Cell::new(false));
+        {
+            let buf_pair = buffer.clone();
+            let pair_ctrl = EventControllerKey::new();
+            pair_ctrl.set_propagation_phase(PropagationPhase::Capture);
+            let last_ap = last_was_autopair.clone();
+            pair_ctrl.connect_key_pressed(move |_, key, _, mods| {
+                use gtk4::gdk::Key;
+                // Don't interfere when modifier keys are held (shortcuts)
+                if mods.intersects(
+                    gtk4::gdk::ModifierType::CONTROL_MASK | gtk4::gdk::ModifierType::ALT_MASK,
+                ) {
+                    last_ap.set(false);
+                    return glib::Propagation::Proceed;
+                }
+                // Don't auto-pair when there is a selection
+                if buf_pair.has_selection() {
+                    last_ap.set(false);
+                    return glib::Propagation::Proceed;
+                }
+
+                // Skip-forward if the closing char is already there from a prior autopair
+                let skip_char: Option<char> = match key {
+                    Key::parenright   => Some(')'),
+                    Key::bracketright => Some(']'),
+                    Key::braceright   => Some('}'),
+                    // Only skip " when we know it was auto-inserted
+                    Key::quotedbl if last_ap.get() => Some('"'),
+                    _ => None,
+                };
+                if let Some(expected) = skip_char {
+                    let pos = buf_pair.cursor_position();
+                    let next = buf_pair.iter_at_offset(pos);
+                    if next.char() == expected {
+                        let ahead = buf_pair.iter_at_offset(pos + 1);
+                        buf_pair.place_cursor(&ahead);
+                        last_ap.set(false);
+                        return glib::Propagation::Stop;
+                    }
+                }
+
+                let pair = match key {
+                    Key::parenleft      => Some(("(", ")")),
+                    Key::bracketleft    => Some(("[", "]")),
+                    Key::braceleft      => Some(("{", "}")),
+                    Key::quotedbl       => Some(("\"", "\"")),
+                    Key::dollar         => Some(("$", "$")),
+                    _ => None,
+                };
+                if let Some((open, close)) = pair {
+                    buf_pair.begin_user_action();
+                    buf_pair.insert_at_cursor(open);
+                    buf_pair.insert_at_cursor(close);
+                    // Move cursor back one character to sit between the pair
+                    let pos = buf_pair.cursor_position();
+                    let iter = buf_pair.iter_at_offset(pos - 1);
+                    buf_pair.place_cursor(&iter);
+                    buf_pair.end_user_action();
+                    last_ap.set(true);
+                    return glib::Propagation::Stop;
+                }
+                last_ap.set(false);
+                glib::Propagation::Proceed
+            });
+            view.add_controller(pair_ctrl);
+        }
+
+        // ── Comment toggle (Ctrl+/) ───────────────────────────────────────────
+        {
+            let buf_cmt = buffer.clone();
+            let cmt_ctrl = EventControllerKey::new();
+            cmt_ctrl.set_propagation_phase(PropagationPhase::Capture);
+            cmt_ctrl.connect_key_pressed(move |_, key, _, mods| {
+                use gtk4::gdk::Key;
+                let ctrl = mods.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
+                if !ctrl || key != Key::slash {
+                    return glib::Propagation::Proceed;
+                }
+
+                let (first_line, last_line) = if let Some((s, e)) = buf_cmt.selection_bounds() {
+                    let end_line = if e.line_offset() == 0 && e.line() > s.line() {
+                        e.line() - 1
+                    } else {
+                        e.line()
+                    };
+                    (s.line(), end_line)
+                } else {
+                    let line = buf_cmt.iter_at_offset(buf_cmt.cursor_position()).line();
+                    (line, line)
+                };
+
+                // Determine whether all non-empty lines start with "//"
+                let all_commented = (first_line..=last_line).all(|ln| {
+                    if let Some(it) = buf_cmt.iter_at_line(ln) {
+                        let mut end = it;
+                        end.forward_to_line_end();
+                        let line_text = buf_cmt.text(&it, &end, false).to_string();
+                        line_text.trim_start().is_empty() || line_text.trim_start().starts_with("//")
+                    } else {
+                        true
+                    }
+                });
+
+                buf_cmt.begin_user_action();
+                for ln in (first_line..=last_line).rev() {
+                    let Some(line_start) = buf_cmt.iter_at_line(ln) else { continue };
+                    let mut line_end = line_start;
+                    line_end.forward_to_line_end();
+                    let line_text = buf_cmt.text(&line_start, &line_end, false).to_string();
+                    if line_text.trim_start().is_empty() { continue; }
+
+                    if all_commented {
+                        // Remove "// " or "//" prefix
+                        let stripped = line_text.trim_start();
+                        let indent_len = (line_text.len() - stripped.len()) as i32;
+                        if let Some(mut del_start) = buf_cmt.iter_at_line_offset(ln, indent_len) {
+                            let remove = if stripped.starts_with("// ") { 3 } else { 2 };
+                            let mut del_end = del_start;
+                            del_end.forward_chars(remove);
+                            buf_cmt.delete(&mut del_start, &mut del_end);
+                        }
+                    } else {
+                        // Insert "// " at indent level
+                        let stripped = line_text.trim_start();
+                        let indent_len = (line_text.len() - stripped.len()) as i32;
+                        if let Some(mut ins) = buf_cmt.iter_at_line_offset(ln, indent_len) {
+                            buf_cmt.insert(&mut ins, "// ");
+                        }
+                    }
+                }
+                buf_cmt.end_user_action();
+                glib::Propagation::Stop
+            });
+            view.add_controller(cmt_ctrl);
+        }
+
+        // ── Bold (Ctrl+B) / Italic (Ctrl+I) ─────────────────────────────────
+        {
+            let buf_bi = buffer.clone();
+            let bi_ctrl = EventControllerKey::new();
+            bi_ctrl.set_propagation_phase(PropagationPhase::Capture);
+            bi_ctrl.connect_key_pressed(move |_, key, _, mods| {
+                use gtk4::gdk::Key;
+                let ctrl = mods.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
+                let shift = mods.contains(gtk4::gdk::ModifierType::SHIFT_MASK);
+                if !ctrl || shift { return glib::Propagation::Proceed; }
+                let marker = match key {
+                    Key::b => "*",
+                    Key::i => "_",
+                    _ => return glib::Propagation::Proceed,
+                };
+                let mlen = marker.len() as i32;
+                if let Some((sel_s, sel_e)) = buf_bi.selection_bounds() {
+                    let start_off = sel_s.offset();
+                    let end_off = sel_e.offset();
+                    let text = buf_bi.text(&sel_s, &sel_e, false).to_string();
+                    buf_bi.begin_user_action();
+                    if text.starts_with(marker) && text.ends_with(marker)
+                        && text.len() > 2 * marker.len()
+                    {
+                        let inner = text[marker.len()..text.len() - marker.len()].to_string();
+                        let inner_len = inner.chars().count() as i32;
+                        let mut s = buf_bi.iter_at_offset(start_off);
+                        let mut e = buf_bi.iter_at_offset(end_off);
+                        buf_bi.delete(&mut s, &mut e);
+                        let mut ins = buf_bi.iter_at_offset(start_off);
+                        buf_bi.insert(&mut ins, &inner);
+                        let ns = buf_bi.iter_at_offset(start_off);
+                        let ne = buf_bi.iter_at_offset(start_off + inner_len);
+                        buf_bi.select_range(&ns, &ne);
+                    } else {
+                        let tlen = text.chars().count() as i32;
+                        let mut s = buf_bi.iter_at_offset(start_off);
+                        let mut e = buf_bi.iter_at_offset(end_off);
+                        buf_bi.delete(&mut s, &mut e);
+                        let mut ins = buf_bi.iter_at_offset(start_off);
+                        buf_bi.insert(&mut ins, &format!("{marker}{text}{marker}"));
+                        let ns = buf_bi.iter_at_offset(start_off + mlen);
+                        let ne = buf_bi.iter_at_offset(start_off + mlen + tlen);
+                        buf_bi.select_range(&ns, &ne);
+                    }
+                    buf_bi.end_user_action();
+                } else {
+                    buf_bi.begin_user_action();
+                    let pos = buf_bi.cursor_position();
+                    let mut ins = buf_bi.iter_at_offset(pos);
+                    buf_bi.insert(&mut ins, &format!("{marker}{marker}"));
+                    let cursor = buf_bi.iter_at_offset(pos + mlen);
+                    buf_bi.place_cursor(&cursor);
+                    buf_bi.end_user_action();
+                }
+                glib::Propagation::Stop
+            });
+            view.add_controller(bi_ctrl);
+        }
+
+        // ── Duplicate line / selection (Ctrl+D) ──────────────────────────────
+        {
+            let buf_dup = buffer.clone();
+            let dup_ctrl = EventControllerKey::new();
+            dup_ctrl.set_propagation_phase(PropagationPhase::Capture);
+            dup_ctrl.connect_key_pressed(move |_, key, _, mods| {
+                use gtk4::gdk::Key;
+                let ctrl = mods.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
+                let shift = mods.contains(gtk4::gdk::ModifierType::SHIFT_MASK);
+                if !ctrl || shift || key != Key::d {
+                    return glib::Propagation::Proceed;
+                }
+                buf_dup.begin_user_action();
+                if let Some((sel_s, sel_e)) = buf_dup.selection_bounds() {
+                    let text = buf_dup.text(&sel_s, &sel_e, false).to_string();
+                    let mut ins = sel_e;
+                    buf_dup.insert(&mut ins, &text);
+                } else {
+                    let cursor_pos = buf_dup.cursor_position();
+                    let cursor = buf_dup.iter_at_offset(cursor_pos);
+                    let ln = cursor.line();
+                    let Some(line_start) = buf_dup.iter_at_line(ln) else {
+                        buf_dup.end_user_action();
+                        return glib::Propagation::Stop;
+                    };
+                    let mut line_end = line_start;
+                    if !line_end.ends_line() {
+                        line_end.forward_to_line_end();
+                    }
+                    let text = buf_dup.text(&line_start, &line_end, false).to_string();
+                    let mut ins = line_end;
+                    buf_dup.insert(&mut ins, &format!("\n{text}"));
+                }
+                buf_dup.end_user_action();
+                glib::Propagation::Stop
+            });
+            view.add_controller(dup_ctrl);
+        }
+
+        // ── Page break (Ctrl+Enter) ───────────────────────────────────────────
+        {
+            let buf_pb = buffer.clone();
+            let pb_ctrl = EventControllerKey::new();
+            pb_ctrl.set_propagation_phase(PropagationPhase::Capture);
+            pb_ctrl.connect_key_pressed(move |_, key, _, mods| {
+                use gtk4::gdk::Key;
+                let ctrl = mods.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
+                if !ctrl || key != Key::Return {
+                    return glib::Propagation::Proceed;
+                }
+                buf_pb.begin_user_action();
+                buf_pb.insert_at_cursor("\n#pagebreak()\n");
+                buf_pb.end_user_action();
+                glib::Propagation::Stop
+            });
+            view.add_controller(pb_ctrl);
+        }
+
+        // ── Undo / Redo keyboard shortcuts ───────────────────────────────────
+        // GTK4 GtkTextView has built-in Ctrl+Z / Ctrl+Shift+Z bindings, but we add
+        // explicit handling here so our nav_ctrl (Capture phase) can also update the
+        // button sensitivity immediately rather than waiting for the next idle cycle.
+        {
+            let buf_undo = buffer.clone();
+            let undo_ctrl = EventControllerKey::new();
+            undo_ctrl.set_propagation_phase(PropagationPhase::Capture);
+            undo_ctrl.connect_key_pressed(move |_, key, _, mods| {
+                use gtk4::gdk::Key;
+                let ctrl  = mods.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
+                let shift = mods.contains(gtk4::gdk::ModifierType::SHIFT_MASK);
+                let alt   = mods.contains(gtk4::gdk::ModifierType::ALT_MASK);
+                if !ctrl || alt { return glib::Propagation::Proceed; }
+                if key == Key::z {
+                    if shift {
+                        if buf_undo.can_redo() { buf_undo.redo(); }
+                    } else {
+                        if buf_undo.can_undo() { buf_undo.undo(); }
+                    }
+                } else if key == Key::y && !shift {
+                    if buf_undo.can_redo() { buf_undo.redo(); }
+                } else {
+                    return glib::Propagation::Proceed;
+                }
+                glib::Propagation::Stop
+            });
+            view.add_controller(undo_ctrl);
+        }
+
+        // ── Typst-aware word navigation (Ctrl+Left/Right) ────────────────────
+        // GTK's default word boundaries stop at '#' and '@', forcing two presses to
+        // skip past `#set`, `@citation`, etc.  This controller intercepts Ctrl+arrow
+        // and moves to the true end of the token (including the sigil character).
+        {
+            let buf_nav = buffer.clone();
+            let view_nav = view.clone();
+            let nav_ctrl = EventControllerKey::new();
+            nav_ctrl.set_propagation_phase(PropagationPhase::Capture);
+            nav_ctrl.connect_key_pressed(move |_, key, _, mods| {
+                use gtk4::gdk::Key;
+                let ctrl  = mods.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
+                let shift = mods.contains(gtk4::gdk::ModifierType::SHIFT_MASK);
+                let alt   = mods.contains(gtk4::gdk::ModifierType::ALT_MASK);
+                if !ctrl || alt { return glib::Propagation::Proceed; }
+
+                // ── Heading jump: Ctrl+Shift+Up / Ctrl+Shift+Down ────────────
+                if shift && (key == Key::Up || key == Key::Down) {
+                    let pos = buf_nav.cursor_position();
+                    let cur_line = buf_nav.iter_at_offset(pos).line();
+                    let line_count = buf_nav.line_count();
+                    let target_line = if key == Key::Up {
+                        (0..cur_line).rev().find(|&ln| is_heading_line(&buf_nav, ln))
+                    } else {
+                        (cur_line + 1..line_count).find(|&ln| is_heading_line(&buf_nav, ln))
+                    };
+                    if let Some(ln) = target_line {
+                        if let Some(it) = buf_nav.iter_at_line(ln) {
+                            buf_nav.place_cursor(&it);
+                            let mut it2 = it;
+                            view_nav.scroll_to_iter(&mut it2, 0.1, false, 0.0, 0.3);
+                        }
+                    }
+                    return glib::Propagation::Stop;
+                }
+
+                // ── Typst-aware word movement: Ctrl+Left / Ctrl+Right ────────
+                if shift { return glib::Propagation::Proceed; } // let Ctrl+Shift+Left/Right select
+                if key != Key::Left && key != Key::Right { return glib::Propagation::Proceed; }
+
+                let pos = buf_nav.cursor_position();
+                let mut it = buf_nav.iter_at_offset(pos);
+                let forward = key == Key::Right;
+
+                if forward {
+                    // Skip leading whitespace first (mirrors GtkTextView default)
+                    while !it.is_end() && it.char().is_whitespace() {
+                        it.forward_char();
+                    }
+                    // If we're now on '#' or '@' (Typst sigils), absorb the sigil so
+                    // the next word_end lands after the whole `#keyword` or `@key`.
+                    if matches!(it.char(), '#' | '@') {
+                        it.forward_char();
+                    }
+                    it.forward_word_end();
+                } else {
+                    // Skip trailing whitespace
+                    while !it.is_start() && it.char().is_whitespace() {
+                        it.backward_char();
+                    }
+                    it.backward_word_start();
+                    // If the character just before the new position is '#' or '@', absorb it
+                    let mut probe = it;
+                    if probe.backward_char() && matches!(probe.char(), '#' | '@') {
+                        it = probe;
+                    }
+                }
+
+                buf_nav.place_cursor(&it);
+                let mut sc = it;
+                view_nav.scroll_to_iter(&mut sc, 0.07, false, 0.0, 0.5);
+                glib::Propagation::Stop
+            });
+            view.add_controller(nav_ctrl);
+        }
+
+        // Viewport hold, shared by every edit that hands focus back to the view
+        // and so provokes GTK's scroll-to-mark animation: paste, and applying a
+        // spell suggestion from either popover. The vadjustment/hadjustment
+        // handlers that honour these live further down.
+        let hold_position: Rc<Cell<Option<(f64, f64)>>> = Rc::new(Cell::new(None));
+        let hold_until: Rc<Cell<Instant>> = Rc::new(Cell::new(Instant::now()));
+
+        (hold_position, hold_until)
     }
 
     fn wire_modified_and_word_count(&self, tab: &TabContext, content: &str) {

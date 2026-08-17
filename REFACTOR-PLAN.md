@@ -521,9 +521,43 @@ test. Check them after each sub-phase.
 
 **Status:** ◐ **PARTLY DONE** (2026-08-03; resumed 2026-08-17) — 4a ☑ tests,
 4b ☑ six sections, 4c ☑ drag-and-drop, 4d ☑ tab label, 4e ☑ citation
-autocomplete, 4f ☑ LSP autocomplete. One section deliberately left inline
-(below).
+autocomplete, 4f ☑ LSP autocomplete, 4g ☑ key controller. Two sections
+remain, both deliberately left inline (below).
 **Risk:** high · **Depends on:** Phase 3 (hardest last)
+
+### 4g ☑ — Key controller extracted (2026-08-17)
+
+Extracted as `wire_key_controller(&self, view, buffer, bib_popup, lsp_popup,
+ac_mark, lsp_mark, completing, lsp_completing, ghost_item, ghost_label,
+completion_suppressed_at, ghost_bib_entry) -> (Rc<Cell<Option<(f64,f64)>>>,
+Rc<Cell<Instant>>)` — 547 lines, the largest single extraction so far,
+byte-for-byte moved (`#[allow(clippy::too_many_arguments)]`: 12 params,
+covering all 10 values 4e/4f produced plus `view`/`buffer` — this is the
+section the plan flagged as needing "10 of the above" fanned back in, one
+step before the error assistant that needs the same 10 plus more). Covers
+seven sub-controllers under one banner: the popup/ghost accept-or-dismiss
+handler (Tab/Escape/arrows across both citation and LSP popups), auto-pair
+brackets/quotes, comment toggle (Ctrl+/), bold/italic (Ctrl+B/I), duplicate
+line (Ctrl+D), page break (Ctrl+Enter), undo/redo shortcuts, and Typst-aware
+word/heading navigation (Ctrl+Left/Right, Ctrl+Shift+Up/Down). Only the first
+of the seven needs the 10-value bundle; the other six close over nothing but
+`view`/`buffer` clones.
+
+Returns `(hold_position, hold_until)` — the viewport-hold state the plan's
+table names as this section's product — because the still-inline right-click
+menu section reads both, alongside the already-extracted
+`wire_spell_suggestions` (called immediately after, at the `open_file` call
+site, unchanged).
+
+Extracted mechanically (Python moving the exact line range into a new method
+body, not hand-retyped) given the size, then verified by full gate rather
+than by eye: 486 tests (unchanged), clippy clean (no type-complexity or
+too-many-arguments warning beyond the explicit allow), release build clean
+on the first attempt, version guard clean. **Not manually smoke-tested
+interactively** (no GTK session here) — this is the highest-value one yet to
+check by hand next time you're in the app: Tab/Escape on both popup kinds,
+auto-pair typing `(`/`[`/`{`/`"`, Ctrl+/, Ctrl+B/I, Ctrl+D, Ctrl+Enter,
+Ctrl+Z/Y, and Ctrl+Left/Right/Shift+Up/Down word and heading navigation.
 
 ### 4f ☑ — #-function LSP autocomplete extracted (2026-08-17)
 
@@ -648,7 +682,6 @@ extracting them means returning 3–8 values and threading them back in:
 
 | Section | Lines | Produces |
 |---|---|---|
-| Key controller | 548 | `hold_position`, `hold_until` |
 | Right-click context menu | 345 | `saved_scroll`, `saved_hscroll`, `pause_tracking` |
 | Inline error assistant | 295 | — but *consumes* 10 of the above |
 
