@@ -5642,7 +5642,7 @@ dependencies = [
 
 [[package]]
 name = "zerkalo"
-version = "0.24.0-dev2"
+version = "0.24.0-dev3"
 dependencies = [
  "ashpd",
  "biblatex",
