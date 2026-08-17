@@ -1035,8 +1035,8 @@ fn build_cv_elements_group(
     let cv_elements_group = adw::PreferencesGroup::new();
     cv_elements_group.set_title("Skrizhal CV Elements");
     cv_elements_group.set_description(Some(
-        "A Skrizhal YAML file of jobs, degrees, awards, etc. — used to fill in this CV \
-         instead of a bibliography.",
+        "A YAML file of jobs, degrees, awards, etc. from Skrizhal (a separate reference-manager \
+         app) — used to fill in this CV instead of a bibliography.",
     ));
     cv_elements_group.set_visible(false);
 

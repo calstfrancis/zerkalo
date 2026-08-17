@@ -404,7 +404,10 @@ fn describe_document(doc: &Prepared) -> String {
 fn describe_sheets(pages: usize, sides: usize, imposition: Imposition) -> String {
     let page_word = if pages == 1 { "page" } else { "pages" };
     match imposition {
-        Imposition::Off => format!("{pages} {page_word} on {sides} sheets"),
+        Imposition::Off => {
+            let sheet_word = if sides == 1 { "sheet" } else { "sheets" };
+            format!("{pages} {page_word} on {sides} {sheet_word}")
+        }
         Imposition::Booklet => {
             let leaves = sides / 2;
             let leaf_word = if leaves == 1 { "folded sheet" } else { "folded sheets" };
@@ -579,7 +582,7 @@ mod tests {
 
     #[test]
     fn sheet_descriptions_singularise() {
-        assert_eq!(describe_sheets(1, 1, Imposition::Off), "1 page on 1 sheets");
+        assert_eq!(describe_sheets(1, 1, Imposition::Off), "1 page on 1 sheet");
     }
 
     #[test]

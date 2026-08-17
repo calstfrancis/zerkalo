@@ -5,11 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [dev] Word-migrant usability pass (in progress)
+## [dev] Word-migrant usability pass
 
 A 4-way UX audit found 32 issues that trip up someone coming from Word who's
-never used Typst, git, or a markup language. Working through them in
-priority order — see `UX-AUDIT-PLAN.md` for the full list and status.
+never used Typst, git, or a markup language. All 32 are fixed — see
+`UX-AUDIT-PLAN.md` for the full list, and a future "merge History and
+Snapshots into one Versions system" project noted at the bottom of it.
 
 ### Changed
 
@@ -66,6 +67,19 @@ priority order — see `UX-AUDIT-PLAN.md` for the full list and status.
   doesn't touch the file on disk — only "Move to Trash" does.
 - **The "What's New" dialog reads like release notes**, not a changelog
   dump of every fix and internal change.
+
+### Fixed
+
+- Print dialog's sheet-count summary no longer says "1 page on 1 sheets."
+- The outline panel's empty state points at the H1/H2/H3 toolbar buttons
+  instead of Typst's `=` heading syntax.
+- A few remaining error-panel advice lines, and the package browser's
+  import-insert tooltip, gloss the Typst terms they use on first mention.
+- The font manager's warnings pointed at "Setup & Onboarding → Default
+  Fonts," a menu path that no longer exists — now says Settings → Editor
+  → Document Fonts.
+- The dependency graph's empty state no longer says "imports."
+- The Skrizhal CV Elements field explains that Skrizhal is a separate app.
 
 ---
 

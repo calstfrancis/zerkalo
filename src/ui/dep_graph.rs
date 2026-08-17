@@ -94,7 +94,7 @@ impl DepGraph {
                     );
                     ctx.set_font_size(13.0);
                     ctx.move_to(MARGIN, MARGIN + 16.0);
-                    ctx.show_text("No imports found. Open a .typ file.").ok();
+                    ctx.show_text("No linked files found. Open a .typ file.").ok();
                     return;
                 }
 

@@ -35,15 +35,15 @@ writeup: https://claude.ai/code/artifact/6c398e24-18f1-4a89-9037-f961abb248b2
 
 ## Phase C — Minor / polish
 
-- [ ] Outline empty state references toolbar buttons, not `=` syntax — `outline_panel.rs`
-- [ ] Print dialog "1 page on 1 sheets" grammar fix — `print_sheet.rs`
-- [ ] Error panel advice lines gloss `#let`/`#show`/`.bib` on first use — `error_panel.rs`
-- [ ] Package browser import-insert tooltip explains `@namespace/name:version` — `package_browser.rs`
-- [ ] Dep graph empty state avoids "imports" — `dep_graph.rs`
-- [ ] Font manager stale "Setup & Onboarding → Default Fonts" references fixed — `font_manager.rs`
-- [ ] Compile delay subtitle reworded — `settings_dialog.rs`
-- [ ] Skrizhal CV Elements gets one clause of context — `template_dialog/mod.rs`
-- [ ] install.sh tinymist prompt reworded — `install.sh`
+- [x] Outline empty state references toolbar buttons, not `=` syntax — `outline_panel.rs`
+- [x] Print dialog "1 page on 1 sheets" grammar fix — `print_sheet.rs`
+- [x] Error panel advice lines gloss `#let`/`#show`/`.bib` on first use — `error_panel.rs`
+- [x] Package browser import-insert tooltip explains `@namespace/name:version` — `package_browser.rs`
+- [x] Dep graph empty state avoids "imports" — `dep_graph.rs`
+- [x] Font manager stale "Setup & Onboarding → Default Fonts" references fixed — `font_manager.rs`
+- [x] Compile delay subtitle reworded — `settings_dialog.rs`
+- [x] Skrizhal CV Elements gets one clause of context — `template_dialog/mod.rs`
+- [x] install.sh tinymist prompt reworded — `install.sh`
 
 ## Future project (not in this pass)
 

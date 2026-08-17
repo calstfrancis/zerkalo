@@ -18,8 +18,8 @@ pub struct FontManager {
 }
 
 impl FontManager {
-    /// `default_sans`/`default_serif` are the fonts chosen during onboarding
-    /// (Setup & Onboarding -> Default Fonts, persisted on `Config`). Either may
+    /// `default_sans`/`default_serif` are the fonts chosen in Settings
+    /// (Editor -> Document Fonts, persisted on `Config`). Either may
     /// be empty if the user hasn't set one yet. Disabling either here is
     /// soft-locked — blocked with a warning explaining they need to pick a
     /// replacement default first — since template previews and new documents
@@ -84,7 +84,7 @@ impl FontManager {
                 row.append(&lbl);
                 if is_locked {
                     let lock_icon = Label::new(Some("🔒"));
-                    lock_icon.set_tooltip_text(Some("Default font — set in Setup & Onboarding"));
+                    lock_icon.set_tooltip_text(Some("Default font — set in Settings → Editor → Document Fonts"));
                     row.append(&lock_icon);
                 }
                 list_box_for_rebuild.append(&row);
@@ -100,7 +100,7 @@ impl FontManager {
                             "This is a default font",
                             &format!(
                                 "\"{font_c}\" is set as your default sans or serif font in \
-                                 Setup & Onboarding → Default Fonts. Choose a different default \
+                                 Settings → Editor → Document Fonts. Choose a different default \
                                  there before disabling it here."
                             ),
                         );
@@ -157,7 +157,7 @@ impl FontManager {
                     None,
                     "Default fonts kept enabled",
                     &format!(
-                        "{} stayed enabled — they're your default fonts (Setup & Onboarding → Default Fonts).",
+                        "{} stayed enabled — they're your default fonts (Settings → Editor → Document Fonts).",
                         locked_for_none.join(" and ")
                     ),
                 );
