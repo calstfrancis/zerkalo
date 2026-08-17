@@ -45,7 +45,7 @@ raw markup dead-end: a live preview pane always shows the real formatting next t
 ### Sidebar
 | Feature | Detail |
 |---|---|
-| **Document outline** | Heading tree with cursor-tracking highlight; click to centre and select the heading in the editor |
+| **Document outline** | Heading tree with cursor-tracking highlight; click to centre and select the heading in the editor; a folder toggle switches to a manuscript-wide view — headings and word counts rolled up across every file reachable from the project root via `#include`/`#import`, not just the open one |
 | **Symbol insert** | One-click insertion of Cyrillic, Greek, Hebrew, and Sanskrit characters |
 | **File tree** | Project `.typ` files; collapsible subdirectory headers; click to open; `+` / folder buttons to create files or folders; drag to reorder; the compilation root is marked in bold; right-click for Set as Root, Insert `#include`/`#import` (each with a tooltip explaining what it does), Delete |
 | **Citation panel** | Searchable list of all bibliography entries; double-click or Enter inserts the `@key` at the cursor; a + button starts a new bibliography if none is set yet |

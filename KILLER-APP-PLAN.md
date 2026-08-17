@@ -558,7 +558,67 @@ stop describing tinymist as optional there.
 
 ## Phase 6 — Manuscript-wide outline & cross-file word count rollup
 
-**Status:** ☐ not started
+**Status:** ☑ DONE (2026-08-17) — built, and it turned out to build on
+existing, previously-unwired scaffolding, not from scratch.
+
+**Discovery before writing anything:** `outline_panel.rs` already had a
+`pub fn update_project(&self, files: Vec<(PathBuf, String)>)` — multi-file
+heading merge, per-section word counts, file-name-as-tooltip in multi-file
+mode, all fully implemented — but **`grep -rn "update_project" src/`
+returned zero call sites.** Exactly the same "built, wired for data, never
+reachable" shape as `package_browser`/`dep_graph`/`ref_manager` earlier in
+this session, just one level more finished (here the rendering logic itself
+was complete; only the *trigger* was missing). Reading `repopulate()`
+confirmed it already does everything this phase's spec asked for at the
+per-heading level — the only genuinely new work was: gathering files in the
+right order, a UI toggle to trigger it, and a *total* word-count rollup
+(the existing code only showed a heading count, not a summed word count).
+
+**What got built:**
+- `project.rs`: new `pub(crate) fn parse_typ_imports` (extracted verbatim
+  from `dep_graph.rs`'s private `parse_imports`, now shared — `dep_graph.rs`
+  calls it too, removing the duplicate regex) and new
+  `pub fn manuscript_files(root, project_root) -> Vec<(PathBuf, String)>`,
+  a breadth-first walk of the `#include`/`#import` graph returning file
+  content in visitation order (root first) — exactly what
+  `update_project`'s doc comment always said it wanted. Cycle-safe (visited
+  set), tolerant of a broken/missing include (skips, doesn't blank the
+  view). 4 new unit tests: order, cycle safety, missing-include tolerance,
+  single-file passthrough.
+- `outline_panel.rs`: a folder-icon toggle button in the outline header,
+  `set_on_project_mode(f: impl Fn(bool))` callback (same narrow-callback
+  idiom every other panel in this codebase already uses), and a total-word
+  rollup added to the count label — `"· 3 headings · 80 words"` in
+  multi-file mode vs. the existing `"· 1 heading"` in single-file mode.
+- `app_window/mod.rs`: wired the toggle — on, gather via
+  `manuscript_files` using the same root-resolution the compile path
+  already uses (`configured_root` if project mode is set, else the active
+  file) and call `update_project`; off, revert to `update` for just the
+  active file. The debounced-change handler and the tab-switch handler both
+  respect an `outline_manuscript_mode` flag — tab-switching *while* in
+  manuscript mode intentionally does **not** re-populate (the file set
+  didn't change, and `row_positions` already spans every file, so
+  cursor-following/jump-to-heading keeps working across tabs without a
+  refresh). Needed to move `configured_root`/`proj_mode_active`'s
+  declarations earlier in `new()` (pure reordering, nothing behavioral) so
+  the debounced-change handler could see them.
+
+**Full verification gate green**: 495 tests (4 new), clippy clean, version
+guard clean. **Runtime-verified end-to-end** (unlike some of this session's
+other UI fixes — plain `Button`/`ToggleButton` clicks work fine headlessly,
+this isn't a `Popover` like the hamburger menu): built a real 3-file test
+project (`main.typ` including `ch1.typ`/`ch2.typ`), confirmed single-file
+mode shows only the active file's heading, toggled on and confirmed
+"3 headings · 80 words" with per-file entries (28+28+24=80, correct),
+clicked a heading from a *different* file and confirmed it switched tabs
+and jumped to the right line while manuscript mode stayed on (didn't
+collapse back to single-file), then toggled off and confirmed it reverted
+cleanly to showing just the active file. Screenshots at every step.
+
+README and CHANGELOG updated in the same session per the root
+`Projects/CLAUDE.md` documentation policy; `welcome_window.rs`'s What's New
+text updated too (not yet in a tagged dev build — this and the
+`dep_graph`/`ref_manager` fix both landed after `v0.24.0-dev4` was tagged).
 **Risk:** low-medium · **Effort:** medium · **Depends on:** nothing
 
 `src/ui/outline_panel.rs` (604 lines) and `src/ui/dep_graph.rs` (392 lines)

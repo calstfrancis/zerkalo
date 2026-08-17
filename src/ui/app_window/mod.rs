@@ -938,6 +938,19 @@ impl AppWindow {
                 }
             });
         }
+        // ── Multi-file root: configured root persists across tab switches ─────
+        let configured_root: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(
+            proj_cfg.root_file.as_ref()
+                .and_then(|r| crate::project_model::resolve_root_file(&project_root, r))
+        ));
+        // Project mode is OFF by default; only use configured_root when it is ON.
+        // Shared with the project toggle below.
+        let proj_mode_active: Rc<std::cell::Cell<bool>> = Rc::new(std::cell::Cell::new(false));
+        // Outline panel's "whole project" toggle — independent of proj_mode_active
+        // above (that one is about which file compiles; this one is about which
+        // files feed the outline/word-count panel). Off by default.
+        let outline_manuscript_mode: Rc<std::cell::Cell<bool>> = Rc::new(std::cell::Cell::new(false));
+
         // ── Debounced compile + outline update + LSP ────────────────────────
 
         let preview_for_change = preview_pane.clone();
@@ -949,6 +962,9 @@ impl AppWindow {
         let outline_for_change = outline_panel.clone();
         let refs_for_change = ref_manager.clone();
         let lsp_for_change = lsp_client.clone();
+        let configured_root_for_change = configured_root.clone();
+        let project_root_for_change = project_root.clone();
+        let outline_manuscript_mode_for_change = outline_manuscript_mode.clone();
         let last_edit_for_change = last_edit_instant.clone();
         let gen: Rc<RefCell<u64>> = Rc::new(RefCell::new(0));
         let gen2 = gen.clone();
@@ -972,6 +988,9 @@ impl AppWindow {
             let outline = outline_for_change.clone();
             let refs = refs_for_change.clone();
             let lsp = lsp_for_change.clone();
+            let configured_root = configured_root_for_change.clone();
+            let project_root_inner = project_root_for_change.clone();
+            let outline_manuscript_mode = outline_manuscript_mode_for_change.clone();
             let delay = Duration::from_millis(*debounce_for_change.borrow());
             let delta = editor_pane_for_delta.get_active_session_delta();
             editor_pane_for_delta.set_session_delta(delta);
@@ -991,7 +1010,12 @@ impl AppWindow {
                     }
                     if let Some(path) = editor.get_active_path() {
                         if let Some(content) = editor.get_active_content() {
-                            outline.update(&content, &path);
+                            if outline_manuscript_mode.get() {
+                                let root = configured_root.borrow().clone().unwrap_or_else(|| path.clone());
+                                outline.update_project(crate::project::manuscript_files(&root, &project_root_inner));
+                            } else {
+                                outline.update(&content, &path);
+                            }
                             refs.update_used_keys(&content);
                         }
                     }
@@ -1011,14 +1035,30 @@ impl AppWindow {
             });
         });
 
-        // ── Multi-file root: configured root persists across tab switches ─────
-        let configured_root: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(
-            proj_cfg.root_file.as_ref()
-                .and_then(|r| crate::project_model::resolve_root_file(&project_root, r))
-        ));
-        // Project mode is OFF by default; only use configured_root when it is ON.
-        // Shared with the project toggle below.
-        let proj_mode_active: Rc<std::cell::Cell<bool>> = Rc::new(std::cell::Cell::new(false));
+        // ── Outline panel: whole-project toggle ─────────────────────────────
+        {
+            let outline_for_toggle = outline_panel.clone();
+            let editor_for_toggle = editor_pane.clone();
+            let configured_root_for_toggle = configured_root.clone();
+            let project_root_for_toggle = project_root.clone();
+            let outline_manuscript_mode_for_toggle = outline_manuscript_mode.clone();
+            outline_panel.set_on_project_mode(move |active| {
+                outline_manuscript_mode_for_toggle.set(active);
+                if active {
+                    let root = editor_for_toggle.get_active_path()
+                        .map(|path| configured_root_for_toggle.borrow().clone().unwrap_or(path));
+                    if let Some(root) = root {
+                        outline_for_toggle.update_project(
+                            crate::project::manuscript_files(&root, &project_root_for_toggle),
+                        );
+                    }
+                } else if let (Some(path), Some(content)) =
+                    (editor_for_toggle.get_active_path(), editor_for_toggle.get_active_content())
+                {
+                    outline_for_toggle.update(&content, &path);
+                }
+            });
+        }
 
         // ── Outline + title: update on tab switch ──────────────────────────
 
@@ -1040,13 +1080,19 @@ impl AppWindow {
         let citation_panel_for_switch = citation_panel.clone();
         let configured_root_for_switch = configured_root.clone();
         let proj_mode_for_switch = proj_mode_active.clone();
+        let outline_manuscript_mode_for_switch = outline_manuscript_mode.clone();
         // Track per-file content hashes so tab switches don't recompile unchanged files.
         let switch_hash_map: Rc<RefCell<std::collections::HashMap<std::path::PathBuf, u64>>> =
             Rc::new(RefCell::new(std::collections::HashMap::new()));
         editor_pane.set_on_page_switch(move |content, path| {
             let delta = editor_pane_for_switch_delta.get_active_session_delta();
             editor_pane_for_switch_delta.set_session_delta(delta);
-            outline_for_switch.update(&content, &path);
+            // Whole-project outline mode already covers every file; a tab switch
+            // doesn't change that set, so leave it as-is rather than collapsing
+            // back to a single-file view.
+            if !outline_manuscript_mode_for_switch.get() {
+                outline_for_switch.update(&content, &path);
+            }
             refs_for_switch.update_used_keys(&content);
             dep_graph_for_switch.refresh(Some(&path));
             // Only recompile if the content has changed since the last compile for this file.
