@@ -576,6 +576,46 @@ Phase 9 next.
 
 ---
 
+## Cross-reference: 2026-08-17 external (ChatGPT) architecture note
+
+Cal shared an unprompted ChatGPT assessment of Zerkalo's architecture on
+2026-08-17, after this plan's 10 phases were already all closed out. Recorded
+here so a future session doesn't re-litigate it from scratch on seeing a
+similar external take:
+
+- File-size claims checked out exactly: `editor_pane.rs` 331,333 bytes,
+  `app_window/mod.rs` 173,067 bytes — still the two largest files.
+- Its "pin the Kartoteka git deps" recommendation is exactly what **Phase 4**
+  above already tried and reverted — a `rev`-based pin broke the flatpak
+  offline build. The note's own suggested fix ("wait for a Kartoteka release
+  tag, then pin like `skrizhal-core`") is already the documented path forward
+  there; nothing new to act on until Kartoteka cuts a tag.
+- Its framing of `editor_pane.rs`/`app_window.rs` churn as an "architectural
+  inflection point" risk is contradicted by **Phase 10**'s direct commit-
+  history investigation: churn there is diffuse (mostly new-feature landing,
+  not bug-fix cycling) and *decelerating* as a share of recent commits, not
+  accelerating. The note inferred risk from file size alone without checking
+  history.
+- Its UI-integration-testing gap observation matches what **Phase 2** hit
+  directly (scripted Ctrl+K interaction doesn't register under headless Xvfb
+  without a window manager) — a known, already-documented limitation, not a
+  new finding.
+- Its suggested decomposition (`editor_pane/{completion,citations,...}.rs`,
+  `AppWindow` → controller objects) isn't contradicted by anything here, but
+  isn't called for by this plan either — see `REFACTOR-PLAN.md` for the
+  actual file-splitting work, which already carved out similarly-sized files
+  (`library_window.rs`, `setup_wizard.rs`) as lower priority for the same
+  reason Phase 10 found no fragility signal. `REFACTOR-PLAN.md` Phase 4
+  (`EditorPane::open_file`) is partly done; Phase 6 (unblock UI thread) is not
+  started — that's the plan to check for follow-up on the editor-size
+  concern, not this one.
+
+Net: nothing in the note was factually wrong, but 9 of its 10 points restate
+findings this plan already investigated and closed with more context than the
+note had access to.
+
+---
+
 ## How to resume this plan after a context reset
 
 1. Read this file top to bottom.

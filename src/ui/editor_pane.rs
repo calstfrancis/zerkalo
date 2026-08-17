@@ -2988,36 +2988,7 @@ impl EditorPane {
         view.set_left_margin(left_margin);
         view.set_right_margin(8);
 
-        // ── Image / document drag-and-drop ────────────────────────────────────
-        {
-            let drop = DropTarget::new(
-                gtk4::gdk::FileList::static_type(),
-                gtk4::gdk::DragAction::COPY,
-            );
-            let on_drop_cb = self.on_image_drop.clone();
-            let on_doc_drop_cb = self.on_document_drop.clone();
-            drop.connect_drop(move |_, value, _, _| {
-                if let Ok(file_list) = value.get::<gtk4::gdk::FileList>() {
-                    for file in file_list.files() {
-                        if let Some(p) = file.path() {
-                            let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
-                            if matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "svg" | "gif" | "webp") {
-                                if let Some(f) = on_drop_cb.borrow().as_ref() { f(p); }
-                                return true;
-                            }
-                            if matches!(ext.as_str(),
-                                "tex" | "docx" | "md" | "markdown" | "odt" | "html" | "htm" | "epub" | "rtf" | "pdf"
-                            ) {
-                                if let Some(f) = on_doc_drop_cb.borrow().as_ref() { f(p); }
-                                return true;
-                            }
-                        }
-                    }
-                }
-                false
-            });
-            view.add_controller(drop);
-        }
+        self.wire_drag_and_drop(&view);
 
         // Ghost-text placeholder — shown when the buffer is empty.
         let placeholder_lbl = Label::new(Some(
@@ -6474,6 +6445,36 @@ fn section_word_count_for_line(buf: &sourceview5::Buffer, cursor_line: i32) -> O
 }
 
 impl EditorPane {
+    fn wire_drag_and_drop(&self, view: &View) {
+        let drop = DropTarget::new(
+            gtk4::gdk::FileList::static_type(),
+            gtk4::gdk::DragAction::COPY,
+        );
+        let on_drop_cb = self.on_image_drop.clone();
+        let on_doc_drop_cb = self.on_document_drop.clone();
+        drop.connect_drop(move |_, value, _, _| {
+            if let Ok(file_list) = value.get::<gtk4::gdk::FileList>() {
+                for file in file_list.files() {
+                    if let Some(p) = file.path() {
+                        let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+                        if matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "svg" | "gif" | "webp") {
+                            if let Some(f) = on_drop_cb.borrow().as_ref() { f(p); }
+                            return true;
+                        }
+                        if matches!(ext.as_str(),
+                            "tex" | "docx" | "md" | "markdown" | "odt" | "html" | "htm" | "epub" | "rtf" | "pdf"
+                        ) {
+                            if let Some(f) = on_doc_drop_cb.borrow().as_ref() { f(p); }
+                            return true;
+                        }
+                    }
+                }
+            }
+            false
+        });
+        view.add_controller(drop);
+    }
+
     fn wire_modified_and_word_count(&self, tab: &TabContext, content: &str) {
         // ── Modified flag + word count ────────────────────────────────────────
 

@@ -519,9 +519,24 @@ test. Check them after each sub-phase.
 
 ## Phase 4 — `EditorPane::open_file` (2,730 lines)
 
-**Status:** ◐ **PARTLY DONE** (2026-08-03) — 4a ☑ tests, 4b ☑ six sections.
-`open_file` 2,730 → **1,987**. Five sections deliberately left inline (below).
+**Status:** ◐ **PARTLY DONE** (2026-08-03; resumed 2026-08-17) — 4a ☑ tests,
+4b ☑ six sections, 4c ☑ drag-and-drop. Four sections deliberately left inline
+(below).
 **Risk:** high · **Depends on:** Phase 3 (hardest last)
+
+### 4c ☑ — Image/document drag-and-drop extracted (2026-08-17)
+
+Extracted as `wire_drag_and_drop(&self, view: &View)` — the smallest and
+lowest-risk of the remaining inline sections (70 lines, produces nothing
+consumed by later sections; only reads `self.on_image_drop`/
+`self.on_document_drop`, already `Rc`-clonable). Full gate green: 486 tests
+(no change from 486 baseline — this section had no dedicated tests, none
+added, it's pure GTK wiring), clippy clean, release build clean, version
+guard clean. **Not manually smoke-tested against the running app this
+session** (no interactive GTK session available) — Cal, worth a quick
+drag-a-PNG-into-the-editor check next time you're in the app; the moved code
+is byte-for-byte identical, just relocated into its own method, so risk is
+low but unverified interactively.
 
 ### 4a ☑ — tests first (19, 347 → 366)
 
@@ -548,7 +563,6 @@ extracting them means returning 3–8 values and threading them back in:
 
 | Section | Lines | Produces |
 |---|---|---|
-| Image/document drag-and-drop | 70 | `scroll` |
 | Tab label | 162 | `tab_box`, `dot_label`, `diag_dot` |
 | @-citation autocomplete | 157 | `bib_popup`, `ghost_*`, `ac_mark`, … (8) |
 | #-function LSP autocomplete | 259 | `lsp_popup`, `lsp_mark`, `lsp_completing` |
