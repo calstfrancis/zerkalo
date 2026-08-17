@@ -3029,161 +3029,7 @@ impl EditorPane {
         scroll.set_policy(h_policy, gtk4::PolicyType::Automatic);
         scroll.set_kinetic_scrolling(false);
 
-        // ── Tab label ─────────────────────────────────────────────────────────
-
-        let tab_box = GtkBox::new(Orientation::Horizontal, 4);
-        tab_box.set_margin_start(2);
-        tab_box.set_margin_end(2);
-        let name_label = Label::new(Some(&display_name));
-        name_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-        name_label.set_max_width_chars(24);
-        let diag_dot = Label::new(Some("⬤"));
-        diag_dot.add_css_class("error");
-        diag_dot.set_visible(false);
-        let dot_label = Label::new(Some("●"));
-        dot_label.add_css_class("modified-dot");
-        dot_label.set_visible(false);
-        let close_btn = Button::from_icon_name("window-close-symbolic");
-        close_btn.add_css_class("flat");
-        close_btn.add_css_class("circular");
-        close_btn.set_valign(gtk4::Align::Center);
-        close_btn.set_tooltip_text(Some("Close tab"));
-
-        tab_box.append(&name_label);
-        tab_box.append(&diag_dot);
-        tab_box.append(&dot_label);
-        tab_box.append(&close_btn);
-
-        let state_for_close = self.state.clone();
-        let notebook_for_close = self.notebook.clone();
-        let path_for_close = path.clone();
-        let scroll_for_close = scroll.clone();
-        let ep_for_close = self.clone();
-        let dn_for_close = display_name.clone();
-        close_btn.connect_clicked(move |_| {
-            close_tab_with_dirty_check(
-                ep_for_close.clone(),
-                state_for_close.clone(),
-                notebook_for_close.clone(),
-                scroll_for_close.clone(),
-                path_for_close.clone(),
-                dn_for_close.clone(),
-            );
-        });
-
-        // Middle-click anywhere on the tab label also closes the tab
-        {
-            let nb_mc = self.notebook.clone();
-            let sc_mc = scroll.clone();
-            let st_mc = self.state.clone();
-            let p_mc  = path.clone();
-            let ep_mc = self.clone();
-            let dn_mc = display_name.clone();
-            let mc = gtk4::GestureClick::new();
-            mc.set_button(2); // middle button
-            mc.connect_pressed(move |_, _, _, _| {
-                close_tab_with_dirty_check(
-                    ep_mc.clone(),
-                    st_mc.clone(),
-                    nb_mc.clone(),
-                    sc_mc.clone(),
-                    p_mc.clone(),
-                    dn_mc.clone(),
-                );
-            });
-            tab_box.add_controller(mc);
-        }
-
-        // Right-click context menu on tab: close tab, delete file
-        {
-            let nb_rc = self.notebook.clone();
-            let sc_rc = scroll.clone();
-            let st_rc = self.state.clone();
-            let path_rc = path.clone();
-            let del_cb = self.on_delete_file.clone();
-            let filename_rc = display_name.clone();
-
-            let popover = Popover::new();
-            popover.set_has_arrow(false);
-            let menu_box = GtkBox::new(Orientation::Vertical, 2);
-            menu_box.set_margin_top(4);
-            menu_box.set_margin_bottom(4);
-            menu_box.set_margin_start(4);
-            menu_box.set_margin_end(4);
-
-            let close_item = Button::with_label("Close tab");
-            close_item.add_css_class("flat");
-            let del_item = Button::with_label("Delete file…");
-            del_item.add_css_class("flat");
-            del_item.add_css_class("destructive-action");
-            menu_box.append(&close_item);
-            menu_box.append(&del_item);
-            popover.set_child(Some(&menu_box));
-            popover.set_parent(&tab_box);
-
-            // Close tab
-            let nb_ci = nb_rc.clone();
-            let sc_ci = sc_rc.clone();
-            let st_ci = st_rc.clone();
-            let path_ci = path_rc.clone();
-            let pop_ci = popover.clone();
-            let ep_ci = self.clone();
-            let dn_ci = display_name.clone();
-            close_item.connect_clicked(move |_| {
-                pop_ci.popdown();
-                close_tab_with_dirty_check(
-                    ep_ci.clone(),
-                    st_ci.clone(),
-                    nb_ci.clone(),
-                    sc_ci.clone(),
-                    path_ci.clone(),
-                    dn_ci.clone(),
-                );
-            });
-
-            // Delete file
-            let nb_di = nb_rc.clone();
-            let sc_di = sc_rc.clone();
-            let st_di = st_rc.clone();
-            let path_di = path_rc.clone();
-            let name_di = filename_rc.clone();
-            let pop_di = popover.clone();
-            del_item.connect_clicked(move |_| {
-                pop_di.popdown();
-                let path_confirm = path_di.clone();
-                let nb_confirm = nb_di.clone();
-                let sc_confirm = sc_di.clone();
-                let st_confirm = st_di.clone();
-                let cb_confirm = del_cb.clone();
-                super::confirm::confirm_destructive(
-                    None,
-                    "Delete this file?",
-                    &format!("'{name_di}' will be permanently deleted."),
-                    "Delete",
-                    move || {
-                        {
-                            let _ = std::fs::remove_file(&path_confirm);
-                            if let Some(n) = nb_confirm.page_num(&sc_confirm) {
-                                nb_confirm.remove_page(Some(n));
-                            }
-                            st_confirm.borrow_mut().tabs.remove(&path_confirm);
-                            if let Some(f) = cb_confirm.borrow().as_ref() {
-                                f(path_confirm.clone());
-                            }
-                        }
-                    },
-                );
-            });
-
-            let rc_for_gesture = GestureClick::new();
-            rc_for_gesture.set_button(3);
-            let pop_for_rc = popover.clone();
-            rc_for_gesture.connect_pressed(move |_, _, x, y| {
-                pop_for_rc.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
-                pop_for_rc.popup();
-            });
-            tab_box.add_controller(rc_for_gesture);
-        }
+        let (tab_box, dot_label, diag_dot) = self.build_tab_label(&path, &display_name, &scroll);
 
         let tab = TabContext {
             path: path.clone(),
@@ -6473,6 +6319,164 @@ impl EditorPane {
             false
         });
         view.add_controller(drop);
+    }
+
+    fn build_tab_label(&self, path: &Path, display_name: &str, scroll: &ScrolledWindow) -> (GtkBox, Label, Label) {
+        let tab_box = GtkBox::new(Orientation::Horizontal, 4);
+        tab_box.set_margin_start(2);
+        tab_box.set_margin_end(2);
+        let name_label = Label::new(Some(display_name));
+        name_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+        name_label.set_max_width_chars(24);
+        let diag_dot = Label::new(Some("⬤"));
+        diag_dot.add_css_class("error");
+        diag_dot.set_visible(false);
+        let dot_label = Label::new(Some("●"));
+        dot_label.add_css_class("modified-dot");
+        dot_label.set_visible(false);
+        let close_btn = Button::from_icon_name("window-close-symbolic");
+        close_btn.add_css_class("flat");
+        close_btn.add_css_class("circular");
+        close_btn.set_valign(gtk4::Align::Center);
+        close_btn.set_tooltip_text(Some("Close tab"));
+
+        tab_box.append(&name_label);
+        tab_box.append(&diag_dot);
+        tab_box.append(&dot_label);
+        tab_box.append(&close_btn);
+
+        let state_for_close = self.state.clone();
+        let notebook_for_close = self.notebook.clone();
+        let path_for_close = path.to_path_buf();
+        let scroll_for_close = scroll.clone();
+        let ep_for_close = self.clone();
+        let dn_for_close = display_name.to_string();
+        close_btn.connect_clicked(move |_| {
+            close_tab_with_dirty_check(
+                ep_for_close.clone(),
+                state_for_close.clone(),
+                notebook_for_close.clone(),
+                scroll_for_close.clone(),
+                path_for_close.clone(),
+                dn_for_close.clone(),
+            );
+        });
+
+        // Middle-click anywhere on the tab label also closes the tab
+        {
+            let nb_mc = self.notebook.clone();
+            let sc_mc = scroll.clone();
+            let st_mc = self.state.clone();
+            let p_mc  = path.to_path_buf();
+            let ep_mc = self.clone();
+            let dn_mc = display_name.to_string();
+            let mc = gtk4::GestureClick::new();
+            mc.set_button(2); // middle button
+            mc.connect_pressed(move |_, _, _, _| {
+                close_tab_with_dirty_check(
+                    ep_mc.clone(),
+                    st_mc.clone(),
+                    nb_mc.clone(),
+                    sc_mc.clone(),
+                    p_mc.clone(),
+                    dn_mc.clone(),
+                );
+            });
+            tab_box.add_controller(mc);
+        }
+
+        // Right-click context menu on tab: close tab, delete file
+        {
+            let nb_rc = self.notebook.clone();
+            let sc_rc = scroll.clone();
+            let st_rc = self.state.clone();
+            let path_rc = path.to_path_buf();
+            let del_cb = self.on_delete_file.clone();
+            let filename_rc = display_name.to_string();
+
+            let popover = Popover::new();
+            popover.set_has_arrow(false);
+            let menu_box = GtkBox::new(Orientation::Vertical, 2);
+            menu_box.set_margin_top(4);
+            menu_box.set_margin_bottom(4);
+            menu_box.set_margin_start(4);
+            menu_box.set_margin_end(4);
+
+            let close_item = Button::with_label("Close tab");
+            close_item.add_css_class("flat");
+            let del_item = Button::with_label("Delete file…");
+            del_item.add_css_class("flat");
+            del_item.add_css_class("destructive-action");
+            menu_box.append(&close_item);
+            menu_box.append(&del_item);
+            popover.set_child(Some(&menu_box));
+            popover.set_parent(&tab_box);
+
+            // Close tab
+            let nb_ci = nb_rc.clone();
+            let sc_ci = sc_rc.clone();
+            let st_ci = st_rc.clone();
+            let path_ci = path_rc.clone();
+            let pop_ci = popover.clone();
+            let ep_ci = self.clone();
+            let dn_ci = display_name.to_string();
+            close_item.connect_clicked(move |_| {
+                pop_ci.popdown();
+                close_tab_with_dirty_check(
+                    ep_ci.clone(),
+                    st_ci.clone(),
+                    nb_ci.clone(),
+                    sc_ci.clone(),
+                    path_ci.clone(),
+                    dn_ci.clone(),
+                );
+            });
+
+            // Delete file
+            let nb_di = nb_rc.clone();
+            let sc_di = sc_rc.clone();
+            let st_di = st_rc.clone();
+            let path_di = path_rc.clone();
+            let name_di = filename_rc.clone();
+            let pop_di = popover.clone();
+            del_item.connect_clicked(move |_| {
+                pop_di.popdown();
+                let path_confirm = path_di.clone();
+                let nb_confirm = nb_di.clone();
+                let sc_confirm = sc_di.clone();
+                let st_confirm = st_di.clone();
+                let cb_confirm = del_cb.clone();
+                super::confirm::confirm_destructive(
+                    None,
+                    "Delete this file?",
+                    &format!("'{name_di}' will be permanently deleted."),
+                    "Delete",
+                    move || {
+                        {
+                            let _ = std::fs::remove_file(&path_confirm);
+                            if let Some(n) = nb_confirm.page_num(&sc_confirm) {
+                                nb_confirm.remove_page(Some(n));
+                            }
+                            st_confirm.borrow_mut().tabs.remove(&path_confirm);
+                            if let Some(f) = cb_confirm.borrow().as_ref() {
+                                f(path_confirm.clone());
+                            }
+                        }
+                    },
+                );
+            });
+
+            let rc_for_gesture = GestureClick::new();
+            rc_for_gesture.set_button(3);
+            let pop_for_rc = popover.clone();
+            rc_for_gesture.connect_pressed(move |_, _, x, y| {
+                pop_for_rc.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+                pop_for_rc.popup();
+            });
+            tab_box.add_controller(rc_for_gesture);
+        }
+
+        (tab_box, dot_label, diag_dot)
     }
 
     fn wire_modified_and_word_count(&self, tab: &TabContext, content: &str) {

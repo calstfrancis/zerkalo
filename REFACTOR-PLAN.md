@@ -520,8 +520,8 @@ test. Check them after each sub-phase.
 ## Phase 4 — `EditorPane::open_file` (2,730 lines)
 
 **Status:** ◐ **PARTLY DONE** (2026-08-03; resumed 2026-08-17) — 4a ☑ tests,
-4b ☑ six sections, 4c ☑ drag-and-drop. Four sections deliberately left inline
-(below).
+4b ☑ six sections, 4c ☑ drag-and-drop, 4d ☑ tab label. Three sections
+deliberately left inline (below).
 **Risk:** high · **Depends on:** Phase 3 (hardest last)
 
 ### 4c ☑ — Image/document drag-and-drop extracted (2026-08-17)
@@ -537,6 +537,32 @@ session** (no interactive GTK session available) — Cal, worth a quick
 drag-a-PNG-into-the-editor check next time you're in the app; the moved code
 is byte-for-byte identical, just relocated into its own method, so risk is
 low but unverified interactively.
+
+### 4d ☑ — Tab label extracted (2026-08-17)
+
+Extracted as `build_tab_label(&self, path: &Path, display_name: &str, scroll:
+&ScrolledWindow) -> (GtkBox, Label, Label)` — 162 lines, byte-for-byte moved.
+The plan originally flagged this section as harder because it "produces
+state later sections consume" (`tab_box`, `dot_label`, `diag_dot`), but that
+turned out not to require a context struct: `tab_box` and `dot_label` are
+already threaded onward via the existing `TabContext`, and `diag_dot` only
+needed to come back as a third return value (it's stored directly into
+`EditorTab` later in `open_file`, and read again by the not-yet-extracted
+inline error assistant section — both still in the same function scope, so
+a bare tuple return was enough; `name_label` turned out to be pure local
+state, never read after `tab_box.append(&name_label)`, so it didn't need to
+leave the function at all).
+
+Only change beyond the move: closures now capture `path.to_path_buf()` /
+`display_name.to_string()` instead of `path.clone()` / `display_name.clone()`,
+since the method takes `&Path`/`&str` rather than owning `PathBuf`/`String` —
+same runtime behavior, different borrow shape.
+
+Full gate green: 486 tests (unchanged — no tests existed for this section,
+none added), clippy clean, release build clean, version guard clean. **Not
+manually smoke-tested interactively** (no GTK session here) — worth checking
+next time you're in the app: tab close button, middle-click-to-close, and the
+right-click "Close tab" / "Delete file…" context menu on a tab.
 
 ### 4a ☑ — tests first (19, 347 → 366)
 
@@ -563,7 +589,6 @@ extracting them means returning 3–8 values and threading them back in:
 
 | Section | Lines | Produces |
 |---|---|---|
-| Tab label | 162 | `tab_box`, `dot_label`, `diag_dot` |
 | @-citation autocomplete | 157 | `bib_popup`, `ghost_*`, `ac_mark`, … (8) |
 | #-function LSP autocomplete | 259 | `lsp_popup`, `lsp_mark`, `lsp_completing` |
 | Key controller | 548 | `hold_position`, `hold_until` |
