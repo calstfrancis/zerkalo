@@ -160,9 +160,9 @@ pub fn humanize(raw: &str) -> (String, String) {
         return (
             format!("Zerkalo doesn't know what \u{201c}{name}\u{201d} means"),
             "It's used here but never defined. Check the spelling, or add a \
-             definition (#let) or an import above this point. If you meant to \
-             write it as ordinary text rather than a command, remove the # in \
-             front of it."
+             definition (#let, which creates a named value) or an import above \
+             this point. If you meant to write it as ordinary text rather than \
+             a command, remove the # in front of it."
                 .into(),
         );
     }
@@ -285,9 +285,9 @@ pub fn humanize(raw: &str) -> (String, String) {
                 None => "A reference points at something that isn't in the document".into(),
             },
             "If this is a citation, check the key matches an entry in your .bib \
-             file exactly, and that the file is attached in Settings \u{2192} \
-             Bibliography. If it's a cross-reference, check the <label> it points \
-             at is really there and spelled the same."
+             file (your list of citation sources) exactly, and that the file is \
+             attached in Settings \u{2192} Bibliography. If it's a cross-reference, \
+             check the <label> it points at is really there and spelled the same."
                 .into(),
         );
     }
@@ -313,7 +313,7 @@ pub fn humanize(raw: &str) -> (String, String) {
         return (
             "A styling rule here is incomplete".into(),
             "Re-apply your style from Template to rewrite these rules, or delete \
-             any half-finished #show line at this spot."
+             any half-finished #show line (a formatting rule) at this spot."
                 .into(),
         );
     }

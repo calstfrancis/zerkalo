@@ -161,7 +161,7 @@ impl SettingsDialog {
 
         let debounce_spin = adw::SpinRow::with_range(100.0, 5000.0, 50.0);
         debounce_spin.set_title("Compile delay");
-        debounce_spin.set_subtitle("Milliseconds to wait after you stop typing before recompiling (Auto mode only)");
+        debounce_spin.set_subtitle("How long to wait after you stop typing before updating the preview, in milliseconds (Auto mode only)");
         debounce_spin.set_value(current.debounce_ms as f64);
 
         // 3-way pill: Auto | On Save | Manual

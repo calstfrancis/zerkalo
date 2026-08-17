@@ -422,7 +422,7 @@ impl OutlinePanel {
             let row = ListBoxRow::new();
             row.set_selectable(false);
             row.set_activatable(false);
-            let lbl = gtk4::Label::new(Some("No headings found.\nUse = Heading syntax to build an outline."));
+            let lbl = gtk4::Label::new(Some("No headings found.\nUse the H1/H2/H3 buttons in the formatting bar to add one."));
             lbl.add_css_class("dim-label");
             lbl.set_justify(gtk4::Justification::Center);
             lbl.set_margin_top(16);

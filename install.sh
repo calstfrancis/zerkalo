@@ -142,11 +142,11 @@ echo "  export PATH=\"\${HOME}/.local/bin:\${PATH}\""
 # tinymist prompt only for source-build path (deb/rpm bundle it automatically)
 if command -v tinymist &>/dev/null; then
     echo ""
-    echo "tinymist LSP is already installed."
+    echo "tinymist (autocomplete/error-checking engine) is already installed."
 else
     echo ""
     if [ -t 0 ]; then
-        read -r -p "Install tinymist LSP for autocomplete? [y/N] " _install_tinymist
+        read -r -p "Install tinymist for autocomplete and error-checking? [y/N] " _install_tinymist
     else
         _install_tinymist="n"
     fi

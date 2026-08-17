@@ -180,7 +180,9 @@ impl PackageBrowser {
 
             let insert_btn = Button::from_icon_name("list-add-symbolic");
             insert_btn.add_css_class("flat");
-            insert_btn.set_tooltip_text(Some("Insert import statement at cursor"));
+            insert_btn.set_tooltip_text(Some(
+                "Add this package at your cursor, so you can use what it provides in this document",
+            ));
             insert_btn.set_valign(gtk4::Align::Center);
 
             let import_str = format!(
