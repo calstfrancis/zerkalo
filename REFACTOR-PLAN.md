@@ -851,18 +851,42 @@ that makes it a safe change, and they'll then cover one code path instead of nin
 
 ## Phase 6 — optional: unblock the UI thread
 
-**Status:** ☐ not started
+**Status:** ◐ **HALF DONE, other half deliberately deferred** (checked
+2026-08-17) — `pdftotext` half landed under `HEALTH-PLAN.md` Phase 8
+(2026-08-12), not under this plan; `git log --follow` half explicitly held
+back by that same phase's own closing note.
 **Risk:** low · **Depends on:** nothing · **Priority:** only if it's felt in use
 
-Two synchronous subprocess calls on the GTK main thread:
-- `ui/history_panel.rs:210,237` — `git log --follow` (slow on long histories)
-- `ui/preview_pane.rs:985,1019` — `pdftotext` (slow on large PDFs)
+Two synchronous subprocess calls originally named here as candidates for
+unblocking the GTK main thread:
+- `ui/preview_pane.rs` (`pdftotext`, click-to-jump/word-jump on the preview)
+  — **done.** `extract_page_text_via_pdftotext` and
+  `extract_word_at_position` are now `_async` (`ensure_pdf_path` too, since
+  that can trigger a full recompile on an uncached PDF — the actually slow
+  path). See `HEALTH-PLAN.md` Phase 8 for the full writeup; Cal was asked to
+  manually click/double-click the preview to confirm jump-to-line/word still
+  works and no regression was reported.
+- `ui/history_panel.rs:209` (`git_diff_for_commit`, plus `git log --follow`
+  in `git_log_for_file` a little above it) — **confirmed still synchronous**
+  (checked directly against current source, not assumed from the plan text).
+  `HEALTH-PLAN.md` Phase 8 already looked at this exact function when
+  `HistoryPanel` got wired into the UI and *chose not* to async it: History
+  opens behind an explicit modal-dialog action (menu click / palette), not on
+  the hot live-preview path or every keystroke, so a brief block opening the
+  dialog is a much smaller cost than the `pdftotext` case was. That
+  reasoning still holds and nothing since has surfaced a felt slowdown, so
+  this stays undone — **not attempting it this session** per this phase's
+  own explicit instruction below not to do it speculatively, which the
+  2026-08-17 resumption of this plan (Phase 4's `open_file` work) respected
+  rather than treating "move to Phase 6" as "clear this phase's checkbox
+  regardless."
 
-Both are bounded and fine in the common case. If either ever feels sticky, port
-them to the pattern `do_sync` already uses correctly (`app_window.rs:4969`):
-spawn a thread, poll a `std::sync::mpsc::sync_channel` from
-`glib::timeout_add_local`. **Don't do this speculatively** — it adds async
-complexity for no benefit if nobody has noticed a freeze.
+If it's ever felt in practice (e.g. a repo with very long file history for
+one file), port `git_log_for_file`/`git_diff_for_commit` to the pattern
+`do_sync` already uses correctly (`app_window.rs`): spawn a thread, poll a
+`std::sync::mpsc::sync_channel` from `glib::timeout_add_local` — same shape
+the `pdftotext` half already followed. **Don't do this speculatively** — it
+adds async complexity for no benefit if nobody has noticed a freeze.
 
 ---
 
