@@ -26,7 +26,6 @@ type OpenCb = Rc<RefCell<Option<Box<dyn Fn(PathBuf)>>>>;
 
 #[derive(Clone)]
 pub struct DepGraph {
-    #[allow(dead_code)]
     widget: GtkBox,
     drawing_area: DrawingArea,
     project_root: Rc<PathBuf>,
@@ -222,6 +221,10 @@ impl DepGraph {
 
     pub fn set_on_open(&self, f: impl Fn(PathBuf) + 'static) {
         *self.on_open.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn widget(&self) -> &GtkBox {
+        &self.widget
     }
 
     pub fn refresh(&self, root_file: Option<&PathBuf>) {

@@ -329,6 +329,93 @@ name, namespace, and description.
 guard clean, plus the headless manual verification above (real network
 fetch, real install, real UI render, confirmed via screenshot at each step).
 
+### Follow-up (2026-08-17, same day) — both flagged issues resolved
+
+Cal asked to prep a dev build then handle the two issues this phase flagged
+but didn't fix. Dev build `v0.24.0-dev4` prepped first (Cargo.toml, CHANGELOG,
+`welcome_window.rs`, signed tag) — see repo history, not duplicated here.
+
+**1. `dep_graph`/`ref_manager` reachability — fixed, same pattern as
+`package_browser` above.** Investigation confirmed both had the identical
+problem: `#[allow(dead_code)]` on the `widget` field, no way to display
+either. Worse than initially framed for `RefManager` specifically: its
+per-entry "Rename citation key" button is the *only* UI that can ever
+trigger `set_on_rename`'s project-wide rename logic (confirmed by grep —
+`citation_panel.rs` has no rename UI of its own) — so the metainfo's
+"project-wide citation key rename" feature had literally no way to be
+invoked, not just a missing convenience view.
+
+Fixed by adding `.widget()` to `DepGraph` (didn't have one at all;
+`RefManager` already did) and wiring both into the hamburger menu —
+"Reference Manager…" and "Dependency Graph…" rows in the "Current document"
+cluster, each opening a small `adw::Window` via new
+`show_ref_manager_window`/`show_dep_graph_window` functions
+(`app_window/mod.rs`), following `show_file_history_window`'s established
+shape. **One real difference from that precedent, worth flagging for future
+reuse of this pattern:** `HistoryPanel` sidesteps any reparenting question by
+constructing a *fresh* instance on every open (history is cheap to
+re-query). `DepGraph`/`RefManager` can't do that — they're long-lived
+singletons kept continuously in sync via callbacks wired once at startup
+(`load_bib`, `.refresh()` on every compile); constructing a new instance per
+open would show a stale, never-updated empty widget. So these two windows
+reuse the *same* instance's widget every open, guarded with
+`if widget.parent().is_some() { widget.unparent(); }` before re-adding it to
+the new window's content box — required because a GTK widget can only have
+one parent, and after the first open-then-close cycle it still has one
+(the previous window's now-destroyed content box).
+
+Not added to the "insensitive with no active document" `document_rows`
+group — both operate on the project/bibliography, not the open file, so
+gating them the same way would be wrong. Not added to the Ctrl+K palette in
+this pass (menu-only is sufficient to fix "completely unreachable"; palette
+parity is a low-cost follow-up, not required for the fix).
+
+**Verification:** full gate green (491 tests, clippy clean, version guard
+clean). **Runtime click-path could not be screenshot-verified** — a newly
+discovered headless-testing limitation, distinct from Phase 2's keyboard-
+input finding: plain `Button` clicks work fine here (confirmed against the
+"Template" button and the Welcome dialog's "Get Started"/"×", both mid-
+session), but the hamburger's `Popover`-attached `MenuButton` did not open
+via synthetic `xdotool click` in this Xvfb setup, with or without a `fluxbox`
+WM present, across multiple coordinate/timing variations. Given the
+structural fix compiles clean and follows an already-proven, shipped pattern
+(`show_file_history_window`) exactly except for the reparenting guard (which
+follows GTK4's documented widget-reparenting contract directly), this is
+assessed as low-risk but **genuinely unverified at runtime**. **Cal: worth
+clicking ☰ → "Reference Manager…" and ☰ → "Dependency Graph…" once** to
+confirm both windows open and show real content (a loaded bibliography /
+the project's file graph) — the one thing static checks and the click
+limitation above couldn't cover this session.
+
+**2. File-arg launch bug — confirmed as a real bug and fixed**, not just a
+headless artifact as Phase 2 left it. Root cause exactly as suspected:
+`ApplicationFlags::HANDLES_OPEN` with no `HANDLES_COMMAND_LINE` makes GLib
+fire `open` instead of `activate` whenever there are file arguments, and
+`main.rs`'s `connect_open` only ever acted on an *already-existing* window.
+Fixed by extracting the shared "prune stale state, build `AppWindow`,
+present" sequence into a `new_window()` helper, then having `connect_open`
+call it when `shared_window` is still `None` (first launch with a file) —
+opening the first file via `open_initial_file` (matches `connect_activate`'s
+own call, including its create-missing-file behavior) and any additional
+files via `open_external`. Already-running-instance behavior (the original,
+working half of `connect_open`) is unchanged.
+
+**Verified by direct reproduction and re-test**, not just code review: the
+original bug reproduced 4 independent times across this session (headless,
+fresh `HOME` each time, `zerkalo somefile.typ` — process exited cleanly with
+no window, no error). After the fix, the identical launch command against a
+fresh `HOME` opened a real window with `main.typ` loaded and rendering
+correctly (confirmed via screenshot — file tree import, heading, and a
+citation reference all visible and compiling). This one *is* fully runtime-
+verified, unlike finding 1 above — it only needed a plain process launch,
+not a click on anything.
+
+**Not yet verified: real desktop launch paths** (double-click a `.typ` file
+in a file manager, `xdg-open`) — both should exercise the exact same
+`connect_open` code path per GApplication's D-Bus `Open()` semantics, but
+that's inference from the API contract, not an observed test on a real
+desktop session. Worth a real check next time either is used.
+
 ---
 
 **Original phase text preserved below:**

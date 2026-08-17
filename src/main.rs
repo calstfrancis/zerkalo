@@ -120,35 +120,59 @@ fn main() -> ExitCode {
 
     let sw_activate = shared_window.clone();
     app.connect_activate(move |app| {
-        // Migrate the old config-dir location and retire stale recovery copies
-        // before anything looks for one.
-        crate::auto_save::prune();
-        crate::ui::app_window::prune_import_staging();
-        let config = crate::config::shared().borrow().clone();
-        let window = AppWindow::new(app, config);
-        window.setup_keybindings();
+        let window = new_window(app);
         window.open_initial_file(initial_file.clone());
         window.present();
         *sw_activate.borrow_mut() = Some(window);
     });
 
-    // Fired by the desktop session (Nautilus, xdg-open, etc.) when the app is
-    // already running and a file is sent to it via D-Bus activation.
+    // Fired instead of `activate` whenever GLib's default command-line
+    // handling sees file arguments — both when the app is already running
+    // (Nautilus/xdg-open handing a file to the running instance) and, less
+    // obviously, on the very first launch with a file argument, since
+    // HANDLES_OPEN routes that through `open` too and `activate` never fires
+    // at all. Previously only the already-running case was handled here, so
+    // `zerkalo somefile.typ` from a cold start opened no window and exited.
     let sw_open = shared_window.clone();
-    app.connect_open(move |_app, files, _hint| {
-        let borrow = sw_open.borrow();
+    app.connect_open(move |app, files, _hint| {
+        let paths: Vec<PathBuf> = files
+            .iter()
+            .filter_map(|f| f.path())
+            .filter(|p| p.extension().map(|e| e == "typ").unwrap_or(false))
+            .collect();
+
+        let mut borrow = sw_open.borrow_mut();
+        if borrow.is_none() {
+            let window = new_window(app);
+            window.open_initial_file(paths.first().cloned());
+            window.present();
+            if paths.len() > 1 {
+                window.open_external(&paths[1..]);
+            }
+            *borrow = Some(window);
+            return;
+        }
         if let Some(w) = borrow.as_ref() {
-            let paths: Vec<PathBuf> = files
-                .iter()
-                .filter_map(|f| f.path())
-                .filter(|p| p.extension().map(|e| e == "typ").unwrap_or(false))
-                .collect();
             w.open_external(&paths);
         }
     });
 
     // _guard is kept alive here until app.run() returns, ensuring logs are flushed.
     app.run_with_args(&env::args().collect::<Vec<_>>())
+}
+
+/// Migrates the old config-dir location, retires stale recovery copies, and
+/// constructs a fresh `AppWindow` — the setup shared by `activate` and the
+/// first-launch-with-a-file branch of `open` (see `main`), which needs its
+/// own window since GLib never fires `activate` when there are file
+/// arguments to open.
+fn new_window(app: &adw::Application) -> AppWindow {
+    crate::auto_save::prune();
+    crate::ui::app_window::prune_import_staging();
+    let config = crate::config::shared().borrow().clone();
+    let window = AppWindow::new(app, config);
+    window.setup_keybindings();
+    window
 }
 
 fn percent_decode_uri(s: &str) -> String {
