@@ -144,6 +144,8 @@ impl WelcomeWindow {
                 "Help (Ctrl+?) opens on a plain-language Overview instead of raw Typst syntax, and the \"what does this do\" overlay (F1) now covers the Library window too.",
                 "A first-time explanation of the source/preview split, and of what Simple Mode is hiding, shows up right where you need it instead of only in a tooltip.",
                 "The Packages panel can now search and install from Typst Universe, not just list what's already downloaded — and it actually shows up in the sidebar now.",
+                "The Outline panel's folder toggle shows a manuscript-wide view — headings and word counts rolled up across every file in the project, not just the open one.",
+                "Reference Manager and Dependency Graph are reachable from the ≡ menu now — both existed and worked, but had no way to be opened before.",
             ] {
                 body.append(&bullet_row(item));
             }

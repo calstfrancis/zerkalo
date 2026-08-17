@@ -266,18 +266,6 @@ impl DepGraph {
 
 // ── Graph building ────────────────────────────────────────────────────────────
 
-fn parse_imports(content: &str, base_dir: &std::path::Path) -> Vec<PathBuf> {
-    let re = regex::Regex::new(r#"#(?:import|include)\s+"([^"]+\.typ)""#).unwrap();
-    re.captures_iter(content)
-        .filter_map(|c| {
-            let raw = c[1].to_string();
-            let full = base_dir.join(&raw);
-            let canonical = std::fs::canonicalize(&full).unwrap_or(full);
-            if canonical.exists() { Some(canonical) } else { None }
-        })
-        .collect()
-}
-
 fn build_dep_map(root: &Path, project_root: &Path) -> HashMap<PathBuf, Vec<PathBuf>> {
     let mut map: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
     let mut queue: VecDeque<PathBuf> = VecDeque::new();
@@ -298,7 +286,7 @@ fn build_dep_map(root: &Path, project_root: &Path) -> HashMap<PathBuf, Vec<PathB
         };
 
         let base = path.parent().unwrap_or(project_root);
-        let imports = parse_imports(&content, base);
+        let imports = crate::project::parse_typ_imports(&content, base);
 
         for child in &imports {
             if !queue.contains(child) && !visited.contains(child) {

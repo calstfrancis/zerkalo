@@ -18,6 +18,14 @@ Snapshots into one Versions system" project noted at the bottom of it.
   Packages panel.** Previously it only listed packages already downloaded
   to the local cache; it now shows the full public package index too, with
   a description for each and a one-click Install.
+- **The Outline panel has a manuscript-wide view.** A folder toggle rolls
+  up headings and word counts across every file reachable from the
+  project's root, not just the one open in the current tab — useful for
+  theses and other multi-file projects where the total matters, not just
+  one chapter's.
+- **Reference Manager and Dependency Graph are reachable now.** Both
+  existed and worked internally but had no way to be opened; they're now
+  in the hamburger menu ("Reference Manager…", "Dependency Graph…").
 
 ### Changed
 
@@ -93,6 +101,10 @@ Snapshots into one Versions system" project noted at the bottom of it.
 - **A package the compiler had already downloaded was never shown as
   installed**, because the panel was checking a different folder than the
   one packages actually download into.
+- **Opening a document from outside Zerkalo — a terminal (`zerkalo file.typ`)
+  or a file manager — on a first launch opened no window at all.** Only
+  already-running instances handled being handed a file; a fresh launch
+  with one now works the same way.
 
 ---
 

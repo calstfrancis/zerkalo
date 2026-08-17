@@ -10,6 +10,7 @@ use gtk4::{
 
 type JumpCb = Rc<RefCell<Option<Box<dyn Fn(PathBuf, u32)>>>>;
 type InsertCb = Rc<RefCell<Option<Box<dyn Fn(String)>>>>;
+type ProjectModeCb = Rc<RefCell<Option<Box<dyn Fn(bool)>>>>;
 
 #[derive(Clone)]
 pub struct OutlinePanel {
@@ -17,6 +18,7 @@ pub struct OutlinePanel {
     list_box: ListBox,
     on_jump: JumpCb,
     on_symbol_insert: InsertCb,
+    on_project_mode: ProjectModeCb,
     #[allow(dead_code)] stack: Stack,
     #[allow(dead_code)] outline_btn: ToggleButton,
     #[allow(dead_code)] symbols_btn: ToggleButton,
@@ -139,9 +141,23 @@ impl OutlinePanel {
         depth_btn.set_child(Some(&depth_btn_label));
         depth_btn.set_valign(gtk4::Align::Center);
 
+        let project_btn = ToggleButton::new();
+        {
+            let img = Image::from_icon_name("folder-symbolic");
+            img.set_pixel_size(16);
+            project_btn.set_child(Some(&img));
+        }
+        project_btn.add_css_class("flat");
+        project_btn.add_css_class("fond-quiet");
+        project_btn.set_valign(gtk4::Align::Center);
+        project_btn.set_tooltip_text(Some(
+            "Show headings and word counts from every file in the project, not just the one you're editing",
+        ));
+
         let hdr_spacer = GtkBox::new(Orientation::Horizontal, 0);
         hdr_spacer.set_hexpand(true);
         outline_hdr.append(&hdr_spacer);
+        outline_hdr.append(&project_btn);
         outline_hdr.append(&depth_btn);
         seg_box.set_valign(gtk4::Align::Center);
         outline_hdr.append(&seg_box);
@@ -280,13 +296,24 @@ impl OutlinePanel {
             });
         }
 
+        let on_project_mode: ProjectModeCb = Rc::new(RefCell::new(None));
+
         let panel = Self {
             outline_count: outline_count.clone(),
-            widget, list_box, on_jump, on_symbol_insert, stack, outline_btn, symbols_btn,
+            widget, list_box, on_jump, on_symbol_insert, on_project_mode, stack, outline_btn, symbols_btn,
             row_positions, max_depth,
             cached_files: Rc::new(RefCell::new(Vec::new())),
             syncing,
         };
+
+        {
+            let p = panel.clone();
+            project_btn.connect_toggled(move |b| {
+                if let Some(f) = p.on_project_mode.borrow().as_ref() {
+                    f(b.is_active());
+                }
+            });
+        }
 
         // Wire depth toggle buttons
         for (btn, depth) in depth_buttons {
@@ -332,7 +359,6 @@ impl OutlinePanel {
 
     /// Update outline from all project files (multi-file mode).
     /// Files should be in document order (root first, then included files).
-    #[allow(dead_code)]
     pub fn update_project(&self, files: Vec<(PathBuf, String)>) {
         *self.cached_files.borrow_mut() = files.clone();
         self.repopulate(&files);
@@ -346,6 +372,7 @@ impl OutlinePanel {
         let max_depth = self.max_depth.get();
         let multi_file = files.len() > 1;
         let mut positions_vec: Vec<(PathBuf, u32)> = Vec::new();
+        let mut total_words: u32 = 0;
 
         for (path, content) in files {
             let all_lines: Vec<&str> = content.lines().collect();
@@ -378,6 +405,7 @@ impl OutlinePanel {
                     .iter()
                     .map(|l| count_words_typst(l))
                     .sum();
+                total_words += word_count;
 
                 let ln = (line_idx + 1) as u32;
                 positions_vec.push((path.clone(), ln));
@@ -442,10 +470,15 @@ impl OutlinePanel {
 
         let shown = positions_vec.len();
         *self.row_positions.borrow_mut() = positions_vec;
-        self.outline_count.set_text(&if shown == 1 {
-            "\u{b7} 1 heading".to_string()
+        let heading_part = if shown == 1 {
+            "1 heading".to_string()
         } else {
-            format!("\u{b7} {shown} headings")
+            format!("{shown} headings")
+        };
+        self.outline_count.set_text(&if multi_file {
+            format!("\u{b7} {heading_part} \u{b7} {total_words} words")
+        } else {
+            format!("\u{b7} {heading_part}")
         });
     }
 
@@ -467,6 +500,10 @@ impl OutlinePanel {
 
     pub fn set_on_jump(&self, f: impl Fn(PathBuf, u32) + 'static) {
         *self.on_jump.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn set_on_project_mode(&self, f: impl Fn(bool) + 'static) {
+        *self.on_project_mode.borrow_mut() = Some(Box::new(f));
     }
 
     pub fn set_on_symbol_insert(&self, f: impl Fn(String) + 'static) {
