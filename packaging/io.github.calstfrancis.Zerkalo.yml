@@ -99,7 +99,7 @@ modules:
       # Copy vendor sources to a stable /app/ path so Module 2 uses the same path
       # in cargo fingerprints (fingerprints are path-sensitive for vendor sources).
       - cp -r cargo/vendor /app/zerkalo-cargo-vendor
-      - printf '[source.vendored-sources]\ndirectory = "/app/zerkalo-cargo-vendor"\n\n[source.crates-io]\nreplace-with = "vendored-sources"\n\n[source."https://github.com/calstfrancis/skrizhal"]\ngit = "https://github.com/calstfrancis/skrizhal"\nreplace-with = "vendored-sources"\ntag = "v0.3.0"\n\n[source."https://github.com/calstfrancis/kartoteka"]\ngit = "https://github.com/calstfrancis/kartoteka"\nreplace-with = "vendored-sources"\n' > cargo/config
+      - printf '[source.vendored-sources]\ndirectory = "/app/zerkalo-cargo-vendor"\n\n[source.crates-io]\nreplace-with = "vendored-sources"\n\n[source."https://github.com/calstfrancis/skrizhal"]\ngit = "https://github.com/calstfrancis/skrizhal"\nreplace-with = "vendored-sources"\ntag = "v0.3.0"\n\n[source."https://github.com/calstfrancis/kartoteka"]\ngit = "https://github.com/calstfrancis/kartoteka"\nreplace-with = "vendored-sources"\ntag = "v0.5.0"\n' > cargo/config
       # Stub main.rs so cargo compiles all deps but not the real app code
       - mkdir -p src
       - echo 'fn main() {}' > src/main.rs
@@ -132,7 +132,7 @@ modules:
     build-commands:
       # Point cargo at the vendor dir and pre-built target from zerkalo-deps
       - mkdir -p cargo
-      - printf '[source.vendored-sources]\ndirectory = "/app/zerkalo-cargo-vendor"\n\n[source.crates-io]\nreplace-with = "vendored-sources"\n\n[source."https://github.com/calstfrancis/skrizhal"]\ngit = "https://github.com/calstfrancis/skrizhal"\nreplace-with = "vendored-sources"\ntag = "v0.3.0"\n\n[source."https://github.com/calstfrancis/kartoteka"]\ngit = "https://github.com/calstfrancis/kartoteka"\nreplace-with = "vendored-sources"\n' > cargo/config
+      - printf '[source.vendored-sources]\ndirectory = "/app/zerkalo-cargo-vendor"\n\n[source.crates-io]\nreplace-with = "vendored-sources"\n\n[source."https://github.com/calstfrancis/skrizhal"]\ngit = "https://github.com/calstfrancis/skrizhal"\nreplace-with = "vendored-sources"\ntag = "v0.3.0"\n\n[source."https://github.com/calstfrancis/kartoteka"]\ngit = "https://github.com/calstfrancis/kartoteka"\nreplace-with = "vendored-sources"\ntag = "v0.5.0"\n' > cargo/config
       - cargo --offline build --release --manifest-path Cargo.toml
       - install -Dm755 /app/zerkalo-cargo-target/release/zerkalo /app/bin/zerkalo
       - strip /app/bin/zerkalo
