@@ -483,6 +483,56 @@ regardless of Phase 2's outcome (pure logic, no GTK needed).
 
 ## Phase 5 — Bundle `tinymist` (remove optional-completions fallback)
 
+**Status:** ☑ DONE (2026-08-18) — investigated, already fully done; no
+action needed. Sixth phase across `HEALTH-PLAN.md`/this plan where the
+original review's premise didn't survive checking against current code —
+worth continued skepticism toward any remaining un-reverified review claims.
+
+Checked all three things the phase's own text called for before touching
+anything:
+- **Flatpak already vendors a real tinymist binary.**
+  `packaging/io.github.calstfrancis.Zerkalo.yml` downloads
+  `tinymist-x86_64-unknown-linux-gnu.tar.gz` from tinymist's `v0.14.18`
+  GitHub release and installs it to `/app/lib/zerkalo/tinymist` — confirmed
+  live (`curl -IL`: 200, 29.7 MB, resolves through GitHub's release-asset
+  CDN correctly).
+- **Version match confirmed.** `Cargo.toml` embeds `typst = "0.14"`;
+  tinymist's own versioning tracks Typst's, and `0.14.18` matches — the
+  right pairing, not a stale pin.
+- **`src/lsp.rs`'s `tinymist_command()` already checks the flatpak path
+  first.** `["/app/lib/zerkalo/tinymist", "/usr/lib/zerkalo/tinymist"]` are
+  tried before falling back to bare `tinymist` on `PATH` — so inside the
+  actual shipping flatpak, completions never hit the "optional" fallback
+  path at all.
+
+**What the original review actually observed** (headless dev-build testing,
+via `target/release/zerkalo` run directly, not the flatpak) — "tinymist not
+found — LSP completions disabled" — is real but reflects the **source-build
+gap**, not a flatpak gap: no flatpak sandbox means no `/app/lib/zerkalo/`,
+and this dev machine has no system `tinymist` on `PATH` either. That's
+exactly what the README's own wording already scopes correctly:
+`cargo install tinymist` **"for source builds"** — it isn't claiming
+flatpak needs this. `install.sh` also already offers to install it
+interactively for source builds. Nothing here is misleading users about the
+flatpak experience, which is the copy that actually matters for the vast
+majority of installs (distribution is flatpak-only per the root
+`Projects/CLAUDE.md`).
+
+**Not investigated further, out of scope for this phase:** `Cargo.toml`'s
+`.deb`/`.rpm` packaging metadata references `packaging/tinymist` as a
+binary asset to install, but no such file currently exists in
+`packaging/`. Per the root `Projects/CLAUDE.md`, `.deb`/`.rpm` aren't part
+of the actual release pipeline (flatpak-only distribution), so this is
+either dead packaging config or a gap in an unused secondary path — not
+worth chasing down as part of a phase about the *shipping* app's tinymist
+experience.
+
+No code change made.
+
+---
+
+**Original phase text preserved below:**
+
 **Status:** ☐ not started
 **Risk:** low · **Effort:** small-medium (mostly packaging) · **Depends on:**
 nothing
