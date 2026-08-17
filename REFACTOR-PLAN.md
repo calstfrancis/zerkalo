@@ -521,8 +521,35 @@ test. Check them after each sub-phase.
 
 **Status:** ◐ **PARTLY DONE** (2026-08-03; resumed 2026-08-17) — 4a ☑ tests,
 4b ☑ six sections, 4c ☑ drag-and-drop, 4d ☑ tab label, 4e ☑ citation
-autocomplete. Two sections deliberately left inline (below).
+autocomplete, 4f ☑ LSP autocomplete. One section deliberately left inline
+(below).
 **Risk:** high · **Depends on:** Phase 3 (hardest last)
+
+### 4f ☑ — #-function LSP autocomplete extracted (2026-08-17)
+
+Extracted as `wire_lsp_autocomplete(&self, view, buffer, path, ghost_label,
+ghost_item, completion_suppressed_at, ghost_bib_entry) -> LspAutocomplete` —
+259 lines, byte-for-byte moved (`#[allow(clippy::too_many_arguments)]`: 7
+params, all borrows of state this section reads but doesn't own — matches the
+shape of the section it replaces, a helper method taking `&self` plus the
+per-tab context it needs, same pattern as `wire_citation_autocomplete`).
+
+Same discovery as 4e: this section produces state consumed later
+(`lsp_popup`, `lsp_mark`, `lsp_completing` — all three read again by the
+still-inline key-controller and right-click-menu sections), so it got a
+sibling struct, `LspAutocomplete`, next to `CitationAutocomplete`.
+`lsp_comp_gen` (the debounce generation counter) turned out to be genuinely
+local — grepped for uses outside the section before assuming otherwise, since
+4e's first pass wrongly excluded a use further down the file by grepping the
+wrong line range and had to be caught by the compiler; this time confirmed
+with a whole-file grep first, so it correctly stayed a purely internal `Rc`
+not returned in the struct.
+
+Full gate green: 486 tests (unchanged), clippy clean, release build clean,
+version guard clean. **Not manually smoke-tested interactively** (no GTK
+session here) — worth checking next time you're in the app: typing `#` to
+trigger the function-completion popup, arrowing through results (status-bar
+description updates), Tab-to-accept, and Escape suppressing just that `#`.
 
 ### 4e ☑ — @-citation/!-cv-entry autocomplete extracted (2026-08-17)
 
@@ -621,7 +648,6 @@ extracting them means returning 3–8 values and threading them back in:
 
 | Section | Lines | Produces |
 |---|---|---|
-| #-function LSP autocomplete | 259 | `lsp_popup`, `lsp_mark`, `lsp_completing` |
 | Key controller | 548 | `hold_position`, `hold_until` |
 | Right-click context menu | 345 | `saved_scroll`, `saved_hscroll`, `pause_tracking` |
 | Inline error assistant | 295 | — but *consumes* 10 of the above |

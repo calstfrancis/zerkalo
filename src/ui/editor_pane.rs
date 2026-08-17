@@ -326,6 +326,14 @@ struct CitationAutocomplete {
     ghost_bib_entry: Rc<RefCell<Option<PopupEntry>>>,
 }
 
+/// State the `#`-trigger LSP autocomplete produces in `open_file`, consumed
+/// by the key controller and right-click menu sections below it.
+struct LspAutocomplete {
+    lsp_popup: LspPopup,
+    lsp_mark: Rc<RefCell<Option<gtk4::TextMark>>>,
+    lsp_completing: Rc<RefCell<bool>>,
+}
+
 impl EditorPane {
     pub fn new() -> Self {
         let notebook = Notebook::new();
@@ -3062,264 +3070,10 @@ impl EditorPane {
             completion_suppressed_at, ghost_bib_entry,
         } = self.wire_citation_autocomplete(&view, &buffer);
 
-        // ── #-function LSP autocomplete ───────────────────────────────────────
-
-        let lsp_popup = LspPopup::new(&view);
-        let lsp_mark: Rc<RefCell<Option<gtk4::TextMark>>> = Rc::new(RefCell::new(None));
-        let lsp_completing: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
-        let lsp_comp_gen: Rc<RefCell<u64>> = Rc::new(RefCell::new(0));
-
-
-        let update_ghost = {
-            let view = view.clone();
-            let ghost = ghost_label.clone();
-            let slot = ghost_item.clone();
-            let hint = self.lsp_status_label.clone();
-            move |buf: &Buffer, item: Option<CompletionItem>, prefix: &str| {
-                set_ghost(&view, &ghost, &slot, &hint, buf, item, prefix);
-            }
-        };
-        let hide_ghost = {
-            let ghost = ghost_label.clone();
-            let slot = ghost_item.clone();
-            let hint = self.lsp_status_label.clone();
-            move || clear_ghost(&ghost, &slot, &hint)
-        };
-
-        // Arrowing through the list re-describes the highlighted entry in the
-        // status bar, the way VS Code's details panel tracks its selection —
-        // except this one costs no screen space over the document.
-        {
-            let hint_sel = self.lsp_status_label.clone();
-            let ghost_sel = ghost_label.clone();
-            let buf_sel = buffer.clone();
-            let lsp_ready_sel = self.lsp_ready.clone();
-            lsp_popup.set_on_selection_changed(move |item| {
-                let prefix = lsp_hash_prefix(&buf_sel);
-                set_completion_hint(
-                    &hint_sel,
-                    item.as_ref(),
-                    &prefix,
-                    ghost_sel.is_visible(),
-                    true,
-                    lsp_ready_sel.get(),
-                );
-            });
-        }
-
-        // Remember what was chosen for the prefix that was typed, so the next
-        // time it's typed the ghost offers the same thing first.
-        let remember_pick = {
-            let picks = self.completion_picks.clone();
-            let root = self.project_root.clone();
-            move |prefix: &str, label: &str| {
-                if prefix.is_empty() { return; }
-                let changed = picks
-                    .borrow()
-                    .get(prefix)
-                    .map(|existing| existing != label)
-                    .unwrap_or(true);
-                if !changed { return; }
-                picks.borrow_mut().insert(prefix.to_string(), label.to_string());
-                let Some(root_dir) = root.borrow().clone() else { return };
-                let mut pcfg = crate::config::ProjectConfig::load(&root_dir).unwrap_or_default();
-                pcfg.completion_picks = picks.borrow().clone();
-                let _ = pcfg.save(&root_dir);
-            }
-        };
-
-        // LSP on_complete: replace #prefix with the chosen insertion text
-        {
-            let buf2 = buffer.clone();
-            let view2 = view.clone();
-            let mark2 = lsp_mark.clone();
-            let comp2 = lsp_completing.clone();
-            let popup2 = lsp_popup.clone();
-            let ghost2 = ghost_label.clone();
-            let ghost_item2 = ghost_item.clone();
-            let hint2 = self.lsp_status_label.clone();
-            let remember2 = remember_pick.clone();
-            lsp_popup.set_on_complete(move |item| {
-                remember2(&lsp_hash_prefix(&buf2), &item.label);
-                clear_ghost(&ghost2, &ghost_item2, &hint2);
-                *comp2.borrow_mut() = true;
-                let mark_opt = mark2.borrow().clone();
-                if let Some(ref m) = mark_opt {
-                    let mut start = buf2.iter_at_mark(m); // position of '#'
-                    let mut end = buf2.iter_at_offset(buf2.cursor_position());
-                    let insert_text = item
-                        .insert_text
-                        .as_deref()
-                        .unwrap_or(&item.label);
-                    let insert_text = strip_snippets(insert_text);
-                    let final_text = if insert_text.starts_with('#') {
-                        insert_text
-                    } else {
-                        format!("#{insert_text}")
-                    };
-                    buf2.begin_user_action();
-                    buf2.delete(&mut start, &mut end);
-                    buf2.insert_at_cursor(&final_text);
-                    buf2.end_user_action();
-                    buf2.delete_mark(m);
-                }
-                *mark2.borrow_mut() = None;
-                popup2.hide();
-                view2.grab_focus();
-                *comp2.borrow_mut() = false;
-            });
-        }
-
-        // Detect #word context and fire on_completion_needed
-        {
-            let lsp_mark3 = lsp_mark.clone();
-            let lsp_popup3 = lsp_popup.clone();
-            let lsp_completing3 = lsp_completing.clone();
-            let lsp_gen3 = lsp_comp_gen.clone();
-            let on_comp_cb = self.on_completion_needed.clone();
-            let path_for_lsp = path.clone();
-            let view_lsp = view.clone();
-            let cv_mode_for_lsp = self.cv_mode.clone();
-            let update_ghost_lsp = update_ghost.clone();
-            let hide_ghost_lsp = hide_ghost.clone();
-            let hint_lbl_lsp = self.lsp_status_label.clone();
-            let lsp_ready_lsp = self.lsp_ready.clone();
-            let picks_lsp = self.completion_picks.clone();
-            let suppressed_at = completion_suppressed_at.clone();
-            let ghost_bib_lsp = ghost_bib_entry.clone();
-            buffer.connect_changed(move |buf| {
-                if *lsp_completing3.borrow() {
-                    return;
-                }
-                let cursor_pos = buf.cursor_position();
-                let cursor_iter = buf.iter_at_offset(cursor_pos);
-                let mut temp = cursor_iter;
-                let mut found_hash = false;
-                let mut hash_iter = cursor_iter;
-
-                loop {
-                    if !temp.backward_char() {
-                        break;
-                    }
-                    let ch = temp.char();
-                    if ch == '#' {
-                        found_hash = true;
-                        hash_iter = temp;
-                        break;
-                    }
-                    if !(ch.is_alphanumeric() || ch == '_' || ch == '-') {
-                        break;
-                    }
-                }
-
-                if found_hash {
-                    // Escape suppresses suggestions for *this* `#` only; typing
-                    // on past it, or starting another one, brings them back.
-                    if suppressed_at.get() == hash_iter.offset() {
-                        lsp_popup3.hide();
-                        hide_ghost_lsp();
-                        return;
-                    }
-                    suppressed_at.set(-1);
-
-                    // Track the '#' position
-                    {
-                        let mut mark_ref = lsp_mark3.borrow_mut();
-                        match mark_ref.as_ref() {
-                            Some(m) => buf.move_mark(m, &hash_iter),
-                            None => {
-                                *mark_ref =
-                                    Some(buf.create_mark(None::<&str>, &hash_iter, true))
-                            }
-                        }
-                    }
-
-                    // Load the built-in snippets without waiting for the LSP, but
-                    // don't put a list on screen for a bare `#` — at one typed
-                    // character everything still matches, so the list is noise on
-                    // top of the text. The ghost suggestion carries that stage;
-                    // the list joins in once the prefix narrows things down.
-                    let prefix = lsp_hash_prefix(buf);
-                    let loc = view_lsp.iter_location(&cursor_iter);
-                    let (wx, wy_bottom) = view_lsp.buffer_to_window_coords(
-                        TextWindowType::Widget, loc.x(), loc.y() + loc.height());
-                    let (_, wy_top) = view_lsp.buffer_to_window_coords(
-                        TextWindowType::Widget, loc.x(), loc.y());
-                    let view_h = view_lsp.allocated_height();
-                    let above = wy_bottom > view_h / 2;
-                    let wy = if above { wy_top } else { wy_bottom };
-                    let snippets = snippet_items(cv_mode_for_lsp.get());
-
-                    // Names already written in this document rank above ones
-                    // that aren't, and a name previously chosen for this exact
-                    // prefix outranks everything.
-                    lsp_popup3.set_local_names(names_used_in(buf));
-                    lsp_popup3.set_preferred_name(picks_lsp.borrow().get(&prefix).cloned());
-
-                    if lsp_popup3.is_visible() {
-                        lsp_popup3.apply_filter(&prefix);
-                    } else {
-                        lsp_popup3.load_items(snippets);
-                        lsp_popup3.apply_filter(&prefix);
-                    }
-
-                    let matches = lsp_popup3.match_count(&prefix);
-                    let list_open = prefix.chars().count() >= MIN_POPUP_PREFIX && matches > 0;
-                    if list_open {
-                        lsp_popup3.show_at(wx, wy, above);
-                    } else {
-                        lsp_popup3.hide();
-                    }
-                    let ghosted = lsp_popup3.best_match(&prefix);
-                    *ghost_bib_lsp.borrow_mut() = None;
-                    update_ghost_lsp(buf, ghosted.clone(), &prefix);
-                    set_completion_hint(
-                        &hint_lbl_lsp,
-                        lsp_popup3.describable_match(&prefix).as_ref(),
-                        &prefix,
-                        ghosted.is_some(),
-                        list_open,
-                        lsp_ready_lsp.get(),
-                    );
-
-                    let line = cursor_iter.line() as u32 + 1;
-                    // LSP positions are UTF-16 code units by default (we don't
-                    // advertise a different `general.positionEncodings`), but
-                    // `line_offset()` counts Unicode codepoints — the two only
-                    // agree for text entirely within the Basic Multilingual
-                    // Plane. Count UTF-16 units up to the cursor instead, so
-                    // completions stay aligned on lines with e.g. emoji before
-                    // the cursor.
-                    let mut line_start = cursor_iter;
-                    line_start.set_line_offset(0);
-                    let text_before_cursor = buf.text(&line_start, &cursor_iter, false);
-                    let col = text_before_cursor.encode_utf16().count() as u32 + 1;
-
-                    *lsp_gen3.borrow_mut() += 1;
-                    let my_gen = *lsp_gen3.borrow();
-                    let gen4 = lsp_gen3.clone();
-                    let ocb = on_comp_cb.clone();
-                    let p = path_for_lsp.clone();
-
-                    glib::timeout_add_local(Duration::from_millis(150), move || {
-                        if *gen4.borrow() == my_gen {
-                            if let Some(f) = ocb.borrow().as_ref() {
-                                f(p.clone(), line, col);
-                            }
-                        }
-                        glib::ControlFlow::Break
-                    });
-                } else {
-                    // No longer in # context — clear mark and hide popup
-                    if let Some(m) = lsp_mark3.borrow_mut().take() {
-                        buf.delete_mark(&m);
-                    }
-                    lsp_popup3.hide();
-                    hide_ghost_lsp();
-                    hint_lbl_lsp.set_text("");
-                }
-            });
-        }
+        let LspAutocomplete { lsp_popup, lsp_mark, lsp_completing } = self.wire_lsp_autocomplete(
+            &view, &buffer, &path, &ghost_label, &ghost_item,
+            &completion_suppressed_at, &ghost_bib_entry,
+        );
 
         // ── Key controller ────────────────────────────────────────────────────
 
@@ -6500,6 +6254,277 @@ impl EditorPane {
             bib_popup, ac_mark, completing, ghost_label, ghost_item,
             completion_suppressed_at, ghost_bib_entry,
         }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn wire_lsp_autocomplete(
+        &self,
+        view: &View,
+        buffer: &Buffer,
+        path: &Path,
+        ghost_label: &Label,
+        ghost_item: &Rc<RefCell<Option<CompletionItem>>>,
+        completion_suppressed_at: &Rc<Cell<i32>>,
+        ghost_bib_entry: &Rc<RefCell<Option<PopupEntry>>>,
+    ) -> LspAutocomplete {
+        let lsp_popup = LspPopup::new(view);
+        let lsp_mark: Rc<RefCell<Option<gtk4::TextMark>>> = Rc::new(RefCell::new(None));
+        let lsp_completing: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
+        let lsp_comp_gen: Rc<RefCell<u64>> = Rc::new(RefCell::new(0));
+
+
+        let update_ghost = {
+            let view = view.clone();
+            let ghost = ghost_label.clone();
+            let slot = ghost_item.clone();
+            let hint = self.lsp_status_label.clone();
+            move |buf: &Buffer, item: Option<CompletionItem>, prefix: &str| {
+                set_ghost(&view, &ghost, &slot, &hint, buf, item, prefix);
+            }
+        };
+        let hide_ghost = {
+            let ghost = ghost_label.clone();
+            let slot = ghost_item.clone();
+            let hint = self.lsp_status_label.clone();
+            move || clear_ghost(&ghost, &slot, &hint)
+        };
+
+        // Arrowing through the list re-describes the highlighted entry in the
+        // status bar, the way VS Code's details panel tracks its selection —
+        // except this one costs no screen space over the document.
+        {
+            let hint_sel = self.lsp_status_label.clone();
+            let ghost_sel = ghost_label.clone();
+            let buf_sel = buffer.clone();
+            let lsp_ready_sel = self.lsp_ready.clone();
+            lsp_popup.set_on_selection_changed(move |item| {
+                let prefix = lsp_hash_prefix(&buf_sel);
+                set_completion_hint(
+                    &hint_sel,
+                    item.as_ref(),
+                    &prefix,
+                    ghost_sel.is_visible(),
+                    true,
+                    lsp_ready_sel.get(),
+                );
+            });
+        }
+
+        // Remember what was chosen for the prefix that was typed, so the next
+        // time it's typed the ghost offers the same thing first.
+        let remember_pick = {
+            let picks = self.completion_picks.clone();
+            let root = self.project_root.clone();
+            move |prefix: &str, label: &str| {
+                if prefix.is_empty() { return; }
+                let changed = picks
+                    .borrow()
+                    .get(prefix)
+                    .map(|existing| existing != label)
+                    .unwrap_or(true);
+                if !changed { return; }
+                picks.borrow_mut().insert(prefix.to_string(), label.to_string());
+                let Some(root_dir) = root.borrow().clone() else { return };
+                let mut pcfg = crate::config::ProjectConfig::load(&root_dir).unwrap_or_default();
+                pcfg.completion_picks = picks.borrow().clone();
+                let _ = pcfg.save(&root_dir);
+            }
+        };
+
+        // LSP on_complete: replace #prefix with the chosen insertion text
+        {
+            let buf2 = buffer.clone();
+            let view2 = view.clone();
+            let mark2 = lsp_mark.clone();
+            let comp2 = lsp_completing.clone();
+            let popup2 = lsp_popup.clone();
+            let ghost2 = ghost_label.clone();
+            let ghost_item2 = ghost_item.clone();
+            let hint2 = self.lsp_status_label.clone();
+            let remember2 = remember_pick.clone();
+            lsp_popup.set_on_complete(move |item| {
+                remember2(&lsp_hash_prefix(&buf2), &item.label);
+                clear_ghost(&ghost2, &ghost_item2, &hint2);
+                *comp2.borrow_mut() = true;
+                let mark_opt = mark2.borrow().clone();
+                if let Some(ref m) = mark_opt {
+                    let mut start = buf2.iter_at_mark(m); // position of '#'
+                    let mut end = buf2.iter_at_offset(buf2.cursor_position());
+                    let insert_text = item
+                        .insert_text
+                        .as_deref()
+                        .unwrap_or(&item.label);
+                    let insert_text = strip_snippets(insert_text);
+                    let final_text = if insert_text.starts_with('#') {
+                        insert_text
+                    } else {
+                        format!("#{insert_text}")
+                    };
+                    buf2.begin_user_action();
+                    buf2.delete(&mut start, &mut end);
+                    buf2.insert_at_cursor(&final_text);
+                    buf2.end_user_action();
+                    buf2.delete_mark(m);
+                }
+                *mark2.borrow_mut() = None;
+                popup2.hide();
+                view2.grab_focus();
+                *comp2.borrow_mut() = false;
+            });
+        }
+
+        // Detect #word context and fire on_completion_needed
+        {
+            let lsp_mark3 = lsp_mark.clone();
+            let lsp_popup3 = lsp_popup.clone();
+            let lsp_completing3 = lsp_completing.clone();
+            let lsp_gen3 = lsp_comp_gen.clone();
+            let on_comp_cb = self.on_completion_needed.clone();
+            let path_for_lsp = path.to_path_buf();
+            let view_lsp = view.clone();
+            let cv_mode_for_lsp = self.cv_mode.clone();
+            let update_ghost_lsp = update_ghost.clone();
+            let hide_ghost_lsp = hide_ghost.clone();
+            let hint_lbl_lsp = self.lsp_status_label.clone();
+            let lsp_ready_lsp = self.lsp_ready.clone();
+            let picks_lsp = self.completion_picks.clone();
+            let suppressed_at = completion_suppressed_at.clone();
+            let ghost_bib_lsp = ghost_bib_entry.clone();
+            buffer.connect_changed(move |buf| {
+                if *lsp_completing3.borrow() {
+                    return;
+                }
+                let cursor_pos = buf.cursor_position();
+                let cursor_iter = buf.iter_at_offset(cursor_pos);
+                let mut temp = cursor_iter;
+                let mut found_hash = false;
+                let mut hash_iter = cursor_iter;
+
+                loop {
+                    if !temp.backward_char() {
+                        break;
+                    }
+                    let ch = temp.char();
+                    if ch == '#' {
+                        found_hash = true;
+                        hash_iter = temp;
+                        break;
+                    }
+                    if !(ch.is_alphanumeric() || ch == '_' || ch == '-') {
+                        break;
+                    }
+                }
+
+                if found_hash {
+                    // Escape suppresses suggestions for *this* `#` only; typing
+                    // on past it, or starting another one, brings them back.
+                    if suppressed_at.get() == hash_iter.offset() {
+                        lsp_popup3.hide();
+                        hide_ghost_lsp();
+                        return;
+                    }
+                    suppressed_at.set(-1);
+
+                    // Track the '#' position
+                    {
+                        let mut mark_ref = lsp_mark3.borrow_mut();
+                        match mark_ref.as_ref() {
+                            Some(m) => buf.move_mark(m, &hash_iter),
+                            None => {
+                                *mark_ref =
+                                    Some(buf.create_mark(None::<&str>, &hash_iter, true))
+                            }
+                        }
+                    }
+
+                    // Load the built-in snippets without waiting for the LSP, but
+                    // don't put a list on screen for a bare `#` — at one typed
+                    // character everything still matches, so the list is noise on
+                    // top of the text. The ghost suggestion carries that stage;
+                    // the list joins in once the prefix narrows things down.
+                    let prefix = lsp_hash_prefix(buf);
+                    let loc = view_lsp.iter_location(&cursor_iter);
+                    let (wx, wy_bottom) = view_lsp.buffer_to_window_coords(
+                        TextWindowType::Widget, loc.x(), loc.y() + loc.height());
+                    let (_, wy_top) = view_lsp.buffer_to_window_coords(
+                        TextWindowType::Widget, loc.x(), loc.y());
+                    let view_h = view_lsp.allocated_height();
+                    let above = wy_bottom > view_h / 2;
+                    let wy = if above { wy_top } else { wy_bottom };
+                    let snippets = snippet_items(cv_mode_for_lsp.get());
+
+                    // Names already written in this document rank above ones
+                    // that aren't, and a name previously chosen for this exact
+                    // prefix outranks everything.
+                    lsp_popup3.set_local_names(names_used_in(buf));
+                    lsp_popup3.set_preferred_name(picks_lsp.borrow().get(&prefix).cloned());
+
+                    if lsp_popup3.is_visible() {
+                        lsp_popup3.apply_filter(&prefix);
+                    } else {
+                        lsp_popup3.load_items(snippets);
+                        lsp_popup3.apply_filter(&prefix);
+                    }
+
+                    let matches = lsp_popup3.match_count(&prefix);
+                    let list_open = prefix.chars().count() >= MIN_POPUP_PREFIX && matches > 0;
+                    if list_open {
+                        lsp_popup3.show_at(wx, wy, above);
+                    } else {
+                        lsp_popup3.hide();
+                    }
+                    let ghosted = lsp_popup3.best_match(&prefix);
+                    *ghost_bib_lsp.borrow_mut() = None;
+                    update_ghost_lsp(buf, ghosted.clone(), &prefix);
+                    set_completion_hint(
+                        &hint_lbl_lsp,
+                        lsp_popup3.describable_match(&prefix).as_ref(),
+                        &prefix,
+                        ghosted.is_some(),
+                        list_open,
+                        lsp_ready_lsp.get(),
+                    );
+
+                    let line = cursor_iter.line() as u32 + 1;
+                    // LSP positions are UTF-16 code units by default (we don't
+                    // advertise a different `general.positionEncodings`), but
+                    // `line_offset()` counts Unicode codepoints — the two only
+                    // agree for text entirely within the Basic Multilingual
+                    // Plane. Count UTF-16 units up to the cursor instead, so
+                    // completions stay aligned on lines with e.g. emoji before
+                    // the cursor.
+                    let mut line_start = cursor_iter;
+                    line_start.set_line_offset(0);
+                    let text_before_cursor = buf.text(&line_start, &cursor_iter, false);
+                    let col = text_before_cursor.encode_utf16().count() as u32 + 1;
+
+                    *lsp_gen3.borrow_mut() += 1;
+                    let my_gen = *lsp_gen3.borrow();
+                    let gen4 = lsp_gen3.clone();
+                    let ocb = on_comp_cb.clone();
+                    let p = path_for_lsp.clone();
+
+                    glib::timeout_add_local(Duration::from_millis(150), move || {
+                        if *gen4.borrow() == my_gen {
+                            if let Some(f) = ocb.borrow().as_ref() {
+                                f(p.clone(), line, col);
+                            }
+                        }
+                        glib::ControlFlow::Break
+                    });
+                } else {
+                    // No longer in # context — clear mark and hide popup
+                    if let Some(m) = lsp_mark3.borrow_mut().take() {
+                        buf.delete_mark(&m);
+                    }
+                    lsp_popup3.hide();
+                    hide_ghost_lsp();
+                    hint_lbl_lsp.set_text("");
+                }
+            });
+        }
+
+        LspAutocomplete { lsp_popup, lsp_mark, lsp_completing }
     }
 
     fn wire_modified_and_word_count(&self, tab: &TabContext, content: &str) {
