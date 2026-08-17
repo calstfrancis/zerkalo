@@ -196,6 +196,31 @@ instead of only static checks + manual verification.
 
 ## Phase 3 — Confirm/complete `REFACTOR-PLAN.md` Phase 6 (compiler off main thread)
 
+**Status:** ☑ DONE (2026-08-17) — investigated, no action needed;
+`REFACTOR-PLAN.md`'s own text is already accurate and current.
+
+Read `REFACTOR-PLAN.md` Phase 6 directly rather than trusting
+`HEALTH-PLAN.md`'s cross-reference summary. It's already marked "HALF DONE,
+other half deliberately deferred (checked 2026-08-17)" — the same day as
+this session, so it was independently re-verified very recently, not stale.
+State: `pdftotext`/`ensure_pdf_path` (the actually slow, hot-path work) is
+async, done under `HEALTH-PLAN.md` Phase 8. `git_log_for_file`/
+`git_diff_for_commit` in `history_panel.rs` remain synchronous, by deliberate
+choice — History opens behind an explicit modal action (menu/palette), not
+on every keystroke or the live-preview path, so a brief block there is much
+lower cost than the `pdftotext` case was, and nothing has surfaced a felt
+slowdown since. `REFACTOR-PLAN.md` itself says not to async it
+speculatively.
+
+**Conclusion for this plan's purposes:** nothing here blocks Phases 8/9
+(math palette, table editor) — neither adds interactive load on the same
+synchronous `git log` path, so the "benefits from Phase 3" note on those
+phases can be read as already satisfied. No code change made.
+
+---
+
+**Original phase text preserved below:**
+
 **Status:** ☐ not started
 **Risk:** medium · **Effort:** medium · **Depends on:** nothing, but should
 land before Phases 8/9 (math palette, table editor) add more editor-side
