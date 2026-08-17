@@ -137,17 +137,11 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
-                "Added: point the bibliography at a Kartoteka vault folder instead of a .bib/.yaml file (Settings → Bibliography, or the new folder button in the citation sidebar itself). Entries load live — add or edit something in Kartoteka and it shows up in the citation popup, sidebar, and reference manager within a second or two, no restart needed",
-                "Added: a \"K\" button in the citation sidebar launches Kartoteka directly, or focuses it if it's already running",
-                "Added: File History… in the ≡ menu and Ctrl+K palette shows a document's git commit history and diffs without leaving the app",
-                "Fixed: several icon-only buttons (browse buttons, the CV-mode switch, per-tag edit/delete) had no label a screen reader could read — they're announced properly now",
-                "Changed: the ≡ menu is down to 20 rows in five clusters (was 26 in seven) — Document Fonts, Set Up Zerkalo, Backup Locations, and Tools moved into Settings, where that kind of thing is easier to find; Settings itself drops jargon like \"Debounce\" and a raw file path for plain language",
-                "Added: backups now happen on their own. Once a backup location is set up, Zerkalo saves and sends a version automatically every so often while you write, and once more on the way out if anything's still unsent — quiet by design, so an offline moment shows a small toast instead of a popup, and it never blocks quitting for more than a few seconds",
-                "Added: error and notice dialogs now have a Copy button next to OK, so a raw error message can be pasted into a bug report instead of retyped from a screenshot",
-                "Changed: plain language throughout setup, sync, and backup screens — \"repository,\" \"remote,\" \"commit,\" and \"clone\" are now described in terms of what they do (\"online copy,\" \"backup location,\" \"save a version\")",
-                "Changed: the Help window's tabs are now a proper libadwaita view switcher instead of old-style notebook tabs",
-                "Changed: Help/FAQ/Cheatsheet formatting redone for clarity — no color anywhere in the panel, hierarchy comes from weight, scale, and whitespace instead",
-                "Fixed: sync could fail outright if the system's git was set up to sign commits — Zerkalo's own commits now skip signing, without touching your signing setup for anything else",
+                "Your bibliography can now live in a Kartoteka vault, not just a .bib or .yaml file — pick a vault folder from Settings, or the new folder button beside Citations. Add or edit a source in Kartoteka and it shows up here within a second or two, no restart needed. A \"K\" button next to it opens Kartoteka directly.",
+                "Backups now happen on their own. Once you've set up a backup location, Zerkalo saves and sends a version automatically while you write, quietly — an offline moment shows a small toast instead of interrupting you, and it never holds up quitting for more than a few seconds.",
+                "File History (≡ menu, or Ctrl+K) shows a document's earlier versions and what changed, without leaving the app.",
+                "Setup, sync, and backup screens are in plainer language throughout, and error messages now have a Copy button so you can paste one into a bug report instead of retyping it from a screenshot.",
+                "Several icon-only buttons that had no label for screen readers now do.",
             ] {
                 body.append(&bullet_row(item));
             }

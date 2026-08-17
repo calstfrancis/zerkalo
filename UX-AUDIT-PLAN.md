@@ -21,17 +21,17 @@ writeup: https://claude.ai/code/artifact/6c398e24-18f1-4a89-9037-f961abb248b2
 
 ## Phase B — Moderate
 
-- [ ] Welcome window layout diagram gets a reassuring line — `welcome_window.rs`
-- [ ] GitHub sign-in errors translated to plain language — `github_signin.rs`
-- [ ] Template package descriptions lead with plain English, syntax moves to tooltip — `template_dialog/mod.rs`
-- [ ] First-open orientation banner (source vs. preview) — `editor_pane.rs`
-- [ ] Export dialog checks pandoc availability before offering DOCX/HTML/ODT/EPUB — `export_dialog.rs`
-- [ ] Simple Mode inline banner (not tooltip-only) — `editor_pane.rs`
-- [ ] BibTeX entry-type dropdown uses plain labels — `ref_manager.rs`
-- [ ] Cite key field gets explanatory placeholder — `ref_manager.rs`
-- [ ] Command palette differentiates History vs. Snapshots subtitles — `command_palette.rs`
-- [ ] "Remove from Library" gets a confirm dialog — `library_window.rs`
-- [ ] "What's New" reads as plain-language release notes, not a changelog dump — `welcome_window.rs`
+- [x] Welcome window layout diagram gets a reassuring line — `welcome_window.rs` (done in Phase A)
+- [x] GitHub sign-in errors translated to plain language — `github_signin.rs`
+- [x] Template package descriptions lead with plain English, syntax moves to tooltip — `template_dialog/mod.rs`
+- [x] First-open orientation banner (source vs. preview) — `app_window/mod.rs`
+- [x] Export dialog checks pandoc availability before offering DOCX/HTML/ODT/EPUB — `export_dialog.rs`
+- [x] Simple Mode inline banner (not tooltip-only) — `editor_pane.rs`
+- [x] BibTeX entry-type dropdown uses plain labels — `ref_manager.rs`
+- [x] Cite key field gets explanatory placeholder — `ref_manager.rs` (as a tooltip — AdwEntryRow's title already occupies the placeholder-label slot)
+- [x] Command palette differentiates History vs. Snapshots subtitles — `command_palette.rs` (done in Phase A)
+- [x] "Remove from Library" gets a confirm dialog — `library_window.rs` (single + bulk)
+- [x] "What's New" reads as plain-language release notes, not a changelog dump — `welcome_window.rs`
 
 ## Phase C — Minor / polish
 

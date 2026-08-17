@@ -507,6 +507,21 @@ fn open_rename_popover(anchor: &Button, old_key: String, on_rename: RenameCb) {
 
 // ── New entry dialog ──────────────────────────────────────────────────────────
 
+/// (BibTeX type, plain-language label). BibTeX's own type names
+/// ("inproceedings", "incollection") mean nothing to someone outside CS
+/// academia — the label is what's shown; the BibTeX type is what's stored.
+const ENTRY_TYPES: &[(&str, &str)] = &[
+    ("article", "Journal Article"),
+    ("book", "Book"),
+    ("inproceedings", "Conference Paper"),
+    ("incollection", "Book Chapter"),
+    ("phdthesis", "PhD Thesis"),
+    ("mastersthesis", "Master's Thesis"),
+    ("techreport", "Technical Report"),
+    ("misc", "Other"),
+    ("unpublished", "Unpublished"),
+];
+
 fn open_new_entry_dialog(parent: Option<&gtk4::Window>, panel: RefManager) {
     let dialog = adw::Window::builder()
         .title("New Bibliography Entry")
@@ -535,13 +550,14 @@ fn open_new_entry_dialog(parent: Option<&gtk4::Window>, panel: RefManager) {
     type_group.set_title("Entry");
     let type_row = adw::ComboRow::new();
     type_row.set_title("Entry type");
-    let type_model = gtk4::StringList::new(&[
-        "article", "book", "inproceedings", "incollection", "phdthesis",
-        "mastersthesis", "techreport", "misc", "unpublished",
-    ]);
+    let type_labels: Vec<&str> = ENTRY_TYPES.iter().map(|(_, label)| *label).collect();
+    let type_model = gtk4::StringList::new(&type_labels);
     type_row.set_model(Some(&type_model));
     let key_row = adw::EntryRow::new();
     key_row.set_title("Cite key");
+    key_row.set_tooltip_text(Some(
+        "A short nickname, e.g. smith2019 — you'll type @smith2019 to cite it.",
+    ));
     type_group.add(&type_row);
     type_group.add(&key_row);
 
@@ -579,16 +595,16 @@ fn open_new_entry_dialog(parent: Option<&gtk4::Window>, panel: RefManager) {
             return;
         }
 
-        let type_names = ["article", "book", "inproceedings", "incollection", "phdthesis",
-                          "mastersthesis", "techreport", "misc", "unpublished"];
-        let entry_type = type_names.get(type_row.selected() as usize).unwrap_or(&"misc");
+        let entry_type = ENTRY_TYPES.get(type_row.selected() as usize)
+            .map(|(t, _)| *t)
+            .unwrap_or("misc");
 
         let author = author_row.text().trim().to_string();
         let title = title_row.text().trim().to_string();
         let year = year_row.text().trim().to_string();
         let venue = venue_row.text().trim().to_string();
 
-        let venue_field = match *entry_type {
+        let venue_field = match entry_type {
             "article" => "journal",
             "book" => "publisher",
             "inproceedings" => "booktitle",

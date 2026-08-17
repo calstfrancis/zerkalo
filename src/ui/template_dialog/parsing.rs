@@ -68,7 +68,7 @@ pub fn parse_packages(content: &str) -> Vec<String> {
     let region = preamble_region(content);
     EXTRA_PACKAGES
         .iter()
-        .map(|(key, _, _)| *key)
+        .map(|(key, _, _, _)| *key)
         .filter(|key| {
             package_import(key)
                 .and_then(|imp| imp.lines().next())

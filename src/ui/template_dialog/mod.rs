@@ -165,30 +165,38 @@ const LANGUAGES: &[(&str, &str, &str)] = &[
     ("lang_zh", "Chinese", "CJK — needs Noto Serif CJK SC (install noto-serif-cjk or equivalent)"),
 ];
 
-const EXTRA_PACKAGES: &[(&str, &str, &str)] = &[
-    ("pkg_droplet", "Droplet", "Large decorative first-letter (dropcap)"),
+/// (id, name, plain-language subtitle, syntax detail for the tooltip).
+/// The subtitle is what everyone sees; the call-syntax detail is genuinely
+/// useful once you're editing the document by hand, but reads as the
+/// densest unexplained code in the whole creation flow if it's always on —
+/// so it moves to a tooltip instead of living in the subtitle.
+const EXTRA_PACKAGES: &[(&str, &str, &str, &str)] = &[
+    ("pkg_droplet", "Droplet", "Large decorative first-letter (dropcap)", ""),
     ("pkg_codly", "Codly",
         "Enhanced code-block presentation — line numbers, syntax highlighting, and inline \
-         annotations. Enabled once with #show: codly-init.with(); every code block after that \
-         is styled automatically, and #codly(...) lets you tweak numbering, radius, and colors."),
+         annotations.",
+        "Enabled once with #show: codly-init.with(); every code block after that is styled \
+         automatically, and #codly(...) lets you tweak numbering, radius, and colors."),
     ("pkg_showybox", "Showybox",
-        "Coloured, bordered callout boxes with optional titles, footers, and shadows. \
-         Call #showybox(title: \"...\")[content] anywhere to wrap content in a styled box — \
+        "Coloured, bordered callout boxes with optional titles, footers, and shadows.",
+        "Call #showybox(title: \"...\")[content] anywhere to wrap content in a styled box — \
          useful for asides, examples, or highlighted notes."),
     ("pkg_gentle", "Gentle Clues",
         "Predefined admonition blocks — note, tip, warning, important, and more — each with \
-         its own icon and colour. Use #note[...], #tip[...], #warning[...] directly, or pass \
-         title: \"...\" to override the heading."),
+         its own icon and colour.",
+        "Use #note[...], #tip[...], #warning[...] directly, or pass title: \"...\" to \
+         override the heading."),
     ("pkg_tablex", "Tablex",
         "Advanced tables with merged cells (colspan/rowspan), repeating headers across pages, \
-         and per-cell/line styling via #tablex(...), used like Typst's built-in #table() but \
-         with finer control. Most of this was upstreamed into native tables in Typst 0.11+, so \
-         plain #table() may already suffice."),
+         and per-cell/line styling.",
+        "Used via #tablex(...), like Typst's built-in #table() but with finer control. Most \
+         of this was upstreamed into native tables in Typst 0.11+, so plain #table() may \
+         already suffice."),
     ("pkg_marginalia", "Marginalia",
-        "Configurable margin notes with smart positioning, plus matching wide-blocks. After \
-         #show: marginalia.setup.with(...), use #note[...] for an annotation placed in the \
-         margin, #wideblock[...] to let content spill into the margin, and #notefigure(...) \
-         for a captioned figure positioned there."),
+        "Configurable margin notes with smart positioning, plus matching wide-blocks.",
+        "After #show: marginalia.setup.with(...), use #note[...] for an annotation placed in \
+         the margin, #wideblock[...] to let content spill into the margin, and \
+         #notefigure(...) for a captioned figure positioned there."),
 ];
 
 // ── Template presets ──────────────────────────────────────────────────────────
@@ -986,12 +994,15 @@ fn build_packages_tab(notebook: &Notebook) -> PackagesTab {
     dropcap_expander.add_row(&dropcap_color_row);
 
     // ── Other extra packages ──────────────────────────────────────────────
-    for (key, name, desc) in EXTRA_PACKAGES.iter().filter(|(k, _, _)| *k != "pkg_droplet") {
+    for (key, name, desc, syntax) in EXTRA_PACKAGES.iter().filter(|(k, _, _, _)| *k != "pkg_droplet") {
         let sw = adw::SwitchRow::new();
         sw.set_title(name);
         sw.set_subtitle(desc);
         sw.set_subtitle_lines(0);
         sw.set_active(false);
+        if !syntax.is_empty() {
+            sw.set_tooltip_text(Some(syntax));
+        }
         pkg_group.add(&sw);
         pkg_switches.push((key.to_string(), sw));
     }
@@ -3421,7 +3432,7 @@ mod tests {
     #[ignore]
     fn every_extra_package_compiles() {
         let mut failures = Vec::new();
-        for (key, name, _) in EXTRA_PACKAGES {
+        for (key, name, _, _) in EXTRA_PACKAGES {
             let mut s = matrix_base();
             s.packages = vec![key.to_string()];
             if *key == "pkg_droplet" {

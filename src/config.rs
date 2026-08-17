@@ -181,6 +181,11 @@ pub struct Config {
     pub simple_mode: bool,
     #[serde(default)]
     pub shown_simple_intro: bool,
+    /// Whether the "you're writing plain text with light markup" banner over
+    /// the editor has been dismissed. Shown once, the first time a document
+    /// is open, for someone who's never seen a non-WYSIWYG editor before.
+    #[serde(default)]
+    pub shown_editor_orientation: bool,
     /// Set when setup has either finished or been declined. Without it, a user
     /// who chose not to back up their work is asked again on every launch,
     /// which reads as the app not having listened.
@@ -266,6 +271,7 @@ impl Default for Config {
             locked_affiliation: String::new(),
             simple_mode: true,
             shown_simple_intro: false,
+            shown_editor_orientation: false,
             setup_done: false,
             format_bar_visible: true,
             last_used_advanced: false,

@@ -791,6 +791,7 @@ impl SettingsDialog {
             let locked_affiliation_cur = current.locked_affiliation.clone();
             let simple_mode_cur = current.simple_mode;
             let shown_simple_intro_cur = current.shown_simple_intro;
+            let shown_editor_orientation_cur = current.shown_editor_orientation;
             let format_bar_visible_cur = current.format_bar_visible;
             let last_used_advanced_cur = current.last_used_advanced;
             let default_sans_font_cur = current.default_sans_font.clone();
@@ -896,6 +897,7 @@ impl SettingsDialog {
                     locked_affiliation: locked_affiliation_cur.clone(),
                     simple_mode: simple_mode_cur,
                     shown_simple_intro: shown_simple_intro_cur,
+                    shown_editor_orientation: shown_editor_orientation_cur,
                     format_bar_visible: format_bar_visible_cur,
                     last_used_advanced: last_used_advanced_cur,
                     snippets: snippets_cur.clone(),

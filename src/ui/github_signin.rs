@@ -119,7 +119,7 @@ pub fn present(parent: &impl IsA<gtk4::Window>, on_connected: impl Fn(String) + 
                     return glib::ControlFlow::Break;
                 }
                 Ok(FlowUpdate::Done(Err(e))) => {
-                    status_lbl.set_label(&format!("Sign-in failed: {e}"));
+                    status_lbl.set_label(&describe_signin_failure(&e));
                     spinner.set_spinning(false);
                     return glib::ControlFlow::Break;
                 }
@@ -130,4 +130,27 @@ pub fn present(parent: &impl IsA<gtk4::Window>, on_connected: impl Fn(String) + 
     });
 
     dialog.present();
+}
+
+/// Plain-language sign-in failure, matching the translation
+/// `setup_wizard.rs`'s `describe_create_failure` does one step later in the
+/// same flow — a raw `GithubAuthError` Display can read as a network stack
+/// trace (`error sending request for url ...: dns error`) to someone who's
+/// never seen one before.
+fn describe_signin_failure(e: &GithubAuthError) -> String {
+    match e {
+        GithubAuthError::AccessDenied => {
+            "Sign-in wasn't approved on GitHub's side. You can try again.".to_string()
+        }
+        GithubAuthError::ExpiredToken => {
+            "That code expired before it was approved. Try again with a fresh one.".to_string()
+        }
+        GithubAuthError::Cancelled => "Sign-in was cancelled.".to_string(),
+        GithubAuthError::Network(_) => {
+            "Couldn't reach GitHub. Check your internet connection and try again.".to_string()
+        }
+        GithubAuthError::Api(_) => {
+            "GitHub couldn't sign you in right now. Try again in a moment.".to_string()
+        }
+    }
 }
