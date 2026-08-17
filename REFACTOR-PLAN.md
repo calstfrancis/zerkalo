@@ -520,9 +520,41 @@ test. Check them after each sub-phase.
 ## Phase 4 — `EditorPane::open_file` (2,730 lines)
 
 **Status:** ◐ **PARTLY DONE** (2026-08-03; resumed 2026-08-17) — 4a ☑ tests,
-4b ☑ six sections, 4c ☑ drag-and-drop, 4d ☑ tab label. Three sections
-deliberately left inline (below).
+4b ☑ six sections, 4c ☑ drag-and-drop, 4d ☑ tab label, 4e ☑ citation
+autocomplete. Two sections deliberately left inline (below).
 **Risk:** high · **Depends on:** Phase 3 (hardest last)
+
+### 4e ☑ — @-citation/!-cv-entry autocomplete extracted (2026-08-17)
+
+Extracted as `wire_citation_autocomplete(&self, view: &View, buffer: &Buffer)
+-> CitationAutocomplete` — 157 lines, byte-for-byte moved. This was the first
+section genuinely needing a bundle: it produces 7 values consumed by the
+LSP-autocomplete, key-controller, right-click-menu, and final `EditorTab`
+sections still inline further down `open_file` — too many to return as a
+tuple without a `clippy::type_complexity` risk, so it got its own struct
+(`CitationAutocomplete`, next to `TabContext`) rather than growing
+`TabContext` itself (these 7 values aren't part of every tab's identity the
+way `TabContext`'s fields are — they're specific to this one wiring
+concern). `open_file` destructures it in one `let` so every downstream
+reference (`bib_popup`, `ac_mark`, `completing`, `ghost_label`, `ghost_item`,
+`completion_suppressed_at`, `ghost_bib_entry`) keeps its original name,
+unchanged.
+
+One real fix, not just a move: `bib_active_for_open` (a clone of
+`self.bib_active` used only inside this section, plus once more in the
+still-inline key-controller section below it) couldn't be returned in the
+struct without renaming `CitationAutocomplete`'s job from "what citation
+autocomplete produces" to "plus one thing it merely re-exports" — simpler to
+have the key-controller section clone `self.bib_active` directly instead,
+which is exactly what `bib_active_for_open` was doing anyway.
+
+Full gate green: 486 tests (unchanged — no tests existed for this section,
+none added, it's GTK event wiring), clippy clean (no type-complexity
+warning, confirming the struct was the right call over a tuple), release
+build clean, version guard clean. **Not manually smoke-tested interactively**
+(no GTK session here) — worth checking next time you're in the app: typing
+`@` to trigger the citation popup, `!` in CV mode, the ghost-text inline
+suggestion, and Tab-to-accept.
 
 ### 4c ☑ — Image/document drag-and-drop extracted (2026-08-17)
 
@@ -589,7 +621,6 @@ extracting them means returning 3–8 values and threading them back in:
 
 | Section | Lines | Produces |
 |---|---|---|
-| @-citation autocomplete | 157 | `bib_popup`, `ghost_*`, `ac_mark`, … (8) |
 | #-function LSP autocomplete | 259 | `lsp_popup`, `lsp_mark`, `lsp_completing` |
 | Key controller | 548 | `hold_position`, `hold_until` |
 | Right-click context menu | 345 | `saved_scroll`, `saved_hscroll`, `pause_tracking` |

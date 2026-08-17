@@ -313,6 +313,19 @@ struct TabContext {
     dot_label: Label,
 }
 
+/// State the `@`/`!`-trigger citation autocomplete produces in `open_file`,
+/// consumed by the LSP autocomplete, key controller, right-click menu, and
+/// final `EditorTab` construction sections below it.
+struct CitationAutocomplete {
+    bib_popup: BibPopup,
+    ac_mark: Rc<RefCell<Option<gtk4::TextMark>>>,
+    completing: Rc<RefCell<bool>>,
+    ghost_label: Label,
+    ghost_item: Rc<RefCell<Option<CompletionItem>>>,
+    completion_suppressed_at: Rc<Cell<i32>>,
+    ghost_bib_entry: Rc<RefCell<Option<PopupEntry>>>,
+}
+
 impl EditorPane {
     pub fn new() -> Self {
         let notebook = Notebook::new();
@@ -3044,162 +3057,10 @@ impl EditorPane {
         self.wire_modified_and_word_count(&tab, content);
         self.wire_cursor_tracking(&tab);
         self.wire_undo_redo_sensitivity(&tab);
-        // ── @-citation / !-cv-entry autocomplete ──────────────────────────────
-
-        let bib_popup = BibPopup::new(&view, self.bib_entries.clone(), self.cv_entries.clone());
-        let ac_mark: Rc<RefCell<Option<gtk4::TextMark>>> = Rc::new(RefCell::new(None));
-        let completing: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
-        let bib_active_for_open = self.bib_active.clone();
-
-        let buf_complete = buffer.clone();
-        let view_complete = view.clone();
-        let mark_complete = ac_mark.clone();
-        let completing_complete = completing.clone();
-        let popup_complete = bib_popup.clone();
-        bib_popup.set_on_complete(move |entry| {
-            *completing_complete.borrow_mut() = true;
-            let mark_opt = mark_complete.borrow().clone();
-            if let Some(ref m) = mark_opt {
-                let mut start = buf_complete.iter_at_mark(m);
-                let mut end = buf_complete.iter_at_offset(buf_complete.cursor_position());
-                buf_complete.begin_user_action();
-                buf_complete.delete(&mut start, &mut end);
-                buf_complete.insert_at_cursor(&entry.insert_text());
-                buf_complete.end_user_action();
-                buf_complete.delete_mark(m);
-            }
-            *mark_complete.borrow_mut() = None;
-            popup_complete.hide();
-            view_complete.grab_focus();
-            *completing_complete.borrow_mut() = false;
-        });
-
-        // Inline ghost suggestion, fish-shell style: the rest of the best match
-        // drawn dim right after the cursor, accepted with Tab. It's an overlay
-        // child of the view rather than text in the buffer, so it can't end up
-        // saved to the file, counted as words, or sent to the LSP — and because
-        // overlay coordinates are buffer coordinates, it scrolls with the text
-        // for free.
-        let ghost_label = Label::new(None);
-        ghost_label.add_css_class("completion-ghost");
-        ghost_label.set_visible(false);
-        ghost_label.set_can_target(false);
-        view.add_overlay(&ghost_label, 0, 0);
-        let ghost_item: Rc<RefCell<Option<CompletionItem>>> = Rc::new(RefCell::new(None));
-        // Escape means "not for this word". Holds the buffer offset of the `#`
-        // it applied to, so suggestions stay away until the cursor leaves that
-        // one — every shell autosuggestion behaves this way, and popping back up
-        // on the next keystroke made Escape feel broken.
-        let completion_suppressed_at: Rc<Cell<i32>> = Rc::new(Cell::new(-1));
-        // The citation/CV ghost shares the same label — only one suggestion can
-        // be under the cursor at a time — but keeps its own slot so Tab knows
-        // which kind of completion it is taking.
-        let ghost_bib_entry: Rc<RefCell<Option<crate::ui::bib_popup::PopupEntry>>> =
-            Rc::new(RefCell::new(None));
-
-        let ghost_ac = ghost_label.clone();
-        let ghost_bib_ac = ghost_bib_entry.clone();
-        let ghost_item_ac = ghost_item.clone();
-        let hint_ac = self.lsp_status_label.clone();
-        let view_ac = view.clone();
-        let popup_ac = bib_popup.clone();
-        let mark_ac = ac_mark.clone();
-        let completing_ac = completing.clone();
-        let bib_active_ac = bib_active_for_open.clone();
-        let cv_mode_ac = self.cv_mode.clone();
-        buffer.connect_changed(move |buf| {
-            if *completing_ac.borrow() {
-                return;
-            }
-            let cursor_pos = buf.cursor_position();
-            let cursor_iter = buf.iter_at_offset(cursor_pos);
-            let mut temp = cursor_iter;
-            let mut found_trigger = false;
-            let mut trigger_char = '@';
-            let mut at_iter = cursor_iter;
-            loop {
-                if !temp.backward_char() {
-                    break;
-                }
-                let ch = temp.char();
-                if ch == '@' || (ch == '!' && cv_mode_ac.get()) {
-                    found_trigger = true;
-                    trigger_char = ch;
-                    at_iter = temp;
-                    break;
-                }
-                if !(ch.is_alphanumeric() || ch == '-' || ch == '_' || ch == ':') {
-                    break;
-                }
-            }
-            if !found_trigger {
-                *bib_active_ac.borrow_mut() = false;
-                clear_citation_ghost(&ghost_ac, &ghost_bib_ac, &hint_ac);
-                dismiss_popup(buf, &popup_ac, &mark_ac);
-                return;
-            }
-            let prev_is_word = {
-                let mut prev = at_iter;
-                if prev.backward_char() {
-                    let ch = prev.char();
-                    ch.is_alphanumeric() || ch == '_'
-                } else {
-                    false
-                }
-            };
-            if prev_is_word {
-                *bib_active_ac.borrow_mut() = false;
-                clear_citation_ghost(&ghost_ac, &ghost_bib_ac, &hint_ac);
-                dismiss_popup(buf, &popup_ac, &mark_ac);
-                return;
-            }
-            let query = buf.text(&at_iter, &cursor_iter, false);
-            let query = query.trim_start_matches(trigger_char);
-            {
-                let mut mark_ref = mark_ac.borrow_mut();
-                match mark_ref.as_ref() {
-                    Some(m) => buf.move_mark(m, &at_iter),
-                    None => *mark_ref = Some(buf.create_mark(None::<&str>, &at_iter, true)),
-                }
-            }
-            // Position popup below cursor when in upper half of view,
-            // above cursor when in lower half — so it never lands on the cursor line.
-            let loc = view_ac.iter_location(&cursor_iter);
-            let (wx, wy_bottom) = view_ac.buffer_to_window_coords(
-                TextWindowType::Widget, loc.x(), loc.y() + loc.height());
-            let (_, wy_top) = view_ac.buffer_to_window_coords(
-                TextWindowType::Widget, loc.x(), loc.y());
-            let view_h = view_ac.allocated_height();
-            // above=true: popup uses PositionType::Top, its bottom lands at wy_top (cursor top)
-            // above=false: popup uses PositionType::Bottom, its top lands at wy_bottom (cursor bottom)
-            let above = wy_bottom > view_h / 2;
-            let wy = if above { wy_top } else { wy_bottom };
-            let source = if trigger_char == '!' { PopupSource::Cv } else { PopupSource::Bib };
-
-            // Same rules as `#`: inline suggestion first, list once the query is
-            // worth listing. A bare `@` used to drop the whole bibliography over
-            // the text.
-            let matches = popup_ac.matches_for(query, source);
-            let ghost_entry = popup_ac.ghost_entry(query, source);
-            let list_open = query.chars().count() >= MIN_POPUP_PREFIX && !matches.is_empty();
-            if list_open {
-                popup_ac.show_filtered(query, wx, wy, above, source);
-            } else {
-                popup_ac.hide();
-            }
-            *ghost_item_ac.borrow_mut() = None;
-            set_citation_ghost(
-                &view_ac, &ghost_ac, &ghost_bib_ac, &hint_ac, buf,
-                ghost_entry.clone(), query,
-            );
-            set_citation_hint(
-                &hint_ac,
-                ghost_entry.as_ref().or_else(|| matches.first()),
-                ghost_entry.is_some(),
-                list_open,
-            );
-            *bib_active_ac.borrow_mut() = popup_ac.is_visible();
-        });
+        let CitationAutocomplete {
+            bib_popup, ac_mark, completing, ghost_label, ghost_item,
+            completion_suppressed_at, ghost_bib_entry,
+        } = self.wire_citation_autocomplete(&view, &buffer);
 
         // ── #-function LSP autocomplete ───────────────────────────────────────
 
@@ -3470,7 +3331,7 @@ impl EditorPane {
         let completing_key = completing.clone();
         let lsp_completing_key = lsp_completing.clone();
         let view_key = view.clone();
-        let bib_active_key = bib_active_for_open.clone();
+        let bib_active_key = self.bib_active.clone();
         let ghost_item_key = ghost_item.clone();
         let ghost_label_key = ghost_label.clone();
         let hint_lbl_key = self.lsp_status_label.clone();
@@ -6477,6 +6338,168 @@ impl EditorPane {
         }
 
         (tab_box, dot_label, diag_dot)
+    }
+
+    fn wire_citation_autocomplete(&self, view: &View, buffer: &Buffer) -> CitationAutocomplete {
+        let bib_popup = BibPopup::new(view, self.bib_entries.clone(), self.cv_entries.clone());
+        let ac_mark: Rc<RefCell<Option<gtk4::TextMark>>> = Rc::new(RefCell::new(None));
+        let completing: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
+        let bib_active_for_open = self.bib_active.clone();
+
+        let buf_complete = buffer.clone();
+        let view_complete = view.clone();
+        let mark_complete = ac_mark.clone();
+        let completing_complete = completing.clone();
+        let popup_complete = bib_popup.clone();
+        bib_popup.set_on_complete(move |entry| {
+            *completing_complete.borrow_mut() = true;
+            let mark_opt = mark_complete.borrow().clone();
+            if let Some(ref m) = mark_opt {
+                let mut start = buf_complete.iter_at_mark(m);
+                let mut end = buf_complete.iter_at_offset(buf_complete.cursor_position());
+                buf_complete.begin_user_action();
+                buf_complete.delete(&mut start, &mut end);
+                buf_complete.insert_at_cursor(&entry.insert_text());
+                buf_complete.end_user_action();
+                buf_complete.delete_mark(m);
+            }
+            *mark_complete.borrow_mut() = None;
+            popup_complete.hide();
+            view_complete.grab_focus();
+            *completing_complete.borrow_mut() = false;
+        });
+
+        // Inline ghost suggestion, fish-shell style: the rest of the best match
+        // drawn dim right after the cursor, accepted with Tab. It's an overlay
+        // child of the view rather than text in the buffer, so it can't end up
+        // saved to the file, counted as words, or sent to the LSP — and because
+        // overlay coordinates are buffer coordinates, it scrolls with the text
+        // for free.
+        let ghost_label = Label::new(None);
+        ghost_label.add_css_class("completion-ghost");
+        ghost_label.set_visible(false);
+        ghost_label.set_can_target(false);
+        view.add_overlay(&ghost_label, 0, 0);
+        let ghost_item: Rc<RefCell<Option<CompletionItem>>> = Rc::new(RefCell::new(None));
+        // Escape means "not for this word". Holds the buffer offset of the `#`
+        // it applied to, so suggestions stay away until the cursor leaves that
+        // one — every shell autosuggestion behaves this way, and popping back up
+        // on the next keystroke made Escape feel broken.
+        let completion_suppressed_at: Rc<Cell<i32>> = Rc::new(Cell::new(-1));
+        // The citation/CV ghost shares the same label — only one suggestion can
+        // be under the cursor at a time — but keeps its own slot so Tab knows
+        // which kind of completion it is taking.
+        let ghost_bib_entry: Rc<RefCell<Option<PopupEntry>>> =
+            Rc::new(RefCell::new(None));
+
+        let ghost_ac = ghost_label.clone();
+        let ghost_bib_ac = ghost_bib_entry.clone();
+        let ghost_item_ac = ghost_item.clone();
+        let hint_ac = self.lsp_status_label.clone();
+        let view_ac = view.clone();
+        let popup_ac = bib_popup.clone();
+        let mark_ac = ac_mark.clone();
+        let completing_ac = completing.clone();
+        let bib_active_ac = bib_active_for_open.clone();
+        let cv_mode_ac = self.cv_mode.clone();
+        buffer.connect_changed(move |buf| {
+            if *completing_ac.borrow() {
+                return;
+            }
+            let cursor_pos = buf.cursor_position();
+            let cursor_iter = buf.iter_at_offset(cursor_pos);
+            let mut temp = cursor_iter;
+            let mut found_trigger = false;
+            let mut trigger_char = '@';
+            let mut at_iter = cursor_iter;
+            loop {
+                if !temp.backward_char() {
+                    break;
+                }
+                let ch = temp.char();
+                if ch == '@' || (ch == '!' && cv_mode_ac.get()) {
+                    found_trigger = true;
+                    trigger_char = ch;
+                    at_iter = temp;
+                    break;
+                }
+                if !(ch.is_alphanumeric() || ch == '-' || ch == '_' || ch == ':') {
+                    break;
+                }
+            }
+            if !found_trigger {
+                *bib_active_ac.borrow_mut() = false;
+                clear_citation_ghost(&ghost_ac, &ghost_bib_ac, &hint_ac);
+                dismiss_popup(buf, &popup_ac, &mark_ac);
+                return;
+            }
+            let prev_is_word = {
+                let mut prev = at_iter;
+                if prev.backward_char() {
+                    let ch = prev.char();
+                    ch.is_alphanumeric() || ch == '_'
+                } else {
+                    false
+                }
+            };
+            if prev_is_word {
+                *bib_active_ac.borrow_mut() = false;
+                clear_citation_ghost(&ghost_ac, &ghost_bib_ac, &hint_ac);
+                dismiss_popup(buf, &popup_ac, &mark_ac);
+                return;
+            }
+            let query = buf.text(&at_iter, &cursor_iter, false);
+            let query = query.trim_start_matches(trigger_char);
+            {
+                let mut mark_ref = mark_ac.borrow_mut();
+                match mark_ref.as_ref() {
+                    Some(m) => buf.move_mark(m, &at_iter),
+                    None => *mark_ref = Some(buf.create_mark(None::<&str>, &at_iter, true)),
+                }
+            }
+            // Position popup below cursor when in upper half of view,
+            // above cursor when in lower half — so it never lands on the cursor line.
+            let loc = view_ac.iter_location(&cursor_iter);
+            let (wx, wy_bottom) = view_ac.buffer_to_window_coords(
+                TextWindowType::Widget, loc.x(), loc.y() + loc.height());
+            let (_, wy_top) = view_ac.buffer_to_window_coords(
+                TextWindowType::Widget, loc.x(), loc.y());
+            let view_h = view_ac.allocated_height();
+            // above=true: popup uses PositionType::Top, its bottom lands at wy_top (cursor top)
+            // above=false: popup uses PositionType::Bottom, its top lands at wy_bottom (cursor bottom)
+            let above = wy_bottom > view_h / 2;
+            let wy = if above { wy_top } else { wy_bottom };
+            let source = if trigger_char == '!' { PopupSource::Cv } else { PopupSource::Bib };
+
+            // Same rules as `#`: inline suggestion first, list once the query is
+            // worth listing. A bare `@` used to drop the whole bibliography over
+            // the text.
+            let matches = popup_ac.matches_for(query, source);
+            let ghost_entry = popup_ac.ghost_entry(query, source);
+            let list_open = query.chars().count() >= MIN_POPUP_PREFIX && !matches.is_empty();
+            if list_open {
+                popup_ac.show_filtered(query, wx, wy, above, source);
+            } else {
+                popup_ac.hide();
+            }
+            *ghost_item_ac.borrow_mut() = None;
+            set_citation_ghost(
+                &view_ac, &ghost_ac, &ghost_bib_ac, &hint_ac, buf,
+                ghost_entry.clone(), query,
+            );
+            set_citation_hint(
+                &hint_ac,
+                ghost_entry.as_ref().or_else(|| matches.first()),
+                ghost_entry.is_some(),
+                list_open,
+            );
+            *bib_active_ac.borrow_mut() = popup_ac.is_visible();
+        });
+
+        CitationAutocomplete {
+            bib_popup, ac_mark, completing, ghost_label, ghost_item,
+            completion_suppressed_at, ghost_bib_entry,
+        }
     }
 
     fn wire_modified_and_word_count(&self, tab: &TabContext, content: &str) {
