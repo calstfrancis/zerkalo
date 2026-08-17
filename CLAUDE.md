@@ -99,6 +99,15 @@ new dated plan rather than reopening one of these:
 - **`PRINT-PLAN.md`**, **`zerk-polish.md`** — feature-specific plans, both
   fully done; see each file's own header.
 
+**`KILLER-APP-PLAN.md` is the one exception — not yet started.** 14-phase
+plan from the 2026-08-17 killer-app/best-Typst-editor/best-word-processor
+review (dependency pinning, UI test infra, Typst package browser search,
+math/table authoring, i18n, comments/suggested-edits, DOCX track-changes
+round-trip, plugin API, real-time collaboration). Read it before starting any
+of that work — several phases require a design/investigation step before
+implementation. Flathub and Windows/macOS distribution were explicitly
+excluded from its scope.
+
 Two older plans were archived to `docs/archive/` on 2026-08-17 since their
 own merge/completion criteria were already satisfied (not deleted — kept for
 history):
