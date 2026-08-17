@@ -70,6 +70,40 @@ Full verification gate green: 486 tests passed (up from 484 as of
 added by other work since then, not from this phase; external crate tests
 aren't pulled into `cargo test`'s count), clippy clean, version guard clean.
 
+### Follow-up (2026-08-17, same day) — the pin broke `./dev-build.sh` too, fixed
+
+Cal ran `./dev-build.sh` for `v0.24.0-dev4` and hit an offline-build failure:
+`can't checkout from 'https://github.com/calstfrancis/kartoteka': you are in
+the offline mode (--offline)`. Root cause: `packaging/io.github.calstfrancis.Zerkalo.yml`
+**hand-duplicates the cargo source-replacement config inline**, in two
+`printf ... > cargo/config` build-commands (`zerkalo-deps` and `zerkalo`
+modules) — this is a **second, independent copy** of the same information
+`packaging/cargo-sources.json` carries, and nothing keeps them in sync
+automatically. Regenerating `cargo-sources.json` earlier in this phase (via
+`flatpak-cargo-generator.py`, as documented) updated the right file, but the
+manifest's own hardcoded `printf` strings still had kartoteka's `[source...]`
+block with no `tag = "v0.5.0"` line — cargo therefore tried to check out
+kartoteka's default branch during the build's offline step, which fails by
+definition.
+
+Fixed by adding the missing `tag = "v0.5.0"\n` to both `printf` occurrences,
+matching the pattern the `skrizhal` block already had correct (proving this
+duplication is old and was correctly updated for skrizhal's own pin at some
+point — just missed for kartoteka this time, and easy to miss again for any
+future pin change to either dependency).
+
+**Not fixed, worth a future cleanup:** the duplication itself. The manifest
+could read `cargo/config`'s contents from `cargo-sources.json`'s own inline
+entry instead of re-typing it by hand in two places — would make this whole
+bug class structurally impossible instead of just fixed this once. Left
+alone here to keep this fix minimal and unblock Cal's build; worth revisiting
+if this bites a third time.
+
+No code/test changes — YAML-only fix, so the standard `cargo test`/clippy
+gate doesn't apply. Cal re-running `./dev-build.sh v0.24.0-dev4` is the only
+real verification, per this project's own "fix and rerun, don't retag" rule
+for a build that fails partway.
+
 `HEALTH-PLAN.md` Phase 4 tried pinning these to a `rev`, which broke the
 flatpak's offline cargo build; reverted to unpinned `git = "..."`. The
 documented path forward was to wait for Kartoteka to cut a real release tag
