@@ -30,6 +30,7 @@ mod session;
 mod spellcheck;
 mod styles;
 mod templates;
+mod typst_universe;
 mod user_templates;
 mod vault_watch;
 mod web_export;
