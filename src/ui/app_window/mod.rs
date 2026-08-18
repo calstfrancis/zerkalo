@@ -2902,9 +2902,22 @@ impl AppWindow {
                     dlg.connect_response(None, move |_, resp| {
                         match resp {
                             "save" => {
-                                ep2.save_all_modified();
-                                *fc.borrow_mut() = true;
-                                win2.close();
+                                let failed = ep2.save_all_modified();
+                                if failed.is_empty() {
+                                    *fc.borrow_mut() = true;
+                                    win2.close();
+                                } else {
+                                    let names = failed
+                                        .iter()
+                                        .map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default())
+                                        .collect::<Vec<_>>()
+                                        .join("\n");
+                                    show_alert(
+                                        &win2,
+                                        "Couldn't save everything",
+                                        &format!("The window was kept open because these files failed to save:\n\n{names}"),
+                                    );
+                                }
                             }
                             "discard" => {
                                 *fc.borrow_mut() = true;

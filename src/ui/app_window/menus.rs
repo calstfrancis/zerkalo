@@ -612,13 +612,22 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
     let preview_for_menu_save = ctx.preview_pane.clone();
     let menu_popover_for_save = ctx.menu_popover.clone();
     let root_for_menu_save = ctx.project_root.clone();
+    let toast_for_menu_save = ctx.toast_overlay.clone();
     menus.menu_save_item.connect_clicked(move |_| {
         menu_popover_for_save.popdown();
-        if let Some(path) = editor_for_menu_save.save_current() {
-            if let Ok(content) = std::fs::read_to_string(&path) {
-                save_snapshot(&root_for_menu_save, &path, &content);
+        match editor_for_menu_save.save_current() {
+            Ok(Some(path)) => {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    save_snapshot(&root_for_menu_save, &path, &content);
+                }
+                preview_for_menu_save.trigger_compile();
             }
-            preview_for_menu_save.trigger_compile();
+            Ok(None) => {}
+            Err(e) => {
+                let t = adw::Toast::new(&format!("Save failed: {e}"));
+                t.set_timeout(6);
+                toast_for_menu_save.add_toast(t);
+            }
         }
     });
 
@@ -628,12 +637,21 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
     let editor_for_save_btn = ctx.editor_pane.clone();
     let preview_for_save_btn = ctx.preview_pane.clone();
     let root_for_save_btn = ctx.project_root.clone();
+    let toast_for_save_btn = ctx.toast_overlay.clone();
     ctx.save_btn.connect_clicked(move |_| {
-        if let Some(path) = editor_for_save_btn.save_current() {
-            if let Ok(content) = std::fs::read_to_string(&path) {
-                save_snapshot(&root_for_save_btn, &path, &content);
+        match editor_for_save_btn.save_current() {
+            Ok(Some(path)) => {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    save_snapshot(&root_for_save_btn, &path, &content);
+                }
+                preview_for_save_btn.trigger_compile();
             }
-            preview_for_save_btn.trigger_compile();
+            Ok(None) => {}
+            Err(e) => {
+                let t = adw::Toast::new(&format!("Save failed: {e}"));
+                t.set_timeout(6);
+                toast_for_save_btn.add_toast(t);
+            }
         }
     });
 

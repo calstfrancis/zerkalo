@@ -140,16 +140,22 @@ fn key_for_lookup(dir: &Path, original_path: &Path) -> Option<String> {
     None
 }
 
-pub fn save(original_path: &Path, content: &str) {
+/// Returns `true` if the recovery copy was actually written. Callers that
+/// tell the user "Autosaved" must check this rather than assume success.
+pub fn save(original_path: &Path, content: &str) -> bool {
     let dir = autosave_dir();
-    let _ = std::fs::create_dir_all(&dir);
+    if std::fs::create_dir_all(&dir).is_err() {
+        return false;
+    }
     let key = key_for_save(&dir, original_path);
     let dest = dir.join(format!("{key}.typ"));
-    let _ = crate::error::atomic_write(&dest, content.as_bytes());
-    let _ = crate::error::atomic_write(
+    let wrote_content = crate::error::atomic_write(&dest, content.as_bytes()).is_ok();
+    let wrote_meta = crate::error::atomic_write(
         &dir.join(format!("{key}.meta")),
         original_path.to_string_lossy().as_bytes(),
-    );
+    )
+    .is_ok();
+    wrote_content && wrote_meta
 }
 
 /// Returns (content, save_time) if an autosave exists that is newer than the
@@ -220,13 +226,29 @@ mod tests {
     fn save_and_clear() {
         let sb = Sandbox::new();
         let path = sb.doc("clear.typ");
-        save(&path, "hello world");
+        assert!(save(&path, "hello world"), "save should report success on a writable dir");
 
         let key = path_key(&path);
         assert!(sb.path().join(format!("{key}.typ")).exists(), "autosave file should exist");
 
         clear(&path);
         assert!(!sb.path().join(format!("{key}.typ")).exists(), "autosave file should be removed");
+    }
+
+    #[test]
+    fn save_reports_failure_instead_of_lying_when_the_write_fails() {
+        use std::os::unix::fs::PermissionsExt;
+        let sb = Sandbox::new();
+        let path = sb.doc("readonly.typ");
+
+        let original_mode = std::fs::metadata(sb.path()).unwrap().permissions().mode();
+        std::fs::set_permissions(sb.path(), std::fs::Permissions::from_mode(0o500)).unwrap();
+        let ok = save(&path, "should not land");
+        // Restore before any assert can early-return, so the sandbox's TempDir
+        // can still clean itself up on drop.
+        std::fs::set_permissions(sb.path(), std::fs::Permissions::from_mode(original_mode)).unwrap();
+
+        assert!(!ok, "save must report failure when the autosave dir isn't writable, not pretend success");
     }
 
     #[test]
