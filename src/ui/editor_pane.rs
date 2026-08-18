@@ -3725,35 +3725,47 @@ impl EditorPane {
             .collect()
     }
 
-    pub fn save_all_modified(&self) {
-        let saved: Vec<(Label, GtkBox, String, PathBuf)> = {
+    /// Returns the paths that failed to write, so callers with a data-loss
+    /// stake (e.g. closing the window on "Save All") can tell the difference
+    /// between "everything saved" and "some writes failed" instead of
+    /// proceeding as if the save silently succeeded.
+    pub fn save_all_modified(&self) -> Vec<PathBuf> {
+        let (saved, failed): (Vec<(Label, GtkBox, String, PathBuf)>, Vec<PathBuf>) = {
             let mut state = self.state.borrow_mut();
-            let mut out = Vec::new();
+            let mut saved = Vec::new();
+            let mut failed = Vec::new();
             for (path, tab) in state.tabs.iter_mut() {
                 if !tab.modified { continue; }
                 let (start, end) = tab.buffer.bounds();
                 let content = tab.buffer.text(&start, &end, true);
                 if crate::error::atomic_write(path, content.as_bytes()).is_ok() {
                     tab.modified = false;
-                    out.push((tab.dot_label.clone(), tab.tab_box.clone(), tab.display_name.clone(), path.clone()));
+                    saved.push((tab.dot_label.clone(), tab.tab_box.clone(), tab.display_name.clone(), path.clone()));
+                } else {
+                    failed.push(path.clone());
                 }
             }
-            out
+            (saved, failed)
         };
         for (dot_label, tab_box, display_name, path) in saved {
             dot_label.set_visible(false);
             tab_box.update_property(&[gtk4::accessible::Property::Label(&display_name)]);
             crate::auto_save::clear(&path);
         }
+        failed
     }
 
-    pub fn save_current(&self) -> Option<PathBuf> {
-        let path = self.get_active_path()?;
-        let content = self.get_active_content()?;
-        crate::error::atomic_write(&path, content.as_bytes()).ok()?;
+    /// `Ok(None)` means there was nothing to save (no active document);
+    /// `Err` means a save was attempted and the write itself failed — the
+    /// two must not be conflated, or a write failure looks identical to the
+    /// normal no-op case and the caller has nothing to show the user.
+    pub fn save_current(&self) -> std::io::Result<Option<PathBuf>> {
+        let Some(path) = self.get_active_path() else { return Ok(None) };
+        let Some(content) = self.get_active_content() else { return Ok(None) };
+        crate::error::atomic_write(&path, content.as_bytes())?;
         crate::auto_save::clear(&path);
         self.mark_saved(&path);
-        Some(path)
+        Ok(Some(path))
     }
 
     pub fn next_tab(&self) {

@@ -151,11 +151,9 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
             if ms >= idle_threshold {
                 let buffers: Vec<_> = editor_for_autosave.modified_buffers();
                 if !buffers.is_empty() {
-                    for (path, content) in &buffers {
-                        crate::auto_save::save(path, content);
-                    }
-                    let t = adw::Toast::new("Autosaved");
-                    t.set_timeout(2);
+                    let all_ok = buffers.iter().all(|(path, content)| crate::auto_save::save(path, content));
+                    let t = adw::Toast::new(if all_ok { "Autosaved" } else { "Autosave failed — check disk space" });
+                    t.set_timeout(if all_ok { 2 } else { 6 });
                     toast_for_autosave.add_toast(t);
                     *last_edit_for_autosave.borrow_mut() = None;
                 }
