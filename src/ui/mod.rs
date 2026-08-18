@@ -24,6 +24,7 @@ pub mod print;
 pub mod print_sheet;
 pub mod ref_manager;
 pub mod settings_dialog;
+pub mod table_dialog;
 pub mod template_dialog;
 pub mod search_panel;
 pub mod setup_wizard;

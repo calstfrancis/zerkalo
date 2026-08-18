@@ -810,6 +810,95 @@ snippets, same mechanism the main preview pane already uses).
 
 ## Phase 9 — Visual table editor
 
+**Status:** ☑ DONE (2026-08-18) — built the scope this phase's own design
+pass called for (dialog/generator model), and it directly caught a real
+bug that pure code review had missed.
+
+**Went with this phase's own recommendation** without re-litigating it:
+a form dialog that generates a `#table(...)` block once and hands control
+back to the text editor, not a live preview-overlay editor. New file
+`src/ui/table_dialog.rs`.
+
+**Scope, matching this phase's own bullet list exactly:** row/column count
+(spinners, 1–20), per-cell content (`Entry` grid), per-column alignment
+(left/center/right dropdowns), header-row toggle (bolds the first row's
+content, wraps it in `table.header(...)`), and per-cell colspan/rowspan
+(spin buttons, 1–20). **One documented scope trim**: colspan/rowspan don't
+dynamically grey out the cells they end up covering as you type — that
+would need reactive re-layout tracked across a grid that's also growing/
+shrinking independently, real added complexity for a first version.
+Instead, coverage is computed once at generation time and covered cells'
+content is silently skipped — documented via a tooltip on every span
+control, not left as a silent surprise.
+
+**A real bug found by code review, before any runtime check ran:**
+`gtk_grid_remove` (what shrinking a row/column calls) only operates on a
+grid's *direct* children. The per-cell layout wraps content/colspan/
+rowspan in a `Box` that's what's actually attached to the grid — so the
+first version's shrink logic, which called `grid.remove()` on the leaf
+widgets themselves, would have been calling it on grandchildren the grid
+doesn't directly own. Checked gtk4-rs's actual binding source rather than
+assuming, confirmed the mismatch, and fixed it by tracking the wrapper
+`Box` itself in `CellWidgets` and removing that instead.
+
+**Verification, and why it went further than most phases this session:**
+finding one real bug via review — in code that had already compiled
+clean — raised the bar for what "done" means here; unlike reusing an
+already-proven pattern (`show_dep_graph_window`, etc.), this grid grow/
+shrink logic was genuinely new and unproven. Since `TableDialog` is (like
+Reference Manager and Dependency Graph before it) only reachable through
+the hamburger `Popover` this session already found doesn't respond to
+synthetic clicks, and this time the added risk justified not accepting
+that gap: temporarily wired `TableDialog` to open directly from
+`main.rs`'s `connect_activate` (bypassing the whole `AppWindow`/`Popover`
+chain), drove it with real pointer clicks, and reverted the instrumentation
+completely before committing (`git diff --stat src/main.rs` confirmed
+empty afterward). This is what actually caught the click landing on the
+wrong window at first — the Welcome dialog was stacked on top and silently
+absorbing clicks meant for the table dialog underneath, a test-harness
+issue rather than an app bug, resolved by dismissing Welcome first.
+
+With real clicks landing correctly: watched Columns shrink from 2→1 (the
+exact path the bug fix touches) and correctly remove both the alignment
+dropdown and the cell widgets with no crash and no leftover stale
+widgets, watched it grow back 1→3 correctly, and clicked Insert Table to
+confirm the full read-grid → generate-code → callback path fires and the
+dialog closes cleanly. Couldn't type real cell content (the same keyboard-
+synthesis gap from Phase 2), so the live run exercised empty-content
+cells — which surfaced a second, smaller finding: an empty header cell
+generates `[**]` (adjacent `*` markers, empty bold). Rather than just
+trust that this looks right, added a permanent regression test that
+compiles it through the real Typst engine and confirmed it's valid.
+
+10 unit tests total, 3 of which compile generated output through the real
+embedded Typst compiler (a representative table with header/colspan/
+rowspan/escaped-content/all-three-alignments, the empty-header-cell edge
+case, and the original template-dialog-style "does this actually compile"
+check) rather than only asserting the generated string's shape — matching
+`template_dialog.rs`'s own established standard for this kind of
+generator code. Full gate green: 510 tests, clippy clean, version guard
+clean.
+
+**Wired into the hamburger menu** ("Insert Table…", Current Document
+cluster, next to Reference Manager/Dependency Graph) — not the Ctrl+K
+palette, matching this session's established "menu is sufficient, palette
+parity is a low-cost follow-up" call from the Reference Manager/
+Dependency Graph phase.
+
+**Deliberately not attempted, matching this phase's own scope
+boundary:** live-editing an already-inserted table's structure. A natural
+follow-up once this generator model is in real use, not part of this
+phase.
+
+README/CHANGELOG/`welcome_window.rs` updated in the same session —
+including filling in README rows for Reference Manager/Dependency Graph's
+reachability, which should have been added when that fix landed earlier
+this session and was missed until now.
+
+---
+
+**Original phase text preserved below:**
+
 **Status:** ☐ not started
 **Risk:** medium-high · **Effort:** large · **Depends on:** benefits from
 Phase 3, not hard-blocked by it.

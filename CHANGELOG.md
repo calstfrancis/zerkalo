@@ -34,6 +34,10 @@ Snapshots into one Versions system" project noted at the bottom of it.
   calculus notation, set theory, logic, arrows, and number sets (∑, ∫, ≤,
   ∈, →, ℝ, and more) — one click inserts the symbol, which Typst renders
   correctly inside `$...$` without any special syntax.
+- **Insert Table (☰ → Insert Table).** Set row/column count, per-cell text,
+  per-column alignment, an optional header row, and per-cell colspan/
+  rowspan, then generate a complete `#table(...)` block at the cursor —
+  no more hand-writing table markup for anything beyond the simplest case.
 
 ### Changed
 
