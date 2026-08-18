@@ -38,6 +38,12 @@ Snapshots into one Versions system" project noted at the bottom of it.
   per-column alignment, an optional header row, and per-cell colspan/
   rowspan, then generate a complete `#table(...)` block at the cursor —
   no more hand-writing table markup for anything beyond the simplest case.
+- **A Comments panel in the sidebar.** Threaded, resolvable comments
+  anchored to a line — not written into the Typst source, so a comment can
+  never break compilation or leak into an export. Anchors survive edits
+  elsewhere in the document by re-locating against the commented line's
+  actual text, not just its line number, so inserting a paragraph above a
+  comment doesn't leave it pointing at the wrong place.
 
 ### Changed
 

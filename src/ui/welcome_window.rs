@@ -148,6 +148,7 @@ impl WelcomeWindow {
                 "Reference Manager and Dependency Graph are reachable from the ≡ menu now — both existed and worked, but had no way to be opened before.",
                 "The Symbol Insert panel has a Math tab — common operators, relations, calculus, set theory, and more, one click to insert.",
                 "Insert Table (≡ → Insert Table) builds a #table(...) block from a form — rows, columns, per-cell text, alignment, a header row, and colspan/rowspan — instead of hand-writing the markup.",
+                "A Comments panel in the sidebar — threaded, resolvable notes anchored to a line, never written into the Typst source itself, so they can't break compilation or leak into an export.",
             ] {
                 body.append(&bullet_row(item));
             }

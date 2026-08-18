@@ -13,6 +13,7 @@ use crate::config::Config;
 use crate::library::Library;
 use crate::writing_log::{FileStartWords, WritingLog, new_file_start_words};
 use super::super::citation_panel::CitationPanel;
+use super::super::comments_panel::CommentsPanel;
 use super::super::dep_graph::DepGraph;
 use super::super::editor_pane::EditorPane;
 use super::super::library_window::LibraryWindow;
@@ -23,6 +24,7 @@ use super::super::ref_manager::RefManager;
 
 pub(super) struct Panels {
     pub(super) citation_panel: CitationPanel,
+    pub(super) comments_panel: CommentsPanel,
     pub(super) dep_graph: DepGraph,
     pub(super) editor_pane: EditorPane,
     pub(super) file_start_words: FileStartWords,
@@ -76,6 +78,7 @@ pub(super) fn build_panels(
     let ref_manager = RefManager::new();
     let dep_graph = DepGraph::new(project_root.to_path_buf());
     let package_browser = PackageBrowser::new();
+    let comments_panel = CommentsPanel::new();
 
     let writing_log: Rc<RefCell<WritingLog>> = Rc::new(RefCell::new(WritingLog::load()));
     let file_start_words = new_file_start_words();
@@ -189,6 +192,7 @@ pub(super) fn build_panels(
 
     Panels {
         citation_panel,
+        comments_panel,
         dep_graph,
         editor_pane,
         file_start_words,

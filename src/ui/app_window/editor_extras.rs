@@ -12,6 +12,7 @@ use libadwaita as adw;
 
 use crate::config::Config;
 use super::super::citation_panel::CitationPanel;
+use super::super::comments_panel::CommentsPanel;
 use super::super::editor_pane::EditorPane;
 use super::super::file_tree::FileTree;
 use super::super::outline_panel::OutlinePanel;
@@ -102,6 +103,7 @@ pub(super) struct SidebarToolbarCtx {
     pub(super) outline_panel: OutlinePanel,
     pub(super) citation_panel: CitationPanel,
     pub(super) package_browser: PackageBrowser,
+    pub(super) comments_panel: CommentsPanel,
     pub(super) current_config: Rc<RefCell<Config>>,
     pub(super) project_root: PathBuf,
     pub(super) left_paned_holder: Rc<RefCell<Option<GtkBox>>>,
@@ -191,6 +193,8 @@ pub(super) fn wire_sidebar_toolbar(ctx: &SidebarToolbarCtx) -> (GtkBox, Button) 
     left_box.append(ctx.citation_panel.widget());
     left_box.append(&Separator::new(Orientation::Horizontal));
     left_box.append(ctx.package_browser.widget());
+    left_box.append(&Separator::new(Orientation::Horizontal));
+    left_box.append(ctx.comments_panel.widget());
     *ctx.left_paned_holder.borrow_mut() = Some(left_box.clone());
 
 

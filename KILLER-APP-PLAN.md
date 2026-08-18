@@ -1093,6 +1093,119 @@ first/reference locale only.
 
 ## Phase 11 — Comments / suggested-edits layer
 
+**Status:** ☑ DONE (2026-08-18) — comments-only scope, per this phase's own
+design pass; suggested-edits (and Phase 12, which depends on this) remain
+open. Caught and fixed a real bug via live testing that the pure-logic
+unit tests couldn't have caught.
+
+**Went with every one of this phase's own already-resolved design
+questions** without re-litigating them: a sidecar file (`<stem>.comments.toml`,
+matching `template_dialog/sidecar.rs`'s `<stem>.zerkalo.toml` — the actual
+existing per-document sidecar; see the `.plan` finding below), anchoring by
+stable line + a text-snippet fallback rather than exact-position tracking
+through every edit, and comments-only for v1 (no suggested-edits/diff
+model). New `src/comments.rs` (pure logic + persistence, zero GTK) and
+`src/ui/comments_panel.rs` (sidebar panel).
+
+**A finding this phase's own text set out to match against, that turned out
+false:** the design recommendation said to match "the existing `.plan`
+scratchpad and `.zerkalo.toml` settings sidecar conventions." Checked both
+before writing code — `.zerkalo.toml` is real (`template_dialog/sidecar.rs`).
+**`.plan` is not.** `grep -rn "\.plan\b" src/` returns nothing; no module,
+no string literal, nothing — despite `README.md` describing a "Plan panel"
+in detail ("Freeform scratchpad saved as a `.plan` sidecar... falls back to
+`project.plan`...") as a shipping feature. This is a different shape of
+problem than this session's three earlier "built but unreachable" findings
+(`package_browser`, `dep_graph`/`ref_manager`, outline's `update_project`) —
+those were real, compiled, dead code with a tell (`#[allow(dead_code)]`).
+This is documentation describing a feature with **zero corresponding code
+anywhere**, not even dead code. Not investigated further or built (a real
+scratchpad feature is its own scoped piece of work, not part of a comments
+phase) — the false README row was corrected in this session since it's now
+*confirmed* false rather than merely stale, but the feature itself is a
+separate future initiative if wanted.
+
+**Scope, matching this phase's "Fix" bullet with one deliberate cut:**
+sidebar panel (comment list, click-to-jump) and sidecar persistence, both
+as specified. **Cut**: "inline gutter markers in the editor." Editor-side
+wavy-underline/diagnostic-marker integration would mean real surgery inside
+`editor_pane.rs` — this codebase's largest file and the one file
+`REFACTOR-PLAN.md` and `HEALTH-PLAN.md` both explicitly single out for
+`Rc<RefCell<>>` re-entrant-borrow fragility. The sidebar list alone already
+covers the "advisor reviews a draft" workflow this phase exists for
+without touching that file's internals at all — the add/jump/anchor wiring
+lives entirely in `app_window/mod.rs`, calling only `editor_pane.rs`'s
+existing public methods. Gutter markers are a real follow-up, not a v1
+requirement.
+
+**A real bug found only by live testing, not by the unit tests** (13 of
+which passed cleanly on the pure `relocate`/`CommentThread` logic before
+any GTK code existed): the first wiring used `editor_pane.rs`'s
+`set_on_cursor_moved` to track the cursor line for new-comment anchoring.
+Reading that callback's own implementation site revealed why this was
+wrong *after* the bug had already shown up live — it fires **only on
+keyboard-driven movement**, by original, documented design elsewhere in
+`editor_pane.rs` ("Only fire on keyboard movement... otherwise a click in
+the editor jumps the preview to match the clicked line"), a restriction
+that made sense for its original purpose (syncing the *preview* pane) but
+is exactly wrong for "where did the user just click before pressing +."
+Caught concretely: clicked into the document's line 5, clicked "+", and
+the comment saved with `anchor_line = 1` — the cell's stale default,
+because the click had never updated it. Fixed by switching to a direct,
+on-demand query instead of a cached callback value:
+`editor_pane.get_cursor_positions()` (character offset per open tab) plus
+counting newlines up to that offset in `get_active_content()` — synchronous,
+no dependency on *how* the cursor got there. Re-ran the identical
+click-then-add sequence after the fix and confirmed `anchor_line = 5`,
+correctly.
+
+**A second, unrelated finding from the same testing session, worth
+recording for every future phase**: `xdotool type` (text input) **works**
+in this headless setup, even though `xdotool key` (individual key events —
+Ctrl+K, Escape, arrows) does not. This wasn't known before this phase; every
+earlier "couldn't verify, keyboard synthesis is broken" note this session
+(Phase 2's original finding, repeated for Settings/Reference Manager/
+Dependency Graph in Phases 9–10) was about `key`, and none of those actually
+needed to type prose into a text field the way this phase did — so this is
+the first phase that would have surfaced the distinction. Worth
+retrying `xdotool type` specifically (not `key`) before writing off any
+future verification as blocked by "the keyboard limitation."
+
+**Verified live, beyond the bug fix above**: add-comment → correct anchor
+line and snippet captured (`line 5 · = Methods`, confirmed against a
+real cursor click, not assumed); the sidecar file matches exactly
+(`anchor_line`, `anchor_snippet`, `body`, `created_at`); Resolve → count
+and badge update correctly, button flips to "Reopen"; Reply → threaded
+reply renders indented under the parent, sidecar shows a nested
+`[[comments.replies]]` table (TOML's array-of-tables nesting, nested two
+levels deep, round-trips correctly — also unit-tested); click-to-jump →
+moved the cursor from line 1 to line 5 and selected the heading, confirmed
+via the status bar and a visibly highlighted line, not just "no crash."
+
+23 unit tests total in `src/comments.rs` (add/reply/resolve/delete
+isolation, TOML round-trip including nested replies, the sidecar path
+convention, missing-sidecar-returns-empty rather than erroring, and 6
+dedicated `relocate` tests: unchanged position, lines shifted, nearest-of-
+duplicate-lines preferred, anchor-text-deleted returns `None` rather than
+guessing, empty document). Full gate green: 523 tests, clippy clean,
+version guard clean.
+
+**Deliberately not attempted, matching this phase's own scope
+boundary**: suggested edits (propose-a-replacement, accept/reject) — needs
+a diff/patch model this phase's own text correctly identified as strictly
+harder than anchored comments, and Phase 12 (DOCX track-changes
+round-trip) still depends on whichever model gets built here, so this
+stays open rather than being retrofitted onto the comments-only shape
+built now.
+
+README/CHANGELOG/`welcome_window.rs` updated in the same session,
+including correcting the now-confirmed-false `.plan` panel claim in the
+README.
+
+---
+
+**Original phase text preserved below:**
+
 **Status:** ☐ not started
 **Risk:** high · **Effort:** large · **Depends on:** nothing, but Phase 12
 depends on this.

@@ -7,6 +7,7 @@
 mod auto_save;
 mod bibliography;
 mod compile_stats;
+mod comments;
 mod writing_log;
 mod doc_import;
 mod compiler;

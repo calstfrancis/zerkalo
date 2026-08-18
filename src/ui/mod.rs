@@ -1,6 +1,7 @@
 pub mod app_window;
 pub mod citation_panel;
 pub mod command_palette;
+pub mod comments_panel;
 pub mod confirm;
 pub mod bib_popup;
 pub mod dep_graph;

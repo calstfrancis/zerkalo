@@ -213,6 +213,7 @@ impl AppWindow {
         } = build_header();
         let Panels {
             citation_panel,
+            comments_panel,
             dep_graph,
             editor_pane,
             file_start_words,
@@ -960,6 +961,7 @@ impl AppWindow {
         let compile_on_save_for_change = compile_on_save.clone();
         let manual_compile_only_for_change = manual_compile_only.clone();
         let outline_for_change = outline_panel.clone();
+        let comments_for_change = comments_panel.clone();
         let refs_for_change = ref_manager.clone();
         let lsp_for_change = lsp_client.clone();
         let configured_root_for_change = configured_root.clone();
@@ -986,6 +988,7 @@ impl AppWindow {
             let cos = compile_on_save_for_change.clone();
             let mco = manual_compile_only_for_change.clone();
             let outline = outline_for_change.clone();
+            let comments = comments_for_change.clone();
             let refs = refs_for_change.clone();
             let lsp = lsp_for_change.clone();
             let configured_root = configured_root_for_change.clone();
@@ -1016,6 +1019,7 @@ impl AppWindow {
                             } else {
                                 outline.update(&content, &path);
                             }
+                            comments.update(&path, &content);
                             refs.update_used_keys(&content);
                         }
                     }
@@ -1060,9 +1064,47 @@ impl AppWindow {
             });
         }
 
+        // ── Comments panel: jump + anchor requests ───────────────────────────
+        {
+            let editor_for_jump = editor_pane.clone();
+            comments_panel.set_on_jump(move |line| {
+                if let Some(path) = editor_for_jump.get_active_path() {
+                    editor_for_jump.jump_to_line(&path, line);
+                }
+            });
+        }
+        {
+            let editor_for_anchor = editor_pane.clone();
+            comments_panel.set_on_request_anchor(move || {
+                // A direct, on-demand query rather than a cached value kept
+                // by `set_on_cursor_moved` — that callback is deliberately
+                // keyboard-movement-only (see its own call site: firing it on
+                // mouse clicks used to jump the *preview* pane on every click,
+                // which is why it was restricted), but clicking to position
+                // the cursor before adding a comment is the more natural flow
+                // for this feature, not keyboard navigation. Verified by a
+                // headless click-then-add test that failed with the cached
+                // approach and passed with this one.
+                let (Some(path), Some(content)) =
+                    (editor_for_anchor.get_active_path(), editor_for_anchor.get_active_content())
+                else {
+                    return (1, String::new());
+                };
+                let offset = editor_for_anchor.get_cursor_positions()
+                    .get(&path)
+                    .copied()
+                    .unwrap_or(0)
+                    .max(0) as usize;
+                let line = content.chars().take(offset).filter(|c| *c == '\n').count() as u32 + 1;
+                let snippet = content.lines().nth((line - 1) as usize).unwrap_or("").to_string();
+                (line, snippet)
+            });
+        }
+
         // ── Outline + title: update on tab switch ──────────────────────────
 
         let outline_for_switch = outline_panel.clone();
+        let comments_for_switch = comments_panel.clone();
         let refs_for_switch = ref_manager.clone();
         let dep_graph_for_switch = dep_graph.clone();
         let title_widget_for_switch = file_title_widget.clone();
@@ -1093,6 +1135,7 @@ impl AppWindow {
             if !outline_manuscript_mode_for_switch.get() {
                 outline_for_switch.update(&content, &path);
             }
+            comments_for_switch.update(&path, &content);
             refs_for_switch.update_used_keys(&content);
             dep_graph_for_switch.refresh(Some(&path));
             // Only recompile if the content has changed since the last compile for this file.
@@ -2099,6 +2142,7 @@ impl AppWindow {
             outline_panel: outline_panel.clone(),
             citation_panel: citation_panel.clone(),
             package_browser: package_browser.clone(),
+            comments_panel: comments_panel.clone(),
             current_config: current_config.clone(),
             project_root: project_root.clone(),
             left_paned_holder: left_paned_holder.clone(),
