@@ -80,6 +80,16 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.24.1" date="2026-08-18">
+      <description>
+        <p>0.24.1 "Clean Copy" — a malformed date in one bibliography entry no longer breaks
+        every citation in the document, a bibliography path outside the project now works
+        regardless of how it got there, the Packages and Comments sidebar sections can be
+        collapsed, and two editor interaction fixes: format bar buttons no longer steal
+        keyboard focus, and clicking error-underlined text now places the cursor there
+        instead of just dismissing the error popup.</p>
+      </description>
+    </release>
     <release version="0.24.0" date="2026-08-18">
       <description>
         <p>0.24.0 "Second Reading" — threaded comments and reviewable suggested edits, DOCX

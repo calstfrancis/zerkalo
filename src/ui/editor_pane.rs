@@ -1107,6 +1107,28 @@ impl EditorPane {
         }
         format_bar.append(&overflow_btn);
 
+        // A plain GTK Button grabs keyboard focus on click by default, which
+        // moved it off the document — clicking Bold left the cursor blinking
+        // in the format bar, not the text, so the next keystroke went
+        // nowhere until the user clicked back into the document. Formatting
+        // actions like these are meant to apply to a selection and hand
+        // control straight back, not become the new focus target — so every
+        // widget in the bar is marked non-focusable. This naturally stops at
+        // popover boundaries (a Popover attaches via set_parent, not as a
+        // child in the anchor's own child chain), so the table/figure/font
+        // pickers' own keyboard navigation inside their popovers is
+        // unaffected.
+        fn disable_focus_recursive(widget: &impl IsA<gtk4::Widget>) {
+            let widget = widget.as_ref();
+            widget.set_can_focus(false);
+            let mut child = widget.first_child();
+            while let Some(c) = child {
+                disable_focus_recursive(&c);
+                child = c.next_sibling();
+            }
+        }
+        disable_focus_recursive(&format_bar);
+
         struct OverflowGroup {
             lead_separator: Option<gtk4::Widget>,
             controls: Vec<gtk4::Widget>,
@@ -3115,11 +3137,14 @@ impl EditorPane {
         );
 
         // ── Inline error assistant — hover over error-tagged line ─────────────
+        // Shared with the any_click handler further down, which dismisses it
+        // explicitly — see that handler's own comment for why.
+        let active_error_popup: Rc<RefCell<Option<Popover>>> = Rc::new(RefCell::new(None));
         {
             let last_diags = self.last_diagnostics.clone();
             let view_hover = view.clone();
             let buf_hover = buffer.clone();
-            let active_popup: Rc<RefCell<Option<Popover>>> = Rc::new(RefCell::new(None));
+            let active_popup = active_error_popup.clone();
 
             let motion = EventControllerMotion::new();
             let active_popup_c = active_popup.clone();
@@ -3137,7 +3162,15 @@ impl EditorPane {
                 let has_error_tag = tag_table.lookup("zerkalo-diag-error")
                     .map(|t| iter.has_tag(&t))
                     .unwrap_or(false);
-                if !has_error_tag { return; }
+                if !has_error_tag {
+                    // Moved off the error entirely — with autohide(false)
+                    // (see why at the popover's own construction below)
+                    // nothing else closes this, so it must be done here.
+                    if let Some(p) = active_popup_c.borrow_mut().take() {
+                        p.popdown();
+                    }
+                    return;
+                }
 
                 let full_msg: Option<String> = diags.iter()
                     .find(|(_, ln, _, _)| *ln == line_1based)
@@ -3155,7 +3188,16 @@ impl EditorPane {
                 let popover = Popover::new();
                 popover.set_parent(&view_hover);
                 popover.set_has_arrow(true);
-                popover.set_autohide(true);
+                // Not autohide(true): a click meant to place the cursor on
+                // error-underlined text — the whole point of an inline error
+                // popup is that the error is right where you're about to
+                // edit — was instead being swallowed to dismiss the popover,
+                // needing a second click to actually reach the text.
+                // autohide(false) plus the explicit dismiss in any_click's
+                // handler below (same pattern the LSP/citation popups already
+                // use, and for the same reason) lets that first click do
+                // both at once.
+                popover.set_autohide(false);
                 popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
 
                 let vbox = GtkBox::new(Orientation::Vertical, 4);
@@ -3244,12 +3286,16 @@ impl EditorPane {
                 let ghost_item_click = ghost_item.clone();
                 let ghost_bib_click = ghost_bib_entry.clone();
                 let hint_click = self.lsp_status_label.clone();
+                let active_error_popup_click = active_error_popup.clone();
                 any_click.connect_pressed(move |_, _, _, _| {
                     // Clicking anywhere in the text dismisses a suggestion —
                     // the popovers are autohide(false) (they must not steal the
                     // keyboard while you type), so they'd otherwise sit there.
                     lsp_popup_click.hide();
                     bib_popup_click.hide();
+                    if let Some(p) = active_error_popup_click.borrow_mut().take() {
+                        p.popdown();
+                    }
                     clear_citation_ghost(&ghost_click, &ghost_bib_click, &hint_click);
                     clear_ghost(&ghost_click, &ghost_item_click, &hint_click);
                     if !view_fc.has_focus() {
@@ -3284,10 +3330,14 @@ impl EditorPane {
                 let ghost_item_focus = ghost_item.clone();
                 let ghost_bib_focus = ghost_bib_entry.clone();
                 let hint_focus = self.lsp_status_label.clone();
+                let active_error_popup_focus = active_error_popup.clone();
                 focus_ctrl.connect_leave(move |_| {
                     pause();
                     lsp_popup_focus.hide();
                     bib_popup_focus.hide();
+                    if let Some(p) = active_error_popup_focus.borrow_mut().take() {
+                        p.popdown();
+                    }
                     clear_citation_ghost(&ghost_focus, &ghost_bib_focus, &hint_focus);
                     clear_ghost(&ghost_focus, &ghost_item_focus, &hint_focus);
                 });

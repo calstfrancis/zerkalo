@@ -7,7 +7,7 @@ use libadwaita as adw;
 use adw::prelude::*;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const RELEASE_NAME: &str = "Second Reading";
+pub const RELEASE_NAME: &str = "Clean Copy";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -137,19 +137,11 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
-                "Importing an existing document (Ctrl+Shift+I) is a normal, always-available feature now, not something hidden behind a developer toggle.",
-                "The Citations panel can start a brand-new bibliography with one click, instead of needing one to already exist before you could add a source.",
-                "The file that actually gets compiled is now marked in the file tree, and the root/include/import buttons explain what they do.",
-                "Restoring an old snapshot now asks first, so it can't silently overwrite unsaved work.",
-                "Help (Ctrl+?) opens on a plain-language Overview instead of raw Typst syntax, and the \"what does this do\" overlay (F1) now covers the Library window too.",
-                "A first-time explanation of the source/preview split, and of what Simple Mode is hiding, shows up right where you need it instead of only in a tooltip.",
-                "The Packages panel can now search and install from Typst Universe, not just list what's already downloaded — and it actually shows up in the sidebar now.",
-                "The Outline panel's folder toggle shows a manuscript-wide view — headings and word counts rolled up across every file in the project, not just the open one.",
-                "Reference Manager and Dependency Graph are reachable from the ≡ menu now — both existed and worked, but had no way to be opened before.",
-                "The Symbol Insert panel has a Math tab — common operators, relations, calculus, set theory, and more, one click to insert.",
-                "Insert Table (≡ → Insert Table) builds a #table(...) block from a form — rows, columns, per-cell text, alignment, a header row, and colspan/rowspan — instead of hand-writing the markup.",
-                "A Comments panel in the sidebar — threaded, resolvable notes anchored to a line, never written into the Typst source itself, so they can't break compilation or leak into an export.",
-                "Importing a .docx with Word's track changes now turns them into reviewable suggestions in the Comments panel, with Accept/Reject buttons, instead of silently accepting or dropping the edits.",
+                "A malformed date in one bibliography entry no longer breaks every citation in the document — Zerkalo now reads the file as leniently as its own citation panel already did, instead of failing the whole file over one bad entry.",
+                "A bibliography path outside the project — most commonly a Kartoteka vault — now works regardless of how it got into the document, not just when it's also set in Settings.",
+                "The Packages and Comments sidebar sections can be collapsed to just their header row, via a chevron button next to each.",
+                "Clicking a format bar button (Bold, a heading, Insert Table…) no longer moves the keyboard focus off the document — apply it and keep typing.",
+                "Clicking on error-underlined text now places the cursor there directly, instead of just dismissing the error popup and needing a second click.",
             ] {
                 body.append(&bullet_row(item));
             }

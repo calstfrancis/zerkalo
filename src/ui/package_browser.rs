@@ -6,7 +6,7 @@ use std::time::Duration;
 use gtk4::prelude::*;
 use gtk4::{
     Box as GtkBox, Button, Entry, Label, ListBox, ListBoxRow,
-    Orientation, ScrolledWindow, SelectionMode, Separator, Spinner,
+    Orientation, Revealer, RevealerTransitionType, ScrolledWindow, SelectionMode, Separator, Spinner,
 };
 
 use crate::typst_universe::UniversePackage;
@@ -36,10 +36,13 @@ pub struct PackageBrowser {
     list_box: ListBox,
     filter_entry: Entry,
     status_label: Label,
+    collapse_btn: Button,
+    revealer: Revealer,
     local: Rc<RefCell<Vec<LocalPackage>>>,
     remote: Rc<RefCell<Vec<UniversePackage>>>,
     installing: Rc<RefCell<std::collections::HashSet<String>>>,
     on_insert: Rc<RefCell<Option<Box<dyn Fn(String)>>>>,
+    on_collapse_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
 }
 
 impl PackageBrowser {
@@ -57,6 +60,12 @@ impl PackageBrowser {
         title.add_css_class("heading");
         header.append(&title);
 
+        let collapse_btn = Button::from_icon_name("pan-down-symbolic");
+        collapse_btn.add_css_class("flat");
+        collapse_btn.set_tooltip_text(Some("Hide Packages"));
+        collapse_btn.update_property(&[gtk4::accessible::Property::Label("Hide Packages")]);
+        header.append(&collapse_btn);
+
         let refresh_btn = Button::from_icon_name("view-refresh-symbolic");
         refresh_btn.add_css_class("flat");
         refresh_btn.set_tooltip_text(Some("Refresh the Typst Universe package list"));
@@ -66,13 +75,16 @@ impl PackageBrowser {
         widget.append(&header);
         widget.append(&Separator::new(Orientation::Horizontal));
 
+        let body = GtkBox::new(Orientation::Vertical, 0);
+        body.set_vexpand(true);
+
         let filter_entry = Entry::new();
         filter_entry.set_placeholder_text(Some("Search installed and Typst Universe packages…"));
         filter_entry.set_margin_start(8);
         filter_entry.set_margin_end(8);
         filter_entry.set_margin_top(6);
         filter_entry.set_margin_bottom(4);
-        widget.append(&filter_entry);
+        body.append(&filter_entry);
 
         let status_label = Label::new(None);
         status_label.add_css_class("caption");
@@ -81,7 +93,7 @@ impl PackageBrowser {
         status_label.set_margin_start(8);
         status_label.set_margin_bottom(4);
         status_label.set_visible(false);
-        widget.append(&status_label);
+        body.append(&status_label);
 
         let scroll = ScrolledWindow::new();
         scroll.set_vexpand(true);
@@ -89,23 +101,49 @@ impl PackageBrowser {
         list_box.set_selection_mode(SelectionMode::None);
         list_box.add_css_class("navigation-sidebar");
         scroll.set_child(Some(&list_box));
-        widget.append(&scroll);
+        body.append(&scroll);
+
+        let revealer = Revealer::new();
+        revealer.set_transition_type(RevealerTransitionType::SlideDown);
+        revealer.set_reveal_child(true);
+        revealer.set_vexpand(true);
+        revealer.set_child(Some(&body));
+        widget.append(&revealer);
 
         let local: Rc<RefCell<Vec<LocalPackage>>> = Rc::new(RefCell::new(Vec::new()));
         let remote: Rc<RefCell<Vec<UniversePackage>>> = Rc::new(RefCell::new(Vec::new()));
         let installing: Rc<RefCell<std::collections::HashSet<String>>> =
             Rc::new(RefCell::new(std::collections::HashSet::new()));
         let on_insert: Rc<RefCell<Option<Box<dyn Fn(String)>>>> = Rc::new(RefCell::new(None));
+        let on_collapse_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>> = Rc::new(RefCell::new(None));
+
+        {
+            let revealer = revealer.clone();
+            let collapse_btn_c = collapse_btn.clone();
+            let on_collapse_toggle_c = on_collapse_toggle.clone();
+            collapse_btn.connect_clicked(move |_| {
+                let now_collapsed = revealer.reveals_child();
+                revealer.set_reveal_child(!now_collapsed);
+                collapse_btn_c.set_icon_name(if now_collapsed { "pan-end-symbolic" } else { "pan-down-symbolic" });
+                collapse_btn_c.set_tooltip_text(Some(if now_collapsed { "Show Packages" } else { "Hide Packages" }));
+                if let Some(f) = on_collapse_toggle_c.borrow().as_ref() {
+                    f(now_collapsed);
+                }
+            });
+        }
 
         let pb = Self {
             widget,
             list_box,
             filter_entry,
             status_label,
+            collapse_btn,
+            revealer,
             local,
             remote,
             installing,
             on_insert,
+            on_collapse_toggle,
         };
 
         pb.scan_local_packages();
@@ -141,6 +179,20 @@ impl PackageBrowser {
 
     pub fn widget(&self) -> &GtkBox {
         &self.widget
+    }
+
+    /// Restores a persisted collapsed/expanded state — called once at
+    /// startup, before the user has clicked anything.
+    pub fn set_collapsed(&self, collapsed: bool) {
+        self.revealer.set_reveal_child(!collapsed);
+        self.collapse_btn.set_icon_name(if collapsed { "pan-end-symbolic" } else { "pan-down-symbolic" });
+        self.collapse_btn.set_tooltip_text(Some(if collapsed { "Show Packages" } else { "Hide Packages" }));
+    }
+
+    /// Fires with the new collapsed state whenever the user clicks the
+    /// header's collapse toggle, so the caller can persist it.
+    pub fn set_on_collapse_toggle(&self, f: impl Fn(bool) + 'static) {
+        *self.on_collapse_toggle.borrow_mut() = Some(Box::new(f));
     }
 
     fn scan_local_packages(&self) {
