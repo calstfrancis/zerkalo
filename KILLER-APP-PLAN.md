@@ -1248,6 +1248,122 @@ resolve/reopen state per comment.
 
 ## Phase 12 — DOCX/ODT round-trip preserving track changes
 
+**Status:** ☑ DONE (2026-08-18) — DOCX *import* of track changes into a new
+suggestion model, with in-app accept/reject that mutates the document.
+DOCX *export* of unresolved suggestions back to revision-mark XML, and
+ODT's equivalent, are both deliberately deferred — see "Scope" below.
+
+**Resolved this phase's own open design question**: extended
+`crate::comments::Comment` with an optional `Suggestion { kind: Insertion
+| Deletion, text, status: Pending | Accepted | Rejected }`, rather than
+building a separate diff/patch model — a suggestion is a comment with a
+proposed edit attached, not a different kind of object, which kept it a
+small, additive change to Phase 11's existing sidecar/anchoring/relocate
+machinery instead of a parallel system.
+
+**How accept/reject actually changes the document** — this is the part
+Phase 11's own text flagged as "strictly harder" than anchored comments,
+resolved with a deliberately narrow, symmetric rule rather than a general
+diff/patch engine: both an insertion's and a deletion's proposed text are
+inlined into the document *at import time* (Typst has no track-changes
+rendering, so "review in context" means the text is just there to read).
+Accepting or rejecting decides whether it *stays*: accepting an insertion
+or rejecting a deletion is a no-op (the text was already visible); the
+other two combinations call a new `EditorPane::remove_text_at_line(line,
+text)` that finds and deletes that exact substring on that line — a
+narrow, single-purpose operation built by mirroring the already-shipping
+`do_replace_one`/`do_replace_all`'s exact GTK `TextBuffer`/`forward_search`
+pattern, not new API surface. Pure logic (`suggestion_removes_text`) is
+unit-tested on its own; the GTK-facing removal isn't (no other `EditorPane`
+method is either), but was verified live (below).
+
+**DOCX import**: `doc_import/docx.rs`'s existing direct ZIP/XML parser
+(not pandoc) now also reads `<w:ins>`/`<w:del>` — a new `Inline::Tracked`
+variant wraps their runs (added to the shared `doc_import` model, not
+DOCX-only, so ODT can reuse it later), rendering exactly like untracked
+text so zero Typst-emission code changed. `<w:delText>` (Word's separate
+tag for deleted-run text, used instead of `<w:t>` precisely so naive
+`<w:t>`-only readers don't double-count it) is now read alongside `<w:t>`.
+A new `doc_import::collect_tracked_changes` flattens every tracked span to
+plain text, in document order; the import flow
+(`app_window/import.rs::record_tracked_changes_as_suggestions`) then
+searches for each one's *escaped* form (matching what the Typst emitter
+actually wrote) as a substring of the just-saved `.typ`, advancing the
+search position past each match so repeated identical changes anchor to
+their own line instead of all collapsing onto the first occurrence. A
+change whose escaped text can't be found is silently skipped rather than
+mis-anchored — a known, narrow gap (documented in the function's own doc
+comment), not a silent majority-case failure.
+
+**A real, live-only bug, found by screenshot, not by any of the 15 new
+unit tests**: the first version of the Accept button was `.flat` +
+`.suggested-action` — which compiled clean, passed clippy, and *rendered
+as a genuinely blank gap* between "Reply" and "Reject" in a live capture.
+Root-caused by extracting libadwaita's actual shipped CSS
+(`gresource extract .../libadwaita-1.so /org/gnome/Adwaita/styles/base.css`)
+rather than guessing: `button.suggested-action { color:
+var(--accent-fg-color); }` applies unconditionally (no `:not(.flat)`
+guard), and `.flat` drops the accent background that white text is meant
+to sit on — white-on-white, invisible. `.destructive-action` (the
+"Reject" button) has no equivalent bare color rule and rendered fine.
+Checked the rest of the codebase: every other `suggested-action` button
+already avoids `.flat` — this was the one place that combined them.
+Fixed by dropping `.flat` from Accept only, matching that existing,
+proven convention, with the finding recorded as a comment at the call
+site so it doesn't get reintroduced.
+
+**Verified live** (screenshot-only, `xdotool click` on a plain `Button` —
+consistent with every prior phase's finding that plain buttons work
+headlessly here while Popovers and drag gestures don't): pre-seeded a
+`.comments.toml` sidecar with a pending Insertion suggestion via the
+app's own `CommentThread::save`, opened the matching `.typ`, confirmed
+the sidebar rendered "Insert 'added text'" with Accept/Reject — first
+capture showed the invisible-button bug above; after the fix, Accept
+rendered as a solid blue button and Reject as flat red. Clicked Reject:
+the editor text changed from "Before added text after." to "Before
+after." live, the title bar showed "Modified," the preview pane
+re-rendered to match, the word count updated 4→2, the comment badge
+switched to "✗ rejected," and (correctly, matching Phase 11's own
+relocate design — the anchor line's text no longer matches) an "⚠ anchor
+lost" warning appeared next to it.
+
+**Scope cuts, both deliberate and narrower than the phase's original
+text asked for**:
+- **DOCX export of unresolved suggestions as `<w:ins>`/`<w:del>` was not
+  built.** The phase's own "Fix" bullet asked for this, but Zerkalo's
+  DOCX *export* today goes through `pandoc` — there is no custom
+  OOXML-writing code anywhere in this codebase to extend, unlike import
+  (which extends the already-proven direct-XML reader). Emitting real
+  revision-mark XML would mean building a DOCX writer from nothing, a
+  substantially larger, separately-scoped effort. Import — "receives a
+  track-changes-marked DOCX back from a journal or co-author" — is the
+  half of this phase's own motivating paragraph that's actually solved
+  now; round-tripping *back out* to Word with marks intact stays open.
+- **ODT's `<text:change>` was not built**, per the phase's own explicit
+  permission ("treat DOCX as the primary target and ODT as a follow-up
+  once the model is proven, rather than building both at once") — the
+  shared `Inline::Tracked`/`collect_tracked_changes` plumbing added to
+  `doc_import/mod.rs` is format-agnostic, so `doc_import/odt.rs` extending
+  it later is a much smaller follow-up than this phase was.
+- **No UI to author a suggestion by hand** (as opposed to reviewing one
+  imported from DOCX) — matches Phase 11's own comments-only v1 scope
+  reasoning: the workflow this exists for is reviewing someone else's
+  marked-up manuscript, not proposing edits from inside Zerkalo itself.
+
+15 new unit tests across three files (`comments.rs`: suggestion
+add/status/round-trip/removal-symmetry; `doc_import/docx.rs`: insertion
+and deletion parsing, `<w:delText>`, empty-case, a document with tracked
+changes still compiles; `app_window/import.rs`:
+`record_tracked_changes_as_suggestions`'s line-anchoring, duplicate-text
+ordering, not-found-is-skipped, and escaped-character matching). Full
+gate green: 542 tests, clippy clean, version guard clean.
+
+README/CHANGELOG updated in the same session.
+
+---
+
+**Original phase text preserved below:**
+
 **Status:** ☐ not started
 **Risk:** high · **Effort:** large · **Depends on:** Phase 11 (needs an
 internal comment/suggestion model to map Word's revision marks onto).

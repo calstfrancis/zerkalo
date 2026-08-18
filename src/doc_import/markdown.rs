@@ -262,7 +262,7 @@ pub fn read(text: &str) -> Imported {
         }
     }
 
-    Imported { blocks: b.blocks, media: Vec::new(), notes: b.notes }
+    Imported { blocks: b.blocks, media: Vec::new(), notes: b.notes, tracked_changes: Vec::new() }
 }
 
 #[cfg(test)]

@@ -44,6 +44,16 @@ Snapshots into one Versions system" project noted at the bottom of it.
   elsewhere in the document by re-locating against the commented line's
   actual text, not just its line number, so inserting a paragraph above a
   comment doesn't leave it pointing at the wrong place.
+- **Importing a `.docx` with Word's track changes turns them into
+  reviewable suggestions**, not silently-accepted or silently-dropped
+  text. Each `<w:ins>`/`<w:del>` run becomes a pending entry in the
+  Comments panel with Accept/Reject buttons — both the proposed addition
+  and the proposed removal are inlined into the imported document so
+  you're reviewing them in context, the way Word's own track changes read.
+  Accepting a deletion (or rejecting an insertion) removes that exact text
+  from the document; the opposite choice just marks it resolved. DOCX only
+  for now — ODT's equivalent (`<text:change>`) and re-exporting unresolved
+  suggestions as track changes are follow-ups, not this pass.
 
 ### Changed
 

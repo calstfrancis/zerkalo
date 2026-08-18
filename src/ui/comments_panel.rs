@@ -22,10 +22,14 @@ use gtk4::{
     ScrolledWindow, SelectionMode, Separator, TextView, WrapMode,
 };
 
-use crate::comments::CommentThread;
+use crate::comments::{suggestion_removes_text, CommentThread, SuggestionKind, SuggestionStatus};
 
 type JumpCb = Rc<RefCell<Option<Box<dyn Fn(u32)>>>>;
 type RequestAnchorCb = Rc<RefCell<Option<Box<dyn Fn() -> (u32, String)>>>>;
+/// `(anchor_line, suggestion text)` — fired after an accept/reject decision
+/// that requires removing text from the live document. Only called when
+/// `suggestion_removes_text` says so; keeping-as-is needs no document edit.
+type ApplySuggestionCb = Rc<RefCell<Option<Box<dyn Fn(u32, String)>>>>;
 
 #[derive(Clone)]
 pub struct CommentsPanel {
@@ -40,6 +44,7 @@ pub struct CommentsPanel {
     /// `app_window` (the only thing that tracks `EditorPane`'s cursor) for
     /// the current `(line, that line's text)` to anchor the new comment to.
     on_request_anchor: RequestAnchorCb,
+    on_apply_suggestion: ApplySuggestionCb,
 }
 
 impl CommentsPanel {
@@ -89,6 +94,7 @@ impl CommentsPanel {
             thread: Rc::new(RefCell::new(CommentThread::default())),
             on_jump: Rc::new(RefCell::new(None)),
             on_request_anchor: Rc::new(RefCell::new(None)),
+            on_apply_suggestion: Rc::new(RefCell::new(None)),
         };
 
         {
@@ -151,6 +157,14 @@ impl CommentsPanel {
         *self.on_request_anchor.borrow_mut() = Some(Box::new(f));
     }
 
+    /// Fired when accepting/rejecting a suggestion means removing its text
+    /// from the document (see `crate::comments::suggestion_removes_text`) —
+    /// the panel doesn't touch `EditorPane` directly, matching every other
+    /// callback here.
+    pub fn set_on_apply_suggestion(&self, f: impl Fn(u32, String) + 'static) {
+        *self.on_apply_suggestion.borrow_mut() = Some(Box::new(f));
+    }
+
     fn add_comment_here(&self, body: String) {
         if body.trim().is_empty() {
             return;
@@ -184,6 +198,25 @@ impl CommentsPanel {
         t.set_resolved(id, resolved);
         t.save(&path);
         drop(t);
+        self.rebuild(&[]);
+    }
+
+    fn resolve_suggestion(&self, id: u64, accepted: bool) {
+        let Some(path) = self.current_path.borrow().clone() else { return };
+        let mut t = self.thread.borrow_mut();
+        let Some(sugg) = t.comments.iter().find(|c| c.id == id).and_then(|c| c.suggestion.clone()) else {
+            return;
+        };
+        let line = t.comments.iter().find(|c| c.id == id).map(|c| c.anchor_line).unwrap_or(0);
+        let status = if accepted { SuggestionStatus::Accepted } else { SuggestionStatus::Rejected };
+        t.set_suggestion_status(id, status);
+        t.save(&path);
+        drop(t);
+        if suggestion_removes_text(&sugg.kind, accepted) {
+            if let Some(f) = self.on_apply_suggestion.borrow().as_ref() {
+                f(line, sugg.text.clone());
+            }
+        }
         self.rebuild(&[]);
     }
 
@@ -272,11 +305,31 @@ impl CommentsPanel {
             }
             outer.append(&anchor_row);
 
-            let body_lbl = Label::new(Some(&comment.body));
-            body_lbl.set_xalign(0.0);
-            body_lbl.set_wrap(true);
-            body_lbl.set_selectable(true);
-            outer.append(&body_lbl);
+            if let Some(sugg) = &comment.suggestion {
+                let (verb, css) = match sugg.kind {
+                    SuggestionKind::Insertion => ("Insert", "success"),
+                    SuggestionKind::Deletion => ("Delete", "error"),
+                };
+                let sugg_row = GtkBox::new(Orientation::Horizontal, 4);
+                let kind_lbl = Label::new(Some(verb));
+                kind_lbl.add_css_class("caption");
+                kind_lbl.add_css_class(css);
+                sugg_row.append(&kind_lbl);
+                let text_lbl = Label::new(Some(&format!("\u{201c}{}\u{201d}", truncate(&sugg.text, 60))));
+                text_lbl.set_xalign(0.0);
+                text_lbl.set_wrap(true);
+                text_lbl.set_selectable(true);
+                sugg_row.append(&text_lbl);
+                outer.append(&sugg_row);
+            }
+
+            if !comment.body.trim().is_empty() {
+                let body_lbl = Label::new(Some(&comment.body));
+                body_lbl.set_xalign(0.0);
+                body_lbl.set_wrap(true);
+                body_lbl.set_selectable(true);
+                outer.append(&body_lbl);
+            }
 
             for reply in &comment.replies {
                 let reply_box = GtkBox::new(Orientation::Horizontal, 4);
@@ -310,18 +363,71 @@ impl CommentsPanel {
             }
             action_row.append(&reply_btn);
 
-            let resolve_btn = Button::with_label(if comment.resolved { "Reopen" } else { "Resolve" });
-            resolve_btn.add_css_class("flat");
-            resolve_btn.add_css_class("caption");
-            {
-                let panel = self.clone();
-                let id = comment.id;
-                let now_resolved = !comment.resolved;
-                resolve_btn.connect_clicked(move |_| {
-                    panel.set_resolved(id, now_resolved);
-                });
+            match comment.suggestion.as_ref().map(|s| s.status.clone()) {
+                Some(SuggestionStatus::Pending) => {
+                    // Not `.flat`: libadwaita's `button.suggested-action` sets
+                    // white (accent-fg) text unconditionally, and `.flat`
+                    // drops the accent background that text is meant to sit
+                    // on — combined they render invisible white-on-white.
+                    // Every other suggested-action button in this codebase is
+                    // non-flat for the same reason; found live, not by
+                    // inspection, when this one came out as a blank gap in a
+                    // screenshot next to a working flat destructive-action.
+                    let accept_btn = Button::with_label("Accept");
+                    accept_btn.add_css_class("caption");
+                    accept_btn.add_css_class("suggested-action");
+                    {
+                        let panel = self.clone();
+                        let id = comment.id;
+                        accept_btn.connect_clicked(move |_| panel.resolve_suggestion(id, true));
+                    }
+                    action_row.append(&accept_btn);
+
+                    let reject_btn = Button::with_label("Reject");
+                    reject_btn.add_css_class("flat");
+                    reject_btn.add_css_class("caption");
+                    reject_btn.add_css_class("destructive-action");
+                    {
+                        let panel = self.clone();
+                        let id = comment.id;
+                        reject_btn.connect_clicked(move |_| panel.resolve_suggestion(id, false));
+                    }
+                    action_row.append(&reject_btn);
+                }
+                Some(SuggestionStatus::Accepted) => {
+                    let badge = Label::new(Some("✓ accepted"));
+                    badge.add_css_class("caption");
+                    badge.add_css_class("dim-label");
+                    action_row.append(&badge);
+                }
+                Some(SuggestionStatus::Rejected) => {
+                    let badge = Label::new(Some("✗ rejected"));
+                    badge.add_css_class("caption");
+                    badge.add_css_class("dim-label");
+                    action_row.append(&badge);
+                }
+                None => {
+                    let resolve_btn = Button::with_label(if comment.resolved { "Reopen" } else { "Resolve" });
+                    resolve_btn.add_css_class("flat");
+                    resolve_btn.add_css_class("caption");
+                    {
+                        let panel = self.clone();
+                        let id = comment.id;
+                        let now_resolved = !comment.resolved;
+                        resolve_btn.connect_clicked(move |_| {
+                            panel.set_resolved(id, now_resolved);
+                        });
+                    }
+                    action_row.append(&resolve_btn);
+
+                    if comment.resolved {
+                        let badge = Label::new(Some("✓ resolved"));
+                        badge.add_css_class("caption");
+                        badge.add_css_class("dim-label");
+                        action_row.append(&badge);
+                    }
+                }
             }
-            action_row.append(&resolve_btn);
 
             let delete_btn = Button::from_icon_name("user-trash-symbolic");
             delete_btn.add_css_class("flat");
@@ -334,13 +440,6 @@ impl CommentsPanel {
                 });
             }
             action_row.append(&delete_btn);
-
-            if comment.resolved {
-                let badge = Label::new(Some("✓ resolved"));
-                badge.add_css_class("caption");
-                badge.add_css_class("dim-label");
-                action_row.append(&badge);
-            }
 
             outer.append(&action_row);
             row.set_child(Some(&outer));

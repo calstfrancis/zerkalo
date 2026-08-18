@@ -2203,6 +2203,32 @@ impl EditorPane {
         self.do_find(find, true);
     }
 
+    /// Removes the first occurrence of `text` found on `line` (1-indexed) of
+    /// the active tab. Used to apply a resolved suggestion (see
+    /// `crate::comments::suggestion_removes_text`) directly to the document —
+    /// deliberately narrow (one line, exact substring) rather than a general
+    /// find/replace, since the caller already knows exactly what it's
+    /// looking for and where.
+    pub fn remove_text_at_line(&self, line: u32, text: &str) -> bool {
+        if text.is_empty() {
+            return false;
+        }
+        let Some((_view, buffer)) = self.active_view_buffer() else { return false };
+        let line_idx = line.saturating_sub(1) as i32;
+        let Some(line_start) = buffer.iter_at_line(line_idx) else { return false };
+        let mut line_end = line_start;
+        line_end.forward_to_line_end();
+        let Some((mut start, mut end)) =
+            line_start.forward_search(text, TextSearchFlags::TEXT_ONLY, Some(&line_end))
+        else {
+            return false;
+        };
+        buffer.begin_user_action();
+        buffer.delete(&mut start, &mut end);
+        buffer.end_user_action();
+        true
+    }
+
     pub fn do_replace_all(&self, find: &str, replace: &str) {
         if find.is_empty() {
             return;

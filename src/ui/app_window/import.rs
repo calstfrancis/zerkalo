@@ -743,6 +743,7 @@ fn show_import_preview_dialog(
     input_path: std::path::PathBuf,
     fmt_label: &'static str,
     processed: String,
+    tracked_changes: Vec<crate::doc_import::TrackedChange>,
     staging: std::path::PathBuf,
     media_name: String,
     work_dir: std::path::PathBuf,
@@ -897,6 +898,7 @@ fn show_import_preview_dialog(
         let media_name_c = media_name.clone();
         let dest_row_c = dest_row.clone();
         let processed_c = processed.clone();
+        let tracked_changes_c = tracked_changes.clone();
         import_btn.connect_clicked(move |_| {
             let final_dir = if dest_row_c.selected() == 0 { work_dir.clone() } else { input_dir_c.clone() };
             let final_path = unique_typ_path(final_dir.join(&out_name_c));
@@ -925,6 +927,10 @@ fn show_import_preview_dialog(
             accepted_c2.set(true);
             let _ = std::fs::remove_dir_all(&staging_c);
 
+            if !tracked_changes_c.is_empty() {
+                record_tracked_changes_as_suggestions(&final_path, &processed_c, &tracked_changes_c);
+            }
+
             editor_c.open_file(final_path.clone(), &processed_c);
             let found_bib = offer_bib_autodetect(&toast_overlay_c, &cfg_c, &input_dir_c);
             warn_if_citations_without_bib(&toast_overlay_c, &cfg_c, &processed_c, found_bib);
@@ -951,6 +957,38 @@ fn show_import_preview_dialog(
     }
 
     dlg.present();
+}
+
+/// Turns each of a DOCX's `<w:ins>`/`<w:del>` runs into a pending
+/// `Suggestion` comment anchored to its line in the just-written `.typ` —
+/// `KILLER-APP-PLAN.md` Phase 12's "receives a track-changes-marked DOCX
+/// back from a journal or co-author" case.
+///
+/// Both a change's own text and the escaping `doc_import`'s Typst emitter
+/// applies to it (`escape_text`) are searched for as a substring of `body`
+/// (the exact text just saved to disk), advancing the search position past
+/// each match found so repeated identical changes anchor to their own line
+/// rather than all collapsing onto the first occurrence. A change whose
+/// escaped text can't be found (post-processing altered it in some way this
+/// search doesn't account for) is silently skipped rather than mis-anchored
+/// — a known, narrow gap, not a silent majority-case failure.
+fn record_tracked_changes_as_suggestions(
+    typ_path: &std::path::Path,
+    body: &str,
+    tracked_changes: &[crate::doc_import::TrackedChange],
+) {
+    let mut thread = crate::comments::CommentThread::load(typ_path);
+    let mut search_from = 0usize;
+    for tc in tracked_changes {
+        let escaped = crate::doc_import::escape_text(&tc.text);
+        let Some(rel_pos) = body[search_from..].find(&escaped) else { continue };
+        let pos = search_from + rel_pos;
+        let line = body[..pos].matches('\n').count() as u32 + 1;
+        let anchor_snippet = body.lines().nth((line - 1) as usize).unwrap_or("").to_string();
+        thread.add_suggestion(line, anchor_snippet, tc.kind.clone(), tc.text.clone(), String::new());
+        search_from = pos + escaped.len();
+    }
+    thread.save(typ_path);
 }
 
 /// Shared entry point for all pandoc-based document import (LaTeX/DOCX/
@@ -1112,10 +1150,11 @@ fn run_native_import(
     let processed = post_process_latex_import(&body, bib_path.as_deref());
     // Image paths are already relative to the document, so nothing to rewrite.
     let notes = imported.notes.join("\n");
+    let tracked_changes = imported.tracked_changes;
 
     show_import_preview_dialog(
         window, editor, cfg, toast_overlay,
-        input_path, fmt.label, processed,
+        input_path, fmt.label, processed, tracked_changes,
         staging, media_name, work_dir.to_path_buf(),
         notes,
     );
@@ -1256,7 +1295,7 @@ fn run_pandoc_import_confirmed(
                         let processed = post_process_latex_import(&relocated, bib_path.as_deref());
                         show_import_preview_dialog(
                             &win, &ep, &cfg, &toast_overlay,
-                            input_path.clone(), fmt.label, processed,
+                            input_path.clone(), fmt.label, processed, Vec::new(),
                             staging_poll.clone(), media_name.clone(), work_dir.clone(),
                             stderr_text.clone(),
                         );
@@ -2092,9 +2131,11 @@ fn post_process_pdf_import(text: &str, title: &str) -> String {
 mod tests {
     use super::{
         describe_pandoc_failure, format_pdf_body, parse_pandoc_version, post_process_latex_import,
-        rewrite_media_paths, scan_files_recursive, summarize_import_content,
-        unique_typ_path,
+        record_tracked_changes_as_suggestions, rewrite_media_paths, scan_files_recursive,
+        summarize_import_content, unique_typ_path,
     };
+    use crate::comments::{CommentThread, SuggestionKind, SuggestionStatus};
+    use crate::doc_import::TrackedChange;
 
     #[test]
     fn media_paths_are_made_relative_to_the_document() {
@@ -2395,5 +2436,81 @@ Body.\n";
         let input = "= Heading\n\nText.\n";
         let result = post_process_latex_import(input, None);
         assert!(result.contains("// ── Document body"), "body marker present");
+    }
+
+    #[test]
+    fn tracked_changes_become_pending_suggestions_anchored_to_their_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let typ_path = dir.path().join("doc.typ");
+        let body = "= Title\n\nBefore added text after.\n\nOld phrase stays visible.\n";
+        std::fs::write(&typ_path, body).unwrap();
+
+        let tracked = vec![
+            TrackedChange { kind: SuggestionKind::Insertion, text: "added text".into() },
+            TrackedChange { kind: SuggestionKind::Deletion, text: "Old phrase".into() },
+        ];
+        record_tracked_changes_as_suggestions(&typ_path, body, &tracked);
+
+        let loaded = CommentThread::load(&typ_path);
+        assert_eq!(loaded.comments.len(), 2);
+
+        let ins = &loaded.comments[0];
+        assert_eq!(ins.anchor_line, 3);
+        let s = ins.suggestion.as_ref().unwrap();
+        assert_eq!(s.kind, SuggestionKind::Insertion);
+        assert_eq!(s.text, "added text");
+        assert_eq!(s.status, SuggestionStatus::Pending);
+
+        let del = &loaded.comments[1];
+        assert_eq!(del.anchor_line, 5);
+        assert_eq!(del.suggestion.as_ref().unwrap().kind, SuggestionKind::Deletion);
+    }
+
+    #[test]
+    fn duplicate_tracked_text_anchors_to_successive_occurrences_not_the_first_one_twice() {
+        let dir = tempfile::tempdir().unwrap();
+        let typ_path = dir.path().join("doc.typ");
+        let body = "repeated word here.\n\nrepeated word here again.\n";
+        std::fs::write(&typ_path, body).unwrap();
+
+        let tracked = vec![
+            TrackedChange { kind: SuggestionKind::Insertion, text: "repeated word".into() },
+            TrackedChange { kind: SuggestionKind::Insertion, text: "repeated word".into() },
+        ];
+        record_tracked_changes_as_suggestions(&typ_path, body, &tracked);
+
+        let loaded = CommentThread::load(&typ_path);
+        assert_eq!(loaded.comments.len(), 2);
+        assert_eq!(loaded.comments[0].anchor_line, 1);
+        assert_eq!(loaded.comments[1].anchor_line, 3);
+    }
+
+    #[test]
+    fn a_tracked_change_whose_escaped_text_cannot_be_found_is_skipped_not_mis_anchored() {
+        let dir = tempfile::tempdir().unwrap();
+        let typ_path = dir.path().join("doc.typ");
+        let body = "Nothing matching here.\n";
+        std::fs::write(&typ_path, body).unwrap();
+
+        let tracked = vec![TrackedChange { kind: SuggestionKind::Insertion, text: "not present anywhere".into() }];
+        record_tracked_changes_as_suggestions(&typ_path, body, &tracked);
+
+        assert!(CommentThread::load(&typ_path).comments.is_empty());
+    }
+
+    #[test]
+    fn special_typst_characters_in_tracked_text_are_matched_against_their_escaped_form() {
+        let dir = tempfile::tempdir().unwrap();
+        let typ_path = dir.path().join("doc.typ");
+        // escape_text turns "$5" into "\$5" in the rendered output.
+        let body = "Costs \\$5 today.\n";
+        std::fs::write(&typ_path, body).unwrap();
+
+        let tracked = vec![TrackedChange { kind: SuggestionKind::Insertion, text: "$5".into() }];
+        record_tracked_changes_as_suggestions(&typ_path, body, &tracked);
+
+        let loaded = CommentThread::load(&typ_path);
+        assert_eq!(loaded.comments.len(), 1, "should find the escaped form, not fail to match");
+        assert_eq!(loaded.comments[0].suggestion.as_ref().unwrap().text, "$5");
     }
 }

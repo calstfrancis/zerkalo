@@ -9,6 +9,8 @@ use std::collections::HashMap;
 use std::io::Read;
 use std::path::Path;
 
+use crate::comments::SuggestionKind;
+
 use super::{Block, Imported, Inline, Media};
 
 /// Reads one entry out of a ZIP as bytes.
@@ -43,8 +45,30 @@ fn paragraph_inlines(p: roxmltree::Node, rels: &HashMap<String, String>) -> Vec<
 
     for node in p.descendants() {
         match node.tag_name().name() {
-            "r" if node.parent().map(|n| n.tag_name().name()) != Some("hyperlink") => {
+            "r" if !matches!(
+                node.parent().map(|n| n.tag_name().name()),
+                Some("hyperlink") | Some("ins") | Some("del")
+            ) => {
                 push_run(node, &mut out);
+            }
+            // <w:ins>/<w:del> wrap the runs of an inserted or deleted span.
+            // Only their direct <w:r> children are gathered here — the same
+            // runs are also visited by the "r" arm above as the outer
+            // descendants() walk reaches them, but the guard there excludes
+            // an ins/del parent, so this is the only place they're read.
+            "ins" | "del" => {
+                let kind = if node.tag_name().name() == "ins" {
+                    SuggestionKind::Insertion
+                } else {
+                    SuggestionKind::Deletion
+                };
+                let mut body = Vec::new();
+                for r in node.children().filter(|c| c.tag_name().name() == "r") {
+                    push_run(r, &mut body);
+                }
+                if !body.is_empty() {
+                    out.push(Inline::Tracked { kind, body });
+                }
             }
             "hyperlink" => {
                 let href = node
@@ -93,7 +117,9 @@ fn push_run(r: roxmltree::Node, out: &mut Vec<Inline>) {
     let mut text = String::new();
     for child in r.children() {
         match child.tag_name().name() {
-            "t" => text.push_str(child.text().unwrap_or("")),
+            // Word writes a deleted run's text as <w:delText>, not <w:t>, so
+            // that tools reading only <w:t> don't silently double-count it.
+            "t" | "delText" => text.push_str(child.text().unwrap_or("")),
             "tab" => text.push('\t'),
             "br" => text.push('\n'),
             _ => {}
@@ -264,7 +290,8 @@ pub fn read(path: &Path) -> Result<Imported, String> {
         return Err("This .docx appears to have no text in it.".to_string());
     }
 
-    Ok(Imported { blocks, media, notes })
+    let tracked_changes = super::collect_tracked_changes(&blocks);
+    Ok(Imported { blocks, media, notes, tracked_changes })
 }
 
 #[cfg(test)]
@@ -415,6 +442,59 @@ mod tests {
         let path = make_docx(&wrap(""));
         let err = read(&path).expect_err("should fail");
         assert!(err.contains("no text"), "got: {err}");
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn an_insertion_run_is_read_as_a_tracked_change_and_kept_in_the_text() {
+        let path = make_docx(&wrap(
+            r#"<w:p><w:r><w:t>Before </w:t></w:r>
+               <w:ins><w:r><w:t>added text</w:t></w:r></w:ins>
+               <w:r><w:t> after</w:t></w:r></w:p>"#,
+        ));
+        let doc = read(&path).expect("should read");
+        assert_eq!(doc.tracked_changes.len(), 1);
+        assert_eq!(doc.tracked_changes[0].kind, SuggestionKind::Insertion);
+        assert_eq!(doc.tracked_changes[0].text, "added text");
+        let Block::Paragraph(inlines) = &doc.blocks[0] else { panic!("expected paragraph") };
+        assert!(matches!(&inlines[1], Inline::Tracked { kind: SuggestionKind::Insertion, .. }));
+        let out = super::super::to_typst(&doc);
+        assert!(out.contains("added text"), "insertion should still appear in the rendered text: {out}");
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn a_deletion_run_uses_deltext_and_is_also_kept_in_the_rendered_text() {
+        let path = make_docx(&wrap(
+            r#"<w:p><w:del><w:r><w:delText>old phrase</w:delText></w:r></w:del></w:p>"#,
+        ));
+        let doc = read(&path).expect("should read");
+        assert_eq!(doc.tracked_changes.len(), 1);
+        assert_eq!(doc.tracked_changes[0].kind, SuggestionKind::Deletion);
+        assert_eq!(doc.tracked_changes[0].text, "old phrase");
+        let out = super::super::to_typst(&doc);
+        assert!(out.contains("old phrase"), "deletion stays visible until reviewed: {out}");
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn a_document_with_no_track_changes_has_an_empty_list() {
+        let path = make_docx(&wrap(r#"<w:p><w:r><w:t>plain text</w:t></w:r></w:p>"#));
+        let doc = read(&path).expect("should read");
+        assert!(doc.tracked_changes.is_empty());
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn a_document_with_track_changes_still_compiles() {
+        let path = make_docx(&wrap(
+            r#"<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Title</w:t></w:r></w:p>
+               <w:p><w:r><w:t>Kept. </w:t></w:r>
+               <w:ins><w:r><w:t>Added sentence.</w:t></w:r></w:ins>
+               <w:del><w:r><w:delText>Removed sentence.</w:delText></w:r></w:del></w:p>"#,
+        ));
+        let doc = read(&path).expect("should read");
+        crate::doc_import::tests::assert_compiles(&crate::doc_import::to_typst(&doc));
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
