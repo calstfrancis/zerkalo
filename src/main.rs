@@ -19,6 +19,7 @@ mod fonts;
 mod git_sync;
 mod github_auth;
 mod import_log;
+mod i18n;
 mod imposition;
 mod keybindings;
 mod lsp;
