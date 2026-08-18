@@ -138,6 +138,19 @@ Snapshots into one Versions system" project noted at the bottom of it.
   other Typst code between the last heading and the end of the file were
   counted as prose words. A fresh document's Introduction (3 real words)
   read as 24.
+- **Pointing the bibliography at a Kartoteka vault never actually worked
+  at compile time**, even though the Citations panel and `@`-autocomplete
+  worked fine — citing anything produced "label does not exist," not a
+  clear bibliography error. Two compounding bugs: the document's
+  `#bibliography(...)` call named the bare vault folder instead of its
+  `library.yml` (Typst reads a bibliography file, not a directory), and —
+  more fundamentally — any `bib_path` outside the project directory was
+  unreachable at all, since Typst treats an absolute path as rooted at the
+  project, not the real filesystem. Compiling, printing, and exporting now
+  widen the sandbox to reach a configured bibliography wherever it lives,
+  and a vault path resolves to its `library.yml` automatically. A document
+  created before this fix needs Update Template Settings → Apply once to
+  pick up the corrected bibliography line.
 
 ### Changed
 

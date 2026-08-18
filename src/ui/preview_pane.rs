@@ -69,6 +69,12 @@ pub struct PreviewPane {
     /// edits made in Skrizhal while Zerkalo is open show up without a
     /// restart. `None` means not in CV mode for this document.
     cv_elements_path: Rc<RefCell<Option<PathBuf>>>,
+    /// The configured bibliography path (`Config::bib_path`, project override
+    /// included) — most often irrelevant to the compile sandbox, but when it
+    /// points outside the project (a Kartoteka vault living elsewhere, most
+    /// commonly) the compiler needs it to widen the World's root so the file
+    /// is actually reachable. See `compiler::ZerkaloWorld::new`'s `extra_root`.
+    bib_path: Rc<RefCell<Option<PathBuf>>>,
     draft_mode: Rc<RefCell<bool>>,
     first_load: Rc<RefCell<bool>>,
     zoom_osd: Label,
@@ -316,6 +322,7 @@ impl PreviewPane {
             compile_pending: Rc::new(Cell::new(false)),
             buffer_snapshot: Rc::new(RefCell::new(HashMap::new())),
             cv_elements_path: Rc::new(RefCell::new(None)),
+            bib_path: Rc::new(RefCell::new(None)),
             draft_mode: Rc::new(RefCell::new(false)),
             first_load: Rc::new(RefCell::new(true)),
             zoom_osd,
@@ -471,13 +478,13 @@ impl PreviewPane {
     ///
     /// Draft mode is deliberately excluded: the caller is producing final
     /// output, not a preview.
-    pub fn compile_inputs(&self) -> Option<(PathBuf, HashMap<PathBuf, String>, HashMap<String, String>)> {
+    pub fn compile_inputs(&self) -> Option<(PathBuf, HashMap<PathBuf, String>, HashMap<String, String>, Option<PathBuf>)> {
         let root = self.root_file_path()?;
         let mut sys_inputs = HashMap::new();
         if let Some((k, v)) = self.cv_data_sys_input() {
             sys_inputs.insert(k, v);
         }
-        Some((root, self.buffer_snapshot.borrow().clone(), sys_inputs))
+        Some((root, self.buffer_snapshot.borrow().clone(), sys_inputs, self.bib_path.borrow().clone()))
     }
 
     pub fn set_buffer_snapshot(&self, path: PathBuf, text: String) {
@@ -489,6 +496,13 @@ impl PreviewPane {
     /// compile via `cv_data_sys_input`, not cached here.
     pub fn set_cv_elements_path(&self, path: Option<PathBuf>) {
         *self.cv_elements_path.borrow_mut() = path;
+    }
+
+    /// Sets (or clears, with `None`) the configured bibliography path, so
+    /// the compile sandbox can widen to reach it when it lives outside the
+    /// project — see the `bib_path` field's own doc comment.
+    pub fn set_bib_path(&self, path: Option<PathBuf>) {
+        *self.bib_path.borrow_mut() = path;
     }
 
     /// Reads `cv_elements_path` fresh (if set) and returns the
@@ -782,6 +796,7 @@ impl PreviewPane {
 
         let (tx, rx) = mpsc::sync_channel::<CompileResult>(1);
 
+        let bib_path = self.bib_path.borrow().clone();
         let snapshots = self.buffer_snapshot.borrow().clone();
         let draft = *self.draft_mode.borrow();
         let pixel_per_pt = if draft { 1.0f32 } else { 2.0f32 };
@@ -794,7 +809,7 @@ impl PreviewPane {
         }
         std::thread::spawn(move || {
             let t0 = std::time::Instant::now();
-            let result = crate::compiler::compile_to_rgba_pages(&root, pixel_per_pt, &snapshots, &sys_inputs);
+            let result = crate::compiler::compile_to_rgba_pages(&root, pixel_per_pt, &snapshots, &sys_inputs, bib_path.as_deref());
             let elapsed = t0.elapsed();
             tx.send(match result {
                 Ok((pages, warnings)) => CompileResult::Success(pages, warnings, elapsed),
@@ -971,6 +986,7 @@ struct PdfTextInputs {
     output_dir: PathBuf,
     snapshots: HashMap<PathBuf, String>,
     sys_inputs: HashMap<String, String>,
+    bib_path: Option<PathBuf>,
 }
 
 fn gather_pdf_text_inputs(pane: &PreviewPane) -> Option<PdfTextInputs> {
@@ -984,6 +1000,7 @@ fn gather_pdf_text_inputs(pane: &PreviewPane) -> Option<PdfTextInputs> {
         output_dir: pane.output_dir(),
         snapshots: pane.buffer_snapshot.borrow().clone(),
         sys_inputs,
+        bib_path: pane.bib_path.borrow().clone(),
     })
 }
 
@@ -991,7 +1008,7 @@ fn ensure_pdf_path(inputs: &PdfTextInputs) -> Option<PathBuf> {
     let stem = inputs.root.file_stem()?.to_str()?.to_string();
     let pdf_path = inputs.output_dir.join(format!("{stem}.pdf"));
     if !pdf_path.exists() {
-        let bytes = crate::compiler::compile_to_pdf_bytes(&inputs.root, &inputs.snapshots, &inputs.sys_inputs).ok()?;
+        let bytes = crate::compiler::compile_to_pdf_bytes(&inputs.root, &inputs.snapshots, &inputs.sys_inputs, inputs.bib_path.as_deref()).ok()?;
         std::fs::write(&pdf_path, bytes).ok()?;
     }
     Some(pdf_path)

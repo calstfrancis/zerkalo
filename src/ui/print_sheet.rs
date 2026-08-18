@@ -530,13 +530,13 @@ fn draw_sheet_preview(
 pub fn request_for(
     preview: &crate::ui::preview_pane::PreviewPane,
 ) -> Option<PrintRequest> {
-    let (root, overrides, sys_inputs) = preview.compile_inputs()?;
+    let (root, overrides, sys_inputs, bib_path) = preview.compile_inputs()?;
     let job_name = root
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("document")
         .to_string();
-    Some(PrintRequest { root, overrides, sys_inputs, job_name })
+    Some(PrintRequest { root, overrides, sys_inputs, bib_path, job_name })
 }
 
 /// Path of the document a request refers to, for callers that want to log it.

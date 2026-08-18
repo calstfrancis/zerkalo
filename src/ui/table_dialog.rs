@@ -497,7 +497,7 @@ mod tests {
         let path = std::env::temp_dir()
             .join(format!("zerkalo_table_dialog_empty_header_{}_{n}.typ", std::process::id()));
         std::fs::write(&path, &code).unwrap();
-        let result = crate::compiler::compile_to_pdf_bytes(&path, &Default::default(), &Default::default());
+        let result = crate::compiler::compile_to_pdf_bytes(&path, &Default::default(), &Default::default(), None);
         let _ = std::fs::remove_file(&path);
         assert!(result.is_ok(), "empty header cell failed to compile: {:?}", result.err());
     }
@@ -598,7 +598,7 @@ mod tests {
         let path = dir.join(format!("zerkalo_table_dialog_test_{}_{n}.typ", std::process::id()));
         std::fs::write(&path, &code).unwrap();
 
-        let result = crate::compiler::compile_to_pdf_bytes(&path, &Default::default(), &Default::default());
+        let result = crate::compiler::compile_to_pdf_bytes(&path, &Default::default(), &Default::default(), None);
         let _ = std::fs::remove_file(&path);
 
         assert!(result.is_ok(), "generated table failed to compile:\n{code}\n\nerror: {:?}", result.err());

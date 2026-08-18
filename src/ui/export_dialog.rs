@@ -37,12 +37,14 @@ pub struct ExportDialog {
 }
 
 impl ExportDialog {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         parent: &adw::ApplicationWindow,
         root_file: Option<PathBuf>,
         output_dir: PathBuf,
         project_root: PathBuf,
         cv_elements_path: Option<PathBuf>,
+        bib_path: Option<PathBuf>,
         initial_format: u32,
         on_save_format: impl Fn(u32) + 'static,
     ) -> Self {
@@ -229,6 +231,7 @@ impl ExportDialog {
                     &project_root_for_cv,
                     cv_elements_path.as_deref(),
                 );
+                let bib_path_owned = bib_path.clone();
 
                 std::thread::spawn(move || {
                     // Ensure the output directory exists before writing anything.
@@ -255,6 +258,7 @@ impl ExportDialog {
                                     &input_owned,
                                     &cv_overrides_owned,
                                     &cv_sys_inputs_owned,
+                                    bib_path_owned.as_deref(),
                                 ) {
                                     Ok(bytes) => std::fs::write(&out_path, &bytes)
                                         .map_err(|e| format!("Write error: {e}")),

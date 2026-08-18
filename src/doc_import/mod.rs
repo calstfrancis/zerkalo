@@ -480,6 +480,7 @@ pub(crate) mod tests {
             &path,
             &std::collections::HashMap::new(),
             &std::collections::HashMap::new(),
+            None,
         );
         let _ = std::fs::remove_dir_all(&dir);
         assert!(result.is_ok(), "converted document must compile:\n{body}\n\nerror: {:?}", result.err());

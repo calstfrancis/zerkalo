@@ -59,6 +59,7 @@ pub(super) struct MenuCtx {
     pub(super) compile_mode_btn: Button,
     pub(super) compile_mode_label: Label,
     pub(super) effective_cv_elements: Option<std::path::PathBuf>,
+    pub(super) effective_bib: Option<std::path::PathBuf>,
     pub(super) auto_detected_bib: Rc<RefCell<Option<std::path::PathBuf>>>,
     pub(super) print_header_btn: Button,
     pub(super) save_btn: Button,
@@ -210,6 +211,7 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
                     Some(bp) => editor.set_bib_entries(bibliography::load_bib(bp)),
                     None => editor.set_bib_entries(Vec::new()),
                 }
+                preview_for_save.set_bib_path(new_cfg.bib_path.clone());
             }
             // CV elements were resolved once at startup, so changing this path
             // used to do nothing until the next launch, silently. It can be
@@ -357,6 +359,7 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
     let current_config_for_export = ctx.current_config.clone();
     let project_root_for_export = ctx.project_root.clone();
     let cv_elements_for_export = ctx.effective_cv_elements.clone();
+    let bib_for_export = ctx.effective_bib.clone();
     menus.menu_export_item.connect_clicked(move |_| {
         menu_popover_for_export.popdown();
         let initial_fmt = current_config_for_export.borrow().last_export_format;
@@ -367,6 +370,7 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
             preview_for_export.output_dir(),
             project_root_for_export.clone(),
             cv_elements_for_export.clone(),
+            bib_for_export.clone(),
             initial_fmt,
             move |fmt| {
                 let mut cfg = cfg_for_save.borrow_mut();

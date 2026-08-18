@@ -30,6 +30,10 @@ pub struct PrintRequest {
     pub root: PathBuf,
     pub overrides: HashMap<PathBuf, String>,
     pub sys_inputs: HashMap<String, String>,
+    /// The configured bibliography path, if any — needed so the compile can
+    /// widen its sandbox root when it points outside the project (see
+    /// `compiler::ZerkaloWorld::new`'s `extra_root`).
+    pub bib_path: Option<PathBuf>,
     /// Shown as the job name in the printer queue.
     pub job_name: String,
 }
@@ -139,8 +143,9 @@ pub fn prepare(request: &PrintRequest, on_ready: impl Fn(Result<Rc<Prepared>, St
     let root = request.root.clone();
     let overrides = request.overrides.clone();
     let sys_inputs = request.sys_inputs.clone();
+    let bib_path = request.bib_path.clone();
     std::thread::spawn(move || {
-        let prepared = crate::compiler::compile_document(&root, &overrides, &sys_inputs)
+        let prepared = crate::compiler::compile_document(&root, &overrides, &sys_inputs, bib_path.as_deref())
             .and_then(|doc| {
                 crate::compiler::pdf_bytes_from_document(&doc).map(|pdf| (doc, pdf))
             });
@@ -626,6 +631,7 @@ mod tests {
                 .map(|(p, t)| (PathBuf::from(p), (*t).to_string()))
                 .collect(),
             sys_inputs: HashMap::new(),
+            bib_path: None,
             job_name: "job".into(),
         }
     }

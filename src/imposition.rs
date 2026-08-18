@@ -445,6 +445,7 @@ mod tests {
             &path,
             &std::collections::HashMap::new(),
             &std::collections::HashMap::new(),
+            None,
         )
         .expect("the fixture should compile");
         std::fs::remove_file(&path).ok();
