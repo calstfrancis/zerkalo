@@ -8,10 +8,10 @@ homepage = "https://github.com/calstfrancis/zerkalo"
 repository = "https://github.com/calstfrancis/zerkalo"
 
 [dependencies]
-gtk4 = { version = "0.7", features = ["v4_10"] }
-libadwaita = { version = "0.5", features = ["v1_4"] }
-sourceview5 = "0.7"
-glib = "0.18"
+gtk4 = { version = "0.11", features = ["v4_10"] }
+libadwaita = { version = "0.9", features = ["v1_4"] }
+sourceview5 = { version = "0.11", features = ["gtk_v4_10"] }
+glib = "0.22"
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
