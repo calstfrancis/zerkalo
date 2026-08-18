@@ -123,6 +123,18 @@ Snapshots into one Versions system" project noted at the bottom of it.
   or a file manager — on a first launch opened no window at all.** Only
   already-running instances handled being handed a file; a fresh launch
   with one now works the same way.
+- **The outline panel's per-section word counts were badly inflated** for
+  any section with no heading after it — `#pagebreak()`, comments, and
+  other Typst code between the last heading and the end of the file were
+  counted as prose words. A fresh document's Introduction (3 real words)
+  read as 24.
+
+### Changed
+
+- **The sidebar's Outline, Citations, Packages, and Comments sections can
+  be resized against each other**, not just against the editor — drag the
+  divider between any two to give one more room. Positions persist between
+  launches, like the rest of the app's paned layout.
 
 ---
 

@@ -154,6 +154,15 @@ pub struct Config {
     pub sidebar_width: i32,
     #[serde(default = "default_preview_split")]
     pub preview_split: i32,
+    /// Vertical dividers between the sidebar's stacked sections (Outline /
+    /// Citations / Packages / Comments), each a `Paned` position local to
+    /// its own pane — not an absolute offset down the sidebar.
+    #[serde(default = "default_sidebar_outline_split")]
+    pub sidebar_outline_split: i32,
+    #[serde(default = "default_sidebar_citations_split")]
+    pub sidebar_citations_split: i32,
+    #[serde(default = "default_sidebar_packages_split")]
+    pub sidebar_packages_split: i32,
     #[serde(default = "default_batch_import_concurrency")]
     pub batch_import_concurrency: u32,
     #[serde(default)]
@@ -227,6 +236,9 @@ fn default_spell_languages() -> Vec<String> { vec!["en_CA".to_string()] }
 fn default_line_spacing() -> u32 { 2 }
 fn default_sidebar_width() -> i32 { 220 }
 fn default_preview_split() -> i32 { 600 }
+fn default_sidebar_outline_split() -> i32 { 260 }
+fn default_sidebar_citations_split() -> i32 { 180 }
+fn default_sidebar_packages_split() -> i32 { 180 }
 fn default_auto_save_idle_ms() -> u64 { 30_000 }
 fn default_batch_import_concurrency() -> u32 { 2 }
 
@@ -259,6 +271,9 @@ impl Default for Config {
             gost_font: false,
             sidebar_width: default_sidebar_width(),
             preview_split: default_preview_split(),
+            sidebar_outline_split: default_sidebar_outline_split(),
+            sidebar_citations_split: default_sidebar_citations_split(),
+            sidebar_packages_split: default_sidebar_packages_split(),
             batch_import_concurrency: default_batch_import_concurrency(),
             last_export_format: 0,
             compile_on_save: false,

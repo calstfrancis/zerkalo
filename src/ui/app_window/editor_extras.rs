@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use gtk4::prelude::*;
-use gtk4::{Box as GtkBox, Button, Orientation, Separator};
+use gtk4::{Box as GtkBox, Button, Orientation};
 use libadwaita as adw;
 
 use crate::config::Config;
@@ -183,20 +183,93 @@ pub(super) fn wire_sidebar_toolbar(ctx: &SidebarToolbarCtx) -> (GtkBox, Button) 
         });
     }
 
+    // Outline / Citations / Packages / Comments used to be a plain stacked
+    // Box — fixed proportions, no way to give one section more room. Three
+    // nested vertical Paned dividers instead, each position persisted the
+    // same debounced (400ms after drag stop) way the primary sidebar/preview
+    // splits already are, per the suite's own "pane positions persist"
+    // convention.
+    let packages_comments_pane = gtk4::Paned::new(Orientation::Vertical);
+    packages_comments_pane.set_start_child(Some(ctx.package_browser.widget()));
+    packages_comments_pane.set_end_child(Some(ctx.comments_panel.widget()));
+    packages_comments_pane.set_position(ctx.current_config.borrow().sidebar_packages_split);
+    packages_comments_pane.set_resize_start_child(true);
+    packages_comments_pane.set_resize_end_child(true);
+    packages_comments_pane.set_shrink_start_child(false);
+    packages_comments_pane.set_shrink_end_child(false);
+    packages_comments_pane.set_vexpand(true);
+    persist_vertical_split(&packages_comments_pane, ctx.current_config.clone(), |c, pos| {
+        c.sidebar_packages_split = pos;
+    });
+
+    let citations_packages_pane = gtk4::Paned::new(Orientation::Vertical);
+    citations_packages_pane.set_start_child(Some(ctx.citation_panel.widget()));
+    citations_packages_pane.set_end_child(Some(&packages_comments_pane));
+    citations_packages_pane.set_position(ctx.current_config.borrow().sidebar_citations_split);
+    citations_packages_pane.set_resize_start_child(true);
+    citations_packages_pane.set_resize_end_child(true);
+    citations_packages_pane.set_shrink_start_child(false);
+    citations_packages_pane.set_shrink_end_child(false);
+    citations_packages_pane.set_vexpand(true);
+    persist_vertical_split(&citations_packages_pane, ctx.current_config.clone(), |c, pos| {
+        c.sidebar_citations_split = pos;
+    });
+
+    let outline_rest_pane = gtk4::Paned::new(Orientation::Vertical);
+    outline_rest_pane.set_start_child(Some(ctx.outline_panel.widget()));
+    outline_rest_pane.set_end_child(Some(&citations_packages_pane));
+    outline_rest_pane.set_position(ctx.current_config.borrow().sidebar_outline_split);
+    outline_rest_pane.set_resize_start_child(true);
+    outline_rest_pane.set_resize_end_child(true);
+    outline_rest_pane.set_shrink_start_child(false);
+    outline_rest_pane.set_shrink_end_child(false);
+    outline_rest_pane.set_vexpand(true);
+    persist_vertical_split(&outline_rest_pane, ctx.current_config.clone(), |c, pos| {
+        c.sidebar_outline_split = pos;
+    });
+
     let left_box = GtkBox::new(Orientation::Vertical, 0);
     left_box.set_hexpand(false);
     left_box.set_vexpand(true);
     left_box.set_overflow(gtk4::Overflow::Hidden);
     left_box.add_css_class("zerkalo-sidebar");
-    left_box.append(ctx.outline_panel.widget());
-    left_box.append(&Separator::new(Orientation::Horizontal));
-    left_box.append(ctx.citation_panel.widget());
-    left_box.append(&Separator::new(Orientation::Horizontal));
-    left_box.append(ctx.package_browser.widget());
-    left_box.append(&Separator::new(Orientation::Horizontal));
-    left_box.append(ctx.comments_panel.widget());
+    left_box.append(&outline_rest_pane);
     *ctx.left_paned_holder.borrow_mut() = Some(left_box.clone());
 
 
     (left_box, update_template_btn)
+}
+
+/// Debounced (400ms after last drag), skipping the initial realize-triggered
+/// notify — same shape as `startup.rs`'s `wire_pane_persistence` for the
+/// primary sidebar/preview splits; a local copy here since these three
+/// sidebar-section dividers are constructed and owned by this function, not
+/// threaded back up to `AppWindow::new`.
+fn persist_vertical_split(paned: &gtk4::Paned, cfg: Rc<RefCell<Config>>, setter: impl Fn(&mut Config, i32) + 'static) {
+    let setter = Rc::new(setter);
+    let ready = Rc::new(std::cell::Cell::new(false));
+    let ready2 = ready.clone();
+    paned.connect_realize(move |_| {
+        let r = ready2.clone();
+        glib::idle_add_local_once(move || { r.set(true); });
+    });
+    let pending: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
+    paned.connect_position_notify(move |p| {
+        if !ready.get() { return; }
+        let pos = p.position();
+        let cfg2 = cfg.clone();
+        let setter2 = setter.clone();
+        let pending_for_cb = pending.clone();
+        let mut slot = pending.borrow_mut();
+        if let Some(id) = slot.take() { id.remove(); }
+        *slot = Some(glib::timeout_add_local_once(
+            std::time::Duration::from_millis(400),
+            move || {
+                *pending_for_cb.borrow_mut() = None;
+                let mut c = cfg2.borrow_mut();
+                setter2(&mut c, pos);
+                let _ = c.save();
+            },
+        ));
+    });
 }

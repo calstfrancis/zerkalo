@@ -401,10 +401,11 @@ impl OutlinePanel {
 
             for (h_idx, (line_idx, level, text)) in headings.iter().enumerate() {
                 let next_line_idx = headings.get(h_idx + 1).map(|(li, _, _)| *li).unwrap_or(n);
-                let word_count: u32 = all_lines[line_idx + 1..next_line_idx]
-                    .iter()
-                    .map(|l| count_words_typst(l))
-                    .sum();
+                // Joined into one string, not summed per line: strip_typst_markup's
+                // raw-block/block-comment state is multi-line, so calling it once
+                // per line would miss a comment or raw block that spans lines.
+                let section_text = all_lines[line_idx + 1..next_line_idx].join("\n");
+                let word_count = count_words_typst(&section_text);
                 total_words += word_count;
 
                 let ln = (line_idx + 1) as u32;
@@ -649,25 +650,87 @@ fn symbol_tabs() -> Vec<(&'static str, Vec<(&'static str, &'static str)>)> {
     ]
 }
 
+/// Counts prose words in a section of Typst source, reusing
+/// `editor_pane`'s `strip_typst_markup`/`strip_zerkalo_blocks` (already
+/// tested there — `word_count_excludes_zerkalo_template_blocks`) rather
+/// than a second, divergent implementation: this function used to just
+/// `split_whitespace()` the raw text, which counted comments, `#pagebreak()`,
+/// and every other piece of Typst code/markup as "words," badly inflating
+/// the outline's per-section and total counts for anything past the first
+/// heading in a real document (confirmed: a fresh Academic template's
+/// "Introduction" — 3 actual prose words — read as 24, from the trailing
+/// `#pagebreak()` and bibliography-setup comment lines with no next
+/// heading to stop the old line-by-line scan).
 fn count_words_typst(text: &str) -> u32 {
-    let mut count = 0u32;
+    // #lorem(N) is Typst's own lorem-ipsum generator, used by template
+    // previews. strip_typst_markup has no special case for it (a bare
+    // #ident(...) call with no [...] content strips to nothing), so expand
+    // it to N placeholder words first — preserves the outline's original
+    // behavior of counting lorem output while still routing everything
+    // else through the correct shared stripping pipeline below.
+    let mut expanded = String::with_capacity(text.len());
     let mut remaining = text;
     while !remaining.is_empty() {
         if let Some(pos) = remaining.find("#lorem(") {
-            count += remaining[..pos].split_whitespace().count() as u32;
+            expanded.push_str(&remaining[..pos]);
             let after = &remaining[pos + 7..];
             if let Some(end) = after.find(')') {
                 if let Ok(n) = after[..end].trim().parse::<u32>() {
-                    count += n;
+                    for _ in 0..n {
+                        expanded.push_str("lorem ");
+                    }
                 }
                 remaining = &after[end + 1..];
             } else {
+                expanded.push_str(&remaining[pos..]);
                 break;
             }
         } else {
-            count += remaining.split_whitespace().count() as u32;
+            expanded.push_str(remaining);
             break;
         }
     }
-    count
+    super::editor_pane::strip_typst_markup(&super::editor_pane::strip_zerkalo_blocks(&expanded))
+        .split_whitespace()
+        .count() as u32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn count_words_typst_ignores_comments_and_code() {
+        // The exact shape of a fresh Academic-template document's
+        // Introduction section: 3 real prose words, followed by structural
+        // Typst (a pagebreak, a comment header, and two comment lines that
+        // themselves contain many space-separated words) with no next
+        // heading to stop the old per-line scan — this used to read 24, not 3.
+        let section = concat!(
+            "Start writing here...\n",
+            "\n",
+            "#pagebreak()\n",
+            "\n",
+            "// ── Bibliography ────────────────────────────────────────────────────\n",
+            "// Set your .bib file path in Settings > Extras, then regenerate.\n",
+            "// #bibliography(\"refs.bib\", style: \"apa\")\n",
+        );
+        assert_eq!(count_words_typst(section), 3);
+    }
+
+    #[test]
+    fn count_words_typst_counts_plain_prose_normally() {
+        assert_eq!(count_words_typst("one two three four"), 4);
+    }
+
+    #[test]
+    fn count_words_typst_expands_lorem_to_n_words() {
+        assert_eq!(count_words_typst("intro #lorem(10) more"), 12);
+    }
+
+    #[test]
+    fn count_words_typst_ignores_a_multiline_block_comment() {
+        let text = "before /* this whole\nblock spans two lines */ after";
+        assert_eq!(count_words_typst(text), 2);
+    }
 }
