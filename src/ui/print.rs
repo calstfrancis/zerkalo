@@ -11,7 +11,7 @@ use gtk4::{PrintOperation, PrintOperationAction, Window};
 use typst::layout::PagedDocument;
 
 use crate::config::{DuplexPref, PrintPrefs};
-use crate::print_layout::{Imposition, PageNumbering, PaperSpec, physical_ranges_string};
+use crate::print_layout::{physical_ranges_string, Imposition, PageNumbering, PaperSpec};
 
 /// Typst's layout unit. Cairo print contexts are scaled so one unit is one
 /// point, so this converts between the two.
@@ -85,7 +85,12 @@ impl Prepared {
         let paper = PaperSpec::from_page_sizes(&sizes)
             .ok_or_else(|| "The document has no pages to print.".to_string())?;
         let numbering = PageNumbering::new(doc.pages.iter().map(|p| p.number).collect());
-        Ok(Prepared { pdf, doc, paper, numbering })
+        Ok(Prepared {
+            pdf,
+            doc,
+            paper,
+            numbering,
+        })
     }
 }
 
@@ -126,14 +131,18 @@ impl Preparation {
 /// `on_ready` is called exactly once unless the preparation is cancelled first.
 /// It is called synchronously on a cache hit, so callers must be ready to be
 /// re-entered before this function returns.
-pub fn prepare(request: &PrintRequest, on_ready: impl Fn(Result<Rc<Prepared>, String>) + 'static)
-    -> Preparation
-{
+pub fn prepare(
+    request: &PrintRequest,
+    on_ready: impl Fn(Result<Rc<Prepared>, String>) + 'static,
+) -> Preparation {
     let key = request.cache_key();
     let cancelled = Rc::new(std::cell::Cell::new(false));
 
     if let Some(hit) = LAST_PREPARED.with(|c| {
-        c.borrow().as_ref().filter(|(cached, _)| *cached == key).map(|(_, p)| p.clone())
+        c.borrow()
+            .as_ref()
+            .filter(|(cached, _)| *cached == key)
+            .map(|(_, p)| p.clone())
     }) {
         on_ready(Ok(hit));
         return Preparation { cancelled };
@@ -145,10 +154,11 @@ pub fn prepare(request: &PrintRequest, on_ready: impl Fn(Result<Rc<Prepared>, St
     let sys_inputs = request.sys_inputs.clone();
     let bib_path = request.bib_path.clone();
     std::thread::spawn(move || {
-        let prepared = crate::compiler::compile_document(&root, &overrides, &sys_inputs, bib_path.as_deref())
-            .and_then(|doc| {
-                crate::compiler::pdf_bytes_from_document(&doc).map(|pdf| (doc, pdf))
-            });
+        let prepared =
+            crate::compiler::compile_document(&root, &overrides, &sys_inputs, bib_path.as_deref())
+                .and_then(|doc| {
+                    crate::compiler::pdf_bytes_from_document(&doc).map(|pdf| (doc, pdf))
+                });
         tx.send(prepared).ok();
     });
 
@@ -159,7 +169,7 @@ pub fn prepare(request: &PrintRequest, on_ready: impl Fn(Result<Rc<Prepared>, St
             Err(TryRecvError::Disconnected) => {
                 if !flag.get() {
                     on_ready(Err(
-                        "The compiler stopped unexpectedly while preparing to print.".into()
+                        "The compiler stopped unexpectedly while preparing to print.".into(),
                     ));
                 }
                 glib::ControlFlow::Break
@@ -171,8 +181,7 @@ pub fn prepare(request: &PrintRequest, on_ready: impl Fn(Result<Rc<Prepared>, St
                         let prepared = Rc::new(prepared);
                         // Cache even when cancelled: the work is already paid
                         // for, and the next print gets it instantly.
-                        LAST_PREPARED
-                            .with(|c| *c.borrow_mut() = Some((key, prepared.clone())));
+                        LAST_PREPARED.with(|c| *c.borrow_mut() = Some((key, prepared.clone())));
                         if !flag.get() {
                             on_ready(Ok(prepared));
                         }
@@ -223,17 +232,11 @@ pub fn send_to_printer(
     let on_status: Rc<dyn Fn(PrintStatus)> = Rc::new(on_status);
 
     if job.pages.is_empty() {
-        on_status(PrintStatus::Failed("No pages were selected to print.".into()));
+        on_status(PrintStatus::Failed(
+            "No pages were selected to print.".into(),
+        ));
         return;
     }
-
-    let pdf = match crate::imposition::impose(&prepared.pdf, &job.pages, job.imposition) {
-        Ok(pdf) => pdf,
-        Err(e) => {
-            on_status(PrintStatus::Failed(e));
-            return;
-        }
-    };
 
     // Imposition already selected and reordered the pages, so the printer must
     // be told to print all of what it is given — passing the range as well
@@ -251,12 +254,34 @@ pub fn send_to_printer(
     let (tx, rx) = mpsc::sync_channel::<PortalOutcome>(1);
     let title = job.job_name.clone();
     let prefs = job.prefs.clone();
+    let source_pdf = prepared.pdf.clone();
+    let pages_for_impose = job.pages.clone();
+    let imposition = job.imposition;
     // ashpd is async and the GTK main loop is glib, so the portal conversation
     // runs on its own current-thread tokio runtime and reports back by channel —
-    // the same worker-plus-poll shape used elsewhere in the app.
+    // the same worker-plus-poll shape used elsewhere in the app. Imposition's
+    // PDF page rearrangement is CPU-bound (can be felt on a large document with
+    // a booklet layout), so it runs here too rather than blocking the UI thread
+    // before this closure even starts.
     std::thread::spawn(move || {
-        let outcome = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
-            Ok(rt) => rt.block_on(print_via_portal(&pdf, &title, paper, &prefs, ranges.as_deref())),
+        let pdf = match crate::imposition::impose(&source_pdf, &pages_for_impose, imposition) {
+            Ok(pdf) => pdf,
+            Err(e) => {
+                tx.send(PortalOutcome::Failed(e)).ok();
+                return;
+            }
+        };
+        let outcome = match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(rt) => rt.block_on(print_via_portal(
+                &pdf,
+                &title,
+                paper,
+                &prefs,
+                ranges.as_deref(),
+            )),
             Err(e) => PortalOutcome::Unavailable(format!("no async runtime: {e}")),
         };
         tx.send(outcome).ok();
@@ -269,7 +294,9 @@ pub fn send_to_printer(
     glib::timeout_add_local(Duration::from_millis(100), move || match rx.try_recv() {
         Err(TryRecvError::Empty) => glib::ControlFlow::Continue,
         Err(TryRecvError::Disconnected) => {
-            on_status(PrintStatus::Failed("The print helper stopped unexpectedly.".into()));
+            on_status(PrintStatus::Failed(
+                "The print helper stopped unexpectedly.".into(),
+            ));
             glib::ControlFlow::Break
         }
         Ok(outcome) => {
@@ -291,7 +318,11 @@ pub fn send_to_printer(
 /// page size. Two-up and booklet turn a portrait page into a landscape sheet.
 fn sheet_paper(page: PaperSpec, imposition: Imposition) -> PaperSpec {
     if imposition.rotates_sheet() {
-        PaperSpec { width_pt: page.height_pt, height_pt: page.width_pt, uniform: page.uniform }
+        PaperSpec {
+            width_pt: page.height_pt,
+            height_pt: page.width_pt,
+            uniform: page.uniform,
+        }
     } else {
         page
     }
@@ -363,7 +394,9 @@ async fn print_via_portal(
         DuplexPref::ShortEdge => settings.set_duplex(Duplex::Vertical),
     };
     if let Some(ranges) = ranges {
-        settings = settings.set_print_pages(PrintPages::Ranges).set_page_ranges(ranges);
+        settings = settings
+            .set_print_pages(PrintPages::Ranges)
+            .set_page_ranges(ranges);
     }
 
     // PreparePrint shows the settings dialog and hands back a token that
@@ -400,7 +433,9 @@ async fn print_via_portal(
             None,
             title,
             &file.as_fd(),
-            PrintOptions::default().set_token(prepared.token).set_modal(true),
+            PrintOptions::default()
+                .set_token(prepared.token)
+                .set_modal(true),
         )
         .await
     {
@@ -476,8 +511,12 @@ fn run_gtk_print_dialog(
     let prepared = prepared.clone();
     let pages = pages.to_vec();
     op.connect_draw_page(move |_, ctx, nth| {
-        let Some(index) = pages.get(nth as usize) else { return };
-        let Some(page) = prepared.doc.pages.get(*index) else { return };
+        let Some(index) = pages.get(nth as usize) else {
+            return;
+        };
+        let Some(page) = prepared.doc.pages.get(*index) else {
+            return;
+        };
         draw_page(&ctx.cairo_context(), page, raster_dpi(ctx));
     });
 
@@ -498,7 +537,9 @@ fn run_gtk_print_dialog(
     });
 
     if let Err(e) = op.run(PrintOperationAction::PrintDialog, Some(parent)) {
-        on_status(PrintStatus::Failed(format!("Couldn't open the print dialog: {e}")));
+        on_status(PrintStatus::Failed(format!(
+            "Couldn't open the print dialog: {e}"
+        )));
     }
 }
 
@@ -584,7 +625,8 @@ mod tests {
         let payload = b"%PDF-1.7\ntest body\n";
         let mut file = pdf_to_temp_file(payload).expect("staging should succeed");
         let mut back = Vec::new();
-        file.read_to_end(&mut back).expect("fd should still be readable");
+        file.read_to_end(&mut back)
+            .expect("fd should still be readable");
         assert_eq!(back, payload, "content must survive the unlink");
     }
 
@@ -593,12 +635,17 @@ mod tests {
         // Checked by name rather than by counting files in the temp directory:
         // the sibling staging tests create and unlink files there at the same
         // time, so a before/after count failed at random.
-        let path = std::env::temp_dir()
-            .join(format!("zerkalo-print-leaves-nothing-{}.pdf", std::process::id()));
+        let path = std::env::temp_dir().join(format!(
+            "zerkalo-print-leaves-nothing-{}.pdf",
+            std::process::id()
+        ));
         let file = stage_pdf_at(&path, b"%PDF-1.7\n").unwrap();
         assert!(!path.exists(), "the staged file must not persist on disk");
         drop(file);
-        assert!(!path.exists(), "and must not reappear when the handle is dropped");
+        assert!(
+            !path.exists(),
+            "and must not reappear when the handle is dropped"
+        );
     }
 
     #[test]
@@ -617,7 +664,8 @@ mod tests {
         // descriptor positioned at EOF, i.e. a zero-length document.
         let mut file = pdf_to_temp_file(b"%PDF-1.7\nabc").unwrap();
         let mut first = [0u8; 5];
-        file.read_exact(&mut first).expect("should read from offset 0");
+        file.read_exact(&mut first)
+            .expect("should read from offset 0");
         assert_eq!(&first, b"%PDF-");
     }
 
@@ -650,11 +698,18 @@ mod tests {
     fn map_ordering_does_not_change_the_cache_key() {
         // HashMap iteration order varies run to run; hashing entries in that
         // order would make the key unstable and the cache useless.
-        let many: Vec<(&str, &str)> =
-            vec![("a.typ", "1"), ("b.typ", "2"), ("c.typ", "3"), ("d.typ", "4")];
+        let many: Vec<(&str, &str)> = vec![
+            ("a.typ", "1"),
+            ("b.typ", "2"),
+            ("c.typ", "3"),
+            ("d.typ", "4"),
+        ];
         let mut reversed = many.clone();
         reversed.reverse();
-        assert_eq!(request("a.typ", &many).cache_key(), request("a.typ", &reversed).cache_key());
+        assert_eq!(
+            request("a.typ", &many).cache_key(),
+            request("a.typ", &reversed).cache_key()
+        );
     }
 
     #[test]
@@ -675,7 +730,11 @@ mod tests {
         let mut renamed = request("a.typ", &[]);
         let original = renamed.cache_key();
         renamed.job_name = "something else".into();
-        assert_eq!(renamed.cache_key(), original, "renaming a job doesn't change its content");
+        assert_eq!(
+            renamed.cache_key(),
+            original,
+            "renaming a job doesn't change its content"
+        );
     }
 
     #[test]
@@ -683,20 +742,32 @@ mod tests {
         // CV documents reach the compiler entirely through sys inputs; missing
         // them here would print a stale CV after the data file changed.
         let mut with_cv = request("a.typ", &[]);
-        with_cv.sys_inputs.insert("skrizhal-cv-data".into(), "name: A".into());
+        with_cv
+            .sys_inputs
+            .insert("skrizhal-cv-data".into(), "name: A".into());
         let mut other = request("a.typ", &[]);
-        other.sys_inputs.insert("skrizhal-cv-data".into(), "name: B".into());
+        other
+            .sys_inputs
+            .insert("skrizhal-cv-data".into(), "name: B".into());
         assert_ne!(with_cv.cache_key(), other.cache_key());
     }
 
     // ── Sheet paper ──────────────────────────────────────────────────────────
 
-    const A4: PaperSpec = PaperSpec { width_pt: 595.28, height_pt: 841.89, uniform: true };
+    const A4: PaperSpec = PaperSpec {
+        width_pt: 595.28,
+        height_pt: 841.89,
+        uniform: true,
+    };
 
     #[test]
     fn unimposed_jobs_print_on_the_documents_own_paper() {
         assert_eq!(sheet_paper(A4, Imposition::Off), A4);
-        assert_eq!(sheet_paper(A4, Imposition::FourUp), A4, "a 2×2 grid keeps the page shape");
+        assert_eq!(
+            sheet_paper(A4, Imposition::FourUp),
+            A4,
+            "a 2×2 grid keeps the page shape"
+        );
     }
 
     #[test]
