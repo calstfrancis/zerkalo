@@ -776,6 +776,9 @@ impl SettingsDialog {
             let preview_zoom_cur = current.preview_zoom;
             let sidebar_width_cur = current.sidebar_width;
             let preview_split_cur = current.preview_split;
+            let sidebar_outline_split_cur = current.sidebar_outline_split;
+            let sidebar_citations_split_cur = current.sidebar_citations_split;
+            let sidebar_packages_split_cur = current.sidebar_packages_split;
             // Owned by the hamburger's own toggle, not this dialog — carried
             // through so saving preferences doesn't switch the UI font back.
             let gost_font_cur = current.gost_font;
@@ -888,6 +891,9 @@ impl SettingsDialog {
                     word_count_goal: word_count_goal_spin.value() as u32,
                     sidebar_width: sidebar_width_cur,
                     preview_split: preview_split_cur,
+                    sidebar_outline_split: sidebar_outline_split_cur,
+                    sidebar_citations_split: sidebar_citations_split_cur,
+                    sidebar_packages_split: sidebar_packages_split_cur,
                     batch_import_concurrency: batch_concurrency_row.value() as u32,
                     last_export_format: last_export_format_cur,
                     recent_searches: recent_searches_cur.clone(),
