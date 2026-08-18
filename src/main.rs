@@ -5,6 +5,7 @@
 #![allow(clippy::type_complexity)]
 
 mod auto_save;
+mod bib_sanitize;
 mod bibliography;
 mod compile_stats;
 mod comments;

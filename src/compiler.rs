@@ -137,9 +137,17 @@ impl ZerkaloWorld {
     /// by direct reproduction (`error: file not found (searched at
     /// <project>/<extra_root>...)`) before this widening existed. Ordinary
     /// projects with no such path keep the tighter, project-scoped root.
+    ///
+    /// `extra_root` alone isn't enough, though: it only reflects
+    /// `Config::bib_path`, which nothing keeps in sync with a
+    /// `#bibliography(...)` line typed or pasted straight into the document
+    /// (by hand, or via a flow — like an early draft of Update Template
+    /// Settings — that never wrote it back to Settings). So this also scans
+    /// the document's own active `#bibliography(...)` call for its path
+    /// argument and widens for that too, independent of `extra_root`.
     fn new(
         root_file: &Path,
-        overrides: HashMap<PathBuf, String>,
+        mut overrides: HashMap<PathBuf, String>,
         sys_inputs: &HashMap<String, String>,
         extra_root: Option<&Path>,
     ) -> Result<Self, String> {
@@ -148,11 +156,34 @@ impl ZerkaloWorld {
             .ok_or_else(|| format!("no parent directory: {}", root_file.display()))?
             .to_path_buf();
 
-        let needs_widening = extra_root.is_some_and(|extra| {
+        let is_outside_project = |candidate: &Path| {
             let canon_project = std::fs::canonicalize(&project_root).unwrap_or_else(|_| project_root.clone());
-            let canon_extra = std::fs::canonicalize(extra).unwrap_or_else(|_| extra.to_path_buf());
-            !canon_extra.starts_with(&canon_project)
-        });
+            let canon_candidate = std::fs::canonicalize(candidate).unwrap_or_else(|_| candidate.to_path_buf());
+            !canon_candidate.starts_with(&canon_project)
+        };
+
+        let content = overrides.get(root_file).cloned().or_else(|| std::fs::read_to_string(root_file).ok());
+        let doc_bib_path_raw = content.as_deref().and_then(crate::styles::find_bibliography_path).map(str::to_string);
+        let doc_bib_abs_path = doc_bib_path_raw.as_deref().filter(|p| p.starts_with('/')).map(PathBuf::from);
+
+        let needs_widening = extra_root.is_some_and(is_outside_project)
+            || doc_bib_abs_path.as_deref().is_some_and(is_outside_project);
+
+        // A single malformed date field — a common Zotero/BetterBibTeX export
+        // quirk (e.g. `year = {Winter/Spring 2001}`) — fails Typst's stricter
+        // BibLaTeX parser for the *whole file*, taking every citation in the
+        // document down with it, not just that one entry. Zerkalo's own
+        // citation panel reads the same file fine (a more lenient parser),
+        // so when the document references a plain `.bib` file, sanitize a
+        // copy the same lenient way and serve that instead — transparently,
+        // via the same `overrides` mechanism already used for unsaved editor
+        // buffers — rather than just reporting the failure.
+        if let Some(p) = doc_bib_path_raw.as_deref().filter(|p| p.to_ascii_lowercase().ends_with(".bib")) {
+            let resolved = if p.starts_with('/') { PathBuf::from(p) } else { project_root.join(p) };
+            if let Some(fixed) = std::fs::read_to_string(&resolved).ok().and_then(|raw| crate::bib_sanitize::sanitize_bib(&raw)) {
+                overrides.insert(resolved, fixed);
+            }
+        }
 
         let (root, abs_root_file) = if needs_widening {
             let canon = std::fs::canonicalize(root_file).unwrap_or_else(|_| root_file.to_path_buf());
@@ -230,6 +261,9 @@ impl typst::World for ZerkaloWorld {
             }
         }
         let result = self.resolve(id).and_then(|path| {
+            if let Some(text) = self.overrides.get(&path) {
+                return Ok(Bytes::new(text.clone().into_bytes()));
+            }
             std::fs::read(&path)
                 .map(Bytes::new)
                 .map_err(|_| FileError::NotFound(path))
@@ -453,7 +487,13 @@ mod tests {
     /// the real location, and the compile fails with "file not found"
     /// naming that wrong, doubled path.
     #[test]
-    fn an_external_bib_path_is_unreachable_without_extra_root() {
+    fn an_external_bib_path_in_the_documents_own_bibliography_call_resolves_without_extra_root() {
+        // A hand-typed or hand-pasted #bibliography(...) line pointing outside
+        // the project is never reflected in Config::bib_path (nothing keeps
+        // them in sync) — so extra_root alone can't catch this case. The
+        // compiler scans the document's own bibliography() call as a second,
+        // independent signal for widening; this must work even without
+        // extra_root at all.
         let doc_dir = std::env::temp_dir().join(format!("zerkalo_root_test_doc_{}", std::process::id()));
         let vault_dir = std::env::temp_dir().join(format!("zerkalo_root_test_vault_{}", std::process::id()));
         std::fs::create_dir_all(&doc_dir).unwrap();
@@ -467,11 +507,56 @@ mod tests {
         ).unwrap();
 
         let result = compile_to_pdf_bytes(&doc_path, &HashMap::new(), &HashMap::new(), None);
-        assert!(result.is_err(), "external path should be unreachable without extra_root");
-        assert!(result.unwrap_err().contains("file not found"));
+        assert!(result.is_ok(), "the document's own bibliography() line should be enough to widen: {:?}", result.err());
 
         let _ = std::fs::remove_dir_all(&doc_dir);
         let _ = std::fs::remove_dir_all(&vault_dir);
+    }
+
+    #[test]
+    fn a_relative_bibliography_path_in_the_document_does_not_trigger_widening() {
+        // Only an absolute path in the document's own bibliography() call is a
+        // signal to widen — a bare relative filename ("refs.bib") is already
+        // correctly project-relative and needs no special handling.
+        let doc_dir = std::env::temp_dir().join(format!("zerkalo_root_test_doc4_{}", std::process::id()));
+        std::fs::create_dir_all(&doc_dir).unwrap();
+        std::fs::write(doc_dir.join("refs.bib"), "@article{smith2020,\n  author = {J},\n  title = {T},\n  year = {2020},\n}\n").unwrap();
+        let doc_path = doc_dir.join("main.typ");
+        std::fs::write(&doc_path, "#bibliography(\"refs.bib\")\n\nSee @smith2020.\n").unwrap();
+
+        let result = compile_to_pdf_bytes(&doc_path, &HashMap::new(), &HashMap::new(), None);
+        assert!(result.is_ok(), "relative bib path should compile normally: {:?}", result.err());
+
+        let _ = std::fs::remove_dir_all(&doc_dir);
+    }
+
+    /// End-to-end proof of the leniency fix: a document referencing a .bib
+    /// file with a malformed date (the exact Zotero/BetterBibTeX export
+    /// shape reported live — `year = {Winter/Spring 2001}`) compiles and
+    /// resolves the citation, instead of every citation in the document
+    /// failing as "label does not exist" because the whole bibliography
+    /// failed to parse over one bad entry. `bib_sanitize`'s own tests cover
+    /// the sanitizer in isolation; this proves it's actually wired in.
+    #[test]
+    fn a_document_with_a_malformed_bib_date_still_compiles_and_resolves_the_citation() {
+        let doc_dir = std::env::temp_dir().join(format!("zerkalo_lenient_bib_test_{}", std::process::id()));
+        std::fs::create_dir_all(&doc_dir).unwrap();
+        std::fs::write(
+            doc_dir.join("refs.bib"),
+            "@article{goodEntry2020,\n  title = {A Fine Book},\n  author = {Author, Some},\n  year = {2020},\n}\n\n\
+             @article{barkenPlaceCallHome2013,\n  title = {Place to Call Home},\n  author = {Barken, Someone},\n  year = {Winter/Spring 2001},\n}\n",
+        ).unwrap();
+        let doc_path = doc_dir.join("main.typ");
+        std::fs::write(
+            &doc_path,
+            "#bibliography(\"refs.bib\")\n\n= Title\n\nSee @goodEntry2020 and @barkenPlaceCallHome2013.\n",
+        ).unwrap();
+
+        let result = compile_to_pdf_bytes(&doc_path, &HashMap::new(), &HashMap::new(), None);
+        assert!(result.is_ok(), "malformed bib date should not break the whole file: {:?}", result.err());
+        assert!(result.unwrap().starts_with(b"%PDF-"));
+
+        let _ = std::fs::remove_dir_all(&doc_dir);
     }
 
     /// The fix: passing the external bib path as `extra_root` widens the

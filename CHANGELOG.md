@@ -5,6 +5,40 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.24.1-dev1] — Citation and bibliography reliability fixes
+
+### Added
+
+- **A malformed date in one bibliography entry no longer breaks every
+  citation in the document.** Zotero/BetterBibTeX exports occasionally
+  produce a non-numeric date (`year = {Winter/Spring 2001}`) that Typst's
+  bibliography loader rejects — and rejects the *whole file* over, not
+  just that one entry, so every citation in the document failed as
+  "label does not exist" with no indication the bibliography was the
+  actual problem. Zerkalo now reads the file the same lenient way its own
+  citation panel already does, corrects just the unparseable date field to
+  a plain year (or clears it, if no year can be found in the text at
+  all), and compiles against that corrected copy — leaving every other
+  byte of the file, and every other entry, untouched.
+- **When a bibliography genuinely can't be read, the error now says so
+  plainly** — "Your bibliography file has an entry Zerkalo's compiler
+  can't read," naming the likely cause and pointing at the exact file and
+  line — instead of a wall of misleading "label does not exist" errors,
+  one per citation, that never mentioned the bibliography at all.
+
+### Fixed
+
+- **A bibliography path outside the project (a Kartoteka vault, or any
+  external `.bib`/`.yaml` file) only worked if it was also reflected in
+  Settings.** A `#bibliography(...)` line typed or pasted directly into a
+  document — nothing keeps that in sync with `Config::bib_path` — never
+  got the sandbox-widening fix from the previous release, since that fix
+  only looked at the configured Settings value. The compiler now also
+  scans the document's own bibliography call directly, so this works
+  regardless of how the path got there.
+
+---
+
 ## [0.24.0] "Second Reading" — 2026-08-18 — Comments, suggested edits, and a Word-migrant usability pass
 
 A 4-way UX audit found 32 issues that trip up someone coming from Word who's
