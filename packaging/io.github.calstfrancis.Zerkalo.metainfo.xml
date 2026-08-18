@@ -80,6 +80,13 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.24.3" date="2026-08-18">
+      <description>
+        <p>0.24.3 "Steady Hand" — fixes a crash after editing the bibliography source: a
+        large .bib file was being re-parsed on every single compile instead of only when it
+        actually changed, which could exhaust memory during sustained editing.</p>
+      </description>
+    </release>
     <release version="0.24.2" date="2026-08-18">
       <description>
         <p>0.24.2 "True Source" — choosing a bibliography file, vault, or creating a new one
