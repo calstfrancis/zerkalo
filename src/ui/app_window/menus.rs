@@ -25,6 +25,7 @@ use super::super::font_manager::FontManager;
 use super::super::help_window::HelpWindow;
 use super::super::settings_dialog::SettingsDialog;
 use super::super::snapshot_dialog::{SnapshotDialog, save_snapshot};
+use super::super::table_dialog::TableDialog;
 use super::super::template_dialog::TemplateDialog;
 use crate::bibliography;
 use crate::git_sync;
@@ -719,6 +720,21 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
     menus.menu_depgraph_item.connect_clicked(move |_| {
         menu_popover_for_depgraph.popdown();
         show_dep_graph_window(&window_for_depgraph, &dep_graph_for_menu);
+    });
+
+    // ── Menu: Insert Table ───────────────────────────────────────────────
+
+    let window_for_table = ctx.window.clone();
+    let editor_for_table = ctx.editor_pane.clone();
+    let menu_popover_for_table = ctx.menu_popover.clone();
+    menus.menu_table_item.connect_clicked(move |_| {
+        menu_popover_for_table.popdown();
+        let dialog = TableDialog::new(&window_for_table);
+        let ep = editor_for_table.clone();
+        dialog.set_on_insert(move |code| {
+            ep.insert_at_cursor(&code);
+        });
+        dialog.present();
     });
 
     // ── Sync button ─────────────────────────────────────────────────────
