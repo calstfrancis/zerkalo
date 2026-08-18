@@ -1,0 +1,29 @@
+name: Security audit
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '**/Cargo.toml'
+      - '**/Cargo.lock'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '**/Cargo.toml'
+      - '**/Cargo.lock'
+  schedule:
+    # Catches advisories published against already-pinned dependencies, not
+    # just ones introduced by a Cargo.lock change.
+    - cron: '0 6 * * 1'
+
+jobs:
+  security_audit:
+    runs-on: ubuntu-24.04
+    permissions:
+      checks: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rustsec/audit-check@v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
