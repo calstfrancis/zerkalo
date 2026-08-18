@@ -374,10 +374,23 @@ fn build_bib_call(filename: &str, style: &str, title: &str) -> String {
     }
 }
 
-fn extract_bib_filename(s: &str) -> Option<&str> {
+pub(crate) fn extract_bib_filename(s: &str) -> Option<&str> {
     let open = s.find('(')?;
     let inner = &s[open + 1..];
     let q1 = inner.find('"')? + 1;
     let q2 = inner[q1..].find('"')?;
     Some(&inner[q1..q1 + q2])
+}
+
+/// Finds a document's active (non-commented) `#bibliography(...)` call and
+/// returns its path argument, if any. Used by the compiler to detect a
+/// bibliography path that needs the sandbox root widened to reach — whether
+/// or not that path is also reflected in `Config::bib_path`, which a hand-
+/// edited or hand-typed `#bibliography(...)` line never is.
+pub(crate) fn find_bibliography_path(content: &str) -> Option<&str> {
+    content
+        .lines()
+        .map(|l| l.trim())
+        .find(|l| l.starts_with("#bibliography("))
+        .and_then(extract_bib_filename)
 }

@@ -120,6 +120,19 @@ pub fn parse_typst_errors(stderr: &str, project_root: &Path) -> Vec<CompileError
         ));
     }
 
+    // A malformed bibliography entry fails the whole file's parse, which
+    // means every citation in the document also fails to resolve and reports
+    // its own "label does not exist" error — one real problem masquerading
+    // as dozens. Once the actual bibliography error is in the list, those are
+    // pure noise: drop them so the one actionable error isn't buried.
+    let bib_parse_failed = errors.iter().any(|e| {
+        let t = e.technical.to_lowercase();
+        t.contains("failed to parse biblatex") || t.contains("failed to parse hayagriva")
+    });
+    if bib_parse_failed {
+        errors.retain(|e| !e.technical.to_lowercase().contains("does not exist in the document"));
+    }
+
     errors
 }
 
@@ -205,6 +218,19 @@ pub fn humanize(raw: &str) -> (String, String) {
             "Check the name is spelled the same as the real file, and that it \
              sits in the same folder as your document (or that the path in the \
              #include or #image line matches where it actually is)."
+                .into(),
+        );
+    }
+
+    if lower.contains("failed to parse biblatex") || lower.contains("failed to parse hayagriva") {
+        return (
+            "Your bibliography file has an entry Zerkalo's compiler can't read".into(),
+            "One malformed entry breaks the whole file, not just that entry \u{2014} \
+             which is also why every citation in the document may be showing as \
+             \u{201c}not found\u{201d} right now; they'll resolve again once this is \
+             fixed. A common cause from Zotero/BetterBibTeX exports: a non-numeric \
+             year like \u{201c}Winter 2001\u{201d} instead of a plain \u{201c}2001\u{201d}. \
+             The line below points at the exact entry."
                 .into(),
         );
     }
@@ -1205,6 +1231,40 @@ mod tests {
                 "{raw} still reads like a parser message: {headline}"
             );
         }
+    }
+
+    #[test]
+    fn a_malformed_bibliography_entry_gets_a_plain_language_explanation() {
+        let (headline, advice) = humanize("failed to parse BibLaTeX (wrong number of digits)");
+        assert!(headline.to_lowercase().contains("bibliography"), "got: {headline}");
+        assert!(advice.contains("year"), "should mention the common Zotero cause: {advice}");
+    }
+
+    #[test]
+    fn a_malformed_bibliography_entry_suppresses_the_resulting_label_error_flood() {
+        // One bad .bib entry fails the whole file's parse, so every @citation
+        // in the document also reports its own "label does not exist" —
+        // dozens of errors from one real problem. Only the actionable one
+        // should survive.
+        let errs = parse(
+            "error: failed to parse BibLaTeX (wrong number of digits)\n \
+             --> /project/refs.bib:42:11\n\
+             error: label `<key1>` does not exist in the document\n \
+             --> /project/main.typ:5:1\n\
+             error: label `<key2>` does not exist in the document\n \
+             --> /project/main.typ:9:1",
+        );
+        assert_eq!(errs.len(), 1, "the label errors should be dropped as noise: {errs:?}");
+        assert!(errs[0].technical.to_lowercase().contains("biblatex"));
+    }
+
+    #[test]
+    fn a_label_error_with_no_bibliography_failure_present_is_kept() {
+        // Only suppress label errors when they're a known consequence of a
+        // bibliography parse failure — a genuine broken cross-reference with
+        // no bib error alongside it must still be reported.
+        let errs = parse("error: label `<fig:missing>` does not exist in the document\n --> /project/main.typ:5:1");
+        assert_eq!(errs.len(), 1);
     }
 
     #[test]
