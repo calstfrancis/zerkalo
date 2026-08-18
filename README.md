@@ -49,7 +49,7 @@ raw markup dead-end: a live preview pane always shows the real formatting next t
 | **Symbol insert** | One-click insertion of Cyrillic, Greek, Hebrew, Sanskrit, and common math symbols/operators (∑, ∫, ≤, ∈, →, ℝ, and more) — the math ones insert as plain Unicode, which Typst renders correctly inside `$...$` |
 | **File tree** | Project `.typ` files; collapsible subdirectory headers; click to open; `+` / folder buttons to create files or folders; drag to reorder; the compilation root is marked in bold; right-click for Set as Root, Insert `#include`/`#import` (each with a tooltip explaining what it does), Delete |
 | **Citation panel** | Searchable list of all bibliography entries; double-click or Enter inserts the `@key` at the cursor; a + button starts a new bibliography if none is set yet |
-| **Plan panel** | Freeform scratchpad saved as a `.plan` sidecar alongside the open `.typ` file; falls back to `project.plan` in the work folder when no file is open |
+| **Comments** | Threaded, resolvable comments anchored to a line — not edited into the Typst source, so a comment can never break compilation or leak into an export. `+` leaves a note at the cursor's current line; click a comment to jump to it. Anchors survive edits elsewhere in the document (re-located by matching the commented line's text, not just its line number) |
 | **Snapshots** | Local, automatic version history on every save, with a clean diff view and a confirmed restore |
 | **File History** | Git-backed history of a synced document's earlier versions and what changed, shown without leaving the app |
 | **Dependency graph** | Visualises which files `#include`/`#import` which — an opt-in view for multi-file projects |
