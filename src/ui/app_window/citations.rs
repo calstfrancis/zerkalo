@@ -29,6 +29,27 @@ pub(super) struct CitationCtx {
     pub(super) effective_cv_elements: Option<PathBuf>,
 }
 
+/// Rewrites the active document's `#bibliography(...)` call to point at
+/// `path`, so choosing a bibliography source from the citation panel takes
+/// effect immediately instead of only updating `Config::bib_path` — which
+/// drives the citation panel's own autocomplete/list but nothing in the
+/// document itself, leaving it uncompilable (a real bug reported live:
+/// picking a new source here didn't touch the code, and the document
+/// wouldn't compile until the `#bibliography(...)` line was fixed by hand).
+/// A no-op if no document is open. Wrapped as one undoable edit so it can be
+/// undone like any other change, since — unlike Update Template Settings,
+/// which the user explicitly opens to change the document — this fires as a
+/// side effect of a dialog whose primary purpose looks like a Settings
+/// action, not a document edit.
+fn update_active_document_bib_path(ep: &EditorPane, path: &std::path::Path) {
+    let Some(content) = ep.get_active_content() else { return };
+    let target = bibliography::bib_target_path(path);
+    let new_content = crate::styles::set_bibliography_path(&content, &target.to_string_lossy());
+    if new_content != content {
+        ep.set_active_content_undoable(&new_content);
+    }
+}
+
 /// Returns the auto-detected `.bib` slot, which later sections read.
 pub(super) fn wire_citations(ctx: &CitationCtx) -> Rc<RefCell<Option<PathBuf>>> {
     // ── Bibliography loading & watch ────────────────────────────────────
@@ -192,6 +213,7 @@ pub(super) fn wire_citations(ctx: &CitationCtx) -> Rc<RefCell<Option<PathBuf>>> 
                         cp.load_bib(entries);
                         cp.set_bib_filename(path.file_name().and_then(|n| n.to_str()));
                         rm.load_bib(&path);
+                        update_active_document_bib_path(&ep, &path);
                         cfg.borrow_mut().bib_path = Some(path);
                         let _ = cfg.borrow().save();
                     }
@@ -249,6 +271,7 @@ pub(super) fn wire_citations(ctx: &CitationCtx) -> Rc<RefCell<Option<PathBuf>>> 
                         cp.load_bib(entries);
                         cp.set_bib_filename(path.file_name().and_then(|n| n.to_str()));
                         rm.load_bib(&path);
+                        update_active_document_bib_path(&ep, &path);
                         cfg.borrow_mut().bib_path = Some(path);
                         let _ = cfg.borrow().save();
                     }
@@ -442,6 +465,7 @@ fn open_create_bib_dialog(
                     cp.load_bib(entries);
                     cp.set_bib_filename(path.file_name().and_then(|n| n.to_str()));
                     rm.load_bib(&path);
+                    update_active_document_bib_path(&ep, &path);
                     cfg.borrow_mut().bib_path = Some(path);
                     let _ = cfg.borrow().save();
                 }

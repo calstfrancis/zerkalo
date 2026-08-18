@@ -394,3 +394,94 @@ pub(crate) fn find_bibliography_path(content: &str) -> Option<&str> {
         .find(|l| l.starts_with("#bibliography("))
         .and_then(extract_bib_filename)
 }
+
+/// Rewrites a document's `#bibliography(...)` call to point `new_path`,
+/// preserving `style:`/`title:` and everything else about the call — used
+/// when the citation panel's "choose a bibliography file/vault" dialogs set
+/// `Config::bib_path`, so the document the user is looking at actually picks
+/// up the change instead of silently keeping the old (or no) source until
+/// Update Template Settings → Apply is used by hand.
+///
+/// A commented-out line (`// #bibliography(...)`, written when a document
+/// was templated with no bibliography configured yet) is uncommented too —
+/// the user just told Zerkalo where their bibliography is, so leaving the
+/// call inert would defeat the point. If no `#bibliography(...)` call
+/// exists anywhere, a plain new one is appended.
+pub fn set_bibliography_path(content: &str, new_path: &str) -> String {
+    let trailing_nl = content.ends_with('\n');
+    let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
+    let mut found = false;
+
+    for line in &mut lines {
+        let trimmed = line.trim();
+        let is_comment = trimmed.starts_with("//");
+        let core = if is_comment { trimmed.trim_start_matches('/').trim() } else { trimmed };
+        if core.starts_with("#bibliography(") {
+            found = true;
+            let indent: String = line.chars().take_while(|c| c.is_whitespace()).collect();
+            *line = format!("{indent}{}", replace_bib_path_in_call(core, new_path));
+        }
+    }
+
+    if !found {
+        lines.push(replace_bib_path_in_call("#bibliography(\"\")", new_path));
+    }
+
+    let mut result = lines.join("\n");
+    if trailing_nl {
+        result.push('\n');
+    }
+    result
+}
+
+fn replace_bib_path_in_call(call: &str, new_path: &str) -> String {
+    let escaped = new_path.replace('\\', "\\\\").replace('"', "\\\"");
+    let Some(open) = call.find('(') else {
+        return format!("#bibliography(\"{escaped}\")");
+    };
+    let Some(q1_rel) = call[open + 1..].find('"') else {
+        return format!("#bibliography(\"{escaped}\")");
+    };
+    let q1 = open + 1 + q1_rel;
+    let Some(q2_rel) = call[q1 + 1..].find('"') else {
+        return format!("#bibliography(\"{escaped}\")");
+    };
+    let q2 = q1 + 1 + q2_rel;
+    format!("{}\"{escaped}\"{}", &call[..q1], &call[q2 + 1..])
+}
+
+#[cfg(test)]
+mod bib_path_tests {
+    use super::*;
+
+    #[test]
+    fn set_bibliography_path_replaces_the_path_and_keeps_style() {
+        let doc = "#bibliography(\"old.bib\", style: \"apa\")\n\n= Title\n";
+        let out = set_bibliography_path(doc, "/home/user/new.bib");
+        assert!(out.contains("#bibliography(\"/home/user/new.bib\", style: \"apa\")"), "got: {out}");
+        assert!(out.contains("= Title"), "rest of the document must survive: {out}");
+    }
+
+    #[test]
+    fn set_bibliography_path_uncomments_a_commented_out_call() {
+        let doc = "// #bibliography(\"refs.bib\", style: \"chicago-author-date\")\n\n= Title\n";
+        let out = set_bibliography_path(doc, "/home/user/refs.bib");
+        assert!(out.contains("#bibliography(\"/home/user/refs.bib\", style: \"chicago-author-date\")"), "got: {out}");
+        assert!(!out.contains("// #bibliography"), "should be uncommented: {out}");
+    }
+
+    #[test]
+    fn set_bibliography_path_appends_a_call_when_none_exists() {
+        let doc = "= Title\n\nSome prose.\n";
+        let out = set_bibliography_path(doc, "/home/user/refs.bib");
+        assert!(out.contains("#bibliography(\"/home/user/refs.bib\")"), "got: {out}");
+        assert!(out.contains("= Title"), "existing content must survive: {out}");
+    }
+
+    #[test]
+    fn set_bibliography_path_escapes_a_backslash_or_quote_in_the_path() {
+        let doc = "#bibliography(\"old.bib\")\n";
+        let out = set_bibliography_path(doc, "C:\\refs\\a\"b.bib");
+        assert!(out.contains("C:\\\\refs\\\\a\\\"b.bib"), "got: {out}");
+    }
+}
