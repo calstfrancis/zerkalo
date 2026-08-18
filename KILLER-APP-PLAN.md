@@ -641,7 +641,59 @@ Compiler/Typst rule).
 
 ## Phase 7 — Zotero library import (one-time, not live sync)
 
-**Status:** ☐ not started
+**Status:** ☑ DONE (2026-08-18) — turned out to already work end-to-end;
+the real gap was discoverability, not missing functionality.
+
+**Investigated the two design questions this phase's own text raised
+before writing any new parsing code:**
+- **CSL-JSON**: checked `hayagriva` 0.9.1's actual public API
+  (`src/io.rs`) — it has `from_yaml_str` and `from_biblatex_str`/
+  `from_biblatex`, but **no CSL-JSON reader at all**. Building one would be
+  real, non-trivial new work (CSL-JSON's schema has a lot of surface area
+  to map correctly) for a format this phase's own text already flagged as
+  the higher-effort path.
+- **BibTeX**: Zerkalo already accepts an arbitrary `.bib` file today via
+  the Citations panel's existing "Choose Bibliography File" button
+  (`citations.rs`'s `set_on_choose_bib` → `bibliography::load_bib` →
+  the `biblatex` crate) — **already exactly the "one-time file import" this
+  phase asked for**, since a Zotero-exported `.bib` is just a `.bib` file
+  Zerkalo has always been able to open. No new import path was structurally
+  missing.
+
+**What could still have been a real gap: does the parser survive a *real*
+Zotero export's quirks**, not just clean textbook BibTeX? Zotero's default
+export is known to include non-standard fields (`urldate`), a `date` field
+instead of `year`, `file` attachment paths with colons and spaces, LaTeX
+escapes in abstracts, and multi-word `keywords`. Added a permanent
+regression test (`bibliography.rs`,
+`parse_bib_handles_a_realistic_zotero_export`) using a representative
+sample with all of the above — **passed on the first run**, confirming the
+`biblatex` crate already handles it correctly. This is now a standing
+regression test, not just a one-off check — it'll catch a future
+`biblatex` crate upgrade that breaks this silently
+(`parse_bib` returns an empty `Vec` on any parse error, with nothing
+surfaced to the user, so a silent break here would be a real "nothing
+happened" dead end for a first-time Zotero migrant).
+
+**The actual fix: discoverability.** Nothing anywhere in the app or docs
+mentioned Zotero (or any reference manager) by name, so a user had no way
+to know the existing "Choose Bibliography File" flow already covered their
+case. Updated, all in the same session:
+- `citation_panel.rs`: both the header button's tooltip and its CV-mode
+  reset counterpart now say "...including a library exported from Zotero,
+  Mendeley, or any other reference manager as BibTeX".
+- `settings_dialog.rs`: the Bibliography group's description, same
+  addition.
+- `README.md`: the Bibliography sources row, same addition.
+
+**Not done, correctly out of scope per this phase's own recommendation:**
+CSL-JSON support, live/two-way Zotero sync, and DOI/ISBN lookup (the last
+already a deliberate exclusion elsewhere in this plan). If CSL-JSON import
+is ever wanted, it needs a real from-scratch parser — worth its own future
+phase, not a small addition to this one.
+
+Full verification gate green: 496 tests (1 new), clippy clean, version
+guard clean.
 **Risk:** medium · **Effort:** medium · **Depends on:** nothing
 
 Zerkalo currently accepts BibTeX, Hayagriva YAML, or a Kartoteka vault as a

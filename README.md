@@ -18,7 +18,7 @@ raw markup dead-end: a live preview pane always shows the real formatting next t
 | **Inline completions** | `#` shows the best match dim after the cursor, previewing what will be inserted; Tab accepts, and a compact ranked list joins in after two characters. Backed by [tinymist](https://github.com/Myriad-Dreamin/tinymist) where available |
 | **Built-in snippets** | Academic snippets (figure, table, footnote, bibliography, …) prepended to the LSP popup |
 | **Citation autocomplete** | `@` (BibTeX keys) and `!` (Skrizhal CV entries) behave the same way — inline suggestion, description in the status bar |
-| **Bibliography sources** | A `.bib` file, a Hayagriva `.yaml` file, or a [Kartoteka](https://github.com/calstfrancis/kartoteka) vault folder — vault entries refresh live via `fond-vault`'s filesystem watch, no restart needed |
+| **Bibliography sources** | A `.bib` file — including a library exported from Zotero, Mendeley, or any other reference manager as BibTeX — a Hayagriva `.yaml` file, or a [Kartoteka](https://github.com/calstfrancis/kartoteka) vault folder — vault entries refresh live via `fond-vault`'s filesystem watch, no restart needed |
 | **First-run bibliography** | The Citations panel can start a brand-new `.bib` file with one click — no need to already have one before adding your first source |
 | **Inline diagnostics** | Compile errors and LSP warnings shown as red/amber underlines in the editor; the error panel translates Typst's message into plain language, with the exact wording kept under "Technical detail" |
 | **Find & Replace** | `Ctrl+F`; forward/backward; animated slide-in bar; replace one or all |
