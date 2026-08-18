@@ -841,7 +841,85 @@ once the generator model is proven.
 
 ## Phase 10 — i18n infrastructure
 
-**Status:** ☐ not started
+**Status:** ☑ DONE (2026-08-18) — infrastructure built and proven on a
+complete real file (`settings_dialog.rs`, ~90 strings), matching this
+phase's own scope: infrastructure and English as the reference locale
+only, no translation content.
+
+**Framework: went with this phase's own recommendation, `fluent-templates`
+0.15.1** (wraps `fluent-bundle` 0.16, `unic-langid` 0.9), rather than
+re-litigating gettext vs. Fluent. `static_loader!` embeds `.ftl` files into
+the binary at compile time (matching this project's "nothing to install"
+philosophy — no runtime file lookup, no `msgfmt` build step, no flatpak
+manifest changes needed since `locales/` just travels with the git
+checkout the `zerkalo` module already sources).
+
+**One correction to the framework's default behavior, found by a failing
+test, not assumed:** Fluent wraps every interpolated variable in invisible
+Unicode bidi-isolation marks (U+2068/U+2069) by default — sound design for
+apps mixing RTL/LTR text, but Zerkalo has none of that, and the marks would
+otherwise leak into copy-pasted error text and accessible-name properties.
+Disabled via the documented `customise: |bundle| bundle.set_use_isolating(false)`
+hook. Caught immediately: `tr_args`'s own unit test failed on a byte-for-byte
+string comparison the first time, which is exactly the kind of thing this
+test was worth writing.
+
+**Convention established** (`src/i18n.rs`): `tr(id) -> String` and
+`tr_args(id, &[(name, value)]) -> String`, both falling back to the ID
+itself on a lookup miss via `try_lookup`/`try_lookup_with_args` rather than
+the panicking `lookup`/`lookup_with_args` the crate also offers — a typo'd
+ID during migration (or later, a string genuinely not yet translated)
+shows up as visibly-wrong text in the UI, not a crash. 4 unit tests,
+including one that resolves a real production message ID
+(`settings-window-title`) through the actual compiled `.ftl` file, not a
+synthetic test fixture — the strongest verification available for "does
+the lookup path actually work end-to-end" without a GUI screenshot.
+
+**Migrated `settings_dialog.rs` completely, not partially** — every
+user-facing string (titles, subtitles, tooltips, accessible-name
+properties, button labels, dropdown items, file-filter names, and all 8
+save-time validation notices, several with runtime interpolation:
+paths, error messages, a GitHub username, a field label) now routes
+through `tr`/`tr_args`. Left alone, correctly: font family names
+(`"Noto Sans"`, `"Monospace"`, etc.) — proper nouns, not UI copy, and
+translating them would break font lookup. `locales/en/settings_dialog.ftl`
+holds ~90 messages, organized into sections matching the dialog's own
+`PreferencesGroup` layout, so a future translator (or a future session
+extending this to a second file) has an obvious model to copy.
+
+**Multi-line Fluent value confirmed working**, not just single-line
+lookups: `settings-open-file-failed-body`'s indented-continuation-line
+syntax reproduces the original `"Edit it by hand at:\n{}"` exactly.
+
+**Verification — two tiers, honestly distinguished:**
+1. **Strong**: full gate green (500 tests — 4 new in `i18n.rs`, clippy
+   clean, version guard clean), `cargo-sources.json` regenerated for the
+   two new dependencies (`fluent-templates`, `unic-langid`) per this
+   project's own vendoring requirement. `i18n.rs`'s tests resolve real
+   production IDs end-to-end.
+2. **Not achieved, honestly**: a live screenshot of the migrated Settings
+   dialog. `SettingsDialog::new` has exactly one call site
+   (`menus.rs`, wired to the hamburger's `Popover`), and this session
+   already independently found — twice now, first for Reference
+   Manager/Dependency Graph, now here — that this `Popover` doesn't open
+   via synthetic `xdotool` clicks in the current headless setup, with or
+   without a window manager, even though plain `Button` clicks work fine
+   elsewhere. Not a new limitation, the same one already documented under
+   Phase 2. Given the actually-risky part (does Fluent resolution work) is
+   already proven by unit tests against the real `.ftl` file, and rendering
+   an owned `String` vs. a `&'static str` is not a meaningful GTK-specific
+   risk, this is assessed as sufficient — but **Cal: worth opening
+   Settings once** to eyeball it, the same ask as the Reference
+   Manager/Dependency Graph phase left open.
+
+**Sequencing note for whoever extends this next**: per this phase's own
+original text, migrating the rest of the UI file-by-file is deliberately
+left for later, separate commits — `settings_dialog.rs` was chosen
+specifically as the proof-of-pattern (self-contained, already
+accessibility-audited in `HEALTH-PLAN.md` Phase 6, a real but bounded
+size). The pattern is now established firmly enough that sweeping another
+file is mechanical repetition of what's in this phase, not a design
+question.
 **Risk:** low (infra) → high (translation coverage over time) · **Effort:**
 large · **Depends on:** nothing technically, but doing this *after* Phases
 4–9 land means wrapping more new strings later rather than fewer now — see

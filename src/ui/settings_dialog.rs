@@ -8,6 +8,7 @@ use libadwaita as adw;
 use adw::prelude::*;
 
 use crate::config::{Config, Theme};
+use crate::i18n::{tr, tr_args};
 
 /// Shows a modal notice on top of the settings window. Everything in this
 /// dialog reports through here so the app doesn't mix `gtk4::AlertDialog` and
@@ -38,8 +39,8 @@ fn rebuild_lang_rows(lb: &ListBox, selected_langs: &Rc<RefCell<Vec<String>>>) {
         lbl.set_xalign(0.0);
         let rm_btn = Button::from_icon_name("list-remove-symbolic");
         rm_btn.add_css_class("flat");
-        rm_btn.set_tooltip_text(Some("Remove this language"));
-        rm_btn.update_property(&[gtk4::accessible::Property::Label("Remove this language")]);
+        rm_btn.set_tooltip_text(Some(&tr("settings-remove-language-tooltip")));
+        rm_btn.update_property(&[gtk4::accessible::Property::Label(&tr("settings-remove-language-tooltip"))]);
         let sl = selected_langs.clone();
         let lb2 = lb.clone();
         rm_btn.connect_clicked(move |_| {
@@ -65,7 +66,7 @@ pub struct SettingsDialog {
 impl SettingsDialog {
     pub fn new(parent: &impl IsA<gtk4::Window>, current: &Config) -> Self {
         let window = adw::Window::builder()
-            .title("Settings")
+            .title(tr("settings-window-title"))
             .transient_for(parent)
             .modal(true)
             .default_width(560)
@@ -90,10 +91,10 @@ impl SettingsDialog {
         header.add_css_class("fond-chrome");
         header.set_show_end_title_buttons(false);
 
-        let cancel_btn = Button::with_label("Cancel");
+        let cancel_btn = Button::with_label(&tr("settings-cancel"));
         header.pack_start(&cancel_btn);
 
-        let save_btn = Button::with_label("Save");
+        let save_btn = Button::with_label(&tr("settings-save"));
         save_btn.add_css_class("suggested-action");
         header.pack_end(&save_btn);
 
@@ -101,17 +102,17 @@ impl SettingsDialog {
 
         // Folders
         let folders_group = adw::PreferencesGroup::new();
-        folders_group.set_title("Folders");
+        folders_group.set_title(&tr("settings-folders-title"));
 
         let work_dir_row = adw::EntryRow::new();
-        work_dir_row.set_title("Work folder");
+        work_dir_row.set_title(&tr("settings-work-folder-title"));
         work_dir_row.set_text(current.work_dir.to_str().unwrap_or(""));
 
         let work_dir_btn = Button::from_icon_name("document-open-symbolic");
         work_dir_btn.set_valign(Align::Center);
         work_dir_btn.add_css_class("flat");
-        work_dir_btn.set_tooltip_text(Some("Browse for a folder"));
-        work_dir_btn.update_property(&[gtk4::accessible::Property::Label("Browse for a work folder")]);
+        work_dir_btn.set_tooltip_text(Some(&tr("settings-browse-folder-tooltip")));
+        work_dir_btn.update_property(&[gtk4::accessible::Property::Label(&tr("settings-browse-work-folder-a11y"))]);
         let work_dir_row_c = work_dir_row.clone();
         let win_c = window.clone();
         work_dir_btn.connect_clicked(move |_| {
@@ -129,7 +130,7 @@ impl SettingsDialog {
         folders_group.add(&work_dir_row);
 
         let output_dir_row = adw::EntryRow::new();
-        output_dir_row.set_title("Output folder");
+        output_dir_row.set_title(&tr("settings-output-folder-title"));
         output_dir_row.set_text(
             current.output_dir.as_deref().and_then(|p| p.to_str()).unwrap_or(""),
         );
@@ -137,8 +138,8 @@ impl SettingsDialog {
         let output_dir_btn = Button::from_icon_name("document-open-symbolic");
         output_dir_btn.set_valign(Align::Center);
         output_dir_btn.add_css_class("flat");
-        output_dir_btn.set_tooltip_text(Some("Browse for a folder"));
-        output_dir_btn.update_property(&[gtk4::accessible::Property::Label("Browse for an output folder")]);
+        output_dir_btn.set_tooltip_text(Some(&tr("settings-browse-folder-tooltip")));
+        output_dir_btn.update_property(&[gtk4::accessible::Property::Label(&tr("settings-browse-output-folder-a11y"))]);
         let output_dir_row_c = output_dir_row.clone();
         let win_c2 = window.clone();
         output_dir_btn.connect_clicked(move |_| {
@@ -157,17 +158,17 @@ impl SettingsDialog {
 
         // Compilation
         let compile_group = adw::PreferencesGroup::new();
-        compile_group.set_title("Compilation");
+        compile_group.set_title(&tr("settings-compilation-title"));
 
         let debounce_spin = adw::SpinRow::with_range(100.0, 5000.0, 50.0);
-        debounce_spin.set_title("Compile delay");
-        debounce_spin.set_subtitle("How long to wait after you stop typing before updating the preview, in milliseconds (Auto mode only)");
+        debounce_spin.set_title(&tr("settings-compile-delay-title"));
+        debounce_spin.set_subtitle(&tr("settings-compile-delay-subtitle"));
         debounce_spin.set_value(current.debounce_ms as f64);
 
         // 3-way pill: Auto | On Save | Manual
-        let btn_auto   = gtk4::ToggleButton::with_label("Auto");
-        let btn_save   = gtk4::ToggleButton::with_label("On Save");
-        let btn_manual = gtk4::ToggleButton::with_label("Manual");
+        let btn_auto   = gtk4::ToggleButton::with_label(&tr("settings-compile-mode-auto"));
+        let btn_save   = gtk4::ToggleButton::with_label(&tr("settings-compile-mode-on-save"));
+        let btn_manual = gtk4::ToggleButton::with_label(&tr("settings-compile-mode-manual"));
         btn_save.set_group(Some(&btn_auto));
         btn_manual.set_group(Some(&btn_auto));
 
@@ -187,8 +188,8 @@ impl SettingsDialog {
         pill_box.append(&btn_manual);
 
         let compile_mode_row = adw::ActionRow::new();
-        compile_mode_row.set_title("Compile trigger");
-        compile_mode_row.set_subtitle("Auto: after each keystroke · On Save: Ctrl+S only · Manual: Ctrl+Shift+P only");
+        compile_mode_row.set_title(&tr("settings-compile-trigger-title"));
+        compile_mode_row.set_subtitle(&tr("settings-compile-trigger-subtitle"));
         compile_mode_row.add_suffix(&pill_box);
         compile_mode_row.set_activatable_widget(Some(&btn_auto));
 
@@ -197,11 +198,14 @@ impl SettingsDialog {
 
         // Appearance
         let editor_group = adw::PreferencesGroup::new();
-        editor_group.set_title("Appearance");
+        editor_group.set_title(&tr("settings-appearance-title"));
 
-        let theme_model = gtk4::StringList::new(&["System", "Light", "Dark"]);
+        let theme_system = tr("settings-theme-system");
+        let theme_light = tr("settings-theme-light");
+        let theme_dark = tr("settings-theme-dark");
+        let theme_model = gtk4::StringList::new(&[&theme_system, &theme_light, &theme_dark]);
         let theme_row = adw::ComboRow::new();
-        theme_row.set_title("Color scheme");
+        theme_row.set_title(&tr("settings-color-scheme-title"));
         theme_row.set_model(Some(&theme_model));
         let theme_idx = match current.theme {
             Theme::System => 0u32,
@@ -213,7 +217,7 @@ impl SettingsDialog {
 
         // Editor
         let font_group = adw::PreferencesGroup::new();
-        font_group.set_title("Editor");
+        font_group.set_title(&tr("settings-editor-title"));
 
         let font_desc = gtk4::pango::FontDescription::from_string(
             &format!("{} {}", current.editor_font_family, current.editor_font_size),
@@ -223,28 +227,31 @@ impl SettingsDialog {
         font_btn.set_font_desc(&font_desc);
         font_btn.set_valign(Align::Center);
         let font_row = adw::ActionRow::new();
-        font_row.set_title("Editor font");
-        font_row.set_subtitle("Family and size");
+        font_row.set_title(&tr("settings-editor-font-title"));
+        font_row.set_subtitle(&tr("settings-editor-font-subtitle"));
         font_row.add_suffix(&font_btn);
         font_row.set_activatable_widget(Some(&font_btn));
 
         let tab_spin = adw::SpinRow::with_range(1.0, 8.0, 1.0);
-        tab_spin.set_title("Tab width");
-        tab_spin.set_subtitle("Spaces");
+        tab_spin.set_title(&tr("settings-tab-width-title"));
+        tab_spin.set_subtitle(&tr("settings-tab-width-subtitle"));
         tab_spin.set_value(current.editor_tab_width as f64);
 
         let wrap_row = adw::SwitchRow::new();
-        wrap_row.set_title("Word wrap");
+        wrap_row.set_title(&tr("settings-word-wrap-title"));
         wrap_row.set_active(current.editor_word_wrap);
 
         let ws_row = adw::SwitchRow::new();
-        ws_row.set_title("Show whitespace");
+        ws_row.set_title(&tr("settings-show-whitespace-title"));
         ws_row.set_active(current.editor_show_whitespace);
 
-        let spacing_model = gtk4::StringList::new(&["Compact (0 px)", "Normal (2 px)", "Spacious (6 px)"]);
+        let spacing_compact = tr("settings-spacing-compact");
+        let spacing_normal = tr("settings-spacing-normal");
+        let spacing_spacious = tr("settings-spacing-spacious");
+        let spacing_model = gtk4::StringList::new(&[&spacing_compact, &spacing_normal, &spacing_spacious]);
         let spacing_row = adw::ComboRow::new();
-        spacing_row.set_title("Line spacing");
-        spacing_row.set_subtitle("Extra pixels above and below each line");
+        spacing_row.set_title(&tr("settings-line-spacing-title"));
+        spacing_row.set_subtitle(&tr("settings-line-spacing-subtitle"));
         spacing_row.set_model(Some(&spacing_model));
         let spacing_idx = match current.editor_line_spacing {
             0 => 0u32,
@@ -254,28 +261,26 @@ impl SettingsDialog {
         spacing_row.set_selected(spacing_idx);
 
         let typewriter_row = adw::SwitchRow::new();
-        typewriter_row.set_title("Typewriter scrolling");
-        typewriter_row.set_subtitle("Keep the cursor vertically centred as you type");
+        typewriter_row.set_title(&tr("settings-typewriter-title"));
+        typewriter_row.set_subtitle(&tr("settings-typewriter-subtitle"));
         typewriter_row.set_active(current.typewriter_scrolling);
 
         let high_contrast_row = adw::SwitchRow::new();
-        high_contrast_row.set_title("High contrast mode");
-        high_contrast_row.set_subtitle("Add extra CSS contrast to the editor and UI");
+        high_contrast_row.set_title(&tr("settings-high-contrast-title"));
+        high_contrast_row.set_subtitle(&tr("settings-high-contrast-subtitle"));
         high_contrast_row.set_active(current.high_contrast);
 
         let word_count_goal_spin = adw::SpinRow::with_range(0.0, 1_000_000.0, 100.0);
-        word_count_goal_spin.set_title("Word count goal");
-        word_count_goal_spin.set_subtitle("Show progress bar in status bar (0 = disabled)");
+        word_count_goal_spin.set_title(&tr("settings-word-count-goal-title"));
+        word_count_goal_spin.set_subtitle(&tr("settings-word-count-goal-subtitle"));
         word_count_goal_spin.set_value(current.word_count_goal as f64);
 
         // Document fonts. These used to be a step in setup, which put a font
         // choice between a first-time user and getting started — for a setting
         // whose defaults are already the right answer nearly always.
         let doc_font_group = adw::PreferencesGroup::new();
-        doc_font_group.set_title("Document Fonts");
-        doc_font_group.set_description(Some(
-            "Used by new documents and template previews until a document picks its own.",
-        ));
+        doc_font_group.set_title(&tr("settings-doc-fonts-title"));
+        doc_font_group.set_description(Some(&tr("settings-doc-fonts-description")));
 
         let doc_fonts = super::font_manager::FontManager::enabled_fonts();
         let doc_font_labels: Vec<&str> = doc_fonts.iter().map(|s| s.as_str()).collect();
@@ -283,7 +288,7 @@ impl SettingsDialog {
         let preview_factory = font_preview_factory();
 
         let sans_row = adw::ComboRow::new();
-        sans_row.set_title("Sans-serif");
+        sans_row.set_title(&tr("settings-sans-serif-title"));
         sans_row.set_model(Some(&doc_font_model));
         sans_row.set_factory(Some(&preview_factory));
         sans_row.set_list_factory(Some(&preview_factory));
@@ -292,7 +297,7 @@ impl SettingsDialog {
         ));
 
         let serif_row = adw::ComboRow::new();
-        serif_row.set_title("Serif");
+        serif_row.set_title(&tr("settings-serif-title"));
         serif_row.set_model(Some(&doc_font_model));
         serif_row.set_factory(Some(&preview_factory));
         serif_row.set_list_factory(Some(&preview_factory));
@@ -304,9 +309,9 @@ impl SettingsDialog {
         // this used to be its own hamburger row ("Document Fonts…"), reading
         // as a third font-related surface competing with the two rows above.
         let manage_fonts_row = adw::ActionRow::new();
-        manage_fonts_row.set_title("Available fonts");
-        manage_fonts_row.set_subtitle("Enable or disable fonts Zerkalo can use");
-        let manage_fonts_btn = Button::with_label("Manage…");
+        manage_fonts_row.set_title(&tr("settings-available-fonts-title"));
+        manage_fonts_row.set_subtitle(&tr("settings-available-fonts-subtitle"));
+        let manage_fonts_btn = Button::with_label(&tr("settings-manage-button"));
         manage_fonts_btn.set_valign(Align::Center);
         manage_fonts_row.add_suffix(&manage_fonts_btn);
         manage_fonts_row.set_activatable_widget(Some(&manage_fonts_btn));
@@ -334,10 +339,10 @@ impl SettingsDialog {
 
         // Bibliography
         let bib_group = adw::PreferencesGroup::new();
-        bib_group.set_title("Bibliography");
+        bib_group.set_title(&tr("settings-bibliography-title"));
 
         let bib_row = adw::EntryRow::new();
-        bib_row.set_title("Bib file or Kartoteka vault");
+        bib_row.set_title(&tr("settings-bib-file-title"));
         if let Some(ref p) = current.bib_path {
             bib_row.set_text(p.to_str().unwrap_or(""));
         }
@@ -345,8 +350,8 @@ impl SettingsDialog {
         let browse_btn = Button::from_icon_name("document-open-symbolic");
         browse_btn.set_valign(Align::Center);
         browse_btn.add_css_class("flat");
-        browse_btn.set_tooltip_text(Some("Browse for a .bib/.yaml file"));
-        browse_btn.update_property(&[gtk4::accessible::Property::Label("Browse for a bibliography file")]);
+        browse_btn.set_tooltip_text(Some(&tr("settings-browse-bib-tooltip")));
+        browse_btn.update_property(&[gtk4::accessible::Property::Label(&tr("settings-browse-bib-a11y"))]);
         let bib_row_browse = bib_row.clone();
         let window_browse = window.clone();
         browse_btn.connect_clicked(move |_| {
@@ -365,8 +370,8 @@ impl SettingsDialog {
         let vault_browse_btn = Button::from_icon_name("folder-symbolic");
         vault_browse_btn.set_valign(Align::Center);
         vault_browse_btn.add_css_class("flat");
-        vault_browse_btn.set_tooltip_text(Some("Browse for a Kartoteka vault folder"));
-        vault_browse_btn.update_property(&[gtk4::accessible::Property::Label("Browse for a Kartoteka vault folder")]);
+        vault_browse_btn.set_tooltip_text(Some(&tr("settings-browse-vault-tooltip")));
+        vault_browse_btn.update_property(&[gtk4::accessible::Property::Label(&tr("settings-browse-vault-tooltip"))]);
         let bib_row_vault = bib_row.clone();
         let window_vault = window.clone();
         vault_browse_btn.connect_clicked(move |_| {
@@ -382,12 +387,10 @@ impl SettingsDialog {
         });
         bib_row.add_suffix(&vault_browse_btn);
         bib_group.add(&bib_row);
-        bib_group.set_description(Some(
-            "A .bib/.yaml file — including a library exported from Zotero, Mendeley, or any other reference manager as BibTeX — or a Kartoteka vault folder for live citation autocomplete as you edit the vault.",
-        ));
+        bib_group.set_description(Some(&tr("settings-bibliography-description")));
 
         let csl_row = adw::EntryRow::new();
-        csl_row.set_title("Custom CSL file");
+        csl_row.set_title(&tr("settings-custom-csl-title"));
         if let Some(ref p) = current.custom_csl_path {
             csl_row.set_text(p.to_str().unwrap_or(""));
         }
@@ -395,15 +398,15 @@ impl SettingsDialog {
         let csl_browse_btn = Button::from_icon_name("document-open-symbolic");
         csl_browse_btn.set_valign(Align::Center);
         csl_browse_btn.add_css_class("flat");
-        csl_browse_btn.set_tooltip_text(Some("Browse for a .csl file"));
-        csl_browse_btn.update_property(&[gtk4::accessible::Property::Label("Browse for a CSL style file")]);
+        csl_browse_btn.set_tooltip_text(Some(&tr("settings-browse-csl-tooltip")));
+        csl_browse_btn.update_property(&[gtk4::accessible::Property::Label(&tr("settings-browse-csl-a11y"))]);
         let csl_row_browse = csl_row.clone();
         let window_browse_csl = window.clone();
         csl_browse_btn.connect_clicked(move |_| {
             let row = csl_row_browse.clone();
             let fd = gtk4::FileDialog::new();
             let filter = gtk4::FileFilter::new();
-            filter.set_name(Some("CSL files (*.csl)"));
+            filter.set_name(Some(&tr("settings-csl-filter-name")));
             filter.add_pattern("*.csl");
             let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
             filters.append(&filter);
@@ -421,13 +424,11 @@ impl SettingsDialog {
 
         // CV Elements (Skrizhal)
         let cv_group = adw::PreferencesGroup::new();
-        cv_group.set_title("CV Elements");
-        cv_group.set_description(Some(
-            "Used in CV mode instead of the bibliography above — a Skrizhal YAML file of jobs, degrees, awards, etc.",
-        ));
+        cv_group.set_title(&tr("settings-cv-elements-title"));
+        cv_group.set_description(Some(&tr("settings-cv-elements-description")));
 
         let cv_row = adw::EntryRow::new();
-        cv_row.set_title("Skrizhal file");
+        cv_row.set_title(&tr("settings-skrizhal-file-title"));
         if let Some(ref p) = current.cv_elements_path {
             cv_row.set_text(p.to_str().unwrap_or(""));
         }
@@ -435,15 +436,15 @@ impl SettingsDialog {
         let cv_browse_btn = Button::from_icon_name("document-open-symbolic");
         cv_browse_btn.set_valign(Align::Center);
         cv_browse_btn.add_css_class("flat");
-        cv_browse_btn.set_tooltip_text(Some("Browse for a Skrizhal file"));
-        cv_browse_btn.update_property(&[gtk4::accessible::Property::Label("Browse for a Skrizhal file")]);
+        cv_browse_btn.set_tooltip_text(Some(&tr("settings-browse-skrizhal-tooltip")));
+        cv_browse_btn.update_property(&[gtk4::accessible::Property::Label(&tr("settings-browse-skrizhal-tooltip"))]);
         let cv_row_browse = cv_row.clone();
         let window_browse_cv = window.clone();
         cv_browse_btn.connect_clicked(move |_| {
             let row = cv_row_browse.clone();
             let fd = gtk4::FileDialog::new();
             let filter = gtk4::FileFilter::new();
-            filter.set_name(Some("YAML files (*.yaml, *.yml)"));
+            filter.set_name(Some(&tr("settings-yaml-filter-name")));
             filter.add_pattern("*.yaml");
             filter.add_pattern("*.yml");
             let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
@@ -462,10 +463,10 @@ impl SettingsDialog {
 
         // Spell check
         let spell_group = adw::PreferencesGroup::new();
-        spell_group.set_title("Spell Check");
+        spell_group.set_title(&tr("settings-spell-check-title"));
 
         let spell_enabled_row = adw::SwitchRow::new();
-        spell_enabled_row.set_title("Enable spell check");
+        spell_enabled_row.set_title(&tr("settings-enable-spell-check-title"));
         spell_enabled_row.set_active(current.spell_enabled);
 
         let available_langs = crate::spellcheck::SpellChecker::available_languages();
@@ -483,10 +484,10 @@ impl SettingsDialog {
         let add_lang_strings: Vec<&str> = available_langs.iter().map(|s| s.as_str()).collect();
         let add_lang_model = gtk4::StringList::new(&add_lang_strings);
         let add_combo = adw::ComboRow::new();
-        add_combo.set_title("Add language");
+        add_combo.set_title(&tr("settings-add-language-title"));
         add_combo.set_model(Some(&add_lang_model));
 
-        let add_btn = Button::with_label("Add");
+        let add_btn = Button::with_label(&tr("settings-add-button"));
         add_btn.add_css_class("flat");
         add_btn.set_valign(Align::Center);
         {
@@ -520,11 +521,11 @@ impl SettingsDialog {
 
         // Advanced
         let dev_group = adw::PreferencesGroup::new();
-        dev_group.set_title("Advanced");
+        dev_group.set_title(&tr("settings-advanced-title"));
 
         let batch_concurrency_row = adw::SpinRow::with_range(1.0, 5.0, 1.0);
-        batch_concurrency_row.set_title("Simultaneous imports");
-        batch_concurrency_row.set_subtitle("How many documents Import Folder converts at once");
+        batch_concurrency_row.set_title(&tr("settings-simultaneous-imports-title"));
+        batch_concurrency_row.set_subtitle(&tr("settings-simultaneous-imports-subtitle"));
         batch_concurrency_row.set_value(current.batch_import_concurrency as f64);
         dev_group.add(&batch_concurrency_row);
 
@@ -532,14 +533,14 @@ impl SettingsDialog {
         // Bindings live in keybindings.toml with no editor UI; without this row
         // there was nothing in the app saying the file exists.
         let keys_group = adw::PreferencesGroup::new();
-        keys_group.set_title("Keyboard Shortcuts");
+        keys_group.set_title(&tr("settings-keyboard-shortcuts-title"));
         let keys_row = adw::ActionRow::new();
-        keys_row.set_title("Shortcut bindings");
-        keys_row.set_subtitle("Customize any shortcut by editing a text file");
+        keys_row.set_title(&tr("settings-shortcut-bindings-title"));
+        keys_row.set_subtitle(&tr("settings-shortcut-bindings-subtitle"));
         keys_row.set_tooltip_text(Some(
             &crate::keybindings::keybindings_path().to_string_lossy(),
         ));
-        let keys_btn = Button::with_label("Open File");
+        let keys_btn = Button::with_label(&tr("settings-open-file-button"));
         keys_btn.set_valign(Align::Center);
         {
             let win_keys = window.clone();
@@ -554,8 +555,8 @@ impl SettingsDialog {
                 if !launched {
                     notice(
                         &win_keys,
-                        "Couldn't open the file",
-                        &format!("Edit it by hand at:\n{}", path.display()),
+                        &tr("settings-open-file-failed-heading"),
+                        &tr_args("settings-open-file-failed-body", &[("path", &path.display().to_string())]),
                     );
                 }
             });
@@ -564,18 +565,18 @@ impl SettingsDialog {
         keys_group.add(&keys_row);
 
         let sync_group = adw::PreferencesGroup::new();
-        sync_group.set_title("Backup & Sync");
-        sync_group.set_description(Some("Sign in with GitHub to back up your work online when you sync."));
+        sync_group.set_title(&tr("settings-backup-sync-title"));
+        sync_group.set_description(Some(&tr("settings-backup-sync-description")));
 
         let account_row = adw::ActionRow::new();
-        account_row.set_title("Account");
+        account_row.set_title(&tr("settings-account-title"));
         let has_token = crate::secret_store::load_github_token().is_some();
-        account_row.set_subtitle(if has_token { "Connected" } else { "Not connected" });
+        account_row.set_subtitle(&tr(if has_token { "settings-connected" } else { "settings-not-connected" }));
 
         let account_btn_box = GtkBox::new(Orientation::Horizontal, 6);
         account_btn_box.set_valign(Align::Center);
 
-        let signin_btn = Button::with_label(if has_token { "Reconnect" } else { "Sign in with GitHub" });
+        let signin_btn = Button::with_label(&tr(if has_token { "settings-reconnect-button" } else { "settings-signin-github-button" }));
         signin_btn.add_css_class("suggested-action");
         {
             let parent_win = window.clone();
@@ -583,13 +584,13 @@ impl SettingsDialog {
             signin_btn.connect_clicked(move |_| {
                 let row_c2 = row_c.clone();
                 super::github_signin::present(&parent_win, move |username| {
-                    row_c2.set_subtitle(&format!("Connected as {username}"));
+                    row_c2.set_subtitle(&tr_args("settings-connected-as", &[("username", &username)]));
                 });
             });
         }
         account_btn_box.append(&signin_btn);
 
-        let disconnect_btn = Button::with_label("Disconnect");
+        let disconnect_btn = Button::with_label(&tr("settings-disconnect-button"));
         disconnect_btn.add_css_class("destructive-action");
         disconnect_btn.set_visible(has_token);
         {
@@ -597,8 +598,8 @@ impl SettingsDialog {
             let signin_c = signin_btn.clone();
             disconnect_btn.connect_clicked(move |btn| {
                 crate::secret_store::delete_github_token();
-                row_c.set_subtitle("Not connected");
-                signin_c.set_label("Sign in with GitHub");
+                row_c.set_subtitle(&tr("settings-not-connected"));
+                signin_c.set_label(&tr("settings-signin-github-button"));
                 btn.set_visible(false);
             });
         }
@@ -608,9 +609,9 @@ impl SettingsDialog {
         sync_group.add(&account_row);
 
         let backup_locations_row = adw::ActionRow::new();
-        backup_locations_row.set_title("Backup locations");
-        backup_locations_row.set_subtitle("Where saved versions get sent when you sync");
-        let backup_locations_btn = Button::with_label("Manage…");
+        backup_locations_row.set_title(&tr("settings-backup-locations-title"));
+        backup_locations_row.set_subtitle(&tr("settings-backup-locations-subtitle"));
+        let backup_locations_btn = Button::with_label(&tr("settings-manage-button"));
         backup_locations_btn.set_valign(Align::Center);
         backup_locations_row.add_suffix(&backup_locations_btn);
         backup_locations_row.set_activatable_widget(Some(&backup_locations_btn));
@@ -644,11 +645,11 @@ impl SettingsDialog {
         // Re-running setup used to have no way back in once the first-run
         // wizard closed.
         let setup_group = adw::PreferencesGroup::new();
-        setup_group.set_title("Setup");
+        setup_group.set_title(&tr("settings-setup-title"));
         let setup_row = adw::ActionRow::new();
-        setup_row.set_title("Setup wizard");
-        setup_row.set_subtitle("Re-run the guided first-time setup");
-        let setup_btn = Button::with_label("Run…");
+        setup_row.set_title(&tr("settings-setup-wizard-title"));
+        setup_row.set_subtitle(&tr("settings-setup-wizard-subtitle"));
+        let setup_btn = Button::with_label(&tr("settings-run-button"));
         setup_btn.set_valign(Align::Center);
         setup_row.add_suffix(&setup_btn);
         setup_row.set_activatable_widget(Some(&setup_btn));
@@ -670,21 +671,21 @@ impl SettingsDialog {
         page_general.add(&tools_group);
         page_general.add(&keys_group);
         page_general.add(&dev_group);
-        let sp_general = view_stack.add_titled(&page_general, Some("general"), "General");
+        let sp_general = view_stack.add_titled(&page_general, Some("general"), &tr("settings-page-general"));
         sp_general.set_icon_name(Some("preferences-system-symbolic"));
 
         let page_editor = adw::PreferencesPage::new();
         page_editor.add(&editor_group);
         page_editor.add(&font_group);
         page_editor.add(&doc_font_group);
-        let sp_editor = view_stack.add_titled(&page_editor, Some("editor"), "Editor");
+        let sp_editor = view_stack.add_titled(&page_editor, Some("editor"), &tr("settings-page-editor"));
         sp_editor.set_icon_name(Some("text-editor-symbolic"));
 
         let page_extras = adw::PreferencesPage::new();
         page_extras.add(&bib_group);
         page_extras.add(&cv_group);
         page_extras.add(&spell_group);
-        let sp_extras = view_stack.add_titled(&page_extras, Some("extras"), "References & Spelling");
+        let sp_extras = view_stack.add_titled(&page_extras, Some("extras"), &tr("settings-page-extras"));
         sp_extras.set_icon_name(Some("accessories-dictionary-symbolic"));
 
         let switcher = adw::ViewSwitcher::new();
@@ -951,8 +952,11 @@ impl SettingsDialog {
                     Err(e) => {
                         notice(
                             &win_save,
-                            "Work folder isn't usable",
-                            &format!("{} could not be created: {e}", new_cfg.work_dir.display()),
+                            &tr("settings-work-folder-unusable-heading"),
+                            &tr_args("settings-folder-create-failed-body", &[
+                                ("path", &new_cfg.work_dir.display().to_string()),
+                                ("error", &e.to_string()),
+                            ]),
                         );
                         return;
                     }
@@ -963,24 +967,27 @@ impl SettingsDialog {
                     if let Err(e) = std::fs::create_dir_all(dir) {
                         notice(
                             &win_save,
-                            "Output folder isn't usable",
-                            &format!("{} could not be created: {e}", dir.display()),
+                            &tr("settings-output-folder-unusable-heading"),
+                            &tr_args("settings-folder-create-failed-body", &[
+                                ("path", &dir.display().to_string()),
+                                ("error", &e.to_string()),
+                            ]),
                         );
                         return;
                     }
                 }
             }
             for (label, path) in [
-                ("Bib file", new_cfg.bib_path.as_ref()),
-                ("Custom CSL file", new_cfg.custom_csl_path.as_ref()),
-                ("Skrizhal file", new_cfg.cv_elements_path.as_ref()),
+                (tr("settings-bib-file-label"), new_cfg.bib_path.as_ref()),
+                (tr("settings-custom-csl-file-label"), new_cfg.custom_csl_path.as_ref()),
+                (tr("settings-skrizhal-file-label"), new_cfg.cv_elements_path.as_ref()),
             ] {
                 if let Some(p) = path {
                     if !p.is_file() {
                         notice(
                             &win_save,
-                            &format!("{label} not found"),
-                            &format!("{} doesn't exist. Clear the field or pick another file.", p.display()),
+                            &tr_args("settings-file-not-found-heading", &[("label", &label)]),
+                            &tr_args("settings-file-not-found-body", &[("path", &p.display().to_string())]),
                         );
                         return;
                     }
@@ -988,7 +995,7 @@ impl SettingsDialog {
             }
 
             if let Err(e) = new_cfg.save() {
-                notice(&win_save, "Failed to save settings", &format!("{e}"));
+                notice(&win_save, &tr("settings-save-failed-heading"), &e.to_string());
                 return;
             }
             saved_on_save.set(true);
