@@ -614,6 +614,38 @@ fn symbol_tabs() -> Vec<(&'static str, Vec<(&'static str, &'static str)>)> {
             ("५","5"), ("६","6"), ("७","7"), ("८","8"), ("९","9"),
             ("।","danda"), ("॥","double danda"), ("ॐ","Om"),
         ]),
+        ("Math", vec![
+            // Basic operators
+            ("±","plus-minus"), ("∓","minus-plus"), ("×","times"), ("÷","divide"),
+            ("·","dot / multiplication"), ("∘","function composition"),
+            ("√","square root"), ("∛","cube root"), ("∞","infinity"),
+            // Relations
+            ("≈","approximately equal to"), ("≠","not equal to"), ("≡","equivalent to / defined as"),
+            ("≤","less than or equal to"), ("≥","greater than or equal to"),
+            ("≪","much less than"), ("≫","much greater than"), ("∝","proportional to"),
+            // Calculus
+            ("∑","summation"), ("∏","product"), ("∫","integral"), ("∬","double integral"),
+            ("∮","contour integral"), ("∂","partial derivative"), ("∇","nabla / gradient"),
+            ("Δ","delta / change in"), ("lim","limit"),
+            // Set theory
+            ("∈","element of"), ("∉","not an element of"), ("⊂","subset of"), ("⊆","subset of or equal to"),
+            ("⊃","superset of"), ("∪","union"), ("∩","intersection"), ("∅","empty set"),
+            ("∖","set minus"),
+            // Logic
+            ("∀","for all"), ("∃","there exists"), ("∄","there does not exist"),
+            ("¬","not"), ("∧","and"), ("∨","or"), ("⇒","implies"), ("⇔","if and only if"),
+            ("∴","therefore"), ("∵","because"),
+            // Arrows
+            ("→","right arrow"), ("←","left arrow"), ("↔","left-right arrow"),
+            ("↦","maps to"), ("⇌","equilibrium / reversible reaction"),
+            // Number sets (blackboard bold)
+            ("ℝ","real numbers"), ("ℕ","natural numbers"), ("ℤ","integers"),
+            ("ℚ","rational numbers"), ("ℂ","complex numbers"),
+            // Misc
+            ("⊥","perpendicular / independent"), ("∥","parallel to"), ("∠","angle"),
+            ("⊕","direct sum / XOR"), ("⊗","tensor product"), ("ℓ","script l"), ("ħ","h-bar"),
+            ("†","dagger / conjugate transpose"),
+        ]),
     ]
 }
 

@@ -146,6 +146,7 @@ impl WelcomeWindow {
                 "The Packages panel can now search and install from Typst Universe, not just list what's already downloaded — and it actually shows up in the sidebar now.",
                 "The Outline panel's folder toggle shows a manuscript-wide view — headings and word counts rolled up across every file in the project, not just the open one.",
                 "Reference Manager and Dependency Graph are reachable from the ≡ menu now — both existed and worked, but had no way to be opened before.",
+                "The Symbol Insert panel has a Math tab — common operators, relations, calculus, set theory, and more, one click to insert.",
             ] {
                 body.append(&bullet_row(item));
             }
