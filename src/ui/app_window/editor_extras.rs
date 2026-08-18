@@ -10,7 +10,6 @@ use gtk4::prelude::*;
 use gtk4::{Box as GtkBox, Button, Orientation};
 use libadwaita as adw;
 
-use crate::config::Config;
 use super::super::citation_panel::CitationPanel;
 use super::super::comments_panel::CommentsPanel;
 use super::super::editor_pane::EditorPane;
@@ -18,7 +17,8 @@ use super::super::file_tree::FileTree;
 use super::super::outline_panel::OutlinePanel;
 use super::super::package_browser::PackageBrowser;
 use super::super::preview_pane::PreviewPane;
-use super::import::{IMPORT_FORMATS, run_pandoc_import, run_pdf_import};
+use super::import::{run_pandoc_import, run_pdf_import, IMPORT_FORMATS};
+use crate::config::Config;
 
 pub(super) struct EditorExtrasCtx {
     pub(super) window: adw::ApplicationWindow,
@@ -52,7 +52,8 @@ pub(super) fn wire_editor_extras(ctx: &EditorExtrasCtx) {
         let ep = ctx.editor_pane.clone();
         let ft = ctx.file_tree.clone();
         ctx.editor_pane.set_on_image_drop(move |src_path| {
-            let fname = src_path.file_name()
+            let fname = src_path
+                .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or("image.png")
                 .to_string();
@@ -77,15 +78,28 @@ pub(super) fn wire_editor_extras(ctx: &EditorExtrasCtx) {
         let cfg = ctx.current_config.clone();
         let toast = ctx.toast_overlay.clone();
         ctx.editor_pane.set_on_document_drop(move |src_path| {
-            let ext = src_path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+            let ext = src_path
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("")
+                .to_lowercase();
             if ext == "pdf" {
                 run_pdf_import(&win, &ep, src_path);
                 return;
             }
-            if let Some(fmt) = IMPORT_FORMATS.iter().find(|f| f.extensions.contains(&ext.as_str())) {
-                let work_dir = ep.get_active_path()
+            if let Some(fmt) = IMPORT_FORMATS
+                .iter()
+                .find(|f| f.extensions.contains(&ext.as_str()))
+            {
+                let work_dir = ep
+                    .get_active_path()
                     .and_then(|p| p.parent().map(|d| d.to_path_buf()))
-                    .unwrap_or_else(|| src_path.parent().map(|d| d.to_path_buf()).unwrap_or_default());
+                    .unwrap_or_else(|| {
+                        src_path
+                            .parent()
+                            .map(|d| d.to_path_buf())
+                            .unwrap_or_default()
+                    });
                 run_pandoc_import(&win, &ep, &cfg, &toast, &work_dir, src_path, fmt);
             }
         });
@@ -93,7 +107,6 @@ pub(super) fn wire_editor_extras(ctx: &EditorExtrasCtx) {
 
     // (Refs and Files panels removed — refs/file-tree callbacks kept for
     //  compile-error marking, dirty indicators, and image-drop insertion)
-
 }
 
 pub(super) struct SidebarToolbarCtx {
@@ -146,7 +159,8 @@ pub(super) fn wire_sidebar_toolbar(ctx: &SidebarToolbarCtx) -> (GtkBox, Button) 
                 // Without the font installed the CSS above is a silent no-op,
                 // which reads as a broken toggle. Say so instead.
                 if !ep_for_gost.is_gost_restoring() && !ep_for_gost.gost_font_available() {
-                    let t = adw::Toast::new("GOST type B isn't installed — the UI font is unchanged");
+                    let t =
+                        adw::Toast::new("GOST type B isn't installed — the UI font is unchanged");
                     t.set_timeout(5);
                     toast_for_gost.add_toast(t);
                 }
@@ -178,7 +192,12 @@ pub(super) fn wire_sidebar_toolbar(ctx: &SidebarToolbarCtx) -> (GtkBox, Button) 
         let toast_ut = ctx.toast_overlay.clone();
         update_template_btn.connect_clicked(move |_| {
             super::open_template_for_active_document(
-                &win_ut, &ep_ut, &preview_ut, &toast_ut, &root_ut, &cfg_ut,
+                &win_ut,
+                &ep_ut,
+                &preview_ut,
+                &toast_ut,
+                &root_ut,
+                &cfg_ut,
             );
         });
     }
@@ -198,9 +217,13 @@ pub(super) fn wire_sidebar_toolbar(ctx: &SidebarToolbarCtx) -> (GtkBox, Button) 
     packages_comments_pane.set_shrink_start_child(false);
     packages_comments_pane.set_shrink_end_child(false);
     packages_comments_pane.set_vexpand(true);
-    let packages_comments_suppress = persist_vertical_split(&packages_comments_pane, ctx.current_config.clone(), |c, pos| {
-        c.sidebar_packages_split = pos;
-    });
+    let packages_comments_suppress = persist_vertical_split(
+        &packages_comments_pane,
+        ctx.current_config.clone(),
+        |c, pos| {
+            c.sidebar_packages_split = pos;
+        },
+    );
 
     let citations_packages_pane = gtk4::Paned::new(Orientation::Vertical);
     citations_packages_pane.set_start_child(Some(ctx.citation_panel.widget()));
@@ -211,9 +234,13 @@ pub(super) fn wire_sidebar_toolbar(ctx: &SidebarToolbarCtx) -> (GtkBox, Button) 
     citations_packages_pane.set_shrink_start_child(false);
     citations_packages_pane.set_shrink_end_child(false);
     citations_packages_pane.set_vexpand(true);
-    persist_vertical_split(&citations_packages_pane, ctx.current_config.clone(), |c, pos| {
-        c.sidebar_citations_split = pos;
-    });
+    persist_vertical_split(
+        &citations_packages_pane,
+        ctx.current_config.clone(),
+        |c, pos| {
+            c.sidebar_citations_split = pos;
+        },
+    );
 
     let outline_rest_pane = gtk4::Paned::new(Orientation::Vertical);
     outline_rest_pane.set_start_child(Some(ctx.outline_panel.widget()));
@@ -250,7 +277,8 @@ pub(super) fn wire_sidebar_toolbar(ctx: &SidebarToolbarCtx) -> (GtkBox, Button) 
 
     let initial_packages_collapsed = ctx.current_config.borrow().sidebar_packages_collapsed;
     let initial_comments_collapsed = ctx.current_config.borrow().sidebar_comments_collapsed;
-    ctx.package_browser.set_collapsed(initial_packages_collapsed);
+    ctx.package_browser
+        .set_collapsed(initial_packages_collapsed);
     ctx.comments_panel.set_collapsed(initial_comments_collapsed);
     if initial_packages_collapsed {
         packages_reclaim(true);
@@ -259,13 +287,14 @@ pub(super) fn wire_sidebar_toolbar(ctx: &SidebarToolbarCtx) -> (GtkBox, Button) 
     }
     {
         let cfg = ctx.current_config.clone();
-        ctx.package_browser.set_on_collapse_toggle(move |collapsed| {
-            let mut c = cfg.borrow_mut();
-            c.sidebar_packages_collapsed = collapsed;
-            let _ = c.save();
-            drop(c);
-            packages_reclaim(collapsed);
-        });
+        ctx.package_browser
+            .set_on_collapse_toggle(move |collapsed| {
+                let mut c = cfg.borrow_mut();
+                c.sidebar_packages_collapsed = collapsed;
+                let _ = c.save();
+                drop(c);
+                packages_reclaim(collapsed);
+            });
     }
     {
         let cfg = ctx.current_config.clone();
@@ -286,7 +315,6 @@ pub(super) fn wire_sidebar_toolbar(ctx: &SidebarToolbarCtx) -> (GtkBox, Button) 
     left_box.append(&outline_rest_pane);
     *ctx.left_paned_holder.borrow_mut() = Some(left_box.clone());
 
-
     (left_box, update_template_btn)
 }
 
@@ -299,25 +327,35 @@ pub(super) fn wire_sidebar_toolbar(ctx: &SidebarToolbarCtx) -> (GtkBox, Button) 
 /// `paned.set_position(...)` (e.g. driving a collapse/expand) so that move
 /// isn't mistaken for a user drag and persisted over their real preferred
 /// split — see `wire_collapse_reclaims_space` below.
-fn persist_vertical_split(paned: &gtk4::Paned, cfg: Rc<RefCell<Config>>, setter: impl Fn(&mut Config, i32) + 'static) -> Rc<std::cell::Cell<bool>> {
+fn persist_vertical_split(
+    paned: &gtk4::Paned,
+    cfg: Rc<RefCell<Config>>,
+    setter: impl Fn(&mut Config, i32) + 'static,
+) -> Rc<std::cell::Cell<bool>> {
     let setter = Rc::new(setter);
     let ready = Rc::new(std::cell::Cell::new(false));
     let ready2 = ready.clone();
     paned.connect_realize(move |_| {
         let r = ready2.clone();
-        glib::idle_add_local_once(move || { r.set(true); });
+        glib::idle_add_local_once(move || {
+            r.set(true);
+        });
     });
     let suppress = Rc::new(std::cell::Cell::new(false));
     let suppress2 = suppress.clone();
     let pending: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
     paned.connect_position_notify(move |p| {
-        if !ready.get() || suppress2.get() { return; }
+        if !ready.get() || suppress2.get() {
+            return;
+        }
         let pos = p.position();
         let cfg2 = cfg.clone();
         let setter2 = setter.clone();
         let pending_for_cb = pending.clone();
         let mut slot = pending.borrow_mut();
-        if let Some(id) = slot.take() { id.remove(); }
+        if let Some(id) = slot.take() {
+            id.remove();
+        }
         *slot = Some(glib::timeout_add_local_once(
             std::time::Duration::from_millis(400),
             move || {

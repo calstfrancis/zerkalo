@@ -103,7 +103,10 @@ mod tests {
         atomic_write(&path, b"still secret").unwrap();
 
         let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode, 0o600, "a 0600 document must not become world-readable on save");
+        assert_eq!(
+            mode, 0o600,
+            "a 0600 document must not become world-readable on save"
+        );
     }
 
     #[test]

@@ -8,8 +8,8 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 
-use fluent_templates::{Loader, static_loader};
-use unic_langid::{LanguageIdentifier, langid};
+use fluent_templates::{static_loader, Loader};
+use unic_langid::{langid, LanguageIdentifier};
 
 static_loader! {
     static LOCALES = {
@@ -32,14 +32,21 @@ const CURRENT_LOCALE: LanguageIdentifier = langid!("en");
 /// can see and fix; a panic on every affected screen is not a trade worth
 /// making for translation coverage.
 pub fn tr(id: &str) -> String {
-    LOCALES.try_lookup(&CURRENT_LOCALE, id).unwrap_or_else(|| id.to_string())
+    LOCALES
+        .try_lookup(&CURRENT_LOCALE, id)
+        .unwrap_or_else(|| id.to_string())
 }
 
 /// Same as [`tr`], with `{ $name }`-style variables filled in from `args`.
 pub fn tr_args(id: &str, args: &[(&str, &str)]) -> String {
     let map: HashMap<Cow<'static, str>, fluent_templates::fluent_bundle::FluentValue> = args
         .iter()
-        .map(|(k, v)| (Cow::Owned(k.to_string()), fluent_templates::fluent_bundle::FluentValue::from(*v)))
+        .map(|(k, v)| {
+            (
+                Cow::Owned(k.to_string()),
+                fluent_templates::fluent_bundle::FluentValue::from(*v),
+            )
+        })
         .collect();
     LOCALES
         .try_lookup_with_args(&CURRENT_LOCALE, id, &map)
@@ -70,6 +77,9 @@ mod tests {
 
     #[test]
     fn tr_args_falls_back_to_the_id_on_a_miss() {
-        assert_eq!(tr_args("nonexistent-with-args", &[("x", "1")]), "nonexistent-with-args");
+        assert_eq!(
+            tr_args("nonexistent-with-args", &[("x", "1")]),
+            "nonexistent-with-args"
+        );
     }
 }

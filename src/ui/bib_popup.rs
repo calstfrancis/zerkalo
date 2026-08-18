@@ -71,10 +71,18 @@ impl PopupEntry {
         match self {
             PopupEntry::Bib(e) => {
                 let who = format_author_year(e);
-                if e.title.is_empty() { who } else { format!("{who} — {}", truncate(&e.title, 60)) }
+                if e.title.is_empty() {
+                    who
+                } else {
+                    format!("{who} — {}", truncate(&e.title, 60))
+                }
             }
             PopupEntry::Cv(e) => {
-                let what = if e.title.is_empty() { e.key.clone() } else { e.title.clone() };
+                let what = if e.title.is_empty() {
+                    e.key.clone()
+                } else {
+                    e.title.clone()
+                };
                 match e.organization.as_deref().filter(|o| !o.is_empty()) {
                     Some(org) => format!("{what} — {org}"),
                     None => what,
@@ -156,10 +164,14 @@ impl BibPopup {
                 use gtk4::gdk::Key;
                 match key {
                     Key::Tab | Key::Return | Key::KP_Enter => {
-                        let idx = list_kc.selected_row()
+                        let idx = list_kc
+                            .selected_row()
                             .map(|r| r.index() as usize)
                             .unwrap_or(0);
-                        let entry = filtered_kc.borrow().get(idx).cloned()
+                        let entry = filtered_kc
+                            .borrow()
+                            .get(idx)
+                            .cloned()
                             .or_else(|| filtered_kc.borrow().first().cloned());
                         if let Some(entry) = entry {
                             popover_kc.popdown();
@@ -205,7 +217,9 @@ impl BibPopup {
                 let entry = filtered_ra.borrow().get(idx).cloned();
                 if let Some(entry) = entry {
                     popover_ra.popdown();
-                    if let Some(f) = on_complete_ra.borrow().as_ref() { f(entry); }
+                    if let Some(f) = on_complete_ra.borrow().as_ref() {
+                        f(entry);
+                    }
                 }
             });
         }
@@ -272,8 +286,13 @@ impl BibPopup {
             self.list_box.select_row(Some(&row));
         }
 
-        self.popover.set_position(if above { PositionType::Top } else { PositionType::Bottom });
-        self.popover.set_pointing_to(Some(&Rectangle::new(x, y, 1, 1)));
+        self.popover.set_position(if above {
+            PositionType::Top
+        } else {
+            PositionType::Bottom
+        });
+        self.popover
+            .set_pointing_to(Some(&Rectangle::new(x, y, 1, 1)));
 
         if !self.popover.is_visible() {
             self.popover.popup();
@@ -300,12 +319,20 @@ impl BibPopup {
     pub fn matches_for(&self, query: &str, source: PopupSource) -> Vec<PopupEntry> {
         let q = query.to_lowercase();
         let mut matched: Vec<PopupEntry> = match source {
-            PopupSource::Bib => {
-                self.bib_entries.borrow().iter().cloned().map(PopupEntry::Bib).collect()
-            }
-            PopupSource::Cv => {
-                self.cv_entries.borrow().iter().cloned().map(PopupEntry::Cv).collect()
-            }
+            PopupSource::Bib => self
+                .bib_entries
+                .borrow()
+                .iter()
+                .cloned()
+                .map(PopupEntry::Bib)
+                .collect(),
+            PopupSource::Cv => self
+                .cv_entries
+                .borrow()
+                .iter()
+                .cloned()
+                .map(PopupEntry::Cv)
+                .collect(),
         };
         matched.retain(|e| q.is_empty() || e.search_haystack().to_lowercase().contains(&q));
         matched.sort_by_key(|e| if e.is_prefix_match(&q) { 0u8 } else { 1u8 });
@@ -382,7 +409,11 @@ impl BibPopup {
                 // Primary label: the entry's title — what a CV author
                 // searches by, mirroring the bib popup's author-year primary.
                 let title_lbl = Label::new(None);
-                let title_text = if e.title.is_empty() { e.key.as_str() } else { &e.title };
+                let title_text = if e.title.is_empty() {
+                    e.key.as_str()
+                } else {
+                    &e.title
+                };
                 title_lbl.set_markup(&format!(
                     "<b>{}</b>",
                     glib::markup_escape_text(&truncate(title_text, 50))

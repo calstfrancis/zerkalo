@@ -327,7 +327,13 @@ fn parse_diags(json: &Value) -> Option<Vec<LspDiagnostic>> {
                     3 | 4 => DiagSeverity::Info,
                     _ => DiagSeverity::Error,
                 };
-                Some(LspDiagnostic { file: file.clone(), line, col, message, severity })
+                Some(LspDiagnostic {
+                    file: file.clone(),
+                    line,
+                    col,
+                    message,
+                    severity,
+                })
             })
             .collect(),
     )
@@ -350,7 +356,10 @@ fn parse_completion_result(json: &Value) -> Option<Vec<CompletionItem>> {
             .filter_map(|item| {
                 let label = item.get("label")?.as_str()?.to_string();
                 let kind = item.get("kind").and_then(|v| v.as_u64()).unwrap_or(1) as u8;
-                let detail = item.get("detail").and_then(|v| v.as_str()).map(|s| s.to_string());
+                let detail = item
+                    .get("detail")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
                 let raw_insert = item
                     .get("insertText")
                     .and_then(|v| v.as_str())
@@ -363,7 +372,12 @@ fn parse_completion_result(json: &Value) -> Option<Vec<CompletionItem>> {
                     });
                 // Strip LSP snippet markers ($0, ${1:placeholder} → placeholder)
                 let insert_text = raw_insert.map(|s| strip_snippet_syntax(&s));
-                Some(CompletionItem { label, kind, detail, insert_text })
+                Some(CompletionItem {
+                    label,
+                    kind,
+                    detail,
+                    insert_text,
+                })
             })
             .collect(),
     )
@@ -386,18 +400,31 @@ fn strip_snippet_syntax(s: &str) -> String {
             i += 2;
         } else if chars[i] == '$' {
             i += 1;
-            if i >= n { break; }
+            if i >= n {
+                break;
+            }
             if chars[i] == '{' {
                 i += 1;
                 // skip N:
-                while i < n && chars[i] != ':' && chars[i] != '}' { i += 1; }
+                while i < n && chars[i] != ':' && chars[i] != '}' {
+                    i += 1;
+                }
                 if i < n && chars[i] == ':' {
                     i += 1;
                     let mut depth = 1i32;
                     while i < n && depth > 0 {
-                        if chars[i] == '{' { depth += 1; }
-                        else if chars[i] == '}' { depth -= 1; if depth == 0 { i += 1; break; } }
-                        if depth > 0 { out.push(chars[i]); }
+                        if chars[i] == '{' {
+                            depth += 1;
+                        } else if chars[i] == '}' {
+                            depth -= 1;
+                            if depth == 0 {
+                                i += 1;
+                                break;
+                            }
+                        }
+                        if depth > 0 {
+                            out.push(chars[i]);
+                        }
                         i += 1;
                     }
                 } else if i < n && chars[i] == '}' {
@@ -405,7 +432,11 @@ fn strip_snippet_syntax(s: &str) -> String {
                 }
             } else {
                 while i < n && (chars[i].is_ascii_digit() || chars[i].is_alphanumeric() && i > 0) {
-                    if chars[i].is_ascii_digit() { i += 1; } else { break; }
+                    if chars[i].is_ascii_digit() {
+                        i += 1;
+                    } else {
+                        break;
+                    }
                 }
             }
         } else {
@@ -444,7 +475,10 @@ mod tests {
     #[test]
     fn path_to_uri_percent_encodes_spaces() {
         let uri = path_to_uri(Path::new("/home/user/My Docs/main.typ"));
-        assert!(uri.contains("%20"), "spaces should be percent-encoded: {uri}");
+        assert!(
+            uri.contains("%20"),
+            "spaces should be percent-encoded: {uri}"
+        );
         assert!(!uri.contains(' '), "no literal spaces should remain: {uri}");
     }
 
@@ -465,7 +499,10 @@ mod tests {
 
     #[test]
     fn strip_snippet_syntax_removes_placeholders_and_tabstops() {
-        assert_eq!(strip_snippet_syntax("#heading(${1:level})$0"), "#heading(level)");
+        assert_eq!(
+            strip_snippet_syntax("#heading(${1:level})$0"),
+            "#heading(level)"
+        );
         assert_eq!(strip_snippet_syntax(r"\$5 total"), "$5 total");
     }
 }

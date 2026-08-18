@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
 use chrono::Datelike;
-use typst::diag::{FileError, FileResult, SourceDiagnostic, Severity, Warned};
+use typst::diag::{FileError, FileResult, Severity, SourceDiagnostic, Warned};
 use typst::foundations::{Bytes, Datetime, Dict, IntoValue, Str};
 use typst::layout::PagedDocument;
 use typst::syntax::{FileId, Source, VirtualPath};
@@ -72,8 +72,7 @@ fn package_storage() -> &'static PackageStorage {
 /// through, so an install here is immediately visible to the next compile.
 /// Blocking (network + disk) — callers must not run this on the main thread.
 pub fn install_package(spec_str: &str) -> Result<(), String> {
-    let spec: typst::syntax::package::PackageSpec =
-        spec_str.parse().map_err(|e| format!("{e}"))?;
+    let spec: typst::syntax::package::PackageSpec = spec_str.parse().map_err(|e| format!("{e}"))?;
     package_storage()
         .prepare_package(&spec, &mut ProgressSink)
         .map(|_| ())
@@ -96,9 +95,12 @@ pub fn install_package(spec_str: &str) -> Result<(), String> {
 /// off mid-routine-activity with no panic message at all, which a Rust
 /// panic (even an uncaught one) would have printed first.
 type BibSanitizeCacheValue = Option<String>;
-static BIB_SANITIZE_CACHE: OnceLock<Mutex<HashMap<PathBuf, (std::time::SystemTime, BibSanitizeCacheValue)>>> = OnceLock::new();
+static BIB_SANITIZE_CACHE: OnceLock<
+    Mutex<HashMap<PathBuf, (std::time::SystemTime, BibSanitizeCacheValue)>>,
+> = OnceLock::new();
 
-fn bib_sanitize_cache() -> &'static Mutex<HashMap<PathBuf, (std::time::SystemTime, BibSanitizeCacheValue)>> {
+fn bib_sanitize_cache(
+) -> &'static Mutex<HashMap<PathBuf, (std::time::SystemTime, BibSanitizeCacheValue)>> {
     BIB_SANITIZE_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -116,7 +118,9 @@ fn sanitize_bib_cached(path: &Path) -> BibSanitizeCacheValue {
             }
         }
     }
-    let computed = std::fs::read_to_string(path).ok().and_then(|raw| crate::bib_sanitize::sanitize_bib(&raw));
+    let computed = std::fs::read_to_string(path)
+        .ok()
+        .and_then(|raw| crate::bib_sanitize::sanitize_bib(&raw));
     poisoned_lock(bib_sanitize_cache()).insert(path.to_path_buf(), (mtime, computed.clone()));
     computed
 }
@@ -133,7 +137,10 @@ const COMEMO_RETENTION: usize = 2;
 
 /// Shared tail of every compile: evict, and render warnings into the same text
 /// format `parse_typst_errors` reads for errors.
-fn finish<T>(world: &ZerkaloWorld, result: Warned<typst::diag::SourceResult<T>>) -> Result<(T, String), String> {
+fn finish<T>(
+    world: &ZerkaloWorld,
+    result: Warned<typst::diag::SourceResult<T>>,
+) -> Result<(T, String), String> {
     let warnings = format_diagnostics(world, &result.warnings);
     let out = match result.output {
         Ok(value) => Ok((value, warnings)),
@@ -198,14 +205,25 @@ impl ZerkaloWorld {
             .to_path_buf();
 
         let is_outside_project = |candidate: &Path| {
-            let canon_project = std::fs::canonicalize(&project_root).unwrap_or_else(|_| project_root.clone());
-            let canon_candidate = std::fs::canonicalize(candidate).unwrap_or_else(|_| candidate.to_path_buf());
+            let canon_project =
+                std::fs::canonicalize(&project_root).unwrap_or_else(|_| project_root.clone());
+            let canon_candidate =
+                std::fs::canonicalize(candidate).unwrap_or_else(|_| candidate.to_path_buf());
             !canon_candidate.starts_with(&canon_project)
         };
 
-        let content = overrides.get(root_file).cloned().or_else(|| std::fs::read_to_string(root_file).ok());
-        let doc_bib_path_raw = content.as_deref().and_then(crate::styles::find_bibliography_path).map(str::to_string);
-        let doc_bib_abs_path = doc_bib_path_raw.as_deref().filter(|p| p.starts_with('/')).map(PathBuf::from);
+        let content = overrides
+            .get(root_file)
+            .cloned()
+            .or_else(|| std::fs::read_to_string(root_file).ok());
+        let doc_bib_path_raw = content
+            .as_deref()
+            .and_then(crate::styles::find_bibliography_path)
+            .map(str::to_string);
+        let doc_bib_abs_path = doc_bib_path_raw
+            .as_deref()
+            .filter(|p| p.starts_with('/'))
+            .map(PathBuf::from);
 
         let needs_widening = extra_root.is_some_and(is_outside_project)
             || doc_bib_abs_path.as_deref().is_some_and(is_outside_project);
@@ -219,15 +237,23 @@ impl ZerkaloWorld {
         // copy the same lenient way and serve that instead — transparently,
         // via the same `overrides` mechanism already used for unsaved editor
         // buffers — rather than just reporting the failure.
-        if let Some(p) = doc_bib_path_raw.as_deref().filter(|p| p.to_ascii_lowercase().ends_with(".bib")) {
-            let resolved = if p.starts_with('/') { PathBuf::from(p) } else { project_root.join(p) };
+        if let Some(p) = doc_bib_path_raw
+            .as_deref()
+            .filter(|p| p.to_ascii_lowercase().ends_with(".bib"))
+        {
+            let resolved = if p.starts_with('/') {
+                PathBuf::from(p)
+            } else {
+                project_root.join(p)
+            };
             if let Some(fixed) = sanitize_bib_cached(&resolved) {
                 overrides.insert(resolved, fixed);
             }
         }
 
         let (root, abs_root_file) = if needs_widening {
-            let canon = std::fs::canonicalize(root_file).unwrap_or_else(|_| root_file.to_path_buf());
+            let canon =
+                std::fs::canonicalize(root_file).unwrap_or_else(|_| root_file.to_path_buf());
             (PathBuf::from("/"), canon)
         } else {
             (project_root, root_file.to_path_buf())
@@ -331,10 +357,13 @@ impl typst::World for ZerkaloWorld {
 fn offset_to_line_col(text: &str, offset: usize) -> (usize, usize) {
     let safe = offset.min(text.len());
     // Walk back to a char boundary so we never panic on a multibyte codepoint.
-    let safe = (0..=safe).rev().find(|&i| text.is_char_boundary(i)).unwrap_or(0);
+    let safe = (0..=safe)
+        .rev()
+        .find(|&i| text.is_char_boundary(i))
+        .unwrap_or(0);
     let before = &text[..safe];
     let line = before.bytes().filter(|&b| b == b'\n').count() + 1;
-    let col  = safe - before.rfind('\n').map(|p| p + 1).unwrap_or(0) + 1;
+    let col = safe - before.rfind('\n').map(|p| p + 1).unwrap_or(0) + 1;
     (line, col)
 }
 
@@ -342,12 +371,16 @@ fn offset_to_line_col(text: &str, offset: usize) -> (usize, usize) {
 /// that `parse_typst_errors` in the UI layer understands.  We use the compile world
 /// to resolve span → source → byte range → human-readable location.
 fn format_diagnostics(world: &ZerkaloWorld, diags: &[SourceDiagnostic]) -> String {
-    diags.iter().map(|d| format_one(world, d)).collect::<Vec<_>>().join("\n")
+    diags
+        .iter()
+        .map(|d| format_one(world, d))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn format_one(world: &ZerkaloWorld, d: &SourceDiagnostic) -> String {
     let sev = match d.severity {
-        Severity::Error   => "error",
+        Severity::Error => "error",
         Severity::Warning => "warning",
     };
 
@@ -450,7 +483,11 @@ pub fn render_page_rgba(page: &typst::layout::Page, pixel_per_pt: f32) -> Render
         let c = px.demultiply();
         rgba.extend_from_slice(&[c.red(), c.green(), c.blue(), c.alpha()]);
     }
-    RenderedPage { width: pixmap.width(), height: pixmap.height(), rgba }
+    RenderedPage {
+        width: pixmap.width(),
+        height: pixmap.height(),
+        rgba,
+    }
 }
 
 /// Compile `root_file` and return each page as raw RGBA pixels.
@@ -477,7 +514,11 @@ pub fn compile_to_rgba_pages(
     // tiny-skia stores premultiplied RGBA; GdkPixbuf wants straight.
     // Typst pages are opaque so this is usually identity, but pages with
     // a transparent background would otherwise darken. See render_page_rgba.
-    let pages = doc.pages.iter().map(|p| render_page_rgba(p, pixel_per_pt)).collect();
+    let pages = doc
+        .pages
+        .iter()
+        .map(|p| render_page_rgba(p, pixel_per_pt))
+        .collect();
     Ok((pages, warnings))
 }
 
@@ -521,8 +562,15 @@ mod tests {
 
     #[test]
     fn sanitize_bib_cached_returns_the_same_result_for_an_unchanged_file() {
-        let path = std::env::temp_dir().join(format!("zerkalo_bib_cache_test_a_{}.bib", std::process::id()));
-        std::fs::write(&path, "@article{key,\n  title = {T},\n  year = {Winter 2001},\n}\n").unwrap();
+        let path = std::env::temp_dir().join(format!(
+            "zerkalo_bib_cache_test_a_{}.bib",
+            std::process::id()
+        ));
+        std::fs::write(
+            &path,
+            "@article{key,\n  title = {T},\n  year = {Winter 2001},\n}\n",
+        )
+        .unwrap();
         let first = sanitize_bib_cached(&path);
         let second = sanitize_bib_cached(&path);
         assert_eq!(first, second);
@@ -532,23 +580,40 @@ mod tests {
 
     #[test]
     fn sanitize_bib_cached_picks_up_a_changed_file_rather_than_serving_a_stale_fix() {
-        let path = std::env::temp_dir().join(format!("zerkalo_bib_cache_test_b_{}.bib", std::process::id()));
-        std::fs::write(&path, "@article{key,\n  title = {T},\n  year = {Winter 2001},\n}\n").unwrap();
+        let path = std::env::temp_dir().join(format!(
+            "zerkalo_bib_cache_test_b_{}.bib",
+            std::process::id()
+        ));
+        std::fs::write(
+            &path,
+            "@article{key,\n  title = {T},\n  year = {Winter 2001},\n}\n",
+        )
+        .unwrap();
         let first = sanitize_bib_cached(&path);
         assert!(first.is_some(), "the malformed date should have been fixed");
 
         // Ensure a distinct mtime even on filesystems with coarse resolution.
         std::thread::sleep(std::time::Duration::from_millis(20));
-        std::fs::write(&path, "@article{key,\n  title = {T},\n  year = {2001},\n}\n").unwrap();
+        std::fs::write(
+            &path,
+            "@article{key,\n  title = {T},\n  year = {2001},\n}\n",
+        )
+        .unwrap();
         let second = sanitize_bib_cached(&path);
-        assert!(second.is_none(), "the now-clean file needs no fix, and must not reuse the stale cached one: {second:?}");
+        assert!(
+            second.is_none(),
+            "the now-clean file needs no fix, and must not reuse the stale cached one: {second:?}"
+        );
 
         let _ = std::fs::remove_file(&path);
     }
 
     #[test]
     fn sanitize_bib_cached_returns_none_for_a_missing_file() {
-        let path = std::env::temp_dir().join(format!("zerkalo_bib_cache_test_missing_{}.bib", std::process::id()));
+        let path = std::env::temp_dir().join(format!(
+            "zerkalo_bib_cache_test_missing_{}.bib",
+            std::process::id()
+        ));
         assert!(sanitize_bib_cached(&path).is_none());
     }
 
@@ -568,20 +633,34 @@ mod tests {
         // compiler scans the document's own bibliography() call as a second,
         // independent signal for widening; this must work even without
         // extra_root at all.
-        let doc_dir = std::env::temp_dir().join(format!("zerkalo_root_test_doc_{}", std::process::id()));
-        let vault_dir = std::env::temp_dir().join(format!("zerkalo_root_test_vault_{}", std::process::id()));
+        let doc_dir =
+            std::env::temp_dir().join(format!("zerkalo_root_test_doc_{}", std::process::id()));
+        let vault_dir =
+            std::env::temp_dir().join(format!("zerkalo_root_test_vault_{}", std::process::id()));
         std::fs::create_dir_all(&doc_dir).unwrap();
         std::fs::create_dir_all(&vault_dir).unwrap();
-        std::fs::write(vault_dir.join("library.yml"), "smith2020:\n  type: article\n  title: T\n  author: J\n  date: 2020\n").unwrap();
+        std::fs::write(
+            vault_dir.join("library.yml"),
+            "smith2020:\n  type: article\n  title: T\n  author: J\n  date: 2020\n",
+        )
+        .unwrap();
 
         let doc_path = doc_dir.join("main.typ");
         std::fs::write(
             &doc_path,
-            format!("#bibliography(\"{}\")\n\nSee @smith2020.\n", vault_dir.join("library.yml").display()),
-        ).unwrap();
+            format!(
+                "#bibliography(\"{}\")\n\nSee @smith2020.\n",
+                vault_dir.join("library.yml").display()
+            ),
+        )
+        .unwrap();
 
         let result = compile_to_pdf_bytes(&doc_path, &HashMap::new(), &HashMap::new(), None);
-        assert!(result.is_ok(), "the document's own bibliography() line should be enough to widen: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "the document's own bibliography() line should be enough to widen: {:?}",
+            result.err()
+        );
 
         let _ = std::fs::remove_dir_all(&doc_dir);
         let _ = std::fs::remove_dir_all(&vault_dir);
@@ -592,14 +671,27 @@ mod tests {
         // Only an absolute path in the document's own bibliography() call is a
         // signal to widen — a bare relative filename ("refs.bib") is already
         // correctly project-relative and needs no special handling.
-        let doc_dir = std::env::temp_dir().join(format!("zerkalo_root_test_doc4_{}", std::process::id()));
+        let doc_dir =
+            std::env::temp_dir().join(format!("zerkalo_root_test_doc4_{}", std::process::id()));
         std::fs::create_dir_all(&doc_dir).unwrap();
-        std::fs::write(doc_dir.join("refs.bib"), "@article{smith2020,\n  author = {J},\n  title = {T},\n  year = {2020},\n}\n").unwrap();
+        std::fs::write(
+            doc_dir.join("refs.bib"),
+            "@article{smith2020,\n  author = {J},\n  title = {T},\n  year = {2020},\n}\n",
+        )
+        .unwrap();
         let doc_path = doc_dir.join("main.typ");
-        std::fs::write(&doc_path, "#bibliography(\"refs.bib\")\n\nSee @smith2020.\n").unwrap();
+        std::fs::write(
+            &doc_path,
+            "#bibliography(\"refs.bib\")\n\nSee @smith2020.\n",
+        )
+        .unwrap();
 
         let result = compile_to_pdf_bytes(&doc_path, &HashMap::new(), &HashMap::new(), None);
-        assert!(result.is_ok(), "relative bib path should compile normally: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "relative bib path should compile normally: {:?}",
+            result.err()
+        );
 
         let _ = std::fs::remove_dir_all(&doc_dir);
     }
@@ -613,7 +705,8 @@ mod tests {
     /// the sanitizer in isolation; this proves it's actually wired in.
     #[test]
     fn a_document_with_a_malformed_bib_date_still_compiles_and_resolves_the_citation() {
-        let doc_dir = std::env::temp_dir().join(format!("zerkalo_lenient_bib_test_{}", std::process::id()));
+        let doc_dir =
+            std::env::temp_dir().join(format!("zerkalo_lenient_bib_test_{}", std::process::id()));
         std::fs::create_dir_all(&doc_dir).unwrap();
         std::fs::write(
             doc_dir.join("refs.bib"),
@@ -627,7 +720,11 @@ mod tests {
         ).unwrap();
 
         let result = compile_to_pdf_bytes(&doc_path, &HashMap::new(), &HashMap::new(), None);
-        assert!(result.is_ok(), "malformed bib date should not break the whole file: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "malformed bib date should not break the whole file: {:?}",
+            result.err()
+        );
         assert!(result.unwrap().starts_with(b"%PDF-"));
 
         let _ = std::fs::remove_dir_all(&doc_dir);
@@ -638,21 +735,36 @@ mod tests {
     /// actually resolves the citation.
     #[test]
     fn an_external_bib_path_resolves_when_passed_as_extra_root() {
-        let doc_dir = std::env::temp_dir().join(format!("zerkalo_root_test_doc2_{}", std::process::id()));
-        let vault_dir = std::env::temp_dir().join(format!("zerkalo_root_test_vault2_{}", std::process::id()));
+        let doc_dir =
+            std::env::temp_dir().join(format!("zerkalo_root_test_doc2_{}", std::process::id()));
+        let vault_dir =
+            std::env::temp_dir().join(format!("zerkalo_root_test_vault2_{}", std::process::id()));
         std::fs::create_dir_all(&doc_dir).unwrap();
         std::fs::create_dir_all(&vault_dir).unwrap();
         let lib_path = vault_dir.join("library.yml");
-        std::fs::write(&lib_path, "smith2020:\n  type: article\n  title: T\n  author: J\n  date: 2020\n").unwrap();
+        std::fs::write(
+            &lib_path,
+            "smith2020:\n  type: article\n  title: T\n  author: J\n  date: 2020\n",
+        )
+        .unwrap();
 
         let doc_path = doc_dir.join("main.typ");
         std::fs::write(
             &doc_path,
-            format!("#bibliography(\"{}\")\n\nSee @smith2020.\n", lib_path.display()),
-        ).unwrap();
+            format!(
+                "#bibliography(\"{}\")\n\nSee @smith2020.\n",
+                lib_path.display()
+            ),
+        )
+        .unwrap();
 
-        let result = compile_to_pdf_bytes(&doc_path, &HashMap::new(), &HashMap::new(), Some(&lib_path));
-        assert!(result.is_ok(), "external path should resolve with extra_root: {:?}", result.err());
+        let result =
+            compile_to_pdf_bytes(&doc_path, &HashMap::new(), &HashMap::new(), Some(&lib_path));
+        assert!(
+            result.is_ok(),
+            "external path should resolve with extra_root: {:?}",
+            result.err()
+        );
         assert!(result.unwrap().starts_with(b"%PDF-"));
 
         let _ = std::fs::remove_dir_all(&doc_dir);
@@ -663,16 +775,30 @@ mod tests {
     /// locks in that the common case is unaffected by the new parameter.
     #[test]
     fn a_bib_path_already_inside_the_project_compiles_without_widening() {
-        let doc_dir = std::env::temp_dir().join(format!("zerkalo_root_test_doc3_{}", std::process::id()));
+        let doc_dir =
+            std::env::temp_dir().join(format!("zerkalo_root_test_doc3_{}", std::process::id()));
         std::fs::create_dir_all(&doc_dir).unwrap();
         let bib_path = doc_dir.join("refs.bib");
-        std::fs::write(&bib_path, "@article{smith2020,\n  author = {J},\n  title = {T},\n  year = {2020},\n}\n").unwrap();
+        std::fs::write(
+            &bib_path,
+            "@article{smith2020,\n  author = {J},\n  title = {T},\n  year = {2020},\n}\n",
+        )
+        .unwrap();
 
         let doc_path = doc_dir.join("main.typ");
-        std::fs::write(&doc_path, "#bibliography(\"refs.bib\")\n\nSee @smith2020.\n").unwrap();
+        std::fs::write(
+            &doc_path,
+            "#bibliography(\"refs.bib\")\n\nSee @smith2020.\n",
+        )
+        .unwrap();
 
-        let result = compile_to_pdf_bytes(&doc_path, &HashMap::new(), &HashMap::new(), Some(&bib_path));
-        assert!(result.is_ok(), "bib already inside the project should compile: {:?}", result.err());
+        let result =
+            compile_to_pdf_bytes(&doc_path, &HashMap::new(), &HashMap::new(), Some(&bib_path));
+        assert!(
+            result.is_ok(),
+            "bib already inside the project should compile: {:?}",
+            result.err()
+        );
 
         let _ = std::fs::remove_dir_all(&doc_dir);
     }
@@ -681,7 +807,11 @@ mod tests {
     fn compile_trivial_document_to_pdf() {
         let path = write_temp_typ("Hello, world!");
         let result = compile_to_pdf_bytes(&path, &HashMap::new(), &HashMap::new(), None);
-        assert!(result.is_ok(), "trivial doc should compile: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "trivial doc should compile: {:?}",
+            result.err()
+        );
         let bytes = result.unwrap();
         assert!(bytes.starts_with(b"%PDF-"), "output should be valid PDF");
     }
@@ -709,12 +839,14 @@ mod tests {
 
     #[test]
     fn an_error_inside_an_imported_file_points_at_that_file() {
-        let dir = std::path::PathBuf::from(format!(
-            "/tmp/zerkalo_test_import_{}",
-            std::process::id()
-        ));
+        let dir =
+            std::path::PathBuf::from(format!("/tmp/zerkalo_test_import_{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("helper.typ"), "#let ok = 1\n\n#undefined-thing()\n").unwrap();
+        std::fs::write(
+            dir.join("helper.typ"),
+            "#let ok = 1\n\n#undefined-thing()\n",
+        )
+        .unwrap();
         let main = dir.join("main.typ");
         std::fs::write(&main, "= Doc\n\n#include \"helper.typ\"\n").unwrap();
 
@@ -737,16 +869,22 @@ mod tests {
         // line-1 fallback used to swallow everything.
         let path = write_temp_typ("= Title\n\nText.\n\n#no-such-thing()\n");
         let err = compile_to_pdf_bytes(&path, &HashMap::new(), &HashMap::new(), None).unwrap_err();
-        let parsed = crate::ui::error_panel::parse_typst_errors(
-            &err,
-            path.parent().unwrap(),
-        );
+        let parsed = crate::ui::error_panel::parse_typst_errors(&err, path.parent().unwrap());
         assert_eq!(parsed.len(), 1, "one diagnostic expected, got {parsed:?}");
-        assert_eq!(parsed[0].line, 5, "should point at the offending line, not line 1");
+        assert_eq!(
+            parsed[0].line, 5,
+            "should point at the offending line, not line 1"
+        );
         assert_eq!(parsed[0].file, path, "should point at the real file");
-        assert!(!parsed[0].hints.is_empty(), "Typst's hint should reach the panel");
         assert!(
-            !parsed[0].message.to_lowercase().contains("unknown variable"),
+            !parsed[0].hints.is_empty(),
+            "Typst's hint should reach the panel"
+        );
+        assert!(
+            !parsed[0]
+                .message
+                .to_lowercase()
+                .contains("unknown variable"),
             "headline should be plain language, got: {}",
             parsed[0].message
         );
@@ -764,7 +902,10 @@ mod tests {
         let path = std::path::PathBuf::from("/tmp/zerkalo-nonexistent-root-abc123.typ");
         let _ = std::fs::remove_file(&path);
         let result = compile_to_pdf_bytes(&path, &HashMap::new(), &HashMap::new(), None);
-        assert!(result.is_err(), "compiling a nonexistent root file should fail");
+        assert!(
+            result.is_err(),
+            "compiling a nonexistent root file should fail"
+        );
     }
 
     #[test]
@@ -774,18 +915,28 @@ mod tests {
         assert!(result.is_ok(), "doc should compile to PNG");
         let pages = result.unwrap();
         assert!(!pages.is_empty(), "should produce at least one page");
-        assert!(pages[0].starts_with(b"\x89PNG"), "output should be valid PNG");
+        assert!(
+            pages[0].starts_with(b"\x89PNG"),
+            "output should be valid PNG"
+        );
     }
 
     #[test]
     fn compile_to_rgba_produces_buffer_matching_declared_dimensions() {
         let path = write_temp_typ("= Heading\n\nSome content here.");
         let result = compile_to_rgba_pages(&path, 1.0, &HashMap::new(), &HashMap::new(), None);
-        assert!(result.is_ok(), "doc should render to RGBA: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "doc should render to RGBA: {:?}",
+            result.err()
+        );
         let (pages, _warnings) = result.unwrap();
         assert!(!pages.is_empty(), "should produce at least one page");
         let p = &pages[0];
-        assert!(p.width > 0 && p.height > 0, "page should have real dimensions");
+        assert!(
+            p.width > 0 && p.height > 0,
+            "page should have real dimensions"
+        );
         // GdkPixbuf reads this buffer using a rowstride derived from `width`, so
         // a mismatch here would read past the end of the allocation.
         assert_eq!(
@@ -798,7 +949,8 @@ mod tests {
     #[test]
     fn compile_to_rgba_renders_page_content_opaque() {
         let path = write_temp_typ("= Heading\n\nSome content here.");
-        let (pages, _) = compile_to_rgba_pages(&path, 1.0, &HashMap::new(), &HashMap::new(), None).unwrap();
+        let (pages, _) =
+            compile_to_rgba_pages(&path, 1.0, &HashMap::new(), &HashMap::new(), None).unwrap();
         let p = &pages[0];
         assert!(
             p.rgba.chunks_exact(4).all(|px| px[3] == 255),
@@ -816,7 +968,9 @@ mod tests {
     #[test]
     fn compile_surfaces_warnings_on_a_successful_compile() {
         // `#set page(width: auto)` inside a container warns without failing.
-        let path = write_temp_typ("#let x = 1\n#x\n#show heading: it => it\n= H\n#[#set par(justify: true)]\n");
+        let path = write_temp_typ(
+            "#let x = 1\n#x\n#show heading: it => it\n= H\n#[#set par(justify: true)]\n",
+        );
         let (_pages, warnings) =
             compile_to_rgba_pages(&path, 1.0, &HashMap::new(), &HashMap::new(), None)
                 .expect("document should still compile");
@@ -935,11 +1089,15 @@ mod tests {
         // within a pixel of double the size rather than exactly on it.
         assert!(
             high.width.abs_diff(low.width * 2) <= 1,
-            "2x scale should double the width: {} vs {}", high.width, low.width * 2
+            "2x scale should double the width: {} vs {}",
+            high.width,
+            low.width * 2
         );
         assert!(
             high.height.abs_diff(low.height * 2) <= 1,
-            "2x scale should double the height: {} vs {}", high.height, low.height * 2
+            "2x scale should double the height: {} vs {}",
+            high.height,
+            low.height * 2
         );
         assert_eq!(high.rgba.len(), (high.width * high.height * 4) as usize);
     }
@@ -961,13 +1119,16 @@ mod tests {
 
     #[test]
     fn compile_with_sys_inputs() {
-        let path = write_temp_typ(
-            "#let d = sys.inputs.at(\"draft\", default: \"false\")\nDraft: #d"
-        );
+        let path =
+            write_temp_typ("#let d = sys.inputs.at(\"draft\", default: \"false\")\nDraft: #d");
         let mut inputs = HashMap::new();
         inputs.insert("draft".to_string(), "true".to_string());
         let result = compile_to_png_bytes(&path, 1.0, &HashMap::new(), &inputs, None);
-        assert!(result.is_ok(), "doc with sys.inputs should compile: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "doc with sys.inputs should compile: {:?}",
+            result.err()
+        );
     }
 
     /// Phase 3a milestone (see skrizhal/plan.md): a CV-mode document —
@@ -1011,7 +1172,11 @@ mdiv-2024:
         inputs.insert("skrizhal-cv-data".to_string(), cv_data.to_string());
 
         let result = compile_to_pdf_bytes(&path, &overrides, &inputs, None);
-        assert!(result.is_ok(), "CV-mode document should compile: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "CV-mode document should compile: {:?}",
+            result.err()
+        );
         let bytes = result.unwrap();
         assert!(bytes.starts_with(b"%PDF-"), "output should be valid PDF");
     }

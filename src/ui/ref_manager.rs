@@ -4,13 +4,13 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::OnceLock;
 
+use adw::prelude::*;
 use gtk4::prelude::*;
 use gtk4::{
-    Align, Box as GtkBox, Button, Entry, Label, ListBox, ListBoxRow, Orientation,
-    ScrolledWindow, SelectionMode, Separator,
+    Align, Box as GtkBox, Button, Entry, Label, ListBox, ListBoxRow, Orientation, ScrolledWindow,
+    SelectionMode, Separator,
 };
 use libadwaita as adw;
-use adw::prelude::*;
 use regex::Regex;
 
 use crate::bibliography::BibEntry;
@@ -98,7 +98,18 @@ impl RefManager {
         let used_keys: Rc<RefCell<HashSet<String>>> = Rc::new(RefCell::new(HashSet::new()));
         let bib_path: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
 
-        let panel = Self { widget, list_box, filter_entry, entries, on_insert, on_jump_citation, on_rename, on_create_bib, used_keys, bib_path };
+        let panel = Self {
+            widget,
+            list_box,
+            filter_entry,
+            entries,
+            on_insert,
+            on_jump_citation,
+            on_rename,
+            on_create_bib,
+            used_keys,
+            bib_path,
+        };
 
         // Filter entry → rebuild list
         {
@@ -115,14 +126,25 @@ impl RefManager {
                 let root = btn.root().and_then(|r| r.downcast::<gtk4::Window>().ok());
                 let bib = p.bib_path.borrow().clone();
                 let is_bibtex = bib.as_ref().is_some_and(|path| {
-                    path.extension().and_then(|e| e.to_str()).is_some_and(|ext| ext.eq_ignore_ascii_case("bib"))
+                    path.extension()
+                        .and_then(|e| e.to_str())
+                        .is_some_and(|ext| ext.eq_ignore_ascii_case("bib"))
                 });
                 let (title, body): (&str, &str) = if bib.is_none() {
-                    ("No bibliography configured", "Set a .bib file in Settings before exporting.")
+                    (
+                        "No bibliography configured",
+                        "Set a .bib file in Settings before exporting.",
+                    )
                 } else if !is_bibtex {
-                    ("Only BibTeX export is supported", "Export is only available for .bib bibliographies.")
+                    (
+                        "Only BibTeX export is supported",
+                        "Export is only available for .bib bibliographies.",
+                    )
                 } else if p.used_keys.borrow().is_empty() {
-                    ("No citations found", "This document doesn't cite any keys from the bibliography yet.")
+                    (
+                        "No citations found",
+                        "This document doesn't cite any keys from the bibliography yet.",
+                    )
                 } else {
                     ("", "")
                 };
@@ -154,13 +176,17 @@ impl RefManager {
                 let dialog = gtk4::FileDialog::new();
                 dialog.set_title("Export Cited-Only Bibliography");
                 dialog.set_initial_name(Some("cited.bib"));
-                dialog.save(root.as_ref(), None::<&gtk4::gio::Cancellable>, move |result| {
-                    if let Ok(file) = result {
-                        if let Some(path) = file.path() {
-                            let _ = std::fs::write(&path, &out);
+                dialog.save(
+                    root.as_ref(),
+                    None::<&gtk4::gio::Cancellable>,
+                    move |result| {
+                        if let Ok(file) = result {
+                            if let Some(path) = file.path() {
+                                let _ = std::fs::write(&path, &out);
+                            }
                         }
-                    }
-                });
+                    },
+                );
             });
         }
 
@@ -281,7 +307,8 @@ impl RefManager {
         // Broken citations section — keys used in doc but not found in bib
         if has_used_data && !entries.is_empty() {
             let entry_keys: HashSet<&str> = entries.iter().map(|e| e.key.as_str()).collect();
-            let mut broken: Vec<&str> = used.iter()
+            let mut broken: Vec<&str> = used
+                .iter()
                 .filter(|k| !entry_keys.contains(k.as_str()))
                 .map(|k| k.as_str())
                 .collect();
@@ -322,7 +349,8 @@ impl RefManager {
                     self.list_box.append(&row);
                 }
 
-                self.list_box.append(&Separator::new(Orientation::Horizontal));
+                self.list_box
+                    .append(&Separator::new(Orientation::Horizontal));
             }
         }
 
@@ -330,7 +358,9 @@ impl RefManager {
             let row = ListBoxRow::new();
             row.set_selectable(false);
             row.set_activatable(false);
-            let lbl = Label::new(Some("No bibliography loaded yet.\nClick + above to start one."));
+            let lbl = Label::new(Some(
+                "No bibliography loaded yet.\nClick + above to start one.",
+            ));
             lbl.add_css_class("dim-label");
             lbl.set_justify(gtk4::Justification::Center);
             lbl.set_margin_top(16);
@@ -594,7 +624,8 @@ fn open_new_entry_dialog(parent: Option<&gtk4::Window>, panel: RefManager) {
             return;
         }
 
-        let entry_type = ENTRY_TYPES.get(type_row.selected() as usize)
+        let entry_type = ENTRY_TYPES
+            .get(type_row.selected() as usize)
             .map(|(t, _)| *t)
             .unwrap_or("misc");
 
@@ -612,10 +643,18 @@ fn open_new_entry_dialog(parent: Option<&gtk4::Window>, panel: RefManager) {
         };
 
         let mut bibtex = format!("@{entry_type}{{{key},\n");
-        if !author.is_empty() { bibtex.push_str(&format!("  author = {{{author}}},\n")); }
-        if !title.is_empty()  { bibtex.push_str(&format!("  title = {{{title}}},\n")); }
-        if !year.is_empty()   { bibtex.push_str(&format!("  year = {{{year}}},\n")); }
-        if !venue.is_empty()  { bibtex.push_str(&format!("  {venue_field} = {{{venue}}},\n")); }
+        if !author.is_empty() {
+            bibtex.push_str(&format!("  author = {{{author}}},\n"));
+        }
+        if !title.is_empty() {
+            bibtex.push_str(&format!("  title = {{{title}}},\n"));
+        }
+        if !year.is_empty() {
+            bibtex.push_str(&format!("  year = {{{year}}},\n"));
+        }
+        if !venue.is_empty() {
+            bibtex.push_str(&format!("  {venue_field} = {{{venue}}},\n"));
+        }
         bibtex.push_str("}\n");
 
         if let Some(ref p) = *panel.bib_path.borrow() {

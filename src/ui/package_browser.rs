@@ -1,12 +1,12 @@
-use std::rc::Rc;
 use std::cell::RefCell;
+use std::rc::Rc;
 use std::sync::mpsc;
 use std::time::Duration;
 
 use gtk4::prelude::*;
 use gtk4::{
-    Box as GtkBox, Button, Entry, Label, ListBox, ListBoxRow,
-    Orientation, Revealer, RevealerTransitionType, ScrolledWindow, SelectionMode, Separator, Spinner,
+    Box as GtkBox, Button, Entry, Label, ListBox, ListBoxRow, Orientation, Revealer,
+    RevealerTransitionType, ScrolledWindow, SelectionMode, Separator, Spinner,
 };
 
 use crate::typst_universe::UniversePackage;
@@ -115,7 +115,8 @@ impl PackageBrowser {
         let installing: Rc<RefCell<std::collections::HashSet<String>>> =
             Rc::new(RefCell::new(std::collections::HashSet::new()));
         let on_insert: Rc<RefCell<Option<Box<dyn Fn(String)>>>> = Rc::new(RefCell::new(None));
-        let on_collapse_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>> = Rc::new(RefCell::new(None));
+        let on_collapse_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>> =
+            Rc::new(RefCell::new(None));
 
         {
             let revealer = revealer.clone();
@@ -124,8 +125,16 @@ impl PackageBrowser {
             collapse_btn.connect_clicked(move |_| {
                 let now_collapsed = revealer.reveals_child();
                 revealer.set_reveal_child(!now_collapsed);
-                collapse_btn_c.set_icon_name(if now_collapsed { "pan-end-symbolic" } else { "pan-down-symbolic" });
-                collapse_btn_c.set_tooltip_text(Some(if now_collapsed { "Show Packages" } else { "Hide Packages" }));
+                collapse_btn_c.set_icon_name(if now_collapsed {
+                    "pan-end-symbolic"
+                } else {
+                    "pan-down-symbolic"
+                });
+                collapse_btn_c.set_tooltip_text(Some(if now_collapsed {
+                    "Show Packages"
+                } else {
+                    "Hide Packages"
+                }));
                 if let Some(f) = on_collapse_toggle_c.borrow().as_ref() {
                     f(now_collapsed);
                 }
@@ -185,8 +194,16 @@ impl PackageBrowser {
     /// startup, before the user has clicked anything.
     pub fn set_collapsed(&self, collapsed: bool) {
         self.revealer.set_reveal_child(!collapsed);
-        self.collapse_btn.set_icon_name(if collapsed { "pan-end-symbolic" } else { "pan-down-symbolic" });
-        self.collapse_btn.set_tooltip_text(Some(if collapsed { "Show Packages" } else { "Hide Packages" }));
+        self.collapse_btn.set_icon_name(if collapsed {
+            "pan-end-symbolic"
+        } else {
+            "pan-down-symbolic"
+        });
+        self.collapse_btn.set_tooltip_text(Some(if collapsed {
+            "Show Packages"
+        } else {
+            "Hide Packages"
+        }));
     }
 
     /// Fires with the new collapsed state whenever the user clicks the
@@ -243,7 +260,8 @@ impl PackageBrowser {
     /// button) — a failed fetch just leaves the previous list in place, with
     /// a status message explaining nothing changed.
     fn refresh_universe_index(&self) {
-        self.status_label.set_text("Checking Typst Universe for new packages…");
+        self.status_label
+            .set_text("Checking Typst Universe for new packages…");
         self.status_label.set_visible(true);
 
         let (tx, rx) = mpsc::sync_channel::<Result<Vec<UniversePackage>, String>>(1);
@@ -252,22 +270,21 @@ impl PackageBrowser {
         });
 
         let pb = self.clone();
-        glib::timeout_add_local(Duration::from_millis(150), move || {
-            match rx.try_recv() {
-                Ok(Ok(pkgs)) => {
-                    *pb.remote.borrow_mut() = pkgs;
-                    pb.status_label.set_visible(false);
-                    pb.rebuild_list(pb.filter_entry.text().as_ref());
-                    glib::ControlFlow::Break
-                }
-                Ok(Err(e)) => {
-                    pb.status_label
-                        .set_text(&format!("Couldn't reach Typst Universe — showing what's cached. ({e})"));
-                    glib::ControlFlow::Break
-                }
-                Err(mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
-                Err(mpsc::TryRecvError::Disconnected) => glib::ControlFlow::Break,
+        glib::timeout_add_local(Duration::from_millis(150), move || match rx.try_recv() {
+            Ok(Ok(pkgs)) => {
+                *pb.remote.borrow_mut() = pkgs;
+                pb.status_label.set_visible(false);
+                pb.rebuild_list(pb.filter_entry.text().as_ref());
+                glib::ControlFlow::Break
             }
+            Ok(Err(e)) => {
+                pb.status_label.set_text(&format!(
+                    "Couldn't reach Typst Universe — showing what's cached. ({e})"
+                ));
+                glib::ControlFlow::Break
+            }
+            Err(mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
+            Err(mpsc::TryRecvError::Disconnected) => glib::ControlFlow::Break,
         });
     }
 
@@ -287,27 +304,25 @@ impl PackageBrowser {
 
         let pb = self.clone();
         let key_for_poll = key.clone();
-        glib::timeout_add_local(Duration::from_millis(150), move || {
-            match rx.try_recv() {
-                Ok(result) => {
-                    pb.installing.borrow_mut().remove(&key_for_poll);
-                    match result {
-                        Ok(()) => {
-                            pb.scan_local_packages();
-                            pb.status_label.set_visible(false);
-                        }
-                        Err(e) => {
-                            pb.status_label
-                                .set_text(&format!("Couldn't install {key_for_poll}: {e}"));
-                            pb.status_label.set_visible(true);
-                        }
+        glib::timeout_add_local(Duration::from_millis(150), move || match rx.try_recv() {
+            Ok(result) => {
+                pb.installing.borrow_mut().remove(&key_for_poll);
+                match result {
+                    Ok(()) => {
+                        pb.scan_local_packages();
+                        pb.status_label.set_visible(false);
                     }
-                    pb.rebuild_list(pb.filter_entry.text().as_ref());
-                    glib::ControlFlow::Break
+                    Err(e) => {
+                        pb.status_label
+                            .set_text(&format!("Couldn't install {key_for_poll}: {e}"));
+                        pb.status_label.set_visible(true);
+                    }
                 }
-                Err(mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
-                Err(mpsc::TryRecvError::Disconnected) => glib::ControlFlow::Break,
+                pb.rebuild_list(pb.filter_entry.text().as_ref());
+                glib::ControlFlow::Break
             }
+            Err(mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
+            Err(mpsc::TryRecvError::Disconnected) => glib::ControlFlow::Break,
         });
     }
 
@@ -477,7 +492,10 @@ impl PackageBrowser {
                 insert_btn.set_valign(gtk4::Align::Center);
 
                 let version = pkg.installed_version.clone().unwrap_or_default();
-                let import_str = format!("#import \"@{}/{}:{}\": *\n", pkg.namespace, pkg.name, version);
+                let import_str = format!(
+                    "#import \"@{}/{}:{}\": *\n",
+                    pkg.namespace, pkg.name, version
+                );
                 let on_insert_c = self.on_insert.clone();
                 insert_btn.connect_clicked(move |_| {
                     if let Some(f) = on_insert_c.borrow().as_ref() {

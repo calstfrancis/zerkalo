@@ -67,7 +67,10 @@ pub fn simple_diff(old: &str, new: &str) -> String {
             gap = true;
             continue;
         }
-        if gap { out.push_str("...\n"); gap = false; }
+        if gap {
+            out.push_str("...\n");
+            gap = false;
+        }
         match ch {
             '-' => out.push_str(&format!("- {line}\n")),
             '+' => out.push_str(&format!("+ {line}\n")),
@@ -75,7 +78,11 @@ pub fn simple_diff(old: &str, new: &str) -> String {
         }
     }
 
-    if out.is_empty() { "(no differences)".to_string() } else { out }
+    if out.is_empty() {
+        "(no differences)".to_string()
+    } else {
+        out
+    }
 }
 
 /// Cleans a `git show`/`git diff` unified-diff body into the same
@@ -97,7 +104,10 @@ pub fn clean_unified_diff(raw: &str) -> String {
             gap = true;
             continue;
         }
-        if gap { out.push_str("...\n"); gap = false; }
+        if gap {
+            out.push_str("...\n");
+            gap = false;
+        }
         if let Some(rest) = line.strip_prefix('+') {
             out.push_str(&format!("+ {rest}\n"));
         } else if let Some(rest) = line.strip_prefix('-') {
@@ -108,7 +118,11 @@ pub fn clean_unified_diff(raw: &str) -> String {
             out.push_str(&format!("  {line}\n"));
         }
     }
-    if out.is_empty() { "(no differences)".to_string() } else { out }
+    if out.is_empty() {
+        "(no differences)".to_string()
+    } else {
+        out
+    }
 }
 
 /// Renders text already in the `+ `/`- `/`  ` convention into `buf`, tagging

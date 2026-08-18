@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
 
+use adw::prelude::*;
 use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{
@@ -11,7 +12,6 @@ use gtk4::{
     Stack, TextView,
 };
 use libadwaita as adw;
-use adw::prelude::*;
 
 use crate::library::{Library, LibraryFilter, SortOrder};
 
@@ -23,7 +23,9 @@ const TAG_COLORS: &[&str] = &[
 /// explicitly assigned, so distinct uncolored categories still look distinct
 /// instead of all silently defaulting to the same blue.
 fn stable_palette_color(name: &str) -> &'static str {
-    let hash = name.bytes().fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
+    let hash = name
+        .bytes()
+        .fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
     TAG_COLORS[hash as usize % TAG_COLORS.len()]
 }
 
@@ -158,8 +160,7 @@ impl LibraryWindow {
         let import_btn = Button::with_label("Import…");
         import_btn.add_css_class("flat");
         import_btn.add_css_class("fond-quiet");
-        let sort_dropdown =
-            gtk4::DropDown::from_strings(&["Modified", "Created", "Opened", "A→Z"]);
+        let sort_dropdown = gtk4::DropDown::from_strings(&["Modified", "Created", "Opened", "A→Z"]);
         sort_dropdown.set_tooltip_text(Some("Sort order"));
         right_header.pack_end(&import_btn);
         right_header.pack_end(&new_doc_btn);
@@ -391,7 +392,9 @@ impl LibraryWindow {
             let this = self.clone();
             let inhibit = inhibit.clone();
             self.filter_list.connect_row_selected(move |_, row| {
-                if *inhibit.borrow() { return; }
+                if *inhibit.borrow() {
+                    return;
+                }
                 if let Some(row) = row {
                     *inhibit.borrow_mut() = true;
                     this.bottom_filter_list.unselect_all();
@@ -408,7 +411,9 @@ impl LibraryWindow {
         {
             let this = self.clone();
             self.bottom_filter_list.connect_row_selected(move |_, row| {
-                if *inhibit_b.borrow() { return; }
+                if *inhibit_b.borrow() {
+                    return;
+                }
                 if let Some(row) = row {
                     *inhibit_b.borrow_mut() = true;
                     this.filter_list.unselect_all();
@@ -467,7 +472,8 @@ impl LibraryWindow {
                 let count = ids.len();
                 let body = if count == 1 {
                     "The document's file on disk isn't touched — this only removes it from \
-                     this list.".to_string()
+                     this list."
+                        .to_string()
                 } else {
                     format!(
                         "The {count} documents' files on disk aren't touched — this only \
@@ -572,11 +578,7 @@ impl LibraryWindow {
                 .ok(),
         ));
 
-        let projects = self
-            .library
-            .borrow()
-            .all_projects()
-            .unwrap_or_default();
+        let projects = self.library.borrow().all_projects().unwrap_or_default();
         if !projects.is_empty() {
             self.filter_list.append(&header_row("PROJECTS"));
             for p in projects {
@@ -615,10 +617,8 @@ impl LibraryWindow {
             .unwrap_or_default();
         if !all_cats.is_empty() {
             // Partition into parents (have children), children (have parent), standalone
-            let parent_names: std::collections::HashSet<String> = all_cats
-                .iter()
-                .filter_map(|c| c.parent.clone())
-                .collect();
+            let parent_names: std::collections::HashSet<String> =
+                all_cats.iter().filter_map(|c| c.parent.clone()).collect();
             let cats_with_children: std::collections::HashSet<String> = all_cats
                 .iter()
                 .filter(|c| parent_names.contains(&c.name))
@@ -640,12 +640,15 @@ impl LibraryWindow {
                         .ok();
                     let filter_row = make_category_filter_row(
                         &format!("category-group:{}", cat.name),
-                        &cat.color_hex.clone().unwrap_or_else(|| stable_palette_color(&cat.name).to_string()),
+                        &cat.color_hex
+                            .clone()
+                            .unwrap_or_else(|| stable_palette_color(&cat.name).to_string()),
                         &cat.name,
                         cat_count,
                     );
                     // Parent rows: drop rejected with toast
-                    let drop = DropTarget::new(gtk4::glib::Type::STRING, gtk4::gdk::DragAction::COPY);
+                    let drop =
+                        DropTarget::new(gtk4::glib::Type::STRING, gtk4::gdk::DragAction::COPY);
                     let toast_overlay = self.toast_overlay.clone();
                     drop.connect_drop(move |_, _, _, _| {
                         let toast = adw::Toast::new("Drop onto a specific subcategory");
@@ -678,18 +681,27 @@ impl LibraryWindow {
                                 .ok();
                             let child_row = make_category_filter_row_indented(
                                 &format!("category:{}", child.name),
-                                &child.color_hex.clone().unwrap_or_else(|| stable_palette_color(&child.name).to_string()),
+                                &child.color_hex.clone().unwrap_or_else(|| {
+                                    stable_palette_color(&child.name).to_string()
+                                }),
                                 &child.name,
                                 child_count,
                                 16,
                             );
-                            let drop2 = DropTarget::new(gtk4::glib::Type::STRING, gtk4::gdk::DragAction::COPY);
+                            let drop2 = DropTarget::new(
+                                gtk4::glib::Type::STRING,
+                                gtk4::gdk::DragAction::COPY,
+                            );
                             let this2 = self.clone();
                             let cname2 = child.name.clone();
                             drop2.connect_drop(move |_, value, _, _| {
                                 if let Ok(id_str) = value.get::<String>() {
                                     if let Ok(doc_id) = id_str.parse::<i64>() {
-                                        this2.library.borrow_mut().set_category(doc_id, Some(&cname2)).ok();
+                                        this2
+                                            .library
+                                            .borrow_mut()
+                                            .set_category(doc_id, Some(&cname2))
+                                            .ok();
                                         this2.refresh();
                                         return true;
                                     }
@@ -717,7 +729,9 @@ impl LibraryWindow {
             }
             // Standalone categories (no parent, no children)
             for cat in &all_cats {
-                if emitted.contains(&cat.name) { continue; }
+                if emitted.contains(&cat.name) {
+                    continue;
+                }
                 let cat_count = self
                     .library
                     .borrow()
@@ -725,7 +739,9 @@ impl LibraryWindow {
                     .ok();
                 let filter_row = make_category_filter_row(
                     &format!("category:{}", cat.name),
-                    &cat.color_hex.clone().unwrap_or_else(|| stable_palette_color(&cat.name).to_string()),
+                    &cat.color_hex
+                        .clone()
+                        .unwrap_or_else(|| stable_palette_color(&cat.name).to_string()),
                     &cat.name,
                     cat_count,
                 );
@@ -735,7 +751,10 @@ impl LibraryWindow {
                 drop.connect_drop(move |_, value, _, _| {
                     if let Ok(id_str) = value.get::<String>() {
                         if let Ok(doc_id) = id_str.parse::<i64>() {
-                            this.library.borrow_mut().set_category(doc_id, Some(&cat_name)).ok();
+                            this.library
+                                .borrow_mut()
+                                .set_category(doc_id, Some(&cat_name))
+                                .ok();
                             this.refresh();
                             return true;
                         }
@@ -759,12 +778,21 @@ impl LibraryWindow {
             }
         }
 
-        let tags_with_counts = self.library.borrow().all_tags_with_counts().unwrap_or_default();
+        let tags_with_counts = self
+            .library
+            .borrow()
+            .all_tags_with_counts()
+            .unwrap_or_default();
         if !tags_with_counts.is_empty() {
             self.filter_list.append(&header_row("TAGS"));
             for (t, _) in tags_with_counts.iter() {
-                let count = self.library.borrow().doc_count(&LibraryFilter::Tag(t.id)).ok();
-                self.filter_list.append(&make_tag_filter_row(t.id, &t.name, &t.color_hex, count));
+                let count = self
+                    .library
+                    .borrow()
+                    .doc_count(&LibraryFilter::Tag(t.id))
+                    .ok();
+                self.filter_list
+                    .append(&make_tag_filter_row(t.id, &t.name, &t.color_hex, count));
             }
         }
 
@@ -782,7 +810,10 @@ impl LibraryWindow {
             "archive",
             "view-archive-symbolic",
             "Archive",
-            self.library.borrow().doc_count(&LibraryFilter::Archive).ok(),
+            self.library
+                .borrow()
+                .doc_count(&LibraryFilter::Archive)
+                .ok(),
         ));
 
         // Restore selection to match current_filter
@@ -790,7 +821,11 @@ impl LibraryWindow {
         let is_bottom = matches!(current, LibraryFilter::Trash | LibraryFilter::Archive);
         if is_bottom {
             // Select the matching bottom row
-            let idx = if matches!(current, LibraryFilter::Trash) { 0 } else { 1 };
+            let idx = if matches!(current, LibraryFilter::Trash) {
+                0
+            } else {
+                1
+            };
             if let Some(row) = self.bottom_filter_list.row_at_index(idx) {
                 self.bottom_filter_list.select_row(Some(&row));
             }
@@ -803,7 +838,12 @@ impl LibraryWindow {
             .borrow()
             .doc_count(&LibraryFilter::All)
             .unwrap_or(0);
-        let projects = self.library.borrow().all_projects().unwrap_or_default().len();
+        let projects = self
+            .library
+            .borrow()
+            .all_projects()
+            .unwrap_or_default()
+            .len();
         let last = self
             .library
             .borrow()
@@ -813,8 +853,10 @@ impl LibraryWindow {
             .next()
             .map(|d| d.title)
             .unwrap_or_else(|| "—".to_string());
-        self.stats_label
-            .set_text(&format!("{} docs · {} projects · Last: {}", total, projects, last));
+        self.stats_label.set_text(&format!(
+            "{} docs · {} projects · Last: {}",
+            total, projects, last
+        ));
     }
 
     fn populate_doc_list(&self) {
@@ -878,11 +920,13 @@ impl LibraryWindow {
             if group.is_empty() {
                 continue;
             }
-            self.doc_list.append(&section_row(title, accent, group.len()));
+            self.doc_list
+                .append(&section_row(title, accent, group.len()));
             let last_idx = group.len() - 1;
             for (i, doc) in group.into_iter().enumerate() {
                 let tags = self.library.borrow().doc_tags(doc.id).unwrap_or_default();
-                let row = self.make_doc_row(&doc, &tags, project_reorder, mode.clone(), &cat_colors);
+                let row =
+                    self.make_doc_row(&doc, &tags, project_reorder, mode.clone(), &cat_colors);
                 if i == 0 {
                     row.add_css_class("fond-card-first");
                 }
@@ -972,7 +1016,9 @@ impl LibraryWindow {
                 chip_ref.add_css_class("chip-active");
                 let chip_weak = chip_ref.downgrade();
                 glib::timeout_add_local_once(std::time::Duration::from_millis(200), move || {
-                    if let Some(c) = chip_weak.upgrade() { c.remove_css_class("chip-active"); }
+                    if let Some(c) = chip_weak.upgrade() {
+                        c.remove_css_class("chip-active");
+                    }
                 });
                 *this_chip.current_filter.borrow_mut() = LibraryFilter::Tag(tag_id);
                 this_chip.populate_doc_list();
@@ -1050,8 +1096,10 @@ impl LibraryWindow {
                 if let Ok(id_str) = value.get::<String>() {
                     if let Ok(dragged_id) = id_str.parse::<i64>() {
                         if dragged_id != target_doc_id {
-                            if let Ok(Some(target_pos)) =
-                                this.library.borrow().position_in_project(pid, target_doc_id)
+                            if let Ok(Some(target_pos)) = this
+                                .library
+                                .borrow()
+                                .position_in_project(pid, target_doc_id)
                             {
                                 this.library
                                     .borrow_mut()
@@ -1118,13 +1166,7 @@ impl LibraryWindow {
         }
     }
 
-    fn show_doc_menu(
-        &self,
-        row: &ListBoxRow,
-        doc: &crate::library::Document,
-        x: f64,
-        y: f64,
-    ) {
+    fn show_doc_menu(&self, row: &ListBoxRow, doc: &crate::library::Document, x: f64, y: f64) {
         let popover = Popover::new();
         popover.set_parent(row);
         popover.set_has_arrow(true);
@@ -1276,7 +1318,10 @@ impl LibraryWindow {
             let pop = popover.clone();
             root_b.connect_clicked(move |_| {
                 pop.popdown();
-                this.library.borrow_mut().set_project_root(pid, Some(id)).ok();
+                this.library
+                    .borrow_mut()
+                    .set_project_root(pid, Some(id))
+                    .ok();
             });
             vbox.append(&root_b);
         }
@@ -1502,7 +1547,14 @@ impl LibraryWindow {
         dlg.present();
     }
 
-    fn show_category_menu(&self, row: &ListBoxRow, cat_name: &str, has_children: bool, x: f64, y: f64) {
+    fn show_category_menu(
+        &self,
+        row: &ListBoxRow,
+        cat_name: &str,
+        has_children: bool,
+        x: f64,
+        y: f64,
+    ) {
         let popover = Popover::new();
         popover.set_parent(row);
         popover.set_has_arrow(true);
@@ -1566,7 +1618,11 @@ impl LibraryWindow {
             let cname = cat_name.to_string();
             delete_b.connect_clicked(move |_| {
                 pop.popdown();
-                let deleted = this.library.borrow_mut().force_delete_category_if_no_children(&cname).unwrap_or(false);
+                let deleted = this
+                    .library
+                    .borrow_mut()
+                    .force_delete_category_if_no_children(&cname)
+                    .unwrap_or(false);
                 if !deleted {
                     let toast = adw::Toast::new("Cannot delete: subcategories exist");
                     this.toast_overlay.add_toast(toast);
@@ -1598,7 +1654,10 @@ impl LibraryWindow {
             if resp == "ok" {
                 let new_name = entry_c.text().to_string();
                 if !new_name.trim().is_empty() && new_name.trim() != old_name {
-                    this.library.borrow_mut().rename_category(&old_name, new_name.trim()).ok();
+                    this.library
+                        .borrow_mut()
+                        .rename_category(&old_name, new_name.trim())
+                        .ok();
                     *this.current_filter.borrow_mut() = LibraryFilter::All;
                     this.refresh();
                 }
@@ -1626,7 +1685,10 @@ impl LibraryWindow {
                 let name = entry_c.text().to_string();
                 let trimmed = name.trim().to_string();
                 if !trimmed.is_empty() {
-                    this.library.borrow_mut().create_category(&trimmed, Some(&parent_for_dialog)).ok();
+                    this.library
+                        .borrow_mut()
+                        .create_category(&trimmed, Some(&parent_for_dialog))
+                        .ok();
                     this.refresh();
                 }
             }
@@ -1635,12 +1697,14 @@ impl LibraryWindow {
     }
 
     fn set_parent_dialog(&self, cat_name: &str) {
-        let all_cats = self.library.borrow().all_categories_structured().unwrap_or_default();
+        let all_cats = self
+            .library
+            .borrow()
+            .all_categories_structured()
+            .unwrap_or_default();
         // Top-level categories with no parent and no children of their own (avoid cycles, keep max 2 levels)
-        let parent_names: std::collections::HashSet<String> = all_cats
-            .iter()
-            .filter_map(|c| c.parent.clone())
-            .collect();
+        let parent_names: std::collections::HashSet<String> =
+            all_cats.iter().filter_map(|c| c.parent.clone()).collect();
         let candidates: Vec<String> = all_cats
             .iter()
             .filter(|c| c.parent.is_none() && c.name != cat_name && !parent_names.contains(&c.name))
@@ -1692,7 +1756,10 @@ impl LibraryWindow {
                     .selected_row()
                     .map(|r| r.widget_name().to_string())
                     .filter(|n| n != "__none__");
-                this.library.borrow_mut().set_category_parent(&cat, parent_value.as_deref()).ok();
+                this.library
+                    .borrow_mut()
+                    .set_category_parent(&cat, parent_value.as_deref())
+                    .ok();
                 this.refresh();
             }
         });
@@ -1737,7 +1804,10 @@ impl LibraryWindow {
                     .map(|(id, _)| *id)
                     .collect();
                 for doc_id in &doc_ids {
-                    this.library.borrow_mut().add_doc_tags(*doc_id, &selected).ok();
+                    this.library
+                        .borrow_mut()
+                        .add_doc_tags(*doc_id, &selected)
+                        .ok();
                 }
                 this.selection.borrow_mut().clear();
                 this.update_action_bar();
@@ -1783,7 +1853,10 @@ impl LibraryWindow {
         listbox.connect_row_activated(move |_, row| {
             if let Ok(pid) = row.widget_name().to_string().parse::<i64>() {
                 for doc_id in &doc_ids {
-                    this.library.borrow_mut().add_doc_to_project(pid, *doc_id).ok();
+                    this.library
+                        .borrow_mut()
+                        .add_doc_to_project(pid, *doc_id)
+                        .ok();
                 }
                 this.selection.borrow_mut().clear();
                 this.update_action_bar();
@@ -1828,11 +1901,8 @@ impl LibraryWindow {
         } else {
             Some(format!("Existing: {}", cats.join(", ")))
         };
-        let dlg = adw::MessageDialog::new(
-            Some(&self.window),
-            Some("Set Category"),
-            body.as_deref(),
-        );
+        let dlg =
+            adw::MessageDialog::new(Some(&self.window), Some("Set Category"), body.as_deref());
         dlg.add_response("clear", "Clear");
         dlg.add_response("cancel", "Cancel");
         dlg.add_response("ok", "Set");
@@ -1886,25 +1956,26 @@ impl LibraryWindow {
         let entry_c = entry.clone();
         let color_sel = selected_color.clone();
         let color_picked_c = color_picked.clone();
-        dlg.connect_response(None, move |_, resp| {
-            match resp {
-                "ok" => {
-                    let cat = entry_c.text().to_string();
-                    let cat = cat.trim();
-                    let value = if cat.is_empty() { None } else { Some(cat) };
-                    this.library.borrow_mut().set_category(id, value).ok();
-                    if let (Some(name), true) = (value, color_picked_c.get()) {
-                        let color = color_sel.borrow().clone();
-                        this.library.borrow_mut().set_category_color(name, &color).ok();
-                    }
-                    this.refresh();
+        dlg.connect_response(None, move |_, resp| match resp {
+            "ok" => {
+                let cat = entry_c.text().to_string();
+                let cat = cat.trim();
+                let value = if cat.is_empty() { None } else { Some(cat) };
+                this.library.borrow_mut().set_category(id, value).ok();
+                if let (Some(name), true) = (value, color_picked_c.get()) {
+                    let color = color_sel.borrow().clone();
+                    this.library
+                        .borrow_mut()
+                        .set_category_color(name, &color)
+                        .ok();
                 }
-                "clear" => {
-                    this.library.borrow_mut().set_category(id, None).ok();
-                    this.refresh();
-                }
-                _ => {}
+                this.refresh();
             }
+            "clear" => {
+                this.library.borrow_mut().set_category(id, None).ok();
+                this.refresh();
+            }
+            _ => {}
         });
         dlg.present();
     }
@@ -2025,7 +2096,9 @@ impl LibraryWindow {
             add_tag_btn.connect_clicked(move |_| {
                 let name = entry.text().to_string();
                 let name = name.trim().to_string();
-                if name.is_empty() { return; }
+                if name.is_empty() {
+                    return;
+                }
                 let color_val = color.borrow().clone();
                 let result = this.library.borrow_mut().create_tag(&name, &color_val);
                 if let Ok(new_id) = result {
@@ -2051,7 +2124,10 @@ impl LibraryWindow {
                     .filter(|(_, c)| c.is_active())
                     .map(|(id, _)| *id)
                     .collect();
-                this.library.borrow_mut().set_doc_tags(doc_id, &selected).ok();
+                this.library
+                    .borrow_mut()
+                    .set_doc_tags(doc_id, &selected)
+                    .ok();
                 this.populate_doc_list();
             }
         });
@@ -2064,11 +2140,7 @@ impl LibraryWindow {
             self.create_project_then_add(doc_id);
             return;
         }
-        let dlg = adw::MessageDialog::new(
-            Some(&self.window),
-            Some("Add to Project"),
-            None,
-        );
+        let dlg = adw::MessageDialog::new(Some(&self.window), Some("Add to Project"), None);
         dlg.add_response("new", "New Project…");
         dlg.add_response("cancel", "Cancel");
         dlg.add_response("ok", "Add");
@@ -2084,7 +2156,15 @@ impl LibraryWindow {
         for p in &projects {
             let r = ListBoxRow::new();
             r.set_widget_name(&p.id.to_string());
-            r.set_child(Some(&Label::builder().label(&p.name).halign(Align::Start).margin_top(6).margin_bottom(6).margin_start(8).build()));
+            r.set_child(Some(
+                &Label::builder()
+                    .label(&p.name)
+                    .halign(Align::Start)
+                    .margin_top(6)
+                    .margin_bottom(6)
+                    .margin_start(8)
+                    .build(),
+            ));
             listbox.append(&r);
         }
         scroll.set_child(Some(&listbox));
@@ -2092,26 +2172,31 @@ impl LibraryWindow {
 
         let this = self.clone();
         let listbox_c = listbox.clone();
-        dlg.connect_response(None, move |_, resp| {
-            match resp {
-                "new" => this.create_project_then_add(doc_id),
-                "ok" => {
-                    if let Some(row) = listbox_c.selected_row() {
-                        if let Ok(pid) = row.widget_name().to_string().parse::<i64>() {
-                            this.library.borrow_mut().add_doc_to_project(pid, doc_id).ok();
-                            this.refresh();
-                        }
+        dlg.connect_response(None, move |_, resp| match resp {
+            "new" => this.create_project_then_add(doc_id),
+            "ok" => {
+                if let Some(row) = listbox_c.selected_row() {
+                    if let Ok(pid) = row.widget_name().to_string().parse::<i64>() {
+                        this.library
+                            .borrow_mut()
+                            .add_doc_to_project(pid, doc_id)
+                            .ok();
+                        this.refresh();
                     }
                 }
-                _ => {}
             }
+            _ => {}
         });
         // Activate on row click
         let this2 = self.clone();
         let dlg_weak = dlg.downgrade();
         listbox.connect_row_activated(move |_, row| {
             if let Ok(pid) = row.widget_name().to_string().parse::<i64>() {
-                this2.library.borrow_mut().add_doc_to_project(pid, doc_id).ok();
+                this2
+                    .library
+                    .borrow_mut()
+                    .add_doc_to_project(pid, doc_id)
+                    .ok();
                 this2.refresh();
                 if let Some(d) = dlg_weak.upgrade() {
                     d.close();
@@ -2138,7 +2223,10 @@ impl LibraryWindow {
                 let name = entry_c.text().to_string();
                 if !name.trim().is_empty() {
                     if let Ok(pid) = this.library.borrow_mut().create_project(name.trim()) {
-                        this.library.borrow_mut().add_doc_to_project(pid, doc_id).ok();
+                        this.library
+                            .borrow_mut()
+                            .add_doc_to_project(pid, doc_id)
+                            .ok();
                     }
                     this.refresh();
                 }
@@ -2186,7 +2274,10 @@ impl LibraryWindow {
                 if !name.is_empty() {
                     this.library.borrow_mut().create_category(&name, None).ok();
                     let color = color_sel.borrow().clone();
-                    this.library.borrow_mut().set_category_color(&name, &color).ok();
+                    this.library
+                        .borrow_mut()
+                        .set_category_color(&name, &color)
+                        .ok();
                     this.refresh();
                 }
             }
@@ -2316,7 +2407,10 @@ impl LibraryWindow {
                 let edit = Button::from_icon_name("document-edit-symbolic");
                 edit.add_css_class("flat");
                 edit.set_tooltip_text(Some("Rename tag"));
-                edit.update_property(&[gtk4::accessible::Property::Label(&format!("Rename tag {}", tag.name))]);
+                edit.update_property(&[gtk4::accessible::Property::Label(&format!(
+                    "Rename tag {}",
+                    tag.name
+                ))]);
                 let this_e = this.clone();
                 let tid_e = tag.id;
                 let tag_name_e = tag.name.clone();
@@ -2325,11 +2419,8 @@ impl LibraryWindow {
                     let entry = Entry::new();
                     entry.set_text(&tag_name_e);
                     entry.set_activates_default(true);
-                    let rename_dlg = adw::MessageDialog::new(
-                        Some(&this_e.window),
-                        Some("Rename Tag"),
-                        None,
-                    );
+                    let rename_dlg =
+                        adw::MessageDialog::new(Some(&this_e.window), Some("Rename Tag"), None);
                     rename_dlg.set_extra_child(Some(&entry));
                     rename_dlg.add_response("cancel", "Cancel");
                     rename_dlg.add_response("ok", "Rename");
@@ -2342,9 +2433,15 @@ impl LibraryWindow {
                         if resp == "ok" {
                             let new_name = entry_c.text().to_string();
                             if !new_name.trim().is_empty() {
-                                this_r.library.borrow_mut().rename_tag(tid_e, new_name.trim()).ok();
+                                this_r
+                                    .library
+                                    .borrow_mut()
+                                    .rename_tag(tid_e, new_name.trim())
+                                    .ok();
                                 this_r.populate_filter_list();
-                                if let Some(f) = rs_r.borrow().as_ref() { f(); }
+                                if let Some(f) = rs_r.borrow().as_ref() {
+                                    f();
+                                }
                             }
                         }
                         dlg.close();
@@ -2356,14 +2453,19 @@ impl LibraryWindow {
                 let del = Button::from_icon_name("user-trash-symbolic");
                 del.add_css_class("flat");
                 del.set_tooltip_text(Some("Delete tag"));
-                del.update_property(&[gtk4::accessible::Property::Label(&format!("Delete tag {}", tag.name))]);
+                del.update_property(&[gtk4::accessible::Property::Label(&format!(
+                    "Delete tag {}",
+                    tag.name
+                ))]);
                 let this2 = this.clone();
                 let tid = tag.id;
                 let rs_d = rs_outer.clone();
                 del.connect_clicked(move |_| {
                     this2.library.borrow_mut().delete_tag(tid).ok();
                     this2.refresh();
-                    if let Some(f) = rs_d.borrow().as_ref() { f(); }
+                    if let Some(f) = rs_d.borrow().as_ref() {
+                        f();
+                    }
                 });
                 hbox.append(&del);
                 r.set_child(Some(&hbox));
@@ -2382,7 +2484,10 @@ impl LibraryWindow {
                 let name = name_entry.text().to_string();
                 if !name.trim().is_empty() {
                     let color_val = sel.borrow().clone();
-                    this.library.borrow_mut().create_tag(name.trim(), &color_val).ok();
+                    this.library
+                        .borrow_mut()
+                        .create_tag(name.trim(), &color_val)
+                        .ok();
                     name_entry.set_text("");
                     refresh_tags();
                     this.populate_filter_list();
@@ -2428,24 +2533,28 @@ impl LibraryWindow {
         dialog.set_filters(Some(&filters));
         dialog.set_initial_folder(Some(&gtk4::gio::File::for_path(&self.work_dir)));
         let this = self.clone();
-        dialog.open(Some(&self.window), gtk4::gio::Cancellable::NONE, move |res| {
-            if let Ok(file) = res {
-                if let Some(path) = file.path() {
-                    let mut keys = std::collections::HashSet::new();
-                    for dp in &doc_paths {
-                        keys.extend(extract_cite_keys(dp));
-                    }
-                    let authors = if keys.is_empty() {
-                        parse_bibtex_authors_for_keys(&path, None)
-                    } else {
-                        parse_bibtex_authors_for_keys(&path, Some(&keys))
-                    };
-                    if !authors.is_empty() {
-                        this.show_author_selection_dialog(authors, refresh_tags.clone());
+        dialog.open(
+            Some(&self.window),
+            gtk4::gio::Cancellable::NONE,
+            move |res| {
+                if let Ok(file) = res {
+                    if let Some(path) = file.path() {
+                        let mut keys = std::collections::HashSet::new();
+                        for dp in &doc_paths {
+                            keys.extend(extract_cite_keys(dp));
+                        }
+                        let authors = if keys.is_empty() {
+                            parse_bibtex_authors_for_keys(&path, None)
+                        } else {
+                            parse_bibtex_authors_for_keys(&path, Some(&keys))
+                        };
+                        if !authors.is_empty() {
+                            this.show_author_selection_dialog(authors, refresh_tags.clone());
+                        }
                     }
                 }
-            }
-        });
+            },
+        );
     }
 
     fn show_author_selection_dialog(&self, authors: Vec<String>, refresh_tags: Rc<dyn Fn()>) {
@@ -2604,24 +2713,29 @@ impl LibraryWindow {
         dialog.set_initial_folder(Some(&gtk4::gio::File::for_path(&self.work_dir)));
 
         let this = self.clone();
-        dialog.open(Some(&self.window), gtk4::gio::Cancellable::NONE, move |res| {
-            if let Ok(file) = res {
-                if let Some(path) = file.path() {
-                    this.library.borrow_mut().upsert_document(&path).ok();
-                    this.library.borrow_mut().touch_opened(&path).ok();
-                    if let Some(cb) = this.on_open.borrow().as_ref() {
-                        cb(path);
+        dialog.open(
+            Some(&self.window),
+            gtk4::gio::Cancellable::NONE,
+            move |res| {
+                if let Ok(file) = res {
+                    if let Some(path) = file.path() {
+                        this.library.borrow_mut().upsert_document(&path).ok();
+                        this.library.borrow_mut().touch_opened(&path).ok();
+                        if let Some(cb) = this.on_open.borrow().as_ref() {
+                            cb(path);
+                        }
+                        this.refresh();
                     }
-                    this.refresh();
                 }
-            }
-        });
+            },
+        );
     }
 
     fn export_doc_dialog(&self, doc: &crate::library::Document) {
         let dialog = gtk4::FileDialog::new();
         dialog.set_title("Export PDF");
-        let stem = doc.path
+        let stem = doc
+            .path
             .file_stem()
             .map(|s| s.to_string_lossy().to_string())
             .unwrap_or_else(|| "document".to_string());
@@ -2635,49 +2749,61 @@ impl LibraryWindow {
 
         let src = doc.path.clone();
         let window = self.window.clone();
-        dialog.save(Some(&self.window), gtk4::gio::Cancellable::NONE, move |res| {
-            let dest = match res.ok().and_then(|f| f.path()) { Some(p) => p, None => return };
-            let dest = if dest.extension().is_none() { dest.with_extension("pdf") } else { dest };
+        dialog.save(
+            Some(&self.window),
+            gtk4::gio::Cancellable::NONE,
+            move |res| {
+                let dest = match res.ok().and_then(|f| f.path()) {
+                    Some(p) => p,
+                    None => return,
+                };
+                let dest = if dest.extension().is_none() {
+                    dest.with_extension("pdf")
+                } else {
+                    dest
+                };
 
-            // CV mode gap (see skrizhal/plan.md Phase 3a): LibraryWindow has no
-            // Config reference and this can export any document in the
-            // library, not just the active one, so there's no
-            // effective_cv_elements to resolve here yet — a CV-mode
-            // document exported this way (rather than via the main Export
-            // dialog, which is covered) won't resolve #cv-entry/#cv-section.
-            // Same gap applies to bib_path: a document whose bibliography
-            // lives outside the project (e.g. a Kartoteka vault) won't
-            // resolve citations exported this way either.
-            let (tx, rx) = std::sync::mpsc::sync_channel::<Result<Vec<u8>, String>>(1);
-            let src_for_thread = src.clone();
-            std::thread::spawn(move || {
-                let result = crate::compiler::compile_to_pdf_bytes(
-                    &src_for_thread,
-                    &std::collections::HashMap::new(),
-                    &std::collections::HashMap::new(),
-                    None,
-                ).map_err(|e| e.to_string());
-                let _ = tx.send(result);
-            });
+                // CV mode gap (see skrizhal/plan.md Phase 3a): LibraryWindow has no
+                // Config reference and this can export any document in the
+                // library, not just the active one, so there's no
+                // effective_cv_elements to resolve here yet — a CV-mode
+                // document exported this way (rather than via the main Export
+                // dialog, which is covered) won't resolve #cv-entry/#cv-section.
+                // Same gap applies to bib_path: a document whose bibliography
+                // lives outside the project (e.g. a Kartoteka vault) won't
+                // resolve citations exported this way either.
+                let (tx, rx) = std::sync::mpsc::sync_channel::<Result<Vec<u8>, String>>(1);
+                let src_for_thread = src.clone();
+                std::thread::spawn(move || {
+                    let result = crate::compiler::compile_to_pdf_bytes(
+                        &src_for_thread,
+                        &std::collections::HashMap::new(),
+                        &std::collections::HashMap::new(),
+                        None,
+                    )
+                    .map_err(|e| e.to_string());
+                    let _ = tx.send(result);
+                });
 
-            glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
-                use std::sync::mpsc::TryRecvError;
-                match rx.try_recv() {
-                    Ok(Ok(bytes)) => {
-                        if let Err(e) = std::fs::write(&dest, &bytes) {
-                            show_export_error(&window, &e.to_string());
+                glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
+                    use std::sync::mpsc::TryRecvError;
+                    match rx.try_recv() {
+                        Ok(Ok(bytes)) => {
+                            if let Err(e) = std::fs::write(&dest, &bytes) {
+                                show_export_error(&window, &e.to_string());
+                            }
+                            glib::ControlFlow::Break
                         }
-                        glib::ControlFlow::Break
+                        Ok(Err(e)) => {
+                            show_export_error(&window, &e);
+                            glib::ControlFlow::Break
+                        }
+                        Err(TryRecvError::Empty) => glib::ControlFlow::Continue,
+                        Err(_) => glib::ControlFlow::Break,
                     }
-                    Ok(Err(e)) => {
-                        show_export_error(&window, &e);
-                        glib::ControlFlow::Break
-                    }
-                    Err(TryRecvError::Empty) => glib::ControlFlow::Continue,
-                    Err(_) => glib::ControlFlow::Break,
-                }
-            });
-        });
+                });
+            },
+        );
     }
 
     pub fn present(&self) {
@@ -2777,13 +2903,24 @@ fn make_filter_row(name: &str, icon: &str, label: &str, count: Option<i64>) -> L
     row
 }
 
-fn make_category_filter_row(name: &str, color: &str, label: &str, count: Option<i64>) -> ListBoxRow {
+fn make_category_filter_row(
+    name: &str,
+    color: &str,
+    label: &str,
+    count: Option<i64>,
+) -> ListBoxRow {
     let (row, hbox) = filter_row_shell(name, label, count);
     hbox.prepend(&crate::ui::styles::fond_cue(Some(color)));
     row
 }
 
-fn make_category_filter_row_indented(name: &str, color: &str, label: &str, count: Option<i64>, indent: i32) -> ListBoxRow {
+fn make_category_filter_row_indented(
+    name: &str,
+    color: &str,
+    label: &str,
+    count: Option<i64>,
+    indent: i32,
+) -> ListBoxRow {
     let row = make_category_filter_row(name, color, label, count);
     if let Some(child) = row.child() {
         child.set_margin_start(indent);
@@ -2809,8 +2946,14 @@ fn header_row(text: &str) -> ListBoxRow {
         // spaced twice and read as a different typeface from every other
         // section in the suite.
         let title = title_case(text);
-        let accent = if title == "Tags" { "fond-accent-pinned" } else { "fond-accent-library" };
-        row.set_child(Some(&crate::ui::styles::fond_section_header(&title, accent)));
+        let accent = if title == "Tags" {
+            "fond-accent-pinned"
+        } else {
+            "fond-accent-library"
+        };
+        row.set_child(Some(&crate::ui::styles::fond_section_header(
+            &title, accent,
+        )));
     }
     row
 }
@@ -2955,13 +3098,25 @@ fn extract_author_tag(raw: &str) -> Option<String> {
     let lower = name.to_lowercase();
     // BibLaTeX extended format: "family=Doe, given=John, ..."
     if lower.contains("family=") {
-        let family = name.split(',')
+        let family = name
+            .split(',')
             .find(|p| p.trim().to_lowercase().starts_with("family="))
-            .map(|p| p.trim()[7..].trim().trim_matches(|c: char| c == '{' || c == '}').trim())
+            .map(|p| {
+                p.trim()[7..]
+                    .trim()
+                    .trim_matches(|c: char| c == '{' || c == '}')
+                    .trim()
+            })
             .unwrap_or("");
-        let given = name.split(',')
+        let given = name
+            .split(',')
             .find(|p| p.trim().to_lowercase().starts_with("given="))
-            .map(|p| p.trim()[6..].trim().trim_matches(|c: char| c == '{' || c == '}').trim())
+            .map(|p| {
+                p.trim()[6..]
+                    .trim()
+                    .trim_matches(|c: char| c == '{' || c == '}')
+                    .trim()
+            })
             .unwrap_or("");
         if !family.is_empty() {
             return Some(if given.is_empty() {

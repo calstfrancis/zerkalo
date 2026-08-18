@@ -98,7 +98,10 @@ fn fix_add_let_binding(source: &str, line_idx: usize) -> Option<String> {
     let var_name = error_line
         .split_whitespace()
         .find(|t| t.starts_with('#'))
-        .map(|t| t.trim_start_matches('#').trim_end_matches(|c: char| !c.is_alphanumeric() && c != '_'))
+        .map(|t| {
+            t.trim_start_matches('#')
+                .trim_end_matches(|c: char| !c.is_alphanumeric() && c != '_')
+        })
         .filter(|n| !n.is_empty())
         .unwrap_or("variable");
 
@@ -120,16 +123,25 @@ fn fix_unclosed_delimiters(source: &str, _line_idx: usize) -> Option<String> {
     let mut depth_bracket = 0i32;
     for ch in source.chars() {
         match ch {
-            '{' => depth_brace += 1, '}' => depth_brace -= 1,
-            '(' => depth_paren += 1, ')' => depth_paren -= 1,
-            '[' => depth_bracket += 1, ']' => depth_bracket -= 1,
+            '{' => depth_brace += 1,
+            '}' => depth_brace -= 1,
+            '(' => depth_paren += 1,
+            ')' => depth_paren -= 1,
+            '[' => depth_bracket += 1,
+            ']' => depth_bracket -= 1,
             _ => {}
         }
     }
     let mut suffix = String::new();
-    for _ in 0..depth_brace.max(0) { suffix.push('}'); }
-    for _ in 0..depth_paren.max(0) { suffix.push(')'); }
-    for _ in 0..depth_bracket.max(0) { suffix.push(']'); }
+    for _ in 0..depth_brace.max(0) {
+        suffix.push('}');
+    }
+    for _ in 0..depth_paren.max(0) {
+        suffix.push(')');
+    }
+    for _ in 0..depth_bracket.max(0) {
+        suffix.push(']');
+    }
     if suffix.is_empty() {
         None
     } else {
@@ -150,7 +162,11 @@ fn append_to_line(source: &str, line_idx: usize, suffix: &str) -> Option<String>
 /// rejoin with the same style instead of silently normalizing the whole
 /// file to LF the moment any quick-fix is applied.
 fn line_ending(source: &str) -> &'static str {
-    if source.contains("\r\n") { "\r\n" } else { "\n" }
+    if source.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    }
 }
 
 #[cfg(test)]
@@ -216,7 +232,11 @@ mod tests {
         for p in PATTERNS {
             if let Some(f) = p.fix_fn {
                 let result = f("#let x = {\nsome line\nanother line", 0);
-                assert!(result.is_some(), "fix for '{}' returned None on valid input", p.pattern);
+                assert!(
+                    result.is_some(),
+                    "fix for '{}' returned None on valid input",
+                    p.pattern
+                );
             }
         }
     }
@@ -256,7 +276,10 @@ mod tests {
     fn fix_add_let_binding_does_not_insert_a_doubled_blank_line() {
         let src = "line one\n#unknown-var + 1\nline three";
         let fixed = fix_add_let_binding(src, 1).unwrap();
-        assert!(!fixed.contains("\n\n"), "should not introduce a blank line: {fixed:?}");
+        assert!(
+            !fixed.contains("\n\n"),
+            "should not introduce a blank line: {fixed:?}"
+        );
     }
 
     #[test]

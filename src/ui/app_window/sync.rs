@@ -6,14 +6,14 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Duration;
 
+use adw::prelude::*;
 use gtk4::prelude::*;
 use gtk4::{Align, Box as GtkBox, Button, Label, Orientation};
 use libadwaita as adw;
-use adw::prelude::*;
 
+use super::show_alert;
 use crate::config::Config;
 use crate::git_sync;
-use super::show_alert;
 
 pub(super) fn do_sync(
     root: PathBuf,
@@ -30,14 +30,21 @@ pub(super) fn do_sync(
     let root_for_thread = root.clone();
     let (tx, rx) = std::sync::mpsc::sync_channel::<git_sync::SyncResult>(1);
     std::thread::spawn(move || {
-        tx.send(git_sync::sync(&root_for_thread, token.as_deref())).ok();
+        tx.send(git_sync::sync(&root_for_thread, token.as_deref()))
+            .ok();
     });
 
     let rx = Rc::new(rx);
     glib::timeout_add_local(Duration::from_millis(100), move || match rx.try_recv() {
         Ok(result) => {
             btn.set_sensitive(true);
-            show_sync_result(&window, &overlay, result, root.clone(), current_config.clone());
+            show_sync_result(
+                &window,
+                &overlay,
+                result,
+                root.clone(),
+                current_config.clone(),
+            );
             glib::ControlFlow::Break
         }
         Err(TryRecvError::Empty) => glib::ControlFlow::Continue,
@@ -76,7 +83,12 @@ pub(super) fn auto_sync_quiet(
                     t.set_timeout(6);
                     overlay.add_toast(t);
                 } else if result.pushed {
-                    let summary = result.commit_message.lines().next().unwrap_or("Synced").to_string();
+                    let summary = result
+                        .commit_message
+                        .lines()
+                        .next()
+                        .unwrap_or("Synced")
+                        .to_string();
                     let t = adw::Toast::new(&format!("Backed up — {summary}"));
                     t.set_timeout(3);
                     overlay.add_toast(t);
@@ -124,7 +136,12 @@ fn show_sync_result(
         }
         let is_conflict = detail.contains("CONFLICT") || detail.contains("Pull failed");
         if result.pushed {
-            let summary = result.commit_message.lines().next().unwrap_or("Synced").to_string();
+            let summary = result
+                .commit_message
+                .lines()
+                .next()
+                .unwrap_or("Synced")
+                .to_string();
             overlay.add_toast(adw::Toast::new(&format!("Synced — {summary}")));
             show_alert(window, "Some backups failed", &detail);
         } else if is_conflict {
@@ -141,10 +158,17 @@ fn show_sync_result(
         return;
     }
     if result.pushed {
-        let summary = result.commit_message.lines().next().unwrap_or("Synced").to_string();
+        let summary = result
+            .commit_message
+            .lines()
+            .next()
+            .unwrap_or("Synced")
+            .to_string();
         overlay.add_toast(adw::Toast::new(&format!("Synced — {summary}")));
     } else if result.committed {
-        overlay.add_toast(adw::Toast::new("Saved a version — not backed up online yet"));
+        overlay.add_toast(adw::Toast::new(
+            "Saved a version — not backed up online yet",
+        ));
     } else {
         overlay.add_toast(adw::Toast::new("Nothing to sync"));
     }
@@ -219,7 +243,9 @@ fn show_github_token_dialog(
     let window_retry = window.clone();
     save_btn.connect_clicked(move |btn| {
         let tok = entry_save.text().to_string();
-        if tok.is_empty() { return; }
+        if tok.is_empty() {
+            return;
+        }
 
         let _ = crate::secret_store::save_github_token(&tok);
 
@@ -233,7 +259,9 @@ fn show_github_token_dialog(
         let ov2 = overlay_retry.clone();
         let cfg2 = current_config.clone();
         let (tx, rx) = std::sync::mpsc::sync_channel::<git_sync::SyncResult>(1);
-        std::thread::spawn(move || { tx.send(git_sync::sync(&root_thread, Some(&tok))).ok(); });
+        std::thread::spawn(move || {
+            tx.send(git_sync::sync(&root_thread, Some(&tok))).ok();
+        });
         let rx = Rc::new(rx);
         glib::timeout_add_local(Duration::from_millis(100), move || {
             use std::sync::mpsc::TryRecvError;
@@ -251,7 +279,10 @@ fn show_github_token_dialog(
     dialog.present();
 }
 
-pub(super) fn show_backup_remote_dialog(window: &adw::ApplicationWindow, repo_path: &std::path::Path) {
+pub(super) fn show_backup_remote_dialog(
+    window: &adw::ApplicationWindow,
+    repo_path: &std::path::Path,
+) {
     let dialog = adw::Window::builder()
         .title("Backup Locations")
         .transient_for(window)
@@ -371,7 +402,9 @@ pub(super) fn show_backup_remote_dialog(window: &adw::ApplicationWindow, repo_pa
                     let group2 = group.clone();
                     rm_btn.connect_clicked(move |_| {
                         let _ = git_sync::remove_remote(&root2, &name);
-                        for r in tracked2.borrow().iter() { group2.remove(r); }
+                        for r in tracked2.borrow().iter() {
+                            group2.remove(r);
+                        }
                         tracked2.borrow_mut().clear();
                         let remotes2 = git_sync::list_backup_remotes(&root2);
                         if remotes2.is_empty() {
@@ -426,13 +459,17 @@ pub(super) fn show_backup_remote_dialog(window: &adw::ApplicationWindow, repo_pa
         pick_btn.connect_clicked(move |_| {
             let fd = gtk4::FileDialog::new();
             let row2 = row_c.clone();
-            fd.select_folder(Some(&win_c), None::<&gtk4::gio::Cancellable>, move |result| {
-                if let Ok(file) = result {
-                    if let Some(path) = file.path() {
-                        row2.set_text(path.to_str().unwrap_or(""));
+            fd.select_folder(
+                Some(&win_c),
+                None::<&gtk4::gio::Cancellable>,
+                move |result| {
+                    if let Ok(file) = result {
+                        if let Some(path) = file.path() {
+                            row2.set_text(path.to_str().unwrap_or(""));
+                        }
                     }
-                }
-            });
+                },
+            );
         });
     }
     url_row.add_suffix(&pick_btn);
@@ -468,7 +505,7 @@ pub(super) fn show_backup_remote_dialog(window: &adw::ApplicationWindow, repo_pa
         let rebuild_c = rebuild_current.clone();
         add_btn.connect_clicked(move |_| {
             let name = name_r.text().trim().to_string();
-            let url  = url_r.text().trim().to_string();
+            let url = url_r.text().trim().to_string();
             if name.is_empty() || url.is_empty() {
                 lbl_c.set_text("Enter both a name and an address.");
                 return;
@@ -496,10 +533,22 @@ pub(super) fn show_backup_remote_dialog(window: &adw::ApplicationWindow, repo_pa
          git.disroot.org. Free to use. Good for a second off-site copy of your work.",
     ));
     for (title, subtitle) in [
-        ("1. Create account", "Register at https://disroot.org/en/register"),
-        ("2. Create repository", "Log in to git.disroot.org → New repository"),
-        ("3. Copy the clone URL", "Use HTTPS or SSH — shown on the repo page"),
-        ("4. Add it below", "Name it \"disroot\", paste the URL above, click Add"),
+        (
+            "1. Create account",
+            "Register at https://disroot.org/en/register",
+        ),
+        (
+            "2. Create repository",
+            "Log in to git.disroot.org → New repository",
+        ),
+        (
+            "3. Copy the clone URL",
+            "Use HTTPS or SSH — shown on the repo page",
+        ),
+        (
+            "4. Add it below",
+            "Name it \"disroot\", paste the URL above, click Add",
+        ),
     ] {
         let row = adw::ActionRow::new();
         row.set_title(title);
@@ -516,7 +565,7 @@ pub(super) fn show_backup_remote_dialog(window: &adw::ApplicationWindow, repo_pa
         disroot_fill_btn.connect_clicked(move |_| nr.set_text("disroot"));
     }
     disroot_group.add(&adw::ActionRow::new()); // spacer
-    // Can't add a plain Button to PreferencesGroup, so wrap in ActionRow suffix
+                                               // Can't add a plain Button to PreferencesGroup, so wrap in ActionRow suffix
     let fill_row = adw::ActionRow::new();
     fill_row.set_title("Quick-fill name");
     fill_row.set_activatable(true);
@@ -531,11 +580,20 @@ pub(super) fn show_backup_remote_dialog(window: &adw::ApplicationWindow, repo_pa
     let hint_group = adw::PreferencesGroup::new();
     hint_group.set_title("Other URL Examples");
     for (name, hint) in [
-        ("Local / NAS", "/mnt/backup/my-project  or  /run/media/you/usb/project"),
-        ("pCloud / Nextcloud", "Mount the drive, then use the mount path above"),
+        (
+            "Local / NAS",
+            "/mnt/backup/my-project  or  /run/media/you/usb/project",
+        ),
+        (
+            "pCloud / Nextcloud",
+            "Mount the drive, then use the mount path above",
+        ),
         ("Codeberg", "git@codeberg.org:username/project.git"),
         ("GitLab", "git@gitlab.com:username/project.git"),
-        ("Self-hosted Gitea", "git@my-server.example.com:username/project.git"),
+        (
+            "Self-hosted Gitea",
+            "git@my-server.example.com:username/project.git",
+        ),
     ] {
         let row = adw::ActionRow::new();
         row.set_title(name);
@@ -555,4 +613,3 @@ pub(super) fn show_backup_remote_dialog(window: &adw::ApplicationWindow, repo_pa
 
     dialog.present();
 }
-

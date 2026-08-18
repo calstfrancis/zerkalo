@@ -45,7 +45,9 @@ pub(crate) fn tab_label(text: &str) -> Label {
 
 pub(crate) fn slug(s: &str) -> String {
     let s = s.trim().to_lowercase();
-    if s.is_empty() { return "untitled".to_string(); }
+    if s.is_empty() {
+        return "untitled".to_string();
+    }
     s.chars()
         .map(|c| if c.is_alphanumeric() { c } else { '_' })
         .collect::<String>()
@@ -152,4 +154,3 @@ pub(crate) fn numbering_pattern(raw: &str) -> String {
         typst_str(s)
     }
 }
-

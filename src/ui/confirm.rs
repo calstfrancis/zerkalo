@@ -7,9 +7,9 @@
 //! matters most. `adw::MessageDialog` is the right one at the libadwaita
 //! version this build pins (v1_4; `AlertDialog` only arrives in 1.5).
 
+use adw::prelude::*;
 use gtk4::prelude::*;
 use libadwaita as adw;
-use adw::prelude::*;
 
 /// A confirmation whose accept button is styled destructive. `on_confirm` runs
 /// only when that button is chosen; Escape and the close button cancel.

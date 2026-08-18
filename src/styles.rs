@@ -259,13 +259,7 @@ pub const STYLES: &[(&str, &str, &str, &str, &str)] = &[
         "References",
         "harvard",
     ),
-    (
-        "Custom (CSL file)",
-        "",
-        "custom",
-        "",
-        "custom",
-    ),
+    ("Custom (CSL file)", "", "custom", "", "custom"),
 ];
 
 /// Placeholder `bib_style_key` used by the "Custom" style entry above. The UI
@@ -298,12 +292,15 @@ pub fn apply_to(content: &str, style_code: &str, bib_style: &str, bib_title: &st
         format!("{STYLE_BEGIN}\n{style_code}\n{STYLE_END}\n")
     };
 
-    let after_style = if let (Some(begin_pos), Some(end_marker_pos)) = (
-        content.find(STYLE_BEGIN),
-        content.find(STYLE_END),
-    ) {
+    let after_style = if let (Some(begin_pos), Some(end_marker_pos)) =
+        (content.find(STYLE_BEGIN), content.find(STYLE_END))
+    {
         let end_pos = end_marker_pos + STYLE_END.len();
-        let after = if content[end_pos..].starts_with('\n') { end_pos + 1 } else { end_pos };
+        let after = if content[end_pos..].starts_with('\n') {
+            end_pos + 1
+        } else {
+            end_pos
+        };
         let before = &content[..begin_pos];
         let rest = &content[after..];
         if new_block.is_empty() {
@@ -338,7 +335,11 @@ fn update_bibliography(content: &str, bib_style: &str, bib_title: &str) -> Strin
     for line in &mut lines {
         let trimmed = line.trim();
         let is_comment = trimmed.starts_with("//");
-        let core = if is_comment { trimmed.trim_start_matches('/').trim() } else { trimmed };
+        let core = if is_comment {
+            trimmed.trim_start_matches('/').trim()
+        } else {
+            trimmed
+        };
 
         if core.starts_with("#bibliography(") {
             found = true;
@@ -354,7 +355,10 @@ fn update_bibliography(content: &str, bib_style: &str, bib_title: &str) -> Strin
     }
 
     if !found {
-        lines.push(format!("// {}", build_bib_call("refs.bib", bib_style, bib_title)));
+        lines.push(format!(
+            "// {}",
+            build_bib_call("refs.bib", bib_style, bib_title)
+        ));
     }
 
     let mut result = lines.join("\n");
@@ -415,7 +419,11 @@ pub fn set_bibliography_path(content: &str, new_path: &str) -> String {
     for line in &mut lines {
         let trimmed = line.trim();
         let is_comment = trimmed.starts_with("//");
-        let core = if is_comment { trimmed.trim_start_matches('/').trim() } else { trimmed };
+        let core = if is_comment {
+            trimmed.trim_start_matches('/').trim()
+        } else {
+            trimmed
+        };
         if core.starts_with("#bibliography(") {
             found = true;
             let indent: String = line.chars().take_while(|c| c.is_whitespace()).collect();
@@ -458,24 +466,42 @@ mod bib_path_tests {
     fn set_bibliography_path_replaces_the_path_and_keeps_style() {
         let doc = "#bibliography(\"old.bib\", style: \"apa\")\n\n= Title\n";
         let out = set_bibliography_path(doc, "/home/user/new.bib");
-        assert!(out.contains("#bibliography(\"/home/user/new.bib\", style: \"apa\")"), "got: {out}");
-        assert!(out.contains("= Title"), "rest of the document must survive: {out}");
+        assert!(
+            out.contains("#bibliography(\"/home/user/new.bib\", style: \"apa\")"),
+            "got: {out}"
+        );
+        assert!(
+            out.contains("= Title"),
+            "rest of the document must survive: {out}"
+        );
     }
 
     #[test]
     fn set_bibliography_path_uncomments_a_commented_out_call() {
         let doc = "// #bibliography(\"refs.bib\", style: \"chicago-author-date\")\n\n= Title\n";
         let out = set_bibliography_path(doc, "/home/user/refs.bib");
-        assert!(out.contains("#bibliography(\"/home/user/refs.bib\", style: \"chicago-author-date\")"), "got: {out}");
-        assert!(!out.contains("// #bibliography"), "should be uncommented: {out}");
+        assert!(
+            out.contains("#bibliography(\"/home/user/refs.bib\", style: \"chicago-author-date\")"),
+            "got: {out}"
+        );
+        assert!(
+            !out.contains("// #bibliography"),
+            "should be uncommented: {out}"
+        );
     }
 
     #[test]
     fn set_bibliography_path_appends_a_call_when_none_exists() {
         let doc = "= Title\n\nSome prose.\n";
         let out = set_bibliography_path(doc, "/home/user/refs.bib");
-        assert!(out.contains("#bibliography(\"/home/user/refs.bib\")"), "got: {out}");
-        assert!(out.contains("= Title"), "existing content must survive: {out}");
+        assert!(
+            out.contains("#bibliography(\"/home/user/refs.bib\")"),
+            "got: {out}"
+        );
+        assert!(
+            out.contains("= Title"),
+            "existing content must survive: {out}"
+        );
     }
 
     #[test]

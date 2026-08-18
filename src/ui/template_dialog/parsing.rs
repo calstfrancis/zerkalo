@@ -37,12 +37,14 @@ pub fn parse_page_numbers(content: &str) -> u32 {
         if page_arg(&args, "numbering").is_none() {
             continue;
         }
-        found = Some(match page_arg(&args, "number-align").as_deref().map(str::trim) {
-            Some("bottom + right") => 1,
-            Some("top + center")   => 2,
-            Some("top + right")    => 3,
-            _                      => 0,
-        });
+        found = Some(
+            match page_arg(&args, "number-align").as_deref().map(str::trim) {
+                Some("bottom + right") => 1,
+                Some("top + center") => 2,
+                Some("top + right") => 3,
+                _ => 0,
+            },
+        );
     }
     found.unwrap_or(4)
 }
@@ -142,8 +144,12 @@ pub fn set_template_font_size(content: &str, size: &str) -> Option<String> {
 /// inside the region Zerkalo generated and can't touch a `#set text` the user
 /// wrote in their own body.
 pub(crate) fn template_block_line_span(lines: &[&str]) -> Option<(usize, usize)> {
-    let begin = lines.iter().position(|l| l.trim_start().starts_with(TEMPLATE_BEGIN))?;
-    let end   = lines.iter().position(|l| l.trim_start().starts_with(TEMPLATE_END))?;
+    let begin = lines
+        .iter()
+        .position(|l| l.trim_start().starts_with(TEMPLATE_BEGIN))?;
+    let end = lines
+        .iter()
+        .position(|l| l.trim_start().starts_with(TEMPLATE_END))?;
     (begin < end).then_some((begin, end))
 }
 
@@ -168,7 +174,7 @@ pub(crate) fn replace_set_text_arg(content: &str, key: &str, new_value: &str) ->
                 target = Some(i);
             }
             let opened_inline = t.starts_with("#set text(") && t.contains(')');
-            let closed_alone  = !t.starts_with("#set text(") && t.starts_with(')');
+            let closed_alone = !t.starts_with("#set text(") && t.starts_with(')');
             if opened_inline || closed_alone {
                 in_set_text = false;
             }
@@ -201,7 +207,10 @@ pub(crate) fn replace_arg_value(line: &str, key: &str, new_value: &str) -> Optio
         loop {
             match bytes.get(i) {
                 Some(b'\\') => i += 2,
-                Some(b'"') => { i += 1; break }
+                Some(b'"') => {
+                    i += 1;
+                    break;
+                }
                 Some(_) => i += 1,
                 None => return None, // unterminated string — leave the line alone
             }
@@ -209,7 +218,9 @@ pub(crate) fn replace_arg_value(line: &str, key: &str, new_value: &str) -> Optio
         i
     } else {
         let n = value.find([',', ')'])?;
-        if n == 0 { return None }
+        if n == 0 {
+            return None;
+        }
         n
     };
 
@@ -329,13 +340,21 @@ pub(crate) fn page_arg(args: &str, key: &str) -> Option<String> {
         }
     }
     let v = after[..end].trim();
-    if v.is_empty() { None } else { Some(v.to_string()) }
+    if v.is_empty() {
+        None
+    } else {
+        Some(v.to_string())
+    }
 }
 
 pub(crate) fn unquote(v: &str) -> Option<String> {
     let t = v.trim();
     let inner = t.strip_prefix('"')?.strip_suffix('"')?;
-    if inner.is_empty() { None } else { Some(parse_typst_string_value(&format!("{inner}\""))) }
+    if inner.is_empty() {
+        None
+    } else {
+        Some(parse_typst_string_value(&format!("{inner}\"")))
+    }
 }
 
 /// Parse the paper selection from `#set page(…)`. Returns `"custom"` for a
@@ -397,18 +416,29 @@ pub fn parse_spacing(content: &str) -> Option<String> {
     let mut in_set_par = false;
     for line in content.lines() {
         let t = line.trim();
-        if t.starts_with("//") { continue; }
-        if t.starts_with("#set par(") { in_set_par = true; }
+        if t.starts_with("//") {
+            continue;
+        }
+        if t.starts_with("#set par(") {
+            in_set_par = true;
+        }
         if in_set_par {
             if let Some(start) = t.find("leading:") {
                 let after = t[start + 8..].trim_start();
-                let val: String = after.chars().take_while(|c| !matches!(c, ',' | ')')).collect();
+                let val: String = after
+                    .chars()
+                    .take_while(|c| !matches!(c, ',' | ')'))
+                    .collect();
                 let val = val.trim().to_string();
-                if !val.is_empty() { last_found = Some(val); }
+                if !val.is_empty() {
+                    last_found = Some(val);
+                }
             }
             let opened_inline = t.starts_with("#set par(") && t.contains(')');
-            let closed_alone  = !t.starts_with("#set par(") && t.starts_with(')');
-            if opened_inline || closed_alone { in_set_par = false; }
+            let closed_alone = !t.starts_with("#set par(") && t.starts_with(')');
+            if opened_inline || closed_alone {
+                in_set_par = false;
+            }
         }
     }
     last_found
@@ -417,7 +447,9 @@ pub fn parse_spacing(content: &str) -> Option<String> {
 /// Detect the margin preset index (0=Normal, 1=Narrow, 2=Wide, 3=LaTeX,
 /// 4=Ross, 5=Custom) from the `#set page(margin: …)` call in the preamble.
 pub fn parse_margin(content: &str) -> usize {
-    let Some((t, b, l, r)) = page_margins(content) else { return 0 };
+    let Some((t, b, l, r)) = page_margins(content) else {
+        return 0;
+    };
     // Ross's distinctive percentage right margin is checked first since its
     // left value (1.25in) is otherwise identical to Normal's.
     if r.contains('%') {
@@ -425,7 +457,9 @@ pub fn parse_margin(content: &str) -> usize {
     }
     for idx in [0usize, 1, 2, 3] {
         let (pt, pb, pl, pr) = margin_values(idx, "");
-        if (pt.as_str(), pb.as_str(), pl.as_str(), pr.as_str()) == (t.as_str(), b.as_str(), l.as_str(), r.as_str()) {
+        if (pt.as_str(), pb.as_str(), pl.as_str(), pr.as_str())
+            == (t.as_str(), b.as_str(), l.as_str(), r.as_str())
+        {
             return idx;
         }
     }
@@ -454,8 +488,14 @@ pub fn parse_custom_margin(content: &str) -> Option<String> {
 pub(crate) fn page_margins(content: &str) -> Option<(String, String, String, String)> {
     let mut found = None;
     for args in set_page_args(preamble_region(content)) {
-        let Some(m) = page_arg(&args, "margin") else { continue };
-        let inner = m.trim().strip_prefix('(').and_then(|v| v.strip_suffix(')')).unwrap_or(&m);
+        let Some(m) = page_arg(&args, "margin") else {
+            continue;
+        };
+        let inner = m
+            .trim()
+            .strip_prefix('(')
+            .and_then(|v| v.strip_suffix(')'))
+            .unwrap_or(&m);
         let get = |k: &str| page_arg(inner, k);
         let quad = match (get("top"), get("bottom"), get("left"), get("right")) {
             (Some(t), Some(b), Some(l), Some(r)) => Some((t, b, l, r)),
@@ -494,11 +534,11 @@ pub fn default_import_preamble() -> String {
         course: String::new(),
         professor: String::new(),
         date: String::new(),
-        style_idx: 1,    // Chicago (Notes-Bib) — common humanities default
-        paper_idx: 0,    // US Letter
+        style_idx: 1, // Chicago (Notes-Bib) — common humanities default
+        paper_idx: 0, // US Letter
         custom_paper_w: String::new(),
         custom_paper_h: String::new(),
-        margin_idx: 0,   // Normal (1" / 1.25")
+        margin_idx: 0, // Normal (1" / 1.25")
         custom_margin: String::new(),
         font: "Times New Roman".to_string(),
         font_size: "12pt".to_string(),
@@ -544,10 +584,14 @@ pub fn strip_conflicting_heading_rules(content: &str) -> String {
         let t = line.trim();
 
         // Track entry/exit of the template block — keep everything inside it unchanged.
-        if t == TEMPLATE_BEGIN { in_template = true; }
+        if t == TEMPLATE_BEGIN {
+            in_template = true;
+        }
         if in_template {
             result.push(line);
-            if t == TEMPLATE_END { in_template = false; }
+            if t == TEMPLATE_END {
+                in_template = false;
+            }
             continue;
         }
 
@@ -565,8 +609,10 @@ pub fn strip_conflicting_heading_rules(content: &str) -> String {
         // Drop any #show heading rule (single- or multi-line).
         if t.starts_with("#show heading") {
             bracket_depth = t.chars().filter(|&c| c == '[').count() as i32
-                          - t.chars().filter(|&c| c == ']').count() as i32;
-            if bracket_depth > 0 { skipping_show = true; }
+                - t.chars().filter(|&c| c == ']').count() as i32;
+            if bracket_depth > 0 {
+                skipping_show = true;
+            }
             continue;
         }
 
@@ -594,7 +640,11 @@ pub fn strip_style_block(content: &str) -> String {
         return content.to_string();
     };
     let end_full = end_pos + STYLE_END.len();
-    let after = if content[end_full..].starts_with('\n') { end_full + 1 } else { end_full };
+    let after = if content[end_full..].starts_with('\n') {
+        end_full + 1
+    } else {
+        end_full
+    };
     format!("{}{}", &content[..begin_pos], &content[after..])
 }
 
@@ -604,10 +654,9 @@ pub fn strip_style_block(content: &str) -> String {
 /// selects a new style from the dropdown. Also updates the @zerkalo-style annotation.
 /// For template documents only; non-template documents use the legacy STYLE block path.
 pub fn replace_heading_styles_in_template(content: &str, style_key: &str) -> String {
-    let (Some(begin_pos), Some(end_marker_pos)) = (
-        content.find(TEMPLATE_BEGIN),
-        content.find(TEMPLATE_END),
-    ) else {
+    let (Some(begin_pos), Some(end_marker_pos)) =
+        (content.find(TEMPLATE_BEGIN), content.find(TEMPLATE_END))
+    else {
         return content.to_string();
     };
 
@@ -658,16 +707,21 @@ pub(crate) fn update_page_settings_for_style(block: &str, new_style_key: &str) -
 
 /// Replace a `paper: "..."` line inside the block.
 pub(crate) fn replace_in_line(block: &str, key: &str, new_full_line_content: &str) -> String {
-    block.lines().map(|line| {
-        let t = line.trim();
-        if !t.starts_with("//") && t.starts_with(key) {
-            // Preserve indentation
-            let indent: String = line.chars().take_while(|c| c.is_whitespace()).collect();
-            format!("{indent}{new_full_line_content}")
-        } else {
-            line.to_string()
-        }
-    }).collect::<Vec<_>>().join("\n") + if block.ends_with('\n') { "\n" } else { "" }
+    block
+        .lines()
+        .map(|line| {
+            let t = line.trim();
+            if !t.starts_with("//") && t.starts_with(key) {
+                // Preserve indentation
+                let indent: String = line.chars().take_while(|c| c.is_whitespace()).collect();
+                format!("{indent}{new_full_line_content}")
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+        + if block.ends_with('\n') { "\n" } else { "" }
 }
 
 /// Replace `margin: (...)` — possibly multi-line — with a single-line version.
@@ -728,7 +782,8 @@ pub(crate) fn update_template_block_headings(block: &str, new_style_key: &str) -
     );
     let new_heading_code = raw.trim().to_string();
     let new_heading_code = new_heading_code.as_str();
-    let style_name = CITATION_STYLES.iter()
+    let style_name = CITATION_STYLES
+        .iter()
         .find(|(_, k)| *k == new_style_key)
         .map(|(n, _)| *n)
         .unwrap_or("Unknown");
@@ -761,7 +816,8 @@ pub(crate) fn update_template_block_headings(block: &str, new_style_key: &str) -
         if !in_heading {
             let is_heading_comment = t.starts_with("//") && {
                 let lower = t.to_lowercase();
-                lower.contains("heading style") || lower.contains("heading styles")
+                lower.contains("heading style")
+                    || lower.contains("heading styles")
                     || lower.contains("default heading")
             };
             let is_show_heading = t.starts_with("#show heading");
@@ -778,7 +834,9 @@ pub(crate) fn update_template_block_headings(block: &str, new_style_key: &str) -
             // Clamp to zero — a one-liner rule with balanced brackets reads as 0,
             // and we must not let unmatched `]` in a comment send depth negative
             // (which would wrongly fire the terminator check on every following line).
-            if bracket_depth < 0 { bracket_depth = 0; }
+            if bracket_depth < 0 {
+                bracket_depth = 0;
+            }
             if bracket_depth == 0 {
                 let is_lang_block = t.starts_with("//") && t.contains("inline helper");
                 let is_template_end = t.starts_with(TEMPLATE_END);
@@ -798,8 +856,7 @@ pub(crate) fn update_template_block_headings(block: &str, new_style_key: &str) -
     // If no explicit terminator found, heading goes to the last line before TEMPLATE_END
     if heading_start.is_some() && heading_end.is_none() {
         let mut end = lines.len();
-        while end > 0 && (lines[end - 1].trim().is_empty()
-            || lines[end - 1].trim() == TEMPLATE_END)
+        while end > 0 && (lines[end - 1].trim().is_empty() || lines[end - 1].trim() == TEMPLATE_END)
         {
             end -= 1;
         }
@@ -855,13 +912,13 @@ pub(crate) fn update_template_block_headings(block: &str, new_style_key: &str) -
 pub fn parse_meta(content: &str, field: &str) -> String {
     // New format: #let doc-* variable
     let var_name = match field {
-        "title"       => "doc-title",
-        "subtitle"    => "doc-subtitle",
-        "author"      => "doc-author",
+        "title" => "doc-title",
+        "subtitle" => "doc-subtitle",
+        "author" => "doc-author",
         "affiliation" => "doc-affil",
-        "course"      => "doc-course",
-        "professor"   => "doc-professor",
-        "date"        => "doc-date",
+        "course" => "doc-course",
+        "professor" => "doc-professor",
+        "date" => "doc-date",
         _ => "",
     };
     if !var_name.is_empty() {
@@ -882,14 +939,19 @@ pub fn parse_meta(content: &str, field: &str) -> String {
         }
     }
     // Style-specific fallbacks after TEMPLATE_END (best-effort only)
-    let body = content.find(TEMPLATE_END).map(|p| &content[p..]).unwrap_or(content);
+    let body = content
+        .find(TEMPLATE_END)
+        .map(|p| &content[p..])
+        .unwrap_or(content);
     match field {
         "title" => {
             for line in body.lines() {
                 let t = line.trim();
                 if t.contains("size: 16pt") && t.contains("weight: \"bold\"") {
                     if let Some(s) = extract_first_bracket_content(t) {
-                        if !s.is_empty() { return s; }
+                        if !s.is_empty() {
+                            return s;
+                        }
                     }
                 }
             }
@@ -898,12 +960,23 @@ pub fn parse_meta(content: &str, field: &str) -> String {
             let mut after_v2fr = false;
             for line in body.lines() {
                 let t = line.trim();
-                if t == "#v(2fr)" { after_v2fr = true; continue; }
-                if !after_v2fr { continue; }
-                if t == "]" { break; }
-                if t.is_empty() || t.starts_with('#') || t.starts_with('\\') { continue; }
+                if t == "#v(2fr)" {
+                    after_v2fr = true;
+                    continue;
+                }
+                if !after_v2fr {
+                    continue;
+                }
+                if t == "]" {
+                    break;
+                }
+                if t.is_empty() || t.starts_with('#') || t.starts_with('\\') {
+                    continue;
+                }
                 let cleaned = t.trim_matches(|c| c == '[' || c == ']').trim().to_string();
-                if !cleaned.is_empty() { return cleaned; }
+                if !cleaned.is_empty() {
+                    return cleaned;
+                }
             }
         }
         _ => {}
@@ -920,10 +993,13 @@ pub(crate) fn parse_typst_string_value(s: &str) -> String {
         match c {
             '"' => break,
             '\\' => match chars.next() {
-                Some('"')  => result.push('"'),
+                Some('"') => result.push('"'),
                 Some('\\') => result.push('\\'),
-                Some('n')  => result.push('\n'),
-                Some(other) => { result.push('\\'); result.push(other); }
+                Some('n') => result.push('\n'),
+                Some(other) => {
+                    result.push('\\');
+                    result.push(other);
+                }
                 None => {}
             },
             other => result.push(other),
@@ -967,7 +1043,9 @@ pub fn parse_toc_depth(content: &str) -> u32 {
         if !t.starts_with("//") && t.starts_with("#outline(depth:") {
             let after = t["#outline(depth:".len()..].trim_start();
             let val: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
-            if let Ok(n) = val.parse::<u32>() { return n; }
+            if let Ok(n) = val.parse::<u32>() {
+                return n;
+            }
         }
     }
     2
@@ -1042,7 +1120,8 @@ pub fn replace_title_page(existing: &str, new_template: &str) -> String {
     // Searching the whole document was wrong: MLA docs have no title-page break,
     // so the search would find a body #pagebreak() and wipe out the front-matter.
     let title_page_end = |s: &str, zone_start: usize| -> usize {
-        let template_end_pos = s.find(TEMPLATE_END)
+        let template_end_pos = s
+            .find(TEMPLATE_END)
             .map(|p| p + TEMPLATE_END.len())
             .unwrap_or(0);
         let search_from = zone_start.max(template_end_pos);
@@ -1054,7 +1133,8 @@ pub fn replace_title_page(existing: &str, new_template: &str) -> String {
             "// ── Document body",
             "// ── Chapters",
         ];
-        let stop_pos = STOP_MARKERS.iter()
+        let stop_pos = STOP_MARKERS
+            .iter()
             .filter_map(|m| s[search_from..].find(m).map(|p| search_from + p))
             .min()
             .unwrap_or(s.len());
@@ -1073,6 +1153,10 @@ pub fn replace_title_page(existing: &str, new_template: &str) -> String {
     let old_end = title_page_end(existing, old_start);
 
     let new_title_block = &new_template[new_start..new_end];
-    format!("{}{}{}", &existing[..old_start], new_title_block, &existing[old_end..])
+    format!(
+        "{}{}{}",
+        &existing[..old_start],
+        new_title_block,
+        &existing[old_end..]
+    )
 }
-

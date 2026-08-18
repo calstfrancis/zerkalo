@@ -1,10 +1,10 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use adw::prelude::*;
 use gtk4::prelude::*;
 use gtk4::{Align, Box as GtkBox, Button, Label, Orientation, ScrolledWindow, Separator};
 use libadwaita as adw;
-use adw::prelude::*;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const RELEASE_NAME: &str = "Steady Hand";
@@ -17,13 +17,19 @@ pub struct WelcomeWindow {
 impl WelcomeWindow {
     /// True when no marker exists — the very first launch.
     pub fn is_first_run() -> bool {
-        !glib::user_data_dir().join("zerkalo/.welcome_version").exists()
+        !glib::user_data_dir()
+            .join("zerkalo/.welcome_version")
+            .exists()
     }
 
     pub fn new(parent: &impl IsA<gtk4::Window>, is_first_run: bool) -> Self {
         let on_dismissed: Rc<RefCell<Option<Box<dyn Fn()>>>> = Rc::new(RefCell::new(None));
 
-        let title = if is_first_run { "Welcome to Zerkalo" } else { "What's New" };
+        let title = if is_first_run {
+            "Welcome to Zerkalo"
+        } else {
+            "What's New"
+        };
         let window = adw::Window::builder()
             .title(title)
             .transient_for(parent)
@@ -71,7 +77,7 @@ impl WelcomeWindow {
             let intro = Label::new(Some(
                 "Zerkalo is a Typst editor with a live preview pane. You write in Typst markup \
                  on the left and see the formatted PDF on the right. Your document is saved and \
-                 compiled automatically as you type."
+                 compiled automatically as you type.",
             ));
             intro.set_wrap(true);
             intro.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
@@ -91,7 +97,7 @@ impl WelcomeWindow {
                  │                 │  └────────────┘  │\n\
                  ├─────────────────┴──────────────────┤\n\
                  │  Status bar  (word count, cursor)   │\n\
-                 └────────────────────────────────────┘"
+                 └────────────────────────────────────┘",
             ));
             diagram.add_css_class("monospace");
             diagram.add_css_class("dim-label");
@@ -103,7 +109,7 @@ impl WelcomeWindow {
 
             let diagram_note = Label::new(Some(
                 "You type short instructions like *bold* — the preview on the right shows \
-                 the real formatting."
+                 the real formatting.",
             ));
             diagram_note.add_css_class("dim-label");
             diagram_note.add_css_class("caption");
@@ -191,10 +197,15 @@ impl WelcomeWindow {
         let cb = on_dismissed.clone();
         ok_btn.connect_clicked(move |_| {
             win_c.close();
-            if let Some(f) = cb.borrow().as_ref() { f(); }
+            if let Some(f) = cb.borrow().as_ref() {
+                f();
+            }
         });
 
-        Self { window, on_dismissed }
+        Self {
+            window,
+            on_dismissed,
+        }
     }
 
     /// Called after "Get Started" is clicked (after the window closes).

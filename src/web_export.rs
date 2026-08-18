@@ -13,8 +13,10 @@ pub fn export_for_web(input_path: &Path, output_path: &Path) -> Result<(), Strin
 fn run_pandoc(input: &Path) -> Result<String, String> {
     let out = crate::git_sync::host_command("pandoc")
         .args([
-            "-f", "typst",
-            "-t", "html5",
+            "-f",
+            "typst",
+            "-t",
+            "html5",
             "--no-highlight",
             "--wrap=none",
             input.to_str().unwrap_or(""),
@@ -42,10 +44,14 @@ fn collect_footnotes(html: &str) -> HashMap<String, String> {
         let abs = pos + rel;
         // Extract id value
         let id_start = abs + "<li id=\"".len();
-        let Some(id_len) = html[id_start..].find('"') else { break; };
+        let Some(id_len) = html[id_start..].find('"') else {
+            break;
+        };
         let id = html[id_start..id_start + id_len].to_string();
         // Find closing </li>
-        let Some(end_rel) = html[abs..].find("</li>") else { break; };
+        let Some(end_rel) = html[abs..].find("</li>") else {
+            break;
+        };
         let li = &html[abs..abs + end_rel + 5];
         map.insert(id, footnote_inner_text(li));
         pos = abs + 1;
@@ -69,7 +75,10 @@ fn strip_backlink(s: &str) -> String {
     if let Some(a_pos) = s.rfind("<a ") {
         if s[a_pos..].contains("footnote-back") {
             let before = &s[..a_pos];
-            let after_a = s[a_pos..].find("</a>").map(|i| a_pos + i + 4).unwrap_or(s.len());
+            let after_a = s[a_pos..]
+                .find("</a>")
+                .map(|i| a_pos + i + 4)
+                .unwrap_or(s.len());
             return format!("{}{}", before.trim_end(), &s[after_a..]);
         }
     }
@@ -134,7 +143,7 @@ fn fnref_to_fn_id(sup: &str) -> Option<String> {
     let start = sup.find("id=\"")? + 4;
     let end = sup[start..].find('"')?;
     let raw = &sup[start..start + end]; // e.g. "fnref1" or "fnref1:1"
-    // Strip ":N" duplicate suffix, replace "fnref" with "fn"
+                                        // Strip ":N" duplicate suffix, replace "fnref" with "fn"
     let base = raw.split(':').next().unwrap_or(raw);
     Some(base.replacen("fnref", "fn", 1))
 }

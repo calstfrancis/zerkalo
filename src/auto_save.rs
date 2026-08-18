@@ -11,9 +11,7 @@ fn autosave_dir() -> PathBuf {
     }
     let base = std::env::var("XDG_STATE_HOME")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| {
-            PathBuf::from(shellexpand::tilde("~/.local/state").into_owned())
-        });
+        .unwrap_or_else(|_| PathBuf::from(shellexpand::tilde("~/.local/state").into_owned()));
     base.join("zerkalo/autosave")
 }
 
@@ -54,7 +52,9 @@ pub fn prune() {
         let _ = std::fs::remove_dir(&legacy);
     }
 
-    let Ok(entries) = std::fs::read_dir(&dir) else { return };
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
         if path.extension().is_none_or(|e| e != "meta") {
@@ -95,7 +95,11 @@ pub(crate) fn path_key(path: &Path) -> String {
 const MAX_COLLISION_PROBES: u32 = 8;
 
 fn candidate_key(base: &str, n: u32) -> String {
-    if n == 0 { base.to_string() } else { format!("{base}-{n}") }
+    if n == 0 {
+        base.to_string()
+    } else {
+        format!("{base}-{n}")
+    }
 }
 
 /// Whether the `.meta` file at `key` (if any) names `original_path`. `None`
@@ -226,13 +230,22 @@ mod tests {
     fn save_and_clear() {
         let sb = Sandbox::new();
         let path = sb.doc("clear.typ");
-        assert!(save(&path, "hello world"), "save should report success on a writable dir");
+        assert!(
+            save(&path, "hello world"),
+            "save should report success on a writable dir"
+        );
 
         let key = path_key(&path);
-        assert!(sb.path().join(format!("{key}.typ")).exists(), "autosave file should exist");
+        assert!(
+            sb.path().join(format!("{key}.typ")).exists(),
+            "autosave file should exist"
+        );
 
         clear(&path);
-        assert!(!sb.path().join(format!("{key}.typ")).exists(), "autosave file should be removed");
+        assert!(
+            !sb.path().join(format!("{key}.typ")).exists(),
+            "autosave file should be removed"
+        );
     }
 
     #[test]
@@ -246,9 +259,13 @@ mod tests {
         let ok = save(&path, "should not land");
         // Restore before any assert can early-return, so the sandbox's TempDir
         // can still clean itself up on drop.
-        std::fs::set_permissions(sb.path(), std::fs::Permissions::from_mode(original_mode)).unwrap();
+        std::fs::set_permissions(sb.path(), std::fs::Permissions::from_mode(original_mode))
+            .unwrap();
 
-        assert!(!ok, "save must report failure when the autosave dir isn't writable, not pretend success");
+        assert!(
+            !ok,
+            "save must report failure when the autosave dir isn't writable, not pretend success"
+        );
     }
 
     #[test]
@@ -259,7 +276,10 @@ mod tests {
         save(&path, "recovered content");
 
         let result = find_recovery(&path);
-        assert!(result.is_some(), "should find recovery when original absent");
+        assert!(
+            result.is_some(),
+            "should find recovery when original absent"
+        );
         assert_eq!(result.unwrap().0, "recovered content");
     }
 
@@ -309,13 +329,20 @@ mod tests {
             victim.to_string_lossy().as_bytes(),
         )
         .unwrap();
-        std::fs::write(sb.path().join(format!("{attacker_key}.typ")), "victim's content").unwrap();
+        std::fs::write(
+            sb.path().join(format!("{attacker_key}.typ")),
+            "victim's content",
+        )
+        .unwrap();
 
         save(&attacker, "attacker's content");
 
         let victim_content =
             std::fs::read_to_string(sb.path().join(format!("{attacker_key}.typ"))).unwrap();
-        assert_eq!(victim_content, "victim's content", "victim's slot must be untouched");
+        assert_eq!(
+            victim_content, "victim's content",
+            "victim's slot must be untouched"
+        );
 
         let attacker_result = find_recovery(&attacker);
         assert!(
@@ -339,8 +366,14 @@ mod tests {
 
         prune();
 
-        assert!(find_recovery(&fresh).is_some(), "a recent autosave must survive pruning");
-        assert!(find_recovery(&stale).is_none(), "an aged-out autosave should be removed");
+        assert!(
+            find_recovery(&fresh).is_some(),
+            "a recent autosave must survive pruning"
+        );
+        assert!(
+            find_recovery(&stale).is_none(),
+            "an aged-out autosave should be removed"
+        );
     }
 
     #[test]

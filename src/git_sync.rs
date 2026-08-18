@@ -97,7 +97,11 @@ pub fn git_repo_root(dir: &Path) -> Option<std::path::PathBuf> {
         .ok()?;
     if out.status.success() {
         let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        if !s.is_empty() { Some(std::path::PathBuf::from(s)) } else { None }
+        if !s.is_empty() {
+            Some(std::path::PathBuf::from(s))
+        } else {
+            None
+        }
     } else {
         None
     }
@@ -135,7 +139,11 @@ pub fn get_remote_url(repo_path: &Path, name: &str) -> Option<String> {
         .ok()?;
     if out.status.success() {
         let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        if s.is_empty() { None } else { Some(s) }
+        if s.is_empty() {
+            None
+        } else {
+            Some(s)
+        }
     } else {
         None
     }
@@ -207,10 +215,7 @@ pub fn current_branch(repo_path: &Path) -> String {
 
 /// Returns display names of files changed since the last commit.
 pub fn changed_files(repo_path: &Path) -> Vec<String> {
-    let Ok(out) = git_cmd(repo_path)
-        .args(["status", "--porcelain"])
-        .output()
-    else {
+    let Ok(out) = git_cmd(repo_path).args(["status", "--porcelain"]).output() else {
         return Vec::new();
     };
 
@@ -268,27 +273,38 @@ pub fn sync(repo_path: &Path, github_token: Option<&str>) -> SyncResult {
 
     if let Err(e) = run_git(repo_path, &["add", "."]) {
         return SyncResult {
-            committed: false, pushed: false, commit_message: msg,
+            committed: false,
+            pushed: false,
+            commit_message: msg,
             error: Some(format!("git add: {e}")),
-            push_errors: Vec::new(), auth_failed: false,
+            push_errors: Vec::new(),
+            auth_failed: false,
         };
     }
 
-    let committed = match git_cmd(repo_path)
-        .args(["commit", "-m", &msg])
-        .output()
-    {
-        Err(e) => return SyncResult {
-            committed: false, pushed: false, commit_message: msg,
-            error: Some(format!("git commit: {e}")),
-            push_errors: Vec::new(), auth_failed: false,
-        },
+    let committed = match git_cmd(repo_path).args(["commit", "-m", &msg]).output() {
+        Err(e) => {
+            return SyncResult {
+                committed: false,
+                pushed: false,
+                commit_message: msg,
+                error: Some(format!("git commit: {e}")),
+                push_errors: Vec::new(),
+                auth_failed: false,
+            }
+        }
         Ok(out) if !out.status.success() => {
             let text = lossy_combined(&out);
-            if text.contains("nothing to commit") { false } else {
+            if text.contains("nothing to commit") {
+                false
+            } else {
                 return SyncResult {
-                    committed: false, pushed: false, commit_message: msg,
-                    error: Some(text), push_errors: Vec::new(), auth_failed: false,
+                    committed: false,
+                    pushed: false,
+                    commit_message: msg,
+                    error: Some(text),
+                    push_errors: Vec::new(),
+                    auth_failed: false,
                 };
             }
         }
@@ -303,12 +319,10 @@ pub fn sync(repo_path: &Path, github_token: Option<&str>) -> SyncResult {
 
     for remote in &remotes {
         let auth_args: Vec<String> = match github_token {
-            Some(tok) if !tok.is_empty() => {
-                match get_remote_url(repo_path, remote) {
-                    Some(url) if is_github_https(&url) => github_auth_args(tok),
-                    _ => Vec::new(),
-                }
-            }
+            Some(tok) if !tok.is_empty() => match get_remote_url(repo_path, remote) {
+                Some(url) if is_github_https(&url) => github_auth_args(tok),
+                _ => Vec::new(),
+            },
             _ => Vec::new(),
         };
 
@@ -354,18 +368,28 @@ pub fn sync(repo_path: &Path, github_token: Option<&str>) -> SyncResult {
         match git_cmd(repo_path)
             .args(auth_args.clone())
             .args(["push", "-u", remote.as_str(), &branch])
-            .output() {
+            .output()
+        {
             Err(e) => push_errors.push(format!("({remote}) {e}")),
             Ok(o) if !o.status.success() => {
                 let msg = lossy_combined(&o);
-                if is_auth_error(&msg) { auth_failed = true; }
+                if is_auth_error(&msg) {
+                    auth_failed = true;
+                }
                 push_errors.push(format!("({remote}) {msg}"));
             }
             Ok(_) => pushed = true,
         }
     }
 
-    SyncResult { committed, pushed, commit_message: msg, error: None, push_errors, auth_failed }
+    SyncResult {
+        committed,
+        pushed,
+        commit_message: msg,
+        error: None,
+        push_errors,
+        auth_failed,
+    }
 }
 
 /// Whether `url` is an `https://github.com/...` remote — the only case the
@@ -396,8 +420,16 @@ fn base64_encode(input: &[u8]) -> String {
         let n = ((b0 as u32) << 16) | ((b1 as u32) << 8) | (b2 as u32);
         out.push(ALPHABET[(n >> 18 & 0x3F) as usize] as char);
         out.push(ALPHABET[(n >> 12 & 0x3F) as usize] as char);
-        out.push(if chunk.len() > 1 { ALPHABET[(n >> 6 & 0x3F) as usize] as char } else { '=' });
-        out.push(if chunk.len() > 2 { ALPHABET[(n & 0x3F) as usize] as char } else { '=' });
+        out.push(if chunk.len() > 1 {
+            ALPHABET[(n >> 6 & 0x3F) as usize] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            ALPHABET[(n & 0x3F) as usize] as char
+        } else {
+            '='
+        });
     }
     out
 }
@@ -418,7 +450,11 @@ fn rebase_in_progress(repo_path: &Path) -> bool {
                 let p = String::from_utf8_lossy(&out.stdout).trim().to_string();
                 let path = Path::new(&p);
                 !p.is_empty()
-                    && if path.is_absolute() { path.exists() } else { repo_path.join(path).exists() }
+                    && if path.is_absolute() {
+                        path.exists()
+                    } else {
+                        repo_path.join(path).exists()
+                    }
             })
             .unwrap_or(false)
     })
@@ -463,7 +499,11 @@ fn run_git(repo_path: &Path, args: &[&str]) -> Result<(), String> {
 fn lossy_combined(out: &std::process::Output) -> String {
     let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
     let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    if !stderr.is_empty() { stderr } else { stdout }
+    if !stderr.is_empty() {
+        stderr
+    } else {
+        stdout
+    }
 }
 
 #[cfg(test)]
@@ -500,14 +540,20 @@ mod tests {
     fn craft_message_multiple_files_lists_up_to_five() {
         let files: Vec<String> = (1..=7).map(|i| format!("f{i}.typ")).collect();
         let msg = craft_message(&files);
-        assert!(msg.starts_with("Edits to f1.typ, f2.typ, f3.typ, f4.typ, f5.typ (+2)"), "got: {msg}");
+        assert!(
+            msg.starts_with("Edits to f1.typ, f2.typ, f3.typ, f4.typ, f5.typ (+2)"),
+            "got: {msg}"
+        );
     }
 
     #[test]
     fn craft_message_exactly_five_files_no_suffix() {
         let files: Vec<String> = (1..=5).map(|i| format!("f{i}.typ")).collect();
         let msg = craft_message(&files);
-        assert!(msg.starts_with("Edits to f1.typ, f2.typ, f3.typ, f4.typ, f5.typ\n"), "got: {msg}");
+        assert!(
+            msg.starts_with("Edits to f1.typ, f2.typ, f3.typ, f4.typ, f5.typ\n"),
+            "got: {msg}"
+        );
         assert!(!msg.contains('+'));
     }
 
@@ -523,12 +569,18 @@ mod tests {
         let args = github_auth_args("abc123");
         assert_eq!(args[0], "-c");
         assert!(args[1].starts_with("http.https://github.com/.extraHeader=AUTHORIZATION: basic "));
-        assert!(!args[1].contains("abc123"), "raw token must not appear in argv: {args:?}");
+        assert!(
+            !args[1].contains("abc123"),
+            "raw token must not appear in argv: {args:?}"
+        );
     }
 
     #[test]
     fn base64_encode_matches_known_vectors() {
-        assert_eq!(base64_encode(b"x-access-token:abc123"), "eC1hY2Nlc3MtdG9rZW46YWJjMTIz");
+        assert_eq!(
+            base64_encode(b"x-access-token:abc123"),
+            "eC1hY2Nlc3MtdG9rZW46YWJjMTIz"
+        );
         assert_eq!(base64_encode(b""), "");
         assert_eq!(base64_encode(b"a"), "YQ==");
         assert_eq!(base64_encode(b"ab"), "YWI=");
@@ -538,13 +590,17 @@ mod tests {
     #[test]
     fn is_auth_error_detects_common_auth_failures() {
         assert!(is_auth_error("remote: Authentication failed"));
-        assert!(is_auth_error("fatal: could not read Username for 'https://...'"));
+        assert!(is_auth_error(
+            "fatal: could not read Username for 'https://...'"
+        ));
         assert!(is_auth_error("received 403 Forbidden"));
     }
 
     #[test]
     fn is_missing_remote_branch_detects_empty_remote() {
-        assert!(is_missing_remote_branch("fatal: couldn't find remote ref main"));
+        assert!(is_missing_remote_branch(
+            "fatal: couldn't find remote ref main"
+        ));
         assert!(is_missing_remote_branch(
             "Your configuration specifies to merge with the ref 'main' from the remote, \
              but no such ref was fetched."
@@ -554,8 +610,12 @@ mod tests {
     #[test]
     fn is_missing_remote_branch_false_for_real_failures() {
         assert!(!is_missing_remote_branch("fatal: Authentication failed"));
-        assert!(!is_missing_remote_branch("CONFLICT (content): Merge conflict in main.typ"));
-        assert!(!is_missing_remote_branch("fatal: could not resolve host: github.com"));
+        assert!(!is_missing_remote_branch(
+            "CONFLICT (content): Merge conflict in main.typ"
+        ));
+        assert!(!is_missing_remote_branch(
+            "fatal: could not resolve host: github.com"
+        ));
     }
 
     #[test]

@@ -4,14 +4,11 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use adw::prelude::*;
 use gtk4::prelude::*;
 use gtk4::{Box as GtkBox, Button};
 use libadwaita as adw;
-use adw::prelude::*;
 
-use crate::config::Config;
-use crate::library::Library;
-use crate::writing_log::{FileStartWords, WritingLog, new_file_start_words};
 use super::super::citation_panel::CitationPanel;
 use super::super::comments_panel::CommentsPanel;
 use super::super::dep_graph::DepGraph;
@@ -21,6 +18,9 @@ use super::super::outline_panel::OutlinePanel;
 use super::super::package_browser::PackageBrowser;
 use super::super::preview_pane::PreviewPane;
 use super::super::ref_manager::RefManager;
+use crate::config::Config;
+use crate::library::Library;
+use crate::writing_log::{new_file_start_words, FileStartWords, WritingLog};
 
 pub(super) struct Panels {
     pub(super) citation_panel: CitationPanel,
@@ -118,7 +118,9 @@ pub(super) fn build_panels(
                             let dlg = adw::MessageDialog::new(
                                 Some(&win_for_style),
                                 Some("No custom CSL file configured"),
-                                Some("Choose a .csl file in Settings before using the Custom style."),
+                                Some(
+                                    "Choose a .csl file in Settings before using the Custom style.",
+                                ),
                             );
                             dlg.add_response("ok", "OK");
                             dlg.present();
@@ -188,7 +190,6 @@ pub(super) fn build_panels(
     // Pop-out preview state
     let popout_window: Rc<RefCell<Option<adw::Window>>> = Rc::new(RefCell::new(None));
     let popout_pane: Rc<RefCell<Option<PreviewPane>>> = Rc::new(RefCell::new(None));
-
 
     Panels {
         citation_panel,

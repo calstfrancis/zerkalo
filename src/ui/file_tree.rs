@@ -6,9 +6,9 @@ use std::rc::Rc;
 use gtk4::gdk::Rectangle;
 use gtk4::prelude::*;
 use gtk4::{
-    Align, Box as GtkBox, Button, DragSource, DropTarget, Entry, EventControllerKey,
-    GestureClick, Label, ListBox, ListBoxRow, Orientation, Popover, PropagationPhase,
-    ScrolledWindow, SelectionMode, Separator,
+    Align, Box as GtkBox, Button, DragSource, DropTarget, Entry, EventControllerKey, GestureClick,
+    Label, ListBox, ListBoxRow, Orientation, Popover, PropagationPhase, ScrolledWindow,
+    SelectionMode, Separator,
 };
 
 type Callback<T> = Rc<RefCell<Option<Box<dyn Fn(T)>>>>;
@@ -296,7 +296,11 @@ impl FileTree {
 
     pub fn set_file_modified(&self, path: &Path, modified: bool) {
         let mut set = self.modified_files.borrow_mut();
-        if modified { set.insert(path.to_path_buf()); } else { set.remove(path); }
+        if modified {
+            set.insert(path.to_path_buf());
+        } else {
+            set.remove(path);
+        }
         drop(set);
         self.refresh();
     }
@@ -344,19 +348,26 @@ impl FileTree {
         let mut ordered: Vec<PathBuf> = files.clone();
         ordered.sort_by_key(|p| {
             let pos = custom.iter().position(|q| q == p);
-            (pos.is_none() as usize, pos.unwrap_or(usize::MAX), p.to_string_lossy().to_string())
+            (
+                pos.is_none() as usize,
+                pos.unwrap_or(usize::MAX),
+                p.to_string_lossy().to_string(),
+            )
         });
         drop(custom);
 
         // Effective compilation root — same resolution ProjectModel::scan uses
         // (explicit config wins, else auto-detected) — so the tree's marker
         // always matches what actually gets compiled.
-        let root_file = crate::project_model::ProjectModel::scan((*self.project_root).clone()).root_file;
+        let root_file =
+            crate::project_model::ProjectModel::scan((*self.project_root).clone()).root_file;
 
         // Group by directory (preserve custom-sorted order within each group)
         let mut by_dir: BTreeMap<PathBuf, Vec<PathBuf>> = BTreeMap::new();
         for file in &ordered {
-            let rel = file.strip_prefix(self.project_root.as_ref()).unwrap_or(file);
+            let rel = file
+                .strip_prefix(self.project_root.as_ref())
+                .unwrap_or(file);
             let dir = rel.parent().unwrap_or(Path::new("")).to_path_buf();
             by_dir.entry(dir).or_default().push(file.clone());
         }
@@ -369,9 +380,11 @@ impl FileTree {
                 row.set_selectable(false);
                 row.set_activatable(true);
                 let hbox = GtkBox::new(Orientation::Horizontal, 4);
-                let arrow = gtk4::Image::from_icon_name(
-                    if is_collapsed { "pan-end-symbolic" } else { "pan-down-symbolic" },
-                );
+                let arrow = gtk4::Image::from_icon_name(if is_collapsed {
+                    "pan-end-symbolic"
+                } else {
+                    "pan-down-symbolic"
+                });
                 arrow.set_pixel_size(12);
                 arrow.add_css_class("dim-label");
                 arrow.set_margin_start(8);
@@ -414,7 +427,8 @@ impl FileTree {
                     .to_string();
                 let has_error = self.file_errors.borrow().contains(file_path.as_path());
                 let is_modified = self.modified_files.borrow().contains(file_path.as_path());
-                let is_root = root_file.as_deref() == std::fs::canonicalize(file_path).ok().as_deref();
+                let is_root =
+                    root_file.as_deref() == std::fs::canonicalize(file_path).ok().as_deref();
 
                 let row = ListBoxRow::new();
                 // Drag handle icon to signal reorderability
@@ -427,7 +441,10 @@ impl FileTree {
                 row_box.append(&drag_icon);
                 let lbl = Label::new(None);
                 if is_root {
-                    lbl.set_markup(&format!("<b>{}</b>", gtk4::glib::markup_escape_text(&filename)));
+                    lbl.set_markup(&format!(
+                        "<b>{}</b>",
+                        gtk4::glib::markup_escape_text(&filename)
+                    ));
                 } else {
                     lbl.set_text(&filename);
                 }
@@ -510,8 +527,12 @@ impl FileTree {
         let ft_for_dnd = self.clone();
         drop_tgt.connect_drop(move |_, _value, _, _| {
             let src_path = drag_holder2.borrow().clone();
-            let Some(src) = src_path else { return false; };
-            if src == target_path { return false; }
+            let Some(src) = src_path else {
+                return false;
+            };
+            if src == target_path {
+                return false;
+            }
 
             // Build the new order from current custom_order, inserting src before target
             let mut current: Vec<PathBuf> = {
@@ -520,8 +541,16 @@ impl FileTree {
                     all_files_snapshot.clone()
                 } else {
                     // Merge: listed + unlisted (in filesystem order)
-                    let mut v: Vec<PathBuf> = ord.iter().filter(|p| all_files_snapshot.contains(p)).cloned().collect();
-                    for f in &all_files_snapshot { if !v.contains(f) { v.push(f.clone()); } }
+                    let mut v: Vec<PathBuf> = ord
+                        .iter()
+                        .filter(|p| all_files_snapshot.contains(p))
+                        .cloned()
+                        .collect();
+                    for f in &all_files_snapshot {
+                        if !v.contains(f) {
+                            v.push(f.clone());
+                        }
+                    }
                     v
                 }
             };
@@ -538,11 +567,13 @@ impl FileTree {
             *order.borrow_mut() = current.clone();
 
             // Persist to .zerkalo/config.toml
-            let rel_order: Vec<String> = current.iter()
+            let rel_order: Vec<String> = current
+                .iter()
                 .filter_map(|p| p.strip_prefix(project_root.as_ref()).ok())
                 .map(|r| r.to_string_lossy().to_string())
                 .collect();
-            let mut proj_cfg = crate::config::ProjectConfig::load(&project_root).unwrap_or_default();
+            let mut proj_cfg =
+                crate::config::ProjectConfig::load(&project_root).unwrap_or_default();
             proj_cfg.file_order = rel_order;
             let _ = proj_cfg.save(&project_root);
 
@@ -592,9 +623,7 @@ impl FileTree {
 
         let clear_root_btn = Button::with_label("Clear Root File");
         clear_root_btn.add_css_class("flat");
-        clear_root_btn.set_tooltip_text(Some(
-            "Go back to compiling whichever file you have open",
-        ));
+        clear_root_btn.set_tooltip_text(Some("Go back to compiling whichever file you have open"));
 
         btn_box.append(&set_root_btn);
         btn_box.append(&include_btn);

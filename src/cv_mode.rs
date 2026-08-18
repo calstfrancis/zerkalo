@@ -22,7 +22,10 @@ pub fn cv_mode_compile_extras(
 ) -> (HashMap<PathBuf, String>, HashMap<String, String>) {
     let mut overrides = HashMap::new();
     let mut sys_inputs = HashMap::new();
-    overrides.insert(project_root.join("cv-helpers.typ"), CV_HELPERS_TYPST.to_string());
+    overrides.insert(
+        project_root.join("cv-helpers.typ"),
+        CV_HELPERS_TYPST.to_string(),
+    );
     if let Some(cv_path) = cv_elements_path {
         match std::fs::read_to_string(cv_path) {
             Ok(yaml) => {
@@ -208,11 +211,8 @@ mod tests {
 
     #[test]
     fn renames_all_occurrences() {
-        let (out, changed) = rename_cv_entry_key_in_text(
-            "#cv-entry(\"k\") and again #cv-entry(\"k\")",
-            "k",
-            "k2",
-        );
+        let (out, changed) =
+            rename_cv_entry_key_in_text("#cv-entry(\"k\") and again #cv-entry(\"k\")", "k", "k2");
         assert!(changed);
         assert_eq!(out, "#cv-entry(\"k2\") and again #cv-entry(\"k2\")");
     }

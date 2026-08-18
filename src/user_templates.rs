@@ -37,7 +37,9 @@ pub fn list() -> Vec<UserTemplate> {
 /// logged rather than taking the gallery down with it — the rest still work,
 /// and the bad file stays on disk for the user to look at.
 pub fn list_in(dir: &Path) -> Vec<UserTemplate> {
-    let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
     let mut out: Vec<UserTemplate> = entries
         .flatten()
         .map(|e| e.path())
@@ -85,8 +87,8 @@ pub fn save_in(dir: &Path, name: &str, settings: &SidecarSettings) -> Result<Pat
     if name.is_empty() {
         return Err("A template needs a name.".into());
     }
-    let path = path_for(dir, name)
-        .ok_or("That name has no letters or numbers in it — try another.")?;
+    let path =
+        path_for(dir, name).ok_or("That name has no letters or numbers in it — try another.")?;
 
     let template = UserTemplate {
         name: name.to_string(),
@@ -124,7 +126,11 @@ fn strip_document_fields(s: &SidecarSettings) -> SidecarSettings {
     SidecarSettings {
         title: String::new(),
         // For a CV this row holds the email address, not a document subtitle.
-        subtitle: if is_cv { s.subtitle.clone() } else { String::new() },
+        subtitle: if is_cv {
+            s.subtitle.clone()
+        } else {
+            String::new()
+        },
         date: String::new(),
         abstract_text: String::new(),
         keywords_text: String::new(),
@@ -138,8 +144,10 @@ mod tests {
     use super::*;
 
     fn temp_dir(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir()
-            .join(format!("zerkalo-user-templates-{tag}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "zerkalo-user-templates-{tag}-{}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -212,7 +220,11 @@ mod tests {
         save_in(&dir, "report", &second).unwrap();
 
         let loaded = list_in(&dir);
-        assert_eq!(loaded.len(), 1, "a name differing only in case is the same template");
+        assert_eq!(
+            loaded.len(),
+            1,
+            "a name differing only in case is the same template"
+        );
         assert_eq!(loaded[0].settings.paper, "us-letter");
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -257,7 +269,11 @@ mod tests {
         let dir = temp_dir("traversal");
         save_in(&dir, "../../evil", &settings()).unwrap();
 
-        let written: Vec<PathBuf> = std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.path()).collect();
+        let written: Vec<PathBuf> = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.path())
+            .collect();
         assert_eq!(written.len(), 1);
         assert_eq!(written[0].parent().unwrap(), dir);
         std::fs::remove_dir_all(&dir).ok();

@@ -5,28 +5,30 @@ use std::rc::Rc;
 use std::sync::mpsc;
 use std::time::Duration;
 
-use gtk4::prelude::*;
-use gtk4::{Align, Box as GtkBox, Button, CheckButton, Label, Orientation, ScrolledWindow,
-           Separator, TextView, WrapMode};
-use libadwaita as adw;
 use adw::prelude::*;
+use gtk4::prelude::*;
+use gtk4::{
+    Align, Box as GtkBox, Button, CheckButton, Label, Orientation, ScrolledWindow, Separator,
+    TextView, WrapMode,
+};
+use libadwaita as adw;
 
 // ── Export formats ────────────────────────────────────────────────────────────
 
 const FORMATS: &[(&str, &str)] = &[
-    ("PDF",   "pdf"),
-    ("HTML",  "html"),
-    ("DOCX",  "docx"),
-    ("ODT",   "odt"),
+    ("PDF", "pdf"),
+    ("HTML", "html"),
+    ("DOCX", "docx"),
+    ("ODT", "odt"),
     ("LaTeX", "tex"),
-    ("EPUB",  "epub"),
+    ("EPUB", "epub"),
 ];
 
 // ── Message type for the worker thread ───────────────────────────────────────
 
 enum ExportMsg {
     Log(String),
-    Done(String),  // format label
+    Done(String), // format label
     Err(String),
 }
 
@@ -79,20 +81,24 @@ impl ExportDialog {
             .is_ok();
 
         // One CheckButton per format; the "initial_format" is pre-checked
-        let check_boxes: Vec<CheckButton> = FORMATS.iter().enumerate().map(|(i, (label, _))| {
-            let cb = CheckButton::with_label(label);
-            let needs_pandoc = i != 0;
-            if needs_pandoc && !pandoc_available {
-                cb.set_active(false);
-                cb.set_sensitive(false);
-                cb.set_tooltip_text(Some(
-                    "Needs pandoc, which isn't installed — click Install Dependencies below",
-                ));
-            } else {
-                cb.set_active(i == initial_format as usize);
-            }
-            cb
-        }).collect();
+        let check_boxes: Vec<CheckButton> = FORMATS
+            .iter()
+            .enumerate()
+            .map(|(i, (label, _))| {
+                let cb = CheckButton::with_label(label);
+                let needs_pandoc = i != 0;
+                if needs_pandoc && !pandoc_available {
+                    cb.set_active(false);
+                    cb.set_sensitive(false);
+                    cb.set_tooltip_text(Some(
+                        "Needs pandoc, which isn't installed — click Install Dependencies below",
+                    ));
+                } else {
+                    cb.set_active(i == initial_format as usize);
+                }
+                cb
+            })
+            .collect();
 
         let fmt_box = GtkBox::new(Orientation::Horizontal, 8);
         fmt_box.set_halign(Align::Center);
@@ -157,7 +163,9 @@ impl ExportDialog {
 
         let install_btn = Button::with_label("Install Dependencies…");
         install_btn.add_css_class("flat");
-        install_btn.set_tooltip_text(Some("Open the System Check Wizard to install missing tools"));
+        install_btn.set_tooltip_text(Some(
+            "Open the System Check Wizard to install missing tools",
+        ));
 
         let export_btn = Button::with_label("Export");
         export_btn.add_css_class("suggested-action");
@@ -415,7 +423,11 @@ fn migrate_for_pandoc(source: &std::path::Path) -> Option<PathBuf> {
     };
 
     let new_prefix = if num_on {
-        let f = if num_fmt.is_empty() { "1.".to_string() } else { num_fmt };
+        let f = if num_fmt.is_empty() {
+            "1.".to_string()
+        } else {
+            num_fmt
+        };
         format!("#context counter(heading).display(\"{f}\")#h(0.3em)")
     } else {
         String::new()
@@ -524,9 +536,7 @@ mod tests {
         // A hand-edited or older document without the ZERKALO-TEMPLATE markers
         // must still get the pandoc-incompatible construct patched out,
         // instead of migrate_for_pandoc bailing via `?` and leaving it in place.
-        let content = format!(
-            "#set heading(numbering: \"I.A.1.\")\n{OLD_CONSTRUCT}\n"
-        );
+        let content = format!("#set heading(numbering: \"I.A.1.\")\n{OLD_CONSTRUCT}\n");
         let path = write_temp("no_markers", &content);
         let out = migrate_for_pandoc(&path).expect("should still migrate without markers");
         let migrated = std::fs::read_to_string(&out).unwrap();

@@ -24,7 +24,11 @@ type CompileDoneFn = dyn Fn(Option<String>, String);
 
 enum CompileResult {
     /// Pages, warnings (empty when clean), elapsed.
-    Success(Vec<crate::compiler::RenderedPage>, String, std::time::Duration),
+    Success(
+        Vec<crate::compiler::RenderedPage>,
+        String,
+        std::time::Duration,
+    ),
     Error(String, std::time::Duration),
 }
 
@@ -193,9 +197,9 @@ impl PreviewPane {
             // to be painted on every frame — five fills and a scaled blit each —
             // so scrolling a long document cost time proportional to its length
             // no matter how little of it was on screen.
-            let (_, clip_top, _, clip_bottom) = ctx.clip_extents().unwrap_or((
-                f64::MIN, f64::MIN, f64::MAX, f64::MAX,
-            ));
+            let (_, clip_top, _, clip_bottom) =
+                ctx.clip_extents()
+                    .unwrap_or((f64::MIN, f64::MIN, f64::MAX, f64::MAX));
 
             let mut y = 0.0f64;
             for pb in pbs.iter() {
@@ -272,8 +276,16 @@ impl PreviewPane {
                     let page_h = raw_h + 20.0;
                     if doc_y < cum_y + page_h {
                         clicked_page = i;
-                        clicked_rel_x = if raw_w > 0.0 { (x / raw_w).clamp(0.0, 1.0) } else { 0.5 };
-                        clicked_rel_y = if raw_h > 0.0 { ((doc_y - cum_y) / raw_h).clamp(0.0, 1.0) } else { 0.0 };
+                        clicked_rel_x = if raw_w > 0.0 {
+                            (x / raw_w).clamp(0.0, 1.0)
+                        } else {
+                            0.5
+                        };
+                        clicked_rel_y = if raw_h > 0.0 {
+                            ((doc_y - cum_y) / raw_h).clamp(0.0, 1.0)
+                        } else {
+                            0.0
+                        };
                         break;
                     }
                     cum_y += page_h;
@@ -333,20 +345,24 @@ impl PreviewPane {
         // Refit to width whenever the scroll viewport width changes (window resize).
         {
             let pane_r = pane.clone();
-            pane.img_scroll.hadjustment().connect_page_size_notify(move |_| {
-                if *pane_r.auto_fit.borrow() && !pane_r.page_pixbufs.borrow().is_empty() {
-                    pane_r.fit_width();
-                }
-            });
+            pane.img_scroll
+                .hadjustment()
+                .connect_page_size_notify(move |_| {
+                    if *pane_r.auto_fit.borrow() && !pane_r.page_pixbufs.borrow().is_empty() {
+                        pane_r.fit_width();
+                    }
+                });
         }
 
         // Wire scroll → page-changed once here; load_pixbufs_from_bytes must NOT
         // reconnect this signal or closures accumulate O(N) across compiles.
         {
             let pane_s = pane.clone();
-            pane.img_scroll.vadjustment().connect_value_changed(move |_| {
-                pane_s.fire_page_changed();
-            });
+            pane.img_scroll
+                .vadjustment()
+                .connect_value_changed(move |_| {
+                    pane_s.fire_page_changed();
+                });
         }
 
         // ── Keyboard navigation for the preview pane ─────────────────────────
@@ -395,7 +411,6 @@ impl PreviewPane {
             pane.img_scroll.add_controller(key_ctrl);
         }
 
-
         // Wire cancel button once
         let gen_c = pane.compile_gen.clone();
         let spinner_c = pane.spinner.clone();
@@ -433,9 +448,8 @@ impl PreviewPane {
         let osd_c = self.zoom_osd.clone();
         let timer_c = self.osd_timer.clone();
         let fade_timer_c = self.osd_fade_timer.clone();
-        let source = glib::timeout_add_local_once(
-            std::time::Duration::from_millis(1500),
-            move || {
+        let source =
+            glib::timeout_add_local_once(std::time::Duration::from_millis(1500), move || {
                 osd_c.add_css_class("osd-hidden");
                 let osd_fade = osd_c.clone();
                 let fade_timer_c2 = fade_timer_c.clone();
@@ -448,8 +462,7 @@ impl PreviewPane {
                 );
                 *fade_timer_c.borrow_mut() = Some(fade_source);
                 *timer_c.borrow_mut() = None;
-            },
-        );
+            });
         *self.osd_timer.borrow_mut() = Some(source);
     }
 
@@ -478,13 +491,25 @@ impl PreviewPane {
     ///
     /// Draft mode is deliberately excluded: the caller is producing final
     /// output, not a preview.
-    pub fn compile_inputs(&self) -> Option<(PathBuf, HashMap<PathBuf, String>, HashMap<String, String>, Option<PathBuf>)> {
+    pub fn compile_inputs(
+        &self,
+    ) -> Option<(
+        PathBuf,
+        HashMap<PathBuf, String>,
+        HashMap<String, String>,
+        Option<PathBuf>,
+    )> {
         let root = self.root_file_path()?;
         let mut sys_inputs = HashMap::new();
         if let Some((k, v)) = self.cv_data_sys_input() {
             sys_inputs.insert(k, v);
         }
-        Some((root, self.buffer_snapshot.borrow().clone(), sys_inputs, self.bib_path.borrow().clone()))
+        Some((
+            root,
+            self.buffer_snapshot.borrow().clone(),
+            sys_inputs,
+            self.bib_path.borrow().clone(),
+        ))
     }
 
     pub fn set_buffer_snapshot(&self, path: PathBuf, text: String) {
@@ -571,7 +596,10 @@ impl PreviewPane {
     pub fn fit_width(&self) {
         *self.auto_fit.borrow_mut() = true;
         let scroll_w = self.img_scroll.allocated_width() as f64;
-        let pb_w = self.page_pixbufs.borrow().first()
+        let pb_w = self
+            .page_pixbufs
+            .borrow()
+            .first()
             .map(|pb| pb.width() as f64)
             .unwrap_or(0.0);
         if pb_w > 0.0 && scroll_w > 16.0 {
@@ -579,7 +607,9 @@ impl PreviewPane {
             let z = ((scroll_w - 16.0) / pb_w).clamp(0.25, 4.0);
             *self.zoom.borrow_mut() = z;
             self.refit_drawing_area_centered(None);
-            if let Some(f) = self.on_zoom_changed.borrow().as_ref() { f(z); }
+            if let Some(f) = self.on_zoom_changed.borrow().as_ref() {
+                f(z);
+            }
         }
     }
 
@@ -671,7 +701,9 @@ impl PreviewPane {
         let pbs = self.page_pixbufs.borrow();
         let mut y = 0.0f64;
         for (i, pb) in pbs.iter().enumerate() {
-            if i == idx { break; }
+            if i == idx {
+                break;
+            }
             y += pb.height() as f64 * z + 20.0;
         }
         drop(pbs);
@@ -702,20 +734,19 @@ impl PreviewPane {
 
         let root_file_rc = self.root_file.clone();
         let last_mtime: Rc<RefCell<Option<std::time::SystemTime>>> =
-            Rc::new(RefCell::new(
-                root_file_rc.borrow().as_ref().and_then(|p| {
-                    std::fs::metadata(p).and_then(|m| m.modified()).ok()
-                }),
-            ));
+            Rc::new(RefCell::new(root_file_rc.borrow().as_ref().and_then(|p| {
+                std::fs::metadata(p).and_then(|m| m.modified()).ok()
+            })));
 
         let pane = self.clone();
         glib::timeout_add_local(Duration::from_millis(500), move || {
             if !*pane.watch_active.borrow() {
                 return glib::ControlFlow::Break;
             }
-            let current_mtime = root_file_rc.borrow().as_ref().and_then(|p| {
-                std::fs::metadata(p).and_then(|m| m.modified()).ok()
-            });
+            let current_mtime = root_file_rc
+                .borrow()
+                .as_ref()
+                .and_then(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok());
             let changed = match (*last_mtime.borrow(), current_mtime) {
                 (Some(old), Some(new)) => old != new,
                 (None, Some(_)) => true,
@@ -762,7 +793,9 @@ impl PreviewPane {
         let gen_rc = self.compile_gen.clone();
         self.compile_in_flight.set(true);
 
-        if let Some(f) = self.on_compile_start.borrow().as_ref() { f(); }
+        if let Some(f) = self.on_compile_start.borrow().as_ref() {
+            f();
+        }
         self.spinner.set_spinning(true);
         self.cancel_btn.set_visible(false);
         self.stack.set_visible_child_name("compiling");
@@ -809,7 +842,13 @@ impl PreviewPane {
         }
         std::thread::spawn(move || {
             let t0 = std::time::Instant::now();
-            let result = crate::compiler::compile_to_rgba_pages(&root, pixel_per_pt, &snapshots, &sys_inputs, bib_path.as_deref());
+            let result = crate::compiler::compile_to_rgba_pages(
+                &root,
+                pixel_per_pt,
+                &snapshots,
+                &sys_inputs,
+                bib_path.as_deref(),
+            );
             let elapsed = t0.elapsed();
             tx.send(match result {
                 Ok((pages, warnings)) => CompileResult::Success(pages, warnings, elapsed),
@@ -876,7 +915,6 @@ impl PreviewPane {
                 }
             }
         });
-
     }
 
     pub fn refresh_display(&self) {
@@ -914,20 +952,27 @@ impl PreviewPane {
             *self.first_load.borrow_mut() = false;
             if *self.auto_fit.borrow() {
                 let pane = self.clone();
-                glib::idle_add_local_once(move || { pane.fit_width(); });
+                glib::idle_add_local_once(move || {
+                    pane.fit_width();
+                });
             }
         } else if *self.auto_fit.borrow() {
             // Compute the correct zoom synchronously before the single redraw so
             // there is never an intermediate frame rendered at the old zoom level
             // (which caused the shadow at the bottom of the last page to flicker).
             let scroll_w = self.img_scroll.allocated_width() as f64;
-            let pb_w = self.page_pixbufs.borrow().first()
+            let pb_w = self
+                .page_pixbufs
+                .borrow()
+                .first()
                 .map(|pb| pb.width() as f64)
                 .unwrap_or(0.0);
             if pb_w > 0.0 && scroll_w > 16.0 {
                 let z = ((scroll_w - 16.0) / pb_w).clamp(0.25, 4.0);
                 *self.zoom.borrow_mut() = z;
-                if let Some(f) = self.on_zoom_changed.borrow().as_ref() { f(z); }
+                if let Some(f) = self.on_zoom_changed.borrow().as_ref() {
+                    f(z);
+                }
             }
             // Don't restore scroll position by fraction here — recompiles happen on
             // every keystroke, and the document's total height changes as the user
@@ -969,8 +1014,7 @@ impl PreviewPane {
                 let range = adj.upper() - adj.lower();
                 let page = adj.page_size();
                 if range > page {
-                    let target = (range * frac - page / 2.0)
-                        .clamp(adj.lower(), adj.upper() - page);
+                    let target = (range * frac - page / 2.0).clamp(adj.lower(), adj.upper() - page);
                     adj.set_value(target);
                 }
             });
@@ -1008,7 +1052,13 @@ fn ensure_pdf_path(inputs: &PdfTextInputs) -> Option<PathBuf> {
     let stem = inputs.root.file_stem()?.to_str()?.to_string();
     let pdf_path = inputs.output_dir.join(format!("{stem}.pdf"));
     if !pdf_path.exists() {
-        let bytes = crate::compiler::compile_to_pdf_bytes(&inputs.root, &inputs.snapshots, &inputs.sys_inputs, inputs.bib_path.as_deref()).ok()?;
+        let bytes = crate::compiler::compile_to_pdf_bytes(
+            &inputs.root,
+            &inputs.snapshots,
+            &inputs.sys_inputs,
+            inputs.bib_path.as_deref(),
+        )
+        .ok()?;
         std::fs::write(&pdf_path, bytes).ok()?;
     }
     Some(pdf_path)
@@ -1035,9 +1085,17 @@ pub fn extract_page_text_via_pdftotext_async(
             let pdf_path = ensure_pdf_path(&inputs)?;
             let page_str = (page + 1).to_string();
             let out = crate::git_sync::host_command("pdftotext")
-                .args(["-layout", "-f", &page_str, "-l", &page_str,
-                       pdf_path.to_str().unwrap_or(""), "-"])
-                .output().ok()?;
+                .args([
+                    "-layout",
+                    "-f",
+                    &page_str,
+                    "-l",
+                    &page_str,
+                    pdf_path.to_str().unwrap_or(""),
+                    "-",
+                ])
+                .output()
+                .ok()?;
             if out.status.success() {
                 Some(String::from_utf8_lossy(&out.stdout).to_string())
             } else {
@@ -1114,9 +1172,17 @@ pub fn extract_word_at_position_async(
             let pdf_path = ensure_pdf_path(&inputs)?;
             let page_str = (page + 1).to_string();
             let out = crate::git_sync::host_command("pdftotext")
-                .args(["-bbox", "-f", &page_str, "-l", &page_str,
-                       pdf_path.to_str().unwrap_or(""), "-"])
-                .output().ok()?;
+                .args([
+                    "-bbox",
+                    "-f",
+                    &page_str,
+                    "-l",
+                    &page_str,
+                    pdf_path.to_str().unwrap_or(""),
+                    "-",
+                ])
+                .output()
+                .ok()?;
             if !out.status.success() {
                 return None;
             }
@@ -1179,8 +1245,19 @@ fn word_at_position_from_bbox_xml(xml: &str, rel_x: f64, rel_y: f64) -> Option<S
 }
 
 fn bbox_distance(w: &PdfWord, px: f64, py: f64) -> f64 {
-    let dx = if px < w.x_min { w.x_min - px } else if px > w.x_max { px - w.x_max } else { 0.0 };
-    let dy = if py < w.y_min { w.y_min - py } else if py > w.y_max { py - w.y_max } else { 0.0 };
+    let dx = if px < w.x_min {
+        w.x_min - px
+    } else if px > w.x_max {
+        px - w.x_max
+    } else {
+        0.0
+    };
+    let dy = if py < w.y_min {
+        w.y_min - py
+    } else if py > w.y_max {
+        py - w.y_max
+    } else {
+        0.0
+    };
     dx * dx + dy * dy
 }
-

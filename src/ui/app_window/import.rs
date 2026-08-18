@@ -6,16 +6,14 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
 
-use gtk4::prelude::*;
-use gtk4::{
-    Align, Box as GtkBox, Button, Entry, Label, Orientation, ScrolledWindow,
-};
-use libadwaita as adw;
 use adw::prelude::*;
+use gtk4::prelude::*;
+use gtk4::{Align, Box as GtkBox, Button, Entry, Label, Orientation, ScrolledWindow};
+use libadwaita as adw;
 
-use crate::config::Config;
 use super::super::editor_pane::EditorPane;
 use super::show_alert;
+use crate::config::Config;
 
 // ── Document import via pandoc (LaTeX, Word, Markdown, OpenDocument Text) ──────
 
@@ -190,14 +188,26 @@ fn show_import_history_dialog_filtered(
     for (display_idx, record) in log.records.iter().rev().enumerate() {
         let record_idx = total - 1 - display_idx;
         let row = adw::ActionRow::new();
-        let name = record.source.file_name().and_then(|n| n.to_str()).unwrap_or("?");
+        let name = record
+            .source
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("?");
         row.set_title(name);
-        row.set_subtitle(&format!("{} · {} · {}", record.date, record.format, record.message));
-        row.set_widget_name(&format!(
-            "{}|{} {} {}",
-            if record.success { "ok" } else { "fail" },
-            name, record.format, record.message
-        ).to_lowercase());
+        row.set_subtitle(&format!(
+            "{} · {} · {}",
+            record.date, record.format, record.message
+        ));
+        row.set_widget_name(
+            &format!(
+                "{}|{} {} {}",
+                if record.success { "ok" } else { "fail" },
+                name,
+                record.format,
+                record.message
+            )
+            .to_lowercase(),
+        );
 
         let prefix = if record.success {
             let img = gtk4::Image::from_icon_name("emblem-ok-symbolic");
@@ -244,7 +254,15 @@ fn show_import_history_dialog_filtered(
                 if format_label == "PDF (.pdf)" {
                     run_pdf_import(&win_c, &ep_c, source.clone());
                 } else if let Some(fmt) = find_import_format_by_label(&format_label) {
-                    run_pandoc_import(&win_c, &ep_c, &cfg_c, &toast_c, &work_dir_c, source.clone(), fmt);
+                    run_pandoc_import(
+                        &win_c,
+                        &ep_c,
+                        &cfg_c,
+                        &toast_c,
+                        &work_dir_c,
+                        source.clone(),
+                        fmt,
+                    );
                 }
             });
             row.add_suffix(&retry_btn);
@@ -277,7 +295,9 @@ fn show_import_history_dialog_filtered(
         let failed_only_c = failed_only_btn.clone();
         list_box.set_filter_func(move |row| {
             let wn = row.widget_name().to_string();
-            let Some((status, text)) = wn.split_once('|') else { return true };
+            let Some((status, text)) = wn.split_once('|') else {
+                return true;
+            };
             if failed_only_c.is_active() && status != "fail" {
                 return false;
             }
@@ -324,7 +344,11 @@ fn unique_typ_path(path: std::path::PathBuf) -> std::path::PathBuf {
     if !path.exists() {
         return path;
     }
-    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("output").to_string();
+    let stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("output")
+        .to_string();
     let dir = path.parent().map(|p| p.to_path_buf()).unwrap_or_default();
     let mut n = 1;
     loop {
@@ -340,7 +364,8 @@ fn unique_typ_path(path: std::path::PathBuf) -> std::path::PathBuf {
 /// message; anything else falls back to the raw stderr (first 5 lines).
 fn describe_pandoc_failure(stderr: &str) -> String {
     let lower = stderr.to_lowercase();
-    if lower.contains("unknown writer") || lower.contains("unrecognized output format")
+    if lower.contains("unknown writer")
+        || lower.contains("unrecognized output format")
         || lower.contains("unknown output format")
     {
         return format!(
@@ -366,7 +391,10 @@ fn describe_pandoc_failure(stderr: &str) -> String {
                 home folder and import it from there."
             .to_string();
     }
-    if lower.contains("does not exist") || lower.contains("cannot decode") || lower.contains("parse error") {
+    if lower.contains("does not exist")
+        || lower.contains("cannot decode")
+        || lower.contains("parse error")
+    {
         return format!(
             "The file couldn't be read as the format it was imported as. If it \
              was picked with the wrong format, try again with the right one.\n\n\
@@ -374,7 +402,10 @@ fn describe_pandoc_failure(stderr: &str) -> String {
             stderr.lines().take(4).collect::<Vec<_>>().join("\n"),
         );
     }
-    format!("pandoc couldn't convert this file.\n\n{}", stderr.lines().take(5).collect::<Vec<_>>().join("\n"))
+    format!(
+        "pandoc couldn't convert this file.\n\n{}",
+        stderr.lines().take(5).collect::<Vec<_>>().join("\n")
+    )
 }
 
 /// Best-effort detection of Zotero/Mendeley/EndNote field codes inside a
@@ -386,7 +417,9 @@ fn describe_pandoc_failure(stderr: &str) -> String {
 /// rather than blocking the import on a missing optional tool.
 fn docx_has_citation_manager_fields(path: &std::path::Path) -> bool {
     let Ok(output) = crate::git_sync::host_command("unzip")
-        .arg("-p").arg(path).arg("word/document.xml")
+        .arg("-p")
+        .arg(path)
+        .arg("word/document.xml")
         .output()
     else {
         return false;
@@ -458,7 +491,9 @@ fn pandoc_install_hint() -> String {
 /// shell error instead of instructions, and too old a pandoc produced an
 /// "unknown writer" message from deep inside the conversion.
 fn pandoc_unavailable_reason() -> Option<String> {
-    let output = crate::git_sync::host_command("pandoc").arg("--version").output();
+    let output = crate::git_sync::host_command("pandoc")
+        .arg("--version")
+        .output();
     let Ok(output) = output else {
         return Some(pandoc_install_hint());
     };
@@ -515,7 +550,9 @@ fn import_staging_dir() -> std::io::Result<std::path::PathBuf> {
 /// directory for the length of one conversion, not across launches.
 pub fn prune_import_staging() {
     let base = shellexpand::tilde("~/.cache/zerkalo/import").into_owned();
-    let Ok(entries) = std::fs::read_dir(&base) else { return };
+    let Ok(entries) = std::fs::read_dir(&base) else {
+        return;
+    };
     let cutoff = std::time::SystemTime::now() - Duration::from_secs(60 * 60 * 6);
     for entry in entries.flatten() {
         let modified = entry.metadata().and_then(|m| m.modified()).ok();
@@ -562,7 +599,9 @@ fn build_pandoc_command(
 ) -> std::process::Command {
     let mut cmd = if crate::git_sync::in_flatpak() {
         let mut c = std::process::Command::new("flatpak-spawn");
-        c.arg("--host").arg(format!("--directory={}", input_dir.display())).arg("pandoc");
+        c.arg("--host")
+            .arg(format!("--directory={}", input_dir.display()))
+            .arg("pandoc");
         c
     } else {
         let mut c = std::process::Command::new("pandoc");
@@ -570,11 +609,14 @@ fn build_pandoc_command(
         c
     };
     cmd.arg(input_name)
-        .arg("-f").arg(pandoc_from)
-        .arg("-t").arg("typst")
+        .arg("-f")
+        .arg(pandoc_from)
+        .arg("-t")
+        .arg("typst")
         .arg("--standalone")
         .arg(format!("--extract-media={}", media_dir.display()))
-        .arg("-o").arg(out_path)
+        .arg("-o")
+        .arg(out_path)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
     cmd
@@ -601,8 +643,14 @@ fn copy_dir_recursive(from: &std::path::Path, to: &std::path::Path) -> std::io::
 /// "Include subfolders" in batch import. Skips hidden directories (`.git`
 /// and similar) and any `*_media` directory — pandoc's own `--extract-media`
 /// output, not a source document folder.
-fn scan_files_recursive(dir: &std::path::Path, extensions: &[&str], out: &mut Vec<std::path::PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+fn scan_files_recursive(
+    dir: &std::path::Path,
+    extensions: &[&str],
+    out: &mut Vec<std::path::PathBuf>,
+) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
         let name = entry.file_name();
@@ -612,7 +660,9 @@ fn scan_files_recursive(dir: &std::path::Path, extensions: &[&str], out: &mut Ve
                 continue;
             }
             scan_files_recursive(&path, extensions, out);
-        } else if path.extension().and_then(|e| e.to_str())
+        } else if path
+            .extension()
+            .and_then(|e| e.to_str())
             .map(|ext| extensions.iter().any(|want| want.eq_ignore_ascii_case(ext)))
             .unwrap_or(false)
         {
@@ -629,7 +679,10 @@ fn find_bib_like_file(dir: &std::path::Path) -> Option<std::path::PathBuf> {
     std::fs::read_dir(dir).ok()?.find_map(|e| {
         let path = e.ok()?.path();
         let ext = path.extension().and_then(|x| x.to_str())?;
-        if ext.eq_ignore_ascii_case("bib") || ext.eq_ignore_ascii_case("yaml") || ext.eq_ignore_ascii_case("yml") {
+        if ext.eq_ignore_ascii_case("bib")
+            || ext.eq_ignore_ascii_case("yaml")
+            || ext.eq_ignore_ascii_case("yml")
+        {
             Some(path)
         } else {
             None
@@ -648,11 +701,17 @@ fn offer_bib_autodetect(
     cfg: &Rc<RefCell<Config>>,
     input_dir: &std::path::Path,
 ) -> bool {
-    let Some(bib_path) = find_bib_like_file(input_dir) else { return false };
+    let Some(bib_path) = find_bib_like_file(input_dir) else {
+        return false;
+    };
     if cfg.borrow().bib_path.is_some() {
         return true;
     }
-    let name = bib_path.file_name().and_then(|n| n.to_str()).unwrap_or("bibliography file").to_string();
+    let name = bib_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("bibliography file")
+        .to_string();
     let toast = adw::Toast::new(&format!("Found {name} — use it as your bibliography?"));
     toast.set_button_label(Some("Set"));
     toast.set_timeout(6);
@@ -681,12 +740,22 @@ fn offer_bib_autodetect(
 /// email addresses and other incidental `@` uses.
 fn count_citations(text: &str) -> usize {
     let bytes = text.as_bytes();
-    bytes.iter().enumerate().filter(|(i, &b)| {
-        if b != b'@' { return false; }
-        let prev_is_wordchar = *i > 0 && (bytes[*i - 1] as char).is_alphanumeric();
-        let next_is_ident_start = text[*i + 1..].chars().next().map(|c| c.is_alphabetic()).unwrap_or(false);
-        !prev_is_wordchar && next_is_ident_start
-    }).count()
+    bytes
+        .iter()
+        .enumerate()
+        .filter(|(i, &b)| {
+            if b != b'@' {
+                return false;
+            }
+            let prev_is_wordchar = *i > 0 && (bytes[*i - 1] as char).is_alphanumeric();
+            let next_is_ident_start = text[*i + 1..]
+                .chars()
+                .next()
+                .map(|c| c.is_alphabetic())
+                .unwrap_or(false);
+            !prev_is_wordchar && next_is_ident_start
+        })
+        .count()
 }
 
 /// If the converted document cites sources but no bibliography is configured
@@ -717,7 +786,10 @@ fn warn_if_citations_without_bib(
 
 fn summarize_import_content(text: &str) -> String {
     let words = crate::writing_log::count_words(text);
-    let headings = text.lines().filter(|l| l.trim_start().starts_with('=')).count();
+    let headings = text
+        .lines()
+        .filter(|l| l.trim_start().starts_with('='))
+        .count();
     let images = text.matches("image(").count();
     let citations = count_citations(text);
 
@@ -725,10 +797,30 @@ fn summarize_import_content(text: &str) -> String {
     let equations = text.matches('$').count() / 2;
 
     let mut parts = vec![format!("{words} word{}", if words == 1 { "" } else { "s" })];
-    if headings > 0 { parts.push(format!("{headings} heading{}", if headings == 1 { "" } else { "s" })); }
-    if images > 0 { parts.push(format!("{images} image{}", if images == 1 { "" } else { "s" })); }
-    if citations > 0 { parts.push(format!("{citations} citation{}", if citations == 1 { "" } else { "s" })); }
-    if equations > 0 { parts.push(format!("~{equations} equation{} — review math syntax", if equations == 1 { "" } else { "s" })); }
+    if headings > 0 {
+        parts.push(format!(
+            "{headings} heading{}",
+            if headings == 1 { "" } else { "s" }
+        ));
+    }
+    if images > 0 {
+        parts.push(format!(
+            "{images} image{}",
+            if images == 1 { "" } else { "s" }
+        ));
+    }
+    if citations > 0 {
+        parts.push(format!(
+            "{citations} citation{}",
+            if citations == 1 { "" } else { "s" }
+        ));
+    }
+    if equations > 0 {
+        parts.push(format!(
+            "~{equations} equation{} — review math syntax",
+            if equations == 1 { "" } else { "s" }
+        ));
+    }
     parts.join(" · ")
 }
 
@@ -749,8 +841,15 @@ fn show_import_preview_dialog(
     work_dir: std::path::PathBuf,
     pandoc_warnings: String,
 ) {
-    let input_dir = input_path.parent().map(|p| p.to_path_buf()).unwrap_or_default();
-    let stem = input_path.file_stem().and_then(|s| s.to_str()).unwrap_or("document").to_string();
+    let input_dir = input_path
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_default();
+    let stem = input_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("document")
+        .to_string();
     let out_name = format!("{stem}.typ");
 
     let dlg = adw::Window::new();
@@ -795,7 +894,10 @@ fn show_import_preview_dialog(
     summary_lbl.set_wrap(true);
     outer.append(&summary_lbl);
 
-    let warning_lines: Vec<&str> = pandoc_warnings.lines().filter(|l| !l.trim().is_empty()).collect();
+    let warning_lines: Vec<&str> = pandoc_warnings
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .collect();
     if !warning_lines.is_empty() {
         // Neutral wording: this dialog now serves both the in-process readers
         // and the pandoc hand-off, and "pandoc reported…" is wrong for the
@@ -804,7 +906,12 @@ fn show_import_preview_dialog(
             "{} note{} about this conversion:\n{}",
             warning_lines.len(),
             if warning_lines.len() == 1 { "" } else { "s" },
-            warning_lines.iter().take(5).copied().collect::<Vec<&str>>().join("\n"),
+            warning_lines
+                .iter()
+                .take(5)
+                .copied()
+                .collect::<Vec<&str>>()
+                .join("\n"),
         )));
         warn_lbl.add_css_class("warning");
         warn_lbl.add_css_class("caption");
@@ -817,12 +924,17 @@ fn show_import_preview_dialog(
         outer.append(&warn_lbl);
     }
 
-    let is_docx = input_path.extension().and_then(|e| e.to_str())
-        .map(|e| e.eq_ignore_ascii_case("docx")).unwrap_or(false);
+    let is_docx = input_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.eq_ignore_ascii_case("docx"))
+        .unwrap_or(false);
     // The in-process .docx reader already reports this in its notes above, so
     // only fall back to the external check when it hasn't.
     let already_flagged = pandoc_warnings.contains("reference manager");
-    if is_docx && !already_flagged && count_citations(&processed) == 0
+    if is_docx
+        && !already_flagged
+        && count_citations(&processed) == 0
         && docx_has_citation_manager_fields(&input_path)
     {
         let zotero_lbl = gtk4::Label::new(Some(
@@ -878,7 +990,13 @@ fn show_import_preview_dialog(
             if !accepted_c.get() {
                 let _ = std::fs::remove_dir_all(&staging_c);
                 let mut log = crate::import_log::ImportLog::load();
-                log.record(input_path_c.clone(), fmt_label, None, false, "Discarded by user");
+                log.record(
+                    input_path_c.clone(),
+                    fmt_label,
+                    None,
+                    false,
+                    "Discarded by user",
+                );
             }
             glib::Propagation::Proceed
         });
@@ -900,7 +1018,11 @@ fn show_import_preview_dialog(
         let processed_c = processed.clone();
         let tracked_changes_c = tracked_changes.clone();
         import_btn.connect_clicked(move |_| {
-            let final_dir = if dest_row_c.selected() == 0 { work_dir.clone() } else { input_dir_c.clone() };
+            let final_dir = if dest_row_c.selected() == 0 {
+                work_dir.clone()
+            } else {
+                input_dir_c.clone()
+            };
             let final_path = unique_typ_path(final_dir.join(&out_name_c));
 
             // First write anything into the destination the user chose. A
@@ -908,10 +1030,14 @@ fn show_import_preview_dialog(
             // folder that turns out not to be writable used to look exactly
             // like a successful import of an empty document.
             if let Err(e) = std::fs::write(&final_path, &processed_c) {
-                show_alert(&win_c, "Import Failed", &format!(
-                    "Couldn't save the converted document to {}:\n{e}",
-                    final_dir.display(),
-                ));
+                show_alert(
+                    &win_c,
+                    "Import Failed",
+                    &format!(
+                        "Couldn't save the converted document to {}:\n{e}",
+                        final_dir.display(),
+                    ),
+                );
                 return;
             }
 
@@ -928,7 +1054,11 @@ fn show_import_preview_dialog(
             let _ = std::fs::remove_dir_all(&staging_c);
 
             if !tracked_changes_c.is_empty() {
-                record_tracked_changes_as_suggestions(&final_path, &processed_c, &tracked_changes_c);
+                record_tracked_changes_as_suggestions(
+                    &final_path,
+                    &processed_c,
+                    &tracked_changes_c,
+                );
             }
 
             editor_c.open_file(final_path.clone(), &processed_c);
@@ -936,9 +1066,19 @@ fn show_import_preview_dialog(
             warn_if_citations_without_bib(&toast_overlay_c, &cfg_c, &processed_c, found_bib);
 
             let mut log = crate::import_log::ImportLog::load();
-            log.record(input_path_c.clone(), fmt_label, Some(final_path.clone()), true, "Imported successfully");
+            log.record(
+                input_path_c.clone(),
+                fmt_label,
+                Some(final_path.clone()),
+                true,
+                "Imported successfully",
+            );
 
-            let name = final_path.file_name().and_then(|n| n.to_str()).unwrap_or("document").to_string();
+            let name = final_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("document")
+                .to_string();
             let imported_toast = adw::Toast::new(&format!("Imported {name}"));
             imported_toast.set_button_label(Some("Undo"));
             imported_toast.set_timeout(6);
@@ -948,7 +1088,13 @@ fn show_import_preview_dialog(
                 ep_undo.close_file_if_open(&final_path_undo);
                 let _ = std::fs::remove_file(&final_path_undo);
                 let mut log = crate::import_log::ImportLog::load();
-                log.record(final_path_undo.clone(), fmt_label, None, false, "Undone by user");
+                log.record(
+                    final_path_undo.clone(),
+                    fmt_label,
+                    None,
+                    false,
+                    "Undone by user",
+                );
             });
             toast_overlay_c.add_toast(imported_toast);
 
@@ -981,11 +1127,23 @@ fn record_tracked_changes_as_suggestions(
     let mut search_from = 0usize;
     for tc in tracked_changes {
         let escaped = crate::doc_import::escape_text(&tc.text);
-        let Some(rel_pos) = body[search_from..].find(&escaped) else { continue };
+        let Some(rel_pos) = body[search_from..].find(&escaped) else {
+            continue;
+        };
         let pos = search_from + rel_pos;
         let line = body[..pos].matches('\n').count() as u32 + 1;
-        let anchor_snippet = body.lines().nth((line - 1) as usize).unwrap_or("").to_string();
-        thread.add_suggestion(line, anchor_snippet, tc.kind.clone(), tc.text.clone(), String::new());
+        let anchor_snippet = body
+            .lines()
+            .nth((line - 1) as usize)
+            .unwrap_or("")
+            .to_string();
+        thread.add_suggestion(
+            line,
+            anchor_snippet,
+            tc.kind.clone(),
+            tc.text.clone(),
+            String::new(),
+        );
         search_from = pos + escaped.len();
     }
     thread.save(typ_path);
@@ -1008,7 +1166,9 @@ pub(super) fn import_via_pandoc(
     dialog.set_title(&format!("Import {}", fmt.label));
     let filter = gtk4::FileFilter::new();
     filter.set_name(Some(fmt.filter_name));
-    for p in fmt.patterns { filter.add_pattern(p); }
+    for p in fmt.patterns {
+        filter.add_pattern(p);
+    }
     let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
     filters.append(&filter);
     dialog.set_filters(Some(&filters));
@@ -1024,24 +1184,47 @@ pub(super) fn import_via_pandoc(
     // several files route through the same sequential batch queue folder
     // import uses (same-folder-as-source destination, no per-file preview —
     // reviewing N files individually would defeat the point of multi-select).
-    dialog.open_multiple(Some(&win_ref), None::<&gtk4::gio::Cancellable>, move |result| {
-        let Ok(list) = result else { return };
-        let paths: Vec<std::path::PathBuf> = (0..list.n_items())
-            .filter_map(|i| list.item(i))
-            .filter_map(|obj| obj.downcast::<gtk4::gio::File>().ok())
-            .filter_map(|f| f.path())
-            .collect();
-        match paths.len() {
-            0 => {}
-            1 => {
-                run_pandoc_import(&win, &ep, &cfg, &toast_overlay, &work_dir, paths.into_iter().next().unwrap(), fmt);
+    dialog.open_multiple(
+        Some(&win_ref),
+        None::<&gtk4::gio::Cancellable>,
+        move |result| {
+            let Ok(list) = result else { return };
+            let paths: Vec<std::path::PathBuf> = (0..list.n_items())
+                .filter_map(|i| list.item(i))
+                .filter_map(|obj| obj.downcast::<gtk4::gio::File>().ok())
+                .filter_map(|f| f.path())
+                .collect();
+            match paths.len() {
+                0 => {}
+                1 => {
+                    run_pandoc_import(
+                        &win,
+                        &ep,
+                        &cfg,
+                        &toast_overlay,
+                        &work_dir,
+                        paths.into_iter().next().unwrap(),
+                        fmt,
+                    );
+                }
+                n => {
+                    let queue: std::collections::VecDeque<std::path::PathBuf> =
+                        paths.into_iter().collect();
+                    run_batch_import_queue(
+                        win.clone(),
+                        ep.clone(),
+                        cfg.clone(),
+                        toast_overlay.clone(),
+                        work_dir.clone(),
+                        false,
+                        queue,
+                        fmt,
+                        n,
+                    );
+                }
             }
-            n => {
-                let queue: std::collections::VecDeque<std::path::PathBuf> = paths.into_iter().collect();
-                run_batch_import_queue(win.clone(), ep.clone(), cfg.clone(), toast_overlay.clone(), work_dir.clone(), false, queue, fmt, n);
-            }
-        }
-    });
+        },
+    );
 }
 
 /// Entry point for single-file pandoc import (from the picker, drag-drop,
@@ -1058,10 +1241,23 @@ pub(super) fn run_pandoc_import(
     fmt: &'static ImportFormat,
 ) {
     let log = crate::import_log::ImportLog::load();
-    let prior = log.records.iter().rev().find(|r| r.success && r.source == input_path).cloned();
+    let prior = log
+        .records
+        .iter()
+        .rev()
+        .find(|r| r.success && r.source == input_path)
+        .cloned();
 
     let Some(prior) = prior else {
-        run_pandoc_import_confirmed(window, editor, cfg, toast_overlay, work_dir, input_path, fmt);
+        run_pandoc_import_confirmed(
+            window,
+            editor,
+            cfg,
+            toast_overlay,
+            work_dir,
+            input_path,
+            fmt,
+        );
         return;
     };
 
@@ -1086,7 +1282,15 @@ pub(super) fn run_pandoc_import(
     let work_dir = work_dir.to_path_buf();
     dlg.connect_response(None, move |_, resp| {
         if resp == "ok" {
-            run_pandoc_import_confirmed(&win, &ep, &cfg, &toast_overlay, &work_dir, input_path.clone(), fmt);
+            run_pandoc_import_confirmed(
+                &win,
+                &ep,
+                &cfg,
+                &toast_overlay,
+                &work_dir,
+                input_path.clone(),
+                fmt,
+            );
         }
     });
     dlg.present();
@@ -1108,7 +1312,11 @@ fn run_native_import(
     input_path: std::path::PathBuf,
     fmt: &'static ImportFormat,
 ) {
-    let stem = input_path.file_stem().and_then(|s| s.to_str()).unwrap_or("output").to_string();
+    let stem = input_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("output")
+        .to_string();
     let media_name = format!("{stem}_media");
 
     let imported = match crate::doc_import::import(&input_path) {
@@ -1125,9 +1333,11 @@ fn run_native_import(
     let staging = match import_staging_dir() {
         Ok(dir) => dir,
         Err(e) => {
-            show_alert(window, "Import Failed", &format!(
-                "Couldn't create a working folder for the conversion:\n{e}"
-            ));
+            show_alert(
+                window,
+                "Import Failed",
+                &format!("Couldn't create a working folder for the conversion:\n{e}"),
+            );
             return;
         }
     };
@@ -1153,9 +1363,17 @@ fn run_native_import(
     let tracked_changes = imported.tracked_changes;
 
     show_import_preview_dialog(
-        window, editor, cfg, toast_overlay,
-        input_path, fmt.label, processed, tracked_changes,
-        staging, media_name, work_dir.to_path_buf(),
+        window,
+        editor,
+        cfg,
+        toast_overlay,
+        input_path,
+        fmt.label,
+        processed,
+        tracked_changes,
+        staging,
+        media_name,
+        work_dir.to_path_buf(),
         notes,
     );
 }
@@ -1175,11 +1393,23 @@ fn run_pandoc_import_confirmed(
     // .docx, .odt and .md are read in-process — no pandoc, so these work with
     // nothing installed outside Zerkalo. Everything else still hands off.
     if crate::doc_import::handles(&input_path) {
-        run_native_import(window, editor, cfg, toast_overlay, work_dir, input_path, fmt);
+        run_native_import(
+            window,
+            editor,
+            cfg,
+            toast_overlay,
+            work_dir,
+            input_path,
+            fmt,
+        );
         return;
     }
 
-    let stem = input_path.file_stem().and_then(|s| s.to_str()).unwrap_or("output").to_string();
+    let stem = input_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("output")
+        .to_string();
     // Conversion happens in a staging directory, so a source folder that is
     // read-only, on a shared drive, or simply not somewhere the user wants
     // Zerkalo writing is never touched — and an import that is cancelled,
@@ -1188,9 +1418,11 @@ fn run_pandoc_import_confirmed(
     let staging = match import_staging_dir() {
         Ok(dir) => dir,
         Err(e) => {
-            show_alert(window, "Import Failed", &format!(
-                "Couldn't create a working folder for the conversion:\n{e}"
-            ));
+            show_alert(
+                window,
+                "Import Failed",
+                &format!("Couldn't create a working folder for the conversion:\n{e}"),
+            );
             return;
         }
     };
@@ -1198,8 +1430,15 @@ fn run_pandoc_import_confirmed(
     let media_name = format!("{stem}_media");
     let staged_out = staging.join(&out_name);
     let staged_media = staging.join(&media_name);
-    let input_dir = input_path.parent().map(|p| p.to_path_buf()).unwrap_or_default();
-    let input_name = input_path.file_name().and_then(|s| s.to_str()).unwrap_or("input").to_string();
+    let input_dir = input_path
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_default();
+    let input_name = input_path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("input")
+        .to_string();
 
     if let Some(problem) = pandoc_unavailable_reason() {
         show_alert(window, "Import Failed", &problem);
@@ -1209,14 +1448,24 @@ fn run_pandoc_import_confirmed(
         return;
     }
 
-    let mut cmd = build_pandoc_command(&input_dir, &input_name, fmt.pandoc_from, &staged_out, &staged_media);
+    let mut cmd = build_pandoc_command(
+        &input_dir,
+        &input_name,
+        fmt.pandoc_from,
+        &staged_out,
+        &staged_media,
+    );
     let child = match cmd.spawn() {
         Ok(c) => c,
         Err(e) => {
-            show_alert(window, "Import Failed", &format!(
-                "Couldn't start the conversion: {e}\n\n{}",
-                pandoc_install_hint(),
-            ));
+            show_alert(
+                window,
+                "Import Failed",
+                &format!(
+                    "Couldn't start the conversion: {e}\n\n{}",
+                    pandoc_install_hint(),
+                ),
+            );
             let mut log = crate::import_log::ImportLog::load();
             log.record(input_path, fmt.label, None, false, "pandoc not found");
             let _ = std::fs::remove_dir_all(&staging);
@@ -1257,7 +1506,13 @@ fn run_pandoc_import_confirmed(
             // import used to leave a half-converted .typ beside the source.
             let _ = std::fs::remove_dir_all(&staging_for_cancel);
             let mut log = crate::import_log::ImportLog::load();
-            log.record(input_path_for_cancel.clone(), fmt.label, None, false, "Cancelled by user");
+            log.record(
+                input_path_for_cancel.clone(),
+                fmt.label,
+                None,
+                false,
+                "Cancelled by user",
+            );
         });
     }
     toast_overlay.add_toast(toast.clone());
@@ -1294,15 +1549,33 @@ fn run_pandoc_import_confirmed(
                         let relocated = rewrite_media_paths(&raw, &staged_media_poll, &media_name);
                         let processed = post_process_latex_import(&relocated, bib_path.as_deref());
                         show_import_preview_dialog(
-                            &win, &ep, &cfg, &toast_overlay,
-                            input_path.clone(), fmt.label, processed, Vec::new(),
-                            staging_poll.clone(), media_name.clone(), work_dir.clone(),
+                            &win,
+                            &ep,
+                            &cfg,
+                            &toast_overlay,
+                            input_path.clone(),
+                            fmt.label,
+                            processed,
+                            Vec::new(),
+                            staging_poll.clone(),
+                            media_name.clone(),
+                            work_dir.clone(),
                             stderr_text.clone(),
                         );
                     } else {
-                        show_alert(&win, "Import Failed", "pandoc reported success but the output file could not be read.");
+                        show_alert(
+                            &win,
+                            "Import Failed",
+                            "pandoc reported success but the output file could not be read.",
+                        );
                         let mut log = crate::import_log::ImportLog::load();
-                        log.record(input_path.clone(), fmt.label, None, false, "Output file unreadable");
+                        log.record(
+                            input_path.clone(),
+                            fmt.label,
+                            None,
+                            false,
+                            "Output file unreadable",
+                        );
                         let _ = std::fs::remove_dir_all(&staging_poll);
                     }
                 } else {
@@ -1324,7 +1597,11 @@ fn run_pandoc_import_confirmed(
             Err(_) => {
                 drop(guard);
                 toast.dismiss();
-                show_alert(&win, "Import Failed", "Failed to check the import process's status.");
+                show_alert(
+                    &win,
+                    "Import Failed",
+                    "Failed to check the import process's status.",
+                );
                 let _ = std::fs::remove_dir_all(&staging_poll);
                 glib::ControlFlow::Break
             }
@@ -1356,10 +1633,21 @@ pub(super) fn paste_as_document(
     let toast_overlay = toast_overlay.clone();
     clipboard.read_text_async(None::<&gtk4::gio::Cancellable>, move |result| {
         let Ok(Some(text)) = result else {
-            show_alert(&win, "Nothing to Paste", "The clipboard doesn't contain any text.");
+            show_alert(
+                &win,
+                "Nothing to Paste",
+                "The clipboard doesn't contain any text.",
+            );
             return;
         };
-        prompt_paste_filename(&win, &editor, &work_dir, &cfg, &toast_overlay, text.to_string());
+        prompt_paste_filename(
+            &win,
+            &editor,
+            &work_dir,
+            &cfg,
+            &toast_overlay,
+            text.to_string(),
+        );
     });
 }
 
@@ -1416,11 +1704,26 @@ fn prompt_paste_filename(
     let toast_overlay = toast_overlay.clone();
     let entry_c = entry.clone();
     dlg.connect_response(None, move |_, resp| {
-        if resp != "ok" { return; }
+        if resp != "ok" {
+            return;
+        }
         let insert_at_cursor = has_open_doc && dest_row.selected() == 0;
         let name = entry_c.text().to_string();
-        let stem = if name.trim().is_empty() { "Untitled".to_string() } else { name.trim().to_string() };
-        run_paste_import(&win, &editor, &cfg, &toast_overlay, &work_dir_c, text.clone(), &stem, insert_at_cursor);
+        let stem = if name.trim().is_empty() {
+            "Untitled".to_string()
+        } else {
+            name.trim().to_string()
+        };
+        run_paste_import(
+            &win,
+            &editor,
+            &cfg,
+            &toast_overlay,
+            &work_dir_c,
+            text.clone(),
+            &stem,
+            insert_at_cursor,
+        );
     });
     dlg.present();
 }
@@ -1457,7 +1760,13 @@ fn run_paste_import(
         // Body only — no Zerkalo preamble, since this is going into a document
         // that (if templated) already has one.
         editor.insert_at_cursor(&body);
-        log.record(source_label, "Paste as Document", None, true, "Inserted at cursor");
+        log.record(
+            source_label,
+            "Paste as Document",
+            None,
+            true,
+            "Inserted at cursor",
+        );
         return;
     }
 
@@ -1471,7 +1780,13 @@ fn run_paste_import(
         return;
     }
     editor.open_file(out_path.clone(), &processed);
-    log.record(source_label, "Paste as Document", Some(out_path), true, "Imported successfully");
+    log.record(
+        source_label,
+        "Paste as Document",
+        Some(out_path),
+        true,
+        "Imported successfully",
+    );
 }
 
 pub(super) fn import_folder_via_pandoc(
@@ -1514,7 +1829,10 @@ pub(super) fn import_folder_via_pandoc(
 
     let dest_row = adw::ComboRow::new();
     dest_row.set_title("Save to");
-    dest_row.set_model(Some(&gtk4::StringList::new(&["This project", "Same folder as each source file"])));
+    dest_row.set_model(Some(&gtk4::StringList::new(&[
+        "This project",
+        "Same folder as each source file",
+    ])));
     group.add(&dest_row);
 
     let recursive_row = adw::SwitchRow::new();
@@ -1531,14 +1849,18 @@ pub(super) fn import_folder_via_pandoc(
             let fd = gtk4::FileDialog::new();
             let folder_row2 = folder_row_c.clone();
             let selected_folder2 = selected_folder_c.clone();
-            fd.select_folder(Some(&win_c), None::<&gtk4::gio::Cancellable>, move |result| {
-                if let Ok(file) = result {
-                    if let Some(path) = file.path() {
-                        folder_row2.set_subtitle(&path.display().to_string());
-                        *selected_folder2.borrow_mut() = Some(path);
+            fd.select_folder(
+                Some(&win_c),
+                None::<&gtk4::gio::Cancellable>,
+                move |result| {
+                    if let Ok(file) = result {
+                        if let Some(path) = file.path() {
+                            folder_row2.set_subtitle(&path.display().to_string());
+                            *selected_folder2.borrow_mut() = Some(path);
+                        }
                     }
-                }
-            });
+                },
+            );
         });
     }
 
@@ -1568,9 +1890,13 @@ pub(super) fn import_folder_via_pandoc(
         let recursive_row_c = recursive_row.clone();
         let selected_folder_c = selected_folder.clone();
         import_btn.connect_clicked(move |_| {
-            let Some(folder) = selected_folder_c.borrow().clone() else { return };
+            let Some(folder) = selected_folder_c.borrow().clone() else {
+                return;
+            };
             let idx = format_row_c.selected() as usize;
-            let Some(fmt) = IMPORT_FORMATS.get(idx) else { return };
+            let Some(fmt) = IMPORT_FORMATS.get(idx) else {
+                return;
+            };
             let dest_this_project = dest_row_c.selected() == 0;
             dlg_c.close();
 
@@ -1578,29 +1904,48 @@ pub(super) fn import_folder_via_pandoc(
             if recursive_row_c.is_active() {
                 scan_files_recursive(&folder, fmt.extensions, &mut files);
             } else {
-                files.extend(std::fs::read_dir(&folder)
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|e| e.ok())
-                    .map(|e| e.path())
-                    .filter(|p| {
-                        p.is_file() && p.extension().and_then(|e| e.to_str())
-                            .map(|ext| fmt.extensions.iter().any(|want| want.eq_ignore_ascii_case(ext)))
-                            .unwrap_or(false)
-                    }));
+                files.extend(
+                    std::fs::read_dir(&folder)
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|e| e.ok())
+                        .map(|e| e.path())
+                        .filter(|p| {
+                            p.is_file()
+                                && p.extension()
+                                    .and_then(|e| e.to_str())
+                                    .map(|ext| {
+                                        fmt.extensions
+                                            .iter()
+                                            .any(|want| want.eq_ignore_ascii_case(ext))
+                                    })
+                                    .unwrap_or(false)
+                        }),
+                );
             }
             files.sort();
 
             if files.is_empty() {
-                show_alert(&win_c, "Nothing to Import", &format!("No {} files were found in that folder.", fmt.label));
+                show_alert(
+                    &win_c,
+                    "Nothing to Import",
+                    &format!("No {} files were found in that folder.", fmt.label),
+                );
                 return;
             }
 
             let total = files.len();
             let queue: std::collections::VecDeque<std::path::PathBuf> = files.into_iter().collect();
             run_batch_import_queue(
-                win_c.clone(), ep_c.clone(), cfg_c.clone(), toast_overlay_c.clone(),
-                work_dir_c.clone(), dest_this_project, queue, fmt, total,
+                win_c.clone(),
+                ep_c.clone(),
+                cfg_c.clone(),
+                toast_overlay_c.clone(),
+                work_dir_c.clone(),
+                dest_this_project,
+                queue,
+                fmt,
+                total,
             );
         });
     }
@@ -1643,9 +1988,20 @@ fn run_batch_import_queue(
     let n_workers = concurrency.min(total.max(1));
     for _ in 0..n_workers {
         run_next_batch_worker(
-            window.clone(), editor.clone(), cfg.clone(), toast_overlay.clone(),
-            work_dir.clone(), dest_this_project, queue.clone(), fmt,
-            done.clone(), failed.clone(), active.clone(), total, progress.clone(), written.clone(),
+            window.clone(),
+            editor.clone(),
+            cfg.clone(),
+            toast_overlay.clone(),
+            work_dir.clone(),
+            dest_this_project,
+            queue.clone(),
+            fmt,
+            done.clone(),
+            failed.clone(),
+            active.clone(),
+            total,
+            progress.clone(),
+            written.clone(),
         );
     }
 }
@@ -1675,7 +2031,12 @@ fn run_next_batch_worker(
             let has_failures = failed.get() > 0;
             let has_successes = done.get() > 0;
             let summary = if has_failures {
-                format!("Imported {} of {} files ({} failed)", done.get(), total, failed.get())
+                format!(
+                    "Imported {} of {} files ({} failed)",
+                    done.get(),
+                    total,
+                    failed.get()
+                )
             } else {
                 format!("Imported {} of {} files", done.get(), total)
             };
@@ -1693,7 +2054,13 @@ fn run_next_batch_worker(
                     for path in written_c.borrow().iter() {
                         editor_c.close_file_if_open(path);
                         let _ = std::fs::remove_file(path);
-                        log.record(path.clone(), fmt_label, None, false, "Undone by user (batch)");
+                        log.record(
+                            path.clone(),
+                            fmt_label,
+                            None,
+                            false,
+                            "Undone by user (batch)",
+                        );
                     }
                 });
             } else if has_failures {
@@ -1704,7 +2071,14 @@ fn run_next_batch_worker(
                 let cfg_c = cfg.clone();
                 let toast_overlay_c = toast_overlay.clone();
                 toast.connect_button_clicked(move |_| {
-                    show_import_history_dialog_filtered(&win_c, &ep_c, &work_dir_c, &cfg_c, &toast_overlay_c, true);
+                    show_import_history_dialog_filtered(
+                        &win_c,
+                        &ep_c,
+                        &work_dir_c,
+                        &cfg_c,
+                        &toast_overlay_c,
+                        true,
+                    );
                 });
             }
             toast_overlay.add_toast(toast);
@@ -1713,7 +2087,11 @@ fn run_next_batch_worker(
     };
     active.set(active.get() + 1);
 
-    let stem = input_path.file_stem().and_then(|s| s.to_str()).unwrap_or("output").to_string();
+    let stem = input_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("output")
+        .to_string();
     let out_name = format!("{stem}.typ");
     let media_name = format!("{stem}_media");
     // Same staging rule as single-file import: nothing is written next to the
@@ -1723,19 +2101,53 @@ fn run_next_batch_worker(
         Ok(dir) => dir,
         Err(_) => {
             let mut log = crate::import_log::ImportLog::load();
-            log.record(input_path, fmt.label, None, false, "Couldn't create a working folder");
+            log.record(
+                input_path,
+                fmt.label,
+                None,
+                false,
+                "Couldn't create a working folder",
+            );
             failed.set(failed.get() + 1);
             active.set(active.get() - 1);
-            run_next_batch_worker(window, editor, cfg, toast_overlay, work_dir, dest_this_project, queue, fmt, done, failed, active, total, progress, written);
+            run_next_batch_worker(
+                window,
+                editor,
+                cfg,
+                toast_overlay,
+                work_dir,
+                dest_this_project,
+                queue,
+                fmt,
+                done,
+                failed,
+                active,
+                total,
+                progress,
+                written,
+            );
             return;
         }
     };
     let staged_out = staging.join(&out_name);
     let staged_media = staging.join(&media_name);
-    let input_dir = input_path.parent().map(|p| p.to_path_buf()).unwrap_or_default();
-    let input_name = input_path.file_name().and_then(|s| s.to_str()).unwrap_or("input").to_string();
+    let input_dir = input_path
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_default();
+    let input_name = input_path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("input")
+        .to_string();
 
-    let mut cmd = build_pandoc_command(&input_dir, &input_name, fmt.pandoc_from, &staged_out, &staged_media);
+    let mut cmd = build_pandoc_command(
+        &input_dir,
+        &input_name,
+        fmt.pandoc_from,
+        &staged_out,
+        &staged_media,
+    );
     let child = match cmd.spawn() {
         Ok(c) => c,
         Err(_) => {
@@ -1745,7 +2157,22 @@ fn run_next_batch_worker(
             active.set(active.get() - 1);
             let _ = std::fs::remove_dir_all(&staging);
             show_alert(&window, "Import Failed", &pandoc_install_hint());
-            run_next_batch_worker(window, editor, cfg, toast_overlay, work_dir, dest_this_project, queue, fmt, done, failed, active, total, progress, written);
+            run_next_batch_worker(
+                window,
+                editor,
+                cfg,
+                toast_overlay,
+                work_dir,
+                dest_this_project,
+                queue,
+                fmt,
+                done,
+                failed,
+                active,
+                total,
+                progress,
+                written,
+            );
             return;
         }
     };
@@ -1755,7 +2182,9 @@ fn run_next_batch_worker(
 
     glib::timeout_add_local(Duration::from_millis(150), move || {
         let mut guard = child.borrow_mut();
-        let Some(c) = guard.as_mut() else { return glib::ControlFlow::Break };
+        let Some(c) = guard.as_mut() else {
+            return glib::ControlFlow::Break;
+        };
         match c.try_wait() {
             Ok(Some(status)) => {
                 drop(guard);
@@ -1767,7 +2196,11 @@ fn run_next_batch_worker(
                         let bib_path = cfg.borrow().bib_path.clone();
                         let relocated = rewrite_media_paths(&raw, &staged_media, &media_name);
                         let processed = post_process_latex_import(&relocated, bib_path.as_deref());
-                        let final_dir = if dest_this_project { work_dir.clone() } else { input_dir.clone() };
+                        let final_dir = if dest_this_project {
+                            work_dir.clone()
+                        } else {
+                            input_dir.clone()
+                        };
                         let final_path = unique_typ_path(final_dir.join(&out_name));
                         let written_ok = std::fs::write(&final_path, &processed).is_ok();
                         if staged_media.is_dir() {
@@ -1776,19 +2209,37 @@ fn run_next_batch_worker(
                         let _ = std::fs::remove_dir_all(&staging);
                         let mut log = crate::import_log::ImportLog::load();
                         if written_ok {
-                            log.record(input_path.clone(), fmt.label, Some(final_path.clone()), true, "Imported successfully (batch)");
+                            log.record(
+                                input_path.clone(),
+                                fmt.label,
+                                Some(final_path.clone()),
+                                true,
+                                "Imported successfully (batch)",
+                            );
                             written.borrow_mut().push(final_path);
                             done.set(done.get() + 1);
                         } else {
                             // A destination that can't be written to is a real
                             // failure, not a silent no-op that still counts as
                             // an import.
-                            log.record(input_path.clone(), fmt.label, None, false, "Couldn't write to the destination folder");
+                            log.record(
+                                input_path.clone(),
+                                fmt.label,
+                                None,
+                                false,
+                                "Couldn't write to the destination folder",
+                            );
                             failed.set(failed.get() + 1);
                         }
                     } else {
                         let mut log = crate::import_log::ImportLog::load();
-                        log.record(input_path.clone(), fmt.label, None, false, "Output file unreadable");
+                        log.record(
+                            input_path.clone(),
+                            fmt.label,
+                            None,
+                            false,
+                            "Output file unreadable",
+                        );
                         failed.set(failed.get() + 1);
                     }
                 } else {
@@ -1798,12 +2249,27 @@ fn run_next_batch_worker(
                     failed.set(failed.get() + 1);
                 }
 
-                progress.set_title(&format!("Importing… ({} of {} done)", done.get() + failed.get(), total));
+                progress.set_title(&format!(
+                    "Importing… ({} of {} done)",
+                    done.get() + failed.get(),
+                    total
+                ));
                 active.set(active.get() - 1);
                 run_next_batch_worker(
-                    window.clone(), editor.clone(), cfg.clone(), toast_overlay.clone(),
-                    work_dir.clone(), dest_this_project, queue.clone(), fmt,
-                    done.clone(), failed.clone(), active.clone(), total, progress.clone(), written.clone(),
+                    window.clone(),
+                    editor.clone(),
+                    cfg.clone(),
+                    toast_overlay.clone(),
+                    work_dir.clone(),
+                    dest_this_project,
+                    queue.clone(),
+                    fmt,
+                    done.clone(),
+                    failed.clone(),
+                    active.clone(),
+                    total,
+                    progress.clone(),
+                    written.clone(),
                 );
                 glib::ControlFlow::Break
             }
@@ -1838,7 +2304,12 @@ fn post_process_latex_import(content: &str, bib_path: Option<&std::path::Path>) 
     // This approach handles content scattered throughout the file, not just at the
     // top, which is what pandoc produces for complex LaTeX sources.
 
-    enum Scan { Body, SkipSet(i32), SkipShow(i32), CollectLet(i32) }
+    enum Scan {
+        Body,
+        SkipSet(i32),
+        SkipShow(i32),
+        CollectLet(i32),
+    }
 
     let lines: Vec<&str> = content.lines().collect();
     let mut macro_defs: Vec<String> = Vec::new();
@@ -1869,7 +2340,11 @@ fn post_process_latex_import(content: &str, bib_path: Option<&std::path::Path>) 
             // ── Continuation: discarding a multi-line #set block ────────────────
             Scan::SkipSet(d) => {
                 let d = d + paren_depth(t);
-                if d > 0 { Scan::SkipSet(d) } else { Scan::Body }
+                if d > 0 {
+                    Scan::SkipSet(d)
+                } else {
+                    Scan::Body
+                }
             }
 
             // ── Continuation: discarding a multi-line #show heading block ────────
@@ -1877,7 +2352,11 @@ fn post_process_latex_import(content: &str, bib_path: Option<&std::path::Path>) 
             // where the `(` opens before the `[` does.
             Scan::SkipShow(d) => {
                 let d = d + total_depth(t);
-                if d > 0 { Scan::SkipShow(d) } else { Scan::Body }
+                if d > 0 {
+                    Scan::SkipShow(d)
+                } else {
+                    Scan::Body
+                }
             }
 
             // ── Continuation: collecting a multi-line #let definition ────────────
@@ -1899,12 +2378,20 @@ fn post_process_latex_import(content: &str, bib_path: Option<&std::path::Path>) 
                     // Strip all #set rules pandoc generates (page, text, par, heading,
                     // list, table, math.equation, etc.); track depth for multi-line blocks.
                     let d = paren_depth(t);
-                    if d > 0 { Scan::SkipSet(d) } else { Scan::Body }
+                    if d > 0 {
+                        Scan::SkipSet(d)
+                    } else {
+                        Scan::Body
+                    }
                 } else if t.starts_with("#show") {
                     // Strip all #show rules (#show heading:, #show:, #show terms:, etc.).
                     // Uses total_depth because show rules mix (), [], {} delimiters.
                     let d = total_depth(t);
-                    if d > 0 { Scan::SkipShow(d) } else { Scan::Body }
+                    if d > 0 {
+                        Scan::SkipShow(d)
+                    } else {
+                        Scan::Body
+                    }
                 } else if t.starts_with("#import ") {
                     macro_defs.push(line.to_string());
                     Scan::Body
@@ -1930,7 +2417,10 @@ fn post_process_latex_import(content: &str, bib_path: Option<&std::path::Path>) 
     // ── Phase 2: process body — insert pagebreaks, fix bibliography ───────────
 
     // Trim leading blank lines from the body
-    let skip = body.iter().position(|l| !l.trim().is_empty()).unwrap_or(body.len());
+    let skip = body
+        .iter()
+        .position(|l| !l.trim().is_empty())
+        .unwrap_or(body.len());
     let body = body[skip..].to_vec();
 
     let first_heading = body.iter().position(|l| {
@@ -1938,7 +2428,9 @@ fn post_process_latex_import(content: &str, bib_path: Option<&std::path::Path>) 
         t.starts_with("= ") && !t.starts_with("==")
     });
 
-    let bib_idx = body.iter().position(|l| l.trim().starts_with("#bibliography"));
+    let bib_idx = body
+        .iter()
+        .position(|l| l.trim().starts_with("#bibliography"));
 
     let bib_style = bib_idx
         .and_then(|bi| {
@@ -1953,14 +2445,22 @@ fn post_process_latex_import(content: &str, bib_path: Option<&std::path::Path>) 
     let bib_call = match bib_path {
         Some(bp) => {
             let target = crate::bibliography::bib_target_path(bp);
-            format!("#bibliography(\"{}\", style: \"{}\")", target.display(), bib_style)
+            format!(
+                "#bibliography(\"{}\", style: \"{}\")",
+                target.display(),
+                bib_style
+            )
         }
         None if bib_idx.is_some() => body[bib_idx.unwrap()].trim().to_string(),
         None => format!("// #bibliography(\"refs.bib\", style: \"{}\")", bib_style),
     };
 
     let trim_trailing = |v: &mut Vec<String>| {
-        while v.last().map(|l: &String| l.trim().is_empty()).unwrap_or(false) {
+        while v
+            .last()
+            .map(|l: &String| l.trim().is_empty())
+            .unwrap_or(false)
+        {
             v.pop();
         }
     };
@@ -1994,8 +2494,7 @@ fn post_process_latex_import(content: &str, bib_path: Option<&std::path::Path>) 
     if bib_idx.is_none() {
         processed.push(String::new());
         processed.push(
-            "// ── Bibliography ────────────────────────────────────────────────────"
-                .to_string(),
+            "// ── Bibliography ────────────────────────────────────────────────────".to_string(),
         );
         processed.push(bib_call);
     }
@@ -2017,9 +2516,7 @@ fn post_process_latex_import(content: &str, bib_path: Option<&std::path::Path>) 
         out.push('\n');
     }
 
-    out.push_str(
-        "// ── Document body ───────────────────────────────────────────────────────\n\n",
-    );
+    out.push_str("// ── Document body ───────────────────────────────────────────────────────\n\n");
     out.push_str(&processed.join("\n"));
     if !out.ends_with('\n') {
         out.push('\n');
@@ -2058,7 +2555,10 @@ fn format_pdf_body(text: &str) -> String {
             prev_blank = true;
             continue;
         }
-        let next_blank = lines.get(i + 1).map(|l| l.trim().is_empty()).unwrap_or(true);
+        let next_blank = lines
+            .get(i + 1)
+            .map(|l| l.trim().is_empty())
+            .unwrap_or(true);
         if is_probable_pdf_heading(trimmed, prev_blank, next_blank) {
             out.push_str("== ");
         }
@@ -2071,8 +2571,16 @@ fn format_pdf_body(text: &str) -> String {
 
 /// Runs the pdftotext-based PDF import pipeline for `input_path`, shared by
 /// the ☰ → Import → PDF file picker and drag-and-drop.
-pub(super) fn run_pdf_import(window: &adw::ApplicationWindow, editor: &EditorPane, input_path: std::path::PathBuf) {
-    let stem = input_path.file_stem().and_then(|s| s.to_str()).unwrap_or("output").to_string();
+pub(super) fn run_pdf_import(
+    window: &adw::ApplicationWindow,
+    editor: &EditorPane,
+    input_path: std::path::PathBuf,
+) {
+    let stem = input_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("output")
+        .to_string();
     let out_path = unique_typ_path(input_path.with_file_name(format!("{stem}.typ")));
     let output = crate::git_sync::host_command("pdftotext")
         .arg("-layout")
@@ -2086,19 +2594,38 @@ pub(super) fn run_pdf_import(window: &adw::ApplicationWindow, editor: &EditorPan
             let typst_doc = post_process_pdf_import(&extracted, stem.as_str());
             let _ = std::fs::write(&out_path, &typst_doc);
             editor.open_file(out_path.clone(), &typst_doc);
-            log.record(input_path, "PDF (.pdf)", Some(out_path), true, "Imported successfully");
+            log.record(
+                input_path,
+                "PDF (.pdf)",
+                Some(out_path),
+                true,
+                "Imported successfully",
+            );
         }
         Ok(_) => {
-            show_alert(window, "Import Failed", "pdftotext could not extract text from this PDF.");
-            log.record(input_path, "PDF (.pdf)", None, false, "pdftotext could not extract text");
+            show_alert(
+                window,
+                "Import Failed",
+                "pdftotext could not extract text from this PDF.",
+            );
+            log.record(
+                input_path,
+                "PDF (.pdf)",
+                None,
+                false,
+                "pdftotext could not extract text",
+            );
         }
         Err(_) => {
-            show_alert(window, "Import Failed",
+            show_alert(
+                window,
+                "Import Failed",
                 "pdftotext was not found. Install poppler-utils to use PDF import:\n\
                  \n  zypper install poppler-tools\
                  \n  apt   install poppler-utils\
                  \n  brew  install poppler\
-                 \n  dnf   install poppler-utils");
+                 \n  dnf   install poppler-utils",
+            );
             log.record(input_path, "PDF (.pdf)", None, false, "pdftotext not found");
         }
     }
@@ -2129,7 +2656,6 @@ fn post_process_pdf_import(text: &str, title: &str) -> String {
     out
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::{
@@ -2147,22 +2673,32 @@ mod tests {
         // root, not the filesystem, so these would not load even if the
         // staging directory still existed.
         let staging_media = std::path::Path::new("/home/me/.cache/zerkalo/import/12-99/doc_media");
-        let content = "#figure(image(\"/home/me/.cache/zerkalo/import/12-99/doc_media/media/image1.png\"))\n";
+        let content =
+            "#figure(image(\"/home/me/.cache/zerkalo/import/12-99/doc_media/media/image1.png\"))\n";
         let out = rewrite_media_paths(content, staging_media, "doc_media");
         assert_eq!(out, "#figure(image(\"doc_media/media/image1.png\"))\n");
-        assert!(!out.contains("/home/me"), "no absolute path should survive: {out}");
+        assert!(
+            !out.contains("/home/me"),
+            "no absolute path should survive: {out}"
+        );
     }
 
     #[test]
     fn rewriting_media_paths_leaves_a_document_without_images_alone() {
         let staging_media = std::path::Path::new("/tmp/staging/doc_media");
         let content = "= Heading\n\nJust text.\n";
-        assert_eq!(rewrite_media_paths(content, staging_media, "doc_media"), content);
+        assert_eq!(
+            rewrite_media_paths(content, staging_media, "doc_media"),
+            content
+        );
     }
 
     #[test]
     fn pandoc_version_is_read_from_its_banner() {
-        assert_eq!(parse_pandoc_version("pandoc 3.1.11.1\nFeatures..."), Some((3, 1)));
+        assert_eq!(
+            parse_pandoc_version("pandoc 3.1.11.1\nFeatures..."),
+            Some((3, 1))
+        );
         assert_eq!(parse_pandoc_version("pandoc 2.19.2"), Some((2, 19)));
         assert_eq!(parse_pandoc_version("pandoc 3"), Some((3, 0)));
         assert_eq!(parse_pandoc_version(""), None);
@@ -2173,7 +2709,12 @@ mod tests {
     fn a_pandoc_too_old_for_typst_output_is_recognised_by_version() {
         // 3.1 is the first release that can write Typst. Below it, the old code
         // only found out mid-conversion, via an "unknown writer" message.
-        for (v, want_ok) in [("pandoc 2.19.2", false), ("pandoc 3.0.1", false), ("pandoc 3.1.0", true), ("pandoc 3.5", true)] {
+        for (v, want_ok) in [
+            ("pandoc 2.19.2", false),
+            ("pandoc 3.0.1", false),
+            ("pandoc 3.1.0", true),
+            ("pandoc 3.5", true),
+        ] {
             let parsed = parse_pandoc_version(v).unwrap();
             assert_eq!(parsed >= (3, 1), want_ok, "for {v}");
         }
@@ -2228,7 +2769,10 @@ mod tests {
     fn describe_pandoc_failure_falls_back_to_the_compilers_own_words() {
         let msg = describe_pandoc_failure("some other pandoc error\nline two");
         assert!(msg.contains("some other pandoc error"), "got: {msg}");
-        assert!(!msg.starts_with("pandoc error:"), "should lead with plain language: {msg}");
+        assert!(
+            !msg.starts_with("pandoc error:"),
+            "should lead with plain language: {msg}"
+        );
     }
 
     // ── format_pdf_body ────────────────────────────────────────────────────────
@@ -2284,7 +2828,9 @@ mod tests {
         assert_eq!(found.len(), 2, "got: {found:?}");
         assert!(found.iter().any(|p| p.ends_with("essay.tex")));
         assert!(found.iter().any(|p| p.ends_with("chapter1/notes.tex")));
-        assert!(!found.iter().any(|p| p.to_string_lossy().contains("essay_media")));
+        assert!(!found
+            .iter()
+            .any(|p| p.to_string_lossy().contains("essay_media")));
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -2293,7 +2839,8 @@ mod tests {
 
     #[test]
     fn summarize_counts_words_headings_images_citations() {
-        let text = "= Title\n\nSome words here today @smith2020 and more.\n\n#figure(image(\"a.png\"))\n";
+        let text =
+            "= Title\n\nSome words here today @smith2020 and more.\n\n#figure(image(\"a.png\"))\n";
         let summary = summarize_import_content(text);
         assert!(summary.contains("heading"), "got: {summary}");
         assert!(summary.contains("1 image"), "got: {summary}");
@@ -2339,28 +2886,46 @@ Some text.\n\
         let result = post_process_latex_import(input, None);
 
         // Template block is present
-        assert!(result.contains("// ZERKALO-TEMPLATE-BEGIN"), "template block present");
-        assert!(result.contains("// ZERKALO-TEMPLATE-END"), "template block closed");
+        assert!(
+            result.contains("// ZERKALO-TEMPLATE-BEGIN"),
+            "template block present"
+        );
+        assert!(
+            result.contains("// ZERKALO-TEMPLATE-END"),
+            "template block closed"
+        );
 
         // Check only the section AFTER the template markers — that's where the
         // user's formatting rules would appear if they weren't discarded.
         // (The template block itself legitimately contains these directives.)
-        let after_template = result
-            .split("// ZERKALO-TEMPLATE-END")
-            .nth(1)
-            .unwrap_or("");
-        assert!(!after_template.contains("#set page("), "set page not in body");
-        assert!(!after_template.contains("#set text("), "set text not in body");
+        let after_template = result.split("// ZERKALO-TEMPLATE-END").nth(1).unwrap_or("");
+        assert!(
+            !after_template.contains("#set page("),
+            "set page not in body"
+        );
+        assert!(
+            !after_template.contains("#set text("),
+            "set text not in body"
+        );
         assert!(!after_template.contains("#set par("), "set par not in body");
-        assert!(!after_template.contains("#set heading("), "set heading not in body");
-        assert!(!after_template.contains("#show heading"), "show heading not in body");
+        assert!(
+            !after_template.contains("#set heading("),
+            "set heading not in body"
+        );
+        assert!(
+            !after_template.contains("#show heading"),
+            "show heading not in body"
+        );
 
         // Body content is preserved
         assert!(result.contains("= Introduction"), "heading preserved");
         assert!(result.contains("Some text."), "body text preserved");
 
         // Bibliography is present
-        assert!(after_template.contains("#bibliography("), "bibliography present");
+        assert!(
+            after_template.contains("#bibliography("),
+            "bibliography present"
+        );
     }
 
     #[test]
@@ -2377,8 +2942,14 @@ Some text.\n\
         let result = post_process_latex_import(input, None);
 
         // Macros are placed after the template block, not discarded
-        assert!(result.contains("#import \"@preview/droplet:0.3.1\""), "import preserved");
-        assert!(result.contains("#let essay-par"), "let definition preserved");
+        assert!(
+            result.contains("#import \"@preview/droplet:0.3.1\""),
+            "import preserved"
+        );
+        assert!(
+            result.contains("#let essay-par"),
+            "let definition preserved"
+        );
 
         // Macros come AFTER the template block
         let template_end = result.find("// ZERKALO-TEMPLATE-END").unwrap();
@@ -2387,7 +2958,10 @@ Some text.\n\
 
         // Body content is preserved
         assert!(result.contains("= Heading"), "heading preserved");
-        assert!(result.contains("#essay-par[Some text.]"), "macro usage preserved");
+        assert!(
+            result.contains("#essay-par[Some text.]"),
+            "macro usage preserved"
+        );
     }
 
     #[test]
@@ -2403,14 +2977,17 @@ Some text.\n\
 = Body\n";
 
         let result = post_process_latex_import(input, None);
-        let after_template = result
-            .split("// ZERKALO-TEMPLATE-END")
-            .nth(1)
-            .unwrap_or("");
+        let after_template = result.split("// ZERKALO-TEMPLATE-END").nth(1).unwrap_or("");
         // The user's custom show rule should not appear in the body
-        assert!(!after_template.contains("#show heading"), "multi-line show heading discarded from body");
+        assert!(
+            !after_template.contains("#show heading"),
+            "multi-line show heading discarded from body"
+        );
         // The body inside the show rule should also be gone
-        assert!(!after_template.contains("#align(center)[#it.body]"), "show heading body discarded");
+        assert!(
+            !after_template.contains("#align(center)[#it.body]"),
+            "show heading body discarded"
+        );
         // Actual document content is kept
         assert!(result.contains("= Body"), "actual content kept");
     }
@@ -2438,7 +3015,10 @@ Body.\n";
     fn import_body_marker_present() {
         let input = "= Heading\n\nText.\n";
         let result = post_process_latex_import(input, None);
-        assert!(result.contains("// ── Document body"), "body marker present");
+        assert!(
+            result.contains("// ── Document body"),
+            "body marker present"
+        );
     }
 
     #[test]
@@ -2449,8 +3029,14 @@ Body.\n";
         std::fs::write(&typ_path, body).unwrap();
 
         let tracked = vec![
-            TrackedChange { kind: SuggestionKind::Insertion, text: "added text".into() },
-            TrackedChange { kind: SuggestionKind::Deletion, text: "Old phrase".into() },
+            TrackedChange {
+                kind: SuggestionKind::Insertion,
+                text: "added text".into(),
+            },
+            TrackedChange {
+                kind: SuggestionKind::Deletion,
+                text: "Old phrase".into(),
+            },
         ];
         record_tracked_changes_as_suggestions(&typ_path, body, &tracked);
 
@@ -2466,7 +3052,10 @@ Body.\n";
 
         let del = &loaded.comments[1];
         assert_eq!(del.anchor_line, 5);
-        assert_eq!(del.suggestion.as_ref().unwrap().kind, SuggestionKind::Deletion);
+        assert_eq!(
+            del.suggestion.as_ref().unwrap().kind,
+            SuggestionKind::Deletion
+        );
     }
 
     #[test]
@@ -2477,8 +3066,14 @@ Body.\n";
         std::fs::write(&typ_path, body).unwrap();
 
         let tracked = vec![
-            TrackedChange { kind: SuggestionKind::Insertion, text: "repeated word".into() },
-            TrackedChange { kind: SuggestionKind::Insertion, text: "repeated word".into() },
+            TrackedChange {
+                kind: SuggestionKind::Insertion,
+                text: "repeated word".into(),
+            },
+            TrackedChange {
+                kind: SuggestionKind::Insertion,
+                text: "repeated word".into(),
+            },
         ];
         record_tracked_changes_as_suggestions(&typ_path, body, &tracked);
 
@@ -2495,7 +3090,10 @@ Body.\n";
         let body = "Nothing matching here.\n";
         std::fs::write(&typ_path, body).unwrap();
 
-        let tracked = vec![TrackedChange { kind: SuggestionKind::Insertion, text: "not present anywhere".into() }];
+        let tracked = vec![TrackedChange {
+            kind: SuggestionKind::Insertion,
+            text: "not present anywhere".into(),
+        }];
         record_tracked_changes_as_suggestions(&typ_path, body, &tracked);
 
         assert!(CommentThread::load(&typ_path).comments.is_empty());
@@ -2509,11 +3107,18 @@ Body.\n";
         let body = "Costs \\$5 today.\n";
         std::fs::write(&typ_path, body).unwrap();
 
-        let tracked = vec![TrackedChange { kind: SuggestionKind::Insertion, text: "$5".into() }];
+        let tracked = vec![TrackedChange {
+            kind: SuggestionKind::Insertion,
+            text: "$5".into(),
+        }];
         record_tracked_changes_as_suggestions(&typ_path, body, &tracked);
 
         let loaded = CommentThread::load(&typ_path);
-        assert_eq!(loaded.comments.len(), 1, "should find the escaped form, not fail to match");
+        assert_eq!(
+            loaded.comments.len(),
+            1,
+            "should find the escaped form, not fail to match"
+        );
         assert_eq!(loaded.comments[0].suggestion.as_ref().unwrap().text, "$5");
     }
 }

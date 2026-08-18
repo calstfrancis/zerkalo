@@ -7,12 +7,10 @@
 
 use std::rc::Rc;
 
-use gtk4::prelude::*;
-use gtk4::{
-    Align, Box as GtkBox, Button, Label, Orientation, ScrolledWindow,
-};
-use libadwaita as adw;
 use adw::prelude::*;
+use gtk4::prelude::*;
+use gtk4::{Align, Box as GtkBox, Button, Label, Orientation, ScrolledWindow};
+use libadwaita as adw;
 
 pub struct ToolsWindow {
     window: adw::Window,
@@ -88,7 +86,12 @@ pub fn tools_group() -> (adw::PreferencesGroup, bool, Vec<Rc<dyn Fn()>>) {
     let git_kind = if crate::git_sync::bundled_git().is_some() {
         ToolKind::Bundled
     } else {
-        ToolKind::Package { apt: "git", dnf: "git", pacman: "git", zypper: "git" }
+        ToolKind::Package {
+            apt: "git",
+            dnf: "git",
+            pacman: "git",
+            zypper: "git",
+        }
     };
     let git_purpose = if crate::git_sync::bundled_git().is_some() {
         "Version history and sync — bundled"
@@ -150,15 +153,23 @@ fn detect_distro() -> Distro {
         .trim_matches('"')
         .to_lowercase();
 
-    if id.contains("ubuntu") || id.contains("debian") || id.contains("mint")
-        || id_like.contains("ubuntu") || id_like.contains("debian")
+    if id.contains("ubuntu")
+        || id.contains("debian")
+        || id.contains("mint")
+        || id_like.contains("ubuntu")
+        || id_like.contains("debian")
     {
         Distro::Debian
-    } else if id.contains("fedora") || id.contains("rhel") || id.contains("centos")
-        || id_like.contains("fedora") || id_like.contains("rhel")
+    } else if id.contains("fedora")
+        || id.contains("rhel")
+        || id.contains("centos")
+        || id_like.contains("fedora")
+        || id_like.contains("rhel")
     {
         Distro::Fedora
-    } else if id.contains("arch") || id.contains("manjaro") || id.contains("endeavour")
+    } else if id.contains("arch")
+        || id.contains("manjaro")
+        || id.contains("endeavour")
         || id_like.contains("arch")
     {
         Distro::Arch
@@ -170,8 +181,15 @@ fn detect_distro() -> Distro {
 }
 
 enum ToolKind<'a> {
-    Package { apt: &'a str, dnf: &'a str, pacman: &'a str, zypper: &'a str },
-    Flatpak { app_id: &'a str },
+    Package {
+        apt: &'a str,
+        dnf: &'a str,
+        pacman: &'a str,
+        zypper: &'a str,
+    },
+    Flatpak {
+        app_id: &'a str,
+    },
     Bundled,
 }
 

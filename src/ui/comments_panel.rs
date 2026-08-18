@@ -18,8 +18,8 @@ use std::rc::Rc;
 
 use gtk4::prelude::*;
 use gtk4::{
-    Box as GtkBox, Button, Label, ListBox, ListBoxRow, Orientation, Popover,
-    Revealer, RevealerTransitionType, ScrolledWindow, SelectionMode, Separator, TextView, WrapMode,
+    Box as GtkBox, Button, Label, ListBox, ListBoxRow, Orientation, Popover, Revealer,
+    RevealerTransitionType, ScrolledWindow, SelectionMode, Separator, TextView, WrapMode,
 };
 
 use crate::comments::{suggestion_removes_text, CommentThread, SuggestionKind, SuggestionStatus};
@@ -73,7 +73,9 @@ impl CommentsPanel {
         let add_btn = Button::from_icon_name("list-add-symbolic");
         add_btn.add_css_class("flat");
         add_btn.set_tooltip_text(Some("Add a comment at the cursor's current line"));
-        add_btn.update_property(&[gtk4::accessible::Property::Label("Add a comment at the cursor's current line")]);
+        add_btn.update_property(&[gtk4::accessible::Property::Label(
+            "Add a comment at the cursor's current line",
+        )]);
         header.append(&add_btn);
 
         let collapse_btn = Button::from_icon_name("pan-down-symbolic");
@@ -100,7 +102,8 @@ impl CommentsPanel {
         revealer.set_child(Some(&scroll));
         widget.append(&revealer);
 
-        let on_collapse_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>> = Rc::new(RefCell::new(None));
+        let on_collapse_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>> =
+            Rc::new(RefCell::new(None));
         {
             let revealer_c = revealer.clone();
             let collapse_btn_c = collapse_btn.clone();
@@ -108,8 +111,16 @@ impl CommentsPanel {
             collapse_btn.connect_clicked(move |_| {
                 let now_collapsed = revealer_c.reveals_child();
                 revealer_c.set_reveal_child(!now_collapsed);
-                collapse_btn_c.set_icon_name(if now_collapsed { "pan-end-symbolic" } else { "pan-down-symbolic" });
-                collapse_btn_c.set_tooltip_text(Some(if now_collapsed { "Show Comments" } else { "Hide Comments" }));
+                collapse_btn_c.set_icon_name(if now_collapsed {
+                    "pan-end-symbolic"
+                } else {
+                    "pan-down-symbolic"
+                });
+                collapse_btn_c.set_tooltip_text(Some(if now_collapsed {
+                    "Show Comments"
+                } else {
+                    "Hide Comments"
+                }));
                 if let Some(f) = on_collapse_toggle_c.borrow().as_ref() {
                     f(now_collapsed);
                 }
@@ -156,8 +167,16 @@ impl CommentsPanel {
     /// startup, before the user has clicked anything.
     pub fn set_collapsed(&self, collapsed: bool) {
         self.revealer.set_reveal_child(!collapsed);
-        self.collapse_btn.set_icon_name(if collapsed { "pan-end-symbolic" } else { "pan-down-symbolic" });
-        self.collapse_btn.set_tooltip_text(Some(if collapsed { "Show Comments" } else { "Hide Comments" }));
+        self.collapse_btn.set_icon_name(if collapsed {
+            "pan-end-symbolic"
+        } else {
+            "pan-down-symbolic"
+        });
+        self.collapse_btn.set_tooltip_text(Some(if collapsed {
+            "Show Comments"
+        } else {
+            "Hide Comments"
+        }));
     }
 
     /// Fires with the new collapsed state whenever the user clicks the
@@ -217,7 +236,9 @@ impl CommentsPanel {
         if body.trim().is_empty() {
             return;
         }
-        let Some(path) = self.current_path.borrow().clone() else { return };
+        let Some(path) = self.current_path.borrow().clone() else {
+            return;
+        };
         let Some((line, snippet)) = self.on_request_anchor.borrow().as_ref().map(|f| f()) else {
             return;
         };
@@ -229,7 +250,9 @@ impl CommentsPanel {
     }
 
     fn reply_to(&self, id: u64, body: String) {
-        let Some(path) = self.current_path.borrow().clone() else { return };
+        let Some(path) = self.current_path.borrow().clone() else {
+            return;
+        };
         if body.trim().is_empty() {
             return;
         }
@@ -241,7 +264,9 @@ impl CommentsPanel {
     }
 
     fn set_resolved(&self, id: u64, resolved: bool) {
-        let Some(path) = self.current_path.borrow().clone() else { return };
+        let Some(path) = self.current_path.borrow().clone() else {
+            return;
+        };
         let mut t = self.thread.borrow_mut();
         t.set_resolved(id, resolved);
         t.save(&path);
@@ -250,13 +275,29 @@ impl CommentsPanel {
     }
 
     fn resolve_suggestion(&self, id: u64, accepted: bool) {
-        let Some(path) = self.current_path.borrow().clone() else { return };
-        let mut t = self.thread.borrow_mut();
-        let Some(sugg) = t.comments.iter().find(|c| c.id == id).and_then(|c| c.suggestion.clone()) else {
+        let Some(path) = self.current_path.borrow().clone() else {
             return;
         };
-        let line = t.comments.iter().find(|c| c.id == id).map(|c| c.anchor_line).unwrap_or(0);
-        let status = if accepted { SuggestionStatus::Accepted } else { SuggestionStatus::Rejected };
+        let mut t = self.thread.borrow_mut();
+        let Some(sugg) = t
+            .comments
+            .iter()
+            .find(|c| c.id == id)
+            .and_then(|c| c.suggestion.clone())
+        else {
+            return;
+        };
+        let line = t
+            .comments
+            .iter()
+            .find(|c| c.id == id)
+            .map(|c| c.anchor_line)
+            .unwrap_or(0);
+        let status = if accepted {
+            SuggestionStatus::Accepted
+        } else {
+            SuggestionStatus::Rejected
+        };
         t.set_suggestion_status(id, status);
         t.save(&path);
         drop(t);
@@ -269,7 +310,9 @@ impl CommentsPanel {
     }
 
     fn delete(&self, id: u64) {
-        let Some(path) = self.current_path.borrow().clone() else { return };
+        let Some(path) = self.current_path.borrow().clone() else {
+            return;
+        };
         let mut t = self.thread.borrow_mut();
         t.delete(id);
         t.save(&path);
@@ -328,7 +371,11 @@ impl CommentsPanel {
             let anchor_text = if comment.anchor_snippet.trim().is_empty() {
                 format!("line {}", comment.anchor_line)
             } else {
-                format!("line {} · {}", comment.anchor_line, truncate(&comment.anchor_snippet, 40))
+                format!(
+                    "line {} · {}",
+                    comment.anchor_line,
+                    truncate(&comment.anchor_snippet, 40)
+                )
             };
             let anchor_lbl = Label::new(Some(&anchor_text));
             anchor_lbl.add_css_class("caption");
@@ -363,7 +410,10 @@ impl CommentsPanel {
                 kind_lbl.add_css_class("caption");
                 kind_lbl.add_css_class(css);
                 sugg_row.append(&kind_lbl);
-                let text_lbl = Label::new(Some(&format!("\u{201c}{}\u{201d}", truncate(&sugg.text, 60))));
+                let text_lbl = Label::new(Some(&format!(
+                    "\u{201c}{}\u{201d}",
+                    truncate(&sugg.text, 60)
+                )));
                 text_lbl.set_xalign(0.0);
                 text_lbl.set_wrap(true);
                 text_lbl.set_selectable(true);
@@ -455,7 +505,11 @@ impl CommentsPanel {
                     action_row.append(&badge);
                 }
                 None => {
-                    let resolve_btn = Button::with_label(if comment.resolved { "Reopen" } else { "Resolve" });
+                    let resolve_btn = Button::with_label(if comment.resolved {
+                        "Reopen"
+                    } else {
+                        "Resolve"
+                    });
                     resolve_btn.add_css_class("flat");
                     resolve_btn.add_css_class("caption");
                     {
@@ -509,7 +563,12 @@ fn truncate(s: &str, max_chars: usize) -> String {
 /// shared shape for both "Add Comment" and "Reply", matching
 /// `ref_manager.rs`'s `open_rename_popover` pattern (single-line there;
 /// multi-line here since a comment body is prose, not an identifier).
-fn open_composer_popover(anchor: &impl IsA<gtk4::Widget>, heading: &str, confirm_label: &str, on_confirm: impl Fn(String) + 'static) {
+fn open_composer_popover(
+    anchor: &impl IsA<gtk4::Widget>,
+    heading: &str,
+    confirm_label: &str,
+    on_confirm: impl Fn(String) + 'static,
+) {
     let popover = Popover::new();
     popover.set_parent(anchor);
 

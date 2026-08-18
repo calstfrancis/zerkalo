@@ -185,7 +185,10 @@ impl Library {
         let path = dir.join("library.sqlite");
         let conn = Connection::open(path)?;
         conn.execute_batch("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;")?;
-        let lib = Self { conn, trash_dir: default_trash_dir() };
+        let lib = Self {
+            conn,
+            trash_dir: default_trash_dir(),
+        };
         lib.migrate()?;
         Ok(lib)
     }
@@ -256,22 +259,28 @@ impl Library {
                 );",
             )
             .ok();
-        self.conn.execute_batch(
-            "ALTER TABLE categories ADD COLUMN parent TEXT REFERENCES categories(name);"
-        ).ok();
+        self.conn
+            .execute_batch(
+                "ALTER TABLE categories ADD COLUMN parent TEXT REFERENCES categories(name);",
+            )
+            .ok();
         self.migrate_category_colors_to_nullable();
-        self.conn.execute_batch(
-            "CREATE INDEX IF NOT EXISTS idx_doc_category ON documents(category);
+        self.conn
+            .execute_batch(
+                "CREATE INDEX IF NOT EXISTS idx_doc_category ON documents(category);
              CREATE INDEX IF NOT EXISTS idx_doc_archived ON documents(archived, deleted);
              CREATE INDEX IF NOT EXISTS idx_doc_last_opened ON documents(last_opened_at);
              CREATE INDEX IF NOT EXISTS idx_doc_modified ON documents(modified_at);
              CREATE INDEX IF NOT EXISTS idx_doc_tags_tag ON doc_tags(tag_id);
-             CREATE INDEX IF NOT EXISTS idx_doc_tags_doc ON doc_tags(doc_id);"
-        ).ok();
-        self.conn.execute_batch(
-            "INSERT OR IGNORE INTO categories (name)
-             SELECT DISTINCT category FROM documents WHERE category IS NOT NULL;"
-        ).ok();
+             CREATE INDEX IF NOT EXISTS idx_doc_tags_doc ON doc_tags(doc_id);",
+            )
+            .ok();
+        self.conn
+            .execute_batch(
+                "INSERT OR IGNORE INTO categories (name)
+             SELECT DISTINCT category FROM documents WHERE category IS NOT NULL;",
+            )
+            .ok();
         Ok(())
     }
 
@@ -326,13 +335,21 @@ impl Library {
         });
         let now = Utc::now().to_rfc3339();
         let meta = std::fs::metadata(path).ok();
-        let fs_modified = meta.as_ref()
+        let fs_modified = meta
+            .as_ref()
             .and_then(|m| m.modified().ok())
-            .map(|t| { let dt: chrono::DateTime<Utc> = t.into(); dt.to_rfc3339() })
+            .map(|t| {
+                let dt: chrono::DateTime<Utc> = t.into();
+                dt.to_rfc3339()
+            })
             .unwrap_or_else(|| now.clone());
-        let fs_created = meta.as_ref()
+        let fs_created = meta
+            .as_ref()
             .and_then(|m| m.created().ok())
-            .map(|t| { let dt: chrono::DateTime<Utc> = t.into(); dt.to_rfc3339() })
+            .map(|t| {
+                let dt: chrono::DateTime<Utc> = t.into();
+                dt.to_rfc3339()
+            })
             .unwrap_or_else(|| fs_modified.clone());
 
         let existing: Option<i64> = self
@@ -399,15 +416,21 @@ impl Library {
         for (id, path_str) in paths {
             let path = std::path::Path::new(&path_str);
             if let Ok(meta) = std::fs::metadata(path) {
-                let fs_created = meta.created()
+                let fs_created = meta
+                    .created()
                     .or_else(|_| meta.modified())
-                    .map(|t| { let dt: chrono::DateTime<Utc> = t.into(); dt.to_rfc3339() })
+                    .map(|t| {
+                        let dt: chrono::DateTime<Utc> = t.into();
+                        dt.to_rfc3339()
+                    })
                     .ok();
                 if let Some(created) = fs_created {
-                    self.conn.execute(
-                        "UPDATE documents SET created_at = ?1 WHERE id = ?2",
-                        rusqlite::params![created, id],
-                    ).ok();
+                    self.conn
+                        .execute(
+                            "UPDATE documents SET created_at = ?1 WHERE id = ?2",
+                            rusqlite::params![created, id],
+                        )
+                        .ok();
                 }
             }
         }
@@ -623,9 +646,10 @@ impl Library {
             .unwrap_or_else(|| format!("{ts}-{doc_id}.typ"));
         let trash_path = trash_dir.join(&filename);
         if std::fs::rename(&doc.path, &trash_path).is_err()
-            && std::fs::copy(&doc.path, &trash_path).is_ok() {
-                std::fs::remove_file(&doc.path).ok();
-            }
+            && std::fs::copy(&doc.path, &trash_path).is_ok()
+        {
+            std::fs::remove_file(&doc.path).ok();
+        }
         let trash_str = trash_path.to_string_lossy().to_string();
         self.conn.execute(
             "UPDATE documents SET deleted=1, trash_path=?1 WHERE id=?2",
@@ -716,11 +740,7 @@ impl Library {
         Ok(())
     }
 
-    pub fn position_in_project(
-        &self,
-        project_id: i64,
-        doc_id: i64,
-    ) -> SqlResult<Option<i64>> {
+    pub fn position_in_project(&self, project_id: i64, doc_id: i64) -> SqlResult<Option<i64>> {
         self.conn
             .query_row(
                 "SELECT position FROM project_docs WHERE project_id=?1 AND doc_id=?2",
@@ -764,7 +784,11 @@ impl Library {
         )?;
         let rows = stmt.query_map([], |r| {
             Ok((
-                Tag { id: r.get(0)?, name: r.get(1)?, color_hex: r.get(2)? },
+                Tag {
+                    id: r.get(0)?,
+                    name: r.get(1)?,
+                    color_hex: r.get(2)?,
+                },
                 r.get::<_, i64>(3)?,
             ))
         })?;
@@ -780,11 +804,10 @@ impl Library {
             "INSERT OR IGNORE INTO tags (name, color_hex) VALUES (?1, ?2)",
             params![name, color],
         )?;
-        self.conn.query_row(
-            "SELECT id FROM tags WHERE name = ?1",
-            params![name],
-            |r| r.get(0),
-        )
+        self.conn
+            .query_row("SELECT id FROM tags WHERE name = ?1", params![name], |r| {
+                r.get(0)
+            })
     }
 
     pub fn delete_tag(&mut self, tag_id: i64) -> SqlResult<()> {
@@ -860,23 +883,34 @@ impl Library {
              SELECT ?1, color_hex, parent FROM categories WHERE name = ?2",
             params![new_name, old_name],
         )?;
-        tx.execute("UPDATE categories SET parent = ?1 WHERE parent = ?2", params![new_name, old_name])?;
-        tx.execute("UPDATE documents SET category = ?1 WHERE category = ?2", params![new_name, old_name])?;
+        tx.execute(
+            "UPDATE categories SET parent = ?1 WHERE parent = ?2",
+            params![new_name, old_name],
+        )?;
+        tx.execute(
+            "UPDATE documents SET category = ?1 WHERE category = ?2",
+            params![new_name, old_name],
+        )?;
         tx.execute("DELETE FROM categories WHERE name = ?1", params![old_name])?;
         tx.commit()?;
         Ok(())
     }
 
-
     pub fn all_categories_structured(&self) -> SqlResult<Vec<Category>> {
         let mut stmt = self.conn.prepare(
-            "SELECT name, color_hex, parent FROM categories ORDER BY parent NULLS FIRST, name"
+            "SELECT name, color_hex, parent FROM categories ORDER BY parent NULLS FIRST, name",
         )?;
         let rows = stmt.query_map([], |r| {
-            Ok(Category { name: r.get(0)?, color_hex: r.get(1)?, parent: r.get(2)? })
+            Ok(Category {
+                name: r.get(0)?,
+                color_hex: r.get(1)?,
+                parent: r.get(2)?,
+            })
         })?;
         let mut out = Vec::new();
-        for r in rows { out.push(r?); }
+        for r in rows {
+            out.push(r?);
+        }
         Ok(out)
     }
 
@@ -893,8 +927,12 @@ impl Library {
         if self.category_has_children(name)? {
             return Ok(false);
         }
-        self.conn.execute("UPDATE documents SET category = NULL WHERE category = ?1", params![name])?;
-        self.conn.execute("DELETE FROM categories WHERE name = ?1", params![name])?;
+        self.conn.execute(
+            "UPDATE documents SET category = NULL WHERE category = ?1",
+            params![name],
+        )?;
+        self.conn
+            .execute("DELETE FROM categories WHERE name = ?1", params![name])?;
         Ok(true)
     }
 
@@ -1060,12 +1098,19 @@ fn search_clause(prefix: &str, param: usize) -> String {
 /// then `essay (restored 2).typ`, ...) for use when the original path is
 /// already occupied by a different file.
 fn restore_collision_path(path: &Path) -> PathBuf {
-    let stem = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+    let stem = path
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default();
     let ext = path.extension().map(|e| e.to_string_lossy().to_string());
     let dir = path.parent().map(PathBuf::from).unwrap_or_default();
     let mut n = 1;
     loop {
-        let label = if n == 1 { "restored".to_string() } else { format!("restored {n}") };
+        let label = if n == 1 {
+            "restored".to_string()
+        } else {
+            format!("restored {n}")
+        };
         let name = match &ext {
             Some(e) => format!("{stem} ({label}).{e}"),
             None => format!("{stem} ({label})"),
@@ -1109,11 +1154,15 @@ fn parse_typst_string_value(s: &str) -> Option<String> {
     if let Some(inner) = s.strip_prefix('"') {
         let end = inner.find('"')?;
         let val = inner[..end].trim().to_string();
-        if !val.is_empty() { return Some(val); }
+        if !val.is_empty() {
+            return Some(val);
+        }
     } else if let Some(inner) = s.strip_prefix('[') {
         let end = inner.find(']')?;
         let val = inner[..end].trim().to_string();
-        if !val.is_empty() { return Some(val); }
+        if !val.is_empty() {
+            return Some(val);
+        }
     }
     None
 }
@@ -1176,9 +1225,14 @@ mod tests {
 
         lib.move_to_trash(id).expect("trash");
 
-        let doc = lib.doc_by_id(id).expect("query").expect("row still present");
+        let doc = lib
+            .doc_by_id(id)
+            .expect("query")
+            .expect("row still present");
         assert!(!path.exists(), "original file should have been moved away");
-        let trashed = lib.documents(LibraryFilter::Trash, "", SortOrder::Modified).expect("list");
+        let trashed = lib
+            .documents(LibraryFilter::Trash, "", SortOrder::Modified)
+            .expect("list");
         assert_eq!(ids(&trashed), vec![doc.id]);
     }
 
@@ -1212,8 +1266,12 @@ mod tests {
         std::fs::write(dir_a.join("notes.typ"), "= From A\n").unwrap();
         std::fs::write(dir_b.join("notes.typ"), "= From B\n").unwrap();
 
-        let id_a = lib.upsert_document(&dir_a.join("notes.typ")).expect("upsert a");
-        let id_b = lib.upsert_document(&dir_b.join("notes.typ")).expect("upsert b");
+        let id_a = lib
+            .upsert_document(&dir_a.join("notes.typ"))
+            .expect("upsert a");
+        let id_b = lib
+            .upsert_document(&dir_b.join("notes.typ"))
+            .expect("upsert b");
         lib.move_to_trash(id_a).expect("trash a");
         lib.move_to_trash(id_b).expect("trash b");
 
@@ -1223,7 +1281,10 @@ mod tests {
             .map(|e| std::fs::read_to_string(e.path()).expect("read"))
             .collect();
         bodies.sort();
-        assert_eq!(bodies, vec!["= From A\n".to_string(), "= From B\n".to_string()]);
+        assert_eq!(
+            bodies,
+            vec!["= From A\n".to_string(), "= From B\n".to_string()]
+        );
     }
 
     #[test]
@@ -1237,9 +1298,13 @@ mod tests {
 
         assert!(path.exists(), "file should be back at its original path");
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "= Body\n");
-        let trashed = lib.documents(LibraryFilter::Trash, "", SortOrder::Modified).expect("list");
+        let trashed = lib
+            .documents(LibraryFilter::Trash, "", SortOrder::Modified)
+            .expect("list");
         assert!(trashed.is_empty(), "doc should no longer be in the trash");
-        let all = lib.documents(LibraryFilter::All, "", SortOrder::Modified).expect("list");
+        let all = lib
+            .documents(LibraryFilter::All, "", SortOrder::Modified)
+            .expect("list");
         assert_eq!(ids(&all), vec![id]);
     }
 
@@ -1262,10 +1327,16 @@ mod tests {
         );
         let restored = work.path().join("essay (restored).typ");
         assert!(restored.exists(), "restored copy should land beside it");
-        assert_eq!(std::fs::read_to_string(&restored).unwrap(), "= The old one\n");
+        assert_eq!(
+            std::fs::read_to_string(&restored).unwrap(),
+            "= The old one\n"
+        );
 
         let doc = lib.doc_by_id(id).expect("query").expect("row");
-        assert_eq!(doc.path, restored, "DB path should follow the file to its new home");
+        assert_eq!(
+            doc.path, restored,
+            "DB path should follow the file to its new home"
+        );
     }
 
     #[test]
@@ -1273,10 +1344,13 @@ mod tests {
         let (mut lib, work) = fixture();
         let (id, path) = add_doc(&mut lib, &work, "essay.typ");
 
-        lib.restore_from_trash(id).expect("restore should not error");
+        lib.restore_from_trash(id)
+            .expect("restore should not error");
 
         assert!(path.exists());
-        let all = lib.documents(LibraryFilter::All, "", SortOrder::Modified).expect("list");
+        let all = lib
+            .documents(LibraryFilter::All, "", SortOrder::Modified)
+            .expect("list");
         assert_eq!(ids(&all), vec![id]);
     }
 
@@ -1288,7 +1362,10 @@ mod tests {
 
         lib.permanently_delete(id).expect("delete");
 
-        assert!(lib.doc_by_id(id).expect("query").is_none(), "row should be gone");
+        assert!(
+            lib.doc_by_id(id).expect("query").is_none(),
+            "row should be gone"
+        );
         let remaining = std::fs::read_dir(work.path().join("trash"))
             .expect("trash dir")
             .filter_map(|e| e.ok())
@@ -1309,7 +1386,8 @@ mod tests {
         let tag = lib.create_tag("draft", "#ff0000").expect("tag");
         lib.set_doc_tags(id, &[tag]).expect("set tags");
         lib.set_category(id, Some("Essays")).expect("category");
-        lib.touch_opened(&work.path().join("essay.typ")).expect("open");
+        lib.touch_opened(&work.path().join("essay.typ"))
+            .expect("open");
 
         lib.move_to_trash(id).expect("trash");
 
@@ -1319,9 +1397,15 @@ mod tests {
             LibraryFilter::Category("Essays".into()),
             LibraryFilter::Recent,
         ] {
-            let docs = lib.documents(filter.clone(), "", SortOrder::Modified).expect("list");
+            let docs = lib
+                .documents(filter.clone(), "", SortOrder::Modified)
+                .expect("list");
             assert!(docs.is_empty(), "{filter:?} should not show trashed docs");
-            assert_eq!(lib.doc_count(&filter).expect("count"), 0, "{filter:?} count");
+            assert_eq!(
+                lib.doc_count(&filter).expect("count"),
+                0,
+                "{filter:?} count"
+            );
         }
     }
 
@@ -1336,7 +1420,9 @@ mod tests {
         lib.set_archived(archived, true).expect("archive");
         lib.move_to_trash(trashed).expect("trash");
 
-        let docs = lib.documents(LibraryFilter::All, "", SortOrder::Modified).expect("list");
+        let docs = lib
+            .documents(LibraryFilter::All, "", SortOrder::Modified)
+            .expect("list");
         assert_eq!(ids(&docs), vec![keep]);
         assert_eq!(lib.doc_count(&LibraryFilter::All).expect("count"), 1);
     }
@@ -1350,7 +1436,9 @@ mod tests {
         lib.set_archived(b, true).expect("archive b");
         lib.move_to_trash(b).expect("trash b");
 
-        let docs = lib.documents(LibraryFilter::Archive, "", SortOrder::Modified).expect("list");
+        let docs = lib
+            .documents(LibraryFilter::Archive, "", SortOrder::Modified)
+            .expect("list");
         assert_eq!(ids(&docs), vec![a]);
         assert_eq!(lib.doc_count(&LibraryFilter::Archive).expect("count"), 1);
     }
@@ -1363,7 +1451,9 @@ mod tests {
         let tag = lib.create_tag("draft", "#ff0000").expect("tag");
         lib.set_doc_tags(tagged, &[tag]).expect("set tags");
 
-        let docs = lib.documents(LibraryFilter::Untagged, "", SortOrder::Modified).expect("list");
+        let docs = lib
+            .documents(LibraryFilter::Untagged, "", SortOrder::Modified)
+            .expect("list");
         assert_eq!(ids(&docs), vec![bare]);
         assert_eq!(lib.doc_count(&LibraryFilter::Untagged).expect("count"), 1);
     }
@@ -1375,7 +1465,9 @@ mod tests {
         add_doc(&mut lib, &work, "never-opened.typ");
         lib.touch_opened(&opened_path).expect("open");
 
-        let docs = lib.documents(LibraryFilter::Recent, "", SortOrder::Opened).expect("list");
+        let docs = lib
+            .documents(LibraryFilter::Recent, "", SortOrder::Opened)
+            .expect("list");
         assert_eq!(ids(&docs), vec![opened]);
         assert_eq!(lib.doc_count(&LibraryFilter::Recent).expect("count"), 1);
     }
@@ -1387,13 +1479,18 @@ mod tests {
         let (child_doc, _) = add_doc(&mut lib, &work, "child.typ");
         let (other_doc, _) = add_doc(&mut lib, &work, "other.typ");
         lib.create_category("Academic", None).expect("parent cat");
-        lib.create_category("Essays", Some("Academic")).expect("child cat");
+        lib.create_category("Essays", Some("Academic"))
+            .expect("child cat");
         lib.set_category(parent_doc, Some("Academic")).expect("set");
         lib.set_category(child_doc, Some("Essays")).expect("set");
         lib.set_category(other_doc, Some("Sermons")).expect("set");
 
         let docs = lib
-            .documents(LibraryFilter::CategoryGroup("Academic".into()), "", SortOrder::Title)
+            .documents(
+                LibraryFilter::CategoryGroup("Academic".into()),
+                "",
+                SortOrder::Title,
+            )
             .expect("list");
         let mut got = ids(&docs);
         got.sort();
@@ -1401,12 +1498,17 @@ mod tests {
         want.sort();
         assert_eq!(got, want);
         assert_eq!(
-            lib.doc_count(&LibraryFilter::CategoryGroup("Academic".into())).expect("count"),
+            lib.doc_count(&LibraryFilter::CategoryGroup("Academic".into()))
+                .expect("count"),
             2
         );
 
         let narrow = lib
-            .documents(LibraryFilter::Category("Essays".into()), "", SortOrder::Title)
+            .documents(
+                LibraryFilter::Category("Essays".into()),
+                "",
+                SortOrder::Title,
+            )
             .expect("list");
         assert_eq!(ids(&narrow), vec![child_doc]);
     }
@@ -1426,7 +1528,11 @@ mod tests {
             .documents(LibraryFilter::Project(project), "", SortOrder::Title)
             .expect("list");
         assert_eq!(ids(&docs), vec![first, second, third]);
-        assert_eq!(lib.doc_count(&LibraryFilter::Project(project)).expect("count"), 3);
+        assert_eq!(
+            lib.doc_count(&LibraryFilter::Project(project))
+                .expect("count"),
+            3
+        );
     }
 
     // ── Search ───────────────────────────────────────────────────────────────
@@ -1437,7 +1543,9 @@ mod tests {
         add_doc(&mut lib, &work, "alpha.typ");
         add_doc(&mut lib, &work, "beta.typ");
 
-        let docs = lib.documents(LibraryFilter::All, "", SortOrder::Title).expect("list");
+        let docs = lib
+            .documents(LibraryFilter::All, "", SortOrder::Title)
+            .expect("list");
         assert_eq!(docs.len(), 2);
     }
 
@@ -1448,7 +1556,9 @@ mod tests {
         add_doc(&mut lib, &work, "unrelated.typ");
 
         for query in ["Reform", "reform", "format"] {
-            let docs = lib.documents(LibraryFilter::All, query, SortOrder::Title).expect("list");
+            let docs = lib
+                .documents(LibraryFilter::All, query, SortOrder::Title)
+                .expect("list");
             assert_eq!(ids(&docs), vec![id], "query {query:?}");
         }
     }
@@ -1458,13 +1568,18 @@ mod tests {
         let (mut lib, work) = fixture();
         let (by_category, _) = add_doc(&mut lib, &work, "one.typ");
         let (by_tag, _) = add_doc(&mut lib, &work, "two.typ");
-        lib.set_category(by_category, Some("Homiletics")).expect("category");
+        lib.set_category(by_category, Some("Homiletics"))
+            .expect("category");
         let tag = lib.create_tag("patristics", "#ff0000").expect("tag");
         lib.set_doc_tags(by_tag, &[tag]).expect("set tags");
 
-        let by_cat = lib.documents(LibraryFilter::All, "Homile", SortOrder::Title).expect("list");
+        let by_cat = lib
+            .documents(LibraryFilter::All, "Homile", SortOrder::Title)
+            .expect("list");
         assert_eq!(ids(&by_cat), vec![by_category]);
-        let by_tag_name = lib.documents(LibraryFilter::All, "patris", SortOrder::Title).expect("list");
+        let by_tag_name = lib
+            .documents(LibraryFilter::All, "patris", SortOrder::Title)
+            .expect("list");
         assert_eq!(ids(&by_tag_name), vec![by_tag]);
     }
 
@@ -1489,7 +1604,9 @@ mod tests {
             lib.upsert_document(&path).expect("upsert");
         }
 
-        let docs = lib.documents(LibraryFilter::All, "", SortOrder::Title).expect("list");
+        let docs = lib
+            .documents(LibraryFilter::All, "", SortOrder::Title)
+            .expect("list");
         assert_eq!(titles(&docs), vec!["Apple", "banana", "cherry"]);
     }
 
@@ -1500,7 +1617,9 @@ mod tests {
         let (never, _) = add_doc(&mut lib, &work, "never.typ");
         lib.touch_opened(&opened_path).expect("open");
 
-        let docs = lib.documents(LibraryFilter::All, "", SortOrder::Opened).expect("list");
+        let docs = lib
+            .documents(LibraryFilter::All, "", SortOrder::Opened)
+            .expect("list");
         assert_eq!(ids(&docs), vec![opened, never]);
     }
 
@@ -1513,7 +1632,9 @@ mod tests {
         let zzz = lib.upsert_document(&path_z).expect("upsert");
         lib.set_pinned(zzz, true).expect("pin");
 
-        let docs = lib.documents(LibraryFilter::All, "", SortOrder::Title).expect("list");
+        let docs = lib
+            .documents(LibraryFilter::All, "", SortOrder::Title)
+            .expect("list");
         assert_eq!(
             titles(&docs),
             vec!["Zzz", "Aaa"],
@@ -1527,12 +1648,25 @@ mod tests {
         for name in ["a.typ", "b.typ", "c.typ"] {
             add_doc(&mut lib, &work, name);
         }
-        let archived = lib.upsert_document(&write_doc(&work, "d.typ", "x")).expect("upsert");
+        let archived = lib
+            .upsert_document(&write_doc(&work, "d.typ", "x"))
+            .expect("upsert");
         lib.set_archived(archived, true).expect("archive");
 
-        for filter in [LibraryFilter::All, LibraryFilter::Archive, LibraryFilter::Untagged] {
-            let listed = lib.documents(filter.clone(), "", SortOrder::Modified).expect("list").len();
-            assert_eq!(listed as i64, lib.doc_count(&filter).expect("count"), "{filter:?}");
+        for filter in [
+            LibraryFilter::All,
+            LibraryFilter::Archive,
+            LibraryFilter::Untagged,
+        ] {
+            let listed = lib
+                .documents(filter.clone(), "", SortOrder::Modified)
+                .expect("list")
+                .len();
+            assert_eq!(
+                listed as i64,
+                lib.doc_count(&filter).expect("count"),
+                "{filter:?}"
+            );
         }
     }
 
@@ -1547,7 +1681,9 @@ mod tests {
         let second = lib.upsert_document(&path).expect("second");
 
         assert_eq!(first, second);
-        let docs = lib.documents(LibraryFilter::All, "", SortOrder::Title).expect("list");
+        let docs = lib
+            .documents(LibraryFilter::All, "", SortOrder::Title)
+            .expect("list");
         assert_eq!(docs.len(), 1);
     }
 
@@ -1613,7 +1749,12 @@ mod tests {
         lib.set_doc_tags(id, &[draft]).expect("set");
         lib.set_doc_tags(id, &[final_tag]).expect("replace");
 
-        let names: Vec<String> = lib.doc_tags(id).expect("tags").into_iter().map(|t| t.name).collect();
+        let names: Vec<String> = lib
+            .doc_tags(id)
+            .expect("tags")
+            .into_iter()
+            .map(|t| t.name)
+            .collect();
         assert_eq!(names, vec!["final"]);
     }
 
@@ -1628,7 +1769,12 @@ mod tests {
         lib.add_doc_tags(id, &[review]).expect("add");
         lib.add_doc_tags(id, &[review]).expect("add again");
 
-        let names: Vec<String> = lib.doc_tags(id).expect("tags").into_iter().map(|t| t.name).collect();
+        let names: Vec<String> = lib
+            .doc_tags(id)
+            .expect("tags")
+            .into_iter()
+            .map(|t| t.name)
+            .collect();
         assert_eq!(names, vec!["draft", "review"]);
     }
 
@@ -1655,7 +1801,9 @@ mod tests {
 
         assert!(lib.doc_tags(a).expect("tags").is_empty());
         assert!(lib.doc_tags(b).expect("tags").is_empty());
-        let untagged = lib.documents(LibraryFilter::Untagged, "", SortOrder::Title).expect("list");
+        let untagged = lib
+            .documents(LibraryFilter::Untagged, "", SortOrder::Title)
+            .expect("list");
         assert_eq!(untagged.len(), 2);
     }
 
@@ -1668,9 +1816,16 @@ mod tests {
 
         lib.rename_tag(tag, "in-progress").expect("rename");
 
-        let names: Vec<String> = lib.doc_tags(id).expect("tags").into_iter().map(|t| t.name).collect();
+        let names: Vec<String> = lib
+            .doc_tags(id)
+            .expect("tags")
+            .into_iter()
+            .map(|t| t.name)
+            .collect();
         assert_eq!(names, vec!["in-progress"]);
-        let docs = lib.documents(LibraryFilter::Tag(tag), "", SortOrder::Title).expect("list");
+        let docs = lib
+            .documents(LibraryFilter::Tag(tag), "", SortOrder::Title)
+            .expect("list");
         assert_eq!(ids(&docs), vec![id]);
     }
 
@@ -1688,7 +1843,10 @@ mod tests {
             .into_iter()
             .map(|(t, n)| (t.name, n))
             .collect();
-        assert_eq!(counts, vec![("used".to_string(), 1), ("unused".to_string(), 0)]);
+        assert_eq!(
+            counts,
+            vec![("used".to_string(), 1), ("unused".to_string(), 0)]
+        );
     }
 
     // ── Categories ───────────────────────────────────────────────────────────
@@ -1728,9 +1886,13 @@ mod tests {
         let (mut lib, _work) = fixture();
         lib.ensure_category("Essays").expect("ensure");
 
-        lib.set_category_color("Essays", "#aabbcc").expect("set color");
+        lib.set_category_color("Essays", "#aabbcc")
+            .expect("set color");
 
-        assert_eq!(lib.get_category_color("Essays"), Some("#aabbcc".to_string()));
+        assert_eq!(
+            lib.get_category_color("Essays"),
+            Some("#aabbcc".to_string())
+        );
     }
 
     /// A category with no colour of its own must report `None`, so callers can
@@ -1759,9 +1921,13 @@ mod tests {
         lib.ensure_category("Essays").expect("ensure");
         lib.ensure_category("Sermons").expect("ensure");
 
-        lib.set_category_color("Essays", "#e01b24").expect("set color");
+        lib.set_category_color("Essays", "#e01b24")
+            .expect("set color");
 
-        assert_eq!(lib.get_category_color("Essays"), Some("#e01b24".to_string()));
+        assert_eq!(
+            lib.get_category_color("Essays"),
+            Some("#e01b24".to_string())
+        );
         assert_eq!(lib.get_category_color("Sermons"), None);
     }
 
@@ -1772,9 +1938,13 @@ mod tests {
         let (mut lib, _work) = fixture();
         lib.ensure_category("Essays").expect("ensure");
 
-        lib.set_category_color("Essays", "#3584e4").expect("set color");
+        lib.set_category_color("Essays", "#3584e4")
+            .expect("set color");
 
-        assert_eq!(lib.get_category_color("Essays"), Some("#3584e4".to_string()));
+        assert_eq!(
+            lib.get_category_color("Essays"),
+            Some("#3584e4".to_string())
+        );
     }
 
     // ── Schema migration ─────────────────────────────────────────────────────
@@ -1797,7 +1967,10 @@ mod tests {
             )
             .expect("seed");
         }
-        let lib = Library { conn, trash_dir: PathBuf::from("/nonexistent") };
+        let lib = Library {
+            conn,
+            trash_dir: PathBuf::from("/nonexistent"),
+        };
         lib.migrate().expect("migrate");
         lib
     }
@@ -1809,7 +1982,11 @@ mod tests {
             ("Sermons", "#e01b24", None),
         ]);
 
-        assert_eq!(lib.get_category_color("Essays"), None, "auto default becomes unset");
+        assert_eq!(
+            lib.get_category_color("Essays"),
+            None,
+            "auto default becomes unset"
+        );
         assert_eq!(
             lib.get_category_color("Sermons"),
             Some("#e01b24".to_string()),
@@ -1825,7 +2002,10 @@ mod tests {
         ]);
 
         let cats = lib.all_categories_structured().expect("cats");
-        let essays = cats.iter().find(|c| c.name == "Essays").expect("child present");
+        let essays = cats
+            .iter()
+            .find(|c| c.name == "Essays")
+            .expect("child present");
         assert_eq!(essays.parent, Some("Academic".to_string()));
         assert!(lib.category_has_children("Academic").expect("children"));
     }
@@ -1873,11 +2053,17 @@ mod tests {
         let conn = Connection::open(&db_path).expect("reopen");
         conn.execute_batch("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;")
             .expect("pragmas");
-        let lib = Library { conn, trash_dir: work.path().join("trash") };
+        let lib = Library {
+            conn,
+            trash_dir: work.path().join("trash"),
+        };
         lib.migrate().expect("migrate");
 
         assert_eq!(lib.get_category_color("Academic"), None);
-        assert_eq!(lib.get_category_color("Essays"), Some("#e01b24".to_string()));
+        assert_eq!(
+            lib.get_category_color("Essays"),
+            Some("#e01b24".to_string())
+        );
         let essays = lib
             .all_categories_structured()
             .expect("cats")
@@ -1888,9 +2074,14 @@ mod tests {
 
         let fk_violations: i64 = lib
             .conn
-            .query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |r| r.get(0))
+            .query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |r| {
+                r.get(0)
+            })
             .expect("fk check");
-        assert_eq!(fk_violations, 0, "migration must not leave dangling references");
+        assert_eq!(
+            fk_violations, 0,
+            "migration must not leave dangling references"
+        );
         let fk_on: i64 = lib
             .conn
             .query_row("PRAGMA foreign_keys", [], |r| r.get(0))
@@ -1917,12 +2108,17 @@ mod tests {
         let (mut lib, work) = fixture();
         let (id, _) = add_doc(&mut lib, &work, "essay.typ");
         lib.create_category("Academic", None).expect("parent");
-        lib.create_category("Essays", Some("Academic")).expect("child");
+        lib.create_category("Essays", Some("Academic"))
+            .expect("child");
         lib.set_category(id, Some("Academic")).expect("set");
 
-        lib.rename_category("Academic", "Scholarly").expect("rename");
+        lib.rename_category("Academic", "Scholarly")
+            .expect("rename");
 
-        assert_eq!(lib.doc_by_id(id).unwrap().unwrap().category, Some("Scholarly".to_string()));
+        assert_eq!(
+            lib.doc_by_id(id).unwrap().unwrap().category,
+            Some("Scholarly".to_string())
+        );
         let child = lib
             .all_categories_structured()
             .expect("cats")
@@ -1941,10 +2137,13 @@ mod tests {
     fn a_category_with_children_refuses_to_be_force_deleted() {
         let (mut lib, _work) = fixture();
         lib.create_category("Academic", None).expect("parent");
-        lib.create_category("Essays", Some("Academic")).expect("child");
+        lib.create_category("Essays", Some("Academic"))
+            .expect("child");
 
         assert!(lib.category_has_children("Academic").expect("check"));
-        assert!(!lib.force_delete_category_if_no_children("Academic").expect("delete"));
+        assert!(!lib
+            .force_delete_category_if_no_children("Academic")
+            .expect("delete"));
         assert!(lib
             .all_categories_structured()
             .expect("cats")
@@ -1958,7 +2157,9 @@ mod tests {
         let (id, _) = add_doc(&mut lib, &work, "essay.typ");
         lib.set_category(id, Some("Essays")).expect("set");
 
-        assert!(lib.force_delete_category_if_no_children("Essays").expect("delete"));
+        assert!(lib
+            .force_delete_category_if_no_children("Essays")
+            .expect("delete"));
 
         assert_eq!(lib.doc_by_id(id).unwrap().unwrap().category, None);
         assert!(lib.all_categories().expect("cats").is_empty());
@@ -2008,7 +2209,9 @@ mod tests {
         lib.delete_project(project).expect("delete");
 
         assert!(lib.all_projects().expect("projects").is_empty());
-        let docs = lib.documents(LibraryFilter::All, "", SortOrder::Title).expect("list");
+        let docs = lib
+            .documents(LibraryFilter::All, "", SortOrder::Title)
+            .expect("list");
         assert_eq!(ids(&docs), vec![id], "the document itself should survive");
     }
 
@@ -2061,7 +2264,11 @@ mod sql_shape {
         let idx = if q.param.is_some() { 2 } else { 1 };
         format!(
             "SELECT {} FROM {} WHERE {} AND {} ORDER BY {}",
-            q.select, q.from, q.conditions, search_clause(q.prefix, idx), q.order(&sort)
+            q.select,
+            q.from,
+            q.conditions,
+            search_clause(q.prefix, idx),
+            q.order(&sort)
         )
     }
 
@@ -2070,13 +2277,25 @@ mod sql_shape {
     /// category/tag id instead of the user's text.
     #[test]
     fn search_pattern_takes_the_slot_after_any_leading_parameter() {
-        for f in [LibraryFilter::All, LibraryFilter::Archive, LibraryFilter::Untagged,
-                  LibraryFilter::Recent, LibraryFilter::Trash] {
+        for f in [
+            LibraryFilter::All,
+            LibraryFilter::Archive,
+            LibraryFilter::Untagged,
+            LibraryFilter::Recent,
+            LibraryFilter::Trash,
+        ] {
             let sql = sql_for(f.clone(), SortOrder::Modified);
-            assert!(sql.contains("title LIKE ?1"), "{f:?} should bind search to ?1");
+            assert!(
+                sql.contains("title LIKE ?1"),
+                "{f:?} should bind search to ?1"
+            );
         }
-        for f in [LibraryFilter::Category("C".into()), LibraryFilter::CategoryGroup("G".into()),
-                  LibraryFilter::Project(7), LibraryFilter::Tag(9)] {
+        for f in [
+            LibraryFilter::Category("C".into()),
+            LibraryFilter::CategoryGroup("G".into()),
+            LibraryFilter::Project(7),
+            LibraryFilter::Tag(9),
+        ] {
             let sql = sql_for(f.clone(), SortOrder::Modified);
             assert!(sql.contains("LIKE ?2"), "{f:?} should bind search to ?2");
         }
@@ -2087,8 +2306,14 @@ mod sql_shape {
         for f in [LibraryFilter::Project(7), LibraryFilter::Tag(9)] {
             let sql = sql_for(f.clone(), SortOrder::Modified);
             assert!(sql.contains("FROM documents d JOIN"), "{f:?}");
-            assert!(sql.contains("SELECT d.id,"), "{f:?} must select prefixed columns");
-            assert!(sql.contains("d.title LIKE ?2"), "{f:?} must prefix the search clause");
+            assert!(
+                sql.contains("SELECT d.id,"),
+                "{f:?} must select prefixed columns"
+            );
+            assert!(
+                sql.contains("d.title LIKE ?2"),
+                "{f:?} must prefix the search clause"
+            );
             assert!(sql.contains("ORDER BY d.pinned DESC"), "{f:?}");
         }
     }
@@ -2108,15 +2333,23 @@ mod sql_shape {
 
     #[test]
     fn the_other_filters_honour_the_requested_sort_behind_pinned() {
-        for f in [LibraryFilter::All, LibraryFilter::Archive, LibraryFilter::Untagged,
-                  LibraryFilter::Category("C".into()), LibraryFilter::Tag(9)] {
+        for f in [
+            LibraryFilter::All,
+            LibraryFilter::Archive,
+            LibraryFilter::Untagged,
+            LibraryFilter::Category("C".into()),
+            LibraryFilter::Tag(9),
+        ] {
             for (sort, tail) in [
                 (SortOrder::Title, "title COLLATE NOCASE ASC"),
                 (SortOrder::Created, "created_at DESC"),
                 (SortOrder::Opened, "last_opened_at DESC NULLS LAST"),
             ] {
                 let sql = sql_for(f.clone(), sort.clone());
-                assert!(sql.contains("pinned DESC, "), "{f:?} must keep pinned first");
+                assert!(
+                    sql.contains("pinned DESC, "),
+                    "{f:?} must keep pinned first"
+                );
                 assert!(sql.ends_with(tail), "{f:?} with {sort:?} should end {tail}");
             }
         }
@@ -2129,16 +2362,28 @@ mod sql_shape {
             (LibraryFilter::All, "archived = 0 AND deleted = 0"),
             (LibraryFilter::Archive, "archived = 1 AND deleted = 0"),
             (LibraryFilter::Trash, "deleted = 1"),
-            (LibraryFilter::Untagged, "id NOT IN (SELECT DISTINCT doc_id FROM doc_tags)"),
+            (
+                LibraryFilter::Untagged,
+                "id NOT IN (SELECT DISTINCT doc_id FROM doc_tags)",
+            ),
             (LibraryFilter::Recent, "last_opened_at IS NOT NULL"),
             (LibraryFilter::Category("C".into()), "category = ?1"),
-            (LibraryFilter::CategoryGroup("G".into()), "name = ?1 OR parent = ?1"),
-            (LibraryFilter::Project(7), "pd.project_id = ?1 AND d.deleted = 0"),
+            (
+                LibraryFilter::CategoryGroup("G".into()),
+                "name = ?1 OR parent = ?1",
+            ),
+            (
+                LibraryFilter::Project(7),
+                "pd.project_id = ?1 AND d.deleted = 0",
+            ),
             (LibraryFilter::Tag(9), "dt.tag_id = ?1"),
         ];
         for (f, needle) in cases {
             let sql = sql_for(f.clone(), SortOrder::Modified);
-            assert!(sql.contains(needle), "{f:?} should contain {needle:?}\n{sql}");
+            assert!(
+                sql.contains(needle),
+                "{f:?} should contain {needle:?}\n{sql}"
+            );
         }
     }
 }

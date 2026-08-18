@@ -4,8 +4,8 @@ use std::rc::Rc;
 
 use gtk4::prelude::*;
 use gtk4::{
-    Box as GtkBox, Label, ListBox, ListBoxRow, Orientation,
-    ScrolledWindow, SelectionMode, Separator, TextTag, TextView, WrapMode,
+    Box as GtkBox, Label, ListBox, ListBoxRow, Orientation, ScrolledWindow, SelectionMode,
+    Separator, TextTag, TextView, WrapMode,
 };
 
 #[derive(Clone)]
@@ -87,7 +87,9 @@ impl HistoryPanel {
                 let idx = row.index() as usize;
                 let oids = commits.borrow();
                 let Some(oid) = oids.get(idx) else { return };
-                let Some(ref fp) = *file_ref.borrow() else { return };
+                let Some(ref fp) = *file_ref.borrow() else {
+                    return;
+                };
                 let diff = git_diff_for_commit(&root, fp, oid);
                 apply_colored_diff(&diff_buf, &diff);
             });
@@ -180,7 +182,13 @@ fn git_log_for_file(root: &Path, file: &Path) -> Vec<(String, String, String)> {
     // reliable way to point git at the right repo there. `-C` is a host-side
     // git argument and works regardless.
     let out = crate::git_sync::git_cmd(root)
-        .args(["log", "--follow", "--format=%H|%s|%cd", "--date=short", "--"])
+        .args([
+            "log",
+            "--follow",
+            "--format=%H|%s|%cd",
+            "--date=short",
+            "--",
+        ])
         .arg(file)
         .output();
 

@@ -3,13 +3,12 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 
+use adw::prelude::*;
 use gtk4::prelude::*;
 use gtk4::{
-    Align, Box as GtkBox, Button, CheckButton, Entry, Label, Orientation,
-    ScrolledWindow, Separator,
+    Align, Box as GtkBox, Button, CheckButton, Entry, Label, Orientation, ScrolledWindow, Separator,
 };
 use libadwaita as adw;
-use adw::prelude::*;
 
 const PREFS_FILE: &str = "font-preferences.toml";
 
@@ -26,8 +25,7 @@ impl FontManager {
     /// fall back to them.
     pub fn new(parent: &adw::ApplicationWindow, default_sans: &str, default_serif: &str) -> Self {
         let fonts = list_system_fonts();
-        let prefs: Rc<RefCell<BTreeMap<String, bool>>> =
-            Rc::new(RefCell::new(load_prefs()));
+        let prefs: Rc<RefCell<BTreeMap<String, bool>>> = Rc::new(RefCell::new(load_prefs()));
         let locked_fonts: Rc<Vec<String>> = Rc::new(
             [default_sans, default_serif]
                 .into_iter()
@@ -84,7 +82,9 @@ impl FontManager {
                 row.append(&lbl);
                 if is_locked {
                     let lock_icon = Label::new(Some("🔒"));
-                    lock_icon.set_tooltip_text(Some("Default font — set in Settings → Editor → Document Fonts"));
+                    lock_icon.set_tooltip_text(Some(
+                        "Default font — set in Settings → Editor → Document Fonts",
+                    ));
                     row.append(&lock_icon);
                 }
                 list_box_for_rebuild.append(&row);

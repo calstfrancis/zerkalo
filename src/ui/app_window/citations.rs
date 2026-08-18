@@ -7,15 +7,15 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::{Duration, SystemTime};
 
+use adw::prelude::*;
 use gtk4::prelude::*;
 use libadwaita as adw;
-use adw::prelude::*;
 
-use crate::bibliography;
-use crate::config::Config;
 use super::super::citation_panel::CitationPanel;
 use super::super::editor_pane::EditorPane;
 use super::super::ref_manager::RefManager;
+use crate::bibliography;
+use crate::config::Config;
 
 /// What the citation/bibliography wiring needs from `AppWindow::new`.
 pub(super) struct CitationCtx {
@@ -42,7 +42,9 @@ pub(super) struct CitationCtx {
 /// side effect of a dialog whose primary purpose looks like a Settings
 /// action, not a document edit.
 fn update_active_document_bib_path(ep: &EditorPane, path: &std::path::Path) {
-    let Some(content) = ep.get_active_content() else { return };
+    let Some(content) = ep.get_active_content() else {
+        return;
+    };
     let target = bibliography::bib_target_path(path);
     let new_content = crate::styles::set_bibliography_path(&content, &target.to_string_lossy());
     if new_content != content {
@@ -61,7 +63,8 @@ pub(super) fn wire_citations(ctx: &CitationCtx) -> Rc<RefCell<Option<PathBuf>>> 
         }
         ctx.editor_pane.set_bib_entries(entries.clone());
         ctx.citation_panel.load_bib(entries);
-        ctx.citation_panel.set_bib_filename(bp.file_name().and_then(|n| n.to_str()));
+        ctx.citation_panel
+            .set_bib_filename(bp.file_name().and_then(|n| n.to_str()));
         ctx.ref_manager.load_bib(bp);
 
         if bibliography::is_vault_dir(bp) {
@@ -129,7 +132,8 @@ pub(super) fn wire_citations(ctx: &CitationCtx) -> Rc<RefCell<Option<PathBuf>>> 
                 let entries = bibliography::load_bib(&bib_path);
                 ctx.editor_pane.set_bib_entries(entries.clone());
                 ctx.citation_panel.load_bib(entries);
-                ctx.citation_panel.set_bib_filename(bib_path.file_name().and_then(|n| n.to_str()));
+                ctx.citation_panel
+                    .set_bib_filename(bib_path.file_name().and_then(|n| n.to_str()));
                 *auto_detected_bib.borrow_mut() = Some(bib_path);
             }
         }
@@ -144,7 +148,8 @@ pub(super) fn wire_citations(ctx: &CitationCtx) -> Rc<RefCell<Option<PathBuf>>> 
         }
         ctx.editor_pane.set_cv_entries(entries.clone());
         ctx.citation_panel.load_cv_entries(entries);
-        ctx.citation_panel.set_cv_filename(cvp.file_name().and_then(|n| n.to_str()));
+        ctx.citation_panel
+            .set_cv_filename(cvp.file_name().and_then(|n| n.to_str()));
 
         let editor_for_cv = ctx.editor_pane.clone();
         let citation_for_cv = ctx.citation_panel.clone();
@@ -178,7 +183,8 @@ pub(super) fn wire_citations(ctx: &CitationCtx) -> Rc<RefCell<Option<PathBuf>>> 
 
     {
         let ep = ctx.editor_pane.clone();
-        ctx.citation_panel.set_on_insert(move |text| ep.insert_at_cursor(&text));
+        ctx.citation_panel
+            .set_on_insert(move |text| ep.insert_at_cursor(&text));
     }
 
     // ── Citation panel: choose bib file button ────────────────────────────
@@ -433,7 +439,6 @@ pub(super) fn wire_citations(ctx: &CitationCtx) -> Rc<RefCell<Option<PathBuf>>> 
             dlg.present();
         });
     }
-
 
     auto_detected_bib
 }

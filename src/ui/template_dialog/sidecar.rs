@@ -9,7 +9,7 @@ use super::*;
 
 pub fn sidecar_path(typ_path: &std::path::Path) -> PathBuf {
     let stem = typ_path.file_stem().unwrap_or_default();
-    let dir  = typ_path.parent().unwrap_or(std::path::Path::new("."));
+    let dir = typ_path.parent().unwrap_or(std::path::Path::new("."));
     dir.join(format!("{}.zerkalo.toml", stem.to_string_lossy()))
 }
 
@@ -32,7 +32,10 @@ pub fn write_atomically(path: &std::path::Path, contents: &str) -> std::io::Resu
     use std::io::Write;
 
     let dir = path.parent().unwrap_or(std::path::Path::new("."));
-    let stem = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let stem = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
     let tmp = dir.join(format!(".{stem}.zerkalo-tmp"));
 
     {
@@ -64,7 +67,11 @@ pub fn load_sidecar(typ_path: &std::path::Path) -> Option<SidecarSettings> {
     match toml::from_str::<SidecarSettings>(&text) {
         Ok(s) => Some(s),
         Err(e) => {
-            tracing::warn!("Sidecar {:?} is corrupt ({}); falling back to text parsing", path, e);
+            tracing::warn!(
+                "Sidecar {:?} is corrupt ({}); falling back to text parsing",
+                path,
+                e
+            );
             None
         }
     }
@@ -72,45 +79,62 @@ pub fn load_sidecar(typ_path: &std::path::Path) -> Option<SidecarSettings> {
 
 pub fn build_sidecar(t: &TemplateSettings) -> SidecarSettings {
     SidecarSettings {
-        title:             t.title.clone(),
-        subtitle:          t.subtitle.clone(),
-        author:            t.author.clone(),
-        affiliation:       t.affiliation.clone(),
-        course:            t.course.clone(),
-        professor:         t.professor.clone(),
-        date:              t.date.clone(),
-        style:             CITATION_STYLES.get(t.style_idx).map(|(_, k)| k.to_string()).unwrap_or_default(),
-        font:              t.font.clone(),
-        font_size:         t.font_size.clone(),
-        paper:             PAPER_SIZES.get(t.paper_idx).map(|(_, k)| k.to_string()).unwrap_or_default(),
-        custom_paper_w:    t.custom_paper_w.clone(),
-        custom_paper_h:    t.custom_paper_h.clone(),
-        margin:            t.margin_idx as u32,
-        custom_margin:     t.custom_margin.clone(),
-        spacing:           t.spacing.clone(),
-        page_numbers:      t.page_num_pos,
-        header_style:      t.header_style,
-        toc:               t.include_toc,
-        toc_depth:         t.toc_depth,
-        abstract_enabled:  t.include_abstract,
-        abstract_text:     t.abstract_text.clone(),
-        keywords_enabled:  t.include_keywords,
-        keywords_text:     t.keywords.clone(),
+        title: t.title.clone(),
+        subtitle: t.subtitle.clone(),
+        author: t.author.clone(),
+        affiliation: t.affiliation.clone(),
+        course: t.course.clone(),
+        professor: t.professor.clone(),
+        date: t.date.clone(),
+        style: CITATION_STYLES
+            .get(t.style_idx)
+            .map(|(_, k)| k.to_string())
+            .unwrap_or_default(),
+        font: t.font.clone(),
+        font_size: t.font_size.clone(),
+        paper: PAPER_SIZES
+            .get(t.paper_idx)
+            .map(|(_, k)| k.to_string())
+            .unwrap_or_default(),
+        custom_paper_w: t.custom_paper_w.clone(),
+        custom_paper_h: t.custom_paper_h.clone(),
+        margin: t.margin_idx as u32,
+        custom_margin: t.custom_margin.clone(),
+        spacing: t.spacing.clone(),
+        page_numbers: t.page_num_pos,
+        header_style: t.header_style,
+        toc: t.include_toc,
+        toc_depth: t.toc_depth,
+        abstract_enabled: t.include_abstract,
+        abstract_text: t.abstract_text.clone(),
+        keywords_enabled: t.include_keywords,
+        keywords_text: t.keywords.clone(),
         heading_numbering: t.heading_numbering,
-        numbering_format:  t.numbering_format.clone(),
-        languages:         t.languages.clone(),
-        packages:          t.packages.clone(),
-        dropcap_font:      t.dropcap_font.clone(),
-        dropcap_lines:     t.dropcap_lines,
-        dropcap_color:     t.dropcap_color.clone(),
-        bib_path:          t.bib_path.as_ref().map(|p| p.to_string_lossy().into_owned()),
-        body_kind:         match t.body_kind { BodyKind::Book => "book".into(), BodyKind::Cv => "cv".into(), BodyKind::Letter => "letter".into(), BodyKind::Academic => "academic".into() },
+        numbering_format: t.numbering_format.clone(),
+        languages: t.languages.clone(),
+        packages: t.packages.clone(),
+        dropcap_font: t.dropcap_font.clone(),
+        dropcap_lines: t.dropcap_lines,
+        dropcap_color: t.dropcap_color.clone(),
+        bib_path: t
+            .bib_path
+            .as_ref()
+            .map(|p| p.to_string_lossy().into_owned()),
+        body_kind: match t.body_kind {
+            BodyKind::Book => "book".into(),
+            BodyKind::Cv => "cv".into(),
+            BodyKind::Letter => "letter".into(),
+            BodyKind::Academic => "academic".into(),
+        },
         // Written only for CV documents, and read back via `cv_style_index`
         // instead of the `style`/CITATION_STYLES aliasing above — see
         // CV_STYLE_OPTIONS' doc comment for why `style` alone isn't reliable
         // for CVs if CITATION_STYLES is ever reordered.
-        cv_style:          if t.body_kind == BodyKind::Cv {
-            CV_STYLE_OPTIONS.get(t.style_idx).map(|(_, k, _)| k.to_string()).unwrap_or_default()
+        cv_style: if t.body_kind == BodyKind::Cv {
+            CV_STYLE_OPTIONS
+                .get(t.style_idx)
+                .map(|(_, k, _)| k.to_string())
+                .unwrap_or_default()
         } else {
             String::new()
         },
@@ -184,7 +208,9 @@ pub fn parse_abstract_from_doc(content: &str) -> Option<String> {
             continue;
         }
         if found_abstract_header {
-            if t.is_empty() { continue; }
+            if t.is_empty() {
+                continue;
+            }
             // The block form: #block(inset: (x: 1in))[ ... ]
             if t.starts_with("#block(") && t.ends_with('[') {
                 let next = i + 1;
@@ -210,8 +236,7 @@ pub fn parse_abstract_from_doc(content: &str) -> Option<String> {
 /// Creates a `.typ.bak` backup first. Returns `Ok(true)` when the file was
 /// modified, `Ok(false)` when the marker was already present.
 pub fn repair_template_markers(path: &std::path::Path) -> Result<bool, String> {
-    let content = std::fs::read_to_string(path)
-        .map_err(|e| format!("Cannot read file: {e}"))?;
+    let content = std::fs::read_to_string(path).map_err(|e| format!("Cannot read file: {e}"))?;
 
     if has_body_marker(&content) {
         return Ok(false);
@@ -232,14 +257,14 @@ pub fn repair_template_markers(path: &std::path::Path) -> Result<bool, String> {
         new_content.push('\n');
     }
     new_content.push_str("// ── Document body — Zerkalo uses this exact line to find where your writing starts. Leave it in place; everything below it is yours to edit freely.\n");
-    new_content.push_str("// ── Document body ───────────────────────────────────────────────────\n\n");
+    new_content
+        .push_str("// ── Document body ───────────────────────────────────────────────────\n\n");
     new_content.push_str(&suffix);
     if !suffix.is_empty() && !new_content.ends_with('\n') {
         new_content.push('\n');
     }
 
-    write_atomically(path, &new_content)
-        .map_err(|e| format!("Cannot write repaired file: {e}"))?;
+    write_atomically(path, &new_content).map_err(|e| format!("Cannot write repaired file: {e}"))?;
 
     Ok(true)
 }
@@ -330,7 +355,7 @@ pub fn apply_body_splice(existing: &str, fresh: &str) -> String {
 pub fn apply_body_splice_reporting(existing: &str, fresh: &str) -> (String, SpliceOutcome) {
     const BODY_MARKERS: &[&str] = &["// ── Document body", "// ── Chapters"];
 
-    let old_pos   = BODY_MARKERS.iter().filter_map(|m| existing.find(m)).min();
+    let old_pos = BODY_MARKERS.iter().filter_map(|m| existing.find(m)).min();
     let fresh_pos = BODY_MARKERS.iter().filter_map(|m| fresh.find(m)).min();
 
     match (old_pos, fresh_pos) {
@@ -368,7 +393,8 @@ pub fn apply_body_splice_reporting(existing: &str, fresh: &str) -> (String, Spli
             // splicing here would silently write a document that fails to
             // compile with "unknown function: section". Keep the existing,
             // working document instead of corrupting it.
-            let old_body_needs_cv_helpers = old_body.contains("#section(") || old_body.contains("#cv-section(");
+            let old_body_needs_cv_helpers =
+                old_body.contains("#section(") || old_body.contains("#cv-section(");
             let fresh_defines_cv_helpers = fresh_preamble.contains("#let section(");
             if old_body_needs_cv_helpers && !fresh_defines_cv_helpers {
                 return (existing.to_string(), SpliceOutcome::RefusedIncompatible);
@@ -396,7 +422,10 @@ pub fn apply_body_splice_reporting(existing: &str, fresh: &str) -> (String, Spli
                 }
             }
 
-            (format!("{fresh_preamble}{updated_body}"), SpliceOutcome::Preserved)
+            (
+                format!("{fresh_preamble}{updated_body}"),
+                SpliceOutcome::Preserved,
+            )
         }
         // The existing document has a body worth keeping but the regenerated
         // one carries no marker to splice at. Returning `fresh` here — as this
@@ -433,17 +462,32 @@ pub(crate) fn inject_legacy_cv_helpers(fresh_preamble: &str) -> String {
 
 pub(crate) fn legacy_cv_helpers_block() -> String {
     let mut out = String::new();
-    let _ = writeln!(out, "// #job — kept for documents created before #cv-section existed");
+    let _ = writeln!(
+        out,
+        "// #job — kept for documents created before #cv-section existed"
+    );
     let _ = writeln!(out, "#let job(title, company, years, desc) = {{");
     let _ = writeln!(out, "  if CV_STYLE == \"modern\" {{");
     let _ = writeln!(out, "    grid(columns: (1fr, auto),");
-    let _ = writeln!(out, "      [*#title* #h(0.3em)#text(fill: cv-accent, size: 9.5pt)[#company]],");
-    let _ = writeln!(out, "      text(size: 9pt, fill: cv-dim, style: \"italic\")[#years],");
+    let _ = writeln!(
+        out,
+        "      [*#title* #h(0.3em)#text(fill: cv-accent, size: 9.5pt)[#company]],"
+    );
+    let _ = writeln!(
+        out,
+        "      text(size: 9pt, fill: cv-dim, style: \"italic\")[#years],"
+    );
     let _ = writeln!(out, "    )");
     let _ = writeln!(out, "  }} else if CV_STYLE == \"academic\" {{");
     let _ = writeln!(out, "    grid(columns: (1fr, auto),");
-    let _ = writeln!(out, "      [*#title* #h(0.3em)#text(style: \"italic\")[#company]],");
-    let _ = writeln!(out, "      text(style: \"italic\", fill: cv-muted)[#years],");
+    let _ = writeln!(
+        out,
+        "      [*#title* #h(0.3em)#text(style: \"italic\")[#company]],"
+    );
+    let _ = writeln!(
+        out,
+        "      text(style: \"italic\", fill: cv-muted)[#years],"
+    );
     let _ = writeln!(out, "    )");
     let _ = writeln!(out, "  }} else if CV_STYLE == \"sidebar\" {{");
     let _ = writeln!(out, "    [*#title* --- #company]");
@@ -451,8 +495,14 @@ pub(crate) fn legacy_cv_helpers_block() -> String {
     let _ = writeln!(out, "    text(style: \"italic\")[#years]");
     let _ = writeln!(out, "  }} else {{");
     let _ = writeln!(out, "    grid(columns: (1fr, auto),");
-    let _ = writeln!(out, "      [*#title* #h(0.25em)#text(fill: cv-muted)[—]#h(0.25em)#company],");
-    let _ = writeln!(out, "      text(fill: cv-muted, style: \"italic\")[#years],");
+    let _ = writeln!(
+        out,
+        "      [*#title* #h(0.25em)#text(fill: cv-muted)[—]#h(0.25em)#company],"
+    );
+    let _ = writeln!(
+        out,
+        "      text(fill: cv-muted, style: \"italic\")[#years],"
+    );
     let _ = writeln!(out, "    )");
     let _ = writeln!(out, "  }}");
     let _ = writeln!(out, "  v(0.2em)");
@@ -464,13 +514,25 @@ pub(crate) fn legacy_cv_helpers_block() -> String {
     let _ = writeln!(out, "#let edu(degree, institution, years, note: none) = {{");
     let _ = writeln!(out, "  if CV_STYLE == \"modern\" {{");
     let _ = writeln!(out, "    grid(columns: (1fr, auto),");
-    let _ = writeln!(out, "      [*#degree* #h(0.3em)#text(fill: cv-accent, size: 9.5pt)[#institution]],");
-    let _ = writeln!(out, "      text(size: 9pt, fill: cv-dim, style: \"italic\")[#years],");
+    let _ = writeln!(
+        out,
+        "      [*#degree* #h(0.3em)#text(fill: cv-accent, size: 9.5pt)[#institution]],"
+    );
+    let _ = writeln!(
+        out,
+        "      text(size: 9pt, fill: cv-dim, style: \"italic\")[#years],"
+    );
     let _ = writeln!(out, "    )");
     let _ = writeln!(out, "  }} else if CV_STYLE == \"academic\" {{");
     let _ = writeln!(out, "    grid(columns: (1fr, auto),");
-    let _ = writeln!(out, "      [*#degree* #h(0.3em)#text(style: \"italic\")[#institution]],");
-    let _ = writeln!(out, "      text(style: \"italic\", fill: cv-muted)[#years],");
+    let _ = writeln!(
+        out,
+        "      [*#degree* #h(0.3em)#text(style: \"italic\")[#institution]],"
+    );
+    let _ = writeln!(
+        out,
+        "      text(style: \"italic\", fill: cv-muted)[#years],"
+    );
     let _ = writeln!(out, "    )");
     let _ = writeln!(out, "  }} else if CV_STYLE == \"sidebar\" {{");
     let _ = writeln!(out, "    [*#degree*]");
@@ -481,11 +543,20 @@ pub(crate) fn legacy_cv_helpers_block() -> String {
     let _ = writeln!(out, "    [#years]");
     let _ = writeln!(out, "  }} else {{");
     let _ = writeln!(out, "    grid(columns: (1fr, auto),");
-    let _ = writeln!(out, "      [*#degree* #h(0.25em)#text(fill: cv-muted)[—]#h(0.25em)#institution],");
-    let _ = writeln!(out, "      text(fill: cv-muted, style: \"italic\")[#years],");
+    let _ = writeln!(
+        out,
+        "      [*#degree* #h(0.25em)#text(fill: cv-muted)[—]#h(0.25em)#institution],"
+    );
+    let _ = writeln!(
+        out,
+        "      text(fill: cv-muted, style: \"italic\")[#years],"
+    );
     let _ = writeln!(out, "    )");
     let _ = writeln!(out, "  }}");
-    let _ = writeln!(out, "  if CV_STYLE != \"sidebar\" and note != none {{ v(0.15em); note }}");
+    let _ = writeln!(
+        out,
+        "  if CV_STYLE != \"sidebar\" and note != none {{ v(0.15em); note }}"
+    );
     let _ = writeln!(out, "  v(0.45em)");
     let _ = writeln!(out, "}}");
     let _ = writeln!(out);
@@ -503,7 +574,10 @@ pub(crate) fn legacy_cv_helpers_block() -> String {
     let _ = writeln!(out, "    #text(weight: \"bold\")[#category]");
     let _ = writeln!(out, "    #list(..items.map(item => [#item]))");
     let _ = writeln!(out, "  ] else [");
-    let _ = writeln!(out, "    #text(style: \"italic\")[#category:] #h(0.3em)#items.join(\", \") \\");
+    let _ = writeln!(
+        out,
+        "    #text(style: \"italic\")[#category:] #h(0.3em)#items.join(\", \") \\"
+    );
     let _ = writeln!(out, "  ]");
     let _ = writeln!(out, "}}");
     let _ = writeln!(out);
@@ -511,13 +585,25 @@ pub(crate) fn legacy_cv_helpers_block() -> String {
     let _ = writeln!(out, "#let award(title, org, years, desc: none) = {{");
     let _ = writeln!(out, "  if CV_STYLE == \"modern\" {{");
     let _ = writeln!(out, "    grid(columns: (1fr, auto),");
-    let _ = writeln!(out, "      [*#title* #h(0.3em)#text(fill: cv-accent, size: 9.5pt)[#org]],");
-    let _ = writeln!(out, "      text(size: 9pt, fill: cv-dim, style: \"italic\")[#years],");
+    let _ = writeln!(
+        out,
+        "      [*#title* #h(0.3em)#text(fill: cv-accent, size: 9.5pt)[#org]],"
+    );
+    let _ = writeln!(
+        out,
+        "      text(size: 9pt, fill: cv-dim, style: \"italic\")[#years],"
+    );
     let _ = writeln!(out, "    )");
     let _ = writeln!(out, "  }} else if CV_STYLE == \"academic\" {{");
     let _ = writeln!(out, "    grid(columns: (1fr, auto),");
-    let _ = writeln!(out, "      [*#title* #h(0.3em)#text(style: \"italic\")[#org]],");
-    let _ = writeln!(out, "      text(style: \"italic\", fill: cv-muted)[#years],");
+    let _ = writeln!(
+        out,
+        "      [*#title* #h(0.3em)#text(style: \"italic\")[#org]],"
+    );
+    let _ = writeln!(
+        out,
+        "      text(style: \"italic\", fill: cv-muted)[#years],"
+    );
     let _ = writeln!(out, "    )");
     let _ = writeln!(out, "  }} else if CV_STYLE == \"sidebar\" {{");
     let _ = writeln!(out, "    [*#title*]");
@@ -526,8 +612,14 @@ pub(crate) fn legacy_cv_helpers_block() -> String {
     let _ = writeln!(out, "    [#years]");
     let _ = writeln!(out, "  }} else {{");
     let _ = writeln!(out, "    grid(columns: (1fr, auto),");
-    let _ = writeln!(out, "      [*#title* #h(0.25em)#text(fill: cv-muted)[—]#h(0.25em)#org],");
-    let _ = writeln!(out, "      text(fill: cv-muted, style: \"italic\")[#years],");
+    let _ = writeln!(
+        out,
+        "      [*#title* #h(0.25em)#text(fill: cv-muted)[—]#h(0.25em)#org],"
+    );
+    let _ = writeln!(
+        out,
+        "      text(fill: cv-muted, style: \"italic\")[#years],"
+    );
     let _ = writeln!(out, "    )");
     let _ = writeln!(out, "  }}");
     let _ = writeln!(out, "  if desc != none {{ v(0.15em); desc }}");
@@ -537,13 +629,22 @@ pub(crate) fn legacy_cv_helpers_block() -> String {
 
     let _ = writeln!(out, "#let presentation(role, venue, title, years) = {{");
     let _ = writeln!(out, "  if CV_STYLE == \"sidebar\" {{");
-    let _ = writeln!(out, "    [*#role* #h(0.25em)#venue, #text(style: \"italic\")[\"#title\"]]");
+    let _ = writeln!(
+        out,
+        "    [*#role* #h(0.25em)#venue, #text(style: \"italic\")[\"#title\"]]"
+    );
     let _ = writeln!(out, "    linebreak()");
     let _ = writeln!(out, "    text(style: \"italic\")[#years]");
     let _ = writeln!(out, "  }} else {{");
     let _ = writeln!(out, "    grid(columns: (1fr, auto),");
-    let _ = writeln!(out, "      [*#role* #h(0.25em)#venue, #text(style: \"italic\")[\"#title\"]],");
-    let _ = writeln!(out, "      text(fill: cv-muted, style: \"italic\")[#years],");
+    let _ = writeln!(
+        out,
+        "      [*#role* #h(0.25em)#venue, #text(style: \"italic\")[\"#title\"]],"
+    );
+    let _ = writeln!(
+        out,
+        "      text(fill: cv-muted, style: \"italic\")[#years],"
+    );
     let _ = writeln!(out, "    )");
     let _ = writeln!(out, "  }}");
     let _ = writeln!(out, "  v(0.35em)");
@@ -553,10 +654,9 @@ pub(crate) fn legacy_cv_helpers_block() -> String {
 
 pub(crate) fn bib_title_for_style(style_key: &str) -> &'static str {
     match style_key {
-        "mla"                 => "Works Cited",
+        "mla" => "Works Cited",
         "chicago-author-date" => "References",
         "apa" | "asa" | "ieee" | "harvard" | "vancouver" => "References",
-        _                     => "",
+        _ => "",
     }
 }
-

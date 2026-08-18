@@ -1,12 +1,11 @@
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::cell::RefCell;
 
 use gtk4::prelude::*;
 use gtk4::{
-    Box as GtkBox, DrawingArea, GestureClick, Label, Orientation,
-    ScrolledWindow, Separator,
+    Box as GtkBox, DrawingArea, GestureClick, Label, Orientation, ScrolledWindow, Separator,
 };
 
 const NODE_W: f64 = 148.0;
@@ -93,7 +92,8 @@ impl DepGraph {
                     );
                     ctx.set_font_size(13.0);
                     ctx.move_to(MARGIN, MARGIN + 16.0);
-                    ctx.show_text("No linked files found. Open a .typ file.").ok();
+                    ctx.show_text("No linked files found. Open a .typ file.")
+                        .ok();
                     return;
                 }
 
@@ -162,7 +162,15 @@ impl DepGraph {
             });
         }
 
-        let g = Self { widget, drawing_area, project_root: Rc::new(project_root), nodes, edges, hovered, on_open };
+        let g = Self {
+            widget,
+            drawing_area,
+            project_root: Rc::new(project_root),
+            nodes,
+            edges,
+            hovered,
+            on_open,
+        };
 
         // Click handler — extract path before dropping borrow to avoid RefCell conflict
         // when the callback triggers dep_graph.refresh() which needs borrow_mut.
@@ -174,10 +182,9 @@ impl DepGraph {
             click.connect_pressed(move |_, _, x, y| {
                 let clicked_path = {
                     let nodes = nodes_c.borrow();
-                    nodes.iter()
-                        .find(|n| {
-                            x >= n.x && x <= n.x + NODE_W && y >= n.y && y <= n.y + NODE_H
-                        })
+                    nodes
+                        .iter()
+                        .find(|n| x >= n.x && x <= n.x + NODE_W && y >= n.y && y <= n.y + NODE_H)
                         .map(|n| n.path.clone())
                 }; // borrow released here
                 if let Some(path) = clicked_path {
@@ -200,9 +207,7 @@ impl DepGraph {
                 let nodes = nodes_m.borrow();
                 let mut found = None;
                 for (i, node) in nodes.iter().enumerate() {
-                    if x >= node.x && x <= node.x + NODE_W
-                        && y >= node.y && y <= node.y + NODE_H
-                    {
+                    if x >= node.x && x <= node.x + NODE_W && y >= node.y && y <= node.y + NODE_H {
                         found = Some(i);
                         break;
                     }
@@ -247,10 +252,12 @@ impl DepGraph {
         let (nodes, edges) = layout_graph(&root, &deps);
 
         // Update DrawingArea content size
-        let max_x = nodes.iter()
+        let max_x = nodes
+            .iter()
             .map(|n| n.x + NODE_W + MARGIN)
             .fold(0.0f64, f64::max);
-        let max_y = nodes.iter()
+        let max_y = nodes
+            .iter()
             .map(|n| n.y + NODE_H + MARGIN)
             .fold(0.0f64, f64::max);
 
@@ -325,7 +332,12 @@ fn layout_graph(
 
         let idx = nodes.len();
         path_to_idx.insert(path.clone(), idx);
-        nodes.push(GraphNode { path: path.clone(), label, x: 0.0, y: 0.0 });
+        nodes.push(GraphNode {
+            path: path.clone(),
+            label,
+            x: 0.0,
+            y: 0.0,
+        });
 
         while levels.len() <= depth {
             levels.push(Vec::new());
@@ -342,7 +354,8 @@ fn layout_graph(
     }
 
     // Calculate positions
-    let max_w = levels.iter()
+    let max_w = levels
+        .iter()
         .map(|lvl| lvl.len() as f64 * (NODE_W + H_GAP) - H_GAP)
         .fold(0.0f64, f64::max);
 

@@ -8,13 +8,13 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use adw::prelude::*;
 use gtk4::prelude::*;
 use gtk4::{
     Align, Box as GtkBox, Button, CheckButton, DropDown, Entry, Grid, Label, Orientation,
     ScrolledWindow, SpinButton, StringList,
 };
 use libadwaita as adw;
-use adw::prelude::*;
 
 const MIN_DIM: u32 = 1;
 const MAX_DIM: u32 = 20;
@@ -155,7 +155,12 @@ impl TableDialog {
             cells.borrow_mut().push(row);
         }
 
-        fn remove_column(grid: &Grid, cells: &Rc<RefCell<Vec<Vec<CellWidgets>>>>, aligns: &Rc<RefCell<Vec<DropDown>>>, align_box: &GtkBox) {
+        fn remove_column(
+            grid: &Grid,
+            cells: &Rc<RefCell<Vec<Vec<CellWidgets>>>>,
+            aligns: &Rc<RefCell<Vec<DropDown>>>,
+            align_box: &GtkBox,
+        ) {
             if let Some(dd) = aligns.borrow_mut().pop() {
                 align_box.remove(&dd);
             }
@@ -212,7 +217,12 @@ impl TableDialog {
                     if current == target {
                         break;
                     } else if current < target {
-                        add_row(&grid_c, &cells_c, cols_spin_c.value() as usize, span_tooltip);
+                        add_row(
+                            &grid_c,
+                            &cells_c,
+                            cols_spin_c.value() as usize,
+                            span_tooltip,
+                        );
                     } else {
                         remove_row(&grid_c, &cells_c);
                     }
@@ -286,7 +296,12 @@ fn new_cell_widgets(span_tooltip: &str) -> CellWidgets {
     span_box.set_halign(Align::Start);
     wrapper.append(&span_box);
 
-    CellWidgets { wrapper, content, colspan, rowspan }
+    CellWidgets {
+        wrapper,
+        content,
+        colspan,
+        rowspan,
+    }
 }
 
 /// `gtk_grid_remove` (called on shrink, see `remove_column`/`remove_row`
@@ -337,7 +352,11 @@ fn read_table_spec(
             _ => "left",
         })
         .collect();
-    TableSpec { cells, header_row, aligns }
+    TableSpec {
+        cells,
+        header_row,
+        aligns,
+    }
 }
 
 /// Generates a `#table(...)` block from a resolved grid: computes which
@@ -433,7 +452,11 @@ mod tests {
     use super::*;
 
     fn cell(content: &str, colspan: u32, rowspan: u32) -> TableCell {
-        TableCell { content: content.to_string(), colspan, rowspan }
+        TableCell {
+            content: content.to_string(),
+            colspan,
+            rowspan,
+        }
     }
 
     fn plain_cell(content: &str) -> TableCell {
@@ -494,12 +517,23 @@ mod tests {
 
         static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let path = std::env::temp_dir()
-            .join(format!("zerkalo_table_dialog_empty_header_{}_{n}.typ", std::process::id()));
+        let path = std::env::temp_dir().join(format!(
+            "zerkalo_table_dialog_empty_header_{}_{n}.typ",
+            std::process::id()
+        ));
         std::fs::write(&path, &code).unwrap();
-        let result = crate::compiler::compile_to_pdf_bytes(&path, &Default::default(), &Default::default(), None);
+        let result = crate::compiler::compile_to_pdf_bytes(
+            &path,
+            &Default::default(),
+            &Default::default(),
+            None,
+        );
         let _ = std::fs::remove_file(&path);
-        assert!(result.is_ok(), "empty header cell failed to compile: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "empty header cell failed to compile: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -537,7 +571,10 @@ mod tests {
     #[test]
     fn combined_colspan_and_rowspan() {
         let spec = TableSpec {
-            cells: vec![vec![cell("Big", 2, 2), plain_cell("x")], vec![plain_cell("y"), plain_cell("z")]],
+            cells: vec![
+                vec![cell("Big", 2, 2), plain_cell("x")],
+                vec![plain_cell("y"), plain_cell("z")],
+            ],
             header_row: false,
             aligns: vec!["left", "left"],
         };
@@ -558,7 +595,11 @@ mod tests {
 
     #[test]
     fn empty_grid_produces_empty_string() {
-        let spec = TableSpec { cells: vec![], header_row: false, aligns: vec![] };
+        let spec = TableSpec {
+            cells: vec![],
+            header_row: false,
+            aligns: vec![],
+        };
         assert_eq!(generate_table_code(&spec), "");
     }
 
@@ -585,7 +626,11 @@ mod tests {
             cells: vec![
                 vec![plain_cell("Name"), plain_cell("Age"), plain_cell("City")],
                 vec![cell("Alice [bracket]", 2, 1), plain_cell("unused")],
-                vec![cell("Bob", 1, 1), plain_cell("25"), plain_cell("LA #tag @ref")],
+                vec![
+                    cell("Bob", 1, 1),
+                    plain_cell("25"),
+                    plain_cell("LA #tag @ref"),
+                ],
             ],
             header_row: true,
             aligns: vec!["left", "center", "right"],
@@ -595,12 +640,24 @@ mod tests {
         static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let dir = std::env::temp_dir();
-        let path = dir.join(format!("zerkalo_table_dialog_test_{}_{n}.typ", std::process::id()));
+        let path = dir.join(format!(
+            "zerkalo_table_dialog_test_{}_{n}.typ",
+            std::process::id()
+        ));
         std::fs::write(&path, &code).unwrap();
 
-        let result = crate::compiler::compile_to_pdf_bytes(&path, &Default::default(), &Default::default(), None);
+        let result = crate::compiler::compile_to_pdf_bytes(
+            &path,
+            &Default::default(),
+            &Default::default(),
+            None,
+        );
         let _ = std::fs::remove_file(&path);
 
-        assert!(result.is_ok(), "generated table failed to compile:\n{code}\n\nerror: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "generated table failed to compile:\n{code}\n\nerror: {:?}",
+            result.err()
+        );
     }
 }

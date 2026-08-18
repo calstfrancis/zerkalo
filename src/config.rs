@@ -80,8 +80,12 @@ impl Default for PrintPrefs {
     }
 }
 
-fn default_imposition() -> String { "off".to_string() }
-fn default_copies() -> u32 { 1 }
+fn default_imposition() -> String {
+    "off".to_string()
+}
+fn default_copies() -> u32 {
+    1
+}
 
 // ── Snippet ───────────────────────────────────────────────────────────────────
 
@@ -233,21 +237,51 @@ fn default_work_dir() -> PathBuf {
 pub fn default_work_dir_pub() -> PathBuf {
     default_work_dir()
 }
-fn default_debounce_ms() -> u64 { 800 }
-fn default_true() -> bool { true }
-fn default_font_size() -> u32 { 13 }
-fn default_font_family() -> String { "Monospace".to_string() }
-fn default_tab_width() -> u32 { 2 }
-fn default_preview_zoom() -> f64 { 1.0 }
-fn default_spell_languages() -> Vec<String> { vec!["en_CA".to_string()] }
-fn default_line_spacing() -> u32 { 2 }
-fn default_sidebar_width() -> i32 { 220 }
-fn default_preview_split() -> i32 { 600 }
-fn default_sidebar_outline_split() -> i32 { 260 }
-fn default_sidebar_citations_split() -> i32 { 180 }
-fn default_sidebar_packages_split() -> i32 { 180 }
-fn default_auto_save_idle_ms() -> u64 { 30_000 }
-fn default_batch_import_concurrency() -> u32 { 2 }
+fn default_debounce_ms() -> u64 {
+    800
+}
+fn default_true() -> bool {
+    true
+}
+fn default_font_size() -> u32 {
+    13
+}
+fn default_font_family() -> String {
+    "Monospace".to_string()
+}
+fn default_tab_width() -> u32 {
+    2
+}
+fn default_preview_zoom() -> f64 {
+    1.0
+}
+fn default_spell_languages() -> Vec<String> {
+    vec!["en_CA".to_string()]
+}
+fn default_line_spacing() -> u32 {
+    2
+}
+fn default_sidebar_width() -> i32 {
+    220
+}
+fn default_preview_split() -> i32 {
+    600
+}
+fn default_sidebar_outline_split() -> i32 {
+    260
+}
+fn default_sidebar_citations_split() -> i32 {
+    180
+}
+fn default_sidebar_packages_split() -> i32 {
+    180
+}
+fn default_auto_save_idle_ms() -> u64 {
+    30_000
+}
+fn default_batch_import_concurrency() -> u32 {
+    2
+}
 
 impl Default for Config {
     fn default() -> Self {
@@ -492,8 +526,6 @@ pub struct ProjectConfig {
     pub root_controls_dismissed: bool,
 }
 
-
-
 impl ProjectConfig {
     pub fn load(project_root: &Path) -> Option<Self> {
         let path = project_root.join(".zerkalo").join("config.toml");
@@ -548,7 +580,10 @@ mod tests {
 
     #[test]
     fn config_with_bib_path_round_trip() {
-        let cfg = Config { bib_path: Some(PathBuf::from("/home/user/refs.bib")), ..Default::default() };
+        let cfg = Config {
+            bib_path: Some(PathBuf::from("/home/user/refs.bib")),
+            ..Default::default()
+        };
         let toml_str = toml::to_string(&cfg).expect("serialize");
         let loaded: Config = toml::from_str(&toml_str).expect("deserialize");
         assert_eq!(loaded.bib_path, cfg.bib_path);
@@ -556,7 +591,10 @@ mod tests {
 
     #[test]
     fn config_with_cv_elements_path_round_trip() {
-        let cfg = Config { cv_elements_path: Some(PathBuf::from("/home/user/cv-elements.yaml")), ..Default::default() };
+        let cfg = Config {
+            cv_elements_path: Some(PathBuf::from("/home/user/cv-elements.yaml")),
+            ..Default::default()
+        };
         let toml_str = toml::to_string(&cfg).expect("serialize");
         let loaded: Config = toml::from_str(&toml_str).expect("deserialize");
         assert_eq!(loaded.cv_elements_path, cfg.cv_elements_path);
@@ -564,7 +602,10 @@ mod tests {
 
     #[test]
     fn project_config_cv_elements_path_round_trip() {
-        let cfg = ProjectConfig { cv_elements_path: Some(PathBuf::from("cv-elements.yaml")), ..Default::default() };
+        let cfg = ProjectConfig {
+            cv_elements_path: Some(PathBuf::from("cv-elements.yaml")),
+            ..Default::default()
+        };
         let toml_str = toml::to_string(&cfg).expect("serialize");
         let loaded: ProjectConfig = toml::from_str(&toml_str).expect("deserialize");
         assert_eq!(loaded.cv_elements_path, cfg.cv_elements_path);

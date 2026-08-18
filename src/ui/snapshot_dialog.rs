@@ -1,14 +1,14 @@
+use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::cell::RefCell;
 
+use adw::prelude::*;
 use gtk4::prelude::*;
 use gtk4::{
-    Box as GtkBox, Button, Label, ListBox, ListBoxRow, Orientation,
-    ScrolledWindow, SelectionMode, Separator, TextView, TextTag, WrapMode,
+    Box as GtkBox, Button, Label, ListBox, ListBoxRow, Orientation, ScrolledWindow, SelectionMode,
+    Separator, TextTag, TextView, WrapMode,
 };
 use libadwaita as adw;
-use adw::prelude::*;
 
 const MAX_SNAPSHOTS: usize = 100;
 
@@ -45,7 +45,9 @@ pub fn snapshot_dir(project_root: &Path, file_path: &Path) -> PathBuf {
 /// Keeps only the last MAX_SNAPSHOTS snapshots; deletes the oldest when over.
 pub fn save_snapshot(project_root: &Path, file_path: &Path, content: &str) {
     let dir = snapshot_dir(project_root, file_path);
-    if std::fs::create_dir_all(&dir).is_err() { return; }
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
 
     let ts = chrono::Local::now().format("%Y%m%dT%H%M%S%.3f").to_string();
     let snap_path = dir.join(format!("{ts}.typ"));
@@ -70,7 +72,9 @@ pub fn save_snapshot(project_root: &Path, file_path: &Path, content: &str) {
 }
 
 fn list_snapshots(dir: &Path) -> Vec<PathBuf> {
-    let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
     let mut files: Vec<PathBuf> = entries
         .flatten()
         .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("typ"))
@@ -102,8 +106,7 @@ impl SnapshotDialog {
             .default_height(600)
             .build();
 
-        let on_restore: Rc<RefCell<Option<Box<dyn Fn(String)>>>> =
-            Rc::new(RefCell::new(None));
+        let on_restore: Rc<RefCell<Option<Box<dyn Fn(String)>>>> = Rc::new(RefCell::new(None));
 
         let header = adw::HeaderBar::new();
         header.add_css_class("fond-chrome");
@@ -209,8 +212,12 @@ impl SnapshotDialog {
             let display = if name.len() >= 15 {
                 format!(
                     "{}-{}-{} {}:{}:{}",
-                    &name[0..4], &name[4..6], &name[6..8],
-                    &name[9..11], &name[11..13], &name[13..15]
+                    &name[0..4],
+                    &name[4..6],
+                    &name[6..8],
+                    &name[9..11],
+                    &name[11..13],
+                    &name[13..15]
                 )
             } else {
                 name.clone()
@@ -237,8 +244,12 @@ impl SnapshotDialog {
             list_box.connect_row_selected(move |_, row| {
                 let Some(row) = row else { return };
                 let idx = row.index() as usize;
-                let Some(snap_path) = paths.get(idx) else { return };
-                let Ok(snap_text) = std::fs::read_to_string(snap_path) else { return };
+                let Some(snap_path) = paths.get(idx) else {
+                    return;
+                };
+                let Ok(snap_text) = std::fs::read_to_string(snap_path) else {
+                    return;
+                };
                 let diff = crate::ui::diff_render::simple_diff(&snap_text, &current_clone);
                 crate::ui::diff_render::render_clean_diff(&buf, &diff);
                 *sel.borrow_mut() = Some(snap_text.clone());
@@ -252,7 +263,9 @@ impl SnapshotDialog {
             let row = ListBoxRow::new();
             row.set_activatable(false);
             row.set_selectable(false);
-            let lbl = Label::new(Some("No snapshots yet.\nSnapshots are saved automatically on Ctrl+S."));
+            let lbl = Label::new(Some(
+                "No snapshots yet.\nSnapshots are saved automatically on Ctrl+S.",
+            ));
             lbl.add_css_class("dim-label");
             lbl.set_justify(gtk4::Justification::Center);
             lbl.set_margin_top(16);
@@ -309,22 +322,46 @@ mod tests {
 
     #[test]
     fn snapshot_dir_distinguishes_same_named_files_in_different_folders() {
-        let a = snapshot_dir(Path::new("/home/user/proj"), Path::new("/home/user/proj/chapters/intro.typ"));
-        let b = snapshot_dir(Path::new("/home/user/proj"), Path::new("/home/user/proj/assets/intro.typ"));
-        assert_ne!(a, b, "different files with the same stem must not share snapshot storage");
+        let a = snapshot_dir(
+            Path::new("/home/user/proj"),
+            Path::new("/home/user/proj/chapters/intro.typ"),
+        );
+        let b = snapshot_dir(
+            Path::new("/home/user/proj"),
+            Path::new("/home/user/proj/assets/intro.typ"),
+        );
+        assert_ne!(
+            a, b,
+            "different files with the same stem must not share snapshot storage"
+        );
     }
 
     #[test]
     fn snapshot_dir_distinguishes_same_named_project_roots() {
-        let a = snapshot_dir(Path::new("/home/user/work/notes"), Path::new("/home/user/work/notes/main.typ"));
-        let b = snapshot_dir(Path::new("/home/user/other/notes"), Path::new("/home/user/other/notes/main.typ"));
-        assert_ne!(a, b, "different projects sharing a root folder name must not share snapshot storage");
+        let a = snapshot_dir(
+            Path::new("/home/user/work/notes"),
+            Path::new("/home/user/work/notes/main.typ"),
+        );
+        let b = snapshot_dir(
+            Path::new("/home/user/other/notes"),
+            Path::new("/home/user/other/notes/main.typ"),
+        );
+        assert_ne!(
+            a, b,
+            "different projects sharing a root folder name must not share snapshot storage"
+        );
     }
 
     #[test]
     fn snapshot_dir_stable_for_the_same_path() {
-        let a = snapshot_dir(Path::new("/home/user/proj"), Path::new("/home/user/proj/main.typ"));
-        let b = snapshot_dir(Path::new("/home/user/proj"), Path::new("/home/user/proj/main.typ"));
+        let a = snapshot_dir(
+            Path::new("/home/user/proj"),
+            Path::new("/home/user/proj/main.typ"),
+        );
+        let b = snapshot_dir(
+            Path::new("/home/user/proj"),
+            Path::new("/home/user/proj/main.typ"),
+        );
         assert_eq!(a, b);
     }
 }

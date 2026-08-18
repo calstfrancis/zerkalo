@@ -8,11 +8,11 @@ use std::rc::Rc;
 use gtk4::prelude::*;
 use gtk4::Paned;
 
-use crate::config::Config;
-use crate::library::Library;
 use super::super::editor_pane::EditorPane;
 use super::super::library_window::LibraryWindow;
 use super::super::preview_pane::PreviewPane;
+use crate::config::Config;
+use crate::library::Library;
 
 pub(super) struct PanePersistCtx {
     pub(super) current_config: Rc<RefCell<Config>>,
@@ -31,16 +31,22 @@ pub(super) fn wire_pane_persistence(ctx: &PanePersistCtx) {
         let ready2 = ready.clone();
         ctx.outer_paned.connect_realize(move |_| {
             let r = ready2.clone();
-            glib::idle_add_local_once(move || { r.set(true); });
+            glib::idle_add_local_once(move || {
+                r.set(true);
+            });
         });
         let pending: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
         ctx.outer_paned.connect_position_notify(move |p| {
-            if !ready.get() { return; }
+            if !ready.get() {
+                return;
+            }
             let pos = p.position();
             let cfg2 = cfg.clone();
             let pending_for_cb = pending.clone();
             let mut slot = pending.borrow_mut();
-            if let Some(id) = slot.take() { id.remove(); }
+            if let Some(id) = slot.take() {
+                id.remove();
+            }
             *slot = Some(glib::timeout_add_local_once(
                 std::time::Duration::from_millis(400),
                 move || {
@@ -58,16 +64,22 @@ pub(super) fn wire_pane_persistence(ctx: &PanePersistCtx) {
         let ready2 = ready.clone();
         ctx.inner_paned.connect_realize(move |_| {
             let r = ready2.clone();
-            glib::idle_add_local_once(move || { r.set(true); });
+            glib::idle_add_local_once(move || {
+                r.set(true);
+            });
         });
         let pending: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
         ctx.inner_paned.connect_position_notify(move |p| {
-            if !ready.get() { return; }
+            if !ready.get() {
+                return;
+            }
             let pos = p.position();
             let cfg2 = cfg.clone();
             let pending_for_cb = pending.clone();
             let mut slot = pending.borrow_mut();
-            if let Some(id) = slot.take() { id.remove(); }
+            if let Some(id) = slot.take() {
+                id.remove();
+            }
             *slot = Some(glib::timeout_add_local_once(
                 std::time::Duration::from_millis(400),
                 move || {
@@ -79,7 +91,6 @@ pub(super) fn wire_pane_persistence(ctx: &PanePersistCtx) {
             ));
         });
     }
-
 }
 
 pub(super) struct WatcherCtx {
@@ -100,24 +111,21 @@ pub(super) fn wire_file_watcher(ctx: &WatcherCtx) -> Option<notify::RecommendedW
     let mco_for_watch = ctx.manual_compile_only.clone();
     let library_for_watch = ctx.library.clone();
     let lw_for_watch = ctx.library_window.clone();
-    let file_watcher = crate::file_watcher::start(
-        ctx.project_root.clone(),
-        move |changed_path| {
-            library_for_watch
-                .borrow_mut()
-                .upsert_document(&changed_path)
-                .ok();
-            if lw_for_watch.window().is_visible() {
-                lw_for_watch.refresh();
-            }
-            // Only react to files we don't have open — those are handled by
-            // the editor's own save path.
-            let is_open = editor_for_watch.is_file_open(&changed_path);
-            if !is_open && !*mco_for_watch.borrow() {
-                preview_for_watch.trigger_compile();
-            }
-        },
-    );
+    let file_watcher = crate::file_watcher::start(ctx.project_root.clone(), move |changed_path| {
+        library_for_watch
+            .borrow_mut()
+            .upsert_document(&changed_path)
+            .ok();
+        if lw_for_watch.window().is_visible() {
+            lw_for_watch.refresh();
+        }
+        // Only react to files we don't have open — those are handled by
+        // the editor's own save path.
+        let is_open = editor_for_watch.is_file_open(&changed_path);
+        if !is_open && !*mco_for_watch.borrow() {
+            preview_for_watch.trigger_compile();
+        }
+    });
 
     file_watcher
 }

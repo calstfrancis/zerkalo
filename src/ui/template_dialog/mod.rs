@@ -5,15 +5,14 @@ use std::rc::Rc;
 
 use chrono::Local;
 
-
+use adw::prelude::*;
+use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{
     Align, Box as GtkBox, Button, Label, Notebook, Orientation, Overlay, Picture, PolicyType,
     PositionType, ScrolledWindow, Separator, Spinner, Switch,
 };
-use gtk4::glib;
 use libadwaita as adw;
-use adw::prelude::*;
 
 mod generate;
 mod parsing;
@@ -25,7 +24,7 @@ pub(crate) use sidecar::*;
 pub(crate) use util::*;
 
 type OnCreateCb = Rc<RefCell<Option<Box<dyn Fn(PathBuf)>>>>;
-type OnApplyCb  = Rc<RefCell<Option<Box<dyn Fn(String, SidecarSettings)>>>>;
+type OnApplyCb = Rc<RefCell<Option<Box<dyn Fn(String, SidecarSettings)>>>>;
 type OnCvElementsCb = Rc<RefCell<Option<Box<dyn Fn(PathBuf)>>>>;
 
 // ── Static data tables ────────────────────────────────────────────────────────
@@ -156,13 +155,37 @@ const ACADEMIC_FONTS: &[&str] = &[
 ];
 
 const LANGUAGES: &[(&str, &str, &str)] = &[
-    ("lang_ru", "Russian", "Cyrillic — sets lang:\"ru\", hyphenation, date locale"),
-    ("lang_he", "Hebrew", "RTL — sets dir:rtl and lang:\"he\" for the whole document"),
-    ("lang_el", "Ancient Greek", "Polytonic Greek — sets lang:\"el\"; needs a Unicode Greek font"),
-    ("lang_ja", "Japanese", "CJK — needs Noto Serif CJK JP (install noto-serif-cjk or equivalent)"),
-    ("lang_sa", "Sanskrit / Devanagari", "Devanagari — needs Noto Serif Devanagari"),
+    (
+        "lang_ru",
+        "Russian",
+        "Cyrillic — sets lang:\"ru\", hyphenation, date locale",
+    ),
+    (
+        "lang_he",
+        "Hebrew",
+        "RTL — sets dir:rtl and lang:\"he\" for the whole document",
+    ),
+    (
+        "lang_el",
+        "Ancient Greek",
+        "Polytonic Greek — sets lang:\"el\"; needs a Unicode Greek font",
+    ),
+    (
+        "lang_ja",
+        "Japanese",
+        "CJK — needs Noto Serif CJK JP (install noto-serif-cjk or equivalent)",
+    ),
+    (
+        "lang_sa",
+        "Sanskrit / Devanagari",
+        "Devanagari — needs Noto Serif Devanagari",
+    ),
     ("lang_bo", "Tibetan", "Tibetan — needs Noto Serif Tibetan"),
-    ("lang_zh", "Chinese", "CJK — needs Noto Serif CJK SC (install noto-serif-cjk or equivalent)"),
+    (
+        "lang_zh",
+        "Chinese",
+        "CJK — needs Noto Serif CJK SC (install noto-serif-cjk or equivalent)",
+    ),
 ];
 
 /// (id, name, plain-language subtitle, syntax detail for the tooltip).
@@ -171,32 +194,52 @@ const LANGUAGES: &[(&str, &str, &str)] = &[
 /// densest unexplained code in the whole creation flow if it's always on —
 /// so it moves to a tooltip instead of living in the subtitle.
 const EXTRA_PACKAGES: &[(&str, &str, &str, &str)] = &[
-    ("pkg_droplet", "Droplet", "Large decorative first-letter (dropcap)", ""),
-    ("pkg_codly", "Codly",
+    (
+        "pkg_droplet",
+        "Droplet",
+        "Large decorative first-letter (dropcap)",
+        "",
+    ),
+    (
+        "pkg_codly",
+        "Codly",
         "Enhanced code-block presentation — line numbers, syntax highlighting, and inline \
          annotations.",
         "Enabled once with #show: codly-init.with(); every code block after that is styled \
-         automatically, and #codly(...) lets you tweak numbering, radius, and colors."),
-    ("pkg_showybox", "Showybox",
+         automatically, and #codly(...) lets you tweak numbering, radius, and colors.",
+    ),
+    (
+        "pkg_showybox",
+        "Showybox",
         "Coloured, bordered callout boxes with optional titles, footers, and shadows.",
         "Call #showybox(title: \"...\")[content] anywhere to wrap content in a styled box — \
-         useful for asides, examples, or highlighted notes."),
-    ("pkg_gentle", "Gentle Clues",
+         useful for asides, examples, or highlighted notes.",
+    ),
+    (
+        "pkg_gentle",
+        "Gentle Clues",
         "Predefined admonition blocks — note, tip, warning, important, and more — each with \
          its own icon and colour.",
         "Use #note[...], #tip[...], #warning[...] directly, or pass title: \"...\" to \
-         override the heading."),
-    ("pkg_tablex", "Tablex",
+         override the heading.",
+    ),
+    (
+        "pkg_tablex",
+        "Tablex",
         "Advanced tables with merged cells (colspan/rowspan), repeating headers across pages, \
          and per-cell/line styling.",
         "Used via #tablex(...), like Typst's built-in #table() but with finer control. Most \
          of this was upstreamed into native tables in Typst 0.11+, so plain #table() may \
-         already suffice."),
-    ("pkg_marginalia", "Marginalia",
+         already suffice.",
+    ),
+    (
+        "pkg_marginalia",
+        "Marginalia",
         "Configurable margin notes with smart positioning, plus matching wide-blocks.",
         "After #show: marginalia.setup.with(...), use #note[...] for an annotation placed in \
          the margin, #wideblock[...] to let content spill into the margin, and \
-         #notefigure(...) for a captioned figure positioned there."),
+         #notefigure(...) for a captioned figure positioned there.",
+    ),
 ];
 
 // ── Template presets ──────────────────────────────────────────────────────────
@@ -438,53 +481,53 @@ pub(crate) struct TemplateSettings {
 /// This is the single source of truth for "Update Template Settings" pre-fill.
 #[derive(serde::Serialize, serde::Deserialize, Default, Clone)]
 pub struct SidecarSettings {
-    pub title:              String,
-    pub subtitle:           String,
-    pub author:             String,
-    pub affiliation:        String,
-    pub course:             String,
+    pub title: String,
+    pub subtitle: String,
+    pub author: String,
+    pub affiliation: String,
+    pub course: String,
     #[serde(default)]
-    pub professor:          String,
-    pub date:               String,
-    pub style:              String,
-    pub font:               String,
-    pub font_size:          String,
-    pub paper:              String,
+    pub professor: String,
+    pub date: String,
+    pub style: String,
+    pub font: String,
+    pub font_size: String,
+    pub paper: String,
     #[serde(default)]
-    pub custom_paper_w:     String,
+    pub custom_paper_w: String,
     #[serde(default)]
-    pub custom_paper_h:     String,
-    pub margin:             u32,
+    pub custom_paper_h: String,
+    pub margin: u32,
     #[serde(default)]
-    pub custom_margin:      String,
-    pub spacing:            String,
-    pub page_numbers:       u32,
+    pub custom_margin: String,
+    pub spacing: String,
+    pub page_numbers: u32,
     #[serde(default)]
-    pub header_style:       u32,
-    pub toc:                bool,
-    pub toc_depth:          u32,
-    pub abstract_enabled:   bool,
-    pub abstract_text:      String,
-    pub keywords_enabled:   bool,
-    pub keywords_text:      String,
-    pub heading_numbering:  bool,
-    pub numbering_format:   String,
-    pub languages:          Vec<String>,
-    pub packages:           Vec<String>,
+    pub header_style: u32,
+    pub toc: bool,
+    pub toc_depth: u32,
+    pub abstract_enabled: bool,
+    pub abstract_text: String,
+    pub keywords_enabled: bool,
+    pub keywords_text: String,
+    pub heading_numbering: bool,
+    pub numbering_format: String,
+    pub languages: Vec<String>,
+    pub packages: Vec<String>,
     #[serde(default)]
-    pub dropcap_font:       String,
+    pub dropcap_font: String,
     #[serde(default = "default_dropcap_lines")]
-    pub dropcap_lines:      u32,
+    pub dropcap_lines: u32,
     #[serde(default)]
-    pub dropcap_color:      String,
-    pub bib_path:           Option<String>,
-    pub body_kind:          String,
+    pub dropcap_color: String,
+    pub bib_path: Option<String>,
+    pub body_kind: String,
     /// CV style key ("modern"/"academic"/"classic"/"sidebar"), independent of
     /// `style`'s citation-style keys. Empty on non-CV documents and on
     /// sidecars saved before this field existed — see `build_sidecar` and
     /// `preselect_from_sidecar` for the legacy fallback in that case.
     #[serde(default)]
-    pub cv_style:           String,
+    pub cv_style: String,
 }
 
 // ── Dialog ────────────────────────────────────────────────────────────────────
@@ -548,7 +591,9 @@ fn build_document_tab(notebook: &Notebook, cv_switch: &Switch) -> DocumentTab {
     let author_pin = Button::from_icon_name("changes-prevent-symbolic");
     author_pin.add_css_class("flat");
     author_pin.set_tooltip_text(Some("Save as default for new documents"));
-    author_pin.update_property(&[gtk4::accessible::Property::Label("Save author as default for new documents")]);
+    author_pin.update_property(&[gtk4::accessible::Property::Label(
+        "Save author as default for new documents",
+    )]);
     author_row.add_suffix(&author_pin);
     meta_group.add(&author_row);
 
@@ -557,7 +602,9 @@ fn build_document_tab(notebook: &Notebook, cv_switch: &Switch) -> DocumentTab {
     let affil_pin = Button::from_icon_name("changes-prevent-symbolic");
     affil_pin.add_css_class("flat");
     affil_pin.set_tooltip_text(Some("Save as default for new documents"));
-    affil_pin.update_property(&[gtk4::accessible::Property::Label("Save affiliation as default for new documents")]);
+    affil_pin.update_property(&[gtk4::accessible::Property::Label(
+        "Save affiliation as default for new documents",
+    )]);
     affil_row.add_suffix(&affil_pin);
     meta_group.add(&affil_row);
 
@@ -694,7 +741,8 @@ fn build_layout_tab(notebook: &Notebook) -> LayoutTab {
     let margin_row_c = margin_row.clone();
     let cmr = custom_margin_row.clone();
     let custom_margin_idx = (MARGIN_PRESETS.len() - 1) as u32;
-    margin_row_c.connect_selected_notify(move |r| cmr.set_visible(r.selected() == custom_margin_idx));
+    margin_row_c
+        .connect_selected_notify(move |r| cmr.set_visible(r.selected() == custom_margin_idx));
 
     let pnum_model = gtk4::StringList::new(PAGE_NUM_OPTIONS);
     let pnum_row = adw::ComboRow::new();
@@ -724,7 +772,8 @@ fn build_layout_tab(notebook: &Notebook) -> LayoutTab {
     // who hasn't set one. The CV toggle below re-selects to the sans
     // default while it's on, since résumés commonly go sans-serif.
     let default_fonts_cfg = crate::config::shared().borrow().clone();
-    let default_font_idx = available_fonts.iter()
+    let default_font_idx = available_fonts
+        .iter()
         .position(|f| f == &default_fonts_cfg.default_serif_font)
         .or_else(|| available_fonts.iter().position(|f| f == "Times New Roman"))
         .unwrap_or(0) as u32;
@@ -758,7 +807,8 @@ fn build_layout_tab(notebook: &Notebook) -> LayoutTab {
     let font_size_row_c = font_size_row.clone();
     let cfs = custom_font_size_row.clone();
     const CUSTOM_FONT_SIZE_IDX: u32 = 4;
-    font_size_row_c.connect_selected_notify(move |r| cfs.set_visible(r.selected() == CUSTOM_FONT_SIZE_IDX));
+    font_size_row_c
+        .connect_selected_notify(move |r| cfs.set_visible(r.selected() == CUSTOM_FONT_SIZE_IDX));
 
     let spacing_labels: Vec<&str> = SPACING_OPTIONS.iter().map(|(n, _)| *n).collect();
     let spacing_model = gtk4::StringList::new(&spacing_labels);
@@ -866,7 +916,10 @@ fn build_sections_tab(notebook: &Notebook) -> SectionsTab {
     let heading_format_row = adw::ComboRow::new();
     heading_format_row.set_title("Numbering Format");
     heading_format_row.set_model(Some(&gtk4::StringList::new(
-        &NUMBERING_FORMATS.iter().map(|(n, _)| *n).collect::<Vec<_>>(),
+        &NUMBERING_FORMATS
+            .iter()
+            .map(|(n, _)| *n)
+            .collect::<Vec<_>>(),
     )));
     heading_format_row.set_visible(false);
     sec_group.add(&heading_format_row);
@@ -948,7 +1001,7 @@ fn build_packages_tab(notebook: &Notebook) -> PackagesTab {
     dropcap_expander.set_title("Droplet");
     dropcap_expander.set_subtitle(
         "Large decorative first-letter for an opening paragraph. Wraps it automatically \
-         around the rest of the paragraph's text — no markup needed beyond enabling it here."
+         around the rest of the paragraph's text — no markup needed beyond enabling it here.",
     );
     dropcap_expander.set_subtitle_lines(0);
     dropcap_expander.set_show_enable_switch(true);
@@ -981,7 +1034,9 @@ fn build_packages_tab(notebook: &Notebook) -> PackagesTab {
     let dropcap_lines_row = adw::ComboRow::new();
     dropcap_lines_row.set_title("Height");
     dropcap_lines_row.set_subtitle("How many lines tall the dropcap should be");
-    dropcap_lines_row.set_model(Some(&gtk4::StringList::new(&["2 lines", "3 lines", "4 lines", "5 lines", "6 lines"])));
+    dropcap_lines_row.set_model(Some(&gtk4::StringList::new(&[
+        "2 lines", "3 lines", "4 lines", "5 lines", "6 lines",
+    ])));
     dropcap_lines_row.set_selected(1); // 3 lines default
     dropcap_expander.add_row(&dropcap_lines_row);
 
@@ -994,7 +1049,10 @@ fn build_packages_tab(notebook: &Notebook) -> PackagesTab {
     dropcap_expander.add_row(&dropcap_color_row);
 
     // ── Other extra packages ──────────────────────────────────────────────
-    for (key, name, desc, syntax) in EXTRA_PACKAGES.iter().filter(|(k, _, _, _)| *k != "pkg_droplet") {
+    for (key, name, desc, syntax) in EXTRA_PACKAGES
+        .iter()
+        .filter(|(k, _, _, _)| *k != "pkg_droplet")
+    {
         let sw = adw::SwitchRow::new();
         sw.set_title(name);
         sw.set_subtitle(desc);
@@ -1046,7 +1104,9 @@ fn build_cv_elements_group(
     cv_browse_btn.set_valign(Align::Center);
     cv_browse_btn.add_css_class("flat");
     cv_browse_btn.set_tooltip_text(Some("Browse for a Skrizhal file"));
-    cv_browse_btn.update_property(&[gtk4::accessible::Property::Label("Browse for a Skrizhal file")]);
+    cv_browse_btn.update_property(&[gtk4::accessible::Property::Label(
+        "Browse for a Skrizhal file",
+    )]);
     cv_elements_row.add_suffix(&cv_browse_btn);
     cv_elements_group.add(&cv_elements_row);
 
@@ -1067,15 +1127,21 @@ fn build_cv_elements_group(
             let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
             filters.append(&filter);
             fd.set_filters(Some(&filters));
-            fd.open(Some(&win_c), None::<&gtk4::gio::Cancellable>, move |result| {
-                if let Ok(file) = result {
-                    if let Some(path) = file.path() {
-                        row2.set_text(path.to_str().unwrap_or(""));
-                        *path2.borrow_mut() = Some(path.clone());
-                        if let Some(f) = on_change2.borrow().as_ref() { f(path); }
+            fd.open(
+                Some(&win_c),
+                None::<&gtk4::gio::Cancellable>,
+                move |result| {
+                    if let Ok(file) = result {
+                        if let Some(path) = file.path() {
+                            row2.set_text(path.to_str().unwrap_or(""));
+                            *path2.borrow_mut() = Some(path.clone());
+                            if let Some(f) = on_change2.borrow().as_ref() {
+                                f(path);
+                            }
+                        }
                     }
-                }
-            });
+                },
+            );
         });
     }
 
@@ -1133,9 +1199,16 @@ impl FormWidgets {
         let available_fonts_inner = build_font_list();
         let font = if font_idx >= available_fonts_inner.len().saturating_sub(1) {
             let s = self.custom_font.text().to_string();
-            if s.is_empty() { "Times New Roman".to_string() } else { s }
+            if s.is_empty() {
+                "Times New Roman".to_string()
+            } else {
+                s
+            }
         } else {
-            available_fonts_inner.get(font_idx).cloned().unwrap_or_else(|| "Times New Roman".to_string())
+            available_fonts_inner
+                .get(font_idx)
+                .cloned()
+                .unwrap_or_else(|| "Times New Roman".to_string())
         };
 
         let font_size = resolve_font_size(self.font_size.selected(), self.custom_font_size.value());
@@ -1191,10 +1264,17 @@ impl FormWidgets {
                 .filter(|(_, sw)| sw.is_active())
                 .map(|(k, _)| k.clone())
                 .collect(),
-            dropcap_font: if self.pkgs.iter().any(|(k, sw)| k == "pkg_droplet" && sw.is_active()) {
+            dropcap_font: if self
+                .pkgs
+                .iter()
+                .any(|(k, sw)| k == "pkg_droplet" && sw.is_active())
+            {
                 let idx = self.dropcap_font.selected() as usize;
-                if idx == 0 { String::new() } else {
-                    self.dropcap_font.model()
+                if idx == 0 {
+                    String::new()
+                } else {
+                    self.dropcap_font
+                        .model()
                         .and_then(|m| m.downcast::<gtk4::StringList>().ok())
                         .and_then(|sl| sl.string(idx as u32))
                         .map(|s| s.to_string())
@@ -1275,7 +1355,10 @@ impl FormWidgets {
             "12pt" => 2,
             "14pt" => 3,
             other => {
-                let digits: String = other.chars().take_while(|c| c.is_ascii_digit() || *c == '.').collect();
+                let digits: String = other
+                    .chars()
+                    .take_while(|c| c.is_ascii_digit() || *c == '.')
+                    .collect();
                 if let Ok(v) = digits.parse::<f64>() {
                     self.custom_font_size.set_value(v);
                 }
@@ -1290,8 +1373,12 @@ impl FormWidgets {
             if *key == paper_key {
                 self.paper.set_selected(i as u32);
                 if paper_key == "custom" {
-                    if let Ok(w) = custom_w.parse::<f64>() { self.custom_paper_w.set_value(w); }
-                    if let Ok(h) = custom_h.parse::<f64>() { self.custom_paper_h.set_value(h); }
+                    if let Ok(w) = custom_w.parse::<f64>() {
+                        self.custom_paper_w.set_value(w);
+                    }
+                    if let Ok(h) = custom_h.parse::<f64>() {
+                        self.custom_paper_h.set_value(h);
+                    }
                 }
                 return;
             }
@@ -1308,7 +1395,9 @@ impl FormWidgets {
         if idx < MARGIN_PRESETS.len() {
             self.margin.set_selected(idx as u32);
             if idx == MARGIN_PRESETS.len() - 1 {
-                if let Ok(v) = custom_margin.parse::<f64>() { self.custom_margin.set_value(v); }
+                if let Ok(v) = custom_margin.parse::<f64>() {
+                    self.custom_margin.set_value(v);
+                }
             }
         }
     }
@@ -1324,18 +1413,36 @@ impl FormWidgets {
         professor: &str,
         date: &str,
     ) {
-        if !title.is_empty()       { self.title.set_text(title); }
-        if !subtitle.is_empty()    { self.subtitle.set_text(subtitle); }
-        if !author.is_empty()      { self.author.set_text(author); }
-        if !affiliation.is_empty() { self.affil.set_text(affiliation); }
-        if !course.is_empty()      { self.course.set_text(course); }
-        if !professor.is_empty()   { self.professor.set_text(professor); }
-        if !date.is_empty()        { self.date.set_text(date); }
+        if !title.is_empty() {
+            self.title.set_text(title);
+        }
+        if !subtitle.is_empty() {
+            self.subtitle.set_text(subtitle);
+        }
+        if !author.is_empty() {
+            self.author.set_text(author);
+        }
+        if !affiliation.is_empty() {
+            self.affil.set_text(affiliation);
+        }
+        if !course.is_empty() {
+            self.course.set_text(course);
+        }
+        if !professor.is_empty() {
+            self.professor.set_text(professor);
+        }
+        if !date.is_empty() {
+            self.date.set_text(date);
+        }
     }
 
     fn set_toc(&self, active: bool, depth: u32) {
         self.toc.set_active(active);
-        let idx = match depth { 1 => 0u32, 3 => 2, _ => 1 };
+        let idx = match depth {
+            1 => 0u32,
+            3 => 2,
+            _ => 1,
+        };
         self.toc_depth.set_selected(idx);
         self.toc_depth.set_sensitive(active);
     }
@@ -1401,7 +1508,9 @@ impl FormWidgets {
             self.dropcap_font.set_selected(0);
             return;
         }
-        if let Some(model) = self.dropcap_font.model()
+        if let Some(model) = self
+            .dropcap_font
+            .model()
             .and_then(|m| m.downcast::<gtk4::StringList>().ok())
         {
             for i in 0..model.n_items() {
@@ -1415,11 +1524,15 @@ impl FormWidgets {
     }
 
     fn set_dropcap_lines(&self, lines: u32) {
-        self.dropcap_lines.set_selected(lines.saturating_sub(2).min(4));
+        self.dropcap_lines
+            .set_selected(lines.saturating_sub(2).min(4));
     }
 
     fn set_dropcap_color(&self, color: &str) {
-        let idx = DROPCAP_COLORS.iter().position(|(_, v)| *v == color).unwrap_or(0);
+        let idx = DROPCAP_COLORS
+            .iter()
+            .position(|(_, v)| *v == color)
+            .unwrap_or(0);
         self.dropcap_color.set_selected(idx as u32);
     }
 
@@ -1439,14 +1552,30 @@ impl FormWidgets {
                 self.set_cv_style_index(idx);
             }
         }
-        if !s.font.is_empty()      { self.set_font(&s.font); }
-        if !s.font_size.is_empty() { self.set_font_size(&s.font_size); }
-        if !s.paper.is_empty()     { self.set_paper(&s.paper, &s.custom_paper_w, &s.custom_paper_h); }
-        if !s.spacing.is_empty()   { self.set_spacing(&s.spacing); }
+        if !s.font.is_empty() {
+            self.set_font(&s.font);
+        }
+        if !s.font_size.is_empty() {
+            self.set_font_size(&s.font_size);
+        }
+        if !s.paper.is_empty() {
+            self.set_paper(&s.paper, &s.custom_paper_w, &s.custom_paper_h);
+        }
+        if !s.spacing.is_empty() {
+            self.set_spacing(&s.spacing);
+        }
         self.set_margin(s.margin as usize, &s.custom_margin);
         self.set_page_numbers(s.page_numbers);
         self.set_header(s.header_style);
-        self.set_metadata(&s.title, &s.subtitle, &s.author, &s.affiliation, &s.course, &s.professor, &s.date);
+        self.set_metadata(
+            &s.title,
+            &s.subtitle,
+            &s.author,
+            &s.affiliation,
+            &s.course,
+            &s.professor,
+            &s.date,
+        );
         self.set_toc(s.toc, s.toc_depth);
         self.set_abstract(s.abstract_enabled, &s.abstract_text);
         self.set_keywords(s.keywords_enabled, &s.keywords_text);
@@ -1496,7 +1625,9 @@ fn build_templates_gallery(
     let save_btn = Button::from_icon_name("document-save-symbolic");
     save_btn.add_css_class("flat");
     save_btn.set_tooltip_text(Some("Save the current settings as a template"));
-    save_btn.update_property(&[gtk4::accessible::Property::Label("Save the current settings as a template")]);
+    save_btn.update_property(&[gtk4::accessible::Property::Label(
+        "Save the current settings as a template",
+    )]);
     save_btn.set_valign(Align::Center);
     saved_group.set_header_suffix(Some(&save_btn));
 
@@ -1626,7 +1757,8 @@ fn build_templates_gallery(
                 delete_btn.add_css_class("flat");
                 delete_btn.set_valign(Align::Center);
                 delete_btn.set_tooltip_text(Some("Delete this template"));
-                delete_btn.update_property(&[gtk4::accessible::Property::Label("Delete this template")]);
+                delete_btn
+                    .update_property(&[gtk4::accessible::Property::Label("Delete this template")]);
                 {
                     let name = template.name.clone();
                     let window = window.clone();
@@ -1772,7 +1904,9 @@ impl PreviewTarget {
                     tracing::warn!("Template preview failed: {e}");
                     spin.stop();
                     spin.set_visible(false);
-                    hint.set_text("This template couldn't be previewed.\nIts settings still apply.");
+                    hint.set_text(
+                        "This template couldn't be previewed.\nIts settings still apply.",
+                    );
                     hint.set_visible(true);
                     glib::ControlFlow::Break
                 }
@@ -1802,9 +1936,11 @@ pub fn describe_settings(s: &SidecarSettings) -> String {
         parts.push(format!("CV · {style}"));
     } else {
         parts.push(match s.body_kind.as_str() {
-            "book"   => "Book".to_string(),
+            "book" => "Book".to_string(),
             "letter" => "Letter".to_string(),
-            _ => style_name_for_key(&s.style).unwrap_or("Academic").to_string(),
+            _ => style_name_for_key(&s.style)
+                .unwrap_or("Academic")
+                .to_string(),
         });
     }
 
@@ -1818,10 +1954,21 @@ pub fn describe_settings(s: &SidecarSettings) -> String {
         parts.push(s.font_size.clone());
     }
     if let Some(label) = MARGIN_PRESETS.get(s.margin as usize) {
-        parts.push(format!("{} margins", label.split_whitespace().next().unwrap_or(label).to_lowercase()));
+        parts.push(format!(
+            "{} margins",
+            label
+                .split_whitespace()
+                .next()
+                .unwrap_or(label)
+                .to_lowercase()
+        ));
     }
-    if s.toc { parts.push("contents".into()); }
-    if s.abstract_enabled { parts.push("abstract".into()); }
+    if s.toc {
+        parts.push("contents".into());
+    }
+    if s.abstract_enabled {
+        parts.push("abstract".into());
+    }
 
     parts.join(" · ")
 }
@@ -1831,8 +1978,10 @@ fn prompt_and_save_template(window: &adw::Window, form: &FormWidgets, refresh: R
     let dialog = adw::MessageDialog::new(
         Some(window),
         Some("Save as template"),
-        Some("Everything on this form except the title, date, abstract and keywords is saved, \
-              so you can start future documents the same way."),
+        Some(
+            "Everything on this form except the title, date, abstract and keywords is saved, \
+              so you can start future documents the same way.",
+        ),
     );
     let entry = adw::EntryRow::new();
     entry.set_title("Template name");
@@ -1859,17 +2008,17 @@ fn prompt_and_save_template(window: &adw::Window, form: &FormWidgets, refresh: R
     let form = form.clone();
     let window = window.clone();
     dialog.connect_response(None, move |_, id| {
-        if id != "save" { return }
+        if id != "save" {
+            return;
+        }
         let name = entry.text().trim().to_string();
         let settings = build_sidecar(&form.collect());
         let refresh = refresh.clone();
         let window_for_save = window.clone();
 
-        let do_save = move || {
-            match crate::user_templates::save(&name, &settings) {
-                Ok(_) => refresh(),
-                Err(e) => show_template_error(&window_for_save, "Couldn't save the template", &e),
-            }
+        let do_save = move || match crate::user_templates::save(&name, &settings) {
+            Ok(_) => refresh(),
+            Err(e) => show_template_error(&window_for_save, "Couldn't save the template", &e),
         };
 
         if crate::user_templates::exists(entry.text().trim()) {
@@ -1886,7 +2035,9 @@ fn prompt_and_save_template(window: &adw::Window, form: &FormWidgets, refresh: R
             let do_save = std::cell::RefCell::new(Some(do_save));
             confirm.connect_response(None, move |_, id| {
                 if id == "replace" {
-                    if let Some(f) = do_save.borrow_mut().take() { f(); }
+                    if let Some(f) = do_save.borrow_mut().take() {
+                        f();
+                    }
                 }
             });
             confirm.present();
@@ -1940,8 +2091,16 @@ fn wire_cv_mode_toggle(
     pins: (&Button, &Button),
     fonts: &FontDefaults,
 ) {
-    let CvModeTargets { cv_elements_group, tab3_scroll, tab5_scroll } = targets;
-    let StyleRowModels { group: style_group, citation: style_model, cv: cv_style_model } = style;
+    let CvModeTargets {
+        cv_elements_group,
+        tab3_scroll,
+        tab5_scroll,
+    } = targets;
+    let StyleRowModels {
+        group: style_group,
+        citation: style_model,
+        cv: cv_style_model,
+    } = style;
     let (author_pin, affil_pin) = pins;
     let FontDefaults {
         available: available_fonts_p,
@@ -1972,7 +2131,8 @@ fn wire_cv_mode_toggle(
         let m_author_pin = author_pin.clone();
         let m_affil_pin = affil_pin.clone();
         let m_font_row = form.font.clone();
-        let sans_font_idx = available_fonts_p.iter()
+        let sans_font_idx = available_fonts_p
+            .iter()
             .position(|f| f == &default_fonts_cfg_p.default_sans_font);
         let serif_font_idx = default_font_idx_p;
         let m_style_group = style_group.clone();
@@ -1982,7 +2142,11 @@ fn wire_cv_mode_toggle(
         cv_switch.connect_active_notify(move |sw| {
             let cv_on = sw.is_active();
             for (row, kind) in rows.borrow().iter() {
-                row.set_visible(if cv_on { *kind == BodyKind::Cv } else { *kind != BodyKind::Cv });
+                row.set_visible(if cv_on {
+                    *kind == BodyKind::Cv
+                } else {
+                    *kind != BodyKind::Cv
+                });
             }
             tab3.set_visible(!cv_on);
             tab5.set_visible(!cv_on);
@@ -1994,7 +2158,11 @@ fn wire_cv_mode_toggle(
             m_subtitle.set_title(if cv_on { "Email" } else { "Subtitle" });
             m_affil.set_title(if cv_on { "Location" } else { "Affiliation" });
             m_course.set_title(if cv_on { "Phone" } else { "Course / Context" });
-            m_professor.set_title(if cv_on { "Links / Website" } else { "Professor / Instructor" });
+            m_professor.set_title(if cv_on {
+                "Links / Website"
+            } else {
+                "Professor / Instructor"
+            });
             m_author_pin.set_visible(!cv_on);
             m_affil_pin.set_visible(!cv_on);
 
@@ -2066,11 +2234,7 @@ fn wire_pin_buttons(
 
 /// "Preview Code" — generates the preamble from the current form and shows it
 /// read-only, without creating or modifying any document.
-fn wire_preview_code_button(
-    preview_code_btn: &Button,
-    window: &adw::Window,
-    form: &FormWidgets,
-) {
+fn wire_preview_code_button(preview_code_btn: &Button, window: &adw::Window, form: &FormWidgets) {
     {
         let pf = form.clone();
         let window = window.clone();
@@ -2134,7 +2298,11 @@ fn wire_action_buttons(
     on_create: &OnCreateCb,
     on_apply: &OnApplyCb,
 ) {
-    let ActionButtons { cancel_btn, create_btn, apply_btn } = buttons;
+    let ActionButtons {
+        cancel_btn,
+        create_btn,
+        apply_btn,
+    } = buttons;
     let win_cancel = window.clone();
     cancel_btn.connect_clicked(move |_| win_cancel.close());
 
@@ -2153,7 +2321,11 @@ fn wire_action_buttons(
         // Title is hidden (and unused) in CV mode, so default the filename to
         // the person's name instead of an empty/generic slug.
         let title_slug = if matches!(settings.body_kind, BodyKind::Cv) {
-            if settings.author.is_empty() { slug("cv") } else { slug(&format!("{} cv", settings.author)) }
+            if settings.author.is_empty() {
+                slug("cv")
+            } else {
+                slug(&format!("{} cv", settings.author))
+            }
         } else {
             slug(&settings.title)
         };
@@ -2170,7 +2342,7 @@ fn wire_action_buttons(
             Some(&win_for_create),
             None::<&gtk4::gio::Cancellable>,
             move |result| {
-                let Ok(file) = result else { return };  // user cancelled the save dialog
+                let Ok(file) = result else { return }; // user cancelled the save dialog
                 let Some(path) = file.path() else { return };
 
                 // A failed write used to be discarded, and the dialog closed
@@ -2214,7 +2386,11 @@ fn wire_action_buttons(
 }
 
 impl TemplateDialog {
-    pub fn new(parent: &impl IsA<gtk4::Window>, work_dir: &std::path::Path, _last_used_advanced: bool) -> Self {
+    pub fn new(
+        parent: &impl IsA<gtk4::Window>,
+        work_dir: &std::path::Path,
+        _last_used_advanced: bool,
+    ) -> Self {
         let window = adw::Window::builder()
             .title("New from Template")
             .transient_for(parent)
@@ -2237,7 +2413,8 @@ impl TemplateDialog {
         header.pack_start(&cancel_btn);
         let preview_code_btn = Button::with_label("Preview Code…");
         preview_code_btn.add_css_class("flat");
-        preview_code_btn.set_tooltip_text(Some("Preview the Typst preamble that will be generated"));
+        preview_code_btn
+            .set_tooltip_text(Some("Preview the Typst preamble that will be generated"));
         header.pack_start(&preview_code_btn);
         // pack_end calls apply in reverse visual order, so this ends up
         // leftmost of the end-aligned group: [CV toggle] [Apply/Create]
@@ -2326,8 +2503,7 @@ impl TemplateDialog {
         } = build_packages_tab(&notebook);
 
         // Tracks which body kind was most recently chosen via the gallery
-        let body_kind_state: Rc<RefCell<BodyKind>> =
-            Rc::new(RefCell::new(BodyKind::Academic));
+        let body_kind_state: Rc<RefCell<BodyKind>> = Rc::new(RefCell::new(BodyKind::Academic));
 
         // Every gallery row alongside its preset's body kind, so CV Mode can
         // filter which rows are visible without rebuilding the gallery.
@@ -2336,7 +2512,6 @@ impl TemplateDialog {
 
         let (cv_elements_group, cv_elements_row) =
             build_cv_elements_group(&window, &cv_elements_path, &on_cv_elements_change);
-
 
         let bib_path: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
 
@@ -2380,7 +2555,8 @@ impl TemplateDialog {
             bib_path: bib_path.clone(),
         };
 
-        let gallery_outer = build_templates_gallery(&window, &form, &gallery_rows, &cv_elements_group);
+        let gallery_outer =
+            build_templates_gallery(&window, &form, &gallery_rows, &cv_elements_group);
 
         // ── Simple form group ────────────────────────────────────────────────
         // Gallery is Tab 0 — it fills the full window and has internal scrolling
@@ -2429,15 +2605,27 @@ impl TemplateDialog {
             &on_apply,
         );
 
-
-        wire_pin_buttons(&author_row, &author_pin, &affil_row, &affil_pin, &on_lock_identity);
+        wire_pin_buttons(
+            &author_row,
+            &author_pin,
+            &affil_row,
+            &affil_pin,
+            &on_lock_identity,
+        );
 
         wire_preview_code_button(&preview_code_btn, &window, &form);
 
-
         Self {
-            window, on_create, on_apply, on_lock_identity, on_advanced_toggle, apply_btn,
-            form, cv_elements_row, cv_elements_path, on_cv_elements_change,
+            window,
+            on_create,
+            on_apply,
+            on_lock_identity,
+            on_advanced_toggle,
+            apply_btn,
+            form,
+            cv_elements_row,
+            cv_elements_path,
+            on_cv_elements_change,
         }
     }
 
@@ -2561,7 +2749,15 @@ impl TemplateDialog {
         professor: &str,
         date: &str,
     ) {
-        self.form.set_metadata(title, subtitle, author, affiliation, course, professor, date);
+        self.form.set_metadata(
+            title,
+            subtitle,
+            author,
+            affiliation,
+            course,
+            professor,
+            date,
+        );
     }
 
     pub fn preselect_toc(&self, active: bool, depth: u32) {
@@ -2646,8 +2842,8 @@ const PREVIEW_BIB: &str = r#"@book{smith2020,
 fn generate_preset_preview(idx: usize) -> Result<Vec<u8>, String> {
     // Check on-disk cache first (24 h TTL, version-tagged)
     let version = env!("CARGO_PKG_VERSION");
-    let cache_path = std::env::temp_dir()
-        .join(format!("zerkalo_tmpl_preview_{idx}_v{version}.png"));
+    let cache_path =
+        std::env::temp_dir().join(format!("zerkalo_tmpl_preview_{idx}_v{version}.png"));
     let cache_valid = std::fs::metadata(&cache_path)
         .and_then(|m| m.modified())
         .ok()
@@ -2682,14 +2878,26 @@ fn preview_settings_for_saved(saved: &SidecarSettings) -> TemplateSettings {
     let is_cv = matches!(s.body_kind, BodyKind::Cv);
     s.title = "Sample Document".to_string();
     s.date = "2026".to_string();
-    if s.author.is_empty() { s.author = "Author Name".to_string(); }
+    if s.author.is_empty() {
+        s.author = "Author Name".to_string();
+    }
     if s.affiliation.is_empty() {
-        s.affiliation = if is_cv { "San Francisco, CA".to_string() } else { "Sample University".to_string() };
+        s.affiliation = if is_cv {
+            "San Francisco, CA".to_string()
+        } else {
+            "Sample University".to_string()
+        };
     }
     if is_cv {
-        if s.subtitle.is_empty()  { s.subtitle = "jane.doe@example.com".to_string(); }
-        if s.course.is_empty()    { s.course = "+1 555 012 3456".to_string(); }
-        if s.professor.is_empty() { s.professor = "linkedin.com/in/janedoe".to_string(); }
+        if s.subtitle.is_empty() {
+            s.subtitle = "jane.doe@example.com".to_string();
+        }
+        if s.course.is_empty() {
+            s.course = "+1 555 012 3456".to_string();
+        }
+        if s.professor.is_empty() {
+            s.professor = "linkedin.com/in/janedoe".to_string();
+        }
     }
     if s.include_abstract && s.abstract_text.is_empty() {
         s.abstract_text = PREVIEW_ABSTRACT.to_string();
@@ -2720,17 +2928,41 @@ fn preview_settings_for_preset(p: &TemplatePreset) -> TemplateSettings {
     // font can't be found.
     let preview_font = {
         let cfg = crate::config::shared().borrow().clone();
-        let chosen = if is_cv_preview { cfg.default_sans_font } else { cfg.default_serif_font };
-        if chosen.is_empty() { "Libertinus Serif".to_string() } else { chosen }
+        let chosen = if is_cv_preview {
+            cfg.default_sans_font
+        } else {
+            cfg.default_serif_font
+        };
+        if chosen.is_empty() {
+            "Libertinus Serif".to_string()
+        } else {
+            chosen
+        }
     };
 
     TemplateSettings {
         title: "Sample Document".to_string(),
-        subtitle: if is_cv_preview { "jane.doe@example.com".to_string() } else { String::new() },
+        subtitle: if is_cv_preview {
+            "jane.doe@example.com".to_string()
+        } else {
+            String::new()
+        },
         author: "Author Name".to_string(),
-        affiliation: if is_cv_preview { "San Francisco, CA".to_string() } else { "Sample University".to_string() },
-        course: if is_cv_preview { "+1 555 012 3456".to_string() } else { String::new() },
-        professor: if is_cv_preview { "linkedin.com/in/janedoe".to_string() } else { String::new() },
+        affiliation: if is_cv_preview {
+            "San Francisco, CA".to_string()
+        } else {
+            "Sample University".to_string()
+        },
+        course: if is_cv_preview {
+            "+1 555 012 3456".to_string()
+        } else {
+            String::new()
+        },
+        professor: if is_cv_preview {
+            "linkedin.com/in/janedoe".to_string()
+        } else {
+            String::new()
+        },
         date: "2026".to_string(),
         style_idx: p.style_idx as usize,
         paper_idx: p.paper_idx as usize,
@@ -2761,7 +2993,8 @@ fn preview_settings_for_preset(p: &TemplatePreset) -> TemplateSettings {
     }
 }
 
-const PREVIEW_ABSTRACT: &str = "This sample abstract demonstrates the layout for this template style. \
+const PREVIEW_ABSTRACT: &str =
+    "This sample abstract demonstrates the layout for this template style. \
     It summarises the main argument and methodology of the paper.";
 
 /// Compile `settings` into a one-page PNG, with sample body content so the
@@ -2791,14 +3024,25 @@ fn render_template_preview(
         // there, so every CV preset preview failed to compile before this).
         let mut overrides = std::collections::HashMap::new();
         if matches!(body_kind, BodyKind::Cv) {
-            overrides.insert(tmp_dir.join("cv-helpers.typ"), crate::cv_mode::CV_HELPERS_TYPST.to_string());
+            overrides.insert(
+                tmp_dir.join("cv-helpers.typ"),
+                crate::cv_mode::CV_HELPERS_TYPST.to_string(),
+            );
         }
-        return crate::compiler::compile_to_png_bytes(&typ_path, 1.5, &overrides, &std::collections::HashMap::new(), None)
-            .map(|pages| {
-                let png = pages.into_iter().next().unwrap_or_default();
-                if let Some(ref c) = cache_path { let _ = std::fs::write(c, &png); }
-                png
-            });
+        return crate::compiler::compile_to_png_bytes(
+            &typ_path,
+            1.5,
+            &overrides,
+            &std::collections::HashMap::new(),
+            None,
+        )
+        .map(|pages| {
+            let png = pages.into_iter().next().unwrap_or_default();
+            if let Some(ref c) = cache_path {
+                let _ = std::fs::write(c, &png);
+            }
+            png
+        });
     }
 
     // Replace the starter body with richer sample content
@@ -2814,7 +3058,8 @@ fn render_template_preview(
     if let Some(pos) = preamble.find(marker) {
         preamble.truncate(pos);
     }
-    let bib_line = format!("#bibliography(\"zerkalo_preview_refs.bib\", style: \"{bib_style_name}\")");
+    let bib_line =
+        format!("#bibliography(\"zerkalo_preview_refs.bib\", style: \"{bib_style_name}\")");
     preamble.push_str(body);
     preamble.push('\n');
     preamble.push_str(&bib_line);
@@ -2826,14 +3071,22 @@ fn render_template_preview(
     std::fs::write(&bib_path, PREVIEW_BIB).map_err(|e| e.to_string())?;
     std::fs::write(&typ_path, &preamble).map_err(|e| e.to_string())?;
 
-    crate::compiler::compile_to_png_bytes(&typ_path, 1.5, &std::collections::HashMap::new(), &std::collections::HashMap::new(), None)
-        .map(|pages| {
-            // Page 2 shows the content style; fall back to page 1 if only one page
-            let page_idx = if pages.len() > 1 { 1 } else { 0 };
-            let png = pages.into_iter().nth(page_idx).unwrap_or_default();
-            if let Some(ref c) = cache_path { let _ = std::fs::write(c, &png); }
-            png
-        })
+    crate::compiler::compile_to_png_bytes(
+        &typ_path,
+        1.5,
+        &std::collections::HashMap::new(),
+        &std::collections::HashMap::new(),
+        None,
+    )
+    .map(|pages| {
+        // Page 2 shows the content style; fall back to page 1 if only one page
+        let page_idx = if pages.len() > 1 { 1 } else { 0 };
+        let png = pages.into_iter().nth(page_idx).unwrap_or_default();
+        if let Some(ref c) = cache_path {
+            let _ = std::fs::write(c, &png);
+        }
+        png
+    })
 }
 
 const PREVIEW_ACADEMIC_BODY: &str = r#"
@@ -2926,7 +3179,10 @@ const TEMPLATE_END: &str = "// ZERKALO-TEMPLATE-END";
 /// Extract the `@zerkalo-style` key from a document's header comments.
 /// Map a `@zerkalo-style` key back to the human-readable citation style name.
 pub fn style_name_for_key(key: &str) -> Option<&'static str> {
-    CITATION_STYLES.iter().find(|(_, k)| *k == key).map(|(name, _)| *name)
+    CITATION_STYLES
+        .iter()
+        .find(|(_, k)| *k == key)
+        .map(|(name, _)| *name)
 }
 
 pub fn parse_style_key(content: &str) -> Option<String> {
@@ -2945,7 +3201,9 @@ pub fn parse_doc_kind(content: &str) -> Option<String> {
     for line in content.lines().take(20) {
         if let Some(rest) = line.trim().strip_prefix("// @zerkalo-kind:") {
             let kind = rest.trim().to_string();
-            if !kind.is_empty() { return Some(kind); }
+            if !kind.is_empty() {
+                return Some(kind);
+            }
         }
     }
     None
@@ -2972,7 +3230,9 @@ pub fn parse_cv_style(content: &str) -> Option<String> {
     for line in content.lines().take(20) {
         if let Some(rest) = line.trim().strip_prefix("// @zerkalo-cv-style:") {
             let style = rest.trim().to_string();
-            if !style.is_empty() { return Some(style); }
+            if !style.is_empty() {
+                return Some(style);
+            }
         }
     }
     None
@@ -2987,7 +3247,9 @@ pub fn parse_font(content: &str) -> Option<String> {
     let mut in_set_text = false;
     for line in content.lines() {
         let t = line.trim();
-        if t.starts_with("//") { continue; }
+        if t.starts_with("//") {
+            continue;
+        }
         if t.starts_with("#set text(") {
             in_set_text = true;
         }
@@ -2999,13 +3261,15 @@ pub fn parse_font(content: &str) -> Option<String> {
                 // stopping at the first raw `"` would round-trip it to junk.
                 if let Some(after) = after.strip_prefix('"') {
                     let f = parse_typst_string_value(after);
-                    if !f.is_empty() { last_found = Some(f); }
+                    if !f.is_empty() {
+                        last_found = Some(f);
+                    }
                 }
             }
             // Close the block: inline form ends with ")" on same line as "#set text(",
             // multi-line form has ")" alone on its own line.
             let opened_inline = t.starts_with("#set text(") && t.contains(')');
-            let closed_alone  = !t.starts_with("#set text(") && t.starts_with(')');
+            let closed_alone = !t.starts_with("#set text(") && t.starts_with(')');
             if opened_inline || closed_alone {
                 in_set_text = false;
             }
@@ -3023,7 +3287,9 @@ pub fn parse_dropcap_font(content: &str) -> Option<String> {
                 if let Some(after) = after.strip_prefix('"') {
                     if let Some(end) = after.find('"') {
                         let f = after[..end].to_string();
-                        if !f.is_empty() { return Some(f); }
+                        if !f.is_empty() {
+                            return Some(f);
+                        }
                     }
                 }
             }
@@ -3043,7 +3309,9 @@ pub fn parse_dropcap_color(content: &str) -> Option<String> {
                     .take_while(|c| *c != ',' && *c != ')')
                     .collect();
                 let value = value.trim().to_string();
-                if !value.is_empty() { return Some(value); }
+                if !value.is_empty() {
+                    return Some(value);
+                }
             }
         }
     }
@@ -3056,17 +3324,28 @@ pub fn parse_font_size(content: &str) -> Option<String> {
     let mut in_set_text = false;
     for line in content.lines() {
         let t = line.trim();
-        if t.starts_with("//") { continue; }
-        if t.starts_with("#set text(") { in_set_text = true; }
+        if t.starts_with("//") {
+            continue;
+        }
+        if t.starts_with("#set text(") {
+            in_set_text = true;
+        }
         if in_set_text {
             if let Some(start) = t.find("size:") {
                 let after = t[start + 5..].trim_start();
-                let token: String = after.chars().take_while(|c| !c.is_whitespace() && *c != ',').collect();
-                if !token.is_empty() { last_found = Some(token); }
+                let token: String = after
+                    .chars()
+                    .take_while(|c| !c.is_whitespace() && *c != ',')
+                    .collect();
+                if !token.is_empty() {
+                    last_found = Some(token);
+                }
             }
             let opened_inline = t.starts_with("#set text(") && t.contains(')');
-            let closed_alone  = !t.starts_with("#set text(") && t.starts_with(')');
-            if opened_inline || closed_alone { in_set_text = false; }
+            let closed_alone = !t.starts_with("#set text(") && t.starts_with(')');
+            if opened_inline || closed_alone {
+                in_set_text = false;
+            }
         }
     }
     last_found
@@ -3078,7 +3357,12 @@ fn spacing_index(value: &str) -> Option<usize> {
     SPACING_OPTIONS
         .iter()
         .position(|(_, v)| *v == value)
-        .or_else(|| LEGACY_SPACING.iter().find(|(v, _)| *v == value).map(|(_, i)| *i))
+        .or_else(|| {
+            LEGACY_SPACING
+                .iter()
+                .find(|(v, _)| *v == value)
+                .map(|(_, i)| *i)
+        })
 }
 
 #[cfg(test)]
@@ -3112,8 +3396,16 @@ mod tests {
 
         assert_eq!(parse_font(&edited).as_deref(), Some("Palatino"));
         // Everything else survives byte-for-byte: exactly one line differs.
-        let changed: Vec<_> = doc.lines().zip(edited.lines()).filter(|(a, b)| a != b).collect();
-        assert_eq!(changed.len(), 1, "expected one changed line, got {changed:?}");
+        let changed: Vec<_> = doc
+            .lines()
+            .zip(edited.lines())
+            .filter(|(a, b)| a != b)
+            .collect();
+        assert_eq!(
+            changed.len(),
+            1,
+            "expected one changed line, got {changed:?}"
+        );
         assert_eq!(doc.lines().count(), edited.lines().count());
     }
 
@@ -3124,7 +3416,11 @@ mod tests {
 
         assert_eq!(parse_font_size(&edited).as_deref(), Some("11pt"));
         assert_eq!(parse_font(&edited).as_deref(), Some("EB Garamond"));
-        let changed = doc.lines().zip(edited.lines()).filter(|(a, b)| a != b).count();
+        let changed = doc
+            .lines()
+            .zip(edited.lines())
+            .filter(|(a, b)| a != b)
+            .count();
         assert_eq!(changed, 1);
     }
 
@@ -3147,7 +3443,8 @@ mod tests {
         // here, which for a hand-written .typ meant apply_body_splice found no
         // body marker and replaced the entire file with a starter template —
         // no confirmation, no backup. Refusing is the only safe answer.
-        let hand_written = "#set text(font: \"Times New Roman\", size: 12pt)\n\n= My Notes\n\nText.\n";
+        let hand_written =
+            "#set text(font: \"Times New Roman\", size: 12pt)\n\n= My Notes\n\nText.\n";
         assert!(set_template_font(hand_written, "Palatino").is_none());
         assert!(set_template_font_size(hand_written, "11pt").is_none());
         assert!(!has_template_block(hand_written));
@@ -3166,7 +3463,10 @@ mod tests {
         let doc = generated_document();
         let edited = set_template_font(&doc, "Weird \"Quoted\" Face").unwrap();
         assert!(edited.contains(r#"font: "Weird \"Quoted\" Face""#));
-        assert_eq!(parse_font(&edited).as_deref(), Some("Weird \"Quoted\" Face"));
+        assert_eq!(
+            parse_font(&edited).as_deref(),
+            Some("Weird \"Quoted\" Face")
+        );
     }
 
     #[test]
@@ -3249,7 +3549,10 @@ mod tests {
             .map(|e| e.file_name().to_string_lossy().into_owned())
             .filter(|n| n != "doc.typ")
             .collect();
-        assert!(leftovers.is_empty(), "stray files left behind: {leftovers:?}");
+        assert!(
+            leftovers.is_empty(),
+            "stray files left behind: {leftovers:?}"
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -3286,7 +3589,8 @@ mod tests {
             dir.join("cv-helpers.typ"),
             include_str!("../../../templates/cv-helpers.typ").to_string(),
         );
-        let result = crate::compiler::compile_to_pdf_bytes(&path, &overrides, &HashMap::new(), None);
+        let result =
+            crate::compiler::compile_to_pdf_bytes(&path, &overrides, &HashMap::new(), None);
         let _ = std::fs::remove_file(&path);
         result.err()
     }
@@ -3457,13 +3761,22 @@ mod tests {
              #set text(font: \"Libertinus Serif\", size: 12pt)\n\
              #set par(leading: {leading}, spacing: {leading}, justify: true)\n\
              {}\n",
-            "Lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor. ".repeat(20)
+            "Lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor. "
+                .repeat(20)
         );
-        let path = std::env::temp_dir()
-            .join(format!("zerkalo_leading_{}_{leading}.typ", std::process::id()));
+        let path = std::env::temp_dir().join(format!(
+            "zerkalo_leading_{}_{leading}.typ",
+            std::process::id()
+        ));
         std::fs::write(&path, src).unwrap();
-        let pages = crate::compiler::compile_to_png_bytes(&path, 1.0, &HashMap::new(), &HashMap::new(), None)
-            .expect("leading probe compiles");
+        let pages = crate::compiler::compile_to_png_bytes(
+            &path,
+            1.0,
+            &HashMap::new(),
+            &HashMap::new(),
+            None,
+        )
+        .expect("leading probe compiles");
         let _ = std::fs::remove_file(&path);
         // PNG height is the second u32 of the IHDR chunk.
         let b = &pages[0];
@@ -3498,7 +3811,10 @@ mod tests {
     fn mla_leaves_body_paragraphs_indented() {
         // The heading block's `first-line-indent: 0pt` must stay scoped to it.
         let mut s = matrix_base();
-        s.style_idx = CITATION_STYLES.iter().position(|(_, k)| *k == "mla").unwrap();
+        s.style_idx = CITATION_STYLES
+            .iter()
+            .position(|(_, k)| *k == "mla")
+            .unwrap();
         let doc = generate_typst_template(&s);
 
         assert!(doc.contains("first-line-indent: 1em"), "body indent is set");
@@ -3528,7 +3844,10 @@ mod tests {
     #[test]
     fn apa_does_not_print_the_label_the_seventh_edition_removed() {
         let mut s = matrix_base();
-        s.style_idx = CITATION_STYLES.iter().position(|(_, k)| *k == "apa").unwrap();
+        s.style_idx = CITATION_STYLES
+            .iter()
+            .position(|(_, k)| *k == "apa")
+            .unwrap();
         let doc = generate_typst_template(&s);
         assert!(doc.contains("#upper[#doc-title]"));
         assert!(!doc.contains("Running head:"));
@@ -3542,7 +3861,10 @@ mod tests {
         s.include_abstract = true;
         s.abstract_text = "A short abstract that must not be squeezed into a sliver.".into();
         let doc = generate_typst_template(&s);
-        assert!(!doc.contains("inset: (x: 1in)"), "fixed-inch inset is paper-dependent");
+        assert!(
+            !doc.contains("inset: (x: 1in)"),
+            "fixed-inch inset is paper-dependent"
+        );
         assert!(compile_failure(&s).is_none());
         assert!(doc.contains("inset: (x: 8%)"));
     }
@@ -3556,29 +3878,56 @@ mod tests {
         // actually render, or the gallery silently shows a blank preview.
         for (idx, p) in TEMPLATE_PRESETS.iter().enumerate() {
             let result = generate_preset_preview(idx);
-            assert!(result.is_ok(), "preset {idx} ({}) should preview: {:?}", p.name, result.err());
-            assert!(!result.unwrap().is_empty(), "preset {idx} ({}) produced an empty preview", p.name);
+            assert!(
+                result.is_ok(),
+                "preset {idx} ({}) should preview: {:?}",
+                p.name,
+                result.err()
+            );
+            assert!(
+                !result.unwrap().is_empty(),
+                "preset {idx} ({}) produced an empty preview",
+                p.name
+            );
         }
     }
 
     #[test]
     fn sidebar_cv_uses_two_column_layout_and_new_helpers() {
         let settings = TemplateSettings {
-            title: String::new(), subtitle: String::new(),
-            author: "Jane Doe".to_string(), affiliation: String::new(),
-            course: String::new(), professor: String::new(), date: String::new(),
-            style_idx: 3, paper_idx: 1,
-            custom_paper_w: String::new(), custom_paper_h: String::new(),
-            margin_idx: 1, custom_margin: String::new(),
-            font: "Linux Libertine".to_string(), font_size: "10.5pt".to_string(),
-            spacing: "0.65em".to_string(), page_num_pos: 4, header_style: 0,
-            include_toc: false, toc_depth: 2,
-            include_abstract: false, abstract_text: String::new(),
-            include_keywords: false, keywords: String::new(),
-            heading_numbering: false, numbering_format: String::new(),
-            languages: Vec::new(), packages: Vec::new(),
-            dropcap_font: String::new(), dropcap_lines: 3, dropcap_color: String::new(),
-            body_kind: BodyKind::Cv, bib_path: None,
+            title: String::new(),
+            subtitle: String::new(),
+            author: "Jane Doe".to_string(),
+            affiliation: String::new(),
+            course: String::new(),
+            professor: String::new(),
+            date: String::new(),
+            style_idx: 3,
+            paper_idx: 1,
+            custom_paper_w: String::new(),
+            custom_paper_h: String::new(),
+            margin_idx: 1,
+            custom_margin: String::new(),
+            font: "Linux Libertine".to_string(),
+            font_size: "10.5pt".to_string(),
+            spacing: "0.65em".to_string(),
+            page_num_pos: 4,
+            header_style: 0,
+            include_toc: false,
+            toc_depth: 2,
+            include_abstract: false,
+            abstract_text: String::new(),
+            include_keywords: false,
+            keywords: String::new(),
+            heading_numbering: false,
+            numbering_format: String::new(),
+            languages: Vec::new(),
+            packages: Vec::new(),
+            dropcap_font: String::new(),
+            dropcap_lines: 3,
+            dropcap_color: String::new(),
+            body_kind: BodyKind::Cv,
+            bib_path: None,
         };
         let src = generate_typst_template(&settings);
         assert!(src.contains("#let CV_STYLE = \"sidebar\""));
@@ -3587,14 +3936,23 @@ mod tests {
         assert!(src.contains("#import \"cv-helpers.typ\": cv-section"));
         assert!(src.contains("columns: (1fr, 2fr)"));
         assert!(src.contains("#taglist((\"Interest one\""));
-        assert!(src.contains("#cv-section(category: (\"Publication\", \"Presentation\"), style: CV_STYLE)"));
+        assert!(src.contains(
+            "#cv-section(category: (\"Publication\", \"Presentation\"), style: CV_STYLE)"
+        ));
 
         // Profile summary sits full-width above the two-column grid (not the
         // unrelated #grid(...) inside the shared #section helper's "modern"
         // branch, which appears earlier in the preamble regardless of style).
-        let profile_pos = src.find("#section(\"Profile\")").expect("Profile section present");
-        let grid_pos = src.find("columns: (1fr, 2fr)").expect("two-column grid present");
-        assert!(profile_pos < grid_pos, "Profile summary should come before the two-column grid");
+        let profile_pos = src
+            .find("#section(\"Profile\")")
+            .expect("Profile section present");
+        let grid_pos = src
+            .find("columns: (1fr, 2fr)")
+            .expect("two-column grid present");
+        assert!(
+            profile_pos < grid_pos,
+            "Profile summary should come before the two-column grid"
+        );
         assert!(src.contains("#let cv-summary ="));
     }
 
@@ -3644,21 +4002,39 @@ french:
 
         fn settings_with_style(style_idx: usize) -> TemplateSettings {
             TemplateSettings {
-                title: String::new(), subtitle: String::new(),
-                author: "Jane Doe".to_string(), affiliation: String::new(),
-                course: String::new(), professor: String::new(), date: String::new(),
-                style_idx, paper_idx: 1,
-                custom_paper_w: String::new(), custom_paper_h: String::new(),
-                margin_idx: 1, custom_margin: String::new(),
-                font: "Linux Libertine".to_string(), font_size: "10.5pt".to_string(),
-                spacing: "0.65em".to_string(), page_num_pos: 4, header_style: 0,
-                include_toc: false, toc_depth: 2,
-                include_abstract: false, abstract_text: String::new(),
-                include_keywords: false, keywords: String::new(),
-                heading_numbering: false, numbering_format: String::new(),
-                languages: Vec::new(), packages: Vec::new(),
-                dropcap_font: String::new(), dropcap_lines: 3, dropcap_color: String::new(),
-                body_kind: BodyKind::Cv, bib_path: None,
+                title: String::new(),
+                subtitle: String::new(),
+                author: "Jane Doe".to_string(),
+                affiliation: String::new(),
+                course: String::new(),
+                professor: String::new(),
+                date: String::new(),
+                style_idx,
+                paper_idx: 1,
+                custom_paper_w: String::new(),
+                custom_paper_h: String::new(),
+                margin_idx: 1,
+                custom_margin: String::new(),
+                font: "Linux Libertine".to_string(),
+                font_size: "10.5pt".to_string(),
+                spacing: "0.65em".to_string(),
+                page_num_pos: 4,
+                header_style: 0,
+                include_toc: false,
+                toc_depth: 2,
+                include_abstract: false,
+                abstract_text: String::new(),
+                include_keywords: false,
+                keywords: String::new(),
+                heading_numbering: false,
+                numbering_format: String::new(),
+                languages: Vec::new(),
+                packages: Vec::new(),
+                dropcap_font: String::new(),
+                dropcap_lines: 3,
+                dropcap_color: String::new(),
+                body_kind: BodyKind::Cv,
+                bib_path: None,
             }
         }
 
@@ -3720,26 +4096,46 @@ french:
             if old_is_sidebar == new_is_sidebar {
                 return retagged;
             }
-            let pos = retagged.find("// ── Document body").expect("body marker present");
+            let pos = retagged
+                .find("// ── Document body")
+                .expect("body marker present");
             format!("{}{}", &retagged[..pos], generate_cv_body(new_style))
         }
 
         let sidebar_settings = TemplateSettings {
-            title: String::new(), subtitle: String::new(),
-            author: "Jane Doe".to_string(), affiliation: String::new(),
-            course: String::new(), professor: String::new(), date: String::new(),
-            style_idx: 3, paper_idx: 1,
-            custom_paper_w: String::new(), custom_paper_h: String::new(),
-            margin_idx: 1, custom_margin: String::new(),
-            font: "Linux Libertine".to_string(), font_size: "10.5pt".to_string(),
-            spacing: "0.65em".to_string(), page_num_pos: 4, header_style: 0,
-            include_toc: false, toc_depth: 2,
-            include_abstract: false, abstract_text: String::new(),
-            include_keywords: false, keywords: String::new(),
-            heading_numbering: false, numbering_format: String::new(),
-            languages: Vec::new(), packages: Vec::new(),
-            dropcap_font: String::new(), dropcap_lines: 3, dropcap_color: String::new(),
-            body_kind: BodyKind::Cv, bib_path: None,
+            title: String::new(),
+            subtitle: String::new(),
+            author: "Jane Doe".to_string(),
+            affiliation: String::new(),
+            course: String::new(),
+            professor: String::new(),
+            date: String::new(),
+            style_idx: 3,
+            paper_idx: 1,
+            custom_paper_w: String::new(),
+            custom_paper_h: String::new(),
+            margin_idx: 1,
+            custom_margin: String::new(),
+            font: "Linux Libertine".to_string(),
+            font_size: "10.5pt".to_string(),
+            spacing: "0.65em".to_string(),
+            page_num_pos: 4,
+            header_style: 0,
+            include_toc: false,
+            toc_depth: 2,
+            include_abstract: false,
+            abstract_text: String::new(),
+            include_keywords: false,
+            keywords: String::new(),
+            heading_numbering: false,
+            numbering_format: String::new(),
+            languages: Vec::new(),
+            packages: Vec::new(),
+            dropcap_font: String::new(),
+            dropcap_lines: 3,
+            dropcap_color: String::new(),
+            body_kind: BodyKind::Cv,
+            bib_path: None,
         };
         let sidebar_src = generate_typst_template(&sidebar_settings);
         assert!(sidebar_src.contains("columns: (1fr, 2fr)"));
@@ -3747,7 +4143,10 @@ french:
         // Two-Column -> Modern must drop the grid and fall back to the flat body.
         let modern_src = splice_style(&sidebar_src, "modern");
         assert!(modern_src.contains("#let CV_STYLE = \"modern\""));
-        assert!(!modern_src.contains("columns: (1fr, 2fr)"), "switching away from Two-Column must remove its grid layout");
+        assert!(
+            !modern_src.contains("columns: (1fr, 2fr)"),
+            "switching away from Two-Column must remove its grid layout"
+        );
         assert!(modern_src.contains("#section(\"Experience\")["));
         assert!(modern_src.contains("#section(\"Skills\")["));
 
@@ -3765,10 +4164,16 @@ french:
         use std::collections::HashMap;
         let cv_helpers_src = include_str!("../../../templates/cv-helpers.typ");
         let mut overrides = HashMap::new();
-        overrides.insert(std::path::PathBuf::from("/tmp/cv-helpers.typ"), cv_helpers_src.to_string());
+        overrides.insert(
+            std::path::PathBuf::from("/tmp/cv-helpers.typ"),
+            cv_helpers_src.to_string(),
+        );
         let inputs = HashMap::new();
 
-        for (label, src) in [("modern", &modern_src), ("sidebar_again", &sidebar_again_src)] {
+        for (label, src) in [
+            ("modern", &modern_src),
+            ("sidebar_again", &sidebar_again_src),
+        ] {
             static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
             let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let path = std::path::PathBuf::from(format!(
@@ -3778,7 +4183,11 @@ french:
             ));
             std::fs::write(&path, src).unwrap();
             let result = crate::compiler::compile_to_pdf_bytes(&path, &overrides, &inputs, None);
-            assert!(result.is_ok(), "spliced {label} CV should compile: {:?}", result.err());
+            assert!(
+                result.is_ok(),
+                "spliced {label} CV should compile: {:?}",
+                result.err()
+            );
             assert!(result.unwrap().starts_with(b"%PDF-"));
             let _ = std::fs::remove_file(&path);
         }
@@ -3795,21 +4204,39 @@ french:
         // quick-switcher's.
         fn cv_settings(style_idx: usize) -> TemplateSettings {
             TemplateSettings {
-                title: String::new(), subtitle: String::new(),
-                author: "Jane Doe".to_string(), affiliation: String::new(),
-                course: String::new(), professor: String::new(), date: String::new(),
-                style_idx, paper_idx: 1,
-                custom_paper_w: String::new(), custom_paper_h: String::new(),
-                margin_idx: 1, custom_margin: String::new(),
-                font: "Linux Libertine".to_string(), font_size: "10.5pt".to_string(),
-                spacing: "0.65em".to_string(), page_num_pos: 4, header_style: 0,
-                include_toc: false, toc_depth: 2,
-                include_abstract: false, abstract_text: String::new(),
-                include_keywords: false, keywords: String::new(),
-                heading_numbering: false, numbering_format: String::new(),
-                languages: Vec::new(), packages: Vec::new(),
-                dropcap_font: String::new(), dropcap_lines: 3, dropcap_color: String::new(),
-                body_kind: BodyKind::Cv, bib_path: None,
+                title: String::new(),
+                subtitle: String::new(),
+                author: "Jane Doe".to_string(),
+                affiliation: String::new(),
+                course: String::new(),
+                professor: String::new(),
+                date: String::new(),
+                style_idx,
+                paper_idx: 1,
+                custom_paper_w: String::new(),
+                custom_paper_h: String::new(),
+                margin_idx: 1,
+                custom_margin: String::new(),
+                font: "Linux Libertine".to_string(),
+                font_size: "10.5pt".to_string(),
+                spacing: "0.65em".to_string(),
+                page_num_pos: 4,
+                header_style: 0,
+                include_toc: false,
+                toc_depth: 2,
+                include_abstract: false,
+                abstract_text: String::new(),
+                include_keywords: false,
+                keywords: String::new(),
+                heading_numbering: false,
+                numbering_format: String::new(),
+                languages: Vec::new(),
+                packages: Vec::new(),
+                dropcap_font: String::new(),
+                dropcap_lines: 3,
+                dropcap_color: String::new(),
+                body_kind: BodyKind::Cv,
+                bib_path: None,
             }
         }
 
@@ -3837,7 +4264,10 @@ french:
         use std::collections::HashMap;
         let cv_helpers_src = include_str!("../../../templates/cv-helpers.typ");
         let mut overrides = HashMap::new();
-        overrides.insert(std::path::PathBuf::from("/tmp/cv-helpers.typ"), cv_helpers_src.to_string());
+        overrides.insert(
+            std::path::PathBuf::from("/tmp/cv-helpers.typ"),
+            cv_helpers_src.to_string(),
+        );
         let inputs = HashMap::new();
 
         for (label, src) in [("modern", &spliced), ("sidebar_again", &spliced_back)] {
@@ -3850,7 +4280,11 @@ french:
             ));
             std::fs::write(&path, src).unwrap();
             let result = crate::compiler::compile_to_pdf_bytes(&path, &overrides, &inputs, None);
-            assert!(result.is_ok(), "spliced {label} CV should compile: {:?}", result.err());
+            assert!(
+                result.is_ok(),
+                "spliced {label} CV should compile: {:?}",
+                result.err()
+            );
             assert!(result.unwrap().starts_with(b"%PDF-"));
             let _ = std::fs::remove_file(&path);
         }
@@ -3868,21 +4302,39 @@ french:
         // splices it onto the OLD body via apply_body_splice. Without the
         // legacy-helper reinjection this produces "unknown function: job".
         let settings = TemplateSettings {
-            title: String::new(), subtitle: String::new(),
-            author: "Jane Doe".to_string(), affiliation: String::new(),
-            course: String::new(), professor: String::new(), date: String::new(),
-            style_idx: 0, paper_idx: 1,
-            custom_paper_w: String::new(), custom_paper_h: String::new(),
-            margin_idx: 1, custom_margin: String::new(),
-            font: "Linux Libertine".to_string(), font_size: "10.5pt".to_string(),
-            spacing: "0.65em".to_string(), page_num_pos: 4, header_style: 0,
-            include_toc: false, toc_depth: 2,
-            include_abstract: false, abstract_text: String::new(),
-            include_keywords: false, keywords: String::new(),
-            heading_numbering: false, numbering_format: String::new(),
-            languages: Vec::new(), packages: Vec::new(),
-            dropcap_font: String::new(), dropcap_lines: 3, dropcap_color: String::new(),
-            body_kind: BodyKind::Cv, bib_path: None,
+            title: String::new(),
+            subtitle: String::new(),
+            author: "Jane Doe".to_string(),
+            affiliation: String::new(),
+            course: String::new(),
+            professor: String::new(),
+            date: String::new(),
+            style_idx: 0,
+            paper_idx: 1,
+            custom_paper_w: String::new(),
+            custom_paper_h: String::new(),
+            margin_idx: 1,
+            custom_margin: String::new(),
+            font: "Linux Libertine".to_string(),
+            font_size: "10.5pt".to_string(),
+            spacing: "0.65em".to_string(),
+            page_num_pos: 4,
+            header_style: 0,
+            include_toc: false,
+            toc_depth: 2,
+            include_abstract: false,
+            abstract_text: String::new(),
+            include_keywords: false,
+            keywords: String::new(),
+            heading_numbering: false,
+            numbering_format: String::new(),
+            languages: Vec::new(),
+            packages: Vec::new(),
+            dropcap_font: String::new(),
+            dropcap_lines: 3,
+            dropcap_color: String::new(),
+            body_kind: BodyKind::Cv,
+            bib_path: None,
         };
 
         // generate_typst_template only ever produces the current (post-rewrite)
@@ -3891,10 +4343,16 @@ french:
         // preamble + the legacy helper block manually re-added, matching what
         // a document saved before the rewrite actually looks like on disk.
         let current_preamble = generate_typst_template(&settings);
-        assert!(!current_preamble.contains("#let job("), "fresh templates should no longer define #job");
+        assert!(
+            !current_preamble.contains("#let job("),
+            "fresh templates should no longer define #job"
+        );
         let idx = current_preamble.find("// ── Document body").unwrap();
         let legacy_preamble = inject_legacy_cv_helpers(&current_preamble[..idx]);
-        assert!(legacy_preamble.contains("#let job("), "test fixture must look legacy");
+        assert!(
+            legacy_preamble.contains("#let job("),
+            "test fixture must look legacy"
+        );
         let legacy_body = "// ── Document body ─────────────────────────────────────────────────────\n\n\
             #job(\"Youth Pastor\", \"Hope United Church\", \"2023 – present\", [Led weekly youth group])\n";
         let legacy_doc = format!("{legacy_preamble}{legacy_body}");
@@ -3923,7 +4381,8 @@ french:
             cv_helpers_src.to_string(),
         );
 
-        let result = crate::compiler::compile_to_pdf_bytes(&path, &overrides, &HashMap::new(), None);
+        let result =
+            crate::compiler::compile_to_pdf_bytes(&path, &overrides, &HashMap::new(), None);
         assert!(
             result.is_ok(),
             "regenerated legacy CV document should still compile: {:?}",
@@ -3952,28 +4411,49 @@ french:
         // a real compile, not just the string-level assertions above.
         fn base_settings(body_kind: BodyKind) -> TemplateSettings {
             TemplateSettings {
-                title: String::new(), subtitle: String::new(),
-                author: "Jane Doe".to_string(), affiliation: String::new(),
-                course: String::new(), professor: String::new(), date: String::new(),
-                style_idx: 0, paper_idx: 1,
-                custom_paper_w: String::new(), custom_paper_h: String::new(),
-                margin_idx: 1, custom_margin: String::new(),
-                font: "Linux Libertine".to_string(), font_size: "10.5pt".to_string(),
-                spacing: "0.65em".to_string(), page_num_pos: 4, header_style: 0,
-                include_toc: false, toc_depth: 2,
-                include_abstract: false, abstract_text: String::new(),
-                include_keywords: false, keywords: String::new(),
-                heading_numbering: false, numbering_format: String::new(),
-                languages: Vec::new(), packages: Vec::new(),
-                dropcap_font: String::new(), dropcap_lines: 3, dropcap_color: String::new(),
-                body_kind, bib_path: None,
+                title: String::new(),
+                subtitle: String::new(),
+                author: "Jane Doe".to_string(),
+                affiliation: String::new(),
+                course: String::new(),
+                professor: String::new(),
+                date: String::new(),
+                style_idx: 0,
+                paper_idx: 1,
+                custom_paper_w: String::new(),
+                custom_paper_h: String::new(),
+                margin_idx: 1,
+                custom_margin: String::new(),
+                font: "Linux Libertine".to_string(),
+                font_size: "10.5pt".to_string(),
+                spacing: "0.65em".to_string(),
+                page_num_pos: 4,
+                header_style: 0,
+                include_toc: false,
+                toc_depth: 2,
+                include_abstract: false,
+                abstract_text: String::new(),
+                include_keywords: false,
+                keywords: String::new(),
+                heading_numbering: false,
+                numbering_format: String::new(),
+                languages: Vec::new(),
+                packages: Vec::new(),
+                dropcap_font: String::new(),
+                dropcap_lines: 3,
+                dropcap_color: String::new(),
+                body_kind,
+                bib_path: None,
             }
         }
 
         // The existing document: a real CV, body preserved as-is (the part
         // "Apply to Current" never regenerates).
         let existing_doc = generate_typst_template(&base_settings(BodyKind::Cv));
-        assert!(existing_doc.contains("#section("), "test fixture must be a real CV body");
+        assert!(
+            existing_doc.contains("#section("),
+            "test fixture must be a real CV body"
+        );
 
         let compile = |doc: &str| -> bool {
             static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -3986,8 +4466,13 @@ french:
             std::fs::write(&path, doc).unwrap();
             let cv_helpers_src = include_str!("../../../templates/cv-helpers.typ");
             let mut overrides = HashMap::new();
-            overrides.insert(std::path::PathBuf::from("/tmp/cv-helpers.typ"), cv_helpers_src.to_string());
-            let ok = crate::compiler::compile_to_pdf_bytes(&path, &overrides, &HashMap::new(), None).is_ok();
+            overrides.insert(
+                std::path::PathBuf::from("/tmp/cv-helpers.typ"),
+                cv_helpers_src.to_string(),
+            );
+            let ok =
+                crate::compiler::compile_to_pdf_bytes(&path, &overrides, &HashMap::new(), None)
+                    .is_ok();
             let _ = std::fs::remove_file(&path);
             ok
         };
@@ -4001,7 +4486,10 @@ french:
         // mismatched splice no longer corrupts the document — it falls back
         // to the existing, still-valid CV untouched.
         let buggy_fresh = generate_typst_template(&base_settings(body_kind_from_key("")));
-        assert!(!buggy_fresh.contains("#let section("), "Academic preamble should not define #section");
+        assert!(
+            !buggy_fresh.contains("#let section("),
+            "Academic preamble should not define #section"
+        );
         let buggy_result = apply_body_splice(&existing_doc, &buggy_fresh);
         assert_eq!(
             buggy_result, existing_doc,
@@ -4141,7 +4629,8 @@ french:
 
     #[test]
     fn strip_style_block_removes_section() {
-        let doc = "before\n// ZERKALO-STYLE-BEGIN\n#set text(font: \"X\")\n// ZERKALO-STYLE-END\nafter\n";
+        let doc =
+            "before\n// ZERKALO-STYLE-BEGIN\n#set text(font: \"X\")\n// ZERKALO-STYLE-END\nafter\n";
         let result = strip_style_block(doc);
         assert_eq!(result, "before\nafter\n");
     }
@@ -4155,17 +4644,38 @@ french:
     #[test]
     fn replace_heading_styles_updates_style_key() {
         let settings = TemplateSettings {
-            title: "Test".into(), subtitle: String::new(), author: String::new(),
-            affiliation: String::new(), course: String::new(), professor: String::new(), date: String::new(),
+            title: "Test".into(),
+            subtitle: String::new(),
+            author: String::new(),
+            affiliation: String::new(),
+            course: String::new(),
+            professor: String::new(),
+            date: String::new(),
             style_idx: 1, // Chicago
-            paper_idx: 0, margin_idx: 0,
-            font: "Times New Roman".into(), spacing: "0.9em".into(),
-            page_num_pos: 0, header_style: 0, include_toc: false, toc_depth: 2,
-            include_abstract: false, abstract_text: String::new(),
-            include_keywords: false, keywords: String::new(),
-            languages: vec![], packages: vec![], dropcap_font: String::new(), dropcap_lines: 3, dropcap_color: String::new(), body_kind: BodyKind::Academic,
-            font_size: "12pt".into(), heading_numbering: false, numbering_format: String::new(),
-            custom_paper_w: String::new(), custom_paper_h: String::new(), custom_margin: String::new(),
+            paper_idx: 0,
+            margin_idx: 0,
+            font: "Times New Roman".into(),
+            spacing: "0.9em".into(),
+            page_num_pos: 0,
+            header_style: 0,
+            include_toc: false,
+            toc_depth: 2,
+            include_abstract: false,
+            abstract_text: String::new(),
+            include_keywords: false,
+            keywords: String::new(),
+            languages: vec![],
+            packages: vec![],
+            dropcap_font: String::new(),
+            dropcap_lines: 3,
+            dropcap_color: String::new(),
+            body_kind: BodyKind::Academic,
+            font_size: "12pt".into(),
+            heading_numbering: false,
+            numbering_format: String::new(),
+            custom_paper_w: String::new(),
+            custom_paper_h: String::new(),
+            custom_margin: String::new(),
             bib_path: None,
         };
         let doc = generate_typst_template(&settings);
@@ -4174,34 +4684,74 @@ french:
 
         let updated = replace_heading_styles_in_template(&doc, "apa");
         assert!(updated.contains("@zerkalo-style: apa"), "style key updated");
-        assert!(updated.contains("APA heading styles"), "new heading comment present");
-        assert!(!updated.contains("Chicago (Notes-Bibliography) heading styles"), "old heading removed");
-        assert!(!updated.contains("@zerkalo-style: chicago-notes"), "old style key removed");
+        assert!(
+            updated.contains("APA heading styles"),
+            "new heading comment present"
+        );
+        assert!(
+            !updated.contains("Chicago (Notes-Bibliography) heading styles"),
+            "old heading removed"
+        );
+        assert!(
+            !updated.contains("@zerkalo-style: chicago-notes"),
+            "old style key removed"
+        );
     }
 
     #[test]
     fn replace_heading_styles_ieee_adds_columns() {
         let settings = TemplateSettings {
-            title: String::new(), subtitle: String::new(), author: String::new(),
-            affiliation: String::new(), course: String::new(), professor: String::new(), date: String::new(),
-            style_idx: 0, paper_idx: 0, margin_idx: 0,
-            font: "Times New Roman".into(), spacing: "0.9em".into(),
-            page_num_pos: 0, header_style: 0, include_toc: false, toc_depth: 2,
-            include_abstract: false, abstract_text: String::new(),
-            include_keywords: false, keywords: String::new(),
-            languages: vec![], packages: vec![], dropcap_font: String::new(), dropcap_lines: 3, dropcap_color: String::new(), body_kind: BodyKind::Academic,
-            font_size: "12pt".into(), heading_numbering: false, numbering_format: String::new(),
-            custom_paper_w: String::new(), custom_paper_h: String::new(), custom_margin: String::new(),
+            title: String::new(),
+            subtitle: String::new(),
+            author: String::new(),
+            affiliation: String::new(),
+            course: String::new(),
+            professor: String::new(),
+            date: String::new(),
+            style_idx: 0,
+            paper_idx: 0,
+            margin_idx: 0,
+            font: "Times New Roman".into(),
+            spacing: "0.9em".into(),
+            page_num_pos: 0,
+            header_style: 0,
+            include_toc: false,
+            toc_depth: 2,
+            include_abstract: false,
+            abstract_text: String::new(),
+            include_keywords: false,
+            keywords: String::new(),
+            languages: vec![],
+            packages: vec![],
+            dropcap_font: String::new(),
+            dropcap_lines: 3,
+            dropcap_color: String::new(),
+            body_kind: BodyKind::Academic,
+            font_size: "12pt".into(),
+            heading_numbering: false,
+            numbering_format: String::new(),
+            custom_paper_w: String::new(),
+            custom_paper_h: String::new(),
+            custom_margin: String::new(),
             bib_path: None,
         };
         let doc = generate_typst_template(&settings);
         let to_ieee = replace_heading_styles_in_template(&doc, "ieee");
-        assert!(to_ieee.contains("#set page(columns: 2)"), "columns added for ieee");
-        assert!(to_ieee.contains("#set heading(numbering: \"I.A.1.\")"), "ieee numbering present");
+        assert!(
+            to_ieee.contains("#set page(columns: 2)"),
+            "columns added for ieee"
+        );
+        assert!(
+            to_ieee.contains("#set heading(numbering: \"I.A.1.\")"),
+            "ieee numbering present"
+        );
 
         // Switch back to non-ieee removes the columns line
         let to_apa = replace_heading_styles_in_template(&to_ieee, "apa");
-        assert!(!to_apa.contains("#set page(columns: 2)"), "columns removed when leaving ieee");
+        assert!(
+            !to_apa.contains("#set page(columns: 2)"),
+            "columns removed when leaving ieee"
+        );
     }
 
     #[test]
@@ -4222,10 +4772,19 @@ french:
 Body.\n";
         let result = strip_conflicting_heading_rules(doc);
         // Heading rules inside template block are kept
-        assert!(result.contains("#align(center)[#it.body]"), "template heading kept");
+        assert!(
+            result.contains("#align(center)[#it.body]"),
+            "template heading kept"
+        );
         // Heading rules outside template block are removed
-        assert!(!result.contains("#set heading(numbering:"), "numbering stripped");
-        assert!(!result.contains("#show heading: it => [#it.body]"), "outside show rule stripped");
+        assert!(
+            !result.contains("#set heading(numbering:"),
+            "numbering stripped"
+        );
+        assert!(
+            !result.contains("#show heading: it => [#it.body]"),
+            "outside show rule stripped"
+        );
         // Body content is kept
         assert!(result.contains("= Section"), "content kept");
     }
@@ -4263,12 +4822,24 @@ Body text.\n";
 
         let result = replace_heading_styles_in_template(doc, "apa");
 
-        assert!(!result.contains("// ZERKALO-STYLE-BEGIN"), "style block removed");
+        assert!(
+            !result.contains("// ZERKALO-STYLE-BEGIN"),
+            "style block removed"
+        );
         assert!(!result.contains("old style"), "old style content gone");
-        assert!(!result.contains("numbering: \"1.1.\""), "numbering stripped");
-        assert!(!result.contains("custom show rule"), "conflicting show rule stripped");
+        assert!(
+            !result.contains("numbering: \"1.1.\""),
+            "numbering stripped"
+        );
+        assert!(
+            !result.contains("custom show rule"),
+            "conflicting show rule stripped"
+        );
         assert!(result.contains("@zerkalo-style: apa"), "new style key set");
-        assert!(result.contains("APA heading styles"), "new heading comment present");
+        assert!(
+            result.contains("APA heading styles"),
+            "new heading comment present"
+        );
         assert!(result.contains("= Introduction"), "body content preserved");
     }
 
@@ -4285,7 +4856,8 @@ Body text.\n";
 
     #[test]
     fn parse_meta_reads_tags() {
-        let doc = "// @meta:title: My Essay\n// @meta:author: Jane Smith\n// @meta:date: June 2026\n";
+        let doc =
+            "// @meta:title: My Essay\n// @meta:author: Jane Smith\n// @meta:date: June 2026\n";
         assert_eq!(parse_meta(doc, "title"), "My Essay");
         assert_eq!(parse_meta(doc, "author"), "Jane Smith");
         assert_eq!(parse_meta(doc, "date"), "June 2026");
@@ -4321,8 +4893,12 @@ Body text.\n";
             dropcap_lines: 3,
             dropcap_color: String::new(),
             body_kind: BodyKind::Academic,
-            font_size: "12pt".into(), heading_numbering: false, numbering_format: String::new(),
-            custom_paper_w: String::new(), custom_paper_h: String::new(), custom_margin: String::new(),
+            font_size: "12pt".into(),
+            heading_numbering: false,
+            numbering_format: String::new(),
+            custom_paper_w: String::new(),
+            custom_paper_h: String::new(),
+            custom_margin: String::new(),
             bib_path: None,
         };
         let old_doc = generate_typst_template(&settings);
@@ -4334,9 +4910,18 @@ Body text.\n";
         };
         let new_doc = generate_typst_template(&new_settings);
         let result = replace_title_page(&old_doc, &new_doc);
-        assert!(result.contains("doc-title = \"New Title\""), "new title variable");
-        assert!(result.contains("doc-author = \"New Author\""), "new author variable");
-        assert!(!result.contains("doc-title = \"Old Title\""), "old title removed");
+        assert!(
+            result.contains("doc-title = \"New Title\""),
+            "new title variable"
+        );
+        assert!(
+            result.contains("doc-author = \"New Author\""),
+            "new author variable"
+        );
+        assert!(
+            !result.contains("doc-title = \"Old Title\""),
+            "old title removed"
+        );
     }
 
     // ── Sidecar tests ─────────────────────────────────────────────────────────
@@ -4379,8 +4964,12 @@ Body text.\n";
             dropcap_lines: 3,
             dropcap_color: String::new(),
             body_kind: BodyKind::Academic,
-            font_size: "12pt".into(), heading_numbering: false, numbering_format: String::new(),
-            custom_paper_w: String::new(), custom_paper_h: String::new(), custom_margin: String::new(),
+            font_size: "12pt".into(),
+            heading_numbering: false,
+            numbering_format: String::new(),
+            custom_paper_w: String::new(),
+            custom_paper_h: String::new(),
+            custom_margin: String::new(),
             bib_path: Some(std::path::PathBuf::from("/home/user/refs.bib")),
         };
 
@@ -4404,8 +4993,8 @@ Body text.\n";
         // Round-trip back to TemplateSettings
         let rt = sidecar_to_settings(&sc);
         assert_eq!(rt.title, "My Thesis");
-        assert_eq!(rt.style_idx, 4);  // APA 7th
-        assert_eq!(rt.paper_idx, 1);  // A4
+        assert_eq!(rt.style_idx, 4); // APA 7th
+        assert_eq!(rt.paper_idx, 1); // A4
         assert_eq!(rt.font, "EB Garamond");
         assert_eq!(rt.spacing, "1.2em");
         assert_eq!(rt.page_num_pos, 3);
@@ -4417,28 +5006,49 @@ Body text.\n";
         assert_eq!(rt.keywords, "one, two, three");
         assert_eq!(rt.languages, vec!["lang_ru", "lang_he"]);
         assert_eq!(rt.packages, vec!["pkg_codly"]);
-        assert_eq!(rt.bib_path, Some(std::path::PathBuf::from("/home/user/refs.bib")));
+        assert_eq!(
+            rt.bib_path,
+            Some(std::path::PathBuf::from("/home/user/refs.bib"))
+        );
     }
 
     #[test]
     fn cv_sidecar_round_trips_style_via_dedicated_field_not_citation_styles_alias() {
         fn cv_settings(style_idx: usize) -> TemplateSettings {
             TemplateSettings {
-                title: String::new(), subtitle: String::new(),
-                author: "Jane Doe".to_string(), affiliation: String::new(),
-                course: String::new(), professor: String::new(), date: String::new(),
-                style_idx, paper_idx: 1,
-                custom_paper_w: String::new(), custom_paper_h: String::new(),
-                margin_idx: 1, custom_margin: String::new(),
-                font: "Linux Libertine".to_string(), font_size: "10.5pt".to_string(),
-                spacing: "0.65em".to_string(), page_num_pos: 4, header_style: 0,
-                include_toc: false, toc_depth: 2,
-                include_abstract: false, abstract_text: String::new(),
-                include_keywords: false, keywords: String::new(),
-                heading_numbering: false, numbering_format: String::new(),
-                languages: Vec::new(), packages: Vec::new(),
-                dropcap_font: String::new(), dropcap_lines: 3, dropcap_color: String::new(),
-                body_kind: BodyKind::Cv, bib_path: None,
+                title: String::new(),
+                subtitle: String::new(),
+                author: "Jane Doe".to_string(),
+                affiliation: String::new(),
+                course: String::new(),
+                professor: String::new(),
+                date: String::new(),
+                style_idx,
+                paper_idx: 1,
+                custom_paper_w: String::new(),
+                custom_paper_h: String::new(),
+                margin_idx: 1,
+                custom_margin: String::new(),
+                font: "Linux Libertine".to_string(),
+                font_size: "10.5pt".to_string(),
+                spacing: "0.65em".to_string(),
+                page_num_pos: 4,
+                header_style: 0,
+                include_toc: false,
+                toc_depth: 2,
+                include_abstract: false,
+                abstract_text: String::new(),
+                include_keywords: false,
+                keywords: String::new(),
+                heading_numbering: false,
+                numbering_format: String::new(),
+                languages: Vec::new(),
+                packages: Vec::new(),
+                dropcap_font: String::new(),
+                dropcap_lines: 3,
+                dropcap_color: String::new(),
+                body_kind: BodyKind::Cv,
+                bib_path: None,
             }
         }
 
@@ -4454,14 +5064,20 @@ Body text.\n";
         let mut corrupted = sc.clone();
         corrupted.style = "ieee".to_string(); // would wrongly resolve to index 8 pre-fix
         let rt = sidecar_to_settings(&corrupted);
-        assert_eq!(rt.style_idx, 3, "cv_style must win over a stale/reordered `style` alias");
+        assert_eq!(
+            rt.style_idx, 3,
+            "cv_style must win over a stale/reordered `style` alias"
+        );
 
         // A legacy sidecar predating this field (cv_style empty) still falls
         // back to the old CITATION_STYLES-index alias, unchanged behavior.
         let mut legacy = sc.clone();
         legacy.cv_style = String::new();
         let rt_legacy = sidecar_to_settings(&legacy);
-        assert_eq!(rt_legacy.style_idx, 3, "legacy sidecar without cv_style still resolves via style alias");
+        assert_eq!(
+            rt_legacy.style_idx, 3,
+            "legacy sidecar without cv_style still resolves via style alias"
+        );
     }
 
     #[test]
@@ -4539,8 +5155,8 @@ Body text.\n";
             course: String::new(),
             professor: String::new(),
             date: "2026".to_string(),
-            style_idx: 1,  // Chicago
-            paper_idx: 0,  // US Letter
+            style_idx: 1, // Chicago
+            paper_idx: 0, // US Letter
             margin_idx: 0,
             font: "Times New Roman".to_string(),
             spacing: "0.9em".to_string(),
@@ -4558,8 +5174,12 @@ Body text.\n";
             dropcap_lines: 3,
             dropcap_color: String::new(),
             body_kind: BodyKind::Academic,
-            font_size: "12pt".into(), heading_numbering: false, numbering_format: String::new(),
-            custom_paper_w: String::new(), custom_paper_h: String::new(), custom_margin: String::new(),
+            font_size: "12pt".into(),
+            heading_numbering: false,
+            numbering_format: String::new(),
+            custom_paper_w: String::new(),
+            custom_paper_h: String::new(),
+            custom_margin: String::new(),
             bib_path: None,
         };
         let original = generate_typst_template(&settings);
@@ -4572,7 +5192,7 @@ Body text.\n";
 
         // Now apply new settings (switch to APA)
         let new_settings = TemplateSettings {
-            style_idx: 4,  // APA
+            style_idx: 4, // APA
             author: "New Author".to_string(),
             include_abstract: true,
             abstract_text: "My abstract.".to_string(),
@@ -4582,49 +5202,98 @@ Body text.\n";
         let result = apply_body_splice(&user_body, &fresh);
 
         // Body content preserved
-        assert!(result.contains("This is the user's actual thesis text. It must survive apply."),
-            "user body content must be preserved");
+        assert!(
+            result.contains("This is the user's actual thesis text. It must survive apply."),
+            "user body content must be preserved"
+        );
 
         // New preamble applied
-        assert!(result.contains("@zerkalo-style: apa"), "APA style key in new preamble");
-        assert!(result.contains("APA heading styles"), "APA headings applied");
+        assert!(
+            result.contains("@zerkalo-style: apa"),
+            "APA style key in new preamble"
+        );
+        assert!(
+            result.contains("APA heading styles"),
+            "APA headings applied"
+        );
 
         // Old preamble gone
-        assert!(!result.contains("@zerkalo-style: chicago-notes"), "old style key removed");
+        assert!(
+            !result.contains("@zerkalo-style: chicago-notes"),
+            "old style key removed"
+        );
 
         // New author in title block
-        assert!(result.contains("doc-author = \"New Author\""), "new author in title block");
+        assert!(
+            result.contains("doc-author = \"New Author\""),
+            "new author in title block"
+        );
 
         // Abstract in front-matter (between title block and body)
-        assert!(result.contains("*Abstract*"), "abstract present in front-matter");
+        assert!(
+            result.contains("*Abstract*"),
+            "abstract present in front-matter"
+        );
     }
 
     #[test]
     fn apply_body_splice_updates_bib_style() {
         let settings = TemplateSettings {
-            title: String::new(), subtitle: String::new(), author: String::new(),
-            affiliation: String::new(), course: String::new(), professor: String::new(), date: String::new(),
-            style_idx: 2,  // Chicago Author-Date
-            paper_idx: 0, margin_idx: 0,
-            font: "Times New Roman".to_string(), spacing: "0.9em".to_string(),
-            page_num_pos: 0, header_style: 0, include_toc: false, toc_depth: 2,
-            include_abstract: false, abstract_text: String::new(),
-            include_keywords: false, keywords: String::new(),
-            languages: vec![], packages: vec![], dropcap_font: String::new(), dropcap_lines: 3, dropcap_color: String::new(), body_kind: BodyKind::Academic,
-            font_size: "12pt".into(), heading_numbering: false, numbering_format: String::new(),
-            custom_paper_w: String::new(), custom_paper_h: String::new(), custom_margin: String::new(),
+            title: String::new(),
+            subtitle: String::new(),
+            author: String::new(),
+            affiliation: String::new(),
+            course: String::new(),
+            professor: String::new(),
+            date: String::new(),
+            style_idx: 2, // Chicago Author-Date
+            paper_idx: 0,
+            margin_idx: 0,
+            font: "Times New Roman".to_string(),
+            spacing: "0.9em".to_string(),
+            page_num_pos: 0,
+            header_style: 0,
+            include_toc: false,
+            toc_depth: 2,
+            include_abstract: false,
+            abstract_text: String::new(),
+            include_keywords: false,
+            keywords: String::new(),
+            languages: vec![],
+            packages: vec![],
+            dropcap_font: String::new(),
+            dropcap_lines: 3,
+            dropcap_color: String::new(),
+            body_kind: BodyKind::Academic,
+            font_size: "12pt".into(),
+            heading_numbering: false,
+            numbering_format: String::new(),
+            custom_paper_w: String::new(),
+            custom_paper_h: String::new(),
+            custom_margin: String::new(),
             bib_path: Some(std::path::PathBuf::from("refs.bib")),
         };
         let existing = generate_typst_template(&settings);
-        assert!(existing.contains("style: \"chicago-author-date\""), "original bib style");
+        assert!(
+            existing.contains("style: \"chicago-author-date\""),
+            "original bib style"
+        );
 
-        let new_settings = TemplateSettings { style_idx: 3, ..settings }; // MLA
+        let new_settings = TemplateSettings {
+            style_idx: 3,
+            ..settings
+        }; // MLA
         let fresh = generate_typst_template(&new_settings);
         let result = apply_body_splice(&existing, &fresh);
 
-        assert!(result.contains("style: \"mla\""), "bib style updated to MLA");
-        assert!(!result.contains("style: \"chicago-author-date\""),
-            "old bib style must be gone");
+        assert!(
+            result.contains("style: \"mla\""),
+            "bib style updated to MLA"
+        );
+        assert!(
+            !result.contains("style: \"chicago-author-date\""),
+            "old bib style must be gone"
+        );
     }
 
     #[test]
@@ -4632,51 +5301,106 @@ Body text.\n";
         // A document with no body marker should get the full fresh template
         let existing = "// some old stuff\n= Heading\nContent.\n";
         let fresh_settings = TemplateSettings {
-            title: "Fresh".to_string(), subtitle: String::new(), author: String::new(),
-            affiliation: String::new(), course: String::new(), professor: String::new(), date: String::new(),
-            style_idx: 0, paper_idx: 0, margin_idx: 0,
-            font: "Times New Roman".to_string(), spacing: "0.9em".to_string(),
-            page_num_pos: 0, header_style: 0, include_toc: false, toc_depth: 2,
-            include_abstract: false, abstract_text: String::new(),
-            include_keywords: false, keywords: String::new(),
-            languages: vec![], packages: vec![], dropcap_font: String::new(), dropcap_lines: 3, dropcap_color: String::new(), body_kind: BodyKind::Academic,
-            font_size: "12pt".into(), heading_numbering: false, numbering_format: String::new(),
-            custom_paper_w: String::new(), custom_paper_h: String::new(), custom_margin: String::new(),
+            title: "Fresh".to_string(),
+            subtitle: String::new(),
+            author: String::new(),
+            affiliation: String::new(),
+            course: String::new(),
+            professor: String::new(),
+            date: String::new(),
+            style_idx: 0,
+            paper_idx: 0,
+            margin_idx: 0,
+            font: "Times New Roman".to_string(),
+            spacing: "0.9em".to_string(),
+            page_num_pos: 0,
+            header_style: 0,
+            include_toc: false,
+            toc_depth: 2,
+            include_abstract: false,
+            abstract_text: String::new(),
+            include_keywords: false,
+            keywords: String::new(),
+            languages: vec![],
+            packages: vec![],
+            dropcap_font: String::new(),
+            dropcap_lines: 3,
+            dropcap_color: String::new(),
+            body_kind: BodyKind::Academic,
+            font_size: "12pt".into(),
+            heading_numbering: false,
+            numbering_format: String::new(),
+            custom_paper_w: String::new(),
+            custom_paper_h: String::new(),
+            custom_margin: String::new(),
             bib_path: None,
         };
         let fresh = generate_typst_template(&fresh_settings);
         let result = apply_body_splice(existing, &fresh);
         // When neither document has body markers, get the full fresh doc
-        assert!(result.contains("ZERKALO-TEMPLATE-BEGIN"), "has template markers");
-        assert!(result.contains("doc-title = \"Fresh\""), "fresh title present");
+        assert!(
+            result.contains("ZERKALO-TEMPLATE-BEGIN"),
+            "has template markers"
+        );
+        assert!(
+            result.contains("doc-title = \"Fresh\""),
+            "fresh title present"
+        );
     }
 
     #[test]
     fn letter_body_kind_produces_letterhead_not_title_page() {
         let settings = TemplateSettings {
-            title: "Re: Recommendation".to_string(), subtitle: String::new(),
-            author: "Jane Doe".to_string(), affiliation: "Springfield Seminary".to_string(),
-            course: String::new(), professor: String::new(), date: String::new(),
-            style_idx: 0, paper_idx: 0, margin_idx: 0,
-            custom_paper_w: String::new(), custom_paper_h: String::new(), custom_margin: String::new(),
-            font: "Times New Roman".to_string(), font_size: "12pt".to_string(),
-            spacing: "0.65em".to_string(), page_num_pos: 4, header_style: 0,
-            include_toc: false, toc_depth: 2,
-            include_abstract: false, abstract_text: String::new(),
-            include_keywords: false, keywords: String::new(),
-            heading_numbering: false, numbering_format: String::new(),
-            languages: Vec::new(), packages: Vec::new(),
-            dropcap_font: String::new(), dropcap_lines: 3, dropcap_color: String::new(),
-            body_kind: BodyKind::Letter, bib_path: None,
+            title: "Re: Recommendation".to_string(),
+            subtitle: String::new(),
+            author: "Jane Doe".to_string(),
+            affiliation: "Springfield Seminary".to_string(),
+            course: String::new(),
+            professor: String::new(),
+            date: String::new(),
+            style_idx: 0,
+            paper_idx: 0,
+            margin_idx: 0,
+            custom_paper_w: String::new(),
+            custom_paper_h: String::new(),
+            custom_margin: String::new(),
+            font: "Times New Roman".to_string(),
+            font_size: "12pt".to_string(),
+            spacing: "0.65em".to_string(),
+            page_num_pos: 4,
+            header_style: 0,
+            include_toc: false,
+            toc_depth: 2,
+            include_abstract: false,
+            abstract_text: String::new(),
+            include_keywords: false,
+            keywords: String::new(),
+            heading_numbering: false,
+            numbering_format: String::new(),
+            languages: Vec::new(),
+            packages: Vec::new(),
+            dropcap_font: String::new(),
+            dropcap_lines: 3,
+            dropcap_color: String::new(),
+            body_kind: BodyKind::Letter,
+            bib_path: None,
         };
         let src = generate_typst_template(&settings);
 
         assert!(src.contains("Dear Recipient Name,"), "salutation present");
         assert!(src.contains("Sincerely,"), "closing present");
-        assert!(src.contains("#doc-author"), "signature references the author");
-        assert!(src.contains("// ── Document body"), "Simple Mode marker present");
-        assert!(!src.contains("#counter(page).update(1)"),
-            "letters skip the separate-title-page cover, unlike Academic/Book");
+        assert!(
+            src.contains("#doc-author"),
+            "signature references the author"
+        );
+        assert!(
+            src.contains("// ── Document body"),
+            "Simple Mode marker present"
+        );
+        assert!(
+            !src.contains("#counter(page).update(1)"),
+            "letters skip the separate-title-page cover, unlike Academic/Book"
+        );
 
         let path = std::path::PathBuf::from(format!(
             "/tmp/zerkalo_test_letter_{}.typ",
@@ -4689,7 +5413,11 @@ Body text.\n";
             &std::collections::HashMap::new(),
             None,
         );
-        assert!(result.is_ok(), "letter template should compile: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "letter template should compile: {:?}",
+            result.err()
+        );
         assert!(result.unwrap().starts_with(b"%PDF-"));
         let _ = std::fs::remove_file(&path);
     }
@@ -4697,18 +5425,39 @@ Body text.\n";
     #[test]
     fn sidecar_round_trips_letter_body_kind() {
         let settings = TemplateSettings {
-            title: String::new(), subtitle: String::new(), author: String::new(),
-            affiliation: String::new(), course: String::new(), professor: String::new(), date: String::new(),
-            style_idx: 0, paper_idx: 0, margin_idx: 0,
-            custom_paper_w: String::new(), custom_paper_h: String::new(), custom_margin: String::new(),
-            font: String::new(), font_size: String::new(), spacing: String::new(),
-            page_num_pos: 4, header_style: 0, include_toc: false, toc_depth: 2,
-            include_abstract: false, abstract_text: String::new(),
-            include_keywords: false, keywords: String::new(),
-            heading_numbering: false, numbering_format: String::new(),
-            languages: Vec::new(), packages: Vec::new(),
-            dropcap_font: String::new(), dropcap_lines: 3, dropcap_color: String::new(),
-            body_kind: BodyKind::Letter, bib_path: None,
+            title: String::new(),
+            subtitle: String::new(),
+            author: String::new(),
+            affiliation: String::new(),
+            course: String::new(),
+            professor: String::new(),
+            date: String::new(),
+            style_idx: 0,
+            paper_idx: 0,
+            margin_idx: 0,
+            custom_paper_w: String::new(),
+            custom_paper_h: String::new(),
+            custom_margin: String::new(),
+            font: String::new(),
+            font_size: String::new(),
+            spacing: String::new(),
+            page_num_pos: 4,
+            header_style: 0,
+            include_toc: false,
+            toc_depth: 2,
+            include_abstract: false,
+            abstract_text: String::new(),
+            include_keywords: false,
+            keywords: String::new(),
+            heading_numbering: false,
+            numbering_format: String::new(),
+            languages: Vec::new(),
+            packages: Vec::new(),
+            dropcap_font: String::new(),
+            dropcap_lines: 3,
+            dropcap_color: String::new(),
+            body_kind: BodyKind::Letter,
+            bib_path: None,
         };
         let sc = build_sidecar(&settings);
         assert_eq!(sc.body_kind, "letter");
