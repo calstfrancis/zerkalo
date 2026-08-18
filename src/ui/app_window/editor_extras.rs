@@ -228,6 +228,28 @@ pub(super) fn wire_sidebar_toolbar(ctx: &SidebarToolbarCtx) -> (GtkBox, Button) 
         c.sidebar_outline_split = pos;
     });
 
+    // Packages and Comments can be collapsed to just their header row —
+    // useful once a project's manuscript is stable and neither is needed
+    // for a while, without losing the split position underneath.
+    ctx.package_browser.set_collapsed(ctx.current_config.borrow().sidebar_packages_collapsed);
+    ctx.comments_panel.set_collapsed(ctx.current_config.borrow().sidebar_comments_collapsed);
+    {
+        let cfg = ctx.current_config.clone();
+        ctx.package_browser.set_on_collapse_toggle(move |collapsed| {
+            let mut c = cfg.borrow_mut();
+            c.sidebar_packages_collapsed = collapsed;
+            let _ = c.save();
+        });
+    }
+    {
+        let cfg = ctx.current_config.clone();
+        ctx.comments_panel.set_on_collapse_toggle(move |collapsed| {
+            let mut c = cfg.borrow_mut();
+            c.sidebar_comments_collapsed = collapsed;
+            let _ = c.save();
+        });
+    }
+
     let left_box = GtkBox::new(Orientation::Vertical, 0);
     left_box.set_hexpand(false);
     left_box.set_vexpand(true);

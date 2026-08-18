@@ -5,10 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.24.1-dev1] — Citation and bibliography reliability fixes
+## [0.24.1] "Clean Copy" — 2026-08-18 — Citation reliability and editor interaction fixes
 
 ### Added
 
+- **The Packages and Comments sidebar sections can be collapsed** to just
+  their header row, via a chevron button next to each — useful once a
+  project's manuscript is stable and neither is needed for a while. The
+  split position underneath is remembered for when they reopen.
 - **A malformed date in one bibliography entry no longer breaks every
   citation in the document.** Zotero/BetterBibTeX exports occasionally
   produce a non-numeric date (`year = {Winter/Spring 2001}`) that Typst's
@@ -36,6 +40,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   only looked at the configured Settings value. The compiler now also
   scans the document's own bibliography call directly, so this works
   regardless of how the path got there.
+- **Clicking a format bar button (Bold, a heading, Insert Table…) moved
+  the keyboard focus off the document.** The next keystroke went nowhere
+  until you clicked back into the text. Every format bar control is now
+  marked non-focusable, matching how the bar is actually used — apply a
+  quick action and keep typing, the same as Ctrl+B never left the
+  document either.
+- **Clicking on error-underlined text placed the cursor... nowhere.**
+  Hovering an error shows an inline popup explaining it; clicking the
+  underlined text itself — the natural way to go fix it — was consumed
+  by dismissing that popup instead of also placing the cursor, needing a
+  second click. Now behaves like the app's other inline popups (the
+  citation and completion suggestions): the same click dismisses the
+  popup and reaches the text underneath.
 
 ---
 

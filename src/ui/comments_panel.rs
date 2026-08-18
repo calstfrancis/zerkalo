@@ -19,7 +19,7 @@ use std::rc::Rc;
 use gtk4::prelude::*;
 use gtk4::{
     Box as GtkBox, Button, Label, ListBox, ListBoxRow, Orientation, Popover,
-    ScrolledWindow, SelectionMode, Separator, TextView, WrapMode,
+    Revealer, RevealerTransitionType, ScrolledWindow, SelectionMode, Separator, TextView, WrapMode,
 };
 
 use crate::comments::{suggestion_removes_text, CommentThread, SuggestionKind, SuggestionStatus};
@@ -37,6 +37,8 @@ pub struct CommentsPanel {
     list_box: ListBox,
     count_label: Label,
     add_btn: Button,
+    collapse_btn: Button,
+    revealer: Revealer,
     current_path: Rc<RefCell<Option<PathBuf>>>,
     thread: Rc<RefCell<CommentThread>>,
     on_jump: JumpCb,
@@ -45,6 +47,7 @@ pub struct CommentsPanel {
     /// the current `(line, that line's text)` to anchor the new comment to.
     on_request_anchor: RequestAnchorCb,
     on_apply_suggestion: ApplySuggestionCb,
+    on_collapse_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
 }
 
 impl CommentsPanel {
@@ -73,6 +76,12 @@ impl CommentsPanel {
         add_btn.update_property(&[gtk4::accessible::Property::Label("Add a comment at the cursor's current line")]);
         header.append(&add_btn);
 
+        let collapse_btn = Button::from_icon_name("pan-down-symbolic");
+        collapse_btn.add_css_class("flat");
+        collapse_btn.set_tooltip_text(Some("Hide Comments"));
+        collapse_btn.update_property(&[gtk4::accessible::Property::Label("Hide Comments")]);
+        header.append(&collapse_btn);
+
         widget.append(&Separator::new(Orientation::Horizontal));
         widget.append(&header);
         widget.append(&Separator::new(Orientation::Horizontal));
@@ -83,18 +92,43 @@ impl CommentsPanel {
         list_box.set_selection_mode(SelectionMode::None);
         list_box.add_css_class("navigation-sidebar");
         scroll.set_child(Some(&list_box));
-        widget.append(&scroll);
+
+        let revealer = Revealer::new();
+        revealer.set_transition_type(RevealerTransitionType::SlideDown);
+        revealer.set_reveal_child(true);
+        revealer.set_vexpand(true);
+        revealer.set_child(Some(&scroll));
+        widget.append(&revealer);
+
+        let on_collapse_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>> = Rc::new(RefCell::new(None));
+        {
+            let revealer_c = revealer.clone();
+            let collapse_btn_c = collapse_btn.clone();
+            let on_collapse_toggle_c = on_collapse_toggle.clone();
+            collapse_btn.connect_clicked(move |_| {
+                let now_collapsed = revealer_c.reveals_child();
+                revealer_c.set_reveal_child(!now_collapsed);
+                collapse_btn_c.set_icon_name(if now_collapsed { "pan-end-symbolic" } else { "pan-down-symbolic" });
+                collapse_btn_c.set_tooltip_text(Some(if now_collapsed { "Show Comments" } else { "Hide Comments" }));
+                if let Some(f) = on_collapse_toggle_c.borrow().as_ref() {
+                    f(now_collapsed);
+                }
+            });
+        }
 
         let panel = Self {
             widget,
             list_box,
             count_label,
             add_btn: add_btn.clone(),
+            collapse_btn,
+            revealer,
             current_path: Rc::new(RefCell::new(None)),
             thread: Rc::new(RefCell::new(CommentThread::default())),
             on_jump: Rc::new(RefCell::new(None)),
             on_request_anchor: Rc::new(RefCell::new(None)),
             on_apply_suggestion: Rc::new(RefCell::new(None)),
+            on_collapse_toggle,
         };
 
         {
@@ -116,6 +150,20 @@ impl CommentsPanel {
 
     pub fn widget(&self) -> &GtkBox {
         &self.widget
+    }
+
+    /// Restores a persisted collapsed/expanded state — called once at
+    /// startup, before the user has clicked anything.
+    pub fn set_collapsed(&self, collapsed: bool) {
+        self.revealer.set_reveal_child(!collapsed);
+        self.collapse_btn.set_icon_name(if collapsed { "pan-end-symbolic" } else { "pan-down-symbolic" });
+        self.collapse_btn.set_tooltip_text(Some(if collapsed { "Show Comments" } else { "Hide Comments" }));
+    }
+
+    /// Fires with the new collapsed state whenever the user clicks the
+    /// header's collapse toggle, so the caller can persist it.
+    pub fn set_on_collapse_toggle(&self, f: impl Fn(bool) + 'static) {
+        *self.on_collapse_toggle.borrow_mut() = Some(Box::new(f));
     }
 
     pub fn set_on_jump(&self, f: impl Fn(u32) + 'static) {
