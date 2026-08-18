@@ -30,10 +30,11 @@
     <p>Document workflow:</p>
     <ul>
       <li>New from Template — dialog generates a complete Typst preamble; save your own customised templates alongside the built-in gallery</li>
-      <li>Import from Word, ODT, Markdown, LaTeX, HTML, EPUB, RTF, or PDF, previewed before anything is written — Word, ODT and Markdown are converted by Zerkalo itself with nothing to install; drag-and-drop, batch/folder import, Paste as Document, and an Import History with retry, undo, and search</li>
+      <li>Import from Word, ODT, Markdown, LaTeX, HTML, EPUB, RTF, or PDF, previewed before anything is written — Word, ODT and Markdown are converted by Zerkalo itself with nothing to install; drag-and-drop, batch/folder import, Paste as Document, and an Import History with retry, undo, and search; a .docx with Word's track changes turns them into reviewable suggested edits instead of silently accepting or dropping them</li>
+      <li>Insert Table — set row/column count, per-cell text, per-column alignment, an optional header row, and per-cell colspan/rowspan, then generate a complete Typst table block at the cursor</li>
       <li>Export to PDF, HTML, DOCX, ODT, or LaTeX; Ctrl+Shift+E for instant PDF export</li>
       <li>Citation style switcher — APA, Chicago, GOST 7.32, and more, plus custom CSL styles</li>
-      <li>BibTeX and Hayagriva YAML bibliography support, with cited-only bibliography export and project-wide citation key rename</li>
+      <li>BibTeX and Hayagriva YAML bibliography support, with cited-only bibliography export and project-wide citation key rename — a Kartoteka vault folder works as a live bibliography source too</li>
       <li>Compile on save with live preview; scroll position preserved across recompiles</li>
       <li>Auto-save to recovery file on idle; periodic save every 30 seconds</li>
       <li>Git sync — commit and push to all remotes in one click, with git bundled so there's nothing to install; three-screen setup signs in with GitHub (which supplies your name and email automatically), creates and links a new repository, or backs up to a plain folder or drive with no account at all; once set up, backups also happen automatically in the background and once more on quit, with no button to remember</li>
@@ -47,9 +48,12 @@
     </ul>
     <p>Sidebar:</p>
     <ul>
-      <li>Document outline with cursor-tracking highlight</li>
-      <li>File tree, citation panel (click-to-insert), plan scratchpad, and section notes</li>
-      <li>Symbol insert panel for Cyrillic, Greek, Hebrew, and Sanskrit</li>
+      <li>Document outline with cursor-tracking highlight; a manuscript-wide view rolls up headings and word counts across every file in a multi-file project, not just the open one</li>
+      <li>File tree and citation panel (click-to-insert)</li>
+      <li>Packages panel — search and install from the Typst Universe package index, not just list what's already downloaded</li>
+      <li>Comments panel — threaded, resolvable comments anchored to a line, never written into the Typst source; importing a .docx with Word's track changes turns them into reviewable suggested edits here, with Accept/Reject per suggestion</li>
+      <li>Reference Manager and Dependency Graph, from the ≡ menu</li>
+      <li>Symbol insert panel for Cyrillic, Greek, Hebrew, and Sanskrit, plus a Math tab for common operators, relations, calculus, and set theory notation</li>
       <li>Snapshot history with diff view and restore</li>
     </ul>
     <p>Document Library (Ctrl+L):</p>
@@ -76,6 +80,14 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.24.0" date="2026-08-18">
+      <description>
+        <p>0.24.0 "Second Reading" — threaded comments and reviewable suggested edits, DOCX
+        track-changes import, Typst Universe package search and install, a manuscript-wide
+        outline, math and table authoring tools, and a 32-item usability pass for anyone
+        coming from Word.</p>
+      </description>
+    </release>
     <release version="0.23.0" date="2026-08-14">
       <description>
         <p>0.23.0 "Open Shelf" — a Kartoteka vault as a live bibliography source, a trimmed

@@ -7,7 +7,7 @@ use libadwaita as adw;
 use adw::prelude::*;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const RELEASE_NAME: &str = "Open Shelf";
+pub const RELEASE_NAME: &str = "Second Reading";
 
 pub struct WelcomeWindow {
     window: adw::Window,
