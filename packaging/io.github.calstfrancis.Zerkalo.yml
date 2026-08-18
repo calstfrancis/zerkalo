@@ -133,11 +133,22 @@ modules:
       # Point cargo at the vendor dir and pre-built target from zerkalo-deps
       - mkdir -p cargo
       - printf '[source.vendored-sources]\ndirectory = "/app/zerkalo-cargo-vendor"\n\n[source.crates-io]\nreplace-with = "vendored-sources"\n\n[source."https://github.com/calstfrancis/skrizhal"]\ngit = "https://github.com/calstfrancis/skrizhal"\nreplace-with = "vendored-sources"\ntag = "v0.3.0"\n\n[source."https://github.com/calstfrancis/kartoteka"]\ngit = "https://github.com/calstfrancis/kartoteka"\nreplace-with = "vendored-sources"\ntag = "v0.5.0"\n' > cargo/config
-      - cargo --offline build --release --manifest-path Cargo.toml
-      - install -Dm755 /app/zerkalo-cargo-target/release/zerkalo /app/bin/zerkalo
+      # zerkalo-deps' pre-built target dir lives in the shared /app tree,
+      # which flatpak-builder mounts read-only via rofiles-fuse whenever that
+      # module is a cache hit (i.e. most builds, once dependencies stop
+      # changing) — cargo still re-touches every dependency's fingerprint
+      # file to reconfirm it's current even when nothing needs recompiling,
+      # and rewriting a file from that read-only base fails with "Read-only
+      # file system". Copying it into this module's own (always-writable)
+      # build directory first, and pointing CARGO_TARGET_DIR at the copy,
+      # keeps the pre-built deps (no recompile) without requiring in-place
+      # writes to the shared tree.
+      - cp -a /app/zerkalo-cargo-target ./writable-cargo-target
+      - CARGO_TARGET_DIR=./writable-cargo-target cargo --offline build --release --manifest-path Cargo.toml
+      - install -Dm755 ./writable-cargo-target/release/zerkalo /app/bin/zerkalo
       - strip /app/bin/zerkalo
       # Clean up build artifacts before finalising the module state
-      - rm -rf /app/zerkalo-cargo-vendor /app/zerkalo-cargo-target
+      - rm -rf /app/zerkalo-cargo-vendor /app/zerkalo-cargo-target ./writable-cargo-target
       - install -Dm755 tinymist-bin/tinymist /app/lib/zerkalo/tinymist
       - strip /app/lib/zerkalo/tinymist
       - sed -i 's/^Icon=zerkalo/Icon=io.github.calstfrancis.Zerkalo/' packaging/io.github.calstfrancis.Zerkalo.desktop
