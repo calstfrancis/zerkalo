@@ -30,6 +30,10 @@ Snapshots into one Versions system" project noted at the bottom of it.
   says explicitly that it's supported.** Exporting as BibTeX and using
   "Choose Bibliography File" already worked, but nothing said so —
   Settings, the Citations panel, and the README now mention it by name.
+- **A Math tab in the Symbol Insert panel.** Common operators, relations,
+  calculus notation, set theory, logic, arrows, and number sets (∑, ∫, ≤,
+  ∈, →, ℝ, and more) — one click inserts the symbol, which Typst renders
+  correctly inside `$...$` without any special syntax.
 
 ### Changed
 
