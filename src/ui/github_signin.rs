@@ -3,10 +3,10 @@ use std::sync::mpsc::{sync_channel, TryRecvError};
 use std::sync::Arc;
 use std::time::Duration;
 
+use adw::prelude::*;
 use gtk4::prelude::*;
 use gtk4::{Align, Box as GtkBox, Button, Label, LinkButton, Orientation};
 use libadwaita as adw;
-use adw::prelude::*;
 
 use crate::github_auth::{self, DeviceCodeResponse, GithubAuthError};
 
@@ -48,7 +48,10 @@ pub fn present(parent: &impl IsA<gtk4::Window>, on_connected: impl Fn(String) + 
     code_lbl.set_margin_top(12);
     code_lbl.set_visible(false);
 
-    let open_link = LinkButton::with_label("https://github.com/login/device", "Open github.com/login/device ↗");
+    let open_link = LinkButton::with_label(
+        "https://github.com/login/device",
+        "Open github.com/login/device ↗",
+    );
     open_link.set_halign(Align::Center);
     open_link.set_margin_top(8);
     open_link.set_visible(false);
@@ -87,8 +90,9 @@ pub fn present(parent: &impl IsA<gtk4::Window>, on_connected: impl Fn(String) + 
         };
         let _ = tx.send(FlowUpdate::Code(device.clone()));
 
-        let result = github_auth::poll_for_access_token(github_auth::CLIENT_ID, &device, &cancelled_thread)
-            .and_then(|token| github_auth::fetch_username(&token).map(|user| (token, user)));
+        let result =
+            github_auth::poll_for_access_token(github_auth::CLIENT_ID, &device, &cancelled_thread)
+                .and_then(|token| github_auth::fetch_username(&token).map(|user| (token, user)));
         let _ = tx.send(FlowUpdate::Done(result));
     });
 
@@ -110,7 +114,8 @@ pub fn present(parent: &impl IsA<gtk4::Window>, on_connected: impl Fn(String) + 
                         return glib::ControlFlow::Break;
                     }
                     if let Err(e) = crate::secret_store::save_github_token(&token) {
-                        status_lbl.set_label(&format!("Signed in, but couldn't store the token: {e}"));
+                        status_lbl
+                            .set_label(&format!("Signed in, but couldn't store the token: {e}"));
                         spinner.set_spinning(false);
                         return glib::ControlFlow::Break;
                     }

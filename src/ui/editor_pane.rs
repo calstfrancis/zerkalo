@@ -4,24 +4,24 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+use adw::prelude::*;
 use gtk4::prelude::*;
 use gtk4::{
-    Box as GtkBox, Button, CssProvider, DrawingArea, DropTarget, Entry,
-    EventControllerFocus, EventControllerKey, EventControllerMotion, GestureClick, Label,
-    Notebook, Orientation, Popover, PropagationPhase, ScrolledWindow, Separator,
-    TextSearchFlags, TextTag, TextWindowType, ToggleButton,
+    Box as GtkBox, Button, CssProvider, DrawingArea, DropTarget, Entry, EventControllerFocus,
+    EventControllerKey, EventControllerMotion, GestureClick, Label, Notebook, Orientation, Popover,
+    PropagationPhase, ScrolledWindow, Separator, TextSearchFlags, TextTag, TextWindowType,
+    ToggleButton,
 };
 use libadwaita as adw;
-use adw::prelude::*;
 use sourceview5::prelude::*;
 use sourceview5::{Buffer, LanguageManager, MarkAttributes, StyleSchemeManager, View};
 
+use super::bib_popup::{BibPopup, PopupEntry, PopupSource};
+use super::find_bar::FindBar;
+use super::font_manager::FontManager;
+use super::lsp_popup::LspPopup;
 use crate::bibliography::BibEntry;
 use crate::lsp::CompletionItem;
-use super::bib_popup::{BibPopup, PopupEntry, PopupSource};
-use super::font_manager::FontManager;
-use super::find_bar::FindBar;
-use super::lsp_popup::LspPopup;
 
 // Package names/descriptions matching EXTRA_PACKAGES in template_dialog.rs
 /// The buffer mark `jump_to_line` scrolls to. Named, so one mark per buffer is
@@ -32,7 +32,10 @@ const IMPORT_PACKAGE_TOOLTIPS: &[(&str, &str)] = &[
     ("droplet", "Large decorative first-letter (dropcap)"),
     ("codly", "Beautiful code listings with syntax highlighting"),
     ("showybox", "Coloured callout and theorem boxes"),
-    ("gentle-clues", "Admonition blocks: note, tip, warning, important"),
+    (
+        "gentle-clues",
+        "Admonition blocks: note, tip, warning, important",
+    ),
     ("tablex", "Advanced tables with merged cells and styling"),
     ("drafting", "Margin notes and annotation tools"),
 ];
@@ -298,7 +301,6 @@ fn set_status_toggle(btn: &Button, label: &Label, text: &str, active: bool) {
     btn.update_state(&[gtk4::accessible::State::Pressed(pressed)]);
 }
 
-
 /// The widgets belonging to one open tab. `open_file` was 2,730 lines largely
 /// because every wiring section closed over these same few values plus `self`;
 /// bundling them is what lets a section become a method instead of a closure
@@ -358,10 +360,9 @@ impl EditorPane {
         // Install Typst language definition
         let lang_dir = glib::user_data_dir().join("zerkalo/language-specs");
         let lang_file = lang_dir.join("typst.lang");
-        if !lang_file.exists()
-            && std::fs::create_dir_all(&lang_dir).is_ok() {
-                let _ = std::fs::write(&lang_file, TYPST_LANG);
-            }
+        if !lang_file.exists() && std::fs::create_dir_all(&lang_dir).is_ok() {
+            let _ = std::fs::write(&lang_file, TYPST_LANG);
+        }
         let lang_manager = LanguageManager::default();
         let dir_str = lang_dir.to_string_lossy().to_string();
         let existing: Vec<String> = lang_manager
@@ -463,8 +464,8 @@ impl EditorPane {
         format_bar_toggle_btn.add_css_class("status-toggle");
         format_bar_toggle_btn.set_tooltip_text(Some("Toggle the formatting toolbar"));
         format_bar_toggle_btn.set_margin_end(4);
-        format_bar_toggle_btn.update_property(&[gtk4::accessible::Property::Label("Toggle format bar")]);
-
+        format_bar_toggle_btn
+            .update_property(&[gtk4::accessible::Property::Label("Toggle format bar")]);
 
         let sb_sep1 = gtk4::Separator::new(Orientation::Vertical);
         sb_sep1.add_css_class("statusbar-sep");
@@ -598,27 +599,45 @@ impl EditorPane {
                 #[allow(deprecated)]
                 let ctx = ring_widget.style_context();
                 #[allow(deprecated)]
-                let track = ctx.lookup_color("window_fg_color")
+                let track = ctx
+                    .lookup_color("window_fg_color")
                     .unwrap_or(gtk4::gdk::RGBA::new(0.5, 0.5, 0.5, 1.0));
                 #[allow(deprecated)]
-                let accent = ctx.lookup_color("accent_color")
+                let accent = ctx
+                    .lookup_color("accent_color")
                     .unwrap_or(gtk4::gdk::RGBA::new(0.2, 0.4, 0.9, 1.0));
                 #[allow(deprecated)]
-                let success = ctx.lookup_color("success_color")
+                let success = ctx
+                    .lookup_color("success_color")
                     .unwrap_or(gtk4::gdk::RGBA::new(0.2, 0.8, 0.2, 1.0));
 
                 cr.set_line_width(if celebrating { 3.5 } else { 2.5 });
-                cr.set_source_rgba(track.red() as f64, track.green() as f64, track.blue() as f64, 0.2);
+                cr.set_source_rgba(
+                    track.red() as f64,
+                    track.green() as f64,
+                    track.blue() as f64,
+                    0.2,
+                );
                 cr.arc(cx, cy, radius, 0.0, 2.0 * std::f64::consts::PI);
                 let _ = cr.stroke();
                 let frac = frac_rc.get();
                 if frac > 0.0 {
-                    let end_angle = -std::f64::consts::FRAC_PI_2 + frac * 2.0 * std::f64::consts::PI;
-                    let progress = if frac >= 1.0 || celebrating { &success } else { &accent };
+                    let end_angle =
+                        -std::f64::consts::FRAC_PI_2 + frac * 2.0 * std::f64::consts::PI;
+                    let progress = if frac >= 1.0 || celebrating {
+                        &success
+                    } else {
+                        &accent
+                    };
                     if celebrating {
                         cr.set_line_width(3.5);
                     }
-                    cr.set_source_rgba(progress.red() as f64, progress.green() as f64, progress.blue() as f64, 0.9);
+                    cr.set_source_rgba(
+                        progress.red() as f64,
+                        progress.green() as f64,
+                        progress.blue() as f64,
+                        0.9,
+                    );
                     cr.arc(cx, cy, radius, -std::f64::consts::FRAC_PI_2, end_angle);
                     let _ = cr.stroke();
                 }
@@ -739,20 +758,25 @@ impl EditorPane {
         format_bar.append(&italic_btn);
 
         let fb_sep1 = Separator::new(Orientation::Vertical);
-        fb_sep1.set_margin_top(6); fb_sep1.set_margin_bottom(6);
-        fb_sep1.set_margin_start(4); fb_sep1.set_margin_end(4);
+        fb_sep1.set_margin_top(6);
+        fb_sep1.set_margin_bottom(6);
+        fb_sep1.set_margin_start(4);
+        fb_sep1.set_margin_end(4);
         format_bar.append(&fb_sep1);
 
         let h1_btn = Button::with_label("H1");
-        h1_btn.add_css_class("flat"); h1_btn.add_css_class("caption");
+        h1_btn.add_css_class("flat");
+        h1_btn.add_css_class("caption");
         h1_btn.set_tooltip_text(Some("Heading 1  (= Heading text)"));
         h1_btn.update_property(&[gtk4::accessible::Property::Label("Heading 1")]);
         let h2_btn = Button::with_label("H2");
-        h2_btn.add_css_class("flat"); h2_btn.add_css_class("caption");
+        h2_btn.add_css_class("flat");
+        h2_btn.add_css_class("caption");
         h2_btn.set_tooltip_text(Some("Heading 2  (== Heading text)"));
         h2_btn.update_property(&[gtk4::accessible::Property::Label("Heading 2")]);
         let h3_btn = Button::with_label("H3");
-        h3_btn.add_css_class("flat"); h3_btn.add_css_class("caption");
+        h3_btn.add_css_class("flat");
+        h3_btn.add_css_class("caption");
         h3_btn.set_tooltip_text(Some("Heading 3  (=== Heading text)"));
         h3_btn.update_property(&[gtk4::accessible::Property::Label("Heading 3")]);
 
@@ -761,31 +785,39 @@ impl EditorPane {
         format_bar.append(&h3_btn);
 
         let fb_sep2 = Separator::new(Orientation::Vertical);
-        fb_sep2.set_margin_top(6); fb_sep2.set_margin_bottom(6);
-        fb_sep2.set_margin_start(4); fb_sep2.set_margin_end(4);
+        fb_sep2.set_margin_top(6);
+        fb_sep2.set_margin_bottom(6);
+        fb_sep2.set_margin_start(4);
+        fb_sep2.set_margin_end(4);
         format_bar.append(&fb_sep2);
 
         let pb_btn = Button::with_label("¶");
-        pb_btn.add_css_class("flat"); pb_btn.add_css_class("caption");
+        pb_btn.add_css_class("flat");
+        pb_btn.add_css_class("caption");
         pb_btn.set_tooltip_text(Some("Insert page break  (#pagebreak())"));
         pb_btn.update_property(&[gtk4::accessible::Property::Label("Insert page break")]);
         format_bar.append(&pb_btn);
 
         let fb_sep3 = Separator::new(Orientation::Vertical);
-        fb_sep3.set_margin_top(6); fb_sep3.set_margin_bottom(6);
-        fb_sep3.set_margin_start(4); fb_sep3.set_margin_end(4);
+        fb_sep3.set_margin_top(6);
+        fb_sep3.set_margin_bottom(6);
+        fb_sep3.set_margin_start(4);
+        fb_sep3.set_margin_end(4);
         format_bar.append(&fb_sep3);
 
         let line_numbers_btn = ToggleButton::with_label("#");
         line_numbers_btn.add_css_class("flat");
         line_numbers_btn.add_css_class("caption");
         line_numbers_btn.set_tooltip_text(Some("Toggle line numbers"));
-        line_numbers_btn.update_property(&[gtk4::accessible::Property::Label("Toggle line numbers")]);
+        line_numbers_btn
+            .update_property(&[gtk4::accessible::Property::Label("Toggle line numbers")]);
         format_bar.append(&line_numbers_btn);
 
         let fb_sep3b = Separator::new(Orientation::Vertical);
-        fb_sep3b.set_margin_top(6); fb_sep3b.set_margin_bottom(6);
-        fb_sep3b.set_margin_start(4); fb_sep3b.set_margin_end(4);
+        fb_sep3b.set_margin_top(6);
+        fb_sep3b.set_margin_bottom(6);
+        fb_sep3b.set_margin_start(4);
+        fb_sep3b.set_margin_end(4);
         format_bar.append(&fb_sep3b);
 
         // ── Insert table (grid picker) ──────────────────────────────────────
@@ -812,9 +844,11 @@ impl EditorPane {
                 let cell = Button::new();
                 cell.set_size_request(22, 20);
                 cell.add_css_class("table-grid-cell");
-                cell.update_property(&[gtk4::accessible::Property::Label(
-                    &format!("{}×{} table", r + 1, c + 1)
-                )]);
+                cell.update_property(&[gtk4::accessible::Property::Label(&format!(
+                    "{}×{} table",
+                    r + 1,
+                    c + 1
+                ))]);
                 row_btns.push(cell.clone());
                 row_box.append(&cell);
             }
@@ -822,9 +856,7 @@ impl EditorPane {
             table_grid_box.append(&row_box);
         }
         // Wrap grid_btns in Rc so hover handlers can update all cells
-        let grid_rc: Rc<Vec<Vec<Button>>> = Rc::new(
-            grid_btns.to_vec()
-        );
+        let grid_rc: Rc<Vec<Vec<Button>>> = Rc::new(grid_btns.to_vec());
         // Wire hover handlers (separate pass so all cells are available)
         for (r, row) in grid_btns.iter().enumerate().take(GRID_MAX) {
             for (c, cell) in row.iter().enumerate().take(GRID_MAX) {
@@ -911,7 +943,12 @@ impl EditorPane {
             let tb = table_btn.clone();
             table_btn.connect_clicked(move |_| {
                 tp.set_parent(&tb);
-                if tp.is_visible() { tp.popdown(); } else { tp.popup(); tp.grab_focus(); }
+                if tp.is_visible() {
+                    tp.popdown();
+                } else {
+                    tp.popup();
+                    tp.grab_focus();
+                }
             });
         }
         format_bar.append(&table_btn);
@@ -926,8 +963,10 @@ impl EditorPane {
 
         // ── CV style switcher (shown only when editing a CV) ─────────────────
         let cv_sep = Separator::new(Orientation::Vertical);
-        cv_sep.set_margin_top(6); cv_sep.set_margin_bottom(6);
-        cv_sep.set_margin_start(4); cv_sep.set_margin_end(4);
+        cv_sep.set_margin_top(6);
+        cv_sep.set_margin_bottom(6);
+        cv_sep.set_margin_start(4);
+        cv_sep.set_margin_end(4);
 
         let cv_style_label = Label::new(Some("Modern"));
         cv_style_label.add_css_class("dim-label");
@@ -935,8 +974,10 @@ impl EditorPane {
 
         let cv_style_popover = Popover::new();
         let cv_style_popover_box = GtkBox::new(Orientation::Vertical, 2);
-        cv_style_popover_box.set_margin_top(4); cv_style_popover_box.set_margin_bottom(4);
-        cv_style_popover_box.set_margin_start(4); cv_style_popover_box.set_margin_end(4);
+        cv_style_popover_box.set_margin_top(4);
+        cv_style_popover_box.set_margin_bottom(4);
+        cv_style_popover_box.set_margin_start(4);
+        cv_style_popover_box.set_margin_end(4);
         // Descriptions mirror the CV presets in the "New from Template" gallery
         // (see TEMPLATE_PRESETS in template_dialog.rs) so switching style here
         // carries the same explanation as picking it there.
@@ -980,7 +1021,12 @@ impl EditorPane {
             let sb = cv_style_btn.clone();
             cv_style_btn.connect_clicked(move |_| {
                 sp.set_parent(&sb);
-                if sp.is_visible() { sp.popdown(); } else { sp.popup(); sp.grab_focus(); }
+                if sp.is_visible() {
+                    sp.popdown();
+                } else {
+                    sp.popup();
+                    sp.grab_focus();
+                }
             });
         }
 
@@ -999,8 +1045,10 @@ impl EditorPane {
         let enabled_fonts = FontManager::enabled_fonts();
         let font_popover = Popover::new();
         let font_popover_box = GtkBox::new(Orientation::Vertical, 2);
-        font_popover_box.set_margin_top(4); font_popover_box.set_margin_bottom(4);
-        font_popover_box.set_margin_start(4); font_popover_box.set_margin_end(4);
+        font_popover_box.set_margin_top(4);
+        font_popover_box.set_margin_bottom(4);
+        font_popover_box.set_margin_start(4);
+        font_popover_box.set_margin_end(4);
         let mut font_buttons: Vec<(String, Button)> = Vec::new();
         for font_name in &enabled_fonts {
             let row = Button::with_label(font_name);
@@ -1032,17 +1080,26 @@ impl EditorPane {
             let fb = font_bar_btn.clone();
             font_bar_btn.connect_clicked(move |_| {
                 fp.set_parent(&fb);
-                if fp.is_visible() { fp.popdown(); } else { fp.popup(); fp.grab_focus(); }
+                if fp.is_visible() {
+                    fp.popdown();
+                } else {
+                    fp.popup();
+                    fp.grab_focus();
+                }
             });
         }
         format_bar.append(&font_bar_btn);
 
         // ── Font size dropdown (right-aligned) ────────────────────────────────
-        const DOC_SIZES: &[&str] = &["10pt", "11pt", "12pt", "14pt", "16pt", "18pt", "20pt", "24pt"];
+        const DOC_SIZES: &[&str] = &[
+            "10pt", "11pt", "12pt", "14pt", "16pt", "18pt", "20pt", "24pt",
+        ];
         let size_popover = Popover::new();
         let size_popover_box = GtkBox::new(Orientation::Vertical, 2);
-        size_popover_box.set_margin_top(4); size_popover_box.set_margin_bottom(4);
-        size_popover_box.set_margin_start(4); size_popover_box.set_margin_end(4);
+        size_popover_box.set_margin_top(4);
+        size_popover_box.set_margin_bottom(4);
+        size_popover_box.set_margin_start(4);
+        size_popover_box.set_margin_end(4);
         let mut size_buttons: Vec<(String, Button)> = Vec::new();
         for size_name in DOC_SIZES {
             let row = Button::with_label(size_name);
@@ -1069,7 +1126,12 @@ impl EditorPane {
             let sb = size_bar_btn.clone();
             size_bar_btn.connect_clicked(move |_| {
                 sp.set_parent(&sb);
-                if sp.is_visible() { sp.popdown(); } else { sp.popup(); sp.grab_focus(); }
+                if sp.is_visible() {
+                    sp.popdown();
+                } else {
+                    sp.popup();
+                    sp.grab_focus();
+                }
             });
         }
         format_bar.append(&size_bar_btn);
@@ -1096,13 +1158,19 @@ impl EditorPane {
         overflow_btn.add_css_class("flat");
         overflow_btn.set_tooltip_text(Some("More formatting options"));
         overflow_btn.set_visible(false);
-        overflow_btn.update_property(&[gtk4::accessible::Property::Label("More formatting options")]);
+        overflow_btn
+            .update_property(&[gtk4::accessible::Property::Label("More formatting options")]);
         {
             let op = overflow_popover.clone();
             let ob = overflow_btn.clone();
             overflow_btn.connect_clicked(move |_| {
                 op.set_parent(&ob);
-                if op.is_visible() { op.popdown(); } else { op.popup(); op.grab_focus(); }
+                if op.is_visible() {
+                    op.popdown();
+                } else {
+                    op.popup();
+                    op.grab_focus();
+                }
             });
         }
         format_bar.append(&overflow_btn);
@@ -1140,16 +1208,48 @@ impl EditorPane {
         // headings/pagebreak/line-numbers/table/figure/CV style — also
         // collapses right-to-left).
         let overflow_groups: Rc<Vec<OverflowGroup>> = Rc::new(vec![
-            OverflowGroup { lead_separator: None, controls: vec![size_bar_btn.clone().upcast()], zone_b: true },
-            OverflowGroup { lead_separator: None, controls: vec![font_bar_btn.clone().upcast()], zone_b: true },
-            OverflowGroup { lead_separator: None, controls: vec![cv_format_section.clone().upcast()], zone_b: false },
-            OverflowGroup { lead_separator: None, controls: vec![figure_btn.clone().upcast()], zone_b: false },
-            OverflowGroup { lead_separator: Some(fb_sep3b.clone().upcast()), controls: vec![table_btn.clone().upcast()], zone_b: false },
-            OverflowGroup { lead_separator: Some(fb_sep3.clone().upcast()), controls: vec![line_numbers_btn.clone().upcast()], zone_b: false },
-            OverflowGroup { lead_separator: Some(fb_sep2.clone().upcast()), controls: vec![pb_btn.clone().upcast()], zone_b: false },
+            OverflowGroup {
+                lead_separator: None,
+                controls: vec![size_bar_btn.clone().upcast()],
+                zone_b: true,
+            },
+            OverflowGroup {
+                lead_separator: None,
+                controls: vec![font_bar_btn.clone().upcast()],
+                zone_b: true,
+            },
+            OverflowGroup {
+                lead_separator: None,
+                controls: vec![cv_format_section.clone().upcast()],
+                zone_b: false,
+            },
+            OverflowGroup {
+                lead_separator: None,
+                controls: vec![figure_btn.clone().upcast()],
+                zone_b: false,
+            },
+            OverflowGroup {
+                lead_separator: Some(fb_sep3b.clone().upcast()),
+                controls: vec![table_btn.clone().upcast()],
+                zone_b: false,
+            },
+            OverflowGroup {
+                lead_separator: Some(fb_sep3.clone().upcast()),
+                controls: vec![line_numbers_btn.clone().upcast()],
+                zone_b: false,
+            },
+            OverflowGroup {
+                lead_separator: Some(fb_sep2.clone().upcast()),
+                controls: vec![pb_btn.clone().upcast()],
+                zone_b: false,
+            },
             OverflowGroup {
                 lead_separator: Some(fb_sep1.clone().upcast()),
-                controls: vec![h1_btn.clone().upcast(), h2_btn.clone().upcast(), h3_btn.clone().upcast()],
+                controls: vec![
+                    h1_btn.clone().upcast(),
+                    h2_btn.clone().upcast(),
+                    h3_btn.clone().upcast(),
+                ],
                 zone_b: false,
             },
         ]);
@@ -1162,22 +1262,20 @@ impl EditorPane {
         // control of every group in reverse collapse order. Seeding only the
         // base left the stack empty after the first collapse, and restoring
         // then unwrapped a None and aborted the app.
-        let zone_a_anchor_stack: Rc<RefCell<Vec<gtk4::Widget>>> =
-            Rc::new(RefCell::new(vec![
-                italic_btn.clone().upcast(),
-                h3_btn.clone().upcast(),
-                pb_btn.clone().upcast(),
-                line_numbers_btn.clone().upcast(),
-                table_btn.clone().upcast(),
-                figure_btn.clone().upcast(),
-                cv_format_section.clone().upcast(),
-            ]));
-        let zone_b_anchor_stack: Rc<RefCell<Vec<gtk4::Widget>>> =
-            Rc::new(RefCell::new(vec![
-                fb_spacer.clone().upcast(),
-                font_bar_btn.clone().upcast(),
-                size_bar_btn.clone().upcast(),
-            ]));
+        let zone_a_anchor_stack: Rc<RefCell<Vec<gtk4::Widget>>> = Rc::new(RefCell::new(vec![
+            italic_btn.clone().upcast(),
+            h3_btn.clone().upcast(),
+            pb_btn.clone().upcast(),
+            line_numbers_btn.clone().upcast(),
+            table_btn.clone().upcast(),
+            figure_btn.clone().upcast(),
+            cv_format_section.clone().upcast(),
+        ]));
+        let zone_b_anchor_stack: Rc<RefCell<Vec<gtk4::Widget>>> = Rc::new(RefCell::new(vec![
+            fb_spacer.clone().upcast(),
+            font_bar_btn.clone().upcast(),
+            size_bar_btn.clone().upcast(),
+        ]));
         let zone_a_base: gtk4::Widget = italic_btn.clone().upcast();
         let zone_b_base: gtk4::Widget = fb_spacer.clone().upcast();
         let overflow_stage: Rc<Cell<usize>> = Rc::new(Cell::new(0));
@@ -1204,19 +1302,35 @@ impl EditorPane {
                     if let Some(sep) = &group.lead_separator {
                         sep.unparent();
                     }
-                    let stack = if group.zone_b { &zone_b_anchor_stack } else { &zone_a_anchor_stack };
+                    let stack = if group.zone_b {
+                        &zone_b_anchor_stack
+                    } else {
+                        &zone_a_anchor_stack
+                    };
                     stack.borrow_mut().pop();
                     stage += 1;
                 }
                 while stage > target {
                     stage -= 1;
                     let group = &overflow_groups[stage];
-                    let stack = if group.zone_b { &zone_b_anchor_stack } else { &zone_a_anchor_stack };
-                    let base = if group.zone_b { &zone_b_base } else { &zone_a_base };
+                    let stack = if group.zone_b {
+                        &zone_b_anchor_stack
+                    } else {
+                        &zone_a_anchor_stack
+                    };
+                    let base = if group.zone_b {
+                        &zone_b_base
+                    } else {
+                        &zone_a_base
+                    };
                     // Never unwrap here: an unbalanced stack must degrade to a
                     // slightly odd button order, not abort the process (a panic
                     // in a GTK callback can't unwind and takes the app down).
-                    let mut anchor = stack.borrow().last().cloned().unwrap_or_else(|| base.clone());
+                    let mut anchor = stack
+                        .borrow()
+                        .last()
+                        .cloned()
+                        .unwrap_or_else(|| base.clone());
                     if let Some(sep) = &group.lead_separator {
                         format_bar.insert_child_after(sep, Some(&anchor));
                         anchor = sep.clone();
@@ -1245,7 +1359,8 @@ impl EditorPane {
         // picks "the last added breakpoint whose condition matches", so at any
         // given width the narrowest still-matching one — i.e. the deepest
         // applicable collapse stage — always wins.
-        const OVERFLOW_THRESHOLDS: &[f64] = &[760.0, 700.0, 650.0, 600.0, 550.0, 480.0, 420.0, 360.0];
+        const OVERFLOW_THRESHOLDS: &[f64] =
+            &[760.0, 700.0, 650.0, 600.0, 550.0, 480.0, 420.0, 360.0];
         for (i, px) in OVERFLOW_THRESHOLDS.iter().enumerate() {
             let condition = adw::BreakpointCondition::new_length(
                 adw::BreakpointConditionLengthType::MaxWidth,
@@ -1299,10 +1414,13 @@ impl EditorPane {
         // app_window places it below inner_paned so it spans the full window width.
 
         let on_change: Rc<RefCell<Option<Box<dyn Fn()>>>> = Rc::new(RefCell::new(None));
-        let on_modified_changed: Rc<RefCell<Option<Box<dyn Fn(bool)>>>> = Rc::new(RefCell::new(None));
-        let on_file_dirty: Rc<RefCell<Option<Box<dyn Fn(PathBuf, bool)>>>> = Rc::new(RefCell::new(None));
+        let on_modified_changed: Rc<RefCell<Option<Box<dyn Fn(bool)>>>> =
+            Rc::new(RefCell::new(None));
+        let on_file_dirty: Rc<RefCell<Option<Box<dyn Fn(PathBuf, bool)>>>> =
+            Rc::new(RefCell::new(None));
         let on_image_drop: Rc<RefCell<Option<Box<dyn Fn(PathBuf)>>>> = Rc::new(RefCell::new(None));
-        let on_document_drop: Rc<RefCell<Option<Box<dyn Fn(PathBuf)>>>> = Rc::new(RefCell::new(None));
+        let on_document_drop: Rc<RefCell<Option<Box<dyn Fn(PathBuf)>>>> =
+            Rc::new(RefCell::new(None));
         let on_delete_file: Rc<RefCell<Option<Box<dyn Fn(PathBuf)>>>> = Rc::new(RefCell::new(None));
         let on_page_switch: Rc<RefCell<Option<Box<dyn Fn(String, PathBuf)>>>> =
             Rc::new(RefCell::new(None));
@@ -1316,11 +1434,11 @@ impl EditorPane {
             Rc::new(RefCell::new(None));
         let on_autocorrect_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>> =
             Rc::new(RefCell::new(None));
-        let on_gost_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>> =
-            Rc::new(RefCell::new(None));
+        let on_gost_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>> = Rc::new(RefCell::new(None));
         let on_version_click: Rc<RefCell<Option<Box<dyn Fn()>>>> = Rc::new(RefCell::new(None));
         let on_word_count_click: Rc<RefCell<Option<Box<dyn Fn()>>>> = Rc::new(RefCell::new(None));
-        let on_simple_mode_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>> = Rc::new(RefCell::new(None));
+        let on_simple_mode_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>> =
+            Rc::new(RefCell::new(None));
 
         let font_size: Rc<RefCell<u32>> = Rc::new(RefCell::new(13));
         let font_family: Rc<RefCell<String>> = Rc::new(RefCell::new("Monospace".to_string()));
@@ -1353,7 +1471,8 @@ impl EditorPane {
                             let can_undo = tab.buffer.can_undo();
                             let can_redo = tab.buffer.can_redo();
                             let session_start = tab.session_start_words;
-                            found = Some((path.clone(), content, can_undo, can_redo, session_start));
+                            found =
+                                Some((path.clone(), content, can_undo, can_redo, session_start));
                             break;
                         }
                     }
@@ -1414,7 +1533,9 @@ impl EditorPane {
             simple_mode: Rc::new(RefCell::new(true)),
             simple_mode_label: simple_mode_label.clone(),
             on_simple_mode_toggle,
-            spell_checker: Rc::new(RefCell::new(crate::spellcheck::SpellChecker::new(vec!["en_US".to_string()]))),
+            spell_checker: Rc::new(RefCell::new(crate::spellcheck::SpellChecker::new(vec![
+                "en_US".to_string(),
+            ]))),
             line_spacing,
             typewriter_scroll,
             word_count_goal,
@@ -1489,19 +1610,25 @@ impl EditorPane {
                     let state = ep_ln.state.borrow();
                     state.tabs.values().map(|t| t.view.clone()).collect()
                 };
-                for v in &views { v.set_show_line_numbers(show); }
+                for v in &views {
+                    v.set_show_line_numbers(show);
+                }
             });
         }
         {
             let cb = ep.on_version_click.clone();
             version_btn.connect_clicked(move |_| {
-                if let Some(f) = cb.borrow().as_ref() { f(); }
+                if let Some(f) = cb.borrow().as_ref() {
+                    f();
+                }
             });
         }
         {
             let cb = ep.on_word_count_click.clone();
             wc_btn.connect_clicked(move |_| {
-                if let Some(f) = cb.borrow().as_ref() { f(); }
+                if let Some(f) = cb.borrow().as_ref() {
+                    f();
+                }
             });
         }
         {
@@ -1529,7 +1656,9 @@ impl EditorPane {
                 let new_val = !*gost_on.borrow();
                 *gost_on.borrow_mut() = new_val;
                 set_toggle_label(&lbl_g, "GOST Type B font", new_val);
-                if let Some(f) = cb_g.borrow().as_ref() { f(new_val); }
+                if let Some(f) = cb_g.borrow().as_ref() {
+                    f(new_val);
+                }
             });
         }
         {
@@ -1538,7 +1667,9 @@ impl EditorPane {
                 let new_val = !ep_fb.format_bar_visible();
                 ep_fb.set_format_bar_visible(new_val);
                 *ep_fb.user_dismissed_format_bar.borrow_mut() = !new_val;
-                if let Some(f) = ep_fb.on_format_bar_toggle.borrow().as_ref() { f(new_val); }
+                if let Some(f) = ep_fb.on_format_bar_toggle.borrow().as_ref() {
+                    f(new_val);
+                }
             });
         }
         {
@@ -1557,10 +1688,13 @@ impl EditorPane {
                 let current = ep_tabs.notebook.current_page();
 
                 // Build ordered list: current tab first, then rest in notebook order.
-                let mut entries: Vec<(u32, String, PathBuf)> = state.tabs.iter()
+                let mut entries: Vec<(u32, String, PathBuf)> = state
+                    .tabs
+                    .iter()
                     .filter_map(|(path, tab)| {
                         let page = ep_tabs.notebook.page_num(&tab.scroll_window)?;
-                        let name = path.file_name()
+                        let name = path
+                            .file_name()
                             .and_then(|n| n.to_str())
                             .unwrap_or("untitled")
                             .to_string();
@@ -1609,14 +1743,18 @@ impl EditorPane {
                 let new_val = !focus_active.get();
                 focus_active.set(new_val);
                 set_status_toggle(&ftb, &ep_focus.focus_label, "focus", new_val);
-                if let Some(f) = ep_focus.on_focus_toggle.borrow().as_ref() { f(new_val); }
+                if let Some(f) = ep_focus.on_focus_toggle.borrow().as_ref() {
+                    f(new_val);
+                }
             });
         }
 
         // Restore focus to editor when format bar popovers close (item 2)
         for pop in [&table_popover, &font_popover, &size_popover] {
             let ep_fc = ep.clone();
-            pop.connect_closed(move |_| { ep_fc.grab_focus(); });
+            pop.connect_closed(move |_| {
+                ep_fc.grab_focus();
+            });
         }
 
         // Wire font dropdown rows
@@ -1629,7 +1767,9 @@ impl EditorPane {
             // font the file never got.
             btn.connect_clicked(move |_| {
                 fp.popdown();
-                if let Some(f) = ep_f.on_doc_font.borrow().as_ref() { f(fn2.clone()); }
+                if let Some(f) = ep_f.on_doc_font.borrow().as_ref() {
+                    f(fn2.clone());
+                }
             });
         }
         // Wire size dropdown rows
@@ -1639,7 +1779,9 @@ impl EditorPane {
             let sp = size_popover.clone();
             btn.connect_clicked(move |_| {
                 sp.popdown();
-                if let Some(f) = ep_s.on_doc_font_size.borrow().as_ref() { f(sn2.clone()); }
+                if let Some(f) = ep_s.on_doc_font_size.borrow().as_ref() {
+                    f(sn2.clone());
+                }
             });
         }
         // Wire table grid cell clicks (insert Typst table)
@@ -1731,29 +1873,41 @@ impl EditorPane {
                 let new_val = !sc_ac.borrow().autocorrect;
                 sc_ac.borrow_mut().autocorrect = new_val;
                 set_autocorrect_label(&lbl_ac, new_val);
-                if let Some(f) = cb_ac.borrow().as_ref() { f(new_val); }
+                if let Some(f) = cb_ac.borrow().as_ref() {
+                    f(new_val);
+                }
             });
         }
 
         {
             let ep_b = ep.clone();
-            bold_btn.connect_clicked(move |_| { ep_b.toggle_active_markup("*"); });
+            bold_btn.connect_clicked(move |_| {
+                ep_b.toggle_active_markup("*");
+            });
         }
         {
             let ep_i = ep.clone();
-            italic_btn.connect_clicked(move |_| { ep_i.toggle_active_markup("_"); });
+            italic_btn.connect_clicked(move |_| {
+                ep_i.toggle_active_markup("_");
+            });
         }
         {
             let ep_h1 = ep.clone();
-            h1_btn.connect_clicked(move |_| { ep_h1.set_active_heading(1); });
+            h1_btn.connect_clicked(move |_| {
+                ep_h1.set_active_heading(1);
+            });
         }
         {
             let ep_h2 = ep.clone();
-            h2_btn.connect_clicked(move |_| { ep_h2.set_active_heading(2); });
+            h2_btn.connect_clicked(move |_| {
+                ep_h2.set_active_heading(2);
+            });
         }
         {
             let ep_h3 = ep.clone();
-            h3_btn.connect_clicked(move |_| { ep_h3.set_active_heading(3); });
+            h3_btn.connect_clicked(move |_| {
+                ep_h3.set_active_heading(3);
+            });
         }
         {
             let ep_pb = ep.clone();
@@ -1771,11 +1925,15 @@ impl EditorPane {
                 let current = nb_u.current_page().unwrap_or(0);
                 let buffer = {
                     let state = state_u.borrow();
-                    state.tabs.values()
+                    state
+                        .tabs
+                        .values()
                         .find(|tab| nb_u.page_num(&tab.scroll_window) == Some(current))
                         .map(|tab| tab.buffer.clone())
                 };
-                if let Some(buf) = buffer { buf.undo(); }
+                if let Some(buf) = buffer {
+                    buf.undo();
+                }
             });
         }
         {
@@ -1785,24 +1943,31 @@ impl EditorPane {
                 let current = nb_r.current_page().unwrap_or(0);
                 let buffer = {
                     let state = state_r.borrow();
-                    state.tabs.values()
+                    state
+                        .tabs
+                        .values()
                         .find(|tab| nb_r.page_num(&tab.scroll_window) == Some(current))
                         .map(|tab| tab.buffer.clone())
                 };
-                if let Some(buf) = buffer { buf.redo(); }
+                if let Some(buf) = buffer {
+                    buf.redo();
+                }
             });
         }
         {
             let ep2 = ep.clone();
-            ep.find_bar.set_on_search(move |text, forward| ep2.do_find(text, forward));
+            ep.find_bar
+                .set_on_search(move |text, forward| ep2.do_find(text, forward));
         }
         {
             let ep2 = ep.clone();
-            ep.find_bar.set_on_replace_one(move |find, replace| ep2.do_replace_one(find, replace));
+            ep.find_bar
+                .set_on_replace_one(move |find, replace| ep2.do_replace_one(find, replace));
         }
         {
             let ep2 = ep.clone();
-            ep.find_bar.set_on_replace_all(move |find, replace| ep2.do_replace_all(find, replace));
+            ep.find_bar
+                .set_on_replace_all(move |find, replace| ep2.do_replace_all(find, replace));
         }
 
         // Word wrap toggle button
@@ -1819,7 +1984,9 @@ impl EditorPane {
             simple_mode_btn.connect_clicked(move |_| {
                 let new_val = !*ep2.simple_mode.borrow();
                 ep2.apply_simple_mode(new_val);
-                if let Some(f) = ep2.on_simple_mode_toggle.borrow().as_ref() { f(new_val); }
+                if let Some(f) = ep2.on_simple_mode_toggle.borrow().as_ref() {
+                    f(new_val);
+                }
             });
         }
 
@@ -1932,7 +2099,9 @@ impl EditorPane {
         self.apply_simple_mode_to_buffer(on);
         if on && !self.format_bar_visible() && !*self.user_dismissed_format_bar.borrow() {
             self.set_format_bar_visible(true);
-            if let Some(f) = self.on_format_bar_toggle.borrow().as_ref() { f(true); }
+            if let Some(f) = self.on_format_bar_toggle.borrow().as_ref() {
+                f(true);
+            }
         }
         if !on && !self.shown_frontmatter_banner.get() {
             self.shown_frontmatter_banner.set(true);
@@ -1944,7 +2113,11 @@ impl EditorPane {
         let left_margin = if on { 40 } else { 8 };
         let tabs: Vec<_> = {
             let state = self.state.borrow();
-            state.tabs.values().map(|t| (t.buffer.clone(), t.view.clone())).collect()
+            state
+                .tabs
+                .values()
+                .map(|t| (t.buffer.clone(), t.view.clone()))
+                .collect()
         };
         for (buffer, view) in &tabs {
             apply_simple_mode_tag(buffer, on);
@@ -1962,7 +2135,8 @@ impl EditorPane {
     /// document — the status bar is a line of plain words, and a toggle reads
     /// better there than as one more button in a crowded header.
     pub fn status_bar_append_left(&self, w: &impl gtk4::prelude::IsA<gtk4::Widget>) {
-        self.status_bar.insert_child_after(w, Some(&self.format_bar_toggle_btn));
+        self.status_bar
+            .insert_child_after(w, Some(&self.format_bar_toggle_btn));
     }
 
     /// Put a widget in the status bar's right group, before the version button.
@@ -1981,11 +2155,23 @@ impl EditorPane {
 
     pub fn apply_word_wrap(&self, enabled: bool) {
         *self.word_wrap.borrow_mut() = enabled;
-        let mode = if enabled { gtk4::WrapMode::Word } else { gtk4::WrapMode::None };
-        let h_policy = if enabled { gtk4::PolicyType::Never } else { gtk4::PolicyType::Automatic };
+        let mode = if enabled {
+            gtk4::WrapMode::Word
+        } else {
+            gtk4::WrapMode::None
+        };
+        let h_policy = if enabled {
+            gtk4::PolicyType::Never
+        } else {
+            gtk4::PolicyType::Automatic
+        };
         let tabs: Vec<_> = {
             let state = self.state.borrow();
-            state.tabs.values().map(|t| (t.view.clone(), t.scroll_window.clone())).collect()
+            state
+                .tabs
+                .values()
+                .map(|t| (t.view.clone(), t.scroll_window.clone()))
+                .collect()
         };
         for (view, scroll) in &tabs {
             view.set_wrap_mode(mode);
@@ -2055,10 +2241,7 @@ impl EditorPane {
     pub fn apply_word_count_goal(&self, goal: u32) {
         *self.default_word_count_goal.borrow_mut() = goal;
         let text = self.get_active_content();
-        let effective = text
-            .as_deref()
-            .and_then(parse_goal_comment)
-            .unwrap_or(goal);
+        let effective = text.as_deref().and_then(parse_goal_comment).unwrap_or(goal);
         *self.word_count_goal.borrow_mut() = effective;
         if effective == 0 {
             self.goal_ring.set_visible(false);
@@ -2069,7 +2252,13 @@ impl EditorPane {
 
     pub fn apply_style_scheme(&self, is_dark: bool) {
         let candidates: &[&str] = if is_dark {
-            &["monokai-extended", "solarized-dark", "oblivion", "Adwaita-dark", "classic-dark"]
+            &[
+                "monokai-extended",
+                "solarized-dark",
+                "oblivion",
+                "Adwaita-dark",
+                "classic-dark",
+            ]
         } else {
             &["kate", "tango", "Adwaita", "classic"]
         };
@@ -2095,14 +2284,18 @@ impl EditorPane {
             self.find_bar.set_result("");
             return;
         }
-        let Some((view, buffer)) = self.active_view_buffer() else { return };
+        let Some((view, buffer)) = self.active_view_buffer() else {
+            return;
+        };
         let case_sensitive = self.find_bar.is_case_sensitive();
         let whole_word = self.find_bar.is_whole_word();
         let regex_mode = self.find_bar.is_regex_mode();
         let cursor_pos = buffer.cursor_position();
 
         let matches: Vec<(i32, i32)> = if regex_mode || whole_word {
-            let full_text = buffer.text(&buffer.start_iter(), &buffer.end_iter(), false).to_string();
+            let full_text = buffer
+                .text(&buffer.start_iter(), &buffer.end_iter(), false)
+                .to_string();
             let pattern = if whole_word {
                 format!("\\b{}\\b", regex::escape(text))
             } else {
@@ -2154,10 +2347,14 @@ impl EditorPane {
 
         // Pick the next (or previous) match relative to cursor, with wrap-around
         let idx = if forward {
-            matches.iter().position(|(s, _)| *s > cursor_pos)
+            matches
+                .iter()
+                .position(|(s, _)| *s > cursor_pos)
                 .unwrap_or(0)
         } else {
-            matches.iter().rposition(|(_, e)| *e < cursor_pos)
+            matches
+                .iter()
+                .rposition(|(_, e)| *e < cursor_pos)
                 .unwrap_or(matches.len() - 1)
         };
 
@@ -2188,7 +2385,8 @@ impl EditorPane {
             buffer_idle.delete_mark(&mark);
         });
 
-        self.find_bar.set_result(&format!("{} of {}", idx + 1, matches.len()));
+        self.find_bar
+            .set_result(&format!("{} of {}", idx + 1, matches.len()));
     }
 
     pub fn clear_search_highlight(&self) {
@@ -2202,7 +2400,9 @@ impl EditorPane {
         if find.is_empty() {
             return;
         }
-        let Some((_view, buffer)) = self.active_view_buffer() else { return };
+        let Some((_view, buffer)) = self.active_view_buffer() else {
+            return;
+        };
         let case_sensitive = self.find_bar.is_case_sensitive();
         if let Some((sel_start, sel_end)) = buffer.selection_bounds() {
             let selected = buffer.text(&sel_start, &sel_end, false).to_string();
@@ -2235,9 +2435,13 @@ impl EditorPane {
         if text.is_empty() {
             return false;
         }
-        let Some((_view, buffer)) = self.active_view_buffer() else { return false };
+        let Some((_view, buffer)) = self.active_view_buffer() else {
+            return false;
+        };
         let line_idx = line.saturating_sub(1) as i32;
-        let Some(line_start) = buffer.iter_at_line(line_idx) else { return false };
+        let Some(line_start) = buffer.iter_at_line(line_idx) else {
+            return false;
+        };
         let mut line_end = line_start;
         line_end.forward_to_line_end();
         let Some((mut start, mut end)) =
@@ -2255,7 +2459,9 @@ impl EditorPane {
         if find.is_empty() {
             return;
         }
-        let Some((_view, buffer)) = self.active_view_buffer() else { return };
+        let Some((_view, buffer)) = self.active_view_buffer() else {
+            return;
+        };
         let case_sensitive = self.find_bar.is_case_sensitive();
         let whole_word = self.find_bar.is_whole_word();
         let regex_mode = self.find_bar.is_regex_mode();
@@ -2264,7 +2470,9 @@ impl EditorPane {
         if regex_mode || whole_word {
             // include_hidden_chars=true: simple mode marks the preamble invisible; without
             // this flag buf.text() drops it and the full-buffer delete+reinsert wipes it.
-            let full_text = buffer.text(&buffer.start_iter(), &buffer.end_iter(), true).to_string();
+            let full_text = buffer
+                .text(&buffer.start_iter(), &buffer.end_iter(), true)
+                .to_string();
             let pattern = if whole_word {
                 format!("\\b{}\\b", regex::escape(find))
             } else {
@@ -2340,7 +2548,9 @@ impl EditorPane {
         }
         let tab_info: Option<TabInfo> = {
             let state = self.state.borrow();
-            state.tabs.values()
+            state
+                .tabs
+                .values()
                 .find(|tab| self.notebook.page_num(&tab.scroll_window) == Some(current))
                 .map(|tab| TabInfo {
                     view: tab.view.clone(),
@@ -2357,9 +2567,13 @@ impl EditorPane {
         let cursor = ti.buffer.iter_at_offset(ti.buffer.cursor_position());
         let loc = ti.view.iter_location(&cursor);
         let (wx, wy_bottom) = ti.view.buffer_to_window_coords(
-            TextWindowType::Widget, loc.x(), loc.y() + loc.height());
-        let (_, wy_top) = ti.view.buffer_to_window_coords(
-            TextWindowType::Widget, loc.x(), loc.y());
+            TextWindowType::Widget,
+            loc.x(),
+            loc.y() + loc.height(),
+        );
+        let (_, wy_top) = ti
+            .view
+            .buffer_to_window_coords(TextWindowType::Widget, loc.x(), loc.y());
         let view_h = ti.view.allocated_height();
         let above = wy_bottom > view_h / 2;
         let wy = if above { wy_top } else { wy_bottom };
@@ -2414,7 +2628,11 @@ impl EditorPane {
         // across them causes a BorrowError → SIGABRT.
         let tabs: Vec<(PathBuf, Buffer, Label)> = {
             let state = self.state.borrow();
-            state.tabs.iter().map(|(p, t)| (p.clone(), t.buffer.clone(), t.diag_dot.clone())).collect()
+            state
+                .tabs
+                .iter()
+                .map(|(p, t)| (p.clone(), t.buffer.clone(), t.diag_dot.clone()))
+                .collect()
         };
         for (path, buffer, diag_dot) in &tabs {
             mark_diagnostics_for_tab(path, buffer, diag_dot, diagnostics);
@@ -2425,7 +2643,11 @@ impl EditorPane {
         self.last_diagnostics.borrow_mut().clear();
         let tabs: Vec<(Buffer, Label)> = {
             let state = self.state.borrow();
-            state.tabs.values().map(|t| (t.buffer.clone(), t.diag_dot.clone())).collect()
+            state
+                .tabs
+                .values()
+                .map(|t| (t.buffer.clone(), t.diag_dot.clone()))
+                .collect()
         };
         for (buffer, diag_dot) in &tabs {
             let (start, end) = buffer.bounds();
@@ -2444,7 +2666,11 @@ impl EditorPane {
     pub fn mark_error_lines(&self, lines: &[(PathBuf, u32)]) {
         let tabs: Vec<(PathBuf, Buffer)> = {
             let state = self.state.borrow();
-            state.tabs.iter().map(|(p, t)| (p.clone(), t.buffer.clone())).collect()
+            state
+                .tabs
+                .iter()
+                .map(|(p, t)| (p.clone(), t.buffer.clone()))
+                .collect()
         };
         for (path, buffer) in &tabs {
             let (start, end) = buffer.bounds();
@@ -2483,7 +2709,11 @@ impl EditorPane {
     /// Renames citation-key occurrences (`@key`, `#cite(<key>)`, `#cite("key")`)
     /// in every currently open tab. Returns the paths of tabs that changed.
     pub fn replace_citation_key_in_open_tabs(&self, old_key: &str, new_key: &str) -> Vec<PathBuf> {
-        let tabs: Vec<(PathBuf, Buffer)> = self.state.borrow().tabs.iter()
+        let tabs: Vec<(PathBuf, Buffer)> = self
+            .state
+            .borrow()
+            .tabs
+            .iter()
             .map(|(p, t)| (p.clone(), t.buffer.clone()))
             .collect();
 
@@ -2491,7 +2721,8 @@ impl EditorPane {
         for (path, buf) in tabs {
             let (s, e) = buf.bounds();
             let text = buf.text(&s, &e, true).to_string();
-            let (new_text, changed) = crate::bibliography::rename_key_in_text(&text, old_key, new_key);
+            let (new_text, changed) =
+                crate::bibliography::rename_key_in_text(&text, old_key, new_key);
             if !changed {
                 continue;
             }
@@ -2555,18 +2786,20 @@ impl EditorPane {
     }
 
     pub fn apply_style(&self, style_code: &str, bib_style: &str, bib_title: &str, style_key: &str) {
-        let Some(path) = self.get_active_path() else { return };
-        let Some(content) = self.get_active_content() else { return };
+        let Some(path) = self.get_active_path() else {
+            return;
+        };
+        let Some(content) = self.get_active_content() else {
+            return;
+        };
 
         let new_content = if crate::styles::has_template_block(&content) {
             // Template document: update heading styles within the TEMPLATE block,
             // then regenerate the title page layout for the new style.
-            let with_headings = super::template_dialog::replace_heading_styles_in_template(
-                &content, style_key,
-            );
-            let with_title = super::template_dialog::rebuild_title_page_for_style(
-                &with_headings, style_key,
-            );
+            let with_headings =
+                super::template_dialog::replace_heading_styles_in_template(&content, style_key);
+            let with_title =
+                super::template_dialog::rebuild_title_page_for_style(&with_headings, style_key);
             crate::styles::update_bibliography_only(&with_title, bib_style, bib_title)
         } else {
             crate::styles::apply_to(&content, style_code, bib_style, bib_title)
@@ -2586,7 +2819,10 @@ impl EditorPane {
                 buffer.delete(&mut start.clone(), &mut end.clone());
                 buffer.insert(&mut buffer.end_iter(), &new_content);
                 buffer.end_user_action();
-                { let sm = *self.simple_mode.borrow(); apply_simple_mode_tag(&buffer, sm); }
+                {
+                    let sm = *self.simple_mode.borrow();
+                    apply_simple_mode_tag(&buffer, sm);
+                }
             }
         }
     }
@@ -2605,10 +2841,12 @@ impl EditorPane {
     pub fn set_session_delta(&self, delta: i32) {
         if delta > 0 {
             self.session_delta_label.set_text(&format!("↑ {delta}"));
-            self.session_delta_label.add_css_class("session-delta-positive");
+            self.session_delta_label
+                .add_css_class("session-delta-positive");
             self.session_delta_label.set_visible(true);
         } else {
-            self.session_delta_label.remove_css_class("session-delta-positive");
+            self.session_delta_label
+                .remove_css_class("session-delta-positive");
             self.session_delta_label.set_visible(false);
         }
     }
@@ -2636,10 +2874,16 @@ impl EditorPane {
             return;
         }
         let lower = status.to_lowercase();
-        let dot_color = if status.contains('✗') || lower.contains("error") || lower.contains("failed") {
+        let dot_color = if status.contains('✗')
+            || lower.contains("error")
+            || lower.contains("failed")
+        {
             crate::ui::theme::lookup_color_hex(&self.lsp_status_label, "error_color", "#c01c28")
-        } else if status.contains('↻') || lower.contains("loading") || lower.contains("indexing")
-            || lower.contains("starting") || lower.contains("connecting")
+        } else if status.contains('↻')
+            || lower.contains("loading")
+            || lower.contains("indexing")
+            || lower.contains("starting")
+            || lower.contains("connecting")
         {
             crate::ui::theme::lookup_color_hex(&self.lsp_status_label, "warning_color", "#e5a50a")
         } else if status.contains('●') || lower.contains("ready") || lower.contains("connected") {
@@ -2647,12 +2891,17 @@ impl EditorPane {
         } else {
             crate::ui::theme::muted_fg_hex(&self.lsp_status_label)
         };
-        let plain: String = status.chars()
+        let plain: String = status
+            .chars()
             .filter(|c| !matches!(*c, '●' | '✗' | '↻'))
             .collect::<String>()
             .trim()
             .to_string();
-        let text = if plain.is_empty() { "LSP".to_string() } else { plain };
+        let text = if plain.is_empty() {
+            "LSP".to_string()
+        } else {
+            plain
+        };
         let markup = format!("<span color=\"{dot_color}\">●</span> {text}");
         self.lsp_status_label.set_markup(&markup);
     }
@@ -2734,7 +2983,12 @@ impl EditorPane {
 
     pub fn set_format_bar_visible(&self, visible: bool) {
         self.format_bar_container.set_visible(visible);
-        set_status_toggle(&self.format_bar_toggle_btn, &self.format_bar_label, "format bar", visible);
+        set_status_toggle(
+            &self.format_bar_toggle_btn,
+            &self.format_bar_label,
+            "format bar",
+            visible,
+        );
     }
 
     pub fn format_bar_visible(&self) -> bool {
@@ -2751,34 +3005,44 @@ impl EditorPane {
     }
 
     pub fn update_cv_style_label(&self, content: &str) {
-        let style = super::template_dialog::parse_cv_style(content)
-            .unwrap_or_else(|| "modern".to_string());
+        let style =
+            super::template_dialog::parse_cv_style(content).unwrap_or_else(|| "modern".to_string());
         let display = match style.as_str() {
             "academic" => "Academic",
-            "classic"  => "Classic",
-            "sidebar"  => "Two-Column",
-            _          => "Modern",
+            "classic" => "Classic",
+            "sidebar" => "Two-Column",
+            _ => "Modern",
         };
         self.cv_style_label.set_text(display);
     }
 
     pub fn apply_cv_style(&self, style: &str) {
-        let Some((_view, buf)) = self.active_view_buffer() else { return };
+        let Some((_view, buf)) = self.active_view_buffer() else {
+            return;
+        };
         let (start, end) = buf.bounds();
         // include_hidden_chars=true: simple mode marks the preamble invisible; without
         // this flag buf.text() silently drops it and the full-buffer replace wipes it.
         let text = buf.text(&start, &end, true).to_string();
-        let new_text: String = text.lines().map(|line| {
-            let t = line.trim_start();
-            if t.starts_with("#let CV_STYLE =") {
-                format!("#let CV_STYLE = \"{style}\"")
-            } else if t.starts_with("// @zerkalo-cv-style:") {
-                format!("// @zerkalo-cv-style: {style}")
-            } else {
-                line.to_string()
-            }
-        }).collect::<Vec<_>>().join("\n");
-        let new_text = if text.ends_with('\n') { format!("{new_text}\n") } else { new_text };
+        let new_text: String = text
+            .lines()
+            .map(|line| {
+                let t = line.trim_start();
+                if t.starts_with("#let CV_STYLE =") {
+                    format!("#let CV_STYLE = \"{style}\"")
+                } else if t.starts_with("// @zerkalo-cv-style:") {
+                    format!("// @zerkalo-cv-style: {style}")
+                } else {
+                    line.to_string()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let new_text = if text.ends_with('\n') {
+            format!("{new_text}\n")
+        } else {
+            new_text
+        };
 
         // "Two-Column" (sidebar) is the only style with a structurally different
         // body (a #grid columns split, written once at document-creation time —
@@ -2813,9 +3077,9 @@ impl EditorPane {
         apply_simple_mode_tag(&buf, sm);
         let display = match style {
             "academic" => "Academic",
-            "classic"  => "Classic",
-            "sidebar"  => "Two-Column",
-            _          => "Modern",
+            "classic" => "Classic",
+            "sidebar" => "Two-Column",
+            _ => "Modern",
         };
         self.cv_style_label.set_text(display);
     }
@@ -2862,7 +3126,9 @@ impl EditorPane {
 
     fn recheck_all_buffers(&self) {
         let sc = self.spell_checker.borrow();
-        if !sc.enabled { return; }
+        if !sc.enabled {
+            return;
+        }
         let languages = sc.languages.clone();
         let ignored = sc.ignored();
         drop(sc);
@@ -2880,8 +3146,11 @@ impl EditorPane {
                 let words = crate::spellcheck::extract_words(&text);
                 let unique: Vec<String> = {
                     let mut seen = HashSet::new();
-                    words.iter()
-                        .filter(|(_, _, w)| !ig.contains(&w.to_lowercase()) && seen.insert(w.to_lowercase()))
+                    words
+                        .iter()
+                        .filter(|(_, _, w)| {
+                            !ig.contains(&w.to_lowercase()) && seen.insert(w.to_lowercase())
+                        })
                         .map(|(_, _, w)| w.clone())
                         .collect()
                 };
@@ -2890,15 +3159,13 @@ impl EditorPane {
                 let _ = tx.send((words, misspelled));
             });
 
-            glib::timeout_add_local(Duration::from_millis(50), move || {
-                match rx.try_recv() {
-                    Ok((words, misspelled)) => {
-                        apply_spell_tags(&buffer, &words, &misspelled);
-                        glib::ControlFlow::Break
-                    }
-                    Err(std::sync::mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
-                    Err(std::sync::mpsc::TryRecvError::Disconnected) => glib::ControlFlow::Break,
+            glib::timeout_add_local(Duration::from_millis(50), move || match rx.try_recv() {
+                Ok((words, misspelled)) => {
+                    apply_spell_tags(&buffer, &words, &misspelled);
+                    glib::ControlFlow::Break
                 }
+                Err(std::sync::mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => glib::ControlFlow::Break,
             });
         }
     }
@@ -2911,11 +3178,17 @@ impl EditorPane {
         // connect_changed which re-borrows state, causing a double-borrow panic.
         let existing = {
             let state = self.state.borrow();
-            state.tabs.get(&path).map(|tab| (tab.buffer.clone(), tab.scroll_window.clone()))
+            state
+                .tabs
+                .get(&path)
+                .map(|tab| (tab.buffer.clone(), tab.scroll_window.clone()))
         };
         if let Some((buffer, scroll)) = existing {
             buffer.set_text(content);
-            { let sm = *self.simple_mode.borrow(); apply_simple_mode_tag(&buffer, sm); }
+            {
+                let sm = *self.simple_mode.borrow();
+                apply_simple_mode_tag(&buffer, sm);
+            }
             if let Some(n) = self.notebook.page_num(&scroll) {
                 self.notebook.set_current_page(Some(n));
             }
@@ -2927,10 +3200,16 @@ impl EditorPane {
     /// Replace only the preamble region of an already-open file, preserving the
     /// undo stack for everything below the body marker.
     pub fn splice_preamble(&self, path: PathBuf, full_new_content: &str) {
-        const BODY_MARKERS: &[&str] = &["// \u{2500}\u{2500} Document body", "// \u{2500}\u{2500} Chapters"];
+        const BODY_MARKERS: &[&str] = &[
+            "// \u{2500}\u{2500} Document body",
+            "// \u{2500}\u{2500} Chapters",
+        ];
         let existing = {
             let state = self.state.borrow();
-            state.tabs.get(&path).map(|tab| (tab.buffer.clone(), tab.scroll_window.clone()))
+            state
+                .tabs
+                .get(&path)
+                .map(|tab| (tab.buffer.clone(), tab.scroll_window.clone()))
         };
         let Some((buffer, scroll)) = existing else {
             self.open_file(path, full_new_content);
@@ -2939,13 +3218,16 @@ impl EditorPane {
         if let Some(n) = self.notebook.page_num(&scroll) {
             self.notebook.set_current_page(Some(n));
         }
-        let current_text = buffer.text(&buffer.start_iter(), &buffer.end_iter(), false).to_string();
+        let current_text = buffer
+            .text(&buffer.start_iter(), &buffer.end_iter(), false)
+            .to_string();
         let marker = BODY_MARKERS.iter().find(|m| current_text.contains(*m));
         match marker {
             Some(m) => {
                 let body_byte = current_text.find(m).unwrap();
                 let body_char = current_text[..body_byte].chars().count() as i32;
-                let new_preamble = full_new_content.find(m)
+                let new_preamble = full_new_content
+                    .find(m)
                     .map(|pos| &full_new_content[..pos])
                     .unwrap_or(full_new_content);
                 let mut preamble_end = buffer.iter_at_offset(body_char);
@@ -2955,7 +3237,10 @@ impl EditorPane {
                 let mut ins = buffer.start_iter();
                 buffer.insert(&mut ins, new_preamble);
                 buffer.end_user_action();
-                { let sm = *self.simple_mode.borrow(); apply_simple_mode_tag(&buffer, sm); }
+                {
+                    let sm = *self.simple_mode.borrow();
+                    apply_simple_mode_tag(&buffer, sm);
+                }
             }
             None => {
                 buffer.begin_user_action();
@@ -2963,7 +3248,10 @@ impl EditorPane {
                 buffer.delete(&mut start.clone(), &mut end.clone());
                 buffer.insert(&mut buffer.end_iter(), full_new_content);
                 buffer.end_user_action();
-                { let sm = *self.simple_mode.borrow(); apply_simple_mode_tag(&buffer, sm); }
+                {
+                    let sm = *self.simple_mode.borrow();
+                    apply_simple_mode_tag(&buffer, sm);
+                }
             }
         }
     }
@@ -3007,9 +3295,9 @@ impl EditorPane {
         }
 
         let migrated;
-        let content = if content.contains(
-            "#if it.numbering != none [#context counter(heading).display(it.numbering)"
-        ) {
+        let content = if content
+            .contains("#if it.numbering != none [#context counter(heading).display(it.numbering)")
+        {
             migrated = migrate_template_it_numbering(content);
             migrated.as_str()
         } else {
@@ -3017,7 +3305,10 @@ impl EditorPane {
         };
         buffer.set_text(content);
         apply_comment_highlights(&buffer, None);
-        { let sm = *self.simple_mode.borrow(); apply_simple_mode_tag(&buffer, sm); }
+        {
+            let sm = *self.simple_mode.borrow();
+            apply_simple_mode_tag(&buffer, sm);
+        }
 
         let view = View::with_buffer(&buffer);
         view.update_property(&[
@@ -3047,7 +3338,11 @@ impl EditorPane {
         // Do NOT set_monospace — the editor font family is set explicitly via
         // apply_font_family; monospace mode only matters when no font is configured.
         view.set_highlight_current_line(true);
-        let wrap_mode = if *self.word_wrap.borrow() { gtk4::WrapMode::Word } else { gtk4::WrapMode::None };
+        let wrap_mode = if *self.word_wrap.borrow() {
+            gtk4::WrapMode::Word
+        } else {
+            gtk4::WrapMode::None
+        };
         view.set_wrap_mode(wrap_mode);
         apply_space_drawer(&view, *self.show_whitespace.borrow());
         set_view_line_spacing(&view, *self.line_spacing.borrow());
@@ -3114,27 +3409,49 @@ impl EditorPane {
         self.wire_cursor_tracking(&tab);
         self.wire_undo_redo_sensitivity(&tab);
         let CitationAutocomplete {
-            bib_popup, ac_mark, completing, ghost_label, ghost_item,
-            completion_suppressed_at, ghost_bib_entry,
+            bib_popup,
+            ac_mark,
+            completing,
+            ghost_label,
+            ghost_item,
+            completion_suppressed_at,
+            ghost_bib_entry,
         } = self.wire_citation_autocomplete(&view, &buffer);
 
-        let LspAutocomplete { lsp_popup, lsp_mark, lsp_completing } = self.wire_lsp_autocomplete(
-            &view, &buffer, &path, &ghost_label, &ghost_item,
-            &completion_suppressed_at, &ghost_bib_entry,
+        let LspAutocomplete {
+            lsp_popup,
+            lsp_mark,
+            lsp_completing,
+        } = self.wire_lsp_autocomplete(
+            &view,
+            &buffer,
+            &path,
+            &ghost_label,
+            &ghost_item,
+            &completion_suppressed_at,
+            &ghost_bib_entry,
         );
 
         let (hold_position, hold_until) = self.wire_key_controller(
-            &view, &buffer, &bib_popup, &lsp_popup, &ac_mark, &lsp_mark,
-            &completing, &lsp_completing, &ghost_item, &ghost_label,
-            &completion_suppressed_at, &ghost_bib_entry,
+            &view,
+            &buffer,
+            &bib_popup,
+            &lsp_popup,
+            &ac_mark,
+            &lsp_mark,
+            &completing,
+            &lsp_completing,
+            &ghost_item,
+            &ghost_label,
+            &completion_suppressed_at,
+            &ghost_bib_entry,
         );
 
         self.wire_spell_suggestions(&tab, &hold_position, &hold_until);
         self.wire_spellcheck(&tab);
         self.wire_autocorrect(&tab);
-        let (saved_scroll, saved_hscroll, pause_tracking) = self.wire_right_click_menu(
-            &view, &buffer, &scroll, &hold_position, &hold_until,
-        );
+        let (saved_scroll, saved_hscroll, pause_tracking) =
+            self.wire_right_click_menu(&view, &buffer, &scroll, &hold_position, &hold_until);
 
         // ── Inline error assistant — hover over error-tagged line ─────────────
         // Shared with the any_click handler further down, which dismisses it
@@ -3150,16 +3467,20 @@ impl EditorPane {
             let active_popup_c = active_popup.clone();
             motion.connect_motion(move |_, x, y| {
                 let diags = last_diags.borrow();
-                if diags.is_empty() { return; }
+                if diags.is_empty() {
+                    return;
+                }
 
-                let (bx, by) = view_hover.window_to_buffer_coords(
-                    TextWindowType::Widget, x as i32, y as i32,
-                );
-                let Some(iter) = view_hover.iter_at_location(bx, by) else { return };
+                let (bx, by) =
+                    view_hover.window_to_buffer_coords(TextWindowType::Widget, x as i32, y as i32);
+                let Some(iter) = view_hover.iter_at_location(bx, by) else {
+                    return;
+                };
                 let line_1based = iter.line() as u32 + 1;
 
                 let tag_table = buf_hover.tag_table();
-                let has_error_tag = tag_table.lookup("zerkalo-diag-error")
+                let has_error_tag = tag_table
+                    .lookup("zerkalo-diag-error")
                     .map(|t| iter.has_tag(&t))
                     .unwrap_or(false);
                 if !has_error_tag {
@@ -3172,7 +3493,8 @@ impl EditorPane {
                     return;
                 }
 
-                let full_msg: Option<String> = diags.iter()
+                let full_msg: Option<String> = diags
+                    .iter()
                     .find(|(_, ln, _, _)| *ln == line_1based)
                     .map(|(_, _, _, msg)| msg.clone());
                 let Some(full_msg) = full_msg else { return };
@@ -3181,7 +3503,9 @@ impl EditorPane {
                 let msg = full_msg.lines().next().unwrap_or(&full_msg).to_string();
 
                 // Only create a new popup if none is showing (avoid flicker)
-                if active_popup_c.borrow().is_some() { return; }
+                if active_popup_c.borrow().is_some() {
+                    return;
+                }
 
                 let fix = crate::error_patterns::match_fix(&full_msg);
 
@@ -3354,7 +3678,9 @@ impl EditorPane {
                     // would restore the snapped position rather than where the user was.
                     let val = sv_enter.get();
                     let hval = sh_enter.get();
-                    if val < 0.0 { return; }
+                    if val < 0.0 {
+                        return;
+                    }
                     let sc = sc_enter.clone();
                     pause();
                     glib::timeout_add_local_once(Duration::ZERO, move || {
@@ -3407,14 +3733,16 @@ impl EditorPane {
                 buffer.connect_paste_done(move |buf, _| {
                     let cursor = buf.iter_at_offset(buf.cursor_position());
                     let loc = view_p.iter_location(&cursor);
-                    let (_, wy) = view_p.buffer_to_window_coords(
-                        TextWindowType::Widget, loc.x(), loc.y(),
-                    );
+                    let (_, wy) =
+                        view_p.buffer_to_window_coords(TextWindowType::Widget, loc.x(), loc.y());
                     let on_screen = wy >= 0 && wy <= view_p.allocated_height();
                     if !on_screen {
                         return;
                     }
-                    held.set(Some((scroll.vadjustment().value(), scroll.hadjustment().value())));
+                    held.set(Some((
+                        scroll.vadjustment().value(),
+                        scroll.hadjustment().value(),
+                    )));
                     held_until.set(Instant::now() + PASTE_HOLD);
                     pause();
                     // Release the hold once the animation is spent, so ordinary
@@ -3436,9 +3764,15 @@ impl EditorPane {
             let remarking: Rc<std::cell::Cell<bool>> = Rc::new(std::cell::Cell::new(false));
             let remark_timer: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
             buffer.connect_changed(move |_| {
-                if remarking.get() { return; }
-                if last_diags.borrow().is_empty() { return; }
-                if let Some(id) = remark_timer.borrow_mut().take() { id.remove(); }
+                if remarking.get() {
+                    return;
+                }
+                if last_diags.borrow().is_empty() {
+                    return;
+                }
+                if let Some(id) = remark_timer.borrow_mut().take() {
+                    id.remove();
+                }
                 let diags_rc = last_diags.clone();
                 let p = path_rem.clone();
                 let b = buf_rem.clone();
@@ -3450,7 +3784,9 @@ impl EditorPane {
                     move || {
                         *t.borrow_mut() = None;
                         let diags = diags_rc.borrow().clone();
-                        if diags.is_empty() { return; }
+                        if diags.is_empty() {
+                            return;
+                        }
                         rem.set(true);
                         mark_diagnostics_for_tab(&p, &b, &d, &diags);
                         rem.set(false);
@@ -3466,7 +3802,6 @@ impl EditorPane {
 
         let path_for_callback = tab.path.clone();
         let content_for_callback = content.to_string();
-
 
         let session_start_words = count_words(content);
         self.state.borrow_mut().tabs.insert(
@@ -3491,8 +3826,7 @@ impl EditorPane {
         set_wc_text_with_session(&self.word_count_label, content, session_start_words);
 
         // Per-document `// @zerkalo-goal: N` wins; otherwise the Settings goal.
-        let goal = parse_goal_comment(content)
-            .unwrap_or(*self.default_word_count_goal.borrow());
+        let goal = parse_goal_comment(content).unwrap_or(*self.default_word_count_goal.borrow());
         *self.word_count_goal.borrow_mut() = goal;
         if goal == 0 {
             self.goal_ring.set_visible(false);
@@ -3522,7 +3856,9 @@ impl EditorPane {
         // switch_page → connect_switch_page tries state.borrow() → double-borrow panic.
         let page_num = {
             let state = self.state.borrow();
-            state.tabs.get(path)
+            state
+                .tabs
+                .get(path)
                 .and_then(|t| self.notebook.page_num(&t.scroll_window))
         };
         self.state.borrow_mut().tabs.remove(path);
@@ -3568,13 +3904,18 @@ impl EditorPane {
         };
         let buf = {
             let state = self.state.borrow();
-            state.tabs.values()
+            state
+                .tabs
+                .values()
                 .find(|t| self.notebook.page_num(&t.scroll_window) == Some(current))
                 .map(|t| t.buffer.clone())
         };
         if let Some(buffer) = buf {
             buffer.set_text(text);
-            { let sm = *self.simple_mode.borrow(); apply_simple_mode_tag(&buffer, sm); }
+            {
+                let sm = *self.simple_mode.borrow();
+                apply_simple_mode_tag(&buffer, sm);
+            }
         }
     }
 
@@ -3586,7 +3927,9 @@ impl EditorPane {
         };
         let buf = {
             let state = self.state.borrow();
-            state.tabs.values()
+            state
+                .tabs
+                .values()
                 .find(|t| self.notebook.page_num(&t.scroll_window) == Some(current))
                 .map(|t| t.buffer.clone())
         };
@@ -3596,7 +3939,10 @@ impl EditorPane {
             buffer.delete(&mut start.clone(), &mut end.clone());
             buffer.insert(&mut buffer.end_iter(), text);
             buffer.end_user_action();
-            { let sm = *self.simple_mode.borrow(); apply_simple_mode_tag(&buffer, sm); }
+            {
+                let sm = *self.simple_mode.borrow();
+                apply_simple_mode_tag(&buffer, sm);
+            }
         }
     }
 
@@ -3612,7 +3958,10 @@ impl EditorPane {
             buffer.delete(&mut start.clone(), &mut end.clone());
             buffer.insert(&mut buffer.end_iter(), text);
             buffer.end_user_action();
-            { let sm = *self.simple_mode.borrow(); apply_simple_mode_tag(&buffer, sm); }
+            {
+                let sm = *self.simple_mode.borrow();
+                apply_simple_mode_tag(&buffer, sm);
+            }
         }
     }
 
@@ -3630,15 +3979,23 @@ impl EditorPane {
             let mut state = self.state.borrow_mut();
             state.tabs.get_mut(path).map(|tab| {
                 tab.modified = false;
-                (tab.dot_label.clone(), tab.tab_box.clone(), tab.display_name.clone())
+                (
+                    tab.dot_label.clone(),
+                    tab.tab_box.clone(),
+                    tab.display_name.clone(),
+                )
             })
         };
         if let Some((dot_label, tab_box, display_name)) = widgets {
             dot_label.set_visible(false);
             tab_box.update_property(&[gtk4::accessible::Property::Label(&display_name)]);
         }
-        if let Some(f) = self.on_modified_changed.borrow().as_ref() { f(false); }
-        if let Some(f) = self.on_file_dirty.borrow().as_ref() { f(path.clone(), false); }
+        if let Some(f) = self.on_modified_changed.borrow().as_ref() {
+            f(false);
+        }
+        if let Some(f) = self.on_file_dirty.borrow().as_ref() {
+            f(path.clone(), false);
+        }
     }
 
     pub fn set_on_file_dirty(&self, f: impl Fn(PathBuf, bool) + 'static) {
@@ -3655,7 +4012,9 @@ impl EditorPane {
             .tabs
             .iter()
             .filter_map(|(path, tab)| {
-                self.notebook.page_num(&tab.scroll_window).map(|n| (n, path.clone()))
+                self.notebook
+                    .page_num(&tab.scroll_window)
+                    .map(|n| (n, path.clone()))
             })
             .collect();
         pages.sort_by_key(|(n, _)| *n);
@@ -3664,9 +4023,11 @@ impl EditorPane {
 
     pub fn get_cursor_positions(&self) -> std::collections::HashMap<PathBuf, i32> {
         let state = self.state.borrow();
-        state.tabs.iter().map(|(path, tab)| {
-            (path.clone(), tab.buffer.cursor_position())
-        }).collect()
+        state
+            .tabs
+            .iter()
+            .map(|(path, tab)| (path.clone(), tab.buffer.cursor_position()))
+            .collect()
     }
 
     pub fn restore_cursor(&self, path: &PathBuf, offset: i32) {
@@ -3710,13 +4071,20 @@ impl EditorPane {
 
     /// Whether the tab for `path` has unsaved modifications.
     pub fn is_modified(&self, path: &std::path::Path) -> bool {
-        self.state.borrow().tabs.get(path).map(|t| t.modified).unwrap_or(false)
+        self.state
+            .borrow()
+            .tabs
+            .get(path)
+            .map(|t| t.modified)
+            .unwrap_or(false)
     }
 
     /// Returns (path, content) for every tab that has unsaved modifications.
     pub fn modified_buffers(&self) -> Vec<(PathBuf, String)> {
         let state = self.state.borrow();
-        state.tabs.iter()
+        state
+            .tabs
+            .iter()
             .filter(|(_, tab)| tab.modified)
             .map(|(path, tab)| {
                 let (s, e) = tab.buffer.bounds();
@@ -3735,12 +4103,19 @@ impl EditorPane {
             let mut saved = Vec::new();
             let mut failed = Vec::new();
             for (path, tab) in state.tabs.iter_mut() {
-                if !tab.modified { continue; }
+                if !tab.modified {
+                    continue;
+                }
                 let (start, end) = tab.buffer.bounds();
                 let content = tab.buffer.text(&start, &end, true);
                 if crate::error::atomic_write(path, content.as_bytes()).is_ok() {
                     tab.modified = false;
-                    saved.push((tab.dot_label.clone(), tab.tab_box.clone(), tab.display_name.clone(), path.clone()));
+                    saved.push((
+                        tab.dot_label.clone(),
+                        tab.tab_box.clone(),
+                        tab.display_name.clone(),
+                        path.clone(),
+                    ));
                 } else {
                     failed.push(path.clone());
                 }
@@ -3760,8 +4135,12 @@ impl EditorPane {
     /// two must not be conflated, or a write failure looks identical to the
     /// normal no-op case and the caller has nothing to show the user.
     pub fn save_current(&self) -> std::io::Result<Option<PathBuf>> {
-        let Some(path) = self.get_active_path() else { return Ok(None) };
-        let Some(content) = self.get_active_content() else { return Ok(None) };
+        let Some(path) = self.get_active_path() else {
+            return Ok(None);
+        };
+        let Some(content) = self.get_active_content() else {
+            return Ok(None);
+        };
         crate::error::atomic_write(&path, content.as_bytes())?;
         crate::auto_save::clear(&path);
         self.mark_saved(&path);
@@ -3791,7 +4170,9 @@ impl EditorPane {
 
     /// Jump to the first occurrence of `text` in the active buffer, select it, and scroll to centre.
     pub fn jump_to_text(&self, text: &str) {
-        let Some((view, buffer)) = self.active_view_buffer() else { return };
+        let Some((view, buffer)) = self.active_view_buffer() else {
+            return;
+        };
         let flags = TextSearchFlags::TEXT_ONLY | TextSearchFlags::CASE_INSENSITIVE;
         let start_iter = buffer.start_iter();
         if let Some((s, e)) = start_iter.forward_search(text, flags, None) {
@@ -3842,7 +4223,10 @@ impl EditorPane {
 
     #[allow(dead_code)]
     pub fn all_tab_texts(&self) -> Vec<(PathBuf, String)> {
-        self.state.borrow().tabs.iter()
+        self.state
+            .borrow()
+            .tabs
+            .iter()
             .map(|(path, tab)| {
                 let (s, e) = tab.buffer.bounds();
                 let text = tab.buffer.text(&s, &e, true).to_string();
@@ -3867,16 +4251,16 @@ impl EditorPane {
     }
 
     fn toggle_active_markup(&self, marker: &str) {
-        let Some((_view, buf)) = self.active_view_buffer() else { return };
+        let Some((_view, buf)) = self.active_view_buffer() else {
+            return;
+        };
         let mlen = marker.len() as i32;
         buf.begin_user_action();
         if let Some((sel_s, sel_e)) = buf.selection_bounds() {
             let start_off = sel_s.offset();
             let end_off = sel_e.offset();
             let text = buf.text(&sel_s, &sel_e, false).to_string();
-            if text.starts_with(marker) && text.ends_with(marker)
-                && text.len() > 2 * marker.len()
-            {
+            if text.starts_with(marker) && text.ends_with(marker) && text.len() > 2 * marker.len() {
                 // strip markers, keep inner text selected
                 let inner = text[marker.len()..text.len() - marker.len()].to_string();
                 let inner_len = inner.len() as i32;
@@ -3913,7 +4297,9 @@ impl EditorPane {
     }
 
     fn set_active_heading(&self, level: usize) {
-        let Some((_view, buf)) = self.active_view_buffer() else { return };
+        let Some((_view, buf)) = self.active_view_buffer() else {
+            return;
+        };
         let cursor = buf.iter_at_mark(&buf.get_insert());
         let line = cursor.line();
         let line_start = buf.iter_at_line(line).unwrap_or(cursor);
@@ -3981,11 +4367,14 @@ fn apply_simple_mode_tag(buffer: &Buffer, on: bool) {
     // Find the "// ── Document body" separator line.
     let text = buffer.text(&start, &end, false);
     let body_line = text.lines().position(|l| l.starts_with(BODY_SEPARATOR));
-    let Some(body_line_idx) = body_line else { return };
+    let Some(body_line_idx) = body_line else {
+        return;
+    };
 
     // Count consecutive separator lines (typically 2: the explanatory line
     // and the decorative rule beneath it) so we hide those too.
-    let sep_count = text.lines()
+    let sep_count = text
+        .lines()
         .skip(body_line_idx)
         .take_while(|l| l.starts_with(BODY_SEPARATOR))
         .count();
@@ -3996,7 +4385,10 @@ fn apply_simple_mode_tag(buffer: &Buffer, on: bool) {
     }
     let hide_end = match buffer.iter_at_line(hide_to as i32) {
         Some(it) => it,
-        None => { let (_, e) = buffer.bounds(); e },
+        None => {
+            let (_, e) = buffer.bounds();
+            e
+        }
     };
     buffer.apply_tag(&tag, &start, &hide_end);
 }
@@ -4025,7 +4417,8 @@ fn apply_comment_highlights(buffer: &Buffer, cache: Option<&RefCell<Vec<(i32, i3
     let alpha = if is_dark { 0.10_f32 } else { 0.08_f32 };
     let dummy = gtk4::Label::new(None);
     #[allow(deprecated)]
-    let base = dummy.style_context()
+    let base = dummy
+        .style_context()
         .lookup_color("accent_color")
         .unwrap_or(gtk4::gdk::RGBA::new(0.2, 0.4, 0.9, 1.0));
     let color = gtk4::gdk::RGBA::new(base.red(), base.green(), base.blue(), alpha);
@@ -4043,13 +4436,19 @@ fn apply_comment_highlights(buffer: &Buffer, cache: Option<&RefCell<Vec<(i32, i3
         if trimmed.starts_with("//") {
             // Merge consecutive // lines into one span
             let run_start = i;
-            while i < n && lines[i].trim().starts_with("//") { i += 1; }
+            while i < n && lines[i].trim().starts_with("//") {
+                i += 1;
+            }
             spans.push((run_start as i32, (i - 1) as i32));
         } else if trimmed.contains("/*") {
             // Block comment: scan for closing */
             let block_start = i;
-            while i < n && !lines[i].contains("*/") { i += 1; }
-            if i < n { i += 1; } // include closing line
+            while i < n && !lines[i].contains("*/") {
+                i += 1;
+            }
+            if i < n {
+                i += 1;
+            } // include closing line
             let last = (i - 1).min(n.saturating_sub(1));
             spans.push((block_start as i32, last as i32));
         } else {
@@ -4058,7 +4457,9 @@ fn apply_comment_highlights(buffer: &Buffer, cache: Option<&RefCell<Vec<(i32, i3
     }
 
     if let Some(c) = cache {
-        if *c.borrow() == spans { return; }
+        if *c.borrow() == spans {
+            return;
+        }
         *c.borrow_mut() = spans.clone();
     }
 
@@ -4090,7 +4491,9 @@ fn mark_diagnostics_for_tab(
     buffer.remove_tag_by_name("zerkalo-diag-warning", &buf_start, &buf_end);
     buffer.remove_source_marks(&buf_start, &buf_end, Some("zerkalo-error"));
     buffer.remove_source_marks(&buf_start, &buf_end, Some("zerkalo-warning"));
-    let has_errors = diagnostics.iter().any(|(f, _, is_err, _)| f == path && *is_err);
+    let has_errors = diagnostics
+        .iter()
+        .any(|(f, _, is_err, _)| f == path && *is_err);
     diag_dot.set_visible(has_errors);
     for (err_file, err_line, is_error, _msg) in diagnostics {
         if err_file != path {
@@ -4100,9 +4503,17 @@ fn mark_diagnostics_for_tab(
         if let Some(line_start) = buffer.iter_at_line(line_idx) {
             let mut line_end = line_start;
             line_end.forward_to_line_end();
-            let tag = if *is_error { "zerkalo-diag-error" } else { "zerkalo-diag-warning" };
+            let tag = if *is_error {
+                "zerkalo-diag-error"
+            } else {
+                "zerkalo-diag-warning"
+            };
             buffer.apply_tag_by_name(tag, &line_start, &line_end);
-            let category = if *is_error { "zerkalo-error" } else { "zerkalo-warning" };
+            let category = if *is_error {
+                "zerkalo-error"
+            } else {
+                "zerkalo-warning"
+            };
             buffer.create_source_mark(None, category, &line_start);
         }
     }
@@ -4170,18 +4581,26 @@ fn remove_spell_word_tags(buffer: &Buffer, tag: &gtk4::TextTag, word: &str) {
     let (mut it, e) = buffer.bounds();
     loop {
         if !it.has_tag(tag) {
-            if !it.forward_to_tag_toggle(Some(tag)) { break; }
-            if it >= e { break; }
+            if !it.forward_to_tag_toggle(Some(tag)) {
+                break;
+            }
+            if it >= e {
+                break;
+            }
         }
         let ws = it;
         let mut we = it;
-        if !we.forward_to_tag_toggle(Some(tag)) { we = e; }
+        if !we.forward_to_tag_toggle(Some(tag)) {
+            we = e;
+        }
         let w = buffer.text(&ws, &we, false).to_string();
         if w.to_lowercase() == target {
             buffer.remove_tag(tag, &ws, &we);
         }
         it = we;
-        if it >= e { break; }
+        if it >= e {
+            break;
+        }
     }
 }
 
@@ -4210,7 +4629,11 @@ fn apply_spell_tags(
 /// unsayable. The title leads the description instead, so the list still reads
 /// as "Page break — force content to start on a new page".
 fn snippet_items(cv_mode: bool) -> Vec<CompletionItem> {
-    let source = if cv_mode { CV_SNIPPETS } else { ACADEMIC_SNIPPETS };
+    let source = if cv_mode {
+        CV_SNIPPETS
+    } else {
+        ACADEMIC_SNIPPETS
+    };
     source
         .iter()
         .map(|(name, title, desc, body)| {
@@ -4468,7 +4891,11 @@ fn set_completion_hint(
     // fact about the setup — the startup log said it, where nobody looks.
     // Only said where the line has room: when something is being described, the
     // description earns the space, and this would just be truncated away.
-    let scope = if lsp_ready { "" } else { "   ·   built-in snippets only (tinymist not running)" };
+    let scope = if lsp_ready {
+        ""
+    } else {
+        "   ·   built-in snippets only (tinymist not running)"
+    };
     let text = match item {
         Some(item) => {
             // Signature first when there is one: mid-line, the argument list is
@@ -4567,7 +4994,12 @@ fn close_tab_with_dirty_check(
     path: PathBuf,
     display_name: String,
 ) {
-    let is_modified = state.borrow().tabs.get(&path).map(|t| t.modified).unwrap_or(false);
+    let is_modified = state
+        .borrow()
+        .tabs
+        .get(&path)
+        .map(|t| t.modified)
+        .unwrap_or(false);
     if is_modified {
         // Three responses, so this one builds its own dialog rather than using
         // the two-button helper in ui::confirm — same AdwMessageDialog either
@@ -4584,36 +5016,33 @@ fn close_tab_with_dirty_check(
         alert.set_response_appearance("save", adw::ResponseAppearance::Suggested);
         alert.set_default_response(Some("save"));
         alert.set_close_response("cancel");
-        alert.connect_response(
-            None,
-            move |_, response| match response {
-                "discard" => {
-                    if let Some(n) = notebook.page_num(&scroll) {
-                        notebook.remove_page(Some(n));
-                    }
-                    state.borrow_mut().tabs.remove(&path);
+        alert.connect_response(None, move |_, response| match response {
+            "discard" => {
+                if let Some(n) = notebook.page_num(&scroll) {
+                    notebook.remove_page(Some(n));
                 }
-                "save" => {
-                    let content = {
-                        let st = state.borrow();
-                        st.tabs.get(&path).map(|t| {
-                            let (s, e) = t.buffer.bounds();
-                            t.buffer.text(&s, &e, true).to_string()
-                        })
-                    };
-                    if let Some(content) = content {
-                        let _ = crate::error::atomic_write(&path, content.as_bytes());
-                        crate::auto_save::clear(&path);
-                        ep.mark_saved(&path);
-                    }
-                    if let Some(n) = notebook.page_num(&scroll) {
-                        notebook.remove_page(Some(n));
-                    }
-                    state.borrow_mut().tabs.remove(&path);
+                state.borrow_mut().tabs.remove(&path);
+            }
+            "save" => {
+                let content = {
+                    let st = state.borrow();
+                    st.tabs.get(&path).map(|t| {
+                        let (s, e) = t.buffer.bounds();
+                        t.buffer.text(&s, &e, true).to_string()
+                    })
+                };
+                if let Some(content) = content {
+                    let _ = crate::error::atomic_write(&path, content.as_bytes());
+                    crate::auto_save::clear(&path);
+                    ep.mark_saved(&path);
                 }
-                _ => {}
-            },
-        );
+                if let Some(n) = notebook.page_num(&scroll) {
+                    notebook.remove_page(Some(n));
+                }
+                state.borrow_mut().tabs.remove(&path);
+            }
+            _ => {}
+        });
         alert.present();
     } else {
         if let Some(n) = notebook.page_num(&scroll) {
@@ -4625,7 +5054,11 @@ fn close_tab_with_dirty_check(
 
 fn wc_str_with_delta(text: &str, session_start: u32) -> String {
     let words = count_content_words(text) as u32;
-    let reading = if words < 200 { "< 1 min".to_string() } else { format!("{} min", words / 200) };
+    let reading = if words < 200 {
+        "< 1 min".to_string()
+    } else {
+        format!("{} min", words / 200)
+    };
     if words > session_start {
         let delta = words - session_start;
         format!("{words} words (+{delta}) · {reading} read")
@@ -4668,7 +5101,11 @@ fn migrate_template_it_numbering(content: &str) -> String {
     };
 
     let new_prefix = if num_on {
-        let f = if num_fmt.is_empty() { "1.".to_string() } else { num_fmt };
+        let f = if num_fmt.is_empty() {
+            "1.".to_string()
+        } else {
+            num_fmt
+        };
         format!("#context counter(heading).display(\"{f}\")#h(0.3em)")
     } else {
         String::new()
@@ -4678,7 +5115,9 @@ fn migrate_template_it_numbering(content: &str) -> String {
 }
 
 fn count_content_words(text: &str) -> usize {
-    strip_typst_markup(&strip_zerkalo_blocks(text)).split_whitespace().count()
+    strip_typst_markup(&strip_zerkalo_blocks(text))
+        .split_whitespace()
+        .count()
 }
 
 // Remove ZERKALO-STYLE and ZERKALO-TEMPLATE blocks before word counting.
@@ -4739,13 +5178,17 @@ pub(super) fn strip_typst_markup(input: &str) -> String {
         if c == '`' && chars.get(i + 1) == Some(&'`') && chars.get(i + 2) == Some(&'`') {
             in_raw_block = true;
             i += 3;
-            while i < n && chars[i] != '\n' { i += 1; }
+            while i < n && chars[i] != '\n' {
+                i += 1;
+            }
             continue;
         }
 
         // Line comment //
         if c == '/' && chars.get(i + 1) == Some(&'/') {
-            while i < n && chars[i] != '\n' { i += 1; }
+            while i < n && chars[i] != '\n' {
+                i += 1;
+            }
             continue;
         }
 
@@ -4759,15 +5202,21 @@ pub(super) fn strip_typst_markup(input: &str) -> String {
         // Heading lines starting with =
         let at_line_start = out.is_empty() || out.ends_with('\n');
         if at_line_start && c == '=' {
-            while i < n && chars[i] != '\n' { i += 1; }
+            while i < n && chars[i] != '\n' {
+                i += 1;
+            }
             continue;
         }
 
         // Inline raw `...`
         if c == '`' {
             i += 1;
-            while i < n && chars[i] != '`' && chars[i] != '\n' { i += 1; }
-            if i < n && chars[i] == '`' { i += 1; }
+            while i < n && chars[i] != '`' && chars[i] != '\n' {
+                i += 1;
+            }
+            if i < n && chars[i] == '`' {
+                i += 1;
+            }
             out.push(' ');
             continue;
         }
@@ -4775,8 +5224,12 @@ pub(super) fn strip_typst_markup(input: &str) -> String {
         // Math $...$
         if c == '$' {
             i += 1;
-            while i < n && chars[i] != '$' { i += 1; }
-            if i < n { i += 1; }
+            while i < n && chars[i] != '$' {
+                i += 1;
+            }
+            if i < n {
+                i += 1;
+            }
             out.push(' ');
             continue;
         }
@@ -4784,7 +5237,12 @@ pub(super) fn strip_typst_markup(input: &str) -> String {
         // Citation reference @key
         if c == '@' {
             i += 1;
-            while i < n && (chars[i].is_alphanumeric() || chars[i] == '_' || chars[i] == '-' || chars[i] == ':') {
+            while i < n
+                && (chars[i].is_alphanumeric()
+                    || chars[i] == '_'
+                    || chars[i] == '-'
+                    || chars[i] == ':')
+            {
                 i += 1;
             }
             continue;
@@ -4795,11 +5253,18 @@ pub(super) fn strip_typst_markup(input: &str) -> String {
         // between the keyword and the element name — skip the whole line for those.
         if c == '#' {
             i += 1;
-            while i < n && (chars[i].is_alphanumeric() || chars[i] == '_' || chars[i] == '-' || chars[i] == '.') {
+            while i < n
+                && (chars[i].is_alphanumeric()
+                    || chars[i] == '_'
+                    || chars[i] == '-'
+                    || chars[i] == '.')
+            {
                 i += 1;
             }
             if i < n && chars[i] == ' ' {
-                while i < n && chars[i] != '\n' { i += 1; }
+                while i < n && chars[i] != '\n' {
+                    i += 1;
+                }
                 continue;
             }
             while i < n && matches!(chars[i], '[' | '(' | '{') {
@@ -4821,8 +5286,12 @@ pub(super) fn strip_typst_markup(input: &str) -> String {
 
         // Label syntax <label>
         if c == '<' {
-            while i < n && chars[i] != '>' && chars[i] != '\n' { i += 1; }
-            if i < n && chars[i] == '>' { i += 1; }
+            while i < n && chars[i] != '>' && chars[i] != '\n' {
+                i += 1;
+            }
+            if i < n && chars[i] == '>' {
+                i += 1;
+            }
             continue;
         }
 
@@ -4835,12 +5304,20 @@ pub(super) fn strip_typst_markup(input: &str) -> String {
 
 fn skip_balanced_typst(chars: &[char], start: usize, n: usize) -> usize {
     let open = chars[start];
-    let close = match open { '[' => ']', '(' => ')', '{' => '}', _ => return start + 1 };
+    let close = match open {
+        '[' => ']',
+        '(' => ')',
+        '{' => '}',
+        _ => return start + 1,
+    };
     let mut i = start + 1;
     let mut depth = 1usize;
     while i < n && depth > 0 {
-        if chars[i] == open { depth += 1; }
-        else if chars[i] == close { depth -= 1; }
+        if chars[i] == open {
+            depth += 1;
+        } else if chars[i] == close {
+            depth -= 1;
+        }
         i += 1;
     }
     i
@@ -4855,7 +5332,7 @@ fn strip_snippets(s: &str) -> String {
             match chars.peek() {
                 Some('{') => {
                     chars.next(); // consume '{'
-                    // skip until matching '}'
+                                  // skip until matching '}'
                     for c in chars.by_ref() {
                         if c == '}' {
                             break;
@@ -4903,7 +5380,10 @@ fn build_heading_path(buf: &sourceview5::Buffer, line_idx: i32) -> String {
         check -= 1;
     }
     path.reverse();
-    path.into_iter().map(|(_, t)| t).collect::<Vec<_>>().join(" / ")
+    path.into_iter()
+        .map(|(_, t)| t)
+        .collect::<Vec<_>>()
+        .join(" / ")
 }
 
 // Returns the 1-based line number of the nearest heading at or above `line_idx`,
@@ -4935,22 +5415,14 @@ fn is_heading_line(buf: &sourceview5::Buffer, ln: i32) -> bool {
     false
 }
 
-fn dismiss_popup(
-    buf: &Buffer,
-    popup: &BibPopup,
-    mark: &Rc<RefCell<Option<gtk4::TextMark>>>,
-) {
+fn dismiss_popup(buf: &Buffer, popup: &BibPopup, mark: &Rc<RefCell<Option<gtk4::TextMark>>>) {
     if let Some(m) = mark.borrow_mut().take() {
         buf.delete_mark(&m);
     }
     popup.hide();
 }
 
-fn dismiss_popup_only(
-    popup: &BibPopup,
-    buf: &Buffer,
-    mark: &Rc<RefCell<Option<gtk4::TextMark>>>,
-) {
+fn dismiss_popup_only(popup: &BibPopup, buf: &Buffer, mark: &Rc<RefCell<Option<gtk4::TextMark>>>) {
     if let Some(m) = mark.borrow_mut().take() {
         buf.delete_mark(&m);
     }
@@ -5010,7 +5482,10 @@ fn update_goal_ring(ring: &DrawingArea, frac: &Rc<Cell<f64>>, text: &str, goal: 
     frac.set(fraction);
     ring.queue_draw();
     ring.set_visible(true);
-    ring.set_tooltip_text(Some(&format!("{words} / {goal} words ({:.0}%)", fraction * 100.0)));
+    ring.set_tooltip_text(Some(&format!(
+        "{words} / {goal} words ({:.0}%)",
+        fraction * 100.0
+    )));
 }
 
 fn parse_goal_comment(content: &str) -> Option<u32> {
@@ -5051,7 +5526,11 @@ fn do_lsp_complete(
 ) {
     let raw = item.insert_text.as_deref().unwrap_or(&item.label);
     let cleaned = strip_snippets(raw);
-    let final_text = if cleaned.starts_with('#') { cleaned } else { format!("#{cleaned}") };
+    let final_text = if cleaned.starts_with('#') {
+        cleaned
+    } else {
+        format!("#{cleaned}")
+    };
     insert_completion_text(buf, mark, completing, view, &final_text);
     popup.hide();
 }
@@ -5059,7 +5538,11 @@ fn do_lsp_complete(
 fn section_heading_level(text: &str) -> Option<usize> {
     let trimmed = text.trim_start();
     let lvl = trimmed.chars().take_while(|c| *c == '=').count();
-    if lvl > 0 && trimmed[lvl..].starts_with(' ') { Some(lvl) } else { None }
+    if lvl > 0 && trimmed[lvl..].starts_with(' ') {
+        Some(lvl)
+    } else {
+        None
+    }
 }
 
 /// Count words in a line of Typst text, treating `#lorem(N)` as N words.
@@ -5097,7 +5580,9 @@ fn section_word_count_for_line(buf: &sourceview5::Buffer, cursor_line: i32) -> O
     let lines: Vec<&str> = text.lines().collect();
     let total = lines.len();
     let cursor_line = (cursor_line.max(0) as usize).min(total.saturating_sub(1));
-    if total == 0 { return None; }
+    if total == 0 {
+        return None;
+    }
 
     let (sec_start, sec_level) = (0..=cursor_line)
         .rev()
@@ -5107,7 +5592,12 @@ fn section_word_count_for_line(buf: &sourceview5::Buffer, cursor_line: i32) -> O
         .find(|&ln| section_heading_level(lines[ln]).is_some_and(|lvl| lvl <= sec_level))
         .unwrap_or(total);
 
-    Some(lines[sec_start..sec_end].iter().map(|l| count_words_typst(l)).sum())
+    Some(
+        lines[sec_start..sec_end]
+            .iter()
+            .map(|l| count_words_typst(l))
+            .sum(),
+    )
 }
 
 impl EditorPane {
@@ -5122,15 +5612,36 @@ impl EditorPane {
             if let Ok(file_list) = value.get::<gtk4::gdk::FileList>() {
                 for file in file_list.files() {
                     if let Some(p) = file.path() {
-                        let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
-                        if matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "svg" | "gif" | "webp") {
-                            if let Some(f) = on_drop_cb.borrow().as_ref() { f(p); }
+                        let ext = p
+                            .extension()
+                            .and_then(|e| e.to_str())
+                            .unwrap_or("")
+                            .to_lowercase();
+                        if matches!(
+                            ext.as_str(),
+                            "png" | "jpg" | "jpeg" | "svg" | "gif" | "webp"
+                        ) {
+                            if let Some(f) = on_drop_cb.borrow().as_ref() {
+                                f(p);
+                            }
                             return true;
                         }
-                        if matches!(ext.as_str(),
-                            "tex" | "docx" | "md" | "markdown" | "odt" | "html" | "htm" | "epub" | "rtf" | "pdf"
+                        if matches!(
+                            ext.as_str(),
+                            "tex"
+                                | "docx"
+                                | "md"
+                                | "markdown"
+                                | "odt"
+                                | "html"
+                                | "htm"
+                                | "epub"
+                                | "rtf"
+                                | "pdf"
                         ) {
-                            if let Some(f) = on_doc_drop_cb.borrow().as_ref() { f(p); }
+                            if let Some(f) = on_doc_drop_cb.borrow().as_ref() {
+                                f(p);
+                            }
                             return true;
                         }
                     }
@@ -5141,7 +5652,12 @@ impl EditorPane {
         view.add_controller(drop);
     }
 
-    fn build_tab_label(&self, path: &Path, display_name: &str, scroll: &ScrolledWindow) -> (GtkBox, Label, Label) {
+    fn build_tab_label(
+        &self,
+        path: &Path,
+        display_name: &str,
+        scroll: &ScrolledWindow,
+    ) -> (GtkBox, Label, Label) {
         let tab_box = GtkBox::new(Orientation::Horizontal, 4);
         tab_box.set_margin_start(2);
         tab_box.set_margin_end(2);
@@ -5187,7 +5703,7 @@ impl EditorPane {
             let nb_mc = self.notebook.clone();
             let sc_mc = scroll.clone();
             let st_mc = self.state.clone();
-            let p_mc  = path.to_path_buf();
+            let p_mc = path.to_path_buf();
             let ep_mc = self.clone();
             let dn_mc = display_name.to_string();
             let mc = gtk4::GestureClick::new();
@@ -5272,15 +5788,13 @@ impl EditorPane {
                     &format!("'{name_di}' will be permanently deleted."),
                     "Delete",
                     move || {
-                        {
-                            let _ = std::fs::remove_file(&path_confirm);
-                            if let Some(n) = nb_confirm.page_num(&sc_confirm) {
-                                nb_confirm.remove_page(Some(n));
-                            }
-                            st_confirm.borrow_mut().tabs.remove(&path_confirm);
-                            if let Some(f) = cb_confirm.borrow().as_ref() {
-                                f(path_confirm.clone());
-                            }
+                        let _ = std::fs::remove_file(&path_confirm);
+                        if let Some(n) = nb_confirm.page_num(&sc_confirm) {
+                            nb_confirm.remove_page(Some(n));
+                        }
+                        st_confirm.borrow_mut().tabs.remove(&path_confirm);
+                        if let Some(f) = cb_confirm.borrow().as_ref() {
+                            f(path_confirm.clone());
                         }
                     },
                 );
@@ -5290,7 +5804,8 @@ impl EditorPane {
             rc_for_gesture.set_button(3);
             let pop_for_rc = popover.clone();
             rc_for_gesture.connect_pressed(move |_, _, x, y| {
-                pop_for_rc.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+                pop_for_rc
+                    .set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
                 pop_for_rc.popup();
             });
             tab_box.add_controller(rc_for_gesture);
@@ -5348,8 +5863,7 @@ impl EditorPane {
         // The citation/CV ghost shares the same label — only one suggestion can
         // be under the cursor at a time — but keeps its own slot so Tab knows
         // which kind of completion it is taking.
-        let ghost_bib_entry: Rc<RefCell<Option<PopupEntry>>> =
-            Rc::new(RefCell::new(None));
+        let ghost_bib_entry: Rc<RefCell<Option<PopupEntry>>> = Rc::new(RefCell::new(None));
 
         let ghost_ac = ghost_label.clone();
         let ghost_bib_ac = ghost_bib_entry.clone();
@@ -5420,15 +5934,22 @@ impl EditorPane {
             // above cursor when in lower half — so it never lands on the cursor line.
             let loc = view_ac.iter_location(&cursor_iter);
             let (wx, wy_bottom) = view_ac.buffer_to_window_coords(
-                TextWindowType::Widget, loc.x(), loc.y() + loc.height());
-            let (_, wy_top) = view_ac.buffer_to_window_coords(
-                TextWindowType::Widget, loc.x(), loc.y());
+                TextWindowType::Widget,
+                loc.x(),
+                loc.y() + loc.height(),
+            );
+            let (_, wy_top) =
+                view_ac.buffer_to_window_coords(TextWindowType::Widget, loc.x(), loc.y());
             let view_h = view_ac.allocated_height();
             // above=true: popup uses PositionType::Top, its bottom lands at wy_top (cursor top)
             // above=false: popup uses PositionType::Bottom, its top lands at wy_bottom (cursor bottom)
             let above = wy_bottom > view_h / 2;
             let wy = if above { wy_top } else { wy_bottom };
-            let source = if trigger_char == '!' { PopupSource::Cv } else { PopupSource::Bib };
+            let source = if trigger_char == '!' {
+                PopupSource::Cv
+            } else {
+                PopupSource::Bib
+            };
 
             // Same rules as `#`: inline suggestion first, list once the query is
             // worth listing. A bare `@` used to drop the whole bibliography over
@@ -5443,8 +5964,13 @@ impl EditorPane {
             }
             *ghost_item_ac.borrow_mut() = None;
             set_citation_ghost(
-                &view_ac, &ghost_ac, &ghost_bib_ac, &hint_ac, buf,
-                ghost_entry.clone(), query,
+                &view_ac,
+                &ghost_ac,
+                &ghost_bib_ac,
+                &hint_ac,
+                buf,
+                ghost_entry.clone(),
+                query,
             );
             set_citation_hint(
                 &hint_ac,
@@ -5456,8 +5982,13 @@ impl EditorPane {
         });
 
         CitationAutocomplete {
-            bib_popup, ac_mark, completing, ghost_label, ghost_item,
-            completion_suppressed_at, ghost_bib_entry,
+            bib_popup,
+            ac_mark,
+            completing,
+            ghost_label,
+            ghost_item,
+            completion_suppressed_at,
+            ghost_bib_entry,
         }
     }
 
@@ -5476,7 +6007,6 @@ impl EditorPane {
         let lsp_mark: Rc<RefCell<Option<gtk4::TextMark>>> = Rc::new(RefCell::new(None));
         let lsp_completing: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
         let lsp_comp_gen: Rc<RefCell<u64>> = Rc::new(RefCell::new(0));
-
 
         let update_ghost = {
             let view = view.clone();
@@ -5521,15 +6051,23 @@ impl EditorPane {
             let picks = self.completion_picks.clone();
             let root = self.project_root.clone();
             move |prefix: &str, label: &str| {
-                if prefix.is_empty() { return; }
+                if prefix.is_empty() {
+                    return;
+                }
                 let changed = picks
                     .borrow()
                     .get(prefix)
                     .map(|existing| existing != label)
                     .unwrap_or(true);
-                if !changed { return; }
-                picks.borrow_mut().insert(prefix.to_string(), label.to_string());
-                let Some(root_dir) = root.borrow().clone() else { return };
+                if !changed {
+                    return;
+                }
+                picks
+                    .borrow_mut()
+                    .insert(prefix.to_string(), label.to_string());
+                let Some(root_dir) = root.borrow().clone() else {
+                    return;
+                };
                 let mut pcfg = crate::config::ProjectConfig::load(&root_dir).unwrap_or_default();
                 pcfg.completion_picks = picks.borrow().clone();
                 let _ = pcfg.save(&root_dir);
@@ -5555,10 +6093,7 @@ impl EditorPane {
                 if let Some(ref m) = mark_opt {
                     let mut start = buf2.iter_at_mark(m); // position of '#'
                     let mut end = buf2.iter_at_offset(buf2.cursor_position());
-                    let insert_text = item
-                        .insert_text
-                        .as_deref()
-                        .unwrap_or(&item.label);
+                    let insert_text = item.insert_text.as_deref().unwrap_or(&item.label);
                     let insert_text = strip_snippets(insert_text);
                     let final_text = if insert_text.starts_with('#') {
                         insert_text
@@ -5636,8 +6171,7 @@ impl EditorPane {
                         match mark_ref.as_ref() {
                             Some(m) => buf.move_mark(m, &hash_iter),
                             None => {
-                                *mark_ref =
-                                    Some(buf.create_mark(None::<&str>, &hash_iter, true))
+                                *mark_ref = Some(buf.create_mark(None::<&str>, &hash_iter, true))
                             }
                         }
                     }
@@ -5650,9 +6184,12 @@ impl EditorPane {
                     let prefix = lsp_hash_prefix(buf);
                     let loc = view_lsp.iter_location(&cursor_iter);
                     let (wx, wy_bottom) = view_lsp.buffer_to_window_coords(
-                        TextWindowType::Widget, loc.x(), loc.y() + loc.height());
-                    let (_, wy_top) = view_lsp.buffer_to_window_coords(
-                        TextWindowType::Widget, loc.x(), loc.y());
+                        TextWindowType::Widget,
+                        loc.x(),
+                        loc.y() + loc.height(),
+                    );
+                    let (_, wy_top) =
+                        view_lsp.buffer_to_window_coords(TextWindowType::Widget, loc.x(), loc.y());
                     let view_h = view_lsp.allocated_height();
                     let above = wy_bottom > view_h / 2;
                     let wy = if above { wy_top } else { wy_bottom };
@@ -5729,7 +6266,11 @@ impl EditorPane {
             });
         }
 
-        LspAutocomplete { lsp_popup, lsp_mark, lsp_completing }
+        LspAutocomplete {
+            lsp_popup,
+            lsp_mark,
+            lsp_completing,
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -5774,7 +6315,8 @@ impl EditorPane {
             // the fish-shell gesture, and the whole point of showing the ghost
             // before the list appears. Escape dismisses just the ghost, leaving
             // what the user actually typed alone.
-            if !lsp_popup_key.is_visible() && !bib_popup_key.is_visible()
+            if !lsp_popup_key.is_visible()
+                && !bib_popup_key.is_visible()
                 && ghost_label_key.is_visible()
             {
                 // A citation ghost is taken the citation way — same key, same
@@ -5785,8 +6327,12 @@ impl EditorPane {
                         clear_citation_ghost(&ghost_label_key, &ghost_bib_key, &hint_lbl_key);
                         *bib_active_key.borrow_mut() = false;
                         do_bib_complete(
-                            &buf_key, &mark_key, &completing_key, &bib_popup_key,
-                            &view_bib_key, &entry,
+                            &buf_key,
+                            &mark_key,
+                            &completing_key,
+                            &bib_popup_key,
+                            &view_bib_key,
+                            &entry,
                         );
                         return glib::Propagation::Stop;
                     }
@@ -5808,9 +6354,7 @@ impl EditorPane {
                         }
                     }
                     Key::Escape => {
-                        suppress_current_completion(
-                            &buf_key, &lsp_mark_suppress, &suppressed_key,
-                        );
+                        suppress_current_completion(&buf_key, &lsp_mark_suppress, &suppressed_key);
                         clear_citation_ghost(&ghost_label_key, &ghost_bib_key, &hint_lbl_key);
                         clear_ghost(&ghost_label_key, &ghost_item_key, &hint_lbl_key);
                         return glib::Propagation::Stop;
@@ -5828,9 +6372,7 @@ impl EditorPane {
                         // text for the crime of not wanting a suggestion — and it
                         // made "quiet for this word" impossible, there being no
                         // word left to be quiet about.
-                        suppress_current_completion(
-                            &buf_key, &lsp_mark_suppress, &suppressed_key,
-                        );
+                        suppress_current_completion(&buf_key, &lsp_mark_suppress, &suppressed_key);
                         lsp_popup_key.hide();
                         clear_ghost(&ghost_label_key, &ghost_item_key, &hint_lbl_key);
                         glib::Propagation::Stop
@@ -5897,7 +6439,12 @@ impl EditorPane {
                     if let Some(entry) = chosen {
                         *bib_active_key.borrow_mut() = false;
                         do_bib_complete(
-                            &buf_key, &mark_key, &completing_key, &bib_popup_key, &view_key, &entry,
+                            &buf_key,
+                            &mark_key,
+                            &completing_key,
+                            &bib_popup_key,
+                            &view_key,
+                            &entry,
                         );
                     }
                     glib::Propagation::Stop
@@ -5906,7 +6453,12 @@ impl EditorPane {
                     if let Some(entry) = bib_popup_key.selected_entry() {
                         *bib_active_key.borrow_mut() = false;
                         do_bib_complete(
-                            &buf_key, &mark_key, &completing_key, &bib_popup_key, &view_key, &entry,
+                            &buf_key,
+                            &mark_key,
+                            &completing_key,
+                            &bib_popup_key,
+                            &view_key,
+                            &entry,
                         );
                         glib::Propagation::Stop
                     } else {
@@ -5950,9 +6502,9 @@ impl EditorPane {
 
                 // Skip-forward if the closing char is already there from a prior autopair
                 let skip_char: Option<char> = match key {
-                    Key::parenright   => Some(')'),
+                    Key::parenright => Some(')'),
                     Key::bracketright => Some(']'),
-                    Key::braceright   => Some('}'),
+                    Key::braceright => Some('}'),
                     // Only skip " when we know it was auto-inserted
                     Key::quotedbl if last_ap.get() => Some('"'),
                     _ => None,
@@ -5969,11 +6521,11 @@ impl EditorPane {
                 }
 
                 let pair = match key {
-                    Key::parenleft      => Some(("(", ")")),
-                    Key::bracketleft    => Some(("[", "]")),
-                    Key::braceleft      => Some(("{", "}")),
-                    Key::quotedbl       => Some(("\"", "\"")),
-                    Key::dollar         => Some(("$", "$")),
+                    Key::parenleft => Some(("(", ")")),
+                    Key::bracketleft => Some(("[", "]")),
+                    Key::braceleft => Some(("{", "}")),
+                    Key::quotedbl => Some(("\"", "\"")),
+                    Key::dollar => Some(("$", "$")),
                     _ => None,
                 };
                 if let Some((open, close)) = pair {
@@ -6024,7 +6576,8 @@ impl EditorPane {
                         let mut end = it;
                         end.forward_to_line_end();
                         let line_text = buf_cmt.text(&it, &end, false).to_string();
-                        line_text.trim_start().is_empty() || line_text.trim_start().starts_with("//")
+                        line_text.trim_start().is_empty()
+                            || line_text.trim_start().starts_with("//")
                     } else {
                         true
                     }
@@ -6032,11 +6585,15 @@ impl EditorPane {
 
                 buf_cmt.begin_user_action();
                 for ln in (first_line..=last_line).rev() {
-                    let Some(line_start) = buf_cmt.iter_at_line(ln) else { continue };
+                    let Some(line_start) = buf_cmt.iter_at_line(ln) else {
+                        continue;
+                    };
                     let mut line_end = line_start;
                     line_end.forward_to_line_end();
                     let line_text = buf_cmt.text(&line_start, &line_end, false).to_string();
-                    if line_text.trim_start().is_empty() { continue; }
+                    if line_text.trim_start().is_empty() {
+                        continue;
+                    }
 
                     if all_commented {
                         // Remove "// " or "//" prefix
@@ -6072,7 +6629,9 @@ impl EditorPane {
                 use gtk4::gdk::Key;
                 let ctrl = mods.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
                 let shift = mods.contains(gtk4::gdk::ModifierType::SHIFT_MASK);
-                if !ctrl || shift { return glib::Propagation::Proceed; }
+                if !ctrl || shift {
+                    return glib::Propagation::Proceed;
+                }
                 let marker = match key {
                     Key::b => "*",
                     Key::i => "_",
@@ -6084,7 +6643,8 @@ impl EditorPane {
                     let end_off = sel_e.offset();
                     let text = buf_bi.text(&sel_s, &sel_e, false).to_string();
                     buf_bi.begin_user_action();
-                    if text.starts_with(marker) && text.ends_with(marker)
+                    if text.starts_with(marker)
+                        && text.ends_with(marker)
                         && text.len() > 2 * marker.len()
                     {
                         let inner = text[marker.len()..text.len() - marker.len()].to_string();
@@ -6191,18 +6751,26 @@ impl EditorPane {
             undo_ctrl.set_propagation_phase(PropagationPhase::Capture);
             undo_ctrl.connect_key_pressed(move |_, key, _, mods| {
                 use gtk4::gdk::Key;
-                let ctrl  = mods.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
+                let ctrl = mods.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
                 let shift = mods.contains(gtk4::gdk::ModifierType::SHIFT_MASK);
-                let alt   = mods.contains(gtk4::gdk::ModifierType::ALT_MASK);
-                if !ctrl || alt { return glib::Propagation::Proceed; }
+                let alt = mods.contains(gtk4::gdk::ModifierType::ALT_MASK);
+                if !ctrl || alt {
+                    return glib::Propagation::Proceed;
+                }
                 if key == Key::z {
                     if shift {
-                        if buf_undo.can_redo() { buf_undo.redo(); }
+                        if buf_undo.can_redo() {
+                            buf_undo.redo();
+                        }
                     } else {
-                        if buf_undo.can_undo() { buf_undo.undo(); }
+                        if buf_undo.can_undo() {
+                            buf_undo.undo();
+                        }
                     }
                 } else if key == Key::y && !shift {
-                    if buf_undo.can_redo() { buf_undo.redo(); }
+                    if buf_undo.can_redo() {
+                        buf_undo.redo();
+                    }
                 } else {
                     return glib::Propagation::Proceed;
                 }
@@ -6222,10 +6790,12 @@ impl EditorPane {
             nav_ctrl.set_propagation_phase(PropagationPhase::Capture);
             nav_ctrl.connect_key_pressed(move |_, key, _, mods| {
                 use gtk4::gdk::Key;
-                let ctrl  = mods.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
+                let ctrl = mods.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
                 let shift = mods.contains(gtk4::gdk::ModifierType::SHIFT_MASK);
-                let alt   = mods.contains(gtk4::gdk::ModifierType::ALT_MASK);
-                if !ctrl || alt { return glib::Propagation::Proceed; }
+                let alt = mods.contains(gtk4::gdk::ModifierType::ALT_MASK);
+                if !ctrl || alt {
+                    return glib::Propagation::Proceed;
+                }
 
                 // ── Heading jump: Ctrl+Shift+Up / Ctrl+Shift+Down ────────────
                 if shift && (key == Key::Up || key == Key::Down) {
@@ -6233,7 +6803,9 @@ impl EditorPane {
                     let cur_line = buf_nav.iter_at_offset(pos).line();
                     let line_count = buf_nav.line_count();
                     let target_line = if key == Key::Up {
-                        (0..cur_line).rev().find(|&ln| is_heading_line(&buf_nav, ln))
+                        (0..cur_line)
+                            .rev()
+                            .find(|&ln| is_heading_line(&buf_nav, ln))
                     } else {
                         (cur_line + 1..line_count).find(|&ln| is_heading_line(&buf_nav, ln))
                     };
@@ -6248,8 +6820,12 @@ impl EditorPane {
                 }
 
                 // ── Typst-aware word movement: Ctrl+Left / Ctrl+Right ────────
-                if shift { return glib::Propagation::Proceed; } // let Ctrl+Shift+Left/Right select
-                if key != Key::Left && key != Key::Right { return glib::Propagation::Proceed; }
+                if shift {
+                    return glib::Propagation::Proceed;
+                } // let Ctrl+Shift+Left/Right select
+                if key != Key::Left && key != Key::Right {
+                    return glib::Propagation::Proceed;
+                }
 
                 let pos = buf_nav.cursor_position();
                 let mut it = buf_nav.iter_at_offset(pos);
@@ -6363,7 +6939,9 @@ impl EditorPane {
                     }
                     held.set(None);
                 }
-                if Instant::now() >= until.get() { sv.set(adj.value()); }
+                if Instant::now() >= until.get() {
+                    sv.set(adj.value());
+                }
             });
             let sh = saved_hscroll.clone();
             let until = track_paused_until.clone();
@@ -6381,7 +6959,9 @@ impl EditorPane {
                         return;
                     }
                 }
-                if Instant::now() >= until.get() { sh.set(adj.value()); }
+                if Instant::now() >= until.get() {
+                    sh.set(adj.value());
+                }
             });
         }
 
@@ -6400,10 +6980,10 @@ impl EditorPane {
             // connect_pressed fires before any widget-level handling.
             let gesture = GestureClick::new();
             gesture.set_button(3); // right button
-            // Capture phase + claiming the sequence below: GtkTextView has its
-            // own right-click handler that opens the standard context menu, and
-            // it was opening *on top of* the spell suggestions, hiding the thing
-            // the right-click was for. Claiming stops the view ever seeing it.
+                                   // Capture phase + claiming the sequence below: GtkTextView has its
+                                   // own right-click handler that opens the standard context menu, and
+                                   // it was opening *on top of* the spell suggestions, hiding the thing
+                                   // the right-click was for. Claiming stops the view ever seeing it.
             gesture.set_propagation_phase(PropagationPhase::Capture);
 
             gesture.connect_pressed(move |gesture, _, x, y| {
@@ -6423,12 +7003,12 @@ impl EditorPane {
                 // Move cursor to the right-click position (unless it's inside
                 // the current selection). This makes GTK's focus-in scroll-to-mark
                 // target a position already in the viewport, so the snap is a no-op.
-                let (bx, by) = view_rc.window_to_buffer_coords(
-                    TextWindowType::Widget, x as i32, y as i32,
-                );
+                let (bx, by) =
+                    view_rc.window_to_buffer_coords(TextWindowType::Widget, x as i32, y as i32);
                 if let Some(iter) = view_rc.iter_at_location(bx, by) {
                     let ofs = iter.offset();
-                    let inside_sel = buf_rc.selection_bounds()
+                    let inside_sel = buf_rc
+                        .selection_bounds()
                         .map(|(s, e)| ofs >= s.offset() && ofs <= e.offset())
                         .unwrap_or(false);
                     if !inside_sel {
@@ -6437,31 +7017,46 @@ impl EditorPane {
                 }
 
                 let sc = spell_rc.borrow();
-                if !sc.enabled { return; }
+                if !sc.enabled {
+                    return;
+                }
 
-                let (bx, by) = view_rc.window_to_buffer_coords(
-                    TextWindowType::Widget, x as i32, y as i32,
-                );
-                let Some(iter) = view_rc.iter_at_location(bx, by) else { return };
+                let (bx, by) =
+                    view_rc.window_to_buffer_coords(TextWindowType::Widget, x as i32, y as i32);
+                let Some(iter) = view_rc.iter_at_location(bx, by) else {
+                    return;
+                };
 
                 let table = buf_rc.tag_table();
-                let Some(tag) = table.lookup("zerkalo-spell") else { return };
-                if !iter.has_tag(&tag) { return; }
+                let Some(tag) = table.lookup("zerkalo-spell") else {
+                    return;
+                };
+                if !iter.has_tag(&tag) {
+                    return;
+                }
 
                 // Find word boundaries
                 let mut word_start = iter;
                 loop {
                     let mut prev = word_start;
-                    if !prev.backward_char() { break; }
-                    if !prev.char().is_alphabetic() { break; }
+                    if !prev.backward_char() {
+                        break;
+                    }
+                    if !prev.char().is_alphabetic() {
+                        break;
+                    }
                     word_start = prev;
                 }
                 let mut word_end = iter;
                 while word_end.char().is_alphabetic() {
-                    if !word_end.forward_char() { break; }
+                    if !word_end.forward_char() {
+                        break;
+                    }
                 }
                 let word = buf_rc.text(&word_start, &word_end, false).to_string();
-                if word.is_empty() { return; }
+                if word.is_empty() {
+                    return;
+                }
 
                 let already_ignored = sc.is_ignored(&word);
                 let lang = sc.primary_language().to_string();
@@ -6671,7 +7266,8 @@ impl EditorPane {
         let goal_was_met_for_change: Rc<Cell<bool>> = Rc::new(Cell::new(false));
         let last_wc_for_change = self.last_wc_text.clone();
         let project_root_for_wc = self.project_root.clone();
-        let session_start_for_change: Rc<std::cell::Cell<u32>> = Rc::new(std::cell::Cell::new(count_words(content)));
+        let session_start_for_change: Rc<std::cell::Cell<u32>> =
+            Rc::new(std::cell::Cell::new(count_words(content)));
         // SourceId-based debounce timers. Each keystroke cancels the previous
         // pending timer before scheduling a new one, so timers never accumulate
         // in the event loop regardless of typing speed.
@@ -6683,24 +7279,40 @@ impl EditorPane {
             let newly_modified = {
                 let mut state = state_for_change.borrow_mut();
                 if let Some(tab) = state.tabs.get_mut(&path_for_change) {
-                    if !tab.modified { tab.modified = true; true } else { false }
-                } else { false }
+                    if !tab.modified {
+                        tab.modified = true;
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
             };
             if newly_modified {
                 // GTK widget ops must happen after borrow_mut is released — doing
                 // them inside the borrow can cause reentrant signal dispatch that
                 // tries to borrow state again, triggering a BorrowMutError panic.
                 dot_for_change.set_visible(true);
-                tab_box_for_change.update_property(&[gtk4::accessible::Property::Label(
-                    &format!("{} — unsaved", tab_name_for_change)
-                )]);
-                if let Some(f) = on_modified_cb.borrow().as_ref() { f(true); }
-                if let Some(f) = on_file_dirty_cb.borrow().as_ref() { f(path_for_change.clone(), true); }
+                tab_box_for_change.update_property(&[gtk4::accessible::Property::Label(&format!(
+                    "{} — unsaved",
+                    tab_name_for_change
+                ))]);
+                if let Some(f) = on_modified_cb.borrow().as_ref() {
+                    f(true);
+                }
+                if let Some(f) = on_file_dirty_cb.borrow().as_ref() {
+                    f(path_for_change.clone(), true);
+                }
             }
-            if let Some(f) = on_change_cb.borrow().as_ref() { f(); }
+            if let Some(f) = on_change_cb.borrow().as_ref() {
+                f();
+            }
 
             // ── Debounced word count (300 ms) ─────────────────────────────────
-            if let Some(id) = wc_timer.borrow_mut().take() { id.remove(); }
+            if let Some(id) = wc_timer.borrow_mut().take() {
+                id.remove();
+            }
             {
                 let wc2 = wc_for_change.clone();
                 let goal2 = goal_for_change.clone();
@@ -6746,7 +7358,9 @@ impl EditorPane {
             }
 
             // ── Debounced project word count tooltip (5 s) ────────────────────
-            if let Some(id) = proj_wc_timer.borrow_mut().take() { id.remove(); }
+            if let Some(id) = proj_wc_timer.borrow_mut().take() {
+                id.remove();
+            }
             {
                 let wc_lbl_proj = wc_for_change.clone();
                 let root_proj = project_root_for_wc.clone();
@@ -6757,14 +7371,17 @@ impl EditorPane {
                         *t.borrow_mut() = None;
                         if let Some(root) = root_proj.borrow().as_ref() {
                             let total = count_project_words(root);
-                            wc_lbl_proj.set_tooltip_text(Some(&format!("Project total: {total} words")));
+                            wc_lbl_proj
+                                .set_tooltip_text(Some(&format!("Project total: {total} words")));
                         }
                     },
                 ));
             }
 
             // ── Debounced comment highlights (500 ms) ─────────────────────────
-            if let Some(id) = comment_timer.borrow_mut().take() { id.remove(); }
+            if let Some(id) = comment_timer.borrow_mut().take() {
+                id.remove();
+            }
             {
                 let buf_comment = buf.clone();
                 let t = comment_timer.clone();
@@ -6778,7 +7395,6 @@ impl EditorPane {
                 ));
             }
         });
-
     }
 
     fn wire_cursor_tracking(&self, tab: &TabContext) {
@@ -6832,7 +7448,9 @@ impl EditorPane {
                 let cur_line = cursor.line();
                 if cur_line != last_section_line.get() {
                     last_section_line.set(cur_line);
-                    if let Some(id) = section_wc_timer.borrow_mut().take() { id.remove(); }
+                    if let Some(id) = section_wc_timer.borrow_mut().take() {
+                        id.remove();
+                    }
                     let lbl = section_wc_lbl.clone();
                     let b = buf.clone();
                     let t = section_wc_timer.clone();
@@ -6891,12 +7509,13 @@ impl EditorPane {
                     let insert_mark = buf.get_insert();
                     let buf_s = buf.clone();
                     glib::idle_add_local_once(move || {
-                        if buf_s.has_selection() { return; }
+                        if buf_s.has_selection() {
+                            return;
+                        }
                         let cursor = buf_s.iter_at_mark(&insert_mark);
                         let loc = vs.iter_location(&cursor);
-                        let (_, wy) = vs.buffer_to_window_coords(
-                            TextWindowType::Widget, loc.x(), loc.y(),
-                        );
+                        let (_, wy) =
+                            vs.buffer_to_window_coords(TextWindowType::Widget, loc.x(), loc.y());
                         let view_h = vs.allocated_height();
                         if wy > -view_h && wy < 2 * view_h {
                             vs.scroll_to_mark(&insert_mark, 0.15, false, 0.0, 0.5);
@@ -6920,47 +7539,57 @@ impl EditorPane {
                     let gen_rc = typewriter_gen.clone();
                     let crosshair_tw = crosshair_for_mark.clone();
                     let crosshair_timer_tw = crosshair_timer_for_mark.clone();
-                    glib::timeout_add_local_once(
-                        std::time::Duration::from_millis(80),
-                        move || {
-                            if gen_rc.get() != gen { return; }
-                            // Preserve horizontal tab.scroll — scroll_to_iter with xalign=0.0 would
-                            // snap the tab.view left, hiding text behind the left margin/line numbers.
-                            let h = sc_tw.hadjustment().value();
-                            vt.scroll_to_iter(&mut c, 0.0, true, 0.0, 0.45);
-                            sc_tw.hadjustment().set_value(h);
-                            // Show crosshair line at anchor; hide after 800ms
-                            crosshair_tw.set_visible(true);
-                            crosshair_tw.queue_draw();
-                            if let Some(id) = crosshair_timer_tw.borrow_mut().take() { id.remove(); }
-                            let ch = crosshair_tw.clone();
-                            let ct = crosshair_timer_tw.clone();
-                            let id = glib::timeout_add_local_once(
-                                std::time::Duration::from_millis(800),
-                                move || { ch.set_visible(false); *ct.borrow_mut() = None; },
-                            );
-                            *crosshair_timer_tw.borrow_mut() = Some(id);
-                        },
-                    );
+                    glib::timeout_add_local_once(std::time::Duration::from_millis(80), move || {
+                        if gen_rc.get() != gen {
+                            return;
+                        }
+                        // Preserve horizontal tab.scroll — scroll_to_iter with xalign=0.0 would
+                        // snap the tab.view left, hiding text behind the left margin/line numbers.
+                        let h = sc_tw.hadjustment().value();
+                        vt.scroll_to_iter(&mut c, 0.0, true, 0.0, 0.45);
+                        sc_tw.hadjustment().set_value(h);
+                        // Show crosshair line at anchor; hide after 800ms
+                        crosshair_tw.set_visible(true);
+                        crosshair_tw.queue_draw();
+                        if let Some(id) = crosshair_timer_tw.borrow_mut().take() {
+                            id.remove();
+                        }
+                        let ch = crosshair_tw.clone();
+                        let ct = crosshair_timer_tw.clone();
+                        let id = glib::timeout_add_local_once(
+                            std::time::Duration::from_millis(800),
+                            move || {
+                                ch.set_visible(false);
+                                *ct.borrow_mut() = None;
+                            },
+                        );
+                        *crosshair_timer_tw.borrow_mut() = Some(id);
+                    });
                 }
 
                 // #import "@preview/pkg:ver" tooltip
                 {
-                    let line_start = buf.iter_at_line(cursor.line()).unwrap_or_else(|| buf.start_iter());
+                    let line_start = buf
+                        .iter_at_line(cursor.line())
+                        .unwrap_or_else(|| buf.start_iter());
                     let line_end = {
                         let mut e = line_start;
-                        if !e.ends_line() { e.forward_to_line_end(); }
+                        if !e.ends_line() {
+                            e.forward_to_line_end();
+                        }
                         e
                     };
                     let line_text = buf.text(&line_start, &line_end, false).to_string();
                     let trimmed = line_text.trim();
                     if let Some(rest) = trimmed.strip_prefix("#import \"@preview/") {
-                        let pkg_name: String = rest.chars()
+                        let pkg_name: String = rest
+                            .chars()
                             .take_while(|c| *c != ':' && *c != '"')
                             .collect();
                         // Strip version suffix (e.g. "codly" from "codly:1.0.0")
                         let base_name = pkg_name.split(':').next().unwrap_or(&pkg_name);
-                        if let Some((_, desc)) = IMPORT_PACKAGE_TOOLTIPS.iter()
+                        if let Some((_, desc)) = IMPORT_PACKAGE_TOOLTIPS
+                            .iter()
                             .find(|(n, _)| *n == base_name)
                         {
                             let lbl = lsp_lbl_for_pkg.clone();
@@ -6969,7 +7598,9 @@ impl EditorPane {
                             lbl.set_text(&format!("{pkg_s}: {desc_s}"));
                             glib::timeout_add_local_once(
                                 std::time::Duration::from_secs(3),
-                                move || { lbl.set_text(""); },
+                                move || {
+                                    lbl.set_text("");
+                                },
                             );
                         }
                     }
@@ -6994,7 +7625,9 @@ impl EditorPane {
                             glib::timeout_add_local_once(
                                 std::time::Duration::from_millis(200),
                                 move || {
-                                    if gen_rc.get() != gen { return; }
+                                    if gen_rc.get() != gen {
+                                        return;
+                                    }
                                     if let Some(f) = cb_h.borrow().as_ref() {
                                         f(path_h.clone(), heading_line);
                                     }
@@ -7038,7 +7671,9 @@ impl EditorPane {
         // though nothing is selected. This second handler fires when
         // `selection_bound` arrives and clears the ghost label.
         tab.buffer.connect_mark_set(move |buf, _iter, mark| {
-            if mark.name().as_deref() != Some("selection_bound") { return; }
+            if mark.name().as_deref() != Some("selection_bound") {
+                return;
+            }
             if !buf.has_selection() {
                 let cached = last_wc_for_sel_bound.borrow().clone();
                 if !cached.is_empty() {
@@ -7046,7 +7681,6 @@ impl EditorPane {
                 }
             }
         });
-
     }
 
     fn wire_undo_redo_sensitivity(&self, tab: &TabContext) {
@@ -7073,47 +7707,69 @@ impl EditorPane {
                 }
             });
         }
-
     }
 
-    fn wire_spell_suggestions(&self, tab: &TabContext, hold_position: &Rc<Cell<Option<(f64, f64)>>>, hold_until: &Rc<Cell<Instant>>) {
+    fn wire_spell_suggestions(
+        &self,
+        tab: &TabContext,
+        hold_position: &Rc<Cell<Option<(f64, f64)>>>,
+        hold_until: &Rc<Cell<Instant>>,
+    ) {
         // ── Alt+Enter: open spell suggestions for word under cursor ─────────────
         {
             let spell_ae = self.spell_checker.clone();
-            let buf_ae   = tab.buffer.clone();
-            let view_ae  = tab.view.clone();
+            let buf_ae = tab.buffer.clone();
+            let view_ae = tab.view.clone();
             let scroll_ae = tab.scroll.clone();
             let hold_pos_ae = hold_position.clone();
             let hold_until_ae = hold_until.clone();
-            let ae_ctrl  = EventControllerKey::new();
+            let ae_ctrl = EventControllerKey::new();
             ae_ctrl.connect_key_pressed(move |_, key, _, mods| {
                 use gtk4::gdk::{Key, ModifierType};
-                if key != Key::Return && key != Key::KP_Enter { return glib::Propagation::Proceed; }
-                if !mods.contains(ModifierType::ALT_MASK) { return glib::Propagation::Proceed; }
+                if key != Key::Return && key != Key::KP_Enter {
+                    return glib::Propagation::Proceed;
+                }
+                if !mods.contains(ModifierType::ALT_MASK) {
+                    return glib::Propagation::Proceed;
+                }
 
                 let sc = spell_ae.borrow();
-                if !sc.enabled { return glib::Propagation::Proceed; }
+                if !sc.enabled {
+                    return glib::Propagation::Proceed;
+                }
 
                 let buf = &buf_ae;
                 let pos = buf.cursor_position();
                 let iter = buf.iter_at_offset(pos);
                 let table = buf.tag_table();
-                let Some(tag) = table.lookup("zerkalo-spell") else { return glib::Propagation::Proceed; };
-                if !iter.has_tag(&tag) { return glib::Propagation::Proceed; }
+                let Some(tag) = table.lookup("zerkalo-spell") else {
+                    return glib::Propagation::Proceed;
+                };
+                if !iter.has_tag(&tag) {
+                    return glib::Propagation::Proceed;
+                }
 
                 let mut word_start = iter;
                 loop {
                     let mut prev = word_start;
-                    if !prev.backward_char() { break; }
-                    if !prev.char().is_alphabetic() { break; }
+                    if !prev.backward_char() {
+                        break;
+                    }
+                    if !prev.char().is_alphabetic() {
+                        break;
+                    }
                     word_start = prev;
                 }
                 let mut word_end = iter;
                 while word_end.char().is_alphabetic() {
-                    if !word_end.forward_char() { break; }
+                    if !word_end.forward_char() {
+                        break;
+                    }
                 }
                 let word = buf.text(&word_start, &word_end, false).to_string();
-                if word.is_empty() { return glib::Propagation::Proceed; }
+                if word.is_empty() {
+                    return glib::Propagation::Proceed;
+                }
 
                 let already_ignored = sc.is_ignored(&word);
                 let lang = sc.primary_language().to_string();
@@ -7132,19 +7788,24 @@ impl EditorPane {
                 popover.set_autohide(true);
 
                 let vbox = GtkBox::new(Orientation::Vertical, 2);
-                vbox.set_margin_top(6); vbox.set_margin_bottom(6);
-                vbox.set_margin_start(4); vbox.set_margin_end(4);
+                vbox.set_margin_top(6);
+                vbox.set_margin_bottom(6);
+                vbox.set_margin_start(4);
+                vbox.set_margin_end(4);
 
                 // Open on a placeholder and fill the list when hunspell replies.
                 // Asking it inline blocked the main loop for the whole fork,
                 // exec and wait before the menu could even appear.
                 let pending = Label::new(Some("Checking\u{2026}"));
                 pending.add_css_class("dim-label");
-                pending.set_margin_top(4); pending.set_margin_bottom(4);
+                pending.set_margin_top(4);
+                pending.set_margin_bottom(4);
                 vbox.append(&pending);
 
                 let pop_close = popover.clone();
-                popover.connect_closed(move |_| { pop_close.unparent(); });
+                popover.connect_closed(move |_| {
+                    pop_close.unparent();
+                });
                 popover.set_child(Some(&vbox));
                 popover.popup();
                 popover.grab_focus();
@@ -7196,7 +7857,8 @@ impl EditorPane {
                     if suggestions.is_empty() {
                         let lbl = Label::new(Some("No suggestions"));
                         lbl.add_css_class("dim-label");
-                        lbl.set_margin_top(4); lbl.set_margin_bottom(4);
+                        lbl.set_margin_top(4);
+                        lbl.set_margin_bottom(4);
                         vbox_fill.append(&lbl);
                     } else {
                         for sugg in suggestions.iter().take(6) {
@@ -7239,7 +7901,6 @@ impl EditorPane {
             });
             tab.view.add_controller(ae_ctrl);
         }
-
     }
 
     fn wire_spellcheck(&self, tab: &TabContext) {
@@ -7265,8 +7926,12 @@ impl EditorPane {
                 }
 
                 // Cancel any pending debounce and in-flight poll timer.
-                if let Some(id) = spell_timer.borrow_mut().take() { id.remove(); }
-                if let Some(id) = spell_poll_timer.borrow_mut().take() { id.remove(); }
+                if let Some(id) = spell_timer.borrow_mut().take() {
+                    id.remove();
+                }
+                if let Some(id) = spell_poll_timer.borrow_mut().take() {
+                    id.remove();
+                }
 
                 let buf2 = buf.clone();
                 let sc2 = spell_c.clone();
@@ -7297,40 +7962,48 @@ impl EditorPane {
                             let words = crate::spellcheck::extract_words(&text);
                             let unique: Vec<String> = {
                                 let mut seen = HashSet::new();
-                                words.iter()
-                                    .filter(|(_, _, w)| !ignored.contains(&w.to_lowercase()) && seen.insert(w.to_lowercase()))
+                                words
+                                    .iter()
+                                    .filter(|(_, _, w)| {
+                                        !ignored.contains(&w.to_lowercase())
+                                            && seen.insert(w.to_lowercase())
+                                    })
                                     .map(|(_, _, w)| w.clone())
                                     .collect()
                             };
-                            let unique_refs: Vec<&str> = unique.iter().map(|s| s.as_str()).collect();
-                            let misspelled = crate::spellcheck::check_words_batch(&unique_refs, &langs);
+                            let unique_refs: Vec<&str> =
+                                unique.iter().map(|s| s.as_str()).collect();
+                            let misspelled =
+                                crate::spellcheck::check_words_batch(&unique_refs, &langs);
                             let _ = tx.send((words, misspelled));
                         });
 
-                        let poll_id = glib::timeout_add_local(Duration::from_millis(50), move || {
-                            match rx.try_recv() {
-                                Ok((words, misspelled)) => {
-                                    // Clear the RefCell before returning Break. GLib auto-removes
-                                    // the source after the callback, but the RefCell still holds
-                                    // the now-dead SourceId. A subsequent connect_changed would call
-                                    // id.remove() on it and panic with "Failed to remove source".
-                                    *pt2.borrow_mut() = None;
-                                    apply_spell_tags(&buf3, &words, &misspelled);
-                                    glib::ControlFlow::Break
+                        let poll_id =
+                            glib::timeout_add_local(Duration::from_millis(50), move || {
+                                match rx.try_recv() {
+                                    Ok((words, misspelled)) => {
+                                        // Clear the RefCell before returning Break. GLib auto-removes
+                                        // the source after the callback, but the RefCell still holds
+                                        // the now-dead SourceId. A subsequent connect_changed would call
+                                        // id.remove() on it and panic with "Failed to remove source".
+                                        *pt2.borrow_mut() = None;
+                                        apply_spell_tags(&buf3, &words, &misspelled);
+                                        glib::ControlFlow::Break
+                                    }
+                                    Err(std::sync::mpsc::TryRecvError::Empty) => {
+                                        glib::ControlFlow::Continue
+                                    }
+                                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                                        *pt2.borrow_mut() = None;
+                                        glib::ControlFlow::Break
+                                    }
                                 }
-                                Err(std::sync::mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
-                                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                                    *pt2.borrow_mut() = None;
-                                    glib::ControlFlow::Break
-                                }
-                            }
-                        });
+                            });
                         *pt.borrow_mut() = Some(poll_id);
                     },
                 ));
             });
         }
-
     }
 
     fn wire_autocorrect(&self, tab: &TabContext) {
@@ -7363,17 +8036,30 @@ impl EditorPane {
                 let mut word_start = word_end;
                 loop {
                     let mut prev = word_start;
-                    if !prev.backward_char() { break; }
-                    if !prev.char().is_alphabetic() { break; }
+                    if !prev.backward_char() {
+                        break;
+                    }
+                    if !prev.char().is_alphabetic() {
+                        break;
+                    }
                     word_start = prev;
                 }
-                if word_start == word_end { return; }
+                if word_start == word_end {
+                    return;
+                }
 
                 let word = buf.text(&word_start, &word_end, false).to_string();
-                if word.len() < 3 || sc.is_ignored(&word) { return; }
+                if word.len() < 3 || sc.is_ignored(&word) {
+                    return;
+                }
 
                 // Don't autocorrect proper nouns or words already starting with upper
-                if word.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
+                if word
+                    .chars()
+                    .next()
+                    .map(|c| c.is_uppercase())
+                    .unwrap_or(false)
+                {
                     return;
                 }
 
@@ -7396,7 +8082,8 @@ impl EditorPane {
                 let buf_c = buf_ac.clone();
                 let (tx, rx) = std::sync::mpsc::sync_channel::<Vec<String>>(1);
                 std::thread::spawn(move || {
-                    tx.send(crate::spellcheck::suggestions_for_word(&word_c, &lang)).ok();
+                    tx.send(crate::spellcheck::suggestions_for_word(&word_c, &lang))
+                        .ok();
                 });
 
                 let word_c = word.clone();
@@ -7411,7 +8098,11 @@ impl EditorPane {
                     };
                     // Only apply if edit distance is 1 (very confident replacement)
                     if let Some(best) = suggestions.first() {
-                        if crate::spellcheck::levenshtein(&word_c.to_lowercase(), &best.to_lowercase()) <= 1 {
+                        if crate::spellcheck::levenshtein(
+                            &word_c.to_lowercase(),
+                            &best.to_lowercase(),
+                        ) <= 1
+                        {
                             let mut s = buf_c.iter_at_offset(ws_off);
                             let mut e = buf_c.iter_at_offset(we_off);
                             if buf_c.text(&s, &e, false) == word_c.as_str() {
@@ -7426,7 +8117,6 @@ impl EditorPane {
                 });
             });
         }
-
     }
 }
 
@@ -7452,7 +8142,11 @@ mod tests {
 // ZERKALO-TEMPLATE-END
 Real prose here.
 ";
-        assert_eq!(count_content_words(doc), 3, "only the prose line should count");
+        assert_eq!(
+            count_content_words(doc),
+            3,
+            "only the prose line should count"
+        );
     }
 
     #[test]
@@ -7473,9 +8167,7 @@ Real prose here.
         // set a goal when the document carried its own comment — so opening a
         // document with a comment then one without left the first one's goal on
         // screen. Both call sites now resolve the goal this way.
-        let resolve = |content: &str, default: u32| {
-            parse_goal_comment(content).unwrap_or(default)
-        };
+        let resolve = |content: &str, default: u32| parse_goal_comment(content).unwrap_or(default);
         assert_eq!(resolve("// @zerkalo-goal: 1500\n= Doc\n", 800), 1500);
         assert_eq!(resolve("= Doc\n", 800), 800);
         assert_eq!(resolve("= Doc\n", 0), 0);
@@ -7483,9 +8175,18 @@ Real prose here.
 
     #[test]
     fn word_count_label_reports_a_session_delta_only_when_words_were_added() {
-        assert_eq!(wc_str_with_delta("one two three", 1), "3 words (+2) · < 1 min read");
-        assert_eq!(wc_str_with_delta("one two three", 3), "3 words · < 1 min read");
-        assert_eq!(wc_str_with_delta("one two three", 9), "3 words · < 1 min read");
+        assert_eq!(
+            wc_str_with_delta("one two three", 1),
+            "3 words (+2) · < 1 min read"
+        );
+        assert_eq!(
+            wc_str_with_delta("one two three", 3),
+            "3 words · < 1 min read"
+        );
+        assert_eq!(
+            wc_str_with_delta("one two three", 9),
+            "3 words · < 1 min read"
+        );
     }
 
     #[test]
@@ -7522,8 +8223,14 @@ Real prose here.
 
     #[test]
     fn reads_the_word_count_goal_from_a_zerkalo_comment() {
-        assert_eq!(parse_goal_comment("// @zerkalo-goal: 1500\n= Doc\n"), Some(1500));
-        assert_eq!(parse_goal_comment("= Doc\n// @zerkalo-goal:800\n"), Some(800));
+        assert_eq!(
+            parse_goal_comment("// @zerkalo-goal: 1500\n= Doc\n"),
+            Some(1500)
+        );
+        assert_eq!(
+            parse_goal_comment("= Doc\n// @zerkalo-goal:800\n"),
+            Some(800)
+        );
     }
 
     #[test]
@@ -7551,7 +8258,10 @@ Real prose here.
     fn strips_numbered_and_braced_snippet_placeholders() {
         assert_eq!(strip_snippets("figure($0)"), "figure()");
         assert_eq!(strip_snippets("figure(${1:body})"), "figure()");
-        assert_eq!(strip_snippets("#table(columns: $1, $2)"), "#table(columns: , )");
+        assert_eq!(
+            strip_snippets("#table(columns: $1, $2)"),
+            "#table(columns: , )"
+        );
         assert_eq!(strip_snippets("no placeholders"), "no placeholders");
     }
 
@@ -7569,7 +8279,11 @@ Real prose here.
         let c: Vec<char> = "(abc)rest".chars().collect();
         assert_eq!(skip_balanced_typst(&c, 0, c.len()), 5);
         let c: Vec<char> = "[a[b]c]tail".chars().collect();
-        assert_eq!(skip_balanced_typst(&c, 0, c.len()), 7, "nesting must be respected");
+        assert_eq!(
+            skip_balanced_typst(&c, 0, c.len()),
+            7,
+            "nesting must be respected"
+        );
         let c: Vec<char> = "{x}".chars().collect();
         assert_eq!(skip_balanced_typst(&c, 0, c.len()), 3);
     }

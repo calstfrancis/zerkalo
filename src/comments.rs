@@ -143,7 +143,11 @@ impl CommentThread {
             created_at: now_str(),
             resolved: false,
             replies: Vec::new(),
-            suggestion: Some(Suggestion { kind, text, status: SuggestionStatus::Pending }),
+            suggestion: Some(Suggestion {
+                kind,
+                text,
+                status: SuggestionStatus::Pending,
+            }),
         });
         id
     }
@@ -162,7 +166,10 @@ impl CommentThread {
 
     pub fn reply(&mut self, id: u64, body: String) {
         if let Some(c) = self.comments.iter_mut().find(|c| c.id == id) {
-            c.replies.push(CommentReply { body, created_at: now_str() });
+            c.replies.push(CommentReply {
+                body,
+                created_at: now_str(),
+            });
         }
     }
 
@@ -272,8 +279,22 @@ mod tests {
         let id1 = t.add(1, "a".into(), "first".into());
         let id2 = t.add(2, "b".into(), "second".into());
         t.reply(id2, "responding".into());
-        assert!(t.comments.iter().find(|c| c.id == id1).unwrap().replies.is_empty());
-        assert_eq!(t.comments.iter().find(|c| c.id == id2).unwrap().replies.len(), 1);
+        assert!(t
+            .comments
+            .iter()
+            .find(|c| c.id == id1)
+            .unwrap()
+            .replies
+            .is_empty());
+        assert_eq!(
+            t.comments
+                .iter()
+                .find(|c| c.id == id2)
+                .unwrap()
+                .replies
+                .len(),
+            1
+        );
     }
 
     #[test]
@@ -366,7 +387,13 @@ mod tests {
     #[test]
     fn add_suggestion_attaches_a_pending_suggestion() {
         let mut t = CommentThread::default();
-        let id = t.add_suggestion(4, "line text".into(), SuggestionKind::Insertion, "new text".into(), String::new());
+        let id = t.add_suggestion(
+            4,
+            "line text".into(),
+            SuggestionKind::Insertion,
+            "new text".into(),
+            String::new(),
+        );
         let c = t.comments.iter().find(|c| c.id == id).unwrap();
         let s = c.suggestion.as_ref().unwrap();
         assert_eq!(s.kind, SuggestionKind::Insertion);
@@ -379,16 +406,31 @@ mod tests {
     fn plain_comments_have_no_suggestion() {
         let mut t = CommentThread::default();
         let id = t.add(1, "a".into(), "just a note".into());
-        assert!(t.comments.iter().find(|c| c.id == id).unwrap().suggestion.is_none());
+        assert!(t
+            .comments
+            .iter()
+            .find(|c| c.id == id)
+            .unwrap()
+            .suggestion
+            .is_none());
     }
 
     #[test]
     fn set_suggestion_status_resolves_the_comment_too() {
         let mut t = CommentThread::default();
-        let id = t.add_suggestion(1, "x".into(), SuggestionKind::Deletion, "old text".into(), String::new());
+        let id = t.add_suggestion(
+            1,
+            "x".into(),
+            SuggestionKind::Deletion,
+            "old text".into(),
+            String::new(),
+        );
         t.set_suggestion_status(id, SuggestionStatus::Accepted);
         let c = t.comments.iter().find(|c| c.id == id).unwrap();
-        assert_eq!(c.suggestion.as_ref().unwrap().status, SuggestionStatus::Accepted);
+        assert_eq!(
+            c.suggestion.as_ref().unwrap().status,
+            SuggestionStatus::Accepted
+        );
         assert!(c.resolved);
     }
 
@@ -407,7 +449,13 @@ mod tests {
         std::fs::write(&typ_path, "content").unwrap();
 
         let mut t = CommentThread::default();
-        let id = t.add_suggestion(2, "= Intro".into(), SuggestionKind::Deletion, "obsolete phrase".into(), String::new());
+        let id = t.add_suggestion(
+            2,
+            "= Intro".into(),
+            SuggestionKind::Deletion,
+            "obsolete phrase".into(),
+            String::new(),
+        );
         t.set_suggestion_status(id, SuggestionStatus::Rejected);
         t.save(&typ_path);
 
@@ -438,6 +486,13 @@ mod tests {
 
         let lost = t.relocate_all("intro\nkeep me\nmore text");
         assert_eq!(lost, vec![lost_id]);
-        assert_eq!(t.comments.iter().find(|c| c.id == found_id).unwrap().anchor_line, 2);
+        assert_eq!(
+            t.comments
+                .iter()
+                .find(|c| c.id == found_id)
+                .unwrap()
+                .anchor_line,
+            2
+        );
     }
 }

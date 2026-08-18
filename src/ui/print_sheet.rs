@@ -35,9 +35,24 @@ const THUMB_MAX_PX: f64 = 260.0;
 /// a proof, a finished copy, and a folded booklet — and each just sets the
 /// controls below, which stay free to adjust afterwards.
 const PRESETS: &[(&str, Imposition, DuplexPref, bool)] = &[
-    ("Proof — two pages a sheet, grayscale", Imposition::TwoUp, DuplexPref::LongEdge, false),
-    ("Final — one page a sheet, two-sided", Imposition::Off, DuplexPref::LongEdge, true),
-    ("Booklet — fold and staple", Imposition::Booklet, DuplexPref::ShortEdge, true),
+    (
+        "Proof — two pages a sheet, grayscale",
+        Imposition::TwoUp,
+        DuplexPref::LongEdge,
+        false,
+    ),
+    (
+        "Final — one page a sheet, two-sided",
+        Imposition::Off,
+        DuplexPref::LongEdge,
+        true,
+    ),
+    (
+        "Booklet — fold and staple",
+        Imposition::Booklet,
+        DuplexPref::ShortEdge,
+        true,
+    ),
 ];
 
 pub struct PrintSheet;
@@ -123,8 +138,9 @@ impl PrintSheet {
 
         let preset_row = adw::ComboRow::new();
         preset_row.set_title("Start from");
-        let preset_names: Vec<&str> =
-            std::iter::once("Custom").chain(PRESETS.iter().map(|(n, ..)| *n)).collect();
+        let preset_names: Vec<&str> = std::iter::once("Custom")
+            .chain(PRESETS.iter().map(|(n, ..)| *n))
+            .collect();
         preset_row.set_model(Some(&gtk4::StringList::new(&preset_names)));
         group.add(&preset_row);
 
@@ -139,7 +155,10 @@ impl PrintSheet {
         layout_row.set_model(Some(&gtk4::StringList::new(&layout_names)));
         let stored = Imposition::from_config_key(&config.print.imposition);
         layout_row.set_selected(
-            Imposition::ALL.iter().position(|i| *i == stored).unwrap_or(0) as u32
+            Imposition::ALL
+                .iter()
+                .position(|i| *i == stored)
+                .unwrap_or(0) as u32,
         );
         group.add(&layout_row);
 
@@ -207,7 +226,9 @@ impl PrintSheet {
             let thumb = thumb.clone();
             let print_btn = print_btn.clone();
             Rc::new(move || {
-                let Some(doc) = prepared.borrow().clone() else { return };
+                let Some(doc) = prepared.borrow().clone() else {
+                    return;
+                };
                 let imposition = Imposition::ALL[layout_row.selected() as usize];
 
                 match doc.numbering.resolve(&range_row.text()) {
@@ -236,7 +257,9 @@ impl PrintSheet {
             let selection = selection.clone();
             let layout_row = layout_row.clone();
             thumb.set_draw_func(move |area, cr, w, h| {
-                let Some(doc) = prepared.borrow().clone() else { return };
+                let Some(doc) = prepared.borrow().clone() else {
+                    return;
+                };
                 let pages = selection.borrow();
                 if pages.is_empty() {
                     return;
@@ -273,7 +296,10 @@ impl PrintSheet {
                     return;
                 };
                 layout_row.set_selected(
-                    Imposition::ALL.iter().position(|i| i == imposition).unwrap_or(0) as u32,
+                    Imposition::ALL
+                        .iter()
+                        .position(|i| i == imposition)
+                        .unwrap_or(0) as u32,
                 );
                 duplex_row.set_selected(duplex_index(*duplex));
                 color_row.set_active(*color);
@@ -343,7 +369,9 @@ impl PrintSheet {
             let on_status = Rc::new(on_status);
             let on_save_prefs = Rc::new(on_save_prefs);
             print_btn.connect_clicked(move |_| {
-                let Some(doc) = prepared.borrow().clone() else { return };
+                let Some(doc) = prepared.borrow().clone() else {
+                    return;
+                };
                 let pages = selection.borrow().clone();
                 if pages.is_empty() {
                     return;
@@ -358,11 +386,19 @@ impl PrintSheet {
                 };
                 on_save_prefs(prefs.clone());
 
-                let job = PrintJob { job_name: job_name.clone(), pages, imposition, prefs };
+                let job = PrintJob {
+                    job_name: job_name.clone(),
+                    pages,
+                    imposition,
+                    prefs,
+                };
                 let on_status = on_status.clone();
-                print::send_to_printer(parent.clone().upcast_ref::<Window>(), &doc, job, move |s| {
-                    on_status(s)
-                });
+                print::send_to_printer(
+                    parent.clone().upcast_ref::<Window>(),
+                    &doc,
+                    job,
+                    move |s| on_status(s),
+                );
                 window.close();
             });
         }
@@ -410,7 +446,11 @@ fn describe_sheets(pages: usize, sides: usize, imposition: Imposition) -> String
         }
         Imposition::Booklet => {
             let leaves = sides / 2;
-            let leaf_word = if leaves == 1 { "folded sheet" } else { "folded sheets" };
+            let leaf_word = if leaves == 1 {
+                "folded sheet"
+            } else {
+                "folded sheets"
+            };
             format!("{pages} {page_word} on {leaves} {leaf_word}, printed both sides")
         }
         _ => format!("{pages} {page_word} on {sides} sheet sides"),
@@ -448,7 +488,8 @@ fn draw_sheet_preview(
 
     // Colours are re-queried at draw time so the thumbnail follows a theme or
     // accent change without the dialog being reopened.
-    let (fg_r, fg_g, fg_b) = crate::ui::theme::rgb(area, "window_fg_color").unwrap_or((0.2, 0.2, 0.2));
+    let (fg_r, fg_g, fg_b) =
+        crate::ui::theme::rgb(area, "window_fg_color").unwrap_or((0.2, 0.2, 0.2));
 
     cr.save().ok();
     cr.rectangle(origin_x, origin_y, sheet_w, sheet_h);
@@ -472,7 +513,9 @@ fn draw_sheet_preview(
         let Some(index) = entry else {
             continue;
         };
-        let Some(page) = doc.doc.pages.get(*index) else { continue };
+        let Some(page) = doc.doc.pages.get(*index) else {
+            continue;
+        };
 
         let page_size = page.frame.size();
         let (pw, ph) = (page_size.x.to_pt(), page_size.y.to_pt());
@@ -527,16 +570,20 @@ fn draw_sheet_preview(
 /// Shared by every entry point so none of them can assemble its own inputs and
 /// drift — printing once omitted the CV sys inputs that way and produced
 /// nothing at all for a CV document.
-pub fn request_for(
-    preview: &crate::ui::preview_pane::PreviewPane,
-) -> Option<PrintRequest> {
+pub fn request_for(preview: &crate::ui::preview_pane::PreviewPane) -> Option<PrintRequest> {
     let (root, overrides, sys_inputs, bib_path) = preview.compile_inputs()?;
     let job_name = root
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("document")
         .to_string();
-    Some(PrintRequest { root, overrides, sys_inputs, bib_path, job_name })
+    Some(PrintRequest {
+        root,
+        overrides,
+        sys_inputs,
+        bib_path,
+        job_name,
+    })
 }
 
 /// Path of the document a request refers to, for callers that want to log it.

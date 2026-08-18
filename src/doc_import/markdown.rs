@@ -23,14 +23,25 @@ fn heading_level(level: HeadingLevel) -> u8 {
 /// built on a stack rather than assuming a flat document.
 enum Frame {
     Paragraph(Vec<Inline>),
-    Heading { level: u8, body: Vec<Inline> },
+    Heading {
+        level: u8,
+        body: Vec<Inline>,
+    },
     Bold(Vec<Inline>),
     Italic(Vec<Inline>),
-    Link { href: String, body: Vec<Inline> },
-    List { ordered: bool, items: Vec<Vec<Block>> },
+    Link {
+        href: String,
+        body: Vec<Inline>,
+    },
+    List {
+        ordered: bool,
+        items: Vec<Vec<Block>>,
+    },
     Item(Vec<Block>),
     Quote(Vec<Block>),
-    Table { rows: Vec<Vec<Vec<Inline>>> },
+    Table {
+        rows: Vec<Vec<Vec<Inline>>>,
+    },
     Row(Vec<Vec<Inline>>),
     Cell(Vec<Inline>),
 }
@@ -119,9 +130,10 @@ pub fn read(text: &str) -> Imported {
                     b.push_block(Block::Paragraph(v));
                 }
             }
-            Event::Start(Tag::Heading { level, .. }) => {
-                b.stack.push(Frame::Heading { level: heading_level(level), body: Vec::new() })
-            }
+            Event::Start(Tag::Heading { level, .. }) => b.stack.push(Frame::Heading {
+                level: heading_level(level),
+                body: Vec::new(),
+            }),
             Event::End(TagEnd::Heading(_)) => {
                 if let Some(Frame::Heading { level, body }) = b.stack.pop() {
                     b.push_block(Block::Heading { level, body });
@@ -139,27 +151,34 @@ pub fn read(text: &str) -> Imported {
                     b.push_inline(Inline::Italic(v));
                 }
             }
-            Event::Start(Tag::Link { dest_url, .. }) => {
-                b.stack.push(Frame::Link { href: dest_url.to_string(), body: Vec::new() })
-            }
+            Event::Start(Tag::Link { dest_url, .. }) => b.stack.push(Frame::Link {
+                href: dest_url.to_string(),
+                body: Vec::new(),
+            }),
             Event::End(TagEnd::Link) => {
                 if let Some(Frame::Link { href, body }) = b.stack.pop() {
                     b.push_inline(Inline::Link { href, body });
                 }
             }
-            Event::Start(Tag::Image { dest_url, title, .. }) => {
+            Event::Start(Tag::Image {
+                dest_url, title, ..
+            }) => {
                 // Images are emitted whole rather than as an inline, since
                 // Typst wants them as figures.
-                b.push_block(Block::Image { src: dest_url.to_string(), alt: title.to_string() });
+                b.push_block(Block::Image {
+                    src: dest_url.to_string(),
+                    alt: title.to_string(),
+                });
                 // Consume the alt-text events until the image closes.
                 b.stack.push(Frame::Cell(Vec::new()));
             }
             Event::End(TagEnd::Image) => {
                 b.stack.pop();
             }
-            Event::Start(Tag::List(start)) => {
-                b.stack.push(Frame::List { ordered: start.is_some(), items: Vec::new() })
-            }
+            Event::Start(Tag::List(start)) => b.stack.push(Frame::List {
+                ordered: start.is_some(),
+                items: Vec::new(),
+            }),
             Event::End(TagEnd::List(_)) => {
                 if let Some(Frame::List { ordered, items }) = b.stack.pop() {
                     b.push_block(Block::List { ordered, items });
@@ -183,10 +202,15 @@ pub fn read(text: &str) -> Imported {
             }
             Event::Start(Tag::CodeBlock(kind)) => {
                 let lang = match kind {
-                    pulldown_cmark::CodeBlockKind::Fenced(l) if !l.is_empty() => Some(l.to_string()),
+                    pulldown_cmark::CodeBlockKind::Fenced(l) if !l.is_empty() => {
+                        Some(l.to_string())
+                    }
                     _ => None,
                 };
-                b.push_block(Block::Code { lang, text: String::new() });
+                b.push_block(Block::Code {
+                    lang,
+                    text: String::new(),
+                });
                 in_code = true;
             }
             Event::End(TagEnd::CodeBlock) => in_code = false,
@@ -262,7 +286,12 @@ pub fn read(text: &str) -> Imported {
         }
     }
 
-    Imported { blocks: b.blocks, media: Vec::new(), notes: b.notes, tracked_changes: Vec::new() }
+    Imported {
+        blocks: b.blocks,
+        media: Vec::new(),
+        notes: b.notes,
+        tracked_changes: Vec::new(),
+    }
 }
 
 #[cfg(test)]
@@ -299,7 +328,10 @@ mod tests {
     #[test]
     fn a_link_becomes_a_link_call() {
         let out = convert("See [the docs](https://example.com/a).\n");
-        assert!(out.contains("#link(\"https://example.com/a\")["), "got: {out}");
+        assert!(
+            out.contains("#link(\"https://example.com/a\")["),
+            "got: {out}"
+        );
         assert!(out.contains("the docs"), "got: {out}");
     }
 
@@ -345,7 +377,10 @@ mod tests {
         let first = out.find("- first").expect("first item");
         let nested = out.find("- nested").expect("nested item");
         assert!(nested > first, "nested list must follow its parent:\n{out}");
-        assert!(out.contains("\n  - nested"), "should be indented one level:\n{out}");
+        assert!(
+            out.contains("\n  - nested"),
+            "should be indented one level:\n{out}"
+        );
     }
 
     #[test]
@@ -353,8 +388,15 @@ mod tests {
         // A blank line ends a list item in Typst, so continuation content has
         // to be emitted without one.
         let out = convert("- outer\n\n  - inner\n");
-        let list_part: String = out.lines().take_while(|l| !l.trim().is_empty() || l.contains('-')).collect::<Vec<_>>().join("\n");
-        assert!(!list_part.contains("\n\n  -"), "blank line would end the item:\n{out}");
+        let list_part: String = out
+            .lines()
+            .take_while(|l| !l.trim().is_empty() || l.contains('-'))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            !list_part.contains("\n\n  -"),
+            "blank line would end the item:\n{out}"
+        );
     }
 
     #[test]

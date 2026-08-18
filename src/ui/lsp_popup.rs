@@ -94,7 +94,13 @@ impl LspPopup {
             Rc::new(RefCell::new(None));
 
         let p = Self {
-            popover, list_box, scroll, items, shown, filter_prefix, on_complete,
+            popover,
+            list_box,
+            scroll,
+            items,
+            shown,
+            filter_prefix,
+            on_complete,
             on_selection_changed,
             preferred: Rc::new(RefCell::new(None)),
             local_names: Rc::new(RefCell::new(std::collections::HashSet::new())),
@@ -109,7 +115,9 @@ impl LspPopup {
             p.list_box.connect_row_activated(move |_, row| {
                 let idx = row.index() as usize;
                 if let Some(item) = shown2.borrow().get(idx).cloned() {
-                    if let Some(f) = cb2.borrow().as_ref() { f(item); }
+                    if let Some(f) = cb2.borrow().as_ref() {
+                        f(item);
+                    }
                 }
             });
         }
@@ -121,7 +129,9 @@ impl LspPopup {
             let cb3 = p.on_selection_changed.clone();
             p.list_box.connect_row_selected(move |_, row| {
                 let item = row.and_then(|r| shown3.borrow().get(r.index() as usize).cloned());
-                if let Some(f) = cb3.borrow().as_ref() { f(item); }
+                if let Some(f) = cb3.borrow().as_ref() {
+                    f(item);
+                }
             });
         }
 
@@ -168,9 +178,16 @@ impl LspPopup {
     /// Show the already-loaded list at (x, y). `above`: true = the popup sits
     /// above the cursor (PositionType::Top), false = below.
     pub fn show_at(&self, x: i32, y: i32, above: bool) {
-        if self.shown.borrow().is_empty() { return; }
-        self.popover.set_position(if above { PositionType::Top } else { PositionType::Bottom });
-        self.popover.set_pointing_to(Some(&Rectangle::new(x, y, 1, 1)));
+        if self.shown.borrow().is_empty() {
+            return;
+        }
+        self.popover.set_position(if above {
+            PositionType::Top
+        } else {
+            PositionType::Bottom
+        });
+        self.popover
+            .set_pointing_to(Some(&Rectangle::new(x, y, 1, 1)));
         if !self.popover.is_visible() {
             self.popover.popup();
         }
@@ -223,7 +240,8 @@ impl LspPopup {
     /// rather than reach for the arrow keys.
     fn update_footer(&self, total: usize, shown: usize) {
         if total > shown {
-            self.footer.set_text(&format!("{shown} of {total} · {FOOTER_KEYS}"));
+            self.footer
+                .set_text(&format!("{shown} of {total} · {FOOTER_KEYS}"));
         } else {
             self.footer.set_text(FOOTER_KEYS);
         }
@@ -253,9 +271,13 @@ impl LspPopup {
     pub fn merge_items(&self, new_items: Vec<CompletionItem>) {
         let any_new = {
             let existing = self.items.borrow();
-            new_items.iter().any(|ni| !existing.iter().any(|ei| ei.label == ni.label))
+            new_items
+                .iter()
+                .any(|ni| !existing.iter().any(|ei| ei.label == ni.label))
         };
-        if !any_new { return; }
+        if !any_new {
+            return;
+        }
 
         {
             let mut all = self.items.borrow_mut();
@@ -274,7 +296,9 @@ impl LspPopup {
     /// whatever happens to sort first alphabetically. Prefix-only by design —
     /// ghost text is drawn as a continuation of what's already typed.
     pub fn best_match(&self, prefix: &str) -> Option<CompletionItem> {
-        if prefix.is_empty() { return None; }
+        if prefix.is_empty() {
+            return None;
+        }
         let lprefix = prefix.to_lowercase();
         let items = self.items.borrow();
         let candidates = items
@@ -290,7 +314,11 @@ impl LspPopup {
         let local = self.local_names.borrow();
         candidates
             .min_by_key(|i| {
-                (!local.contains(&i.label), i.label.chars().count(), i.label.to_lowercase())
+                (
+                    !local.contains(&i.label),
+                    i.label.chars().count(),
+                    i.label.to_lowercase(),
+                )
             })
             .cloned()
     }
@@ -335,7 +363,9 @@ impl LspPopup {
 
     pub fn move_selection(&self, delta: i32) {
         let count = self.shown.borrow().len() as i32;
-        if count == 0 { return; }
+        if count == 0 {
+            return;
+        }
         let current = self.list_box.selected_row().map(|r| r.index()).unwrap_or(0);
         let next = (current + delta).clamp(0, count - 1);
         if let Some(row) = self.list_box.row_at_index(next) {
@@ -448,27 +478,41 @@ pub struct NameMatch {
 /// documentation as something to display, not to search.
 pub fn match_name(name: &str, query: &str) -> Option<NameMatch> {
     if query.is_empty() {
-        return Some(NameMatch { rank: 0, start: 0, positions: Vec::new() });
+        return Some(NameMatch {
+            rank: 0,
+            start: 0,
+            positions: Vec::new(),
+        });
     }
     let lname: Vec<char> = name.to_lowercase().chars().collect();
     let q: Vec<char> = query.chars().collect();
 
     let find_at = |from: usize| -> Option<usize> {
-        if q.len() > lname.len() { return None; }
+        if q.len() > lname.len() {
+            return None;
+        }
         (from..=lname.len() - q.len()).find(|&i| lname[i..i + q.len()] == q[..])
     };
 
     if let Some(at) = find_at(0) {
         let positions: Vec<usize> = (at..at + q.len()).collect();
         if at == 0 {
-            return Some(NameMatch { rank: 0, start: 0, positions });
+            return Some(NameMatch {
+                rank: 0,
+                start: 0,
+                positions,
+            });
         }
         // A run starting at a word boundary (`page-break`, `pageBreak`) is a
         // deliberate-looking match; one starting mid-word is weaker but real.
         let prev = lname[at - 1];
-        let boundary = !prev.is_alphanumeric()
-            || name.chars().nth(at).is_some_and(|c| c.is_uppercase());
-        return Some(NameMatch { rank: if boundary { 1 } else { 2 }, start: at, positions });
+        let boundary =
+            !prev.is_alphanumeric() || name.chars().nth(at).is_some_and(|c| c.is_uppercase());
+        return Some(NameMatch {
+            rank: if boundary { 1 } else { 2 },
+            start: at,
+            positions,
+        });
     }
 
     if q.len() < MIN_SUBSEQUENCE_QUERY {
@@ -484,7 +528,11 @@ pub fn match_name(name: &str, query: &str) -> Option<NameMatch> {
     }
     if qi == q.len() {
         let start = positions[0];
-        Some(NameMatch { rank: 3, start, positions })
+        Some(NameMatch {
+            rank: 3,
+            start,
+            positions,
+        })
     } else {
         None
     }
@@ -508,20 +556,20 @@ fn highlighted_markup(name: &str, positions: &[usize]) -> String {
 
 fn kind_label(kind: u8) -> &'static str {
     match kind {
-        2  => "Method",
-        3  => "Function",
-        4  => "Constructor",
-        5  => "Field",
-        6  => "Variable",
-        7  => "Class",
-        8  => "Interface",
-        9  => "Module",
+        2 => "Method",
+        3 => "Function",
+        4 => "Constructor",
+        5 => "Field",
+        6 => "Variable",
+        7 => "Class",
+        8 => "Interface",
+        9 => "Module",
         10 => "Property",
         12 => "Value",
         13 => "Enum",
         14 => "Keyword",
         15 => "Snippet",
-        _  => "",
+        _ => "",
     }
 }
 

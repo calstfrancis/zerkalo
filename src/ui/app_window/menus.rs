@@ -7,35 +7,35 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use adw::prelude::*;
 use gtk4::prelude::*;
 use gtk4::{Button, Label, Popover};
 use libadwaita as adw;
-use adw::prelude::*;
 
-use crate::config::Config;
-use crate::writing_log::WritingLog;
+use super::super::docs_browser::DocsBrowser;
 use super::super::editor_pane::EditorPane;
 use super::super::error_panel::ErrorPanel;
-use super::super::preview_pane::PreviewPane;
-use super::header::Menus;
-use super::open_template_for_active_document;
-use super::super::docs_browser::DocsBrowser;
 use super::super::export_dialog::ExportDialog;
 use super::super::font_manager::FontManager;
 use super::super::help_window::HelpWindow;
+use super::super::preview_pane::PreviewPane;
 use super::super::settings_dialog::SettingsDialog;
-use super::super::snapshot_dialog::{SnapshotDialog, save_snapshot};
+use super::super::snapshot_dialog::{save_snapshot, SnapshotDialog};
 use super::super::table_dialog::TableDialog;
 use super::super::template_dialog::TemplateDialog;
-use crate::bibliography;
-use crate::git_sync;
-use super::{
-    apply_compile_mode_css, apply_theme, compile_mode_label_str,
-    print_from_preview, restore_snapshot_with_confirm,
-    show_alert, show_file_history_window, show_dep_graph_window, show_ref_manager_window,
-};
+use super::header::Menus;
 use super::import::run_pdf_import;
+use super::open_template_for_active_document;
 use super::sync::{do_sync, show_backup_remote_dialog};
+use super::{
+    apply_compile_mode_css, apply_theme, compile_mode_label_str, print_from_preview,
+    restore_snapshot_with_confirm, show_alert, show_dep_graph_window, show_file_history_window,
+    show_ref_manager_window,
+};
+use crate::bibliography;
+use crate::config::Config;
+use crate::git_sync;
+use crate::writing_log::WritingLog;
 
 /// The shared state the menu handlers close over. One value instead of the 30
 /// and 21 separate captures the two runs would otherwise need.
@@ -106,10 +106,8 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
     let root_for_settings = ctx.project_root.clone();
     menus.menu_settings_item.connect_clicked(move |_| {
         menu_popover_for_settings.popdown();
-        let dialog = SettingsDialog::new(
-            &window_for_settings,
-            &current_config_for_settings.borrow(),
-        );
+        let dialog =
+            SettingsDialog::new(&window_for_settings, &current_config_for_settings.borrow());
 
         // These three used to be their own hamburger rows; the dialog itself
         // doesn't know how to construct them (FontManager needs the
@@ -184,7 +182,12 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
                 new_cfg.compile_on_save,
                 new_cfg.manual_compile_only,
             ));
-            apply_compile_mode_css(&cm_btn_save, new_cfg.auto_compile, new_cfg.compile_on_save, new_cfg.manual_compile_only);
+            apply_compile_mode_css(
+                &cm_btn_save,
+                new_cfg.auto_compile,
+                new_cfg.compile_on_save,
+                new_cfg.manual_compile_only,
+            );
             editor.apply_font_size(new_cfg.editor_font_size);
             editor.apply_font_family(&new_cfg.editor_font_family);
             editor.apply_word_wrap(new_cfg.editor_word_wrap);
@@ -338,15 +341,14 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
         let total = log.sessions.len();
         let body = format!(
             "Today: {:+} words\nThis week: {:+} words\nStreak: {} day{}\nTotal sessions: {}",
-            today, week, streak,
+            today,
+            week,
+            streak,
             if streak == 1 { "" } else { "s" },
             total,
         );
-        let dlg = adw::MessageDialog::new(
-            Some(&window_for_stats),
-            Some("Writing Stats"),
-            Some(&body),
-        );
+        let dlg =
+            adw::MessageDialog::new(Some(&window_for_stats), Some("Writing Stats"), Some(&body));
         dlg.add_response("ok", "OK");
         dlg.present();
     });
@@ -416,9 +418,9 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
             menu_popover_for_print.popdown();
             from_menu();
         });
-        ctx.print_header_btn.connect_clicked(move |_| open_print_sheet());
+        ctx.print_header_btn
+            .connect_clicked(move |_| open_print_sheet());
     }
-
 }
 
 /// Document-level rows: Import PDF, templates, New, Open, Save, Save As,
@@ -444,13 +446,17 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
         let win2 = window_for_pdf.clone();
         let ep2 = editor_for_pdf.clone();
         let win_ref = win2.clone();
-        dialog.open(Some(&win_ref), None::<&gtk4::gio::Cancellable>, move |result| {
-            if let Ok(file) = result {
-                if let Some(input_path) = file.path() {
-                    run_pdf_import(&win2, &ep2, input_path);
+        dialog.open(
+            Some(&win_ref),
+            None::<&gtk4::gio::Cancellable>,
+            move |result| {
+                if let Ok(file) = result {
+                    if let Some(input_path) = file.path() {
+                        run_pdf_import(&win2, &ep2, input_path);
+                    }
                 }
-            }
-        });
+            },
+        );
     });
 
     // ── Menu: New from Template ─────────────────────────────────────────
@@ -463,11 +469,18 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
     menus.menu_new_template_item.connect_clicked(move |_| {
         menu_popover_for_template.popdown();
         let last_advanced = cfg_for_template.borrow().last_used_advanced;
-        let dlg = TemplateDialog::new(&window_for_template, &project_root_for_template, last_advanced);
+        let dlg = TemplateDialog::new(
+            &window_for_template,
+            &project_root_for_template,
+            last_advanced,
+        );
         {
             let cfg = cfg_for_template.borrow();
             dlg.set_bib_path(cfg.bib_path.clone());
-            dlg.preselect_locked_identity(&cfg.locked_author.clone(), &cfg.locked_affiliation.clone());
+            dlg.preselect_locked_identity(
+                &cfg.locked_author.clone(),
+                &cfg.locked_affiliation.clone(),
+            );
         }
         {
             let cfg2 = cfg_for_template.clone();
@@ -523,7 +536,9 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
     let menu_popover_for_repair = ctx.menu_popover.clone();
     menus.menu_repair_markers_item.connect_clicked(move |_| {
         menu_popover_for_repair.popdown();
-        let Some(path) = editor_for_repair.get_active_path() else { return };
+        let Some(path) = editor_for_repair.get_active_path() else {
+            return;
+        };
         let (title, body) = match super::super::template_dialog::repair_template_markers(&path) {
             Ok(true) => {
                 if let Ok(new_content) = std::fs::read_to_string(&path) {
@@ -540,11 +555,7 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
             ),
             Err(e) => ("Repair failed", e),
         };
-        let dlg = adw::MessageDialog::new(
-            Some(&window_for_repair),
-            Some(title),
-            Some(&body),
-        );
+        let dlg = adw::MessageDialog::new(Some(&window_for_repair), Some(title), Some(&body));
         dlg.add_response("ok", "OK");
         dlg.set_default_response(Some("ok"));
         dlg.present();
@@ -564,18 +575,22 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
         dialog.set_initial_name(Some("untitled.typ"));
         let win_c = window_for_new.clone();
         let ep_c = editor_for_new.clone();
-        dialog.save(Some(&win_c), None::<&gtk4::gio::Cancellable>, move |result| {
-            if let Ok(file) = result {
-                if let Some(path) = file.path() {
-                    if !path.exists() {
-                        let _ = std::fs::write(&path, "= Title\n\n");
-                    }
-                    if let Ok(content) = std::fs::read_to_string(&path) {
-                        ep_c.open_file(path, &content);
+        dialog.save(
+            Some(&win_c),
+            None::<&gtk4::gio::Cancellable>,
+            move |result| {
+                if let Ok(file) = result {
+                    if let Some(path) = file.path() {
+                        if !path.exists() {
+                            let _ = std::fs::write(&path, "= Title\n\n");
+                        }
+                        if let Ok(content) = std::fs::read_to_string(&path) {
+                            ep_c.open_file(path, &content);
+                        }
                     }
                 }
-            }
-        });
+            },
+        );
     });
 
     // ── Menu: Open File ─────────────────────────────────────────────────
@@ -595,15 +610,19 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
         dialog.set_filters(Some(&filters));
         let win_c = window_for_open.clone();
         let ep_c = editor_for_open_file.clone();
-        dialog.open(Some(&win_c), None::<&gtk4::gio::Cancellable>, move |result| {
-            if let Ok(file) = result {
-                if let Some(path) = file.path() {
-                    if let Ok(content) = std::fs::read_to_string(&path) {
-                        ep_c.open_file(path, &content);
+        dialog.open(
+            Some(&win_c),
+            None::<&gtk4::gio::Cancellable>,
+            move |result| {
+                if let Ok(file) = result {
+                    if let Some(path) = file.path() {
+                        if let Ok(content) = std::fs::read_to_string(&path) {
+                            ep_c.open_file(path, &content);
+                        }
                     }
                 }
-            }
-        });
+            },
+        );
     });
 
     // ── Menu: Save ──────────────────────────────────────────────────────
@@ -638,8 +657,8 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
     let preview_for_save_btn = ctx.preview_pane.clone();
     let root_for_save_btn = ctx.project_root.clone();
     let toast_for_save_btn = ctx.toast_overlay.clone();
-    ctx.save_btn.connect_clicked(move |_| {
-        match editor_for_save_btn.save_current() {
+    ctx.save_btn
+        .connect_clicked(move |_| match editor_for_save_btn.save_current() {
             Ok(Some(path)) => {
                 if let Ok(content) = std::fs::read_to_string(&path) {
                     save_snapshot(&root_for_save_btn, &path, &content);
@@ -652,8 +671,7 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
                 t.set_timeout(6);
                 toast_for_save_btn.add_toast(t);
             }
-        }
-    });
+        });
 
     // ── Menu: Save As ───────────────────────────────────────────────────
 
@@ -663,7 +681,9 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
     let menu_popover_for_save_as = ctx.menu_popover.clone();
     menus.menu_save_as_item.connect_clicked(move |_| {
         menu_popover_for_save_as.popdown();
-        let Some(content) = editor_for_save_as.get_active_content() else { return };
+        let Some(content) = editor_for_save_as.get_active_content() else {
+            return;
+        };
         let dialog = gtk4::FileDialog::new();
         dialog.set_title("Save As");
         let filter = gtk4::FileFilter::new();
@@ -676,20 +696,24 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
         let win_c = window_for_save_as.clone();
         let ep_c = editor_for_save_as.clone();
         let pv_c = preview_for_save_as.clone();
-        dialog.save(Some(&win_c), None::<&gtk4::gio::Cancellable>, move |result| {
-            if let Ok(file) = result {
-                if let Some(mut path) = file.path() {
-                    if path.extension().is_none() {
-                        path.set_extension("typ");
-                    }
-                    if std::fs::write(&path, content.as_bytes()).is_ok() {
-                        ep_c.open_file(path.clone(), &content);
-                        pv_c.set_root_file(path);
-                        pv_c.trigger_compile();
+        dialog.save(
+            Some(&win_c),
+            None::<&gtk4::gio::Cancellable>,
+            move |result| {
+                if let Ok(file) = result {
+                    if let Some(mut path) = file.path() {
+                        if path.extension().is_none() {
+                            path.set_extension("typ");
+                        }
+                        if std::fs::write(&path, content.as_bytes()).is_ok() {
+                            ep_c.open_file(path.clone(), &content);
+                            pv_c.set_root_file(path);
+                            pv_c.trigger_compile();
+                        }
                     }
                 }
-            }
-        });
+            },
+        );
     });
 
     // ── Menu: Browse Snapshots ──────────────────────────────────────────
@@ -700,7 +724,9 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
     let menu_popover_for_snap = ctx.menu_popover.clone();
     menus.menu_snapshots_item.connect_clicked(move |_| {
         menu_popover_for_snap.popdown();
-        let Some(path) = editor_for_snap.get_active_path() else { return };
+        let Some(path) = editor_for_snap.get_active_path() else {
+            return;
+        };
         let content = editor_for_snap.get_active_content().unwrap_or_default();
         let dialog = SnapshotDialog::new(&window_for_snap, &root_for_snap, &path, &content);
         let ep = editor_for_snap.clone();
@@ -720,7 +746,9 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
     let menu_popover_for_history = ctx.menu_popover.clone();
     menus.menu_history_item.connect_clicked(move |_| {
         menu_popover_for_history.popdown();
-        let Some(path) = editor_for_history.get_active_path() else { return };
+        let Some(path) = editor_for_history.get_active_path() else {
+            return;
+        };
         show_file_history_window(&window_for_history, &root_for_history, &path);
     });
 
@@ -767,7 +795,8 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
     let toast_for_sync_closure = ctx.toast_overlay.clone();
 
     if let Some(ref bib_path) = *ctx.auto_detected_bib.borrow() {
-        let name = bib_path.file_name()
+        let name = bib_path
+            .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("refs.bib")
             .to_string();
@@ -784,12 +813,15 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
         let toast = ctx.toast_overlay.clone();
         menus.menu_export_web_item.connect_clicked(move |_| {
             pop.popdown();
-            let Some(input_path) = ep.get_active_path() else { return };
+            let Some(input_path) = ep.get_active_path() else {
+                return;
+            };
             let dialog = gtk4::FileDialog::builder()
                 .title("Export for Web")
                 .modal(true)
                 .initial_name(
-                    input_path.with_extension("html")
+                    input_path
+                        .with_extension("html")
                         .file_name()
                         .and_then(|n| n.to_str())
                         .unwrap_or("output.html"),
@@ -797,29 +829,34 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
                 .build();
             let win_c = win.clone();
             let toast_c = toast.clone();
-            dialog.save(Some(&win_c), None::<&gtk4::gio::Cancellable>, move |result| {
-                let Ok(gfile) = result else { return };
-                let Some(out_path) = gfile.path() else { return };
-                match crate::web_export::export_for_web(&input_path, &out_path) {
-                    Ok(()) => {
-                        let t = adw::Toast::new("Exported for web");
-                        t.set_timeout(3);
-                        toast_c.add_toast(t);
+            dialog.save(
+                Some(&win_c),
+                None::<&gtk4::gio::Cancellable>,
+                move |result| {
+                    let Ok(gfile) = result else { return };
+                    let Some(out_path) = gfile.path() else { return };
+                    match crate::web_export::export_for_web(&input_path, &out_path) {
+                        Ok(()) => {
+                            let t = adw::Toast::new("Exported for web");
+                            t.set_timeout(3);
+                            toast_c.add_toast(t);
+                        }
+                        Err(e) => {
+                            let t = adw::Toast::new(&format!("Export failed: {e}"));
+                            t.set_timeout(6);
+                            toast_c.add_toast(t);
+                        }
                     }
-                    Err(e) => {
-                        let t = adw::Toast::new(&format!("Export failed: {e}"));
-                        t.set_timeout(6);
-                        toast_c.add_toast(t);
-                    }
-                }
-            });
+                },
+            );
         });
     }
     let config_for_sync = ctx.current_config.clone();
     let project_root_for_sync_fallback = ctx.project_root.clone();
     ctx.sync_btn.connect_clicked(move |_| {
         editor_for_sync.save_all_modified();
-        let root = editor_for_sync.get_active_path()
+        let root = editor_for_sync
+            .get_active_path()
             .and_then(|p| p.parent().map(|d| d.to_path_buf()))
             .and_then(|dir| git_sync::git_repo_root(&dir))
             .unwrap_or_else(|| project_root_for_sync_fallback.clone());
@@ -849,5 +886,4 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
 
         do_sync(root, win, toasts, btn, token, cfg_rc);
     });
-
 }

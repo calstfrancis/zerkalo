@@ -35,7 +35,9 @@ pub fn sanitize_bib(content: &str) -> Option<String> {
         else {
             continue;
         };
-        let Some(span) = chunks_span(chunks) else { continue };
+        let Some(span) = chunks_span(chunks) else {
+            continue;
+        };
         let replacement = extract_year(&content[span.clone()]).unwrap_or_default();
         fixes.push((span, replacement));
     }
@@ -89,14 +91,21 @@ mod tests {
 
     #[test]
     fn a_season_style_date_is_reduced_to_a_plain_year() {
-        let content = "@article{key,\n  title = {T},\n  author = {A},\n  year = {Winter/Spring 2001},\n}\n";
+        let content =
+            "@article{key,\n  title = {T},\n  author = {A},\n  year = {Winter/Spring 2001},\n}\n";
         let fixed = sanitize_bib(content).expect("should have fixed something");
         assert!(fixed.contains("year = {2001}"), "got: {fixed}");
-        assert!(fixed.contains("title = {T}"), "unrelated fields must survive: {fixed}");
+        assert!(
+            fixed.contains("title = {T}"),
+            "unrelated fields must survive: {fixed}"
+        );
         // Re-parsing the fixed output must produce a clean, typed date now.
         let bib = Bibliography::parse(&fixed).unwrap();
         let entry = bib.get("key").unwrap();
-        assert!(matches!(entry.date(), Ok(PermissiveType::Typed(_))), "should now parse as a real date");
+        assert!(
+            matches!(entry.date(), Ok(PermissiveType::Typed(_))),
+            "should now parse as a real date"
+        );
     }
 
     #[test]

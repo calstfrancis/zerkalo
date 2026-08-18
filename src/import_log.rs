@@ -117,7 +117,10 @@ mod tests {
         let mut log = ImportLog::default();
         // Push directly (bypassing save/disk I/O) to test the cap in isolation.
         for i in 0..(MAX_RECORDS + 10) {
-            log.records.push(ImportRecord { message: i.to_string(), ..rec(true) });
+            log.records.push(ImportRecord {
+                message: i.to_string(),
+                ..rec(true)
+            });
         }
         // Simulate what `record` does after pushing, without touching disk.
         if log.records.len() > MAX_RECORDS {
@@ -127,7 +130,10 @@ mod tests {
         assert_eq!(log.records.len(), MAX_RECORDS);
         // The oldest entries should have been dropped, keeping the most recent.
         assert_eq!(log.records.first().unwrap().message, "10");
-        assert_eq!(log.records.last().unwrap().message, (MAX_RECORDS + 9).to_string());
+        assert_eq!(
+            log.records.last().unwrap().message,
+            (MAX_RECORDS + 9).to_string()
+        );
     }
 
     #[test]
@@ -136,9 +142,18 @@ mod tests {
         // write the same way `record_appends_and_caps_at_max` does above.
         let mut log = ImportLog {
             records: vec![
-                ImportRecord { message: "first".to_string(), ..rec(true) },
-                ImportRecord { message: "second".to_string(), ..rec(true) },
-                ImportRecord { message: "third".to_string(), ..rec(true) },
+                ImportRecord {
+                    message: "first".to_string(),
+                    ..rec(true)
+                },
+                ImportRecord {
+                    message: "second".to_string(),
+                    ..rec(true)
+                },
+                ImportRecord {
+                    message: "third".to_string(),
+                    ..rec(true)
+                },
             ],
         };
         if 1 < log.records.len() {
@@ -151,14 +166,18 @@ mod tests {
 
     #[test]
     fn clear_empties_all_records() {
-        let mut log = ImportLog { records: vec![rec(true), rec(false)] };
+        let mut log = ImportLog {
+            records: vec![rec(true), rec(false)],
+        };
         log.records.clear();
         assert!(log.records.is_empty());
     }
 
     #[test]
     fn success_and_failure_records_round_trip_through_json() {
-        let log = ImportLog { records: vec![rec(true), rec(false)] };
+        let log = ImportLog {
+            records: vec![rec(true), rec(false)],
+        };
         let json = serde_json::to_string(&log).unwrap();
         let back: ImportLog = serde_json::from_str(&json).unwrap();
         assert_eq!(back.records.len(), 2);

@@ -169,7 +169,8 @@ impl HelpOverlay {
         if self.fixed.width_request() != self.area.width()
             || self.fixed.height_request() != self.area.height()
         {
-            self.fixed.set_size_request(self.area.width(), self.area.height());
+            self.fixed
+                .set_size_request(self.area.width(), self.area.height());
         }
 
         // The hint sits at the bottom centre, out of the way of the header
@@ -290,10 +291,10 @@ fn place_bubble(
     let centre_x = (ax + aw / 2.0 - bw / 2.0).clamp(MARGIN, (width - bw - MARGIN).max(MARGIN));
 
     let candidates = [
-        (ax + aw + GAP, centre_y),       // right
-        (ax - bw - GAP, centre_y),       // left
-        (centre_x, ay + ah + GAP),       // below
-        (centre_x, ay - bh - GAP),       // above
+        (ax + aw + GAP, centre_y), // right
+        (ax - bw - GAP, centre_y), // left
+        (centre_x, ay + ah + GAP), // below
+        (centre_x, ay - bh - GAP), // above
     ];
 
     for (cx, cy) in candidates {
@@ -384,8 +385,20 @@ fn rounded_rect(cr: &gtk4::cairo::Context, x: f64, y: f64, w: f64, h: f64, r: f6
     cr.new_sub_path();
     cr.arc(x + w - r, y + r, r, -std::f64::consts::FRAC_PI_2, 0.0);
     cr.arc(x + w - r, y + h - r, r, 0.0, std::f64::consts::FRAC_PI_2);
-    cr.arc(x + r, y + h - r, r, std::f64::consts::FRAC_PI_2, std::f64::consts::PI);
-    cr.arc(x + r, y + r, r, std::f64::consts::PI, 1.5 * std::f64::consts::PI);
+    cr.arc(
+        x + r,
+        y + h - r,
+        r,
+        std::f64::consts::FRAC_PI_2,
+        std::f64::consts::PI,
+    );
+    cr.arc(
+        x + r,
+        y + r,
+        r,
+        std::f64::consts::PI,
+        1.5 * std::f64::consts::PI,
+    );
     cr.close_path();
 }
 
@@ -416,11 +429,12 @@ fn hint_pill() -> GtkBox {
     b.add_css_class("help-hint");
     b.set_halign(Align::Start);
     b.set_valign(Align::Start);
-    let lbl = Label::new(Some("What things do — press F1, Esc, or click anywhere to close"));
+    let lbl = Label::new(Some(
+        "What things do — press F1, Esc, or click anywhere to close",
+    ));
     b.append(&lbl);
     b
 }
-
 
 /// The widgets the window labels. Passed as one struct rather than fifteen
 /// arguments so adding a label is a one-line change at both ends.
@@ -540,18 +554,34 @@ mod tests {
         // not hang off where it can't be read.
         let (x, y) = place_bubble((960.0, 10.0, 30.0, 20.0), 200.0, 60.0, 1000.0, 800.0, &[]);
         assert!(x >= MARGIN, "x={x} is off the left edge");
-        assert!(x + 200.0 <= 1000.0 - MARGIN + 0.01, "x={x} runs off the right edge");
+        assert!(
+            x + 200.0 <= 1000.0 - MARGIN + 0.01,
+            "x={x} runs off the right edge"
+        );
         assert!(y >= MARGIN, "y={y} is above the top edge");
-        assert!(y + 60.0 <= 800.0 - MARGIN + 0.01, "y={y} runs off the bottom");
+        assert!(
+            y + 60.0 <= 800.0 - MARGIN + 0.01,
+            "y={y} runs off the bottom"
+        );
     }
 
     #[test]
     fn two_targets_in_the_same_place_do_not_stack_their_bubbles() {
         let first = place_bubble((300.0, 300.0, 40.0, 20.0), 200.0, 60.0, 1000.0, 800.0, &[]);
         let occupied = [(first.0, first.1, 200.0, 60.0)];
-        let second = place_bubble((300.0, 300.0, 40.0, 20.0), 200.0, 60.0, 1000.0, 800.0, &occupied);
+        let second = place_bubble(
+            (300.0, 300.0, 40.0, 20.0),
+            200.0,
+            60.0,
+            1000.0,
+            800.0,
+            &occupied,
+        );
         assert!(
-            !overlaps((first.0, first.1, 200.0, 60.0), (second.0, second.1, 200.0, 60.0)),
+            !overlaps(
+                (first.0, first.1, 200.0, 60.0),
+                (second.0, second.1, 200.0, 60.0)
+            ),
             "bubbles overlap: {first:?} and {second:?}"
         );
     }

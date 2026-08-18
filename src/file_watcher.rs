@@ -42,10 +42,7 @@ pub fn start(
 
     let mut watcher = notify::recommended_watcher(move |res: Result<Event, notify::Error>| {
         if let Ok(event) = res {
-            let is_write = matches!(
-                event.kind,
-                EventKind::Modify(_) | EventKind::Create(_)
-            );
+            let is_write = matches!(event.kind, EventKind::Modify(_) | EventKind::Create(_));
             if is_write {
                 if let Ok(mut guard) = pending_watcher.lock() {
                     for path in event.paths {

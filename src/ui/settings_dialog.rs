@@ -2,10 +2,10 @@ use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
 
+use adw::prelude::*;
 use gtk4::prelude::*;
 use gtk4::{Align, Box as GtkBox, Button, Label, ListBox, ListBoxRow, Orientation};
 use libadwaita as adw;
-use adw::prelude::*;
 
 use crate::config::{Config, Theme};
 use crate::i18n::{tr, tr_args};
@@ -40,7 +40,9 @@ fn rebuild_lang_rows(lb: &ListBox, selected_langs: &Rc<RefCell<Vec<String>>>) {
         let rm_btn = Button::from_icon_name("list-remove-symbolic");
         rm_btn.add_css_class("flat");
         rm_btn.set_tooltip_text(Some(&tr("settings-remove-language-tooltip")));
-        rm_btn.update_property(&[gtk4::accessible::Property::Label(&tr("settings-remove-language-tooltip"))]);
+        rm_btn.update_property(&[gtk4::accessible::Property::Label(&tr(
+            "settings-remove-language-tooltip",
+        ))]);
         let sl = selected_langs.clone();
         let lb2 = lb.clone();
         rm_btn.connect_clicked(move |_| {
@@ -80,7 +82,8 @@ impl SettingsDialog {
         let on_preview: Rc<RefCell<Option<Box<dyn Fn(Config)>>>> = Rc::new(RefCell::new(None));
         let on_open_font_manager: Rc<RefCell<Option<Box<dyn Fn()>>>> = Rc::new(RefCell::new(None));
         let on_open_setup_wizard: Rc<RefCell<Option<Box<dyn Fn()>>>> = Rc::new(RefCell::new(None));
-        let on_open_backup_locations: Rc<RefCell<Option<Box<dyn Fn()>>>> = Rc::new(RefCell::new(None));
+        let on_open_backup_locations: Rc<RefCell<Option<Box<dyn Fn()>>>> =
+            Rc::new(RefCell::new(None));
         // Set by Save so the close-request revert below leaves the newly saved
         // appearance alone.
         let saved_flag = Rc::new(std::cell::Cell::new(false));
@@ -112,19 +115,25 @@ impl SettingsDialog {
         work_dir_btn.set_valign(Align::Center);
         work_dir_btn.add_css_class("flat");
         work_dir_btn.set_tooltip_text(Some(&tr("settings-browse-folder-tooltip")));
-        work_dir_btn.update_property(&[gtk4::accessible::Property::Label(&tr("settings-browse-work-folder-a11y"))]);
+        work_dir_btn.update_property(&[gtk4::accessible::Property::Label(&tr(
+            "settings-browse-work-folder-a11y",
+        ))]);
         let work_dir_row_c = work_dir_row.clone();
         let win_c = window.clone();
         work_dir_btn.connect_clicked(move |_| {
             let row = work_dir_row_c.clone();
             let fd = gtk4::FileDialog::new();
-            fd.select_folder(Some(&win_c), None::<&gtk4::gio::Cancellable>, move |result| {
-                if let Ok(file) = result {
-                    if let Some(path) = file.path() {
-                        row.set_text(path.to_str().unwrap_or(""));
+            fd.select_folder(
+                Some(&win_c),
+                None::<&gtk4::gio::Cancellable>,
+                move |result| {
+                    if let Ok(file) = result {
+                        if let Some(path) = file.path() {
+                            row.set_text(path.to_str().unwrap_or(""));
+                        }
                     }
-                }
-            });
+                },
+            );
         });
         work_dir_row.add_suffix(&work_dir_btn);
         folders_group.add(&work_dir_row);
@@ -132,26 +141,36 @@ impl SettingsDialog {
         let output_dir_row = adw::EntryRow::new();
         output_dir_row.set_title(&tr("settings-output-folder-title"));
         output_dir_row.set_text(
-            current.output_dir.as_deref().and_then(|p| p.to_str()).unwrap_or(""),
+            current
+                .output_dir
+                .as_deref()
+                .and_then(|p| p.to_str())
+                .unwrap_or(""),
         );
 
         let output_dir_btn = Button::from_icon_name("document-open-symbolic");
         output_dir_btn.set_valign(Align::Center);
         output_dir_btn.add_css_class("flat");
         output_dir_btn.set_tooltip_text(Some(&tr("settings-browse-folder-tooltip")));
-        output_dir_btn.update_property(&[gtk4::accessible::Property::Label(&tr("settings-browse-output-folder-a11y"))]);
+        output_dir_btn.update_property(&[gtk4::accessible::Property::Label(&tr(
+            "settings-browse-output-folder-a11y",
+        ))]);
         let output_dir_row_c = output_dir_row.clone();
         let win_c2 = window.clone();
         output_dir_btn.connect_clicked(move |_| {
             let row = output_dir_row_c.clone();
             let fd = gtk4::FileDialog::new();
-            fd.select_folder(Some(&win_c2), None::<&gtk4::gio::Cancellable>, move |result| {
-                if let Ok(file) = result {
-                    if let Some(path) = file.path() {
-                        row.set_text(path.to_str().unwrap_or(""));
+            fd.select_folder(
+                Some(&win_c2),
+                None::<&gtk4::gio::Cancellable>,
+                move |result| {
+                    if let Ok(file) = result {
+                        if let Some(path) = file.path() {
+                            row.set_text(path.to_str().unwrap_or(""));
+                        }
                     }
-                }
-            });
+                },
+            );
         });
         output_dir_row.add_suffix(&output_dir_btn);
         folders_group.add(&output_dir_row);
@@ -166,8 +185,8 @@ impl SettingsDialog {
         debounce_spin.set_value(current.debounce_ms as f64);
 
         // 3-way pill: Auto | On Save | Manual
-        let btn_auto   = gtk4::ToggleButton::with_label(&tr("settings-compile-mode-auto"));
-        let btn_save   = gtk4::ToggleButton::with_label(&tr("settings-compile-mode-on-save"));
+        let btn_auto = gtk4::ToggleButton::with_label(&tr("settings-compile-mode-auto"));
+        let btn_save = gtk4::ToggleButton::with_label(&tr("settings-compile-mode-on-save"));
         let btn_manual = gtk4::ToggleButton::with_label(&tr("settings-compile-mode-manual"));
         btn_save.set_group(Some(&btn_auto));
         btn_manual.set_group(Some(&btn_auto));
@@ -219,9 +238,10 @@ impl SettingsDialog {
         let font_group = adw::PreferencesGroup::new();
         font_group.set_title(&tr("settings-editor-title"));
 
-        let font_desc = gtk4::pango::FontDescription::from_string(
-            &format!("{} {}", current.editor_font_family, current.editor_font_size),
-        );
+        let font_desc = gtk4::pango::FontDescription::from_string(&format!(
+            "{} {}",
+            current.editor_font_family, current.editor_font_size
+        ));
         let font_dialog = gtk4::FontDialog::new();
         let font_btn = gtk4::FontDialogButton::new(Some(font_dialog));
         font_btn.set_font_desc(&font_desc);
@@ -248,7 +268,8 @@ impl SettingsDialog {
         let spacing_compact = tr("settings-spacing-compact");
         let spacing_normal = tr("settings-spacing-normal");
         let spacing_spacious = tr("settings-spacing-spacious");
-        let spacing_model = gtk4::StringList::new(&[&spacing_compact, &spacing_normal, &spacing_spacious]);
+        let spacing_model =
+            gtk4::StringList::new(&[&spacing_compact, &spacing_normal, &spacing_spacious]);
         let spacing_row = adw::ComboRow::new();
         spacing_row.set_title(&tr("settings-line-spacing-title"));
         spacing_row.set_subtitle(&tr("settings-line-spacing-subtitle"));
@@ -293,7 +314,9 @@ impl SettingsDialog {
         sans_row.set_factory(Some(&preview_factory));
         sans_row.set_list_factory(Some(&preview_factory));
         sans_row.set_selected(best_font_index(
-            &doc_fonts, &current.default_sans_font, SANS_FONT_PRIORITY,
+            &doc_fonts,
+            &current.default_sans_font,
+            SANS_FONT_PRIORITY,
         ));
 
         let serif_row = adw::ComboRow::new();
@@ -302,7 +325,9 @@ impl SettingsDialog {
         serif_row.set_factory(Some(&preview_factory));
         serif_row.set_list_factory(Some(&preview_factory));
         serif_row.set_selected(best_font_index(
-            &doc_fonts, &current.default_serif_font, SERIF_FONT_PRIORITY,
+            &doc_fonts,
+            &current.default_serif_font,
+            SERIF_FONT_PRIORITY,
         ));
 
         // Which fonts exist to choose from, not just which is the default —
@@ -351,19 +376,25 @@ impl SettingsDialog {
         browse_btn.set_valign(Align::Center);
         browse_btn.add_css_class("flat");
         browse_btn.set_tooltip_text(Some(&tr("settings-browse-bib-tooltip")));
-        browse_btn.update_property(&[gtk4::accessible::Property::Label(&tr("settings-browse-bib-a11y"))]);
+        browse_btn.update_property(&[gtk4::accessible::Property::Label(&tr(
+            "settings-browse-bib-a11y",
+        ))]);
         let bib_row_browse = bib_row.clone();
         let window_browse = window.clone();
         browse_btn.connect_clicked(move |_| {
             let row = bib_row_browse.clone();
             let fd = gtk4::FileDialog::new();
-            fd.open(Some(&window_browse), None::<&gtk4::gio::Cancellable>, move |result| {
-                if let Ok(file) = result {
-                    if let Some(path) = file.path() {
-                        row.set_text(path.to_str().unwrap_or(""));
+            fd.open(
+                Some(&window_browse),
+                None::<&gtk4::gio::Cancellable>,
+                move |result| {
+                    if let Ok(file) = result {
+                        if let Some(path) = file.path() {
+                            row.set_text(path.to_str().unwrap_or(""));
+                        }
                     }
-                }
-            });
+                },
+            );
         });
         bib_row.add_suffix(&browse_btn);
 
@@ -371,19 +402,25 @@ impl SettingsDialog {
         vault_browse_btn.set_valign(Align::Center);
         vault_browse_btn.add_css_class("flat");
         vault_browse_btn.set_tooltip_text(Some(&tr("settings-browse-vault-tooltip")));
-        vault_browse_btn.update_property(&[gtk4::accessible::Property::Label(&tr("settings-browse-vault-tooltip"))]);
+        vault_browse_btn.update_property(&[gtk4::accessible::Property::Label(&tr(
+            "settings-browse-vault-tooltip",
+        ))]);
         let bib_row_vault = bib_row.clone();
         let window_vault = window.clone();
         vault_browse_btn.connect_clicked(move |_| {
             let row = bib_row_vault.clone();
             let fd = gtk4::FileDialog::new();
-            fd.select_folder(Some(&window_vault), None::<&gtk4::gio::Cancellable>, move |result| {
-                if let Ok(file) = result {
-                    if let Some(path) = file.path() {
-                        row.set_text(path.to_str().unwrap_or(""));
+            fd.select_folder(
+                Some(&window_vault),
+                None::<&gtk4::gio::Cancellable>,
+                move |result| {
+                    if let Ok(file) = result {
+                        if let Some(path) = file.path() {
+                            row.set_text(path.to_str().unwrap_or(""));
+                        }
                     }
-                }
-            });
+                },
+            );
         });
         bib_row.add_suffix(&vault_browse_btn);
         bib_group.add(&bib_row);
@@ -399,7 +436,9 @@ impl SettingsDialog {
         csl_browse_btn.set_valign(Align::Center);
         csl_browse_btn.add_css_class("flat");
         csl_browse_btn.set_tooltip_text(Some(&tr("settings-browse-csl-tooltip")));
-        csl_browse_btn.update_property(&[gtk4::accessible::Property::Label(&tr("settings-browse-csl-a11y"))]);
+        csl_browse_btn.update_property(&[gtk4::accessible::Property::Label(&tr(
+            "settings-browse-csl-a11y",
+        ))]);
         let csl_row_browse = csl_row.clone();
         let window_browse_csl = window.clone();
         csl_browse_btn.connect_clicked(move |_| {
@@ -411,13 +450,17 @@ impl SettingsDialog {
             let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
             filters.append(&filter);
             fd.set_filters(Some(&filters));
-            fd.open(Some(&window_browse_csl), None::<&gtk4::gio::Cancellable>, move |result| {
-                if let Ok(file) = result {
-                    if let Some(path) = file.path() {
-                        row.set_text(path.to_str().unwrap_or(""));
+            fd.open(
+                Some(&window_browse_csl),
+                None::<&gtk4::gio::Cancellable>,
+                move |result| {
+                    if let Ok(file) = result {
+                        if let Some(path) = file.path() {
+                            row.set_text(path.to_str().unwrap_or(""));
+                        }
                     }
-                }
-            });
+                },
+            );
         });
         csl_row.add_suffix(&csl_browse_btn);
         bib_group.add(&csl_row);
@@ -437,7 +480,9 @@ impl SettingsDialog {
         cv_browse_btn.set_valign(Align::Center);
         cv_browse_btn.add_css_class("flat");
         cv_browse_btn.set_tooltip_text(Some(&tr("settings-browse-skrizhal-tooltip")));
-        cv_browse_btn.update_property(&[gtk4::accessible::Property::Label(&tr("settings-browse-skrizhal-tooltip"))]);
+        cv_browse_btn.update_property(&[gtk4::accessible::Property::Label(&tr(
+            "settings-browse-skrizhal-tooltip",
+        ))]);
         let cv_row_browse = cv_row.clone();
         let window_browse_cv = window.clone();
         cv_browse_btn.connect_clicked(move |_| {
@@ -450,13 +495,17 @@ impl SettingsDialog {
             let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
             filters.append(&filter);
             fd.set_filters(Some(&filters));
-            fd.open(Some(&window_browse_cv), None::<&gtk4::gio::Cancellable>, move |result| {
-                if let Ok(file) = result {
-                    if let Some(path) = file.path() {
-                        row.set_text(path.to_str().unwrap_or(""));
+            fd.open(
+                Some(&window_browse_cv),
+                None::<&gtk4::gio::Cancellable>,
+                move |result| {
+                    if let Ok(file) = result {
+                        if let Some(path) = file.path() {
+                            row.set_text(path.to_str().unwrap_or(""));
+                        }
                     }
-                }
-            });
+                },
+            );
         });
         cv_row.add_suffix(&cv_browse_btn);
         cv_group.add(&cv_row);
@@ -556,7 +605,10 @@ impl SettingsDialog {
                     notice(
                         &win_keys,
                         &tr("settings-open-file-failed-heading"),
-                        &tr_args("settings-open-file-failed-body", &[("path", &path.display().to_string())]),
+                        &tr_args(
+                            "settings-open-file-failed-body",
+                            &[("path", &path.display().to_string())],
+                        ),
                     );
                 }
             });
@@ -571,12 +623,20 @@ impl SettingsDialog {
         let account_row = adw::ActionRow::new();
         account_row.set_title(&tr("settings-account-title"));
         let has_token = crate::secret_store::load_github_token().is_some();
-        account_row.set_subtitle(&tr(if has_token { "settings-connected" } else { "settings-not-connected" }));
+        account_row.set_subtitle(&tr(if has_token {
+            "settings-connected"
+        } else {
+            "settings-not-connected"
+        }));
 
         let account_btn_box = GtkBox::new(Orientation::Horizontal, 6);
         account_btn_box.set_valign(Align::Center);
 
-        let signin_btn = Button::with_label(&tr(if has_token { "settings-reconnect-button" } else { "settings-signin-github-button" }));
+        let signin_btn = Button::with_label(&tr(if has_token {
+            "settings-reconnect-button"
+        } else {
+            "settings-signin-github-button"
+        }));
         signin_btn.add_css_class("suggested-action");
         {
             let parent_win = window.clone();
@@ -584,7 +644,10 @@ impl SettingsDialog {
             signin_btn.connect_clicked(move |_| {
                 let row_c2 = row_c.clone();
                 super::github_signin::present(&parent_win, move |username| {
-                    row_c2.set_subtitle(&tr_args("settings-connected-as", &[("username", &username)]));
+                    row_c2.set_subtitle(&tr_args(
+                        "settings-connected-as",
+                        &[("username", &username)],
+                    ));
                 });
             });
         }
@@ -671,21 +734,24 @@ impl SettingsDialog {
         page_general.add(&tools_group);
         page_general.add(&keys_group);
         page_general.add(&dev_group);
-        let sp_general = view_stack.add_titled(&page_general, Some("general"), &tr("settings-page-general"));
+        let sp_general =
+            view_stack.add_titled(&page_general, Some("general"), &tr("settings-page-general"));
         sp_general.set_icon_name(Some("preferences-system-symbolic"));
 
         let page_editor = adw::PreferencesPage::new();
         page_editor.add(&editor_group);
         page_editor.add(&font_group);
         page_editor.add(&doc_font_group);
-        let sp_editor = view_stack.add_titled(&page_editor, Some("editor"), &tr("settings-page-editor"));
+        let sp_editor =
+            view_stack.add_titled(&page_editor, Some("editor"), &tr("settings-page-editor"));
         sp_editor.set_icon_name(Some("text-editor-symbolic"));
 
         let page_extras = adw::PreferencesPage::new();
         page_extras.add(&bib_group);
         page_extras.add(&cv_group);
         page_extras.add(&spell_group);
-        let sp_extras = view_stack.add_titled(&page_extras, Some("extras"), &tr("settings-page-extras"));
+        let sp_extras =
+            view_stack.add_titled(&page_extras, Some("extras"), &tr("settings-page-extras"));
         sp_extras.set_icon_name(Some("accessories-dictionary-symbolic"));
 
         let switcher = adw::ViewSwitcher::new();
@@ -847,7 +913,8 @@ impl SettingsDialog {
                 let (editor_font_family, editor_font_size) = font_btn
                     .font_desc()
                     .map(|fd| {
-                        let family = fd.family()
+                        let family = fd
+                            .family()
                             .map(|s| s.to_string())
                             .unwrap_or_else(|| "Monospace".to_string());
                         let pts = fd.size() / gtk4::pango::SCALE;
@@ -857,7 +924,11 @@ impl SettingsDialog {
                     .unwrap_or_else(|| ("Monospace".to_string(), 13u32));
                 let spell_languages = {
                     let langs = selected_langs.borrow().clone();
-                    if langs.is_empty() { vec!["en_US".to_string()] } else { langs }
+                    if langs.is_empty() {
+                        vec!["en_US".to_string()]
+                    } else {
+                        langs
+                    }
                 };
                 let editor_line_spacing = match spacing_row.selected() {
                     0 => 0u32,
@@ -933,7 +1004,9 @@ impl SettingsDialog {
                 let bc = build_config.clone();
                 let op = on_preview.clone();
                 $widget.$signal(move |_| {
-                    if let Some(f) = op.borrow().as_ref() { f(bc()); }
+                    if let Some(f) = op.borrow().as_ref() {
+                        f(bc());
+                    }
                 });
             }};
         }
@@ -963,10 +1036,13 @@ impl SettingsDialog {
                         notice(
                             &win_save,
                             &tr("settings-work-folder-unusable-heading"),
-                            &tr_args("settings-folder-create-failed-body", &[
-                                ("path", &new_cfg.work_dir.display().to_string()),
-                                ("error", &e.to_string()),
-                            ]),
+                            &tr_args(
+                                "settings-folder-create-failed-body",
+                                &[
+                                    ("path", &new_cfg.work_dir.display().to_string()),
+                                    ("error", &e.to_string()),
+                                ],
+                            ),
                         );
                         return;
                     }
@@ -978,10 +1054,13 @@ impl SettingsDialog {
                         notice(
                             &win_save,
                             &tr("settings-output-folder-unusable-heading"),
-                            &tr_args("settings-folder-create-failed-body", &[
-                                ("path", &dir.display().to_string()),
-                                ("error", &e.to_string()),
-                            ]),
+                            &tr_args(
+                                "settings-folder-create-failed-body",
+                                &[
+                                    ("path", &dir.display().to_string()),
+                                    ("error", &e.to_string()),
+                                ],
+                            ),
                         );
                         return;
                     }
@@ -989,15 +1068,24 @@ impl SettingsDialog {
             }
             for (label, path) in [
                 (tr("settings-bib-file-label"), new_cfg.bib_path.as_ref()),
-                (tr("settings-custom-csl-file-label"), new_cfg.custom_csl_path.as_ref()),
-                (tr("settings-skrizhal-file-label"), new_cfg.cv_elements_path.as_ref()),
+                (
+                    tr("settings-custom-csl-file-label"),
+                    new_cfg.custom_csl_path.as_ref(),
+                ),
+                (
+                    tr("settings-skrizhal-file-label"),
+                    new_cfg.cv_elements_path.as_ref(),
+                ),
             ] {
                 if let Some(p) = path {
                     if !p.is_file() {
                         notice(
                             &win_save,
                             &tr_args("settings-file-not-found-heading", &[("label", &label)]),
-                            &tr_args("settings-file-not-found-body", &[("path", &p.display().to_string())]),
+                            &tr_args(
+                                "settings-file-not-found-body",
+                                &[("path", &p.display().to_string())],
+                            ),
                         );
                         return;
                     }
@@ -1005,7 +1093,11 @@ impl SettingsDialog {
             }
 
             if let Err(e) = new_cfg.save() {
-                notice(&win_save, &tr("settings-save-failed-heading"), &e.to_string());
+                notice(
+                    &win_save,
+                    &tr("settings-save-failed-heading"),
+                    &e.to_string(),
+                );
                 return;
             }
             saved_on_save.set(true);
@@ -1058,8 +1150,22 @@ impl SettingsDialog {
 // nothing has been chosen yet — common, broadly-available names first, so a
 // first-time user doesn't land on whatever happens to sort alphabetically
 // first in their system font list (often an obscure font).
-const SANS_FONT_PRIORITY: &[&str] = &["Noto Sans", "DejaVu Sans", "Cantarell", "Liberation Sans", "Arial", "Inter"];
-const SERIF_FONT_PRIORITY: &[&str] = &["Noto Serif", "Liberation Serif", "DejaVu Serif", "Linux Libertine", "Times New Roman", "Georgia"];
+const SANS_FONT_PRIORITY: &[&str] = &[
+    "Noto Sans",
+    "DejaVu Sans",
+    "Cantarell",
+    "Liberation Sans",
+    "Arial",
+    "Inter",
+];
+const SERIF_FONT_PRIORITY: &[&str] = &[
+    "Noto Serif",
+    "Liberation Serif",
+    "DejaVu Serif",
+    "Linux Libertine",
+    "Times New Roman",
+    "Georgia",
+];
 
 /// Picks the best initial ComboRow selection: the user's already-chosen font
 /// if it's in the list, else the first name from `priority` that's actually
@@ -1081,7 +1187,9 @@ fn best_font_index(fonts: &[String], current: &str, priority: &[&str]) -> u32 {
 fn font_preview_factory() -> gtk4::SignalListItemFactory {
     let factory = gtk4::SignalListItemFactory::new();
     factory.connect_setup(move |_, obj| {
-        let Some(item) = obj.downcast_ref::<gtk4::ListItem>() else { return };
+        let Some(item) = obj.downcast_ref::<gtk4::ListItem>() else {
+            return;
+        };
         let label = Label::new(None);
         label.set_xalign(0.0);
         label.set_margin_start(6);
@@ -1091,9 +1199,18 @@ fn font_preview_factory() -> gtk4::SignalListItemFactory {
         item.set_child(Some(&label));
     });
     factory.connect_bind(move |_, obj| {
-        let Some(item) = obj.downcast_ref::<gtk4::ListItem>() else { return };
-        let Some(label) = item.child().and_then(|w| w.downcast::<Label>().ok()) else { return };
-        let Some(text) = item.item().and_then(|o| o.downcast::<gtk4::StringObject>().ok()) else { return };
+        let Some(item) = obj.downcast_ref::<gtk4::ListItem>() else {
+            return;
+        };
+        let Some(label) = item.child().and_then(|w| w.downcast::<Label>().ok()) else {
+            return;
+        };
+        let Some(text) = item
+            .item()
+            .and_then(|o| o.downcast::<gtk4::StringObject>().ok())
+        else {
+            return;
+        };
         let name = text.string().to_string();
         label.set_text(&name);
         let mut desc = gtk4::pango::FontDescription::new();

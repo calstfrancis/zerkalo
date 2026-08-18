@@ -9,9 +9,7 @@ use regex::Regex;
 static IMPORT_RE: OnceLock<Regex> = OnceLock::new();
 
 fn import_regex() -> &'static Regex {
-    IMPORT_RE.get_or_init(|| {
-        Regex::new(r#"#\s*(?:import|include)\s+"([^"]+\.typ)""#).unwrap()
-    })
+    IMPORT_RE.get_or_init(|| Regex::new(r#"#\s*(?:import|include)\s+"([^"]+\.typ)""#).unwrap())
 }
 
 /// Resolves a `.zerkalo/config.toml` `root_file` value against the project
@@ -144,11 +142,16 @@ mod tests {
         std::fs::write(
             &main,
             "#import \"chapter.typ\": *\n#include \"chapter.typ\"\n",
-        ).unwrap();
+        )
+        .unwrap();
 
         let imports = parse_imports(&main);
         let expected = std::fs::canonicalize(dir.path().join("chapter.typ")).unwrap();
-        assert_eq!(imports.len(), 2, "both #import and #include should match, no dedup here");
+        assert_eq!(
+            imports.len(),
+            2,
+            "both #import and #include should match, no dedup here"
+        );
         assert!(imports.iter().all(|p| p == &expected));
     }
 
@@ -225,7 +228,8 @@ mod tests {
         std::fs::write(
             real_dir.path().join("main.typ"),
             "#import \"chapter.typ\": *\n",
-        ).unwrap();
+        )
+        .unwrap();
 
         let parent = tempfile::tempdir().unwrap();
         let link_path = parent.path().join("link");
@@ -234,7 +238,8 @@ mod tests {
         let model = ProjectModel::scan(link_path.clone());
         let candidates = model.candidate_roots();
         assert_eq!(
-            candidates.len(), 1,
+            candidates.len(),
+            1,
             "chapter.typ should be recognized as imported and excluded; got {candidates:?}"
         );
         assert_eq!(candidates[0].file_name().unwrap(), "main.typ");
@@ -252,7 +257,11 @@ mod tests {
         imports.insert(main.clone(), vec![chapter.clone()]);
         imports.insert(chapter.clone(), vec![]);
 
-        let model = ProjectModel { root: dir.path().to_path_buf(), root_file: None, imports };
+        let model = ProjectModel {
+            root: dir.path().to_path_buf(),
+            root_file: None,
+            imports,
+        };
         assert_eq!(model.candidate_roots(), vec![main]);
     }
 }

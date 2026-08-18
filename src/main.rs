@@ -7,23 +7,23 @@
 mod auto_save;
 mod bib_sanitize;
 mod bibliography;
-mod compile_stats;
 mod comments;
-mod writing_log;
-mod doc_import;
+mod compile_stats;
 mod compiler;
-mod error_patterns;
-mod file_watcher;
 mod config;
 mod cv_mode;
+mod doc_import;
 mod error;
+mod error_patterns;
+mod file_watcher;
 mod fonts;
 mod git_sync;
 mod github_auth;
-mod import_log;
 mod i18n;
+mod import_log;
 mod imposition;
 mod keybindings;
+mod library;
 mod lsp;
 mod print_layout;
 mod project;
@@ -34,11 +34,11 @@ mod spellcheck;
 mod styles;
 mod templates;
 mod typst_universe;
+mod ui;
 mod user_templates;
 mod vault_watch;
 mod web_export;
-mod library;
-mod ui;
+mod writing_log;
 
 use std::cell::RefCell;
 use std::env;
@@ -116,7 +116,10 @@ fn main() -> ExitCode {
         .filter(|p| p.is_file() && p.extension().map(|e| e == "typ").unwrap_or(false));
 
     // ── Application ──────────────────────────────────────────────────────────
-    let app = adw::Application::new(Some("io.github.calstfrancis.Zerkalo"), ApplicationFlags::HANDLES_OPEN);
+    let app = adw::Application::new(
+        Some("io.github.calstfrancis.Zerkalo"),
+        ApplicationFlags::HANDLES_OPEN,
+    );
 
     // Shared handle so connect_open can reach the already-running window.
     let shared_window: Rc<RefCell<Option<AppWindow>>> = Rc::new(RefCell::new(None));

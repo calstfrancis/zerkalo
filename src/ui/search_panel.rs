@@ -5,8 +5,8 @@ use std::rc::Rc;
 use gtk4::pango::EllipsizeMode;
 use gtk4::prelude::*;
 use gtk4::{
-    Box as GtkBox, Button, Entry, Label, ListBox, ListBoxRow, MenuButton, Orientation,
-    Popover, ScrolledWindow, SelectionMode, Separator, ToggleButton,
+    Box as GtkBox, Button, Entry, Label, ListBox, ListBoxRow, MenuButton, Orientation, Popover,
+    ScrolledWindow, SelectionMode, Separator, ToggleButton,
 };
 
 #[derive(Clone)]
@@ -153,7 +153,9 @@ impl SearchPanel {
         replace_all_btn.connect_clicked(move |_| {
             let query = p_rep.entry.text().to_string();
             let replacement = p_rep.replace_entry.text().to_string();
-            if query.is_empty() { return; }
+            if query.is_empty() {
+                return;
+            }
             let work_dir = p_rep.work_dir.borrow().clone();
             *p_rep.search_gen.borrow_mut() += 1;
             let my_gen = *p_rep.search_gen.borrow();
@@ -162,7 +164,12 @@ impl SearchPanel {
             let query_thread = query.clone();
             std::thread::spawn(move || {
                 let gitignore = load_gitignore(&work_dir);
-                let matches = search_typ_files(&work_dir, &query_thread.to_lowercase(), usize::MAX, &gitignore);
+                let matches = search_typ_files(
+                    &work_dir,
+                    &query_thread.to_lowercase(),
+                    usize::MAX,
+                    &gitignore,
+                );
                 let mut files_changed: std::collections::HashSet<PathBuf> = Default::default();
                 for m in &matches {
                     files_changed.insert(m.file.clone());
@@ -176,9 +183,14 @@ impl SearchPanel {
                 };
                 let mut written: Vec<PathBuf> = Vec::new();
                 for file in &files_changed {
-                    let Ok(content) = std::fs::read_to_string(file) else { continue };
-                    let new_content = re.replace_all(&content, regex::NoExpand(replacement.as_str()));
-                    if new_content != content && std::fs::write(file, new_content.as_bytes()).is_ok() {
+                    let Ok(content) = std::fs::read_to_string(file) else {
+                        continue;
+                    };
+                    let new_content =
+                        re.replace_all(&content, regex::NoExpand(replacement.as_str()));
+                    if new_content != content
+                        && std::fs::write(file, new_content.as_bytes()).is_ok()
+                    {
                         written.push(file.clone());
                     }
                 }
@@ -194,7 +206,9 @@ impl SearchPanel {
                                 f(file.clone());
                             }
                         }
-                        p_rep.count_lbl.set_text(&format!("Replaced in {} files", written.len()));
+                        p_rep
+                            .count_lbl
+                            .set_text(&format!("Replaced in {} files", written.len()));
                         // Only refresh results if no newer search/replace superseded
                         // this one in the meantime — otherwise this stale query would
                         // clobber whatever the newer operation already rendered.
@@ -330,7 +344,9 @@ impl SearchPanel {
 
         let file_count = {
             let mut seen = std::collections::HashSet::new();
-            for m in &matches { seen.insert(m.file.clone()); }
+            for m in &matches {
+                seen.insert(m.file.clone());
+            }
             seen.len()
         };
         let truncated = matches.len() >= 200;
@@ -377,8 +393,11 @@ impl SearchPanel {
 
 fn load_gitignore(work_dir: &Path) -> Vec<String> {
     let path = work_dir.join(".gitignore");
-    let Ok(content) = std::fs::read_to_string(&path) else { return Vec::new() };
-    content.lines()
+    let Ok(content) = std::fs::read_to_string(&path) else {
+        return Vec::new();
+    };
+    content
+        .lines()
         .map(str::trim)
         .filter(|l| !l.is_empty() && !l.starts_with('#'))
         .map(String::from)
@@ -416,7 +435,9 @@ fn is_gitignored(path: &Path, work_dir: &Path, patterns: &[String]) -> bool {
 }
 
 fn glob_match_name(pattern: &str, name: &str) -> bool {
-    if pattern == "*" { return true; }
+    if pattern == "*" {
+        return true;
+    }
     if let Some(ext) = pattern.strip_prefix("*.") {
         return name.ends_with(&format!(".{ext}"));
     }
@@ -445,9 +466,15 @@ fn highlight_markup(line: &str, query: &str) -> String {
     // slicing at a non-boundary offset panics.
     let mut pos = pos.min(line.len());
     let mut end = end.min(line.len());
-    while pos > 0 && !line.is_char_boundary(pos) { pos -= 1; }
-    while end < line.len() && !line.is_char_boundary(end) { end += 1; }
-    if end < pos { end = pos; }
+    while pos > 0 && !line.is_char_boundary(pos) {
+        pos -= 1;
+    }
+    while end < line.len() && !line.is_char_boundary(end) {
+        end += 1;
+    }
+    if end < pos {
+        end = pos;
+    }
 
     let before = glib::markup_escape_text(&line[..pos]);
     let matched = glib::markup_escape_text(&line[pos..end]);
@@ -464,14 +491,28 @@ struct Match {
     preview: String,
 }
 
-fn search_typ_files(work_dir: &PathBuf, query: &str, limit: usize, gitignore: &[String]) -> Vec<Match> {
+fn search_typ_files(
+    work_dir: &PathBuf,
+    query: &str,
+    limit: usize,
+    gitignore: &[String],
+) -> Vec<Match> {
     let mut out = Vec::new();
     visit_dir(work_dir, work_dir, query, &mut out, limit, gitignore);
     out
 }
 
-fn visit_dir(dir: &PathBuf, work_dir: &Path, query: &str, out: &mut Vec<Match>, limit: usize, gitignore: &[String]) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+fn visit_dir(
+    dir: &PathBuf,
+    work_dir: &Path,
+    query: &str,
+    out: &mut Vec<Match>,
+    limit: usize,
+    gitignore: &[String],
+) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     let mut entries: Vec<_> = entries.flatten().collect();
     entries.sort_by_key(|e| e.file_name());
     for entry in entries {
@@ -489,7 +530,9 @@ fn visit_dir(dir: &PathBuf, work_dir: &Path, query: &str, out: &mut Vec<Match>, 
         if path.is_dir() {
             visit_dir(&path, work_dir, query, out, limit, gitignore);
         } else if path.extension().and_then(|e| e.to_str()) == Some("typ") {
-            let Ok(content) = std::fs::read_to_string(&path) else { continue };
+            let Ok(content) = std::fs::read_to_string(&path) else {
+                continue;
+            };
             for (i, line) in content.lines().enumerate() {
                 if out.len() >= limit {
                     return;
@@ -541,7 +584,10 @@ mod tests {
         // string. This used to panic on `line[pos..end]`; now it must not.
         let line = "stanİ日";
         let out = highlight_markup(line, "stan");
-        assert!(out.contains("<b>"), "should still produce a highlighted result: {out}");
+        assert!(
+            out.contains("<b>"),
+            "should still produce a highlighted result: {out}"
+        );
     }
 
     #[test]

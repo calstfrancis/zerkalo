@@ -9,11 +9,11 @@ use gtk4::prelude::*;
 use gtk4::{Box as GtkBox, Button, Label, Orientation, ToggleButton};
 use libadwaita as adw;
 
-use crate::library::Library;
 use super::super::editor_pane::EditorPane;
 use super::super::file_tree::FileTree;
 use super::super::preview_pane::PreviewPane;
 use super::compute_include_path;
+use crate::library::Library;
 
 /// What the file-tree wiring needs from `AppWindow::new`.
 pub(super) struct FileTreeCtx {
@@ -86,10 +86,14 @@ pub(super) fn wire_file_tree(ctx: &FileTreeCtx) -> FileTree {
         let ep = ctx.editor_pane.clone();
         file_tree.set_on_new_chapter(move |name| {
             let slug = crate::templates::slugify(&name);
-            if slug.is_empty() { return; }
+            if slug.is_empty() {
+                return;
+            }
             let filename = format!("{slug}.typ");
             let file_path = root.join(&filename);
-            if file_path.exists() { return; }
+            if file_path.exists() {
+                return;
+            }
             let _ = std::fs::write(&file_path, format!("= {name}\n\n"));
             // Insert #include before #bibliography (or at end) in main.typ
             let main_path = root.join("main.typ");
@@ -124,9 +128,7 @@ pub(super) fn wire_file_tree(ctx: &FileTreeCtx) -> FileTree {
         let preview = ctx.preview_pane.clone();
         file_tree.set_on_insert_import(move |abs_path| {
             let rel = compute_include_path(&preview, &abs_path);
-            let stem = abs_path.file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("*");
+            let stem = abs_path.file_stem().and_then(|s| s.to_str()).unwrap_or("*");
             ep.insert_at_cursor(&format!("#import \"{rel}\": {stem}\n"));
         });
     }
@@ -144,7 +146,10 @@ pub(super) fn wire_file_tree(ctx: &FileTreeCtx) -> FileTree {
             if let Some(active) = ep_for_root.get_active_path() {
                 if path != active {
                     let root_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("root");
-                    let active_name = active.file_name().and_then(|n| n.to_str()).unwrap_or("file");
+                    let active_name = active
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("file");
                     title_w.set_subtitle(&format!("{root_name} › {active_name}"));
                 } else {
                     title_w.set_subtitle("");
@@ -189,7 +194,8 @@ pub(super) fn wire_file_tree(ctx: &FileTreeCtx) -> FileTree {
         proj_toggle.add_css_class("flat");
         proj_toggle.add_css_class("status-toggle");
         proj_toggle.set_tooltip_text(Some("Toggle project controls (root file)"));
-        proj_toggle.update_property(&[gtk4::accessible::Property::Label("Toggle project controls")]);
+        proj_toggle
+            .update_property(&[gtk4::accessible::Property::Label("Toggle project controls")]);
         proj_toggle.set_active(false);
 
         let proj_btn_label = Label::new(Some("project"));
@@ -234,14 +240,16 @@ pub(super) fn wire_file_tree(ctx: &FileTreeCtx) -> FileTree {
         dismiss_root_btn.set_tooltip_text(Some(
             "Hide project controls for this document (click \"project\" to bring them back)",
         ));
-        dismiss_root_btn.update_property(&[
-            gtk4::accessible::Property::Label("Hide project controls"),
-        ]);
+        dismiss_root_btn
+            .update_property(&[gtk4::accessible::Property::Label("Hide project controls")]);
         proj_controls.append(&dismiss_root_btn);
 
         // Initialise from current root state
         {
-            let root_name = ctx.configured_root.borrow().as_ref()
+            let root_name = ctx
+                .configured_root
+                .borrow()
+                .as_ref()
                 .and_then(|p| p.file_name())
                 .and_then(|n| n.to_str())
                 .map(|s| s.to_string());
@@ -269,8 +277,7 @@ pub(super) fn wire_file_tree(ctx: &FileTreeCtx) -> FileTree {
                 if let Some(b) = banner_rc.borrow().as_ref() {
                     b.set_revealed(false);
                 }
-                let mut pcfg =
-                    crate::config::ProjectConfig::load(&root_dir_c).unwrap_or_default();
+                let mut pcfg = crate::config::ProjectConfig::load(&root_dir_c).unwrap_or_default();
                 pcfg.root_controls_dismissed = true;
                 let _ = pcfg.save(&root_dir_c);
                 toast_c.add_toast(adw::Toast::new(
@@ -327,32 +334,44 @@ pub(super) fn wire_file_tree(ctx: &FileTreeCtx) -> FileTree {
                 let rvl2 = rvl.clone();
                 let bll2 = bll.clone();
                 let clr2 = clr.clone();
-                dialog.open(Some(&win_c), None::<&gtk4::gio::Cancellable>, move |result| {
-                    if let Ok(file) = result {
-                        if let Some(path) = file.path() {
-                            preview2.set_root_file(path.clone());
-                            *root_ref2.borrow_mut() = Some(path.clone());
-                            if let Some(active) = ep2.get_active_path() {
-                                if path != active {
-                                    let rn = path.file_name().and_then(|n| n.to_str()).unwrap_or("root");
-                                    let an = active.file_name().and_then(|n| n.to_str()).unwrap_or("file");
-                                    title2.set_subtitle(&format!("{rn} › {an}"));
-                                } else {
-                                    title2.set_subtitle("");
+                dialog.open(
+                    Some(&win_c),
+                    None::<&gtk4::gio::Cancellable>,
+                    move |result| {
+                        if let Ok(file) = result {
+                            if let Some(path) = file.path() {
+                                preview2.set_root_file(path.clone());
+                                *root_ref2.borrow_mut() = Some(path.clone());
+                                if let Some(active) = ep2.get_active_path() {
+                                    if path != active {
+                                        let rn = path
+                                            .file_name()
+                                            .and_then(|n| n.to_str())
+                                            .unwrap_or("root");
+                                        let an = active
+                                            .file_name()
+                                            .and_then(|n| n.to_str())
+                                            .unwrap_or("file");
+                                        title2.set_subtitle(&format!("{rn} › {an}"));
+                                    } else {
+                                        title2.set_subtitle("");
+                                    }
                                 }
+                                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("?");
+                                rvl2.set_text(name);
+                                bll2.set_markup("<b>project</b>");
+                                clr2.set_sensitive(true);
+                                let rel =
+                                    path.strip_prefix(&root_dir2).unwrap_or(&path).to_path_buf();
+                                let mut pcfg = crate::config::ProjectConfig::load(&root_dir2)
+                                    .unwrap_or_default();
+                                pcfg.root_file = Some(rel);
+                                let _ = pcfg.save(&root_dir2);
+                                preview2.trigger_compile();
                             }
-                            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("?");
-                            rvl2.set_text(name);
-                            bll2.set_markup("<b>project</b>");
-                            clr2.set_sensitive(true);
-                            let rel = path.strip_prefix(&root_dir2).unwrap_or(&path).to_path_buf();
-                            let mut pcfg = crate::config::ProjectConfig::load(&root_dir2).unwrap_or_default();
-                            pcfg.root_file = Some(rel);
-                            let _ = pcfg.save(&root_dir2);
-                            preview2.trigger_compile();
                         }
-                    }
-                });
+                    },
+                );
             });
         }
 
@@ -386,7 +405,6 @@ pub(super) fn wire_file_tree(ctx: &FileTreeCtx) -> FileTree {
 
     // Wire file_tree into the compile-done holder
     *ctx.file_tree_holder.borrow_mut() = Some(file_tree.clone());
-
 
     file_tree
 }

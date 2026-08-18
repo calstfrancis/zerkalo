@@ -60,10 +60,17 @@ pub fn parse_typst_errors(stderr: &str, project_root: &Path) -> Vec<CompileError
     macro_rules! flush {
         () => {
             if let Some((raw, sev)) = pending.take() {
-                let (file, line, col) = loc.take().unwrap_or_else(|| {
-                    (project_root.to_path_buf(), 1, 1)
-                });
-                errors.push(build_error(file, line, col, raw, std::mem::take(&mut hints), sev));
+                let (file, line, col) = loc
+                    .take()
+                    .unwrap_or_else(|| (project_root.to_path_buf(), 1, 1));
+                errors.push(build_error(
+                    file,
+                    line,
+                    col,
+                    raw,
+                    std::mem::take(&mut hints),
+                    sev,
+                ));
             }
             #[allow(unused_assignments)]
             {
@@ -78,8 +85,14 @@ pub fn parse_typst_errors(stderr: &str, project_root: &Path) -> Vec<CompileError
 
         if let Some(caps) = loc_re().captures(trimmed) {
             let rel: &str = caps.get(1).map_or("", |m| m.as_str()).trim();
-            let lineno: u32 = caps.get(2).and_then(|m| m.as_str().parse().ok()).unwrap_or(1);
-            let col: u32 = caps.get(3).and_then(|m| m.as_str().parse().ok()).unwrap_or(1);
+            let lineno: u32 = caps
+                .get(2)
+                .and_then(|m| m.as_str().parse().ok())
+                .unwrap_or(1);
+            let col: u32 = caps
+                .get(3)
+                .and_then(|m| m.as_str().parse().ok())
+                .unwrap_or(1);
             let file = if Path::new(rel).is_absolute() {
                 PathBuf::from(rel)
             } else {
@@ -101,7 +114,8 @@ pub fn parse_typst_errors(stderr: &str, project_root: &Path) -> Vec<CompileError
     flush!();
 
     if errors.is_empty() && !stderr.trim().is_empty() {
-        let first_line = stderr.lines()
+        let first_line = stderr
+            .lines()
             .find(|l| !l.trim().is_empty())
             .unwrap_or("Compile error")
             .trim();
@@ -116,7 +130,12 @@ pub fn parse_typst_errors(stderr: &str, project_root: &Path) -> Vec<CompileError
             .trim()
             .to_string();
         errors.push(build_error(
-            project_root.to_path_buf(), 1, 1, raw, Vec::new(), severity,
+            project_root.to_path_buf(),
+            1,
+            1,
+            raw,
+            Vec::new(),
+            severity,
         ));
     }
 
@@ -130,7 +149,11 @@ pub fn parse_typst_errors(stderr: &str, project_root: &Path) -> Vec<CompileError
         t.contains("failed to parse biblatex") || t.contains("failed to parse hayagriva")
     });
     if bib_parse_failed {
-        errors.retain(|e| !e.technical.to_lowercase().contains("does not exist in the document"));
+        errors.retain(|e| {
+            !e.technical
+                .to_lowercase()
+                .contains("does not exist in the document")
+        });
     }
 
     errors
@@ -145,14 +168,27 @@ fn build_error(
     severity: Severity,
 ) -> CompileError {
     let (message, advice) = humanize(&raw);
-    CompileError { file, line, col, message, advice, hints, technical: raw, severity }
+    CompileError {
+        file,
+        line,
+        col,
+        message,
+        advice,
+        hints,
+        technical: raw,
+        severity,
+    }
 }
 
 /// Extracts the value after the first `:` in a Typst message, e.g.
 /// `unknown variable: foo` -> `foo`.
 fn subject(raw: &str) -> Option<String> {
     let v = raw.split_once(':')?.1.trim();
-    if v.is_empty() { None } else { Some(v.trim_matches('`').to_string()) }
+    if v.is_empty() {
+        None
+    } else {
+        Some(v.trim_matches('`').to_string())
+    }
 }
 
 /// Turns a Typst diagnostic into (headline, advice) in plain language.
@@ -180,7 +216,9 @@ pub fn humanize(raw: &str) -> (String, String) {
         );
     }
 
-    if lower.starts_with("unknown font family") || (lower.contains("font") && lower.contains("not found")) {
+    if lower.starts_with("unknown font family")
+        || (lower.contains("font") && lower.contains("not found"))
+    {
         let name = subject(raw).unwrap_or_else(|| "that font".into());
         return (
             format!("The font \u{201c}{name}\u{201d} isn't installed"),
@@ -207,7 +245,10 @@ pub fn humanize(raw: &str) -> (String, String) {
             .or_else(|| {
                 raw.split_once("file not found")
                     .and_then(|(_, rest)| rest.split('(').next())
-                    .map(|s| s.trim_matches(|c: char| c == ':' || c.is_whitespace()).to_string())
+                    .map(|s| {
+                        s.trim_matches(|c: char| c == ':' || c.is_whitespace())
+                            .to_string()
+                    })
             })
             .filter(|s| !s.is_empty());
         return (
@@ -290,7 +331,9 @@ pub fn humanize(raw: &str) -> (String, String) {
     if lower.starts_with("unexpected argument") {
         return (
             match subject(raw) {
-                Some(name) => format!("\u{201c}{name}\u{201d} isn't something this command accepts"),
+                Some(name) => {
+                    format!("\u{201c}{name}\u{201d} isn't something this command accepts")
+                }
                 None => "A command was given something it doesn't take".into(),
             },
             "This is usually a misspelled option name (fill: rather than colour:), \
@@ -303,7 +346,10 @@ pub fn humanize(raw: &str) -> (String, String) {
         let key = raw
             .split_once("label ")
             .and_then(|(_, rest)| rest.split_whitespace().next())
-            .map(|s| s.trim_matches(|c| c == '`' || c == '<' || c == '>').to_string())
+            .map(|s| {
+                s.trim_matches(|c| c == '`' || c == '<' || c == '>')
+                    .to_string()
+            })
             .filter(|s| !s.is_empty());
         return (
             match key {
@@ -367,8 +413,7 @@ pub fn humanize(raw: &str) -> (String, String) {
 /// matched on the untranslated text — matching the plain-language headline
 /// would silently retire every Fix button.
 fn is_quick_fixable(err: &CompileError) -> bool {
-    crate::error_patterns::match_fix(&err.technical)
-        .is_some_and(|fix| fix.fix_fn.is_some())
+    crate::error_patterns::match_fix(&err.technical).is_some_and(|fix| fix.fix_fn.is_some())
 }
 
 fn current_time_hhmm() -> String {
@@ -444,7 +489,7 @@ impl ErrorPanel {
         stuck_label.set_tooltip_text(Some(
             "Same error for 3+ compiles in a row.\n\
              Tip: check for a missing closing bracket, parenthesis, or quote.\n\
-             Or open 'Update Template Settings' to reset the template."
+             Or open 'Update Template Settings' to reset the template.",
         ));
         stuck_label.set_visible(false);
         header.append(&stuck_label);
@@ -565,8 +610,7 @@ impl ErrorPanel {
             });
         }
 
-        let on_export_done: Rc<RefCell<Option<Box<dyn Fn(String)>>>> =
-            Rc::new(RefCell::new(None));
+        let on_export_done: Rc<RefCell<Option<Box<dyn Fn(String)>>>> = Rc::new(RefCell::new(None));
 
         // Export button: write log_lines to ~/.local/share/zerkalo/error_log.txt
         {
@@ -695,10 +739,7 @@ impl ErrorPanel {
         *self.on_try_fix.borrow_mut() = Some(Box::new(f));
     }
 
-    pub fn set_source_line_provider(
-        &self,
-        f: impl Fn(&Path, u32) -> Option<String> + 'static,
-    ) {
+    pub fn set_source_line_provider(&self, f: impl Fn(&Path, u32) -> Option<String> + 'static) {
         *self.source_line.borrow_mut() = Some(Box::new(f));
     }
 
@@ -742,13 +783,23 @@ impl ErrorPanel {
 
         // Deduplicate by (file, line, first message line)
         let mut seen: std::collections::HashSet<(PathBuf, u32, String)> = Default::default();
-        let errors: Vec<CompileError> = errors.into_iter().filter(|e| {
-            let k = (e.file.clone(), e.line, e.message.lines().next().unwrap_or("").to_string());
-            seen.insert(k)
-        }).collect();
+        let errors: Vec<CompileError> = errors
+            .into_iter()
+            .filter(|e| {
+                let k = (
+                    e.file.clone(),
+                    e.line,
+                    e.message.lines().next().unwrap_or("").to_string(),
+                );
+                seen.insert(k)
+            })
+            .collect();
 
         let count = errors.len();
-        let err_count = errors.iter().filter(|e| matches!(e.severity, Severity::Error)).count();
+        let err_count = errors
+            .iter()
+            .filter(|e| matches!(e.severity, Severity::Error))
+            .count();
         let warn_count = count - err_count;
 
         let breakdown = match (err_count, warn_count) {
@@ -760,10 +811,15 @@ impl ErrorPanel {
                 if w == 1 { "" } else { "s" }
             ),
         };
-        self.header_label.set_label(&format!("{section} — {breakdown}"));
+        self.header_label
+            .set_label(&format!("{section} — {breakdown}"));
 
         // Trend: detect when the same errors repeat 3+ times
-        let key: String = errors.iter().map(|e| e.message.as_str()).collect::<Vec<_>>().join("\x00");
+        let key: String = errors
+            .iter()
+            .map(|e| e.message.as_str())
+            .collect::<Vec<_>>()
+            .join("\x00");
         {
             let mut prev = self.last_errors_key.borrow_mut();
             if *prev == key {
@@ -778,7 +834,8 @@ impl ErrorPanel {
         }
 
         // Screen reader announcement
-        let first_msg = errors.first()
+        let first_msg = errors
+            .first()
             .map(|e| e.message.lines().next().unwrap_or(""))
             .unwrap_or("");
         let announcement = if count == 1 {
@@ -827,7 +884,8 @@ impl ErrorPanel {
             self.collapsed.set(false);
             self.list_revealer.set_reveal_child(true);
             self.chevron_btn.set_icon_name("pan-down-symbolic");
-            self.chevron_btn.set_tooltip_text(Some("Collapse error list"));
+            self.chevron_btn
+                .set_tooltip_text(Some("Collapse error list"));
         }
 
         self.last_clean_label.set_visible(false);
@@ -846,7 +904,8 @@ impl ErrorPanel {
         self.build_log_revealer.set_reveal_child(false);
         // Show last-clean timestamp only when recovering from real errors
         if had_errors {
-            self.last_clean_label.set_text(&format!("Last clean compile: {}", current_time_hhmm()));
+            self.last_clean_label
+                .set_text(&format!("Last clean compile: {}", current_time_hhmm()));
             self.last_clean_label.set_visible(true);
         }
     }
@@ -896,7 +955,7 @@ impl ErrorPanel {
         // A file name grouping errors beneath it is a section header, so it is
         // set like one rather than as a dim caption.
         let lbl = Label::new(Some(
-            file.file_name().and_then(|n| n.to_str()).unwrap_or("?")
+            file.file_name().and_then(|n| n.to_str()).unwrap_or("?"),
         ));
         lbl.set_halign(Align::Start);
         lbl.set_margin_start(4);
@@ -1141,7 +1200,12 @@ mod tests {
              = hint: if you meant subtraction, try adding spaces around the minus sign",
         );
         assert_eq!(errs.len(), 1);
-        assert_eq!(errs[0].hints.len(), 1, "hint should survive: {:?}", errs[0].hints);
+        assert_eq!(
+            errs[0].hints.len(),
+            1,
+            "hint should survive: {:?}",
+            errs[0].hints
+        );
         assert!(errs[0].hints[0].contains("subtraction"));
     }
 
@@ -1161,7 +1225,10 @@ mod tests {
         assert_eq!(errs[0].hints.len(), 1);
         assert_eq!(errs[1].line, 99);
         assert_eq!(errs[1].file, PathBuf::from("/project/b.typ"));
-        assert!(errs[1].hints.is_empty(), "the first error's hint must not leak forward");
+        assert!(
+            errs[1].hints.is_empty(),
+            "the first error's hint must not leak forward"
+        );
     }
 
     #[test]
@@ -1188,7 +1255,10 @@ mod tests {
             !headline.to_lowercase().contains("variable"),
             "headline should not use compiler jargon: {headline}"
         );
-        assert!(advice.contains('#'), "advice should say what to do: {advice}");
+        assert!(
+            advice.contains('#'),
+            "advice should say what to do: {advice}"
+        );
     }
 
     #[test]
@@ -1198,7 +1268,10 @@ mod tests {
         let (headline, _) =
             humanize("file not found (searched at /home/me/docs/missing-picture.png)");
         assert!(headline.contains("missing-picture.png"), "got: {headline}");
-        assert!(!headline.contains("/home/me"), "path noise leaked in: {headline}");
+        assert!(
+            !headline.contains("/home/me"),
+            "path noise leaked in: {headline}"
+        );
 
         let (headline, _) = humanize("file not found: figures/plot.png");
         assert!(headline.contains("plot.png"), "got: {headline}");
@@ -1208,7 +1281,10 @@ mod tests {
     fn a_wrong_option_name_is_quoted_in_the_headline() {
         let (headline, advice) = humanize("unexpected argument: colour");
         assert!(headline.contains("colour"), "should name it: {headline}");
-        assert!(advice.contains("fill:"), "should suggest the real one: {advice}");
+        assert!(
+            advice.contains("fill:"),
+            "should suggest the real one: {advice}"
+        );
     }
 
     #[test]
@@ -1236,8 +1312,14 @@ mod tests {
     #[test]
     fn a_malformed_bibliography_entry_gets_a_plain_language_explanation() {
         let (headline, advice) = humanize("failed to parse BibLaTeX (wrong number of digits)");
-        assert!(headline.to_lowercase().contains("bibliography"), "got: {headline}");
-        assert!(advice.contains("year"), "should mention the common Zotero cause: {advice}");
+        assert!(
+            headline.to_lowercase().contains("bibliography"),
+            "got: {headline}"
+        );
+        assert!(
+            advice.contains("year"),
+            "should mention the common Zotero cause: {advice}"
+        );
     }
 
     #[test]
@@ -1254,7 +1336,11 @@ mod tests {
              error: label `<key2>` does not exist in the document\n \
              --> /project/main.typ:9:1",
         );
-        assert_eq!(errs.len(), 1, "the label errors should be dropped as noise: {errs:?}");
+        assert_eq!(
+            errs.len(),
+            1,
+            "the label errors should be dropped as noise: {errs:?}"
+        );
         assert!(errs[0].technical.to_lowercase().contains("biblatex"));
     }
 
@@ -1300,6 +1386,9 @@ mod tests {
     fn the_technical_wording_is_preserved_for_searching() {
         let errs = parse("error: unknown variable: foo\n --> /project/main.typ:2:1");
         assert_eq!(errs[0].technical, "unknown variable: foo");
-        assert_ne!(errs[0].message, errs[0].technical, "headline should be rewritten");
+        assert_ne!(
+            errs[0].message, errs[0].technical,
+            "headline should be rewritten"
+        );
     }
 }

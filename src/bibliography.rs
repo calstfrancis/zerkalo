@@ -86,7 +86,10 @@ fn bib_entry_from_hayagriva(entry: &hayagriva::Entry) -> BibEntry {
         })
         .unwrap_or_default();
 
-    let title = entry.title().map(|t| t.value.to_string()).unwrap_or_default();
+    let title = entry
+        .title()
+        .map(|t| t.value.to_string())
+        .unwrap_or_default();
     let year = entry.date().map(|d| d.year.to_string()).unwrap_or_default();
 
     BibEntry {
@@ -139,9 +142,18 @@ fn first_last_name(author: &str) -> String {
     }
     let first_author = author.split(" and ").next().unwrap_or(author).trim();
     let last_name = if first_author.contains(',') {
-        first_author.split(',').next().unwrap_or(first_author).trim().to_string()
+        first_author
+            .split(',')
+            .next()
+            .unwrap_or(first_author)
+            .trim()
+            .to_string()
     } else {
-        first_author.split_whitespace().last().unwrap_or(first_author).to_string()
+        first_author
+            .split_whitespace()
+            .last()
+            .unwrap_or(first_author)
+            .to_string()
     };
     if author.contains(" and ") {
         format!("{last_name} et al.")
@@ -169,7 +181,10 @@ pub fn parse_bib(content: &str) -> Vec<BibEntry> {
                 })
                 .unwrap_or_default();
 
-            let title = entry.title().map(|c| c.format_verbatim()).unwrap_or_default();
+            let title = entry
+                .title()
+                .map(|c| c.format_verbatim())
+                .unwrap_or_default();
 
             let year = match entry.date() {
                 Ok(PermissiveType::Typed(date)) => {
@@ -211,7 +226,10 @@ pub fn rename_key_in_bib_file(path: &Path, old_key: &str, new_key: &str) -> std:
         ));
     }
     let mut entry = bib.remove(old_key).ok_or_else(|| {
-        std::io::Error::new(std::io::ErrorKind::NotFound, format!("key '{old_key}' not found"))
+        std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("key '{old_key}' not found"),
+        )
     })?;
     entry.key = new_key.to_string();
     bib.insert(entry);
@@ -449,7 +467,8 @@ mod tests {
 
     #[test]
     fn rename_key_in_text_shorthand() {
-        let (out, changed) = rename_key_in_text("See @smith2020 for details.", "smith2020", "smith2021");
+        let (out, changed) =
+            rename_key_in_text("See @smith2020 for details.", "smith2020", "smith2021");
         assert!(changed);
         assert_eq!(out, "See @smith2021 for details.");
     }
@@ -463,7 +482,8 @@ mod tests {
 
     #[test]
     fn rename_key_in_text_handles_hyphenated_keys() {
-        let (out, changed) = rename_key_in_text("See @smith-2020 for details.", "smith-2020", "smith-2021");
+        let (out, changed) =
+            rename_key_in_text("See @smith-2020 for details.", "smith-2020", "smith-2021");
         assert!(changed);
         assert_eq!(out, "See @smith-2021 for details.");
     }
@@ -486,7 +506,11 @@ mod tests {
     fn rename_key_in_bib_file_round_trip() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("refs.bib");
-        std::fs::write(&path, "@article{smith2020,\n  author = {John Smith},\n  year = {2020},\n}\n").unwrap();
+        std::fs::write(
+            &path,
+            "@article{smith2020,\n  author = {John Smith},\n  year = {2020},\n}\n",
+        )
+        .unwrap();
         rename_key_in_bib_file(&path, "smith2020", "smith2021").unwrap();
         let entries = load_bib(&path);
         assert_eq!(entries.len(), 1);
@@ -646,7 +670,11 @@ multi:
     #[test]
     fn parse_bib_handles_a_realistic_zotero_export() {
         let entries = parse_bib(ZOTERO_EXPORT_SAMPLE);
-        assert_eq!(entries.len(), 2, "a real Zotero export must not silently parse to zero entries");
+        assert_eq!(
+            entries.len(),
+            2,
+            "a real Zotero export must not silently parse to zero entries"
+        );
         assert_eq!(entries[0].key, "smith_study_2020");
         assert_eq!(entries[0].author, "John Smith and Jane Doe");
         assert_eq!(entries[0].year, "2020");

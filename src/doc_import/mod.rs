@@ -29,7 +29,10 @@ pub enum Inline {
     Bold(Vec<Inline>),
     Italic(Vec<Inline>),
     Code(String),
-    Link { href: String, body: Vec<Inline> },
+    Link {
+        href: String,
+        body: Vec<Inline>,
+    },
     /// A hard line break inside a paragraph.
     Break,
     /// Wraps inlines that came from a track-changes run (Word's
@@ -38,18 +41,35 @@ pub enum Inline {
     /// proposed text is simply inlined for the reader to see in context —
     /// the wrapping exists only so [`collect_tracked_changes`] can later
     /// flatten it into `Imported::tracked_changes` for the comments sidebar.
-    Tracked { kind: crate::comments::SuggestionKind, body: Vec<Inline> },
+    Tracked {
+        kind: crate::comments::SuggestionKind,
+        body: Vec<Inline>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Block {
-    Heading { level: u8, body: Vec<Inline> },
+    Heading {
+        level: u8,
+        body: Vec<Inline>,
+    },
     Paragraph(Vec<Inline>),
-    List { ordered: bool, items: Vec<Vec<Block>> },
+    List {
+        ordered: bool,
+        items: Vec<Vec<Block>>,
+    },
     Quote(Vec<Block>),
-    Code { lang: Option<String>, text: String },
-    Table { rows: Vec<Vec<Vec<Inline>>> },
-    Image { src: String, alt: String },
+    Code {
+        lang: Option<String>,
+        text: String,
+    },
+    Table {
+        rows: Vec<Vec<Vec<Inline>>>,
+    },
+    Image {
+        src: String,
+        alt: String,
+    },
     Rule,
 }
 
@@ -87,7 +107,9 @@ pub fn collect_tracked_changes(blocks: &[Block]) -> Vec<TrackedChange> {
 fn collect_tracked_in_blocks(blocks: &[Block], out: &mut Vec<TrackedChange>) {
     for block in blocks {
         match block {
-            Block::Heading { body, .. } | Block::Paragraph(body) => collect_tracked_in_inlines(body, out),
+            Block::Heading { body, .. } | Block::Paragraph(body) => {
+                collect_tracked_in_inlines(body, out)
+            }
             Block::List { items, .. } => {
                 for item in items {
                     collect_tracked_in_blocks(item, out);
@@ -113,7 +135,10 @@ fn collect_tracked_in_inlines(inlines: &[Inline], out: &mut Vec<TrackedChange>) 
                 let mut text = String::new();
                 flatten_inline_plain(body, &mut text);
                 if !text.is_empty() {
-                    out.push(TrackedChange { kind: kind.clone(), text });
+                    out.push(TrackedChange {
+                        kind: kind.clone(),
+                        text,
+                    });
                 }
                 // Handles a tracked span nested inside another (rare, but
                 // possible if a document has overlapping revisions) as a
@@ -251,7 +276,14 @@ fn emit_blocks(blocks: &[Block], out: &mut String, depth: usize) {
                 out.push_str("]\n\n");
             }
             Block::Code { lang, text } => {
-                let fence = "`".repeat(text.lines().map(|l| l.matches("```").count()).max().unwrap_or(0) * 3 + 3);
+                let fence = "`".repeat(
+                    text.lines()
+                        .map(|l| l.matches("```").count())
+                        .max()
+                        .unwrap_or(0)
+                        * 3
+                        + 3,
+                );
                 out.push_str(&fence);
                 if let Some(l) = lang {
                     out.push_str(l);
@@ -309,7 +341,10 @@ pub fn to_typst(doc: &Imported) -> String {
 /// True when this file can be converted in-process, with no pandoc.
 pub fn handles(path: &Path) -> bool {
     matches!(
-        path.extension().and_then(|e| e.to_str()).map(|e| e.to_lowercase()).as_deref(),
+        path.extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_lowercase())
+            .as_deref(),
         Some("docx") | Some("odt") | Some("md") | Some("markdown")
     )
 }
@@ -365,8 +400,14 @@ pub(crate) mod tests {
     fn headings_clamp_to_typsts_range() {
         let doc = Imported {
             blocks: vec![
-                Block::Heading { level: 1, body: vec![Inline::Text("One".into())] },
-                Block::Heading { level: 9, body: vec![Inline::Text("Deep".into())] },
+                Block::Heading {
+                    level: 1,
+                    body: vec![Inline::Text("One".into())],
+                },
+                Block::Heading {
+                    level: 9,
+                    body: vec![Inline::Text("Deep".into())],
+                },
             ],
             ..Default::default()
         };
@@ -382,7 +423,10 @@ pub(crate) mod tests {
         let doc = Imported {
             blocks: vec![Block::Table {
                 rows: vec![
-                    vec![vec![Inline::Text("a".into())], vec![Inline::Text("b".into())]],
+                    vec![
+                        vec![Inline::Text("a".into())],
+                        vec![Inline::Text("b".into())],
+                    ],
                     vec![vec![Inline::Text("c".into())]],
                 ],
             }],
@@ -430,7 +474,10 @@ pub(crate) mod tests {
         };
         let out = to_typst(&doc);
         assert!(out.contains("- outer"), "got: {out}");
-        assert!(out.contains("  + inner"), "nested item should indent: {out}");
+        assert!(
+            out.contains("  + inner"),
+            "nested item should indent: {out}"
+        );
     }
 
     #[test]
@@ -461,7 +508,8 @@ pub(crate) mod tests {
             "```",
             "",
             "Costs $10 and mentions me@example.com.",
-        ].join("\n");
+        ]
+        .join("\n");
         println!("=== TYPST OUTPUT ===\n{}", to_typst(&markdown::read(&md)));
     }
 
@@ -471,7 +519,10 @@ pub(crate) mod tests {
         let dir = std::env::temp_dir().join(format!(
             "zerkalo_import_compile_{}_{}",
             std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         ));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("doc.typ");
@@ -483,7 +534,11 @@ pub(crate) mod tests {
             None,
         );
         let _ = std::fs::remove_dir_all(&dir);
-        assert!(result.is_ok(), "converted document must compile:\n{body}\n\nerror: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "converted document must compile:\n{body}\n\nerror: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -530,10 +585,16 @@ Backslash \ and underscore _mid_word_ and asterisk 2*3=6."#;
     #[test]
     fn the_formats_we_handle_are_the_ones_that_skip_pandoc() {
         for good in ["a.docx", "a.odt", "a.md", "a.MARKDOWN"] {
-            assert!(handles(Path::new(good)), "{good} should be handled natively");
+            assert!(
+                handles(Path::new(good)),
+                "{good} should be handled natively"
+            );
         }
         for pandoc in ["a.tex", "a.epub", "a.rtf", "a.html"] {
-            assert!(!handles(Path::new(pandoc)), "{pandoc} should fall back to pandoc");
+            assert!(
+                !handles(Path::new(pandoc)),
+                "{pandoc} should fall back to pandoc"
+            );
         }
     }
 }

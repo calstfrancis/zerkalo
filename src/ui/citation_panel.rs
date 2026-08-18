@@ -108,7 +108,9 @@ impl CitationPanel {
         choose_btn.set_tooltip_text(Some(
             "Choose bibliography file (.bib, .yaml) — including a library exported from Zotero, Mendeley, or any other reference manager as BibTeX",
         ));
-        choose_btn.update_property(&[gtk4::accessible::Property::Label("Choose bibliography file")]);
+        choose_btn.update_property(&[gtk4::accessible::Property::Label(
+            "Choose bibliography file",
+        )]);
         header_box.append(&choose_btn);
 
         // Bib mode only — creates a new, empty .bib file so a first-time user
@@ -117,7 +119,9 @@ impl CitationPanel {
         new_bib_btn.add_css_class("flat");
         new_bib_btn.add_css_class("circular");
         new_bib_btn.set_tooltip_text(Some("Start a new bibliography"));
-        new_bib_btn.update_property(&[gtk4::accessible::Property::Label("Start a new bibliography")]);
+        new_bib_btn.update_property(&[gtk4::accessible::Property::Label(
+            "Start a new bibliography",
+        )]);
         header_box.append(&new_bib_btn);
 
         widget.append(&Separator::new(Orientation::Horizontal));
@@ -155,7 +159,8 @@ impl CitationPanel {
         let on_open_skrizhal: ChooseCb = Rc::new(RefCell::new(None));
         let on_open_kartoteka: ChooseCb = Rc::new(RefCell::new(None));
         let bib_entries: Rc<RefCell<Vec<BibEntry>>> = Rc::new(RefCell::new(Vec::new()));
-        let cv_entries: Rc<RefCell<Vec<skrizhal_core::CvEntry>>> = Rc::new(RefCell::new(Vec::new()));
+        let cv_entries: Rc<RefCell<Vec<skrizhal_core::CvEntry>>> =
+            Rc::new(RefCell::new(Vec::new()));
         let cv_mode: Rc<Cell<bool>> = Rc::new(Cell::new(false));
 
         // Wire activation once on the list — fires on double-click and Enter.
@@ -185,36 +190,48 @@ impl CitationPanel {
             let cv_mode_cb = cv_mode.clone();
             choose_btn.connect_clicked(move |_| {
                 if cv_mode_cb.get() {
-                    if let Some(f) = cb_cv.borrow().as_ref() { f(); }
-                } else if let Some(f) = cb_bib.borrow().as_ref() { f(); }
+                    if let Some(f) = cb_cv.borrow().as_ref() {
+                        f();
+                    }
+                } else if let Some(f) = cb_bib.borrow().as_ref() {
+                    f();
+                }
             });
         }
 
         {
             let cb = on_new_bib.clone();
             new_bib_btn.connect_clicked(move |_| {
-                if let Some(f) = cb.borrow().as_ref() { f(); }
+                if let Some(f) = cb.borrow().as_ref() {
+                    f();
+                }
             });
         }
 
         {
             let cb = on_open_skrizhal.clone();
             skrizhal_btn.connect_clicked(move |_| {
-                if let Some(f) = cb.borrow().as_ref() { f(); }
+                if let Some(f) = cb.borrow().as_ref() {
+                    f();
+                }
             });
         }
 
         {
             let cb = on_choose_vault.clone();
             vault_btn.connect_clicked(move |_| {
-                if let Some(f) = cb.borrow().as_ref() { f(); }
+                if let Some(f) = cb.borrow().as_ref() {
+                    f();
+                }
             });
         }
 
         {
             let cb = on_open_kartoteka.clone();
             kartoteka_btn.connect_clicked(move |_| {
-                if let Some(f) = cb.borrow().as_ref() { f(); }
+                if let Some(f) = cb.borrow().as_ref() {
+                    f();
+                }
             });
         }
 
@@ -297,11 +314,12 @@ impl CitationPanel {
         self.cv_mode.set(active);
         if active {
             self.title_label.set_text("CV Elements");
-            self.search.set_placeholder_text(Some("Search by key, title, tag…"));
-            self.choose_btn.set_tooltip_text(Some("Choose CV element file (.yaml)"));
-            self.choose_btn.update_property(&[gtk4::accessible::Property::Label(
-                "Choose CV element file",
-            )]);
+            self.search
+                .set_placeholder_text(Some("Search by key, title, tag…"));
+            self.choose_btn
+                .set_tooltip_text(Some("Choose CV element file (.yaml)"));
+            self.choose_btn
+                .update_property(&[gtk4::accessible::Property::Label("Choose CV element file")]);
             self.bib_name_label.set_visible(false);
             self.skrizhal_btn.set_visible(true);
             self.vault_btn.set_visible(false);
@@ -309,13 +327,15 @@ impl CitationPanel {
             self.new_bib_btn.set_visible(false);
         } else {
             self.title_label.set_text("Citations");
-            self.search.set_placeholder_text(Some("Search by key, author, title…"));
+            self.search
+                .set_placeholder_text(Some("Search by key, author, title…"));
             self.choose_btn.set_tooltip_text(Some(
                 "Choose bibliography file (.bib, .yaml) — including a library exported from Zotero, Mendeley, or any other reference manager as BibTeX",
             ));
-            self.choose_btn.update_property(&[gtk4::accessible::Property::Label(
-                "Choose bibliography file",
-            )]);
+            self.choose_btn
+                .update_property(&[gtk4::accessible::Property::Label(
+                    "Choose bibliography file",
+                )]);
             self.skrizhal_btn.set_visible(false);
             self.vault_btn.set_visible(true);
             self.kartoteka_btn.set_visible(true);
@@ -405,8 +425,8 @@ impl CitationPanel {
         let mut shown = 0usize;
         for entry in entries.iter() {
             if !filter_lower.is_empty() {
-                let haystack = format!("{} {} {}", entry.key, entry.author, entry.title)
-                    .to_lowercase();
+                let haystack =
+                    format!("{} {} {}", entry.key, entry.author, entry.title).to_lowercase();
                 if !haystack.contains(&filter_lower) {
                     continue;
                 }
@@ -417,7 +437,10 @@ impl CitationPanel {
             row.add_css_class("fond-card");
             row.add_css_class("fond-row");
             row.set_widget_name(&entry.key);
-            row.set_tooltip_text(Some(&format!("Double-click or Enter to insert @{}", entry.key)));
+            row.set_tooltip_text(Some(&format!(
+                "Double-click or Enter to insert @{}",
+                entry.key
+            )));
 
             let box_ = GtkBox::new(Orientation::Vertical, 2);
             box_.set_margin_start(8);
@@ -425,18 +448,15 @@ impl CitationPanel {
 
             let top = GtkBox::new(Orientation::Horizontal, 4);
             let key_lbl = Label::new(None);
-            key_lbl.set_markup(&format!(
-                "<b>{}</b>",
-                glib::markup_escape_text(&entry.key)
-            ));
+            key_lbl.set_markup(&format!("<b>{}</b>", glib::markup_escape_text(&entry.key)));
             key_lbl.set_xalign(0.0);
             key_lbl.set_ellipsize(gtk4::pango::EllipsizeMode::End);
 
             let meta_str = match (entry.author.is_empty(), entry.year.is_empty()) {
                 (false, false) => format!(" · {} ({})", entry.author, entry.year),
-                (false, true)  => format!(" · {}", entry.author),
-                (true,  false) => format!(" · ({})", entry.year),
-                (true,  true)  => String::new(),
+                (false, true) => format!(" · {}", entry.author),
+                (true, false) => format!(" · ({})", entry.year),
+                (true, true) => String::new(),
             };
             let meta_lbl = Label::new(Some(&meta_str));
             meta_lbl.add_css_class("dim-label");
@@ -511,11 +531,12 @@ impl CitationPanel {
 
             let top = GtkBox::new(Orientation::Horizontal, 4);
             let title_lbl = Label::new(None);
-            let title_text = if entry.title.is_empty() { entry.key.as_str() } else { &entry.title };
-            title_lbl.set_markup(&format!(
-                "<b>{}</b>",
-                glib::markup_escape_text(title_text)
-            ));
+            let title_text = if entry.title.is_empty() {
+                entry.key.as_str()
+            } else {
+                &entry.title
+            };
+            title_lbl.set_markup(&format!("<b>{}</b>", glib::markup_escape_text(title_text)));
             title_lbl.set_xalign(0.0);
             title_lbl.set_ellipsize(gtk4::pango::EllipsizeMode::End);
 

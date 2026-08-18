@@ -3,12 +3,12 @@
 
 use gtk4::prelude::*;
 use gtk4::{
-    Align, Box as GtkBox, Button, Entry, Label, MenuButton, Orientation, Popover,
-    ScrolledWindow, Separator, ToggleButton,
+    Align, Box as GtkBox, Button, Entry, Label, MenuButton, Orientation, Popover, ScrolledWindow,
+    Separator, ToggleButton,
 };
 use libadwaita as adw;
 
-use super::{HamburgerItems, build_hamburger_menu_items};
+use super::{build_hamburger_menu_items, HamburgerItems};
 
 /// The hamburger popover's rows, kept together so the menu-wiring helpers can
 /// take one value instead of 22 parameters.
@@ -88,7 +88,10 @@ pub(super) fn build_header() -> HeaderWidgets {
     header.pack_start(&library_btn);
 
     // Style switcher dropdown — placed in header start, beside the title
-    let style_names = crate::styles::STYLES.iter().map(|(n, _, _, _, _)| *n).collect::<Vec<_>>();
+    let style_names = crate::styles::STYLES
+        .iter()
+        .map(|(n, _, _, _, _)| *n)
+        .collect::<Vec<_>>();
     let style_box = GtkBox::new(Orientation::Vertical, 0);
     style_box.set_margin_top(4);
     style_box.set_margin_bottom(4);
@@ -103,7 +106,11 @@ pub(super) fn build_header() -> HeaderWidgets {
         let sb = style_btn.clone();
         style_btn.connect_clicked(move |_| {
             sp.set_parent(&sb);
-            if sp.is_visible() { sp.popdown(); } else { sp.popup(); }
+            if sp.is_visible() {
+                sp.popdown();
+            } else {
+                sp.popup();
+            }
         });
     }
     for name in &style_names {
@@ -115,7 +122,6 @@ pub(super) fn build_header() -> HeaderWidgets {
         style_box.append(&row);
     }
     // Wire style buttons after editor_pane is available (done below)
-
 
     // ── Compilation profile toggle (status bar) ──────────────────────────
     let draft_label = gtk4::Label::new(Some("Final"));
@@ -141,12 +147,16 @@ pub(super) fn build_header() -> HeaderWidgets {
     let sync_btn = Button::from_icon_name("vcs-push-symbolic");
     sync_btn.set_tooltip_text(Some("Save a Version & Back It Up (Ctrl+Shift+G)"));
     sync_btn.add_css_class("flat");
-    sync_btn.update_property(&[gtk4::accessible::Property::Label("Save a version and back it up")]);
+    sync_btn.update_property(&[gtk4::accessible::Property::Label(
+        "Save a version and back it up",
+    )]);
 
     let save_btn = Button::from_icon_name("document-save-symbolic");
     save_btn.set_tooltip_text(Some("Save (Ctrl+S)"));
     save_btn.add_css_class("flat");
-    save_btn.update_property(&[gtk4::accessible::Property::Label("Save the current document")]);
+    save_btn.update_property(&[gtk4::accessible::Property::Label(
+        "Save the current document",
+    )]);
 
     // Connected further down, alongside the hamburger's Print item — the
     // panes it needs don't exist yet at this point.
@@ -311,7 +321,6 @@ pub(super) fn build_header() -> HeaderWidgets {
     title_box.append(&file_selector);
     title_box.append(&title_extras);
     header.set_title_widget(Some(&title_box));
-
 
     HeaderWidgets {
         menus: Menus {

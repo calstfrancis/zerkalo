@@ -14,12 +14,10 @@ use std::rc::Rc;
 use std::sync::mpsc::{sync_channel, Receiver, TryRecvError};
 use std::time::Duration;
 
-use gtk4::prelude::*;
-use gtk4::{
-    Align, Box as GtkBox, Button, Label, LinkButton, Orientation,
-};
-use libadwaita as adw;
 use adw::prelude::*;
+use gtk4::prelude::*;
+use gtk4::{Align, Box as GtkBox, Button, Label, LinkButton, Orientation};
+use libadwaita as adw;
 
 use super::github_signin;
 
@@ -107,7 +105,12 @@ impl SetupWizard {
 /// Every screen is the same shape: a headline, a paragraph, content, and the
 /// buttons pinned at the bottom — so moving between them doesn't move the
 /// primary button around under the user's cursor.
-fn page_shell(title: &str, tag: &str, heading: &str, blurb: &str) -> (adw::NavigationPage, GtkBox, GtkBox) {
+fn page_shell(
+    title: &str,
+    tag: &str,
+    heading: &str,
+    blurb: &str,
+) -> (adw::NavigationPage, GtkBox, GtkBox) {
     let header = adw::HeaderBar::new();
     header.add_css_class("fond-chrome");
 
@@ -194,9 +197,18 @@ fn welcome_page(window: &adw::Window, nav: &adw::NavigationView) -> adw::Navigat
     );
 
     for (icon, text) in [
-        ("document-save-symbolic", "Saved as you work, not just when you remember"),
-        ("document-open-recent-symbolic", "Every past version kept, so you can go back"),
-        ("channel-secure-symbolic", "Private by default — only you can see it"),
+        (
+            "document-save-symbolic",
+            "Saved as you work, not just when you remember",
+        ),
+        (
+            "document-open-recent-symbolic",
+            "Every past version kept, so you can go back",
+        ),
+        (
+            "channel-secure-symbolic",
+            "Private by default — only you can see it",
+        ),
     ] {
         let row = GtkBox::new(Orientation::Horizontal, 12);
         let img = gtk4::Image::from_icon_name(icon);
@@ -314,7 +326,9 @@ fn connect_page(
 
     let folder_row = adw::ActionRow::new();
     folder_row.set_title("Back up to a folder or drive");
-    folder_row.set_subtitle("A synced folder like Nextcloud or pCloud, or a USB drive — no account needed");
+    folder_row.set_subtitle(
+        "A synced folder like Nextcloud or pCloud, or a USB drive — no account needed",
+    );
     folder_row.set_activatable(true);
     folder_row.add_prefix(&gtk4::Image::from_icon_name("folder-symbolic"));
     folder_row.add_suffix(&gtk4::Image::from_icon_name("go-next-symbolic"));
@@ -354,7 +368,11 @@ fn connect_page(
 
 // ── 3a · Folder backup ───────────────────────────────────────────────────────
 
-fn folder_page(window: &adw::Window, nav: &adw::NavigationView, work_dir: &Path) -> adw::NavigationPage {
+fn folder_page(
+    window: &adw::Window,
+    nav: &adw::NavigationView,
+    work_dir: &Path,
+) -> adw::NavigationPage {
     let work_dir = work_dir.to_path_buf();
     let (page, content, buttons) = page_shell(
         "Folder Backup",
@@ -388,15 +406,19 @@ fn folder_page(window: &adw::Window, nav: &adw::NavigationView, work_dir: &Path)
             let chosen = chosen.clone();
             let path_row_c = path_row_c.clone();
             let finish_c = finish_c.clone();
-            fd.select_folder(Some(&window), None::<&gtk4::gio::Cancellable>, move |result| {
-                if let Ok(file) = result {
-                    if let Some(path) = file.path() {
-                        path_row_c.set_subtitle(&path.display().to_string());
-                        *chosen.borrow_mut() = Some(path);
-                        finish_c.set_sensitive(true);
+            fd.select_folder(
+                Some(&window),
+                None::<&gtk4::gio::Cancellable>,
+                move |result| {
+                    if let Ok(file) = result {
+                        if let Some(path) = file.path() {
+                            path_row_c.set_subtitle(&path.display().to_string());
+                            *chosen.borrow_mut() = Some(path);
+                            finish_c.set_sensitive(true);
+                        }
                     }
-                }
-            });
+                },
+            );
         });
     }
 
@@ -405,7 +427,9 @@ fn folder_page(window: &adw::Window, nav: &adw::NavigationView, work_dir: &Path)
         let chosen = chosen.clone();
         let work_dir = work_dir.clone();
         finish.connect_clicked(move |_| {
-            let Some(path) = chosen.borrow().clone() else { return };
+            let Some(path) = chosen.borrow().clone() else {
+                return;
+            };
             nav.push(&working_page(&nav, &work_dir, Plan::Folder { path }, None));
         });
     }
@@ -416,7 +440,11 @@ fn folder_page(window: &adw::Window, nav: &adw::NavigationView, work_dir: &Path)
 
 // ── 3b · An existing repository ──────────────────────────────────────────────
 
-fn existing_page(window: &adw::Window, nav: &adw::NavigationView, work_dir: &Path) -> adw::NavigationPage {
+fn existing_page(
+    window: &adw::Window,
+    nav: &adw::NavigationView,
+    work_dir: &Path,
+) -> adw::NavigationPage {
     let work_dir = work_dir.to_path_buf();
     let (page, content, buttons) = page_shell(
         "Existing Copy",
@@ -453,7 +481,12 @@ fn existing_page(window: &adw::Window, nav: &adw::NavigationView, work_dir: &Pat
                 return;
             }
             error_lbl_c.set_visible(false);
-            nav.push(&working_page(&nav, &work_dir, Plan::ExistingRemote { url }, None));
+            nav.push(&working_page(
+                &nav,
+                &work_dir,
+                Plan::ExistingRemote { url },
+                None,
+            ));
         });
     }
 
@@ -471,12 +504,8 @@ fn confirm_page(
     work_dir: &Path,
 ) -> adw::NavigationPage {
     let work_dir = work_dir.to_path_buf();
-    let (page, content, buttons) = page_shell(
-        "Confirm",
-        "confirm",
-        "Where your work will be kept",
-        "",
-    );
+    let (page, content, buttons) =
+        page_shell("Confirm", "confirm", "Where your work will be kept", "");
 
     let group = adw::PreferencesGroup::new();
 
@@ -507,7 +536,10 @@ fn confirm_page(
         let identity_lbl = identity_lbl.clone();
         page.connect_shown(move |_| {
             let text = match state.borrow().identity.as_ref() {
-                Some(id) => format!("Saved versions will be recorded as {} <{}>", id.name, id.email),
+                Some(id) => format!(
+                    "Saved versions will be recorded as {} <{}>",
+                    id.name, id.email
+                ),
                 None => String::new(),
             };
             identity_lbl.set_label(&text);
@@ -618,52 +650,50 @@ fn working_page(
         if let Some((_, spinner, _)) = rows.first() {
             spinner.set_spinning(true);
         }
-        glib::timeout_add_local(Duration::from_millis(120), move || {
-            loop {
-                match rx.try_recv() {
-                    Ok(Progress::Step(i)) => {
-                        if i > 0 {
-                            if let Some((_, spinner, tick)) = rows.get(i - 1) {
-                                spinner.set_spinning(false);
-                                spinner.set_visible(false);
-                                tick.set_label("✓");
-                                tick.add_css_class("success");
-                            }
-                        }
-                        if let Some((_, spinner, _)) = rows.get(i) {
-                            spinner.set_spinning(true);
-                        }
-                    }
-                    Ok(Progress::Done(summary)) => {
-                        for (_, spinner, tick) in rows.iter() {
+        glib::timeout_add_local(Duration::from_millis(120), move || loop {
+            match rx.try_recv() {
+                Ok(Progress::Step(i)) => {
+                    if i > 0 {
+                        if let Some((_, spinner, tick)) = rows.get(i - 1) {
                             spinner.set_spinning(false);
                             spinner.set_visible(false);
-                            if tick.label().is_empty() {
-                                tick.set_label("✓");
-                                tick.add_css_class("success");
-                            }
+                            tick.set_label("✓");
+                            tick.add_css_class("success");
                         }
-                        SetupWizard::mark_done();
-                        nav_c.push(&done_page(&nav_c, &summary));
-                        return glib::ControlFlow::Break;
                     }
-                    Ok(Progress::Failed { step, message }) => {
-                        for (_, spinner, _) in rows.iter() {
-                            spinner.set_spinning(false);
-                            spinner.set_visible(false);
-                        }
-                        if let Some((_, _, tick)) = rows.get(step) {
-                            tick.set_label("✗");
-                            tick.add_css_class("error");
-                        }
-                        error_lbl.set_label(&message);
-                        error_lbl.set_visible(true);
-                        back_btn.set_visible(true);
-                        return glib::ControlFlow::Break;
+                    if let Some((_, spinner, _)) = rows.get(i) {
+                        spinner.set_spinning(true);
                     }
-                    Err(TryRecvError::Empty) => return glib::ControlFlow::Continue,
-                    Err(TryRecvError::Disconnected) => return glib::ControlFlow::Break,
                 }
+                Ok(Progress::Done(summary)) => {
+                    for (_, spinner, tick) in rows.iter() {
+                        spinner.set_spinning(false);
+                        spinner.set_visible(false);
+                        if tick.label().is_empty() {
+                            tick.set_label("✓");
+                            tick.add_css_class("success");
+                        }
+                    }
+                    SetupWizard::mark_done();
+                    nav_c.push(&done_page(&nav_c, &summary));
+                    return glib::ControlFlow::Break;
+                }
+                Ok(Progress::Failed { step, message }) => {
+                    for (_, spinner, _) in rows.iter() {
+                        spinner.set_spinning(false);
+                        spinner.set_visible(false);
+                    }
+                    if let Some((_, _, tick)) = rows.get(step) {
+                        tick.set_label("✗");
+                        tick.add_css_class("error");
+                    }
+                    error_lbl.set_label(&message);
+                    error_lbl.set_visible(true);
+                    back_btn.set_visible(true);
+                    return glib::ControlFlow::Break;
+                }
+                Err(TryRecvError::Empty) => return glib::ControlFlow::Continue,
+                Err(TryRecvError::Disconnected) => return glib::ControlFlow::Break,
             }
         });
     }
@@ -740,7 +770,8 @@ fn run_plan(
                 let Some(token) = token.clone() else {
                     let _ = tx.send(Progress::Failed {
                         step,
-                        message: "The GitHub sign-in didn't finish. Go back and sign in again.".into(),
+                        message: "The GitHub sign-in didn't finish. Go back and sign in again."
+                            .into(),
                     });
                     return;
                 };
@@ -763,12 +794,17 @@ fn run_plan(
                 if let Err(e) = set_git_remote(&work_dir, &clone_url) {
                     let _ = tx.send(Progress::Failed {
                         step,
-                        message: format!("It was created on GitHub, but linking it to this folder failed:\n{e}"),
+                        message: format!(
+                            "It was created on GitHub, but linking it to this folder failed:\n{e}"
+                        ),
                     });
                     return;
                 }
 
-                format!("Your work is saved to {}", clone_url.trim_end_matches(".git"))
+                format!(
+                    "Your work is saved to {}",
+                    clone_url.trim_end_matches(".git")
+                )
             }
             Plan::ExistingRemote { url } => {
                 step += 1;
@@ -785,7 +821,9 @@ fn run_plan(
             Plan::Folder { path } => {
                 step += 1;
                 let _ = tx.send(Progress::Step(step));
-                if let Err(e) = crate::git_sync::add_backup_remote(&work_dir, &path.display().to_string()) {
+                if let Err(e) =
+                    crate::git_sync::add_backup_remote(&work_dir, &path.display().to_string())
+                {
                     let _ = tx.send(Progress::Failed {
                         step,
                         message: format!("Couldn't set up that folder as a backup:\n{e}"),
@@ -826,7 +864,10 @@ fn run_plan(
 
 /// Makes the work folder a git repository and gives git a name and email to
 /// record, without asking for either.
-fn prepare_repo(work_dir: &Path, identity: Option<&crate::github_auth::Identity>) -> Result<(), String> {
+fn prepare_repo(
+    work_dir: &Path,
+    identity: Option<&crate::github_auth::Identity>,
+) -> Result<(), String> {
     std::fs::create_dir_all(work_dir)
         .map_err(|e| format!("Couldn't create the folder {}:\n{e}", work_dir.display()))?;
 
@@ -859,7 +900,11 @@ fn system_identity() -> (String, String) {
         .or_else(|_| std::env::var("LOGNAME"))
         .unwrap_or_else(|_| "writer".to_string());
     let host = gtk4::glib::host_name().to_string();
-    let host = if host.is_empty() { "localhost".to_string() } else { host };
+    let host = if host.is_empty() {
+        "localhost".to_string()
+    } else {
+        host
+    };
     (user.clone(), format!("{user}@{host}"))
 }
 
@@ -899,8 +944,10 @@ fn git_identity() -> (String, String) {
 
 pub fn set_git_identity(name: &str, email: &str) -> Result<(), String> {
     let mut cfg = git2::Config::open_default().map_err(|e| e.message().to_string())?;
-    cfg.set_str("user.name", name).map_err(|e| e.message().to_string())?;
-    cfg.set_str("user.email", email).map_err(|e| e.message().to_string())?;
+    cfg.set_str("user.name", name)
+        .map_err(|e| e.message().to_string())?;
+    cfg.set_str("user.email", email)
+        .map_err(|e| e.message().to_string())?;
     Ok(())
 }
 
@@ -917,10 +964,10 @@ fn get_git_remote(work_dir: &Path) -> Option<String> {
 }
 
 fn set_git_remote(work_dir: &Path, url: &str) -> Result<(), String> {
-    let repo = git2::Repository::discover(work_dir)
-        .map_err(|e| e.message().to_string())?;
+    let repo = git2::Repository::discover(work_dir).map_err(|e| e.message().to_string())?;
     let _ = repo.remote_delete("origin");
-    repo.remote("origin", url).map_err(|e| e.message().to_string())?;
+    repo.remote("origin", url)
+        .map_err(|e| e.message().to_string())?;
     Ok(())
 }
 
@@ -932,16 +979,35 @@ mod tests {
     fn each_route_lists_the_steps_it_actually_runs() {
         // The progress list is what tells the user how far along they are, so
         // a route that skips repository creation must not display it.
-        assert_eq!(step_labels(&Plan::Github { repo_name: "x".into(), private: true }).len(), 4);
-        assert_eq!(step_labels(&Plan::ExistingRemote { url: "x".into() }).len(), 3);
-        assert_eq!(step_labels(&Plan::Folder { path: PathBuf::from("/tmp") }).len(), 3);
+        assert_eq!(
+            step_labels(&Plan::Github {
+                repo_name: "x".into(),
+                private: true
+            })
+            .len(),
+            4
+        );
+        assert_eq!(
+            step_labels(&Plan::ExistingRemote { url: "x".into() }).len(),
+            3
+        );
+        assert_eq!(
+            step_labels(&Plan::Folder {
+                path: PathBuf::from("/tmp")
+            })
+            .len(),
+            3
+        );
     }
 
     #[test]
     fn a_system_identity_is_always_usable_as_a_commit_address() {
         let (name, email) = system_identity();
         assert!(!name.is_empty(), "git refuses to commit without a name");
-        assert!(email.contains('@'), "git requires an address shaped like an email: {email}");
+        assert!(
+            email.contains('@'),
+            "git requires an address shaped like an email: {email}"
+        );
     }
 
     #[test]
@@ -950,8 +1016,14 @@ mod tests {
             "422: {\"message\":\"Repository creation failed.\",\"errors\":[{\"message\":\"name already exists on this account\"}]}".into(),
         );
         let msg = describe_create_failure("zerkalo-docs", &e);
-        assert!(msg.contains("already have something called \"zerkalo-docs\""), "got: {msg}");
-        assert!(!msg.contains("422"), "the raw status code is not useful here: {msg}");
+        assert!(
+            msg.contains("already have something called \"zerkalo-docs\""),
+            "got: {msg}"
+        );
+        assert!(
+            !msg.contains("422"),
+            "the raw status code is not useful here: {msg}"
+        );
     }
 
     #[test]

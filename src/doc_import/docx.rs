@@ -14,10 +14,7 @@ use crate::comments::SuggestionKind;
 use super::{Block, Imported, Inline, Media};
 
 /// Reads one entry out of a ZIP as bytes.
-fn read_entry(
-    zip: &mut zip::ZipArchive<std::fs::File>,
-    name: &str,
-) -> Option<Vec<u8>> {
+fn read_entry(zip: &mut zip::ZipArchive<std::fs::File>, name: &str) -> Option<Vec<u8>> {
     let mut file = zip.by_name(name).ok()?;
     let mut buf = Vec::new();
     file.read_to_end(&mut buf).ok()?;
@@ -48,7 +45,8 @@ fn paragraph_inlines(p: roxmltree::Node, rels: &HashMap<String, String>) -> Vec<
             "r" if !matches!(
                 node.parent().map(|n| n.tag_name().name()),
                 Some("hyperlink") | Some("ins") | Some("del")
-            ) => {
+            ) =>
+            {
                 push_run(node, &mut out);
             }
             // <w:ins>/<w:del> wrap the runs of an inserted or deleted span.
@@ -72,7 +70,10 @@ fn paragraph_inlines(p: roxmltree::Node, rels: &HashMap<String, String>) -> Vec<
             }
             "hyperlink" => {
                 let href = node
-                    .attribute(("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id"))
+                    .attribute((
+                        "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+                        "id",
+                    ))
                     .and_then(|id| rels.get(id))
                     .cloned();
                 let mut body = Vec::new();
@@ -143,10 +144,19 @@ fn push_run(r: roxmltree::Node, out: &mut Vec<Inline>) {
 /// images.
 fn read_relationships(zip: &mut zip::ZipArchive<std::fs::File>) -> HashMap<String, String> {
     let mut map = HashMap::new();
-    let Some(bytes) = read_entry(zip, "word/_rels/document.xml.rels") else { return map };
-    let Ok(text) = String::from_utf8(bytes) else { return map };
-    let Ok(doc) = roxmltree::Document::parse(&text) else { return map };
-    for node in doc.descendants().filter(|n| n.tag_name().name() == "Relationship") {
+    let Some(bytes) = read_entry(zip, "word/_rels/document.xml.rels") else {
+        return map;
+    };
+    let Ok(text) = String::from_utf8(bytes) else {
+        return map;
+    };
+    let Ok(doc) = roxmltree::Document::parse(&text) else {
+        return map;
+    };
+    for node in doc
+        .descendants()
+        .filter(|n| n.tag_name().name() == "Relationship")
+    {
         if let (Some(id), Some(target)) = (node.attribute("Id"), node.attribute("Target")) {
             map.insert(id.to_string(), target.to_string());
         }
@@ -156,13 +166,15 @@ fn read_relationships(zip: &mut zip::ZipArchive<std::fs::File>) -> HashMap<Strin
 
 pub fn read(path: &Path) -> Result<Imported, String> {
     let file = std::fs::File::open(path).map_err(|e| format!("Couldn't open the file: {e}"))?;
-    let mut zip = zip::ZipArchive::new(file)
-        .map_err(|_| "This doesn't look like a Word file — it isn't a readable .docx archive.".to_string())?;
+    let mut zip = zip::ZipArchive::new(file).map_err(|_| {
+        "This doesn't look like a Word file — it isn't a readable .docx archive.".to_string()
+    })?;
 
     let rels = read_relationships(&mut zip);
 
-    let bytes = read_entry(&mut zip, "word/document.xml")
-        .ok_or_else(|| "This .docx has no document body (word/document.xml is missing).".to_string())?;
+    let bytes = read_entry(&mut zip, "word/document.xml").ok_or_else(|| {
+        "This .docx has no document body (word/document.xml is missing).".to_string()
+    })?;
     let text = String::from_utf8(bytes)
         .map_err(|_| "The document's text isn't valid UTF-8.".to_string())?;
     let doc = roxmltree::Document::parse(&text)
@@ -229,8 +241,14 @@ pub fn read(path: &Path) -> Result<Imported, String> {
                     let name = target.rsplit('/').next().unwrap_or("image").to_string();
                     let entry_name = format!("word/{}", target.trim_start_matches("../"));
                     if let Some(data) = read_entry(&mut zip, &entry_name) {
-                        media.push(Media { name: name.clone(), bytes: data });
-                        blocks.push(Block::Image { src: name, alt: String::new() });
+                        media.push(Media {
+                            name: name.clone(),
+                            bytes: data,
+                        });
+                        blocks.push(Block::Image {
+                            src: name,
+                            alt: String::new(),
+                        });
                     }
                     if inlines.is_empty() {
                         continue;
@@ -238,7 +256,10 @@ pub fn read(path: &Path) -> Result<Imported, String> {
                 }
 
                 if let Some(level) = heading_level_from_style(style) {
-                    blocks.push(Block::Heading { level, body: inlines });
+                    blocks.push(Block::Heading {
+                        level,
+                        body: inlines,
+                    });
                 } else if is_quote_style(style) {
                     blocks.push(Block::Quote(vec![Block::Paragraph(inlines)]));
                 } else {
@@ -291,7 +312,12 @@ pub fn read(path: &Path) -> Result<Imported, String> {
     }
 
     let tracked_changes = super::collect_tracked_changes(&blocks);
-    Ok(Imported { blocks, media, notes, tracked_changes })
+    Ok(Imported {
+        blocks,
+        media,
+        notes,
+        tracked_changes,
+    })
 }
 
 #[cfg(test)]
@@ -321,7 +347,10 @@ mod tests {
         let dir = std::env::temp_dir().join(format!(
             "zerkalo_docx_test_{}_{}",
             std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         ));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("test.docx");
@@ -351,9 +380,15 @@ mod tests {
         let doc = read(&path).expect("should read");
         assert_eq!(
             doc.blocks[0],
-            Block::Heading { level: 1, body: vec![Inline::Text("The Title".into())] }
+            Block::Heading {
+                level: 1,
+                body: vec![Inline::Text("The Title".into())]
+            }
         );
-        assert_eq!(doc.blocks[1], Block::Paragraph(vec![Inline::Text("Body text here.".into())]));
+        assert_eq!(
+            doc.blocks[1],
+            Block::Paragraph(vec![Inline::Text("Body text here.".into())])
+        );
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
@@ -367,9 +402,14 @@ mod tests {
                </w:p>"#,
         ));
         let doc = read(&path).expect("should read");
-        let Block::Paragraph(inlines) = &doc.blocks[0] else { panic!("expected paragraph") };
+        let Block::Paragraph(inlines) = &doc.blocks[0] else {
+            panic!("expected paragraph")
+        };
         assert_eq!(inlines[0], Inline::Bold(vec![Inline::Text("bold".into())]));
-        assert_eq!(inlines[1], Inline::Italic(vec![Inline::Text("italic".into())]));
+        assert_eq!(
+            inlines[1],
+            Inline::Italic(vec![Inline::Text("italic".into())])
+        );
         // w:val="0" turns the property off — treating it as on is a classic
         // OOXML mistake that makes whole documents come out bold.
         assert_eq!(inlines[2], Inline::Text("plain".into()));
@@ -388,7 +428,10 @@ mod tests {
             Block::List { items, .. } => assert_eq!(items.len(), 2, "both items in one list"),
             other => panic!("expected a list, got {other:?}"),
         }
-        assert_eq!(doc.blocks[1], Block::Paragraph(vec![Inline::Text("after".into())]));
+        assert_eq!(
+            doc.blocks[1],
+            Block::Paragraph(vec![Inline::Text("after".into())])
+        );
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
@@ -456,10 +499,21 @@ mod tests {
         assert_eq!(doc.tracked_changes.len(), 1);
         assert_eq!(doc.tracked_changes[0].kind, SuggestionKind::Insertion);
         assert_eq!(doc.tracked_changes[0].text, "added text");
-        let Block::Paragraph(inlines) = &doc.blocks[0] else { panic!("expected paragraph") };
-        assert!(matches!(&inlines[1], Inline::Tracked { kind: SuggestionKind::Insertion, .. }));
+        let Block::Paragraph(inlines) = &doc.blocks[0] else {
+            panic!("expected paragraph")
+        };
+        assert!(matches!(
+            &inlines[1],
+            Inline::Tracked {
+                kind: SuggestionKind::Insertion,
+                ..
+            }
+        ));
         let out = super::super::to_typst(&doc);
-        assert!(out.contains("added text"), "insertion should still appear in the rendered text: {out}");
+        assert!(
+            out.contains("added text"),
+            "insertion should still appear in the rendered text: {out}"
+        );
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
@@ -473,7 +527,10 @@ mod tests {
         assert_eq!(doc.tracked_changes[0].kind, SuggestionKind::Deletion);
         assert_eq!(doc.tracked_changes[0].text, "old phrase");
         let out = super::super::to_typst(&doc);
-        assert!(out.contains("old phrase"), "deletion stays visible until reviewed: {out}");
+        assert!(
+            out.contains("old phrase"),
+            "deletion stays visible until reviewed: {out}"
+        );
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 

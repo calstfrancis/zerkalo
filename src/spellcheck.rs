@@ -36,11 +36,15 @@ fn project_dict_path(project_root: &Path) -> PathBuf {
 
 fn load_dic_words(path: &Path) -> HashSet<String> {
     let mut words = HashSet::new();
-    let Ok(content) = std::fs::read_to_string(path) else { return words };
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return words;
+    };
     // Hunspell .dic format: first line is word count, then one word per line
     for (i, line) in content.lines().enumerate() {
         let word = line.split('/').next().unwrap_or(line).trim();
-        if i == 0 && word.parse::<usize>().is_ok() { continue; }
+        if i == 0 && word.parse::<usize>().is_ok() {
+            continue;
+        }
         if !word.is_empty() {
             words.insert(word.to_lowercase());
         }
@@ -97,7 +101,10 @@ impl SpellChecker {
     }
 
     pub fn primary_language(&self) -> &str {
-        self.languages.first().map(|s| s.as_str()).unwrap_or("en_US")
+        self.languages
+            .first()
+            .map(|s| s.as_str())
+            .unwrap_or("en_US")
     }
 
     pub fn ignore(&mut self, word: &str) {
@@ -160,7 +167,9 @@ impl SpellChecker {
     pub fn available_languages() -> Vec<String> {
         let mut langs = Vec::new();
         for dir in DICT_DIRS {
-            let Ok(entries) = std::fs::read_dir(dir) else { continue };
+            let Ok(entries) = std::fs::read_dir(dir) else {
+                continue;
+            };
             for entry in entries.flatten() {
                 let name = entry.file_name();
                 let s = name.to_string_lossy();
@@ -219,10 +228,7 @@ pub fn extract_words(text: &str) -> Vec<(usize, usize, String)> {
 
         // ── raw block ``` ... ``` ──────────────────────────────────────────────
         if in_raw_block {
-            if c == '`'
-                && chars.get(i + 1) == Some(&'`')
-                && chars.get(i + 2) == Some(&'`')
-            {
+            if c == '`' && chars.get(i + 1) == Some(&'`') && chars.get(i + 2) == Some(&'`') {
                 in_raw_block = false;
                 i += 3;
             } else {
@@ -252,10 +258,7 @@ pub fn extract_words(text: &str) -> Vec<(usize, usize, String)> {
         }
 
         // ── open raw block ──────────────────────────────────────────────────
-        if c == '`'
-            && chars.get(i + 1) == Some(&'`')
-            && chars.get(i + 2) == Some(&'`')
-        {
+        if c == '`' && chars.get(i + 1) == Some(&'`') && chars.get(i + 2) == Some(&'`') {
             in_raw_block = true;
             i += 3;
             while i < n && chars[i] != '\n' {
@@ -402,7 +405,10 @@ fn skip_balanced(chars: &[char], start: usize, n: usize) -> usize {
 
 // ── Hunspell subprocess ───────────────────────────────────────────────────────
 
-pub(crate) fn check_words_batch(words: &[&str], languages: &[String]) -> HashMap<String, Vec<String>> {
+pub(crate) fn check_words_batch(
+    words: &[&str],
+    languages: &[String],
+) -> HashMap<String, Vec<String>> {
     if words.is_empty() || languages.is_empty() {
         return HashMap::new();
     }
@@ -501,8 +507,12 @@ pub fn levenshtein(a: &str, b: &str) -> usize {
         return 3; // cap
     }
     let mut dp = vec![vec![0usize; n + 1]; m + 1];
-    for (i, row) in dp.iter_mut().enumerate() { row[0] = i; }
-    for (j, cell) in dp[0].iter_mut().enumerate() { *cell = j; }
+    for (i, row) in dp.iter_mut().enumerate() {
+        row[0] = i;
+    }
+    for (j, cell) in dp[0].iter_mut().enumerate() {
+        *cell = j;
+    }
     for i in 1..=m {
         for j in 1..=n {
             dp[i][j] = if a[i - 1] == b[j - 1] {
@@ -605,7 +615,10 @@ mod tests {
 
     #[test]
     fn citations_and_labels_are_skipped() {
-        assert_eq!(words("see @augustine:confessions here"), vec!["see", "here"]);
+        assert_eq!(
+            words("see @augustine:confessions here"),
+            vec!["see", "here"]
+        );
         assert_eq!(words("text <my-label> text"), vec!["text", "text"]);
     }
 
@@ -643,7 +656,10 @@ mod tests {
     /// even though the function name and paren arguments around it are not.
     #[test]
     fn bracketed_content_after_a_hash_function_is_still_prose() {
-        assert_eq!(words("#emph[emphasised prose]"), vec!["emphasised", "prose"]);
+        assert_eq!(
+            words("#emph[emphasised prose]"),
+            vec!["emphasised", "prose"]
+        );
         assert_eq!(
             words("#text(size: 10pt)[visible words]"),
             vec!["visible", "words"]

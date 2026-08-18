@@ -20,7 +20,11 @@ pub(crate) fn parse_typ_imports(content: &str, base_dir: &Path) -> Vec<PathBuf> 
             let raw = c[1].to_string();
             let full = base_dir.join(&raw);
             let canonical = std::fs::canonicalize(&full).unwrap_or(full);
-            if canonical.exists() { Some(canonical) } else { None }
+            if canonical.exists() {
+                Some(canonical)
+            } else {
+                None
+            }
         })
         .collect()
 }
@@ -44,7 +48,9 @@ pub fn manuscript_files(root: &Path, project_root: &Path) -> Vec<(PathBuf, Strin
         }
         visited.insert(path.clone());
 
-        let Ok(content) = std::fs::read_to_string(&path) else { continue };
+        let Ok(content) = std::fs::read_to_string(&path) else {
+            continue;
+        };
         let base = path.parent().unwrap_or(project_root);
         for child in parse_typ_imports(&content, base) {
             if !visited.contains(&child) {
@@ -56,11 +62,7 @@ pub fn manuscript_files(root: &Path, project_root: &Path) -> Vec<(PathBuf, Strin
     out
 }
 
-fn collect_recursive(
-    dir: &Path,
-    repo: &Option<git2::Repository>,
-    out: &mut Vec<PathBuf>,
-) {
+fn collect_recursive(dir: &Path, repo: &Option<git2::Repository>, out: &mut Vec<PathBuf>) {
     let mut entries: Vec<_> = match std::fs::read_dir(dir) {
         Ok(rd) => rd.flatten().collect(),
         Err(_) => return,
@@ -98,8 +100,14 @@ mod tests {
         std::fs::write(dir.path().join("chapters/ch1.typ"), "content").unwrap();
 
         let files = collect_typ_files(dir.path());
-        let names: Vec<String> = files.iter()
-            .map(|f| f.strip_prefix(dir.path()).unwrap().to_string_lossy().to_string())
+        let names: Vec<String> = files
+            .iter()
+            .map(|f| {
+                f.strip_prefix(dir.path())
+                    .unwrap()
+                    .to_string_lossy()
+                    .to_string()
+            })
             .collect();
         assert_eq!(names, vec!["chapters/ch1.typ", "main.typ"]);
     }
@@ -131,7 +139,8 @@ mod tests {
         std::fs::write(dir.path().join("ch2.typ"), "= Chapter Two").unwrap();
 
         let files = manuscript_files(&root, dir.path());
-        let names: Vec<String> = files.iter()
+        let names: Vec<String> = files
+            .iter()
             .map(|(p, _)| p.file_name().unwrap().to_string_lossy().to_string())
             .collect();
         assert_eq!(names, vec!["main.typ", "ch1.typ", "ch2.typ"]);

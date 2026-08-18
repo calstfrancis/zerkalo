@@ -173,7 +173,11 @@ pub fn fetch_identity(token: &str) -> Result<Identity, GithubAuthError> {
         .filter(|n| !n.is_empty())
         .unwrap_or_else(|| user.login.clone());
     let email = noreply_email(user.id, &user.login);
-    Ok(Identity { login: user.login, name, email })
+    Ok(Identity {
+        login: user.login,
+        name,
+        email,
+    })
 }
 
 /// Creates a new repository under the authenticated user's account and
@@ -209,7 +213,11 @@ pub fn sanitize_repo_name(raw: &str) -> String {
         }
     }
     let trimmed = out.trim_matches(['-', '.'].as_slice());
-    if trimmed.is_empty() { "zerkalo-docs".to_string() } else { trimmed.to_string() }
+    if trimmed.is_empty() {
+        "zerkalo-docs".to_string()
+    } else {
+        trimmed.to_string()
+    }
 }
 
 /// The repository name offered for a work folder — the folder's own name with
@@ -221,7 +229,11 @@ pub fn suggested_repo_name(work_dir: &std::path::Path) -> String {
         .and_then(|n| n.to_str())
         .unwrap_or("zerkalo");
     let base = sanitize_repo_name(stem);
-    if base.ends_with("-docs") { base } else { format!("{base}-docs") }
+    if base.ends_with("-docs") {
+        base
+    } else {
+        format!("{base}-docs")
+    }
 }
 
 #[cfg(test)]
@@ -240,7 +252,10 @@ mod tests {
     fn an_account_with_no_display_name_falls_back_to_its_login() {
         let user: GithubUser =
             serde_json::from_str(r#"{"login":"octocat","id":1,"name":null}"#).unwrap();
-        assert!(user.name.is_none(), "name absent, so the login must be used");
+        assert!(
+            user.name.is_none(),
+            "name absent, so the login must be used"
+        );
     }
 
     #[test]

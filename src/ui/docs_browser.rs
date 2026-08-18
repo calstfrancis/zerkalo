@@ -3,13 +3,13 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::SystemTime;
 
+use adw::prelude::*;
 use gtk4::prelude::*;
 use gtk4::{
     Box as GtkBox, Entry, Label, ListBox, ListBoxRow, Orientation, ScrolledWindow, SelectionMode,
     Separator,
 };
 use libadwaita as adw;
-use adw::prelude::*;
 
 type OpenCb = Rc<RefCell<Option<Box<dyn Fn(PathBuf)>>>>;
 
@@ -51,9 +51,8 @@ impl DocsBrowser {
         let mut files: Vec<(PathBuf, SystemTime)> = scan_typ_files(&work_dir, 3);
         files.sort_by_key(|(_, mtime)| std::cmp::Reverse(*mtime));
 
-        let file_paths: Rc<RefCell<Vec<PathBuf>>> = Rc::new(RefCell::new(
-            files.iter().map(|(p, _)| p.clone()).collect(),
-        ));
+        let file_paths: Rc<RefCell<Vec<PathBuf>>> =
+            Rc::new(RefCell::new(files.iter().map(|(p, _)| p.clone()).collect()));
 
         for (path, mtime) in &files {
             append_row(&list_box, path, *mtime, &on_open, &window);
@@ -71,7 +70,11 @@ impl DocsBrowser {
             }
             let paths = file_paths_c.borrow().clone();
             for path in &paths {
-                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_lowercase();
+                let name = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("")
+                    .to_lowercase();
                 if query.is_empty() || name.contains(&query) {
                     let mtime = std::fs::metadata(path)
                         .and_then(|m| m.modified())
@@ -110,7 +113,11 @@ fn append_row(
     on_open: &OpenCb,
     window: &adw::Window,
 ) {
-    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
+    let name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("")
+        .to_string();
     let date_str = format_mtime_local(mtime);
 
     let row = ListBoxRow::new();

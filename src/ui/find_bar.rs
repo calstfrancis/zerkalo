@@ -92,33 +92,37 @@ impl FindBar {
         bar_container.append(&bar);
         revealer.set_child(Some(&bar_container));
 
-        let on_search: Rc<RefCell<Option<Box<dyn Fn(&str, bool)>>>> =
-            Rc::new(RefCell::new(None));
+        let on_search: Rc<RefCell<Option<Box<dyn Fn(&str, bool)>>>> = Rc::new(RefCell::new(None));
         let on_replace_one: Rc<RefCell<Option<Box<dyn Fn(&str, &str)>>>> =
             Rc::new(RefCell::new(None));
         let on_replace_all: Rc<RefCell<Option<Box<dyn Fn(&str, &str)>>>> =
             Rc::new(RefCell::new(None));
-        let on_reveal_changed: Rc<RefCell<Option<Box<dyn Fn(bool)>>>> =
-            Rc::new(RefCell::new(None));
+        let on_reveal_changed: Rc<RefCell<Option<Box<dyn Fn(bool)>>>> = Rc::new(RefCell::new(None));
 
         {
             let cb = on_search.clone();
             let e = find_entry.clone();
             next_btn.connect_clicked(move |_| {
-                if let Some(f) = cb.borrow().as_ref() { f(&e.text(), true); }
+                if let Some(f) = cb.borrow().as_ref() {
+                    f(&e.text(), true);
+                }
             });
         }
         {
             let cb = on_search.clone();
             let e = find_entry.clone();
             prev_btn.connect_clicked(move |_| {
-                if let Some(f) = cb.borrow().as_ref() { f(&e.text(), false); }
+                if let Some(f) = cb.borrow().as_ref() {
+                    f(&e.text(), false);
+                }
             });
         }
         {
             let cb = on_search.clone();
             find_entry.connect_activate(move |e| {
-                if let Some(f) = cb.borrow().as_ref() { f(&e.text(), true); }
+                if let Some(f) = cb.borrow().as_ref() {
+                    f(&e.text(), true);
+                }
             });
         }
         {
@@ -126,7 +130,9 @@ impl FindBar {
             let fe = find_entry.clone();
             let re = replace_entry.clone();
             replace_btn.connect_clicked(move |_| {
-                if let Some(f) = cb.borrow().as_ref() { f(&fe.text(), &re.text()); }
+                if let Some(f) = cb.borrow().as_ref() {
+                    f(&fe.text(), &re.text());
+                }
             });
         }
         {
@@ -134,7 +140,9 @@ impl FindBar {
             let fe = find_entry.clone();
             let re = replace_entry.clone();
             replace_all_btn.connect_clicked(move |_| {
-                if let Some(f) = cb.borrow().as_ref() { f(&fe.text(), &re.text()); }
+                if let Some(f) = cb.borrow().as_ref() {
+                    f(&fe.text(), &re.text());
+                }
             });
         }
         // Escape: clear entry and hide bar
@@ -148,7 +156,9 @@ impl FindBar {
                 if key == gtk4::gdk::Key::Escape {
                     entry.set_text("");
                     rev_c.set_reveal_child(false);
-                    if let Some(f) = orc.borrow().as_ref() { f(false); }
+                    if let Some(f) = orc.borrow().as_ref() {
+                        f(false);
+                    }
                     glib::Propagation::Stop
                 } else {
                     glib::Propagation::Proceed
@@ -181,7 +191,9 @@ impl FindBar {
         if reveal {
             self.find_entry.grab_focus();
         }
-        if let Some(f) = self.on_reveal_changed.borrow().as_ref() { f(reveal); }
+        if let Some(f) = self.on_reveal_changed.borrow().as_ref() {
+            f(reveal);
+        }
     }
 
     pub fn set_on_reveal_changed(&self, f: impl Fn(bool) + 'static) {

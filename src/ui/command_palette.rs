@@ -2,13 +2,13 @@ use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
+use adw::prelude::*;
 use gtk4::prelude::*;
 use gtk4::{
-    Box as GtkBox, Entry, EventControllerKey, Label, ListBox, Orientation,
-    PolicyType, PropagationPhase, ScrolledWindow, SelectionMode,
+    Box as GtkBox, Entry, EventControllerKey, Label, ListBox, Orientation, PolicyType,
+    PropagationPhase, ScrolledWindow, SelectionMode,
 };
 use libadwaita as adw;
-use adw::prelude::*;
 
 #[derive(Clone)]
 pub struct PaletteItem {
@@ -138,7 +138,13 @@ impl CommandPalette {
             window.add_controller(kc2);
         }
 
-        Self { window, entry, list, items, on_activate }
+        Self {
+            window,
+            entry,
+            list,
+            items,
+            on_activate,
+        }
     }
 
     pub fn set_on_activate(&self, f: impl Fn(&str) + 'static) {
@@ -206,9 +212,15 @@ fn highlight_match(text: &str, query: &str) -> String {
         // non-boundary offset panics.
         let mut start = start.min(text.len());
         let mut end = end.min(text.len());
-        while start > 0 && !text.is_char_boundary(start) { start -= 1; }
-        while end < text.len() && !text.is_char_boundary(end) { end += 1; }
-        if end < start { end = start; }
+        while start > 0 && !text.is_char_boundary(start) {
+            start -= 1;
+        }
+        while end < text.len() && !text.is_char_boundary(end) {
+            end += 1;
+        }
+        if end < start {
+            end = start;
+        }
 
         let prefix = glib::markup_escape_text(&text[..start]);
         let matched = glib::markup_escape_text(&text[start..end]);
@@ -282,24 +294,96 @@ fn move_selection(list: &ListBox, delta: i32) {
 
 pub fn default_commands() -> Vec<PaletteItem> {
     vec![
-        PaletteItem { id: "new_file".into(), label: "New File".into(), subtitle: "Create a new document in the work folder".into() },
-        PaletteItem { id: "open_file".into(), label: "Open File…".into(), subtitle: "Browse to open a file".into() },
-        PaletteItem { id: "save".into(), label: "Save".into(), subtitle: "Save the active document (Ctrl+S)".into() },
-        PaletteItem { id: "export".into(), label: "Export…".into(), subtitle: "Export to PDF, HTML, DOCX, ODT or LaTeX".into() },
-        PaletteItem { id: "print".into(), label: "Print…".into(), subtitle: "Page range, layout and printer (Ctrl+P)".into() },
-        PaletteItem { id: "toggle_find".into(), label: "Find & Replace".into(), subtitle: "Toggle the find/replace bar (Ctrl+F)".into() },
-        PaletteItem { id: "find_in_files".into(), label: "Find in Files\u{2026}".into(), subtitle: "Search across all project files (Ctrl+Shift+F)".into() },
-        PaletteItem { id: "project_outline".into(), label: "Project Outline".into(), subtitle: "Jump to any heading in the current document".into() },
-        PaletteItem { id: "git_sync".into(), label: "Save a Version & Back It Up".into(), subtitle: "Save this version and send it to all backup locations (Ctrl+Shift+S)".into() },
-        PaletteItem { id: "toggle_profile".into(), label: "Toggle Profile".into(), subtitle: "Switch the preview between Final (full quality) and Draft (fast)".into() },
-        PaletteItem { id: "browse_snapshots".into(), label: "Browse Snapshots\u{2026}".into(), subtitle: "Local backups saved automatically every time you save".into() },
-        PaletteItem { id: "browse_history".into(), label: "File History\u{2026}".into(), subtitle: "Synced history of earlier versions and what changed".into() },
-        PaletteItem { id: "settings".into(), label: "Settings…".into(), subtitle: "Open the settings dialog".into() },
-        PaletteItem { id: "toggle_preview".into(), label: "Toggle Preview".into(), subtitle: "Show or hide the live preview pane".into() },
-        PaletteItem { id: "toggle_sidebar".into(), label: "Toggle Sidebar".into(), subtitle: "Show or hide the sidebar".into() },
-        PaletteItem { id: "template".into(), label: "New from Template…".into(), subtitle: "Choose a document template".into() },
-        PaletteItem { id: "help".into(), label: "Help & Shortcuts".into(), subtitle: "Open the help window (Ctrl+?)".into() },
-        PaletteItem { id: "focus_mode".into(), label: "Toggle Focus Mode".into(), subtitle: "Dim the sidebar for distraction-free writing".into() },
+        PaletteItem {
+            id: "new_file".into(),
+            label: "New File".into(),
+            subtitle: "Create a new document in the work folder".into(),
+        },
+        PaletteItem {
+            id: "open_file".into(),
+            label: "Open File…".into(),
+            subtitle: "Browse to open a file".into(),
+        },
+        PaletteItem {
+            id: "save".into(),
+            label: "Save".into(),
+            subtitle: "Save the active document (Ctrl+S)".into(),
+        },
+        PaletteItem {
+            id: "export".into(),
+            label: "Export…".into(),
+            subtitle: "Export to PDF, HTML, DOCX, ODT or LaTeX".into(),
+        },
+        PaletteItem {
+            id: "print".into(),
+            label: "Print…".into(),
+            subtitle: "Page range, layout and printer (Ctrl+P)".into(),
+        },
+        PaletteItem {
+            id: "toggle_find".into(),
+            label: "Find & Replace".into(),
+            subtitle: "Toggle the find/replace bar (Ctrl+F)".into(),
+        },
+        PaletteItem {
+            id: "find_in_files".into(),
+            label: "Find in Files\u{2026}".into(),
+            subtitle: "Search across all project files (Ctrl+Shift+F)".into(),
+        },
+        PaletteItem {
+            id: "project_outline".into(),
+            label: "Project Outline".into(),
+            subtitle: "Jump to any heading in the current document".into(),
+        },
+        PaletteItem {
+            id: "git_sync".into(),
+            label: "Save a Version & Back It Up".into(),
+            subtitle: "Save this version and send it to all backup locations (Ctrl+Shift+S)".into(),
+        },
+        PaletteItem {
+            id: "toggle_profile".into(),
+            label: "Toggle Profile".into(),
+            subtitle: "Switch the preview between Final (full quality) and Draft (fast)".into(),
+        },
+        PaletteItem {
+            id: "browse_snapshots".into(),
+            label: "Browse Snapshots\u{2026}".into(),
+            subtitle: "Local backups saved automatically every time you save".into(),
+        },
+        PaletteItem {
+            id: "browse_history".into(),
+            label: "File History\u{2026}".into(),
+            subtitle: "Synced history of earlier versions and what changed".into(),
+        },
+        PaletteItem {
+            id: "settings".into(),
+            label: "Settings…".into(),
+            subtitle: "Open the settings dialog".into(),
+        },
+        PaletteItem {
+            id: "toggle_preview".into(),
+            label: "Toggle Preview".into(),
+            subtitle: "Show or hide the live preview pane".into(),
+        },
+        PaletteItem {
+            id: "toggle_sidebar".into(),
+            label: "Toggle Sidebar".into(),
+            subtitle: "Show or hide the sidebar".into(),
+        },
+        PaletteItem {
+            id: "template".into(),
+            label: "New from Template…".into(),
+            subtitle: "Choose a document template".into(),
+        },
+        PaletteItem {
+            id: "help".into(),
+            label: "Help & Shortcuts".into(),
+            subtitle: "Open the help window (Ctrl+?)".into(),
+        },
+        PaletteItem {
+            id: "focus_mode".into(),
+            label: "Toggle Focus Mode".into(),
+            subtitle: "Dim the sidebar for distraction-free writing".into(),
+        },
     ]
 }
 
@@ -335,7 +419,8 @@ pub fn recent_file_items(files: &[PathBuf]) -> Vec<PaletteItem> {
         .iter()
         .filter_map(|p| {
             let name = p.file_name()?.to_str()?.to_string();
-            let parent = p.parent()
+            let parent = p
+                .parent()
                 .and_then(|d| d.to_str())
                 .unwrap_or("")
                 .to_string();
@@ -366,7 +451,10 @@ mod tests {
         // original string can slice mid-character and panic.
         let text = "stanİ日";
         let out = highlight_match(text, "stan");
-        assert!(out.contains("<b>"), "should still produce a highlighted result: {out}");
+        assert!(
+            out.contains("<b>"),
+            "should still produce a highlighted result: {out}"
+        );
     }
 
     #[test]

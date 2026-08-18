@@ -46,17 +46,39 @@ impl Default for Keybindings {
     }
 }
 
-fn default_save() -> String { "ctrl+s".to_string() }
-fn default_compile() -> String { "ctrl+shift+p".to_string() }
-fn default_find() -> String { "ctrl+f".to_string() }
-fn default_quit() -> String { "ctrl+q".to_string() }
-fn default_next_tab() -> String { "ctrl+tab".to_string() }
-fn default_prev_tab() -> String { "ctrl+shift+tab".to_string() }
-fn default_add_ref() -> String { "ctrl+shift+r".to_string() }
-fn default_git_sync() -> String { "ctrl+shift+s".to_string() }
-fn default_command_palette() -> String { "ctrl+k".to_string() }
-fn default_shortcuts_help() -> String { "ctrl+shift+h".to_string() }
-fn default_help_overlay() -> String { "f1".to_string() }
+fn default_save() -> String {
+    "ctrl+s".to_string()
+}
+fn default_compile() -> String {
+    "ctrl+shift+p".to_string()
+}
+fn default_find() -> String {
+    "ctrl+f".to_string()
+}
+fn default_quit() -> String {
+    "ctrl+q".to_string()
+}
+fn default_next_tab() -> String {
+    "ctrl+tab".to_string()
+}
+fn default_prev_tab() -> String {
+    "ctrl+shift+tab".to_string()
+}
+fn default_add_ref() -> String {
+    "ctrl+shift+r".to_string()
+}
+fn default_git_sync() -> String {
+    "ctrl+shift+s".to_string()
+}
+fn default_command_palette() -> String {
+    "ctrl+k".to_string()
+}
+fn default_shortcuts_help() -> String {
+    "ctrl+shift+h".to_string()
+}
+fn default_help_overlay() -> String {
+    "f1".to_string()
+}
 
 impl Keybindings {
     pub fn load() -> Self {
@@ -104,7 +126,9 @@ pub fn parse_key(s: &str) -> Option<(bool, bool, bool, String)> {
         return None;
     }
     let key_name = parts.last()?.to_lowercase();
-    let ctrl = parts.iter().any(|p| p.eq_ignore_ascii_case("ctrl") || p.eq_ignore_ascii_case("control"));
+    let ctrl = parts
+        .iter()
+        .any(|p| p.eq_ignore_ascii_case("ctrl") || p.eq_ignore_ascii_case("control"));
     let shift = parts.iter().any(|p| p.eq_ignore_ascii_case("shift"));
     let alt = parts.iter().any(|p| p.eq_ignore_ascii_case("alt"));
     Some((ctrl, shift, alt, key_name))
@@ -149,7 +173,9 @@ pub fn matches_binding(
     pressed_alt: bool,
     pressed_key: gtk4::gdk::Key,
 ) -> bool {
-    let Some((ctrl, shift, alt, key_name)) = parse_key(binding) else { return false };
+    let Some((ctrl, shift, alt, key_name)) = parse_key(binding) else {
+        return false;
+    };
     if ctrl != pressed_ctrl || shift != pressed_shift || alt != pressed_alt {
         return false;
     }
@@ -172,23 +198,58 @@ pub fn matches_binding(
 fn name_to_gdk_key(name: &str) -> Option<gtk4::gdk::Key> {
     use gtk4::gdk::Key;
     Some(match name {
-        "a" => Key::a, "b" => Key::b, "c" => Key::c, "d" => Key::d,
-        "e" => Key::e, "f" => Key::f, "g" => Key::g, "h" => Key::h,
-        "i" => Key::i, "j" => Key::j, "k" => Key::k, "l" => Key::l,
-        "m" => Key::m, "n" => Key::n, "o" => Key::o, "p" => Key::p,
-        "q" => Key::q, "r" => Key::r, "s" => Key::s, "t" => Key::t,
-        "u" => Key::u, "v" => Key::v, "w" => Key::w, "x" => Key::x,
-        "y" => Key::y, "z" => Key::z,
-        "0" => Key::_0, "1" => Key::_1, "2" => Key::_2, "3" => Key::_3,
-        "4" => Key::_4, "5" => Key::_5, "6" => Key::_6, "7" => Key::_7,
-        "8" => Key::_8, "9" => Key::_9,
+        "a" => Key::a,
+        "b" => Key::b,
+        "c" => Key::c,
+        "d" => Key::d,
+        "e" => Key::e,
+        "f" => Key::f,
+        "g" => Key::g,
+        "h" => Key::h,
+        "i" => Key::i,
+        "j" => Key::j,
+        "k" => Key::k,
+        "l" => Key::l,
+        "m" => Key::m,
+        "n" => Key::n,
+        "o" => Key::o,
+        "p" => Key::p,
+        "q" => Key::q,
+        "r" => Key::r,
+        "s" => Key::s,
+        "t" => Key::t,
+        "u" => Key::u,
+        "v" => Key::v,
+        "w" => Key::w,
+        "x" => Key::x,
+        "y" => Key::y,
+        "z" => Key::z,
+        "0" => Key::_0,
+        "1" => Key::_1,
+        "2" => Key::_2,
+        "3" => Key::_3,
+        "4" => Key::_4,
+        "5" => Key::_5,
+        "6" => Key::_6,
+        "7" => Key::_7,
+        "8" => Key::_8,
+        "9" => Key::_9,
         "tab" => Key::Tab,
         "escape" | "esc" => Key::Escape,
         "return" | "enter" => Key::Return,
         "space" => Key::space,
-        "f1" => Key::F1, "f2" => Key::F2, "f3" => Key::F3, "f4" => Key::F4,
-        "f5" => Key::F5, "f6" => Key::F6, "f7" => Key::F7, "f8" => Key::F8,
-        "f9" => Key::F9, "f10" => Key::F10, "f11" => Key::F11, "f12" => Key::F12,
+        "f1" => Key::F1,
+        "f2" => Key::F2,
+        "f3" => Key::F3,
+        "f4" => Key::F4,
+        "f5" => Key::F5,
+        "f6" => Key::F6,
+        "f7" => Key::F7,
+        "f8" => Key::F8,
+        "f9" => Key::F9,
+        "f10" => Key::F10,
+        "f11" => Key::F11,
+        "f12" => Key::F12,
         _ => return None,
     })
 }

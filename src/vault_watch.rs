@@ -14,10 +14,7 @@ use fond_vault::VaultEvent;
 /// poll — the same idiom `file_watcher.rs` uses for `.typ` files, just
 /// without needing its own path-filtering/dedup layer since events here are
 /// only used as a reload trigger, not inspected individually.
-pub fn start(
-    vault_dir: PathBuf,
-    on_change: impl Fn() + 'static,
-) -> Option<fond_vault::VaultWatch> {
+pub fn start(vault_dir: PathBuf, on_change: impl Fn() + 'static) -> Option<fond_vault::VaultWatch> {
     let (watch, rx) = fond_vault::watch(&vault_dir).ok()?;
 
     glib::timeout_add_local(Duration::from_millis(300), move || {

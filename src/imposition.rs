@@ -82,20 +82,29 @@ pub fn impose(pdf: &[u8], pages: &[usize], imposition: Imposition) -> Result<Vec
 
     let mut new_page_ids = Vec::with_capacity(sides.len());
     for side in &sides {
-        new_page_ids.push(make_sheet(&mut doc, side, &sources, &forms, sheet, imposition, pages_id));
+        new_page_ids.push(make_sheet(
+            &mut doc, side, &sources, &forms, sheet, imposition, pages_id,
+        ));
     }
 
     let tree = doc
         .get_dictionary_mut(pages_id)
         .map_err(|e| format!("The PDF's page tree is unreadable: {e}"))?;
-    tree.set("Kids", new_page_ids.iter().map(|id| Object::Reference(*id)).collect::<Vec<_>>());
+    tree.set(
+        "Kids",
+        new_page_ids
+            .iter()
+            .map(|id| Object::Reference(*id))
+            .collect::<Vec<_>>(),
+    );
     tree.set("Count", new_page_ids.len() as i64);
     // The old page objects and their content streams are unreachable now.
     // Without this the imposed file carries both copies.
     doc.prune_objects();
 
     let mut out = Vec::new();
-    doc.save_to(&mut out).map_err(|e| format!("Couldn't write the imposed PDF: {e}"))?;
+    doc.save_to(&mut out)
+        .map_err(|e| format!("Couldn't write the imposed PDF: {e}"))?;
     Ok(out)
 }
 
@@ -128,8 +137,17 @@ fn read_sources(doc: &Document, page_ids: &[ObjectId]) -> Result<Vec<SourcePage>
             merge_into(&mut resources, dict);
         }
 
-        let group = doc.get_dictionary(*id).ok().and_then(|p| p.get(b"Group").ok()).cloned();
-        sources.push(SourcePage { media, content, resources, group });
+        let group = doc
+            .get_dictionary(*id)
+            .ok()
+            .and_then(|p| p.get(b"Group").ok())
+            .cloned();
+        sources.push(SourcePage {
+            media,
+            content,
+            resources,
+            group,
+        });
     }
     Ok(sources)
 }
@@ -154,7 +172,10 @@ fn media_box(doc: &Document, page_id: ObjectId) -> Result<[f64; 4], String> {
                 return Err("A page has a malformed MediaBox.".into());
             }
             for (slot, value) in out.iter_mut().zip(values) {
-                *slot = value.as_float().map_err(|_| "A page has a malformed MediaBox.")? as f64;
+                *slot = value
+                    .as_float()
+                    .map_err(|_| "A page has a malformed MediaBox.")?
+                    as f64;
             }
             // A MediaBox may be given with its corners in either order.
             return Ok([
@@ -190,7 +211,11 @@ fn sheet_size(
     }
     // Two pages side by side turn a portrait page into a landscape sheet; a
     // 2×2 grid keeps the page's own proportions, so the sheet does too.
-    Ok(if imposition.rotates_sheet() { (h, w) } else { (w, h) })
+    Ok(if imposition.rotates_sheet() {
+        (h, w)
+    } else {
+        (w, h)
+    })
 }
 
 /// Wrap a source page as a Form XObject occupying its own MediaBox.
@@ -248,7 +273,9 @@ fn make_sheet(
 
     for (slot, entry) in side.iter().enumerate() {
         let Some(index) = entry else { continue };
-        let Some(form_id) = forms.get(*index).copied().flatten() else { continue };
+        let Some(form_id) = forms.get(*index).copied().flatten() else {
+            continue;
+        };
         let page = &sources[*index];
         let (pw, ph) = (page.width(), page.height());
         if pw <= 0.0 || ph <= 0.0 {
@@ -385,8 +412,16 @@ mod tests {
         let pdf = two_page_pdf();
         let out = impose(&pdf, &[0, 1], Imposition::TwoUp).unwrap();
         let sizes = sheet_sizes(&out);
-        assert_eq!(sizes.len(), 1, "two portrait pages fit on one landscape sheet");
-        assert!(sizes[0].0 > sizes[0].1, "the sheet must be landscape: {:?}", sizes[0]);
+        assert_eq!(
+            sizes.len(),
+            1,
+            "two portrait pages fit on one landscape sheet"
+        );
+        assert!(
+            sizes[0].0 > sizes[0].1,
+            "the sheet must be landscape: {:?}",
+            sizes[0]
+        );
         assert!((sizes[0].0 - 842.0).abs() < 1.0);
         assert!((sizes[0].1 - 595.0).abs() < 1.0);
     }
@@ -397,7 +432,11 @@ mod tests {
         let out = impose(&pdf, &[0, 1], Imposition::FourUp).unwrap();
         let sizes = sheet_sizes(&out);
         assert_eq!(sizes.len(), 1);
-        assert!(sizes[0].1 > sizes[0].0, "a 2×2 grid stays portrait: {:?}", sizes[0]);
+        assert!(
+            sizes[0].1 > sizes[0].0,
+            "a 2×2 grid stays portrait: {:?}",
+            sizes[0]
+        );
     }
 
     #[test]
@@ -416,7 +455,10 @@ mod tests {
         let doc = Document::load_mem(&out).unwrap();
         let page = *doc.get_pages().values().next().unwrap();
         let content = String::from_utf8_lossy(&doc.get_page_content(page)).to_string();
-        assert!(content.contains("Do"), "each slot draws its page as a form: {content}");
+        assert!(
+            content.contains("Do"),
+            "each slot draws its page as a form: {content}"
+        );
         assert_eq!(content.matches("Do").count(), 2, "both pages must be drawn");
         // The text operators live on in the forms rather than being rasterised.
         let has_text = doc
@@ -433,8 +475,10 @@ mod tests {
         // fonts, no compression, no resource inheritance. This runs the real
         // compiler output through the same path, which is where a wrong
         // assumption about the page tree would actually show up.
-        let path = std::env::temp_dir()
-            .join(format!("zerkalo-imposition-test-{}.typ", std::process::id()));
+        let path = std::env::temp_dir().join(format!(
+            "zerkalo-imposition-test-{}.typ",
+            std::process::id()
+        ));
         std::fs::write(
             &path,
             "#set page(width: 148mm, height: 210mm)\n\
@@ -451,7 +495,10 @@ mod tests {
         std::fs::remove_file(&path).ok();
 
         let page_count = Document::load_mem(&pdf).unwrap().get_pages().len();
-        assert!(page_count >= 2, "the fixture should produce several pages, got {page_count}");
+        assert!(
+            page_count >= 2,
+            "the fixture should produce several pages, got {page_count}"
+        );
 
         let pages: Vec<usize> = (0..page_count).collect();
         let out = impose(&pdf, &pages, Imposition::Booklet).expect("a real PDF should impose");
@@ -471,7 +518,10 @@ mod tests {
         let doc = Document::load_mem(&out).unwrap();
         let first = *doc.get_pages().values().next().unwrap();
         let content = String::from_utf8_lossy(&doc.get_page_content(first)).to_string();
-        assert!(content.contains("Do"), "the first sheet must draw its pages: {content}");
+        assert!(
+            content.contains("Do"),
+            "the first sheet must draw its pages: {content}"
+        );
     }
 
     #[test]

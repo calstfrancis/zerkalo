@@ -11,20 +11,40 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
     if matches!(s.body_kind, BodyKind::Cv) {
         return generate_cv_template(s);
     }
-    let style_key = CITATION_STYLES.get(s.style_idx).map(|(_, k)| *k).unwrap_or("chicago-notes");
-    let style_name = CITATION_STYLES.get(s.style_idx).map(|(n, _)| *n).unwrap_or("Chicago");
+    let style_key = CITATION_STYLES
+        .get(s.style_idx)
+        .map(|(_, k)| *k)
+        .unwrap_or("chicago-notes");
+    let style_name = CITATION_STYLES
+        .get(s.style_idx)
+        .map(|(n, _)| *n)
+        .unwrap_or("Chicago");
     let bib = bib_style(style_key);
     let bib_line = s.bib_path.as_ref().map(|p| {
         let target = crate::bibliography::bib_target_path(p);
-        format!("#bibliography(\"{}\", style: \"{}\")", typst_str(&target.to_string_lossy()), bib)
+        format!(
+            "#bibliography(\"{}\", style: \"{}\")",
+            typst_str(&target.to_string_lossy()),
+            bib
+        )
     });
 
     // GOST 7.32 mandates A4, specific margins, and 14 pt body text regardless of form selection.
     let (paper_line, mt, mb, ml, mr, font_size) = if style_key == "gost-r-705" {
         let size = user_length_or(&s.font_size, "pt", "14pt");
-        ("paper: \"a4\",".to_string(), "20mm".to_string(), "20mm".to_string(), "30mm".to_string(), "15mm".to_string(), size)
+        (
+            "paper: \"a4\",".to_string(),
+            "20mm".to_string(),
+            "20mm".to_string(),
+            "30mm".to_string(),
+            "15mm".to_string(),
+            size,
+        )
     } else {
-        let p = PAPER_SIZES.get(s.paper_idx).map(|(_, k)| *k).unwrap_or("us-letter");
+        let p = PAPER_SIZES
+            .get(s.paper_idx)
+            .map(|(_, k)| *k)
+            .unwrap_or("us-letter");
         let paper_line = if p == "custom" {
             let w = user_length_or(&s.custom_paper_w, "mm", "210mm");
             let h = user_length_or(&s.custom_paper_h, "mm", "297mm");
@@ -57,9 +77,15 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
         let color = user_color(&s.dropcap_color);
         if has_font || has_height || color.is_some() {
             let mut args = Vec::new();
-            if has_font  { args.push(format!("font: \"{}\"", typst_str(&s.dropcap_font))); }
-            if has_height { args.push(format!("height: {}", s.dropcap_lines.clamp(2, 8))); }
-            if let Some(c) = color { args.push(format!("fill: {c}")); }
+            if has_font {
+                args.push(format!("font: \"{}\"", typst_str(&s.dropcap_font)));
+            }
+            if has_height {
+                args.push(format!("height: {}", s.dropcap_lines.clamp(2, 8)));
+            }
+            if let Some(c) = color {
+                args.push(format!("fill: {c}"));
+            }
             let _ = writeln!(out, "#let dropcap = dropcap.with({})", args.join(", "));
         }
     }
@@ -71,7 +97,10 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
     let page_num_code = page_num_block(s.page_num_pos);
     let _ = writeln!(out, "#set page(");
     let _ = writeln!(out, "  {paper_line}");
-    let _ = writeln!(out, "  margin: (top: {mt}, bottom: {mb}, left: {ml}, right: {mr}),");
+    let _ = writeln!(
+        out,
+        "  margin: (top: {mt}, bottom: {mb}, left: {ml}, right: {mr}),"
+    );
     if !page_num_code.is_empty() {
         let _ = writeln!(out, "  {page_num_code}");
     }
@@ -82,14 +111,31 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
     // "LaTeX Look" mandates Computer Modern and its own tighter paragraph rhythm
     // (leading, spacing, first-line-indent), regardless of the font/spacing fields.
     if style_key == "latex" {
-        let _ = writeln!(out, "#set text(font: \"New Computer Modern\", size: {font_size}, lang: \"en\")");
-        let _ = writeln!(out, "#set par(leading: 0.55em, spacing: 0.55em, first-line-indent: 1.8em, justify: true)");
-        let _ = writeln!(out, "#show raw: set text(font: \"New Computer Modern Mono\")");
+        let _ = writeln!(
+            out,
+            "#set text(font: \"New Computer Modern\", size: {font_size}, lang: \"en\")"
+        );
+        let _ = writeln!(
+            out,
+            "#set par(leading: 0.55em, spacing: 0.55em, first-line-indent: 1.8em, justify: true)"
+        );
+        let _ = writeln!(
+            out,
+            "#show raw: set text(font: \"New Computer Modern Mono\")"
+        );
         let _ = writeln!(out, "#show math.equation: set text(weight: \"regular\")");
     } else {
-        let font = if s.font.trim().is_empty() { "Libertinus Serif" } else { s.font.trim() };
+        let font = if s.font.trim().is_empty() {
+            "Libertinus Serif"
+        } else {
+            s.font.trim()
+        };
         let leading = user_length_or(&s.spacing, "em", "0.65em");
-        let _ = writeln!(out, "#set text(font: \"{}\", size: {font_size}, lang: \"en\")", typst_str(font));
+        let _ = writeln!(
+            out,
+            "#set text(font: \"{}\", size: {font_size}, lang: \"en\")",
+            typst_str(font)
+        );
         // `spacing` matches `leading` so paragraphs are marked by the indent
         // alone. A fixed 1.2em gap on top of the indent marked every paragraph
         // twice — and on a double-spaced document it also broke the even line
@@ -177,7 +223,10 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
     match s.body_kind {
         BodyKind::Book => {
             let _ = writeln!(out, "// ── Chapters — Zerkalo uses this exact line to find where your chapters start. Leave it in place; everything below it is yours to edit freely.");
-            let _ = writeln!(out, "// ── Chapters ────────────────────────────────────────────────────────");
+            let _ = writeln!(
+                out,
+                "// ── Chapters ────────────────────────────────────────────────────────"
+            );
             let _ = writeln!(out);
             let _ = writeln!(out, "= Chapter One: The Beginning");
             let _ = writeln!(out);
@@ -191,17 +240,26 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
             let _ = writeln!(out);
             let _ = writeln!(out, "#pagebreak()");
             let _ = writeln!(out);
-            let _ = writeln!(out, "// ── Back matter ─────────────────────────────────────────────────────");
+            let _ = writeln!(
+                out,
+                "// ── Back matter ─────────────────────────────────────────────────────"
+            );
             if let Some(ref line) = bib_line {
                 let _ = writeln!(out, "{line}");
             } else {
-                let _ = writeln!(out, "// Set your .bib file path in Settings > Extras, then regenerate.");
+                let _ = writeln!(
+                    out,
+                    "// Set your .bib file path in Settings > Extras, then regenerate."
+                );
                 let _ = writeln!(out, "// #bibliography(\"refs.bib\", style: \"{bib}\")");
             }
         }
         BodyKind::Academic => {
             let _ = writeln!(out, "// ── Document body — Zerkalo uses this exact line to find where your writing starts. Leave it in place; everything below it is yours to edit freely.");
-            let _ = writeln!(out, "// ── Document body ───────────────────────────────────────────────────");
+            let _ = writeln!(
+                out,
+                "// ── Document body ───────────────────────────────────────────────────"
+            );
             let _ = writeln!(out);
             let _ = writeln!(out, "= Introduction");
             let _ = writeln!(out);
@@ -209,17 +267,26 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
             let _ = writeln!(out);
             let _ = writeln!(out, "#pagebreak()");
             let _ = writeln!(out);
-            let _ = writeln!(out, "// ── Bibliography ────────────────────────────────────────────────────");
+            let _ = writeln!(
+                out,
+                "// ── Bibliography ────────────────────────────────────────────────────"
+            );
             if let Some(ref line) = bib_line {
                 let _ = writeln!(out, "{line}");
             } else {
-                let _ = writeln!(out, "// Set your .bib file path in Settings > Extras, then regenerate.");
+                let _ = writeln!(
+                    out,
+                    "// Set your .bib file path in Settings > Extras, then regenerate."
+                );
                 let _ = writeln!(out, "// #bibliography(\"refs.bib\", style: \"{bib}\")");
             }
         }
         BodyKind::Letter => {
             let _ = writeln!(out, "// ── Document body — Zerkalo uses this exact line to find where your writing starts. Leave it in place; everything below it is yours to edit freely.");
-            let _ = writeln!(out, "// ── Document body ───────────────────────────────────────────────────");
+            let _ = writeln!(
+                out,
+                "// ── Document body ───────────────────────────────────────────────────"
+            );
             let _ = writeln!(out);
             let _ = writeln!(out, "Start writing your letter here...");
             let _ = writeln!(out);
@@ -248,7 +315,10 @@ pub(crate) fn generate_cv_template(s: &TemplateSettings) -> String {
     // "custom" is a Zerkalo selector, not a Typst paper name — emitting it as
     // one gives "expected paper name", so it becomes explicit width/height
     // exactly as the academic generator does.
-    let paper = PAPER_SIZES.get(s.paper_idx).map(|(_, k)| *k).unwrap_or("a4");
+    let paper = PAPER_SIZES
+        .get(s.paper_idx)
+        .map(|(_, k)| *k)
+        .unwrap_or("a4");
     let page_size = if paper == "custom" {
         format!(
             "width: {}, height: {}",
@@ -274,16 +344,40 @@ pub(crate) fn generate_cv_template(s: &TemplateSettings) -> String {
     // intended. "Libertinus Serif" is embedded directly in the Typst
     // compiler (see typst-kit's `embed-fonts` feature), so it renders
     // correctly regardless of what fonts the host system has installed.
-    let font = if s.font.trim().is_empty() || s.font == "Times New Roman" { "Libertinus Serif" } else { s.font.trim() };
+    let font = if s.font.trim().is_empty() || s.font == "Times New Roman" {
+        "Libertinus Serif"
+    } else {
+        s.font.trim()
+    };
     let font_size = user_length_or(&s.font_size, "pt", "10.5pt");
-    let name = if s.author.is_empty() { "Your Name" } else { &s.author };
+    let name = if s.author.is_empty() {
+        "Your Name"
+    } else {
+        &s.author
+    };
     // In CV mode the Metadata group's academic-paper rows are relabeled to
     // CV-relevant fields (see the cv_switch handler in TemplateDialog::new):
     // Subtitle -> Email, Course -> Phone, Affiliation -> Location, Professor -> Links.
-    let email = if s.subtitle.is_empty() { "your@email.com" } else { &s.subtitle };
-    let phone = if s.course.is_empty() { "+1 555 000 0000" } else { &s.course };
-    let location = if s.affiliation.is_empty() { "City, Country" } else { &s.affiliation };
-    let links = if s.professor.is_empty() { "github.com/handle" } else { &s.professor };
+    let email = if s.subtitle.is_empty() {
+        "your@email.com"
+    } else {
+        &s.subtitle
+    };
+    let phone = if s.course.is_empty() {
+        "+1 555 000 0000"
+    } else {
+        &s.course
+    };
+    let location = if s.affiliation.is_empty() {
+        "City, Country"
+    } else {
+        &s.affiliation
+    };
+    let links = if s.professor.is_empty() {
+        "github.com/handle"
+    } else {
+        &s.professor
+    };
 
     let mut out = String::new();
     let _ = writeln!(out, "{TEMPLATE_BEGIN}");
@@ -293,31 +387,59 @@ pub(crate) fn generate_cv_template(s: &TemplateSettings) -> String {
     let _ = writeln!(out, "// @zerkalo-cv-style: {cv_style}");
     let _ = writeln!(out, "// @zerkalo-version: {}", env!("CARGO_PKG_VERSION"));
     let _ = writeln!(out);
-    let _ = writeln!(out, "#set page({page_size}, margin: (x: {margin_x}, y: {margin_y}))");
-    let _ = writeln!(out, "#set text(font: \"{font}\", size: {font_size}, lang: \"en\")", font = typst_str(font));
+    let _ = writeln!(
+        out,
+        "#set page({page_size}, margin: (x: {margin_x}, y: {margin_y}))"
+    );
+    let _ = writeln!(
+        out,
+        "#set text(font: \"{font}\", size: {font_size}, lang: \"en\")",
+        font = typst_str(font)
+    );
     let _ = writeln!(out, "#set par(spacing: 0.55em, leading: 0.65em)");
     let _ = writeln!(out);
-    let _ = writeln!(out, "// Change CV_STYLE to switch theme: \"modern\" | \"academic\" | \"classic\" | \"sidebar\"");
+    let _ = writeln!(
+        out,
+        "// Change CV_STYLE to switch theme: \"modern\" | \"academic\" | \"classic\" | \"sidebar\""
+    );
     let _ = writeln!(out, "#let CV_STYLE = \"{cv_style}\"");
     let _ = writeln!(out);
 
     // ── Colour palette (derived from CV_STYLE at compile time) ───────────────
-    let _ = writeln!(out, "// ── Colour palette ──────────────────────────────────────────────────────");
-    let _ = writeln!(out, "#let cv-accent = if CV_STYLE == \"modern\" {{ rgb(\"#2a5298\") }} else {{ black }}");
-    let _ = writeln!(out, "#let cv-muted  = if CV_STYLE == \"modern\" {{ rgb(\"#555555\") }} else {{ luma(90) }}");
-    let _ = writeln!(out, "#let cv-dim    = if CV_STYLE == \"modern\" {{ rgb(\"#888888\") }} else {{ luma(130) }}");
+    let _ = writeln!(
+        out,
+        "// ── Colour palette ──────────────────────────────────────────────────────"
+    );
+    let _ = writeln!(
+        out,
+        "#let cv-accent = if CV_STYLE == \"modern\" {{ rgb(\"#2a5298\") }} else {{ black }}"
+    );
+    let _ = writeln!(
+        out,
+        "#let cv-muted  = if CV_STYLE == \"modern\" {{ rgb(\"#555555\") }} else {{ luma(90) }}"
+    );
+    let _ = writeln!(
+        out,
+        "#let cv-dim    = if CV_STYLE == \"modern\" {{ rgb(\"#888888\") }} else {{ luma(130) }}"
+    );
     let _ = writeln!(out);
 
     // ── Skrizhal CV data ──────────────────────────────────────────────────────
     // #cv-section pulls entries from your Skrizhal CV-element file (see
     // Settings → Extras → CV Elements) and formats them for CV_STYLE above —
     // no need to hand-write each job/degree/award as Typst source.
-    let _ = writeln!(out, "// ── Skrizhal CV data ─────────────────────────────────────────────────────");
+    let _ = writeln!(
+        out,
+        "// ── Skrizhal CV data ─────────────────────────────────────────────────────"
+    );
     let _ = writeln!(out, "#import \"cv-helpers.typ\": cv-section");
     let _ = writeln!(out);
 
     // ── Helper functions ─────────────────────────────────────────────────────
-    let _ = writeln!(out, "// ── Layout helpers ───────────────────────────────────────────────────────");
+    let _ = writeln!(
+        out,
+        "// ── Layout helpers ───────────────────────────────────────────────────────"
+    );
     let _ = writeln!(out);
 
     // #section — sidebar style uses a plain native heading (no rule, no manual
@@ -329,17 +451,26 @@ pub(crate) fn generate_cv_template(s: &TemplateSettings) -> String {
     let _ = writeln!(out, "    v(0.9em)");
     let _ = writeln!(out, "    if CV_STYLE == \"modern\" [");
     let _ = writeln!(out, "      #grid(columns: (4pt, 1fr), gutter: 0.45em,");
-    let _ = writeln!(out, "        box(height: 0.9em, fill: cv-accent, radius: 1pt),");
+    let _ = writeln!(
+        out,
+        "        box(height: 0.9em, fill: cv-accent, radius: 1pt),"
+    );
     let _ = writeln!(out, "        text(weight: \"bold\", size: 9.5pt, fill: cv-accent, tracking: 1pt)[#upper(title)],");
     let _ = writeln!(out, "      )");
     let _ = writeln!(out, "      #v(-0.5em)");
     let _ = writeln!(out, "      #line(length: 100%, stroke: 0.4pt + cv-accent)");
     let _ = writeln!(out, "    ] else if CV_STYLE == \"academic\" [");
-    let _ = writeln!(out, "      #text(weight: \"bold\", size: 10pt)[#smallcaps(upper(title))]");
+    let _ = writeln!(
+        out,
+        "      #text(weight: \"bold\", size: 10pt)[#smallcaps(upper(title))]"
+    );
     let _ = writeln!(out, "      #v(-0.45em)");
     let _ = writeln!(out, "      #line(length: 100%, stroke: 1pt)");
     let _ = writeln!(out, "    ] else [");
-    let _ = writeln!(out, "      #text(weight: \"bold\", style: \"italic\")[#title]");
+    let _ = writeln!(
+        out,
+        "      #text(weight: \"bold\", style: \"italic\")[#title]"
+    );
     let _ = writeln!(out, "      #v(-0.4em)");
     let _ = writeln!(out, "      #line(length: 100%, stroke: 0.5pt)");
     let _ = writeln!(out, "    ]");
@@ -371,7 +502,10 @@ pub(crate) fn generate_cv_template(s: &TemplateSettings) -> String {
     let _ = writeln!(out);
 
     // ── Personal details + styled header ────────────────────────────────────
-    let _ = writeln!(out, "// ── Personal details ─────────────────────────────────────────────────");
+    let _ = writeln!(
+        out,
+        "// ── Personal details ─────────────────────────────────────────────────"
+    );
     let _ = writeln!(out, "#let cv-name     = \"{}\"", typst_str(name));
     let _ = writeln!(out, "#let cv-email    = \"{}\"", typst_str(email));
     let _ = writeln!(out, "#let cv-phone    = \"{}\"", typst_str(phone));
@@ -382,7 +516,10 @@ pub(crate) fn generate_cv_template(s: &TemplateSettings) -> String {
     // Modern header: large tracked name, accent-colored contact row, thick rule
     let _ = writeln!(out, "#if CV_STYLE == \"modern\" [");
     let _ = writeln!(out, "  #align(center)[");
-    let _ = writeln!(out, "    #text(size: 26pt, weight: \"bold\", tracking: 1pt)[#cv-name]");
+    let _ = writeln!(
+        out,
+        "    #text(size: 26pt, weight: \"bold\", tracking: 1pt)[#cv-name]"
+    );
     let _ = writeln!(out, "    #v(0.35em)");
     let _ = writeln!(out, "    #text(size: 9.5pt, fill: cv-accent)[");
     let _ = writeln!(out, "      #cv-email #h(0.5em)·#h(0.5em) #cv-phone #h(0.5em)·#h(0.5em) #cv-location #h(0.5em)·#h(0.5em) #cv-links");
@@ -393,7 +530,10 @@ pub(crate) fn generate_cv_template(s: &TemplateSettings) -> String {
     // Academic header: smallcaps name, two-line contact, 1pt rule
     let _ = writeln!(out, "] else if CV_STYLE == \"academic\" [");
     let _ = writeln!(out, "  #align(center)[");
-    let _ = writeln!(out, "    #text(size: 22pt, weight: \"bold\")[#smallcaps(cv-name)]");
+    let _ = writeln!(
+        out,
+        "    #text(size: 22pt, weight: \"bold\")[#smallcaps(cv-name)]"
+    );
     let _ = writeln!(out, "    #v(0.3em)");
     let _ = writeln!(out, "    #text(size: 9.5pt)[#cv-email · #cv-phone]");
     let _ = writeln!(out, "    \\");
@@ -417,7 +557,10 @@ pub(crate) fn generate_cv_template(s: &TemplateSettings) -> String {
     let _ = writeln!(out, "  #align(center)[");
     let _ = writeln!(out, "    #text(size: 22pt, weight: \"bold\")[#cv-name]");
     let _ = writeln!(out, "    #v(0.25em)");
-    let _ = writeln!(out, "    #text(size: 9.5pt, fill: cv-muted)[#cv-email · #cv-phone · #cv-location · #cv-links]");
+    let _ = writeln!(
+        out,
+        "    #text(size: 9.5pt, fill: cv-muted)[#cv-email · #cv-phone · #cv-location · #cv-links]"
+    );
     let _ = writeln!(out, "  ]");
     let _ = writeln!(out, "  #v(0.4em)");
     let _ = writeln!(out, "  #line(length: 100%, stroke: 0.5pt)");
@@ -442,7 +585,10 @@ pub fn generate_cv_body(cv_style: &str) -> String {
     }
 
     // ── Document body ────────────────────────────────────────────────────────
-    let _ = writeln!(out, "// ── Document body ─────────────────────────────────────────────────────");
+    let _ = writeln!(
+        out,
+        "// ── Document body ─────────────────────────────────────────────────────"
+    );
     let _ = writeln!(out);
 
     if cv_style == "sidebar" {
@@ -454,24 +600,39 @@ pub fn generate_cv_body(cv_style: &str) -> String {
     let _ = writeln!(out, "#let show-extracurricular = true");
     let _ = writeln!(out);
     let _ = writeln!(out, "#section(\"Experience\")[");
-    let _ = writeln!(out, "  #cv-section(category: (\"Employment\", \"Ministry Position\"), style: CV_STYLE)");
+    let _ = writeln!(
+        out,
+        "  #cv-section(category: (\"Employment\", \"Ministry Position\"), style: CV_STYLE)"
+    );
     let _ = writeln!(out, "]");
     let _ = writeln!(out);
     let _ = writeln!(out, "#section(\"Education\")[");
-    let _ = writeln!(out, "  #cv-section(category: \"Education\", style: CV_STYLE)");
+    let _ = writeln!(
+        out,
+        "  #cv-section(category: \"Education\", style: CV_STYLE)"
+    );
     let _ = writeln!(out, "]");
     let _ = writeln!(out);
     let _ = writeln!(out, "#section(\"Skills\")[");
-    let _ = writeln!(out, "  #cv-section(category: \"Language Skill\", style: CV_STYLE, mode: \"tags\")");
+    let _ = writeln!(
+        out,
+        "  #cv-section(category: \"Language Skill\", style: CV_STYLE, mode: \"tags\")"
+    );
     let _ = writeln!(out, "]");
     let _ = writeln!(out);
     let _ = writeln!(out, "#section(\"Awards & Honours\")[");
-    let _ = writeln!(out, "  #cv-section(category: (\"Award\", \"Certification\"), style: CV_STYLE)");
+    let _ = writeln!(
+        out,
+        "  #cv-section(category: (\"Award\", \"Certification\"), style: CV_STYLE)"
+    );
     let _ = writeln!(out, "]");
     let _ = writeln!(out);
     let _ = writeln!(out, "#if show-presentations [");
     let _ = writeln!(out, "  #section(\"Presentations & Publications\")[");
-    let _ = writeln!(out, "    #cv-section(category: (\"Publication\", \"Presentation\"), style: CV_STYLE)");
+    let _ = writeln!(
+        out,
+        "    #cv-section(category: (\"Publication\", \"Presentation\"), style: CV_STYLE)"
+    );
     let _ = writeln!(out, "  ]");
     let _ = writeln!(out, "]");
     let _ = writeln!(out);
@@ -495,7 +656,10 @@ pub(crate) fn generate_cv_sidebar_body(mut out: String) -> String {
     let _ = writeln!(out, "#let show-presentations = true");
     let _ = writeln!(out, "#let show-extracurricular = true");
     let _ = writeln!(out);
-    let _ = writeln!(out, "// A brief professional summary, full-width above the two columns");
+    let _ = writeln!(
+        out,
+        "// A brief professional summary, full-width above the two columns"
+    );
     let _ = writeln!(out, "#let cv-summary = \"A brief 2\u{2013}3 sentence professional summary goes here \u{2014} your background, key strengths, and what you're looking for next.\"");
     let _ = writeln!(out);
     let _ = writeln!(out, "#section(\"Profile\")[");
@@ -506,34 +670,58 @@ pub(crate) fn generate_cv_sidebar_body(mut out: String) -> String {
     let _ = writeln!(out, "  columns: (1fr, 2fr),");
     let _ = writeln!(out, "  gutter: 24pt,");
     let _ = writeln!(out);
-    let _ = writeln!(out, "  // ── Left: sidebar ──────────────────────────────────────────────────");
+    let _ = writeln!(
+        out,
+        "  // ── Left: sidebar ──────────────────────────────────────────────────"
+    );
     let _ = writeln!(out, "  [");
     let _ = writeln!(out, "    #section(\"Education\")[");
-    let _ = writeln!(out, "      #cv-section(category: \"Education\", style: CV_STYLE)");
+    let _ = writeln!(
+        out,
+        "      #cv-section(category: \"Education\", style: CV_STYLE)"
+    );
     let _ = writeln!(out, "    ]");
     let _ = writeln!(out);
     let _ = writeln!(out, "    #section(\"Skills\")[");
-    let _ = writeln!(out, "      #cv-section(category: \"Language Skill\", style: CV_STYLE, mode: \"tags\")");
+    let _ = writeln!(
+        out,
+        "      #cv-section(category: \"Language Skill\", style: CV_STYLE, mode: \"tags\")"
+    );
     let _ = writeln!(out, "    ]");
     let _ = writeln!(out);
     let _ = writeln!(out, "    #section(\"Interests\")[");
-    let _ = writeln!(out, "      #taglist((\"Interest one\", \"Interest two\", \"Interest three\"))");
+    let _ = writeln!(
+        out,
+        "      #taglist((\"Interest one\", \"Interest two\", \"Interest three\"))"
+    );
     let _ = writeln!(out, "    ]");
     let _ = writeln!(out);
     let _ = writeln!(out, "    #section(\"Awards\")[");
-    let _ = writeln!(out, "      #cv-section(category: (\"Award\", \"Certification\"), style: CV_STYLE)");
+    let _ = writeln!(
+        out,
+        "      #cv-section(category: (\"Award\", \"Certification\"), style: CV_STYLE)"
+    );
     let _ = writeln!(out, "    ]");
     let _ = writeln!(out, "  ],");
     let _ = writeln!(out);
-    let _ = writeln!(out, "  // ── Right: main column ─────────────────────────────────────────────");
+    let _ = writeln!(
+        out,
+        "  // ── Right: main column ─────────────────────────────────────────────"
+    );
     let _ = writeln!(out, "  [");
     let _ = writeln!(out, "    #section(\"Experience\")[");
-    let _ = writeln!(out, "      #cv-section(category: (\"Employment\", \"Ministry Position\"), style: CV_STYLE)");
+    let _ = writeln!(
+        out,
+        "      #cv-section(category: (\"Employment\", \"Ministry Position\"), style: CV_STYLE)"
+    );
     let _ = writeln!(out, "    ]");
     let _ = writeln!(out);
     let _ = writeln!(out, "    #if show-presentations [");
     let _ = writeln!(out, "      #section(\"Presentations & Publications\")[");
-    let _ = writeln!(out, "        #cv-section(category: (\"Publication\", \"Presentation\"), style: CV_STYLE)");
+    let _ = writeln!(
+        out,
+        "        #cv-section(category: (\"Publication\", \"Presentation\"), style: CV_STYLE)"
+    );
     let _ = writeln!(out, "      ]");
     let _ = writeln!(out, "    ]");
     let _ = writeln!(out);
@@ -550,11 +738,22 @@ pub(crate) fn generate_cv_sidebar_body(mut out: String) -> String {
 
 pub(crate) fn generate_title_page(style_key: &str, s: &TemplateSettings) -> String {
     let mut out = String::new();
-    let _ = writeln!(out, "// ── Title block ─────────────────────────────────────────────────────");
+    let _ = writeln!(
+        out,
+        "// ── Title block ─────────────────────────────────────────────────────"
+    );
 
     // Live metadata variables — editing these directly updates the rendered title page.
     let _ = writeln!(out, "// Edit these variables to update the title page:");
-    let _ = writeln!(out, "#let doc-title = \"{}\"", typst_str(if s.title.is_empty() { "Untitled" } else { &s.title }));
+    let _ = writeln!(
+        out,
+        "#let doc-title = \"{}\"",
+        typst_str(if s.title.is_empty() {
+            "Untitled"
+        } else {
+            &s.title
+        })
+    );
     let _ = writeln!(out, "#let doc-subtitle = \"{}\"", typst_str(&s.subtitle));
     let _ = writeln!(out, "#let doc-author = \"{}\"", typst_str(&s.author));
     let _ = writeln!(out, "#let doc-affil = \"{}\"", typst_str(&s.affiliation));
@@ -598,10 +797,19 @@ pub(crate) fn generate_title_page(style_key: &str, s: &TemplateSettings) -> Stri
         // IEEE: no title page — title + authors as header block in two-column layout
         "ieee" => {
             let _ = writeln!(out, "#align(center)[");
-            let _ = writeln!(out, "  #text(size: 18pt, weight: \"bold\")[#upper[#doc-title]]");
+            let _ = writeln!(
+                out,
+                "  #text(size: 18pt, weight: \"bold\")[#upper[#doc-title]]"
+            );
             let _ = writeln!(out, "  #if doc-subtitle != \"\" [\\ #text(size: 13pt, style: \"italic\")[#doc-subtitle]]");
-            let _ = writeln!(out, "  #if doc-author != \"\" [\\ #text(size: 11pt)[#doc-author]]");
-            let _ = writeln!(out, "  #if doc-affil != \"\" [\\ #text(size: 10pt, style: \"italic\")[#doc-affil]]");
+            let _ = writeln!(
+                out,
+                "  #if doc-author != \"\" [\\ #text(size: 11pt)[#doc-author]]"
+            );
+            let _ = writeln!(
+                out,
+                "  #if doc-affil != \"\" [\\ #text(size: 10pt, style: \"italic\")[#doc-affil]]"
+            );
             let _ = writeln!(out, "]");
             let _ = writeln!(out);
         }
@@ -609,7 +817,10 @@ pub(crate) fn generate_title_page(style_key: &str, s: &TemplateSettings) -> Stri
         "apa" | "asa" | "harvard" => {
             // No "Running head:" label — the 7th edition dropped it, and this
             // style is offered as APA 7th. The shortened title in caps stays.
-            let _ = writeln!(out, "#page(header: align(left)[#text(size: 10pt)[#upper[#doc-title]]])[");
+            let _ = writeln!(
+                out,
+                "#page(header: align(left)[#text(size: 10pt)[#upper[#doc-title]]])["
+            );
             let _ = writeln!(out, "  #set align(center)");
             let _ = writeln!(out, "  #v(2.5in)");
             let _ = writeln!(out, "  #text(size: 14pt, weight: \"bold\")[#doc-title]");
@@ -629,10 +840,16 @@ pub(crate) fn generate_title_page(style_key: &str, s: &TemplateSettings) -> Stri
         "gost-r-705" => {
             let _ = writeln!(out, "#page(header: none, footer: none, numbering: none)[");
             let _ = writeln!(out, "  #set align(center)");
-            let _ = writeln!(out, "  #if doc-affil != \"\" [#text(size: 14pt)[#upper[#doc-affil]] #v(1em)]");
+            let _ = writeln!(
+                out,
+                "  #if doc-affil != \"\" [#text(size: 14pt)[#upper[#doc-affil]] #v(1em)]"
+            );
             let _ = writeln!(out, "  #v(3cm)");
             let _ = writeln!(out, "  #text(size: 16pt, weight: \"bold\")[#doc-title]");
-            let _ = writeln!(out, "  #if doc-subtitle != \"\" [#v(0.5cm) #text(size: 12pt)[#doc-subtitle]]");
+            let _ = writeln!(
+                out,
+                "  #if doc-subtitle != \"\" [#v(0.5cm) #text(size: 12pt)[#doc-subtitle]]"
+            );
             let _ = writeln!(out, "  #v(3cm)");
             let _ = writeln!(out, "  #set align(right)");
             let _ = writeln!(out, "  #if doc-author != \"\" [#doc-author]");
@@ -654,7 +871,10 @@ pub(crate) fn generate_title_page(style_key: &str, s: &TemplateSettings) -> Stri
             let _ = writeln!(out, "  #if doc-subtitle != \"\" [\\ #text(size: 13pt, style: \"italic\")[#doc-subtitle]]");
             let _ = writeln!(out, "  #v(2fr)");
             let _ = writeln!(out, "  #if doc-author != \"\" [#doc-author]");
-            let _ = writeln!(out, "  #if doc-affil != \"\" [\\ #text(style: \"italic\")[#doc-affil]]");
+            let _ = writeln!(
+                out,
+                "  #if doc-affil != \"\" [\\ #text(style: \"italic\")[#doc-affil]]"
+            );
             let _ = writeln!(out, "  #if doc-course != \"\" [\\ #doc-course]");
             let _ = writeln!(out, "  #if doc-professor != \"\" [\\ #doc-professor]");
             let _ = writeln!(out, "  #if doc-date != \"\" [\\ #doc-date]");
@@ -674,9 +894,20 @@ pub(crate) fn generate_title_page(style_key: &str, s: &TemplateSettings) -> Stri
 /// a date, a recipient block, and a salutation, the way an actual letter opens.
 pub(crate) fn generate_letter_header(s: &TemplateSettings) -> String {
     let mut out = String::new();
-    let _ = writeln!(out, "// ── Title block ─────────────────────────────────────────────────────");
+    let _ = writeln!(
+        out,
+        "// ── Title block ─────────────────────────────────────────────────────"
+    );
     let _ = writeln!(out, "// Edit these variables to update the letterhead:");
-    let _ = writeln!(out, "#let doc-title = \"{}\"", typst_str(if s.title.is_empty() { "Untitled" } else { &s.title }));
+    let _ = writeln!(
+        out,
+        "#let doc-title = \"{}\"",
+        typst_str(if s.title.is_empty() {
+            "Untitled"
+        } else {
+            &s.title
+        })
+    );
     let _ = writeln!(out, "#let doc-subtitle = \"{}\"", typst_str(&s.subtitle));
     let _ = writeln!(out, "#let doc-author = \"{}\"", typst_str(&s.author));
     let _ = writeln!(out, "#let doc-affil = \"{}\"", typst_str(&s.affiliation));
@@ -721,14 +952,29 @@ pub fn rebuild_title_page_for_style(content: &str, new_style_key: &str) -> Strin
         professor: parse_meta(content, "professor"),
         date: parse_meta(content, "date"),
         // Remaining fields are not used by generate_title_page
-        style_idx: 0, paper_idx: 0, margin_idx: 0,
-        custom_paper_w: String::new(), custom_paper_h: String::new(), custom_margin: String::new(),
-        font: String::new(), font_size: String::new(), spacing: String::new(), page_num_pos: 0, header_style: 0,
-        include_toc: false, toc_depth: 2,
-        include_abstract: false, abstract_text: String::new(),
-        include_keywords: false, keywords: String::new(),
-        heading_numbering: false, numbering_format: String::new(),
-        languages: vec![], packages: vec![], dropcap_font: String::new(), dropcap_lines: 3,
+        style_idx: 0,
+        paper_idx: 0,
+        margin_idx: 0,
+        custom_paper_w: String::new(),
+        custom_paper_h: String::new(),
+        custom_margin: String::new(),
+        font: String::new(),
+        font_size: String::new(),
+        spacing: String::new(),
+        page_num_pos: 0,
+        header_style: 0,
+        include_toc: false,
+        toc_depth: 2,
+        include_abstract: false,
+        abstract_text: String::new(),
+        include_keywords: false,
+        keywords: String::new(),
+        heading_numbering: false,
+        numbering_format: String::new(),
+        languages: vec![],
+        packages: vec![],
+        dropcap_font: String::new(),
+        dropcap_lines: 3,
         dropcap_color: String::new(),
         body_kind: BodyKind::Academic,
         bib_path: None,
@@ -741,12 +987,27 @@ pub fn rebuild_title_page_for_style(content: &str, new_style_key: &str) -> Strin
 
 pub(crate) fn margin_values(idx: usize, custom_in: &str) -> (String, String, String, String) {
     match idx {
-        1 => ("0.5in".into(), "0.5in".into(), "0.5in".into(), "0.5in".into()),
+        1 => (
+            "0.5in".into(),
+            "0.5in".into(),
+            "0.5in".into(),
+            "0.5in".into(),
+        ),
         2 => ("1in".into(), "1in".into(), "2in".into(), "2in".into()),
-        3 => ("1.75in".into(), "1.75in".into(), "1.75in".into(), "1.75in".into()),
+        3 => (
+            "1.75in".into(),
+            "1.75in".into(),
+            "1.75in".into(),
+            "1.75in".into(),
+        ),
         // Right margin is a relative length — Typst resolves 33% against the
         // page width directly, so this stays correct across paper sizes.
-        4 => ("1.25in".into(), "1.25in".into(), "1.25in".into(), "33%".into()),
+        4 => (
+            "1.25in".into(),
+            "1.25in".into(),
+            "1.25in".into(),
+            "33%".into(),
+        ),
         5 => {
             let m = user_length_or(custom_in, "in", "1in");
             (m.clone(), m.clone(), m.clone(), m)
@@ -799,7 +1060,9 @@ pub(crate) fn header_block(style: u32) -> Option<String> {
     }
 }
 
-pub(crate) fn default_dropcap_lines() -> u32 { 3 }
+pub(crate) fn default_dropcap_lines() -> u32 {
+    3
+}
 
 pub fn bib_style(style_key: &str) -> &'static str {
     match style_key {
@@ -818,9 +1081,7 @@ pub fn bib_style(style_key: &str) -> &'static str {
 pub(crate) fn package_import(key: &str) -> Option<&'static str> {
     match key {
         "pkg_droplet" => Some("#import \"@preview/droplet:0.3.1\": dropcap"),
-        "pkg_codly" => {
-            Some("#import \"@preview/codly:1.3.0\": *\n#show: codly-init.with()")
-        }
+        "pkg_codly" => Some("#import \"@preview/codly:1.3.0\": *\n#show: codly-init.with()"),
         "pkg_showybox" => Some("#import \"@preview/showybox:2.0.4\": showybox"),
         "pkg_gentle" => Some("#import \"@preview/gentle-clues:1.2.0\": *"),
         "pkg_tablex" => Some("#import \"@preview/tablex:0.0.9\": tablex, cellx"),
@@ -1131,4 +1392,3 @@ pub(crate) fn inject_heading_numbering(rules: &str, numbering_on: bool, format: 
         .replace("#text(it.body)", &format!("{prefix}#text(it.body)"))
         .replace("#it.body", &format!("{prefix}#it.body"))
 }
-

@@ -2,12 +2,12 @@
 //! in-app changelog (rendered live from `CHANGELOG.md`).
 //! Split out of `app_window.rs`.
 
+use super::super::editor_pane::{strip_typst_markup, strip_zerkalo_blocks};
+use adw::prelude::*;
+use glib::object::IsA;
 use gtk4::prelude::*;
 use gtk4::Orientation;
 use libadwaita as adw;
-use adw::prelude::*;
-use glib::object::IsA;
-use super::super::editor_pane::{strip_typst_markup, strip_zerkalo_blocks};
 
 pub(super) fn show_doc_stats(
     parent: &impl IsA<gtk4::Window>,
@@ -19,12 +19,19 @@ pub(super) fn show_doc_stats(
     let words = content.split_whitespace().count();
     let chars = content.chars().filter(|c| !c.is_whitespace()).count();
     let chars_with_spaces = content.chars().count();
-    let paragraphs = content.split("\n\n").filter(|s| !s.trim().is_empty()).count();
+    let paragraphs = content
+        .split("\n\n")
+        .filter(|s| !s.trim().is_empty())
+        .count();
     let sentences = content
         .split(['.', '!', '?'])
         .filter(|s| !s.trim().is_empty())
         .count();
-    let reading_mins = if words < 200 { "<1".to_string() } else { format!("{}", words / 200) };
+    let reading_mins = if words < 200 {
+        "<1".to_string()
+    } else {
+        format!("{}", words / 200)
+    };
     let session_delta = if words as u32 > session_start {
         format!("+{}", words as u32 - session_start)
     } else if (words as u32) < session_start {
@@ -55,8 +62,14 @@ pub(super) fn show_doc_stats(
     group.set_margin_end(12);
     group.set_margin_top(12);
     group.set_margin_bottom(12);
-    group.add(&make_row("Words", &format!("{words}  ({session_delta} this session)")));
-    group.add(&make_row("Characters", &format!("{chars}  ({chars_with_spaces} with spaces)")));
+    group.add(&make_row(
+        "Words",
+        &format!("{words}  ({session_delta} this session)"),
+    ));
+    group.add(&make_row(
+        "Characters",
+        &format!("{chars}  ({chars_with_spaces} with spaces)"),
+    ));
     group.add(&make_row("Paragraphs", &paragraphs.to_string()));
     group.add(&make_row("Sentences", &sentences.to_string()));
     group.add(&make_row("Reading time", &format!("{reading_mins} min")));
@@ -88,10 +101,7 @@ pub(super) fn show_changelog(parent: &impl IsA<gtk4::Window>) {
 
     let header = adw::HeaderBar::new();
     header.add_css_class("fond-chrome");
-    let title_widget = adw::WindowTitle::new(
-        "Changelog",
-        &format!("You're on v{CURRENT_VERSION}"),
-    );
+    let title_widget = adw::WindowTitle::new("Changelog", &format!("You're on v{CURRENT_VERSION}"));
     header.set_title_widget(Some(&title_widget));
 
     let body = gtk4::Box::new(Orientation::Vertical, 4);
@@ -241,7 +251,10 @@ fn md_inline_to_pango(s: &str) -> String {
                 let mut inner = String::new();
                 loop {
                     match chars.next() {
-                        Some('*') if chars.peek() == Some(&'*') => { chars.next(); break; }
+                        Some('*') if chars.peek() == Some(&'*') => {
+                            chars.next();
+                            break;
+                        }
                         Some(ch) => inner.push(ch),
                         None => break,
                     }
@@ -275,7 +288,12 @@ fn md_inline_to_pango(s: &str) -> String {
                 if chars.peek() == Some(&'(') {
                     // consume (url)
                     chars.next();
-                    loop { match chars.next() { Some(')') | None => break, _ => {} } }
+                    loop {
+                        match chars.next() {
+                            Some(')') | None => break,
+                            _ => {}
+                        }
+                    }
                 }
                 out.push_str(&glib::markup_escape_text(&link_text));
             }

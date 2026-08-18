@@ -1,7 +1,7 @@
 use gtk4::prelude::*;
 use gtk4::{ScrolledWindow, TextBuffer, TextIter, TextView, WrapMode};
-use libadwaita::prelude::*;
 use libadwaita as adw;
+use libadwaita::prelude::*;
 
 use super::theme;
 
@@ -381,12 +381,27 @@ impl HelpWindow {
         // orientation before the raw-syntax Cheatsheet — ViewStack shows
         // whichever tab was added first.
         let tabs: &[(&str, &str, &str, fn() -> Vec<Block<'static>>)] = &[
-            ("overview",   "Overview",   "dialog-information-symbolic", overview_blocks),
-            ("cheatsheet", "Cheatsheet", "text-x-generic-symbolic",     cheatsheet_fn),
-            ("projects",   "Projects",   "folder-symbolic",             projects_blocks),
-            ("shortcuts",  "Shortcuts",  "input-keyboard-symbolic",     shortcuts_blocks),
-            ("faq",        "FAQ",        "dialog-question-symbolic",    faq_blocks),
-            ("about",      "About",      "help-about-symbolic",         about_blocks),
+            (
+                "overview",
+                "Overview",
+                "dialog-information-symbolic",
+                overview_blocks,
+            ),
+            (
+                "cheatsheet",
+                "Cheatsheet",
+                "text-x-generic-symbolic",
+                cheatsheet_fn,
+            ),
+            ("projects", "Projects", "folder-symbolic", projects_blocks),
+            (
+                "shortcuts",
+                "Shortcuts",
+                "input-keyboard-symbolic",
+                shortcuts_blocks,
+            ),
+            ("faq", "FAQ", "dialog-question-symbolic", faq_blocks),
+            ("about", "About", "help-about-symbolic", about_blocks),
         ];
 
         for (tag, title, icon, blocks_fn) in tabs {
@@ -539,4 +554,3 @@ fn insert_inline(buf: &TextBuffer, iter: &mut TextIter, text: &str, base_tag: &s
         buf.apply_tag(&tag, &end, iter);
     }
 }
-

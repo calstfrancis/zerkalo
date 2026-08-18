@@ -11,10 +11,10 @@ use std::time::Duration;
 use gtk4::prelude::*;
 use libadwaita as adw;
 
+use super::super::editor_pane::EditorPane;
+use super::super::error_panel::{humanize, CompileError, ErrorPanel, Severity};
 use crate::config::Config;
 use crate::lsp::{DiagSeverity, LspClient};
-use super::super::editor_pane::EditorPane;
-use super::super::error_panel::{CompileError, ErrorPanel, Severity, humanize};
 
 /// What the startup and lifecycle wiring needs from `AppWindow::new`.
 pub(super) struct LifecycleCtx {
@@ -72,21 +72,40 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
     glib::timeout_add_local(Duration::from_millis(900), move || {
         if !crate::git_sync::git_available() {
             tracing::warn!("git not found");
-            let t = adw::Toast::new("git isn't installed — saving versions won't work. See ☰ → Tools.");
+            let t =
+                adw::Toast::new("git isn't installed — saving versions won't work. See ☰ → Tools.");
             t.set_timeout(12);
             toast_for_check.add_toast(t);
         }
-        if std::process::Command::new("hunspell").arg("--version").output().is_err() {
+        if std::process::Command::new("hunspell")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
             tracing::info!("hunspell not found — spell check disabled");
         }
-        if crate::git_sync::host_command("pandoc").arg("--version").output().is_err() {
+        if crate::git_sync::host_command("pandoc")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
             tracing::info!("pandoc not found — LaTeX/HTML/EPUB/RTF import disabled");
         }
         let tinymist_ok = ["/app/lib/zerkalo/tinymist", "/usr/lib/zerkalo/tinymist"]
             .iter()
             .find(|p| std::path::Path::new(p).exists())
-            .map(|p| std::process::Command::new(p).arg("--version").output().is_ok())
-            .unwrap_or_else(|| std::process::Command::new("tinymist").arg("--version").output().is_ok());
+            .map(|p| {
+                std::process::Command::new(p)
+                    .arg("--version")
+                    .output()
+                    .is_ok()
+            })
+            .unwrap_or_else(|| {
+                std::process::Command::new("tinymist")
+                    .arg("--version")
+                    .output()
+                    .is_ok()
+            });
         if !tinymist_ok {
             tracing::info!("tinymist not found — LSP completions disabled");
         }
@@ -109,7 +128,8 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
         if super::super::welcome_window::WelcomeWindow::should_show() {
             let is_first_run = super::super::welcome_window::WelcomeWindow::is_first_run();
             super::super::welcome_window::WelcomeWindow::mark_shown();
-            let ww = super::super::welcome_window::WelcomeWindow::new(&win_for_welcome, is_first_run);
+            let ww =
+                super::super::welcome_window::WelcomeWindow::new(&win_for_welcome, is_first_run);
             if is_first_run {
                 // "Get Started" leads straight into creating a first document
                 // instead of just closing the window on a blank editor.
@@ -123,13 +143,15 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
                 let root_chain = root_for_welcome.clone();
                 ww.set_on_dismissed(move || {
                     if super::super::setup_wizard::SetupWizard::should_show(&root_chain) {
-                        super::super::setup_wizard::SetupWizard::new(&win_chain, &root_chain).present();
+                        super::super::setup_wizard::SetupWizard::new(&win_chain, &root_chain)
+                            .present();
                     }
                 });
             }
             ww.present();
         } else if super::super::setup_wizard::SetupWizard::should_show(&root_for_welcome) {
-            super::super::setup_wizard::SetupWizard::new(&win_for_welcome, &root_for_welcome).present();
+            super::super::setup_wizard::SetupWizard::new(&win_for_welcome, &root_for_welcome)
+                .present();
         }
         glib::ControlFlow::Break
     });
@@ -151,8 +173,14 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
             if ms >= idle_threshold {
                 let buffers: Vec<_> = editor_for_autosave.modified_buffers();
                 if !buffers.is_empty() {
-                    let all_ok = buffers.iter().all(|(path, content)| crate::auto_save::save(path, content));
-                    let t = adw::Toast::new(if all_ok { "Autosaved" } else { "Autosave failed — check disk space" });
+                    let all_ok = buffers
+                        .iter()
+                        .all(|(path, content)| crate::auto_save::save(path, content));
+                    let t = adw::Toast::new(if all_ok {
+                        "Autosaved"
+                    } else {
+                        "Autosave failed — check disk space"
+                    });
                     t.set_timeout(if all_ok { 2 } else { 6 });
                     toast_for_autosave.add_toast(t);
                     *last_edit_for_autosave.borrow_mut() = None;
@@ -265,7 +293,8 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
         // panic if the borrow is still held.
         let lsp_data: Option<(Vec<_>, Option<_>)> = {
             let slot = lsp_poll.borrow();
-            slot.as_ref().map(|client| (client.poll(), client.poll_completion()))
+            slot.as_ref()
+                .map(|client| (client.poll(), client.poll_completion()))
         };
         if let Some((raw_diags, completion_result)) = lsp_data {
             if !raw_diags.is_empty() {
@@ -297,12 +326,26 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
                     .collect();
                 let diag_marks: Vec<(std::path::PathBuf, u32, bool, String)> = errors
                     .iter()
-                    .map(|e| (e.file.clone(), e.line, matches!(e.severity, Severity::Error), e.message.clone()))
+                    .map(|e| {
+                        (
+                            e.file.clone(),
+                            e.line,
+                            matches!(e.severity, Severity::Error),
+                            e.message.clone(),
+                        )
+                    })
                     .collect();
-                let err_count = diag_marks.iter().filter(|(_, _, is_err, _)| *is_err).count() as u32;
-                let warn_count = diag_marks.iter().filter(|(_, _, is_err, _)| !*is_err).count() as u32;
+                let err_count = diag_marks
+                    .iter()
+                    .filter(|(_, _, is_err, _)| *is_err)
+                    .count() as u32;
+                let warn_count = diag_marks
+                    .iter()
+                    .filter(|(_, _, is_err, _)| !*is_err)
+                    .count() as u32;
                 editor_for_lsp_diag.mark_diagnostics(&diag_marks);
-                let error_lines: Vec<(std::path::PathBuf, u32)> = errors.iter()
+                let error_lines: Vec<(std::path::PathBuf, u32)> = errors
+                    .iter()
                     .filter(|e| matches!(e.severity, Severity::Error))
                     .map(|e| (e.file.clone(), e.line))
                     .collect();
@@ -336,5 +379,4 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
     // to save and `find_recovery` could never see an autosave newer than
     // the file, making the whole crash-recovery path unreachable. The file
     // on disk now changes only when the user saves.
-
 }

@@ -31,10 +31,9 @@ fn read_styles(doc: &roxmltree::Document) -> HashMap<String, StyleFlags> {
     let mut parents: HashMap<String, String> = HashMap::new();
 
     for style in doc.descendants().filter(|n| n.tag_name().name() == "style") {
-        let Some(name) = style.attribute((
-            "urn:oasis:names:tc:opendocument:xmlns:style:1.0",
-            "name",
-        )) else {
+        let Some(name) =
+            style.attribute(("urn:oasis:names:tc:opendocument:xmlns:style:1.0", "name"))
+        else {
             continue;
         };
         if let Some(parent) = style.attribute((
@@ -44,11 +43,22 @@ fn read_styles(doc: &roxmltree::Document) -> HashMap<String, StyleFlags> {
             parents.insert(name.to_string(), parent.to_string());
         }
         let mut flags = StyleFlags::default();
-        for props in style.children().filter(|c| c.tag_name().name() == "text-properties") {
-            if props.attribute((FO, "font-weight")).map(|v| v == "bold").unwrap_or(false) {
+        for props in style
+            .children()
+            .filter(|c| c.tag_name().name() == "text-properties")
+        {
+            if props
+                .attribute((FO, "font-weight"))
+                .map(|v| v == "bold")
+                .unwrap_or(false)
+            {
                 flags.bold = true;
             }
-            if props.attribute((FO, "font-style")).map(|v| v == "italic").unwrap_or(false) {
+            if props
+                .attribute((FO, "font-style"))
+                .map(|v| v == "italic")
+                .unwrap_or(false)
+            {
                 flags.italic = true;
             }
         }
@@ -151,7 +161,8 @@ pub fn read(path: &Path) -> Result<Imported, String> {
         .map_err(|_| "This .odt has no document body (content.xml is missing).".to_string())?
         .read_to_end(&mut buf)
         .map_err(|e| format!("Couldn't read the document body: {e}"))?;
-    let text = String::from_utf8(buf).map_err(|_| "The document's text isn't valid UTF-8.".to_string())?;
+    let text =
+        String::from_utf8(buf).map_err(|_| "The document's text isn't valid UTF-8.".to_string())?;
     let doc = roxmltree::Document::parse(&text)
         .map_err(|e| format!("The document's XML couldn't be read: {e}"))?;
 
@@ -171,7 +182,12 @@ pub fn read(path: &Path) -> Result<Imported, String> {
     if blocks.is_empty() {
         return Err("This .odt appears to have no text in it.".to_string());
     }
-    Ok(Imported { blocks, media, notes, tracked_changes: Vec::new() })
+    Ok(Imported {
+        blocks,
+        media,
+        notes,
+        tracked_changes: Vec::new(),
+    })
 }
 
 fn walk_body(
@@ -208,8 +224,14 @@ fn walk_body(
                         .and_then(|mut f| f.read_to_end(&mut buf).ok())
                         .is_some()
                     {
-                        media.push(Media { name: name.clone(), bytes: buf });
-                        blocks.push(Block::Image { src: name, alt: String::new() });
+                        media.push(Media {
+                            name: name.clone(),
+                            bytes: buf,
+                        });
+                        blocks.push(Block::Image {
+                            src: name,
+                            alt: String::new(),
+                        });
                     }
                 }
                 let body = inlines_of(node, styles);
@@ -223,7 +245,10 @@ fn walk_body(
                     .map(|s| s.to_lowercase().contains("number"))
                     .unwrap_or(false);
                 let mut items: Vec<Vec<Block>> = Vec::new();
-                for item in node.children().filter(|c| c.tag_name().name() == "list-item") {
+                for item in node
+                    .children()
+                    .filter(|c| c.tag_name().name() == "list-item")
+                {
                     let mut inner: Vec<Block> = Vec::new();
                     walk_body(item, styles, &mut inner, media, zip);
                     if !inner.is_empty() {
@@ -236,9 +261,15 @@ fn walk_body(
             }
             "table" => {
                 let mut rows: Vec<Vec<Vec<Inline>>> = Vec::new();
-                for tr in node.descendants().filter(|c| c.tag_name().name() == "table-row") {
+                for tr in node
+                    .descendants()
+                    .filter(|c| c.tag_name().name() == "table-row")
+                {
                     let mut cells: Vec<Vec<Inline>> = Vec::new();
-                    for tc in tr.children().filter(|c| c.tag_name().name() == "table-cell") {
+                    for tc in tr
+                        .children()
+                        .filter(|c| c.tag_name().name() == "table-cell")
+                    {
                         cells.push(inlines_of(tc, styles));
                     }
                     if !cells.is_empty() {
@@ -263,7 +294,10 @@ mod tests {
         let dir = std::env::temp_dir().join(format!(
             "zerkalo_odt_test_{}_{}",
             std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         ));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("test.odt");
@@ -301,8 +335,20 @@ mod tests {
             "",
         ));
         let doc = read(&path).expect("should read");
-        assert_eq!(doc.blocks[0], Block::Heading { level: 1, body: vec![Inline::Text("Title".into())] });
-        assert_eq!(doc.blocks[1], Block::Heading { level: 3, body: vec![Inline::Text("Deep".into())] });
+        assert_eq!(
+            doc.blocks[0],
+            Block::Heading {
+                level: 1,
+                body: vec![Inline::Text("Title".into())]
+            }
+        );
+        assert_eq!(
+            doc.blocks[1],
+            Block::Heading {
+                level: 3,
+                body: vec![Inline::Text("Deep".into())]
+            }
+        );
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
@@ -317,7 +363,9 @@ mod tests {
                <style:style style:name="T2"><style:text-properties fo:font-style="italic"/></style:style>"#,
         ));
         let doc = read(&path).expect("should read");
-        let Block::Paragraph(inlines) = &doc.blocks[0] else { panic!("expected paragraph") };
+        let Block::Paragraph(inlines) = &doc.blocks[0] else {
+            panic!("expected paragraph")
+        };
         assert!(
             inlines.iter().any(|i| matches!(i, Inline::Bold(_))),
             "bold span should resolve: {inlines:?}"
@@ -351,7 +399,9 @@ mod tests {
             "",
         ));
         let doc = read(&path).expect("should read");
-        let Block::Paragraph(inlines) = &doc.blocks[0] else { panic!("expected paragraph") };
+        let Block::Paragraph(inlines) = &doc.blocks[0] else {
+            panic!("expected paragraph")
+        };
         assert!(
             matches!(&inlines[0], Inline::Link { href, .. } if href == "https://example.com"),
             "got: {inlines:?}"

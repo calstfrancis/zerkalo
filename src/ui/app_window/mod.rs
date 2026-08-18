@@ -3,57 +3,57 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, SystemTime};
 
+use adw::prelude::*;
 use gtk4::prelude::*;
 use gtk4::{
-    Align, Box as GtkBox, Button, Label,
-    Notebook, Orientation, Paned, Separator, Stack, ToggleButton,
+    Align, Box as GtkBox, Button, Label, Notebook, Orientation, Paned, Separator, Stack,
+    ToggleButton,
 };
 use libadwaita as adw;
-use adw::prelude::*;
 
-use crate::config::{CompileProfile, Config, Theme};
-use crate::writing_log::{WritingLog, count_words, FileStartWords};
-use crate::keybindings::{matches_binding, Keybindings};
-use crate::lsp::LspClient;
-use crate::session::Session;
-use super::command_palette::{CommandPalette, default_commands, heading_items};
+use super::command_palette::{default_commands, heading_items, CommandPalette};
 use super::editor_pane::EditorPane;
-use super::file_tree::FileTree;
 use super::error_panel::{parse_typst_errors, ErrorPanel, Severity};
+use super::file_tree::FileTree;
 use super::help_window::HelpWindow;
+use super::library_window::LibraryWindow;
 use super::outline_panel::OutlinePanel;
 use super::preview_pane::PreviewPane;
 use super::snapshot_dialog::save_snapshot;
-use super::library_window::LibraryWindow;
+use crate::config::{CompileProfile, Config, Theme};
+use crate::keybindings::{matches_binding, Keybindings};
 use crate::library::Library;
+use crate::lsp::LspClient;
+use crate::session::Session;
+use crate::writing_log::{count_words, FileStartWords, WritingLog};
 
 use crate::cv_mode::CV_HELPERS_TYPST;
 
 mod citations;
 mod dialogs;
 mod editor_extras;
-use editor_extras::{EditorExtrasCtx, SidebarToolbarCtx, wire_editor_extras, wire_sidebar_toolbar};
+use editor_extras::{wire_editor_extras, wire_sidebar_toolbar, EditorExtrasCtx, SidebarToolbarCtx};
 mod file_tree_wiring;
-use file_tree_wiring::{FileTreeCtx, wire_file_tree};
-use citations::{CitationCtx, wire_citations};
+use citations::{wire_citations, CitationCtx};
+use file_tree_wiring::{wire_file_tree, FileTreeCtx};
 mod header;
 mod lifecycle;
 mod menus;
-use lifecycle::{LifecycleCtx, wire_startup};
-use menus::{MenuCtx, wire_app_menus, wire_document_menus};
+use lifecycle::{wire_startup, LifecycleCtx};
+use menus::{wire_app_menus, wire_document_menus, MenuCtx};
 mod panels;
-use panels::{Panels, build_panels};
-use header::{HeaderWidgets, build_header};
+use header::{build_header, HeaderWidgets};
+use panels::{build_panels, Panels};
 mod import;
 pub use import::prune_import_staging;
 mod startup;
 mod sync;
-use startup::{PanePersistCtx, WatcherCtx, wire_file_watcher, wire_pane_persistence};
 use dialogs::{show_changelog, show_doc_stats};
 use import::{
-    IMPORT_FORMATS, import_folder_via_pandoc, import_via_pandoc, paste_as_document,
-    show_import_history_dialog,
+    import_folder_via_pandoc, import_via_pandoc, paste_as_document, show_import_history_dialog,
+    IMPORT_FORMATS,
 };
+use startup::{wire_file_watcher, wire_pane_persistence, PanePersistCtx, WatcherCtx};
 
 /// Menu buttons the command palette forwards to, so every palette entry runs
 /// exactly the handler its hamburger row runs.
@@ -158,7 +158,10 @@ impl AppWindow {
         // ── Per-project config ──────────────────────────────────────────────
 
         let proj_cfg = crate::config::ProjectConfig::load(&project_root).unwrap_or_default();
-        let effective_bib = proj_cfg.bib_path.clone().or_else(|| config.bib_path.clone());
+        let effective_bib = proj_cfg
+            .bib_path
+            .clone()
+            .or_else(|| config.bib_path.clone());
         // CV mode: resolved cv_elements_path wins over bib_path for this document
         // (a CV isn't also a cited academic paper) — see cv_helpers.rs.
         let effective_cv_elements = proj_cfg
@@ -178,12 +181,14 @@ impl AppWindow {
         let debounce_ms: Rc<RefCell<u64>> = Rc::new(RefCell::new(config.debounce_ms));
         let auto_compile: Rc<RefCell<bool>> = Rc::new(RefCell::new(config.auto_compile));
         let compile_on_save: Rc<RefCell<bool>> = Rc::new(RefCell::new(config.compile_on_save));
-        let manual_compile_only: Rc<RefCell<bool>> = Rc::new(RefCell::new(config.manual_compile_only));
+        let manual_compile_only: Rc<RefCell<bool>> =
+            Rc::new(RefCell::new(config.manual_compile_only));
         let auto_save_idle_ms: Rc<RefCell<u64>> = Rc::new(RefCell::new(config.auto_save_idle_ms));
         // The process-wide instance, not a copy — dialogs that change settings
         // mutate this same one, so nothing silently reverts anyone else's edit.
         let current_config: Rc<RefCell<Config>> = crate::config::shared();
-        let last_edit_instant: Rc<RefCell<Option<std::time::Instant>>> = Rc::new(RefCell::new(None));
+        let last_edit_instant: Rc<RefCell<Option<std::time::Instant>>> =
+            Rc::new(RefCell::new(None));
         let has_compile_errors: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
 
         let HeaderWidgets {
@@ -253,7 +258,8 @@ impl AppWindow {
                 // Recent files first, then scanned files (deduplicated)
                 let mut files: Vec<(std::path::PathBuf, std::time::SystemTime)> = {
                     let cfg = config_for_open.borrow();
-                    cfg.recent_files.iter()
+                    cfg.recent_files
+                        .iter()
                         .filter(|p| p.exists())
                         .map(|p| {
                             let mtime = std::fs::metadata(p)
@@ -269,9 +275,12 @@ impl AppWindow {
                     }
                 }
                 let q = query.to_lowercase();
-                let filtered: Vec<_> = files.into_iter()
+                let filtered: Vec<_> = files
+                    .into_iter()
                     .filter(|(path, _)| {
-                        if q.is_empty() { return true; }
+                        if q.is_empty() {
+                            return true;
+                        }
                         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
                         name.to_lowercase().contains(&q)
                     })
@@ -295,9 +304,22 @@ impl AppWindow {
                 };
 
                 for (path, mtime) in filtered {
-                    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
-                    let age = now.duration_since(mtime).map(|d| d.as_secs()).unwrap_or(u64::MAX);
-                    let group = if age < day_secs { "Today" } else if age < week_secs { "This week" } else { "Older" };
+                    let name = path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let age = now
+                        .duration_since(mtime)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(u64::MAX);
+                    let group = if age < day_secs {
+                        "Today"
+                    } else if age < week_secs {
+                        "This week"
+                    } else {
+                        "Older"
+                    };
                     if group != last_group {
                         add_group_header(&open_list_rc, group);
                         last_group = group;
@@ -354,20 +376,16 @@ impl AppWindow {
                         let outer_c = outer_for_del.clone();
                         let cfg_c = cfg_del.clone();
                         let ep_c = ep_del.clone();
-                        super::confirm::confirm_trash(
-                            None,
-                            path_del.clone(),
-                            move |path_c| {
-                                cfg_c.borrow_mut().recent_files.retain(|p| p != path_c);
-                                let _ = cfg_c.borrow().save();
-                                ep_c.close_file_if_open(&path_c.to_path_buf());
-                                if let Some(parent) = outer_c.parent() {
-                                    if let Ok(p) = parent.downcast::<GtkBox>() {
-                                        p.remove(&outer_c);
-                                    }
+                        super::confirm::confirm_trash(None, path_del.clone(), move |path_c| {
+                            cfg_c.borrow_mut().recent_files.retain(|p| p != path_c);
+                            let _ = cfg_c.borrow().save();
+                            ep_c.close_file_if_open(&path_c.to_path_buf());
+                            if let Some(parent) = outer_c.parent() {
+                                if let Ok(p) = parent.downcast::<GtkBox>() {
+                                    p.remove(&outer_c);
                                 }
-                            },
-                        );
+                            }
+                        });
                     });
 
                     outer_row.append(&btn);
@@ -390,11 +408,7 @@ impl AppWindow {
             });
         }
 
-        let preview_pane = PreviewPane::new(
-            None,
-            effective_output_dir,
-            extra_compiler_args,
-        );
+        let preview_pane = PreviewPane::new(None, effective_output_dir, extra_compiler_args);
         // CV mode: make #cv-entry/#cv-section available at compile time.
         // cv-helpers.typ's content is static (embedded), so a one-time
         // virtual-file override is correct; the actual data path is stored
@@ -460,13 +474,10 @@ impl AppWindow {
                     &ep.get_active_content().unwrap_or_default(),
                     &font_name,
                 );
-                let applied = apply_doc_font_edit(
-                    &ep,
-                    &preview_for_font,
-                    &toast_for_font,
-                    edited,
-                    |sc| sc.font = font_name.clone(),
-                );
+                let applied =
+                    apply_doc_font_edit(&ep, &preview_for_font, &toast_for_font, edited, |sc| {
+                        sc.font = font_name.clone()
+                    });
                 if applied {
                     ep.set_doc_font_label(&font_name);
                 }
@@ -481,13 +492,10 @@ impl AppWindow {
                     &ep.get_active_content().unwrap_or_default(),
                     &size,
                 );
-                let applied = apply_doc_font_edit(
-                    &ep,
-                    &preview_for_size,
-                    &toast_for_size,
-                    edited,
-                    |sc| sc.font_size = size.clone(),
-                );
+                let applied =
+                    apply_doc_font_edit(&ep, &preview_for_size, &toast_for_size, edited, |sc| {
+                        sc.font_size = size.clone()
+                    });
                 if applied {
                     ep.set_doc_size_label(&size);
                 }
@@ -612,7 +620,12 @@ impl AppWindow {
             btn.add_css_class("flat");
             btn.add_css_class("status-toggle");
             btn.set_tooltip_text(Some("Cycle compile mode: auto → on save → manual"));
-            apply_compile_mode_css(&btn, config.auto_compile, config.compile_on_save, config.manual_compile_only);
+            apply_compile_mode_css(
+                &btn,
+                config.auto_compile,
+                config.compile_on_save,
+                config.manual_compile_only,
+            );
 
             // Beside the compile buttons in the header — it says what those
             // buttons will do, so it belongs with them rather than at the far
@@ -733,7 +746,6 @@ impl AppWindow {
 
         wire_app_menus(&menu_ctx, &menus);
         // ── Menu: Import (picker dialog) ───────────────────────────────────
-
 
         // ── Citation panel: "Skrizhal" button launches the actual app ────────
         {
@@ -942,17 +954,18 @@ impl AppWindow {
             });
         }
         // ── Multi-file root: configured root persists across tab switches ─────
-        let configured_root: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(
-            proj_cfg.root_file.as_ref()
-                .and_then(|r| crate::project_model::resolve_root_file(&project_root, r))
-        ));
+        let configured_root: Rc<RefCell<Option<PathBuf>>> =
+            Rc::new(RefCell::new(proj_cfg.root_file.as_ref().and_then(|r| {
+                crate::project_model::resolve_root_file(&project_root, r)
+            })));
         // Project mode is OFF by default; only use configured_root when it is ON.
         // Shared with the project toggle below.
         let proj_mode_active: Rc<std::cell::Cell<bool>> = Rc::new(std::cell::Cell::new(false));
         // Outline panel's "whole project" toggle — independent of proj_mode_active
         // above (that one is about which file compiles; this one is about which
         // files feed the outline/word-count panel). Off by default.
-        let outline_manuscript_mode: Rc<std::cell::Cell<bool>> = Rc::new(std::cell::Cell::new(false));
+        let outline_manuscript_mode: Rc<std::cell::Cell<bool>> =
+            Rc::new(std::cell::Cell::new(false));
 
         // ── Debounced compile + outline update + LSP ────────────────────────
 
@@ -1001,9 +1014,7 @@ impl AppWindow {
             editor_pane_for_delta.set_session_delta(delta);
             glib::timeout_add_local(delay, move || {
                 if *gen3.borrow() == my_gen {
-                    let should_compile = *auto.borrow()
-                        && !*cos.borrow()
-                        && !*mco.borrow();
+                    let should_compile = *auto.borrow() && !*cos.borrow() && !*mco.borrow();
                     if should_compile {
                         if let Some(path) = editor.get_active_path() {
                             if let Some(content) = editor.get_active_content() {
@@ -1016,8 +1027,14 @@ impl AppWindow {
                     if let Some(path) = editor.get_active_path() {
                         if let Some(content) = editor.get_active_content() {
                             if outline_manuscript_mode.get() {
-                                let root = configured_root.borrow().clone().unwrap_or_else(|| path.clone());
-                                outline.update_project(crate::project::manuscript_files(&root, &project_root_inner));
+                                let root = configured_root
+                                    .borrow()
+                                    .clone()
+                                    .unwrap_or_else(|| path.clone());
+                                outline.update_project(crate::project::manuscript_files(
+                                    &root,
+                                    &project_root_inner,
+                                ));
                             } else {
                                 outline.update(&content, &path);
                             }
@@ -1051,16 +1068,19 @@ impl AppWindow {
             outline_panel.set_on_project_mode(move |active| {
                 outline_manuscript_mode_for_toggle.set(active);
                 if active {
-                    let root = editor_for_toggle.get_active_path()
+                    let root = editor_for_toggle
+                        .get_active_path()
                         .map(|path| configured_root_for_toggle.borrow().clone().unwrap_or(path));
                     if let Some(root) = root {
-                        outline_for_toggle.update_project(
-                            crate::project::manuscript_files(&root, &project_root_for_toggle),
-                        );
+                        outline_for_toggle.update_project(crate::project::manuscript_files(
+                            &root,
+                            &project_root_for_toggle,
+                        ));
                     }
-                } else if let (Some(path), Some(content)) =
-                    (editor_for_toggle.get_active_path(), editor_for_toggle.get_active_content())
-                {
+                } else if let (Some(path), Some(content)) = (
+                    editor_for_toggle.get_active_path(),
+                    editor_for_toggle.get_active_content(),
+                ) {
                     outline_for_toggle.update(&content, &path);
                 }
             });
@@ -1087,18 +1107,24 @@ impl AppWindow {
                 // for this feature, not keyboard navigation. Verified by a
                 // headless click-then-add test that failed with the cached
                 // approach and passed with this one.
-                let (Some(path), Some(content)) =
-                    (editor_for_anchor.get_active_path(), editor_for_anchor.get_active_content())
-                else {
+                let (Some(path), Some(content)) = (
+                    editor_for_anchor.get_active_path(),
+                    editor_for_anchor.get_active_content(),
+                ) else {
                     return (1, String::new());
                 };
-                let offset = editor_for_anchor.get_cursor_positions()
+                let offset = editor_for_anchor
+                    .get_cursor_positions()
                     .get(&path)
                     .copied()
                     .unwrap_or(0)
                     .max(0) as usize;
                 let line = content.chars().take(offset).filter(|c| *c == '\n').count() as u32 + 1;
-                let snippet = content.lines().nth((line - 1) as usize).unwrap_or("").to_string();
+                let snippet = content
+                    .lines()
+                    .nth((line - 1) as usize)
+                    .unwrap_or("")
+                    .to_string();
                 (line, snippet)
             });
         }
@@ -1155,12 +1181,17 @@ impl AppWindow {
             };
             let prev_hash = switch_hash_map.borrow().get(&path).copied();
             let needs_compile = prev_hash != Some(content_hash);
-            switch_hash_map.borrow_mut().insert(path.clone(), content_hash);
+            switch_hash_map
+                .borrow_mut()
+                .insert(path.clone(), content_hash);
             preview_for_switch.set_buffer_snapshot(path.clone(), content.clone());
             // Only use configured root when project mode is actively ON; otherwise
             // always compile the active file so the preview matches the editor.
             let root_for_compile = if proj_mode_for_switch.get() {
-                configured_root_for_switch.borrow().clone().unwrap_or_else(|| path.clone())
+                configured_root_for_switch
+                    .borrow()
+                    .clone()
+                    .unwrap_or_else(|| path.clone())
             } else {
                 path.clone()
             };
@@ -1168,18 +1199,26 @@ impl AppWindow {
             if needs_compile {
                 preview_for_switch.trigger_compile();
             }
-            let title = extract_doc_title(&content).or_else(|| {
-                path.file_name().and_then(|n| n.to_str())
-                    .map(|n| n.strip_suffix(".typ").unwrap_or(n).to_string())
-            }).unwrap_or_default();
+            let title = extract_doc_title(&content)
+                .or_else(|| {
+                    path.file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|n| n.strip_suffix(".typ").unwrap_or(n).to_string())
+                })
+                .unwrap_or_default();
             title_widget_for_switch.set_title(&title);
             // Show root breadcrumb only when project mode is on and root differs
             if proj_mode_for_switch.get() {
                 if let Some(ref root_path) = *configured_root_for_switch.borrow() {
                     if root_path != &path {
-                        let root_name = root_path.file_name().and_then(|n| n.to_str()).unwrap_or("root");
-                        let active_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("file");
-                        title_widget_for_switch.set_subtitle(&format!("{root_name} › {active_name}"));
+                        let root_name = root_path
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("root");
+                        let active_name =
+                            path.file_name().and_then(|n| n.to_str()).unwrap_or("file");
+                        title_widget_for_switch
+                            .set_subtitle(&format!("{root_name} › {active_name}"));
                     } else {
                         title_widget_for_switch.set_subtitle("");
                     }
@@ -1207,10 +1246,10 @@ impl AppWindow {
             // keeps showing the previous tab's font and size, so the picker
             // reads as if this document were already set that way.
             editor_pane_cv_switch.set_doc_font_label(
-                &super::template_dialog::parse_font(&content).unwrap_or_else(|| "font".into())
+                &super::template_dialog::parse_font(&content).unwrap_or_else(|| "font".into()),
             );
             editor_pane_cv_switch.set_doc_size_label(
-                &super::template_dialog::parse_font_size(&content).unwrap_or_else(|| "size".into())
+                &super::template_dialog::parse_font_size(&content).unwrap_or_else(|| "size".into()),
             );
         });
 
@@ -1268,7 +1307,9 @@ impl AppWindow {
                         }
                         crate::auto_save::clear(&path_c);
                         if let Some(f) = sn.upgrade() {
-                            if let Some(cb) = f.borrow().as_ref() { cb(); }
+                            if let Some(cb) = f.borrow().as_ref() {
+                                cb();
+                            }
                         }
                     });
                     dlg.present();
@@ -1298,7 +1339,9 @@ impl AppWindow {
                 .unwrap_or(false);
             ep_cv_for_open.set_cv_mode(is_cv);
             citation_panel_for_open.set_cv_mode(is_cv);
-            if is_cv { ep_cv_for_open.update_cv_style_label(&content); }
+            if is_cv {
+                ep_cv_for_open.update_cv_style_label(&content);
+            }
             style_btn_for_cv_open.set_visible(!is_cv);
             cs_stack_for_open.set_visible_child_name(if is_cv { "cv" } else { "normal" });
             let style_name = super::template_dialog::parse_style_key(&content)
@@ -1306,15 +1349,18 @@ impl AppWindow {
                 .unwrap_or("Style");
             style_btn_for_open.set_label(style_name);
             ep_for_open.set_doc_font_label(
-                &super::template_dialog::parse_font(&content).unwrap_or_else(|| "font".into())
+                &super::template_dialog::parse_font(&content).unwrap_or_else(|| "font".into()),
             );
             ep_for_open.set_doc_size_label(
-                &super::template_dialog::parse_font_size(&content).unwrap_or_else(|| "size".into())
+                &super::template_dialog::parse_font_size(&content).unwrap_or_else(|| "size".into()),
             );
-            let title = extract_doc_title(&content).or_else(|| {
-                path.file_name().and_then(|n| n.to_str())
-                    .map(|n| n.strip_suffix(".typ").unwrap_or(n).to_string())
-            }).unwrap_or_default();
+            let title = extract_doc_title(&content)
+                .or_else(|| {
+                    path.file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|n| n.strip_suffix(".typ").unwrap_or(n).to_string())
+                })
+                .unwrap_or_default();
             title_widget_for_open.set_title(&title);
             let mut cfg = current_config_for_open.borrow_mut();
             cfg.push_recent(path.clone());
@@ -1326,9 +1372,13 @@ impl AppWindow {
                     .format("%Y-%m-%d %H:%M")
                     .to_string();
                 let was_empty = recovery_queue_for_open.borrow().is_empty();
-                recovery_queue_for_open.borrow_mut().push_back((path.clone(), recovered, ts));
+                recovery_queue_for_open
+                    .borrow_mut()
+                    .push_back((path.clone(), recovered, ts));
                 if was_empty {
-                    if let Some(f) = show_next_for_open.borrow().as_ref() { f(); }
+                    if let Some(f) = show_next_for_open.borrow().as_ref() {
+                        f();
+                    }
                 }
             }
         });
@@ -1364,7 +1414,8 @@ impl AppWindow {
         error_banner_scroll.set_propagate_natural_height(true);
         error_banner_scroll.set_visible(false);
         // file_tree holder: filled after FileTree is constructed below
-        let file_tree_holder: Rc<RefCell<Option<super::file_tree::FileTree>>> = Rc::new(RefCell::new(None));
+        let file_tree_holder: Rc<RefCell<Option<super::file_tree::FileTree>>> =
+            Rc::new(RefCell::new(None));
 
         // LSP dedup: when LSP has live diagnostics, suppress compile-stderr errors
         let lsp_has_diags: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
@@ -1403,7 +1454,9 @@ impl AppWindow {
             let rev = compile_rev_for_start.clone();
             let timer_slot = pulse_timer.clone();
             // Cancel any previous pulse timer before spawning a new one.
-            if let Some(id) = pulse_timer.borrow_mut().take() { id.remove(); }
+            if let Some(id) = pulse_timer.borrow_mut().take() {
+                id.remove();
+            }
             let id = glib::timeout_add_local(Duration::from_millis(80), move || {
                 if rev.reveals_child() {
                     bar.pulse();
@@ -1499,14 +1552,25 @@ impl AppWindow {
                         return;
                     }
                     let errors = parse_typst_errors(stderr, &root_for_compile);
-                    let err_count = errors.iter().filter(|e| matches!(e.severity, Severity::Error)).count();
+                    let err_count = errors
+                        .iter()
+                        .filter(|e| matches!(e.severity, Severity::Error))
+                        .count();
                     let warn_count = errors.len() - err_count;
                     let diags: Vec<(std::path::PathBuf, u32, bool, String)> = errors
                         .iter()
-                        .map(|e| (e.file.clone(), e.line, matches!(e.severity, Severity::Error), e.message.clone()))
+                        .map(|e| {
+                            (
+                                e.file.clone(),
+                                e.line,
+                                matches!(e.severity, Severity::Error),
+                                e.message.clone(),
+                            )
+                        })
                         .collect();
                     editor_for_diag.mark_diagnostics(&diags);
-                    let error_lines: Vec<(std::path::PathBuf, u32)> = errors.iter()
+                    let error_lines: Vec<(std::path::PathBuf, u32)> = errors
+                        .iter()
                         .filter(|e| matches!(e.severity, Severity::Error))
                         .map(|e| (e.file.clone(), e.line))
                         .collect();
@@ -1516,9 +1580,11 @@ impl AppWindow {
                     let title = match (err_count, warn_count) {
                         (e, 0) => format!("Zerkalo ({e} error{})", if e == 1 { "" } else { "s" }),
                         (0, w) => format!("Zerkalo ({w} warning{})", if w == 1 { "" } else { "s" }),
-                        (e, w) => format!("Zerkalo ({e} error{}, {w} warning{})",
+                        (e, w) => format!(
+                            "Zerkalo ({e} error{}, {w} warning{})",
                             if e == 1 { "" } else { "s" },
-                            if w == 1 { "" } else { "s" }),
+                            if w == 1 { "" } else { "s" }
+                        ),
                     };
                     window_for_compile.set_title(Some(&title));
                     error_panel_for_compile.show_compile_errors(errors);
@@ -1561,8 +1627,12 @@ impl AppWindow {
                 });
             }
             error_panel.set_on_try_fix(move |path, line, message| {
-                let Some(content) = editor_for_fix.get_active_content() else { return };
-                let Some(fix) = crate::error_patterns::match_fix(&message) else { return };
+                let Some(content) = editor_for_fix.get_active_content() else {
+                    return;
+                };
+                let Some(fix) = crate::error_patterns::match_fix(&message) else {
+                    return;
+                };
                 let Some(fix_fn) = fix.fix_fn else { return };
                 let line_idx = (line as usize).saturating_sub(1);
                 if let Some(patched) = fix_fn(&content, line_idx) {
@@ -1630,7 +1700,9 @@ impl AppWindow {
         let ref_toggle_btn = ToggleButton::with_label("Help");
         ref_toggle_btn.add_css_class("flat");
         ref_toggle_btn.set_tooltip_text(Some("Toggle Cheatsheet & Help"));
-        ref_toggle_btn.update_property(&[gtk4::accessible::Property::Label("Toggle cheatsheet and help panel")]);
+        ref_toggle_btn.update_property(&[gtk4::accessible::Property::Label(
+            "Toggle cheatsheet and help panel",
+        )]);
 
         // Page navigation
         let page_prev_btn = Button::from_icon_name("go-previous-symbolic");
@@ -1688,7 +1760,10 @@ impl AppWindow {
         for (label, w) in [
             ("Fit width", fit_width_btn.clone().upcast::<gtk4::Widget>()),
             ("Fit page", fit_page_btn.clone().upcast::<gtk4::Widget>()),
-            ("Open in a window", popout_btn.clone().upcast::<gtk4::Widget>()),
+            (
+                "Open in a window",
+                popout_btn.clone().upcast::<gtk4::Widget>(),
+            ),
         ] {
             let row = GtkBox::new(Orientation::Horizontal, 8);
             let lab = Label::new(Some(label));
@@ -1724,7 +1799,10 @@ impl AppWindow {
                 crate::compile_stats::record(ms);
                 let secs = ms as f64 / 1000.0;
                 if let Some(n) = pages {
-                    lbl.set_text(&format!("✓ {n} page{} · {secs:.1}s", if n == 1 { "" } else { "s" }));
+                    lbl.set_text(&format!(
+                        "✓ {n} page{} · {secs:.1}s",
+                        if n == 1 { "" } else { "s" }
+                    ));
                 } else {
                     lbl.set_text(&format!("✗ {secs:.1}s"));
                 }
@@ -1734,7 +1812,7 @@ impl AppWindow {
                         "Compilation took over 3 s — tips:\n\
                          \u{2022} Use Draft profile (header bar) for faster preview\n\
                          \u{2022} Move large images out of the main body\n\
-                         \u{2022} Split the document into included files"
+                         \u{2022} Split the document into included files",
                     ));
                 } else {
                     lbl.remove_css_class("warning");
@@ -1782,7 +1860,9 @@ impl AppWindow {
             let p = preview_pane.clone();
             page_prev_btn.connect_clicked(move |_| {
                 let cur = p.current_page_idx();
-                if cur > 0 { p.scroll_to_page(cur - 1); }
+                if cur > 0 {
+                    p.scroll_to_page(cur - 1);
+                }
             });
         }
         {
@@ -1790,7 +1870,9 @@ impl AppWindow {
             page_next_btn.connect_clicked(move |_| {
                 let cur = p.current_page_idx();
                 let total = p.page_count();
-                if total > 0 && cur < total - 1 { p.scroll_to_page(cur + 1); }
+                if total > 0 && cur < total - 1 {
+                    p.scroll_to_page(cur + 1);
+                }
             });
         }
 
@@ -1937,13 +2019,23 @@ impl AppWindow {
                     *root_ref_banner.borrow_mut() = Some(main_path.clone());
                     if let Some(active) = ep_for_banner.get_active_path() {
                         if main_path != active {
-                            let root_name = main_path.file_name().and_then(|n| n.to_str()).unwrap_or("root");
-                            let active_name = active.file_name().and_then(|n| n.to_str()).unwrap_or("file");
+                            let root_name = main_path
+                                .file_name()
+                                .and_then(|n| n.to_str())
+                                .unwrap_or("root");
+                            let active_name = active
+                                .file_name()
+                                .and_then(|n| n.to_str())
+                                .unwrap_or("file");
                             title_w_banner.set_subtitle(&format!("{root_name} › {active_name}"));
                         }
                     }
-                    let rel = main_path.strip_prefix(&root_dir_banner).unwrap_or(&main_path).to_path_buf();
-                    let mut pcfg = crate::config::ProjectConfig::load(&root_dir_banner).unwrap_or_default();
+                    let rel = main_path
+                        .strip_prefix(&root_dir_banner)
+                        .unwrap_or(&main_path)
+                        .to_path_buf();
+                    let mut pcfg =
+                        crate::config::ProjectConfig::load(&root_dir_banner).unwrap_or_default();
                     pcfg.root_file = Some(rel);
                     let _ = pcfg.save(&root_dir_banner);
                     preview_for_banner.trigger_compile();
@@ -2218,9 +2310,8 @@ impl AppWindow {
                 if ep.state_has_file(&path) {
                     if let Ok(content) = std::fs::read_to_string(&path) {
                         ep.reload_file(path, &content);
-                        toast_for_reload.add_toast(
-                            adw::Toast::new("File reloaded — undo history cleared")
-                        );
+                        toast_for_reload
+                            .add_toast(adw::Toast::new("File reloaded — undo history cleared"));
                     }
                 }
             });
@@ -2246,7 +2337,6 @@ impl AppWindow {
         right_col.append(&inner_paned);
         right_col.append(search_panel.widget());
         right_col.append(error_panel.widget());
-
 
         let content_paned = Paned::new(Orientation::Horizontal);
         content_paned.set_hexpand(true);
@@ -2419,22 +2509,26 @@ impl AppWindow {
                     }
                 } else {
                     match id {
-                        "toggle_find"    => editor_for_pal.toggle_find(),
+                        "toggle_find" => editor_for_pal.toggle_find(),
                         // Forwarded to the menu row so this is the same save
                         // the ≡ menu and Ctrl+S do — snapshot and recompile
                         // included, which `save_all_modified` alone skips.
-                        "save"           => targets_for_pal.save.emit_clicked(),
-                        "new_file"       => targets_for_pal.new_file.emit_clicked(),
-                        "open_file"      => targets_for_pal.open_file.emit_clicked(),
-                        "export"         => targets_for_pal.export.emit_clicked(),
-                        "settings"       => targets_for_pal.settings.emit_clicked(),
-                        "template"       => targets_for_pal.template.emit_clicked(),
+                        "save" => targets_for_pal.save.emit_clicked(),
+                        "new_file" => targets_for_pal.new_file.emit_clicked(),
+                        "open_file" => targets_for_pal.open_file.emit_clicked(),
+                        "export" => targets_for_pal.export.emit_clicked(),
+                        "settings" => targets_for_pal.settings.emit_clicked(),
+                        "template" => targets_for_pal.template.emit_clicked(),
                         "toggle_sidebar" => targets_for_pal.sidebar.emit_clicked(),
                         "toggle_preview" => compile_btn_for_pal.emit_clicked(),
-                        "git_sync"       => sync_btn_for_pal.emit_clicked(),
-                        "focus_mode"     => editor_for_pal.focus_button_for_header().emit_clicked(),
-                        "help"           => { HelpWindow::new(&w, editor_for_pal.is_cv_mode()).present(); }
-                        "find_in_files"  => { search_for_pal.toggle(); }
+                        "git_sync" => sync_btn_for_pal.emit_clicked(),
+                        "focus_mode" => editor_for_pal.focus_button_for_header().emit_clicked(),
+                        "help" => {
+                            HelpWindow::new(&w, editor_for_pal.is_cv_mode()).present();
+                        }
+                        "find_in_files" => {
+                            search_for_pal.toggle();
+                        }
                         "project_outline" => {
                             // Re-entering the palette from inside its own
                             // activate callback deadlocks on the items borrow,
@@ -2472,9 +2566,13 @@ impl AppWindow {
                         }
                         "browse_snapshots" => {
                             if let Some(path) = editor_for_pal.get_active_path() {
-                                let content = editor_for_pal.get_active_content().unwrap_or_default();
+                                let content =
+                                    editor_for_pal.get_active_content().unwrap_or_default();
                                 let dialog = super::snapshot_dialog::SnapshotDialog::new(
-                                    &w, &root_for_pal, &path, &content,
+                                    &w,
+                                    &root_for_pal,
+                                    &path,
+                                    &content,
                                 );
                                 let ep = editor_for_pal.clone();
                                 let pp = path.clone();
@@ -2593,8 +2691,11 @@ impl AppWindow {
                 if ctrl && shift && !alt && key == Key::v {
                     let cfg = crate::config::shared();
                     paste_as_document(
-                        &window_for_paste_key, &editor_for_paste_key, &work_dir_for_paste_key,
-                        &cfg, &toast_overlay_for_paste_key,
+                        &window_for_paste_key,
+                        &editor_for_paste_key,
+                        &work_dir_for_paste_key,
+                        &cfg,
+                        &toast_overlay_for_paste_key,
                     );
                     return glib::Propagation::Stop;
                 }
@@ -2704,7 +2805,9 @@ impl AppWindow {
                     editor.save_all_modified();
                     // Same inputs the preview compiles with — assembling them
                     // by hand here is what left CV documents exporting blank.
-                    if let Some((root_path, overrides, sys_inputs, bib_path)) = preview.compile_inputs() {
+                    if let Some((root_path, overrides, sys_inputs, bib_path)) =
+                        preview.compile_inputs()
+                    {
                         let dest = root_path.with_extension("pdf");
                         let t = adw::Toast::new("Exporting PDF…");
                         t.set_timeout(2);
@@ -2717,7 +2820,8 @@ impl AppWindow {
                                 &overrides,
                                 &sys_inputs,
                                 bib_path.as_deref(),
-                            ).map_err(|e| e.to_string());
+                            )
+                            .map_err(|e| e.to_string());
                             let _ = tx.send(result);
                         });
                         let toast_ref = toast_for_key.clone();
@@ -2728,7 +2832,9 @@ impl AppWindow {
                                     let msg = match std::fs::write(&dest, &bytes) {
                                         Ok(_) => format!(
                                             "Exported {}",
-                                            dest.file_name().and_then(|n| n.to_str()).unwrap_or("PDF")
+                                            dest.file_name()
+                                                .and_then(|n| n.to_str())
+                                                .unwrap_or("PDF")
                                         ),
                                         Err(e) => format!("Write failed: {e}"),
                                     };
@@ -2764,7 +2870,8 @@ impl AppWindow {
             let content = match std::fs::read_to_string(&path) {
                 Ok(c) => c,
                 Err(_) => {
-                    let default = "// Welcome to Zerkalo\n\n= Introduction\n\nStart writing here...\n";
+                    let default =
+                        "// Welcome to Zerkalo\n\n= Introduction\n\nStart writing here...\n";
                     let _ = std::fs::write(&path, default);
                     default.to_string()
                 }
@@ -2777,7 +2884,9 @@ impl AppWindow {
 
         // Only restore files that belong to the current project root — prevents
         // old-project files leaking in when the work_dir has changed.
-        let session_files: Vec<&PathBuf> = session.open_files.iter()
+        let session_files: Vec<&PathBuf> = session
+            .open_files
+            .iter()
             .filter(|p| p.starts_with(&self.project_root))
             .collect();
 
@@ -2815,7 +2924,8 @@ impl AppWindow {
             let content = match std::fs::read_to_string(&path) {
                 Ok(c) => c,
                 Err(_) => {
-                    let default = "// Welcome to Zerkalo\n\n= Introduction\n\nStart writing here...\n";
+                    let default =
+                        "// Welcome to Zerkalo\n\n= Introduction\n\nStart writing here...\n";
                     let _ = std::fs::write(&path, default);
                     default.to_string()
                 }
@@ -3002,7 +3112,13 @@ impl AppWindow {
 fn compile_mode_label_str(auto: bool, _cos: bool, mco: bool) -> &'static str {
     // Anything that isn't manual or auto compiles on save, whether or not the
     // compile_on_save flag is explicitly set.
-    if mco { "manual" } else if auto { "auto" } else { "on save" }
+    if mco {
+        "manual"
+    } else if auto {
+        "auto"
+    } else {
+        "on save"
+    }
 }
 
 fn apply_compile_mode_css(btn: &Button, auto: bool, _cos: bool, mco: bool) {
@@ -3028,10 +3144,16 @@ fn record_writing_session(
 ) {
     if let (Some(path), Some(content)) = (ep.get_active_path(), ep.get_active_content()) {
         let current_words = count_words(&content);
-        let start_words = file_start_words.borrow().get(&path).copied().unwrap_or(current_words);
+        let start_words = file_start_words
+            .borrow()
+            .get(&path)
+            .copied()
+            .unwrap_or(current_words);
         let words_added = current_words - start_words;
         let duration_secs = session_start.borrow().elapsed().as_secs();
-        writing_log.borrow_mut().record(path, words_added, duration_secs);
+        writing_log
+            .borrow_mut()
+            .record(path, words_added, duration_secs);
     }
 }
 
@@ -3094,11 +3216,7 @@ fn show_dynamic_shortcuts_window(
         help_overlay = kb.help_overlay,
         quit = kb.quit,
     );
-    let dlg = adw::MessageDialog::new(
-        Some(window),
-        Some("Keyboard Shortcuts"),
-        Some(&body),
-    );
+    let dlg = adw::MessageDialog::new(Some(window), Some("Keyboard Shortcuts"), Some(&body));
     dlg.add_response("ok", "OK");
     dlg.present();
 }
@@ -3116,15 +3234,22 @@ fn handle_preview_click_jump(
         match result {
             Some(text) => {
                 let lines: Vec<&str> = text.lines().collect();
-                if lines.is_empty() { return; }
-                let target = ((lines.len() as f64 * rel_y) as usize).min(lines.len().saturating_sub(1));
+                if lines.is_empty() {
+                    return;
+                }
+                let target =
+                    ((lines.len() as f64 * rel_y) as usize).min(lines.len().saturating_sub(1));
                 // Search a ±3 line window for a non-trivial snippet
                 let start = target.saturating_sub(3);
                 let end = (target + 3).min(lines.len().saturating_sub(1));
                 let snippet = (start..=end)
                     .filter_map(|i| {
                         let l = lines[i].trim();
-                        if l.len() >= 6 { Some(l) } else { None }
+                        if l.len() >= 6 {
+                            Some(l)
+                        } else {
+                            None
+                        }
                     })
                     .next()
                     .unwrap_or("");
@@ -3134,12 +3259,15 @@ fn handle_preview_click_jump(
                 }
             }
             None => {
-                show_alert(&window, "Click-to-Jump",
+                show_alert(
+                    &window,
+                    "Click-to-Jump",
                     "Could not extract text from the preview. Make sure pdftotext \
                      (poppler-utils) is installed and the document has been compiled at least once.\
                      \n\n  apt install poppler-utils\
                      \n  dnf install poppler-utils\
-                     \n  zypper install poppler-tools");
+                     \n  zypper install poppler-tools",
+                );
             }
         }
     });
@@ -3155,22 +3283,29 @@ fn handle_preview_word_jump(
 ) {
     let editor = editor.clone();
     let window = window.clone();
-    super::preview_pane::extract_word_at_position_async(preview, page, rel_x, rel_y, move |result| {
-        match result {
-        Some(phrase) if !phrase.trim().is_empty() => {
-            editor.jump_to_text(&phrase);
-        }
-        Some(_) => {}
-        None => {
-            show_alert(&window, "Jump to Word",
-                "Could not extract text from the preview. Make sure pdftotext \
+    super::preview_pane::extract_word_at_position_async(
+        preview,
+        page,
+        rel_x,
+        rel_y,
+        move |result| match result {
+            Some(phrase) if !phrase.trim().is_empty() => {
+                editor.jump_to_text(&phrase);
+            }
+            Some(_) => {}
+            None => {
+                show_alert(
+                    &window,
+                    "Jump to Word",
+                    "Could not extract text from the preview. Make sure pdftotext \
                  (poppler-utils) is installed and the document has been compiled at least once.\
                  \n\n  apt install poppler-utils\
                  \n  dnf install poppler-utils\
-                 \n  zypper install poppler-tools");
-        }
-        }
-    });
+                 \n  zypper install poppler-tools",
+                );
+            }
+        },
+    );
 }
 
 fn format_file_mtime(mtime: std::time::SystemTime) -> String {
@@ -3178,16 +3313,25 @@ fn format_file_mtime(mtime: std::time::SystemTime) -> String {
         return "unknown".to_string();
     };
     let secs = dur.as_secs();
-    if secs < 60 { "just now".to_string() }
-    else if secs < 3600 { format!("{} min ago", secs / 60) }
-    else if secs < 86400 { format!("{} h ago", secs / 3600) }
-    else if secs < 86400 * 30 { format!("{} days ago", secs / 86400) }
-    else { format!("{} months ago", secs / (86400 * 30)) }
+    if secs < 60 {
+        "just now".to_string()
+    } else if secs < 3600 {
+        format!("{} min ago", secs / 60)
+    } else if secs < 86400 {
+        format!("{} h ago", secs / 3600)
+    } else if secs < 86400 * 30 {
+        format!("{} days ago", secs / 86400)
+    } else {
+        format!("{} months ago", secs / (86400 * 30))
+    }
 }
 
 /// Compute a path string for `#include`/`#import` relative to the compilation root's directory.
 /// Falls back to the filename if no root is set or paths don't share a prefix.
-fn compute_include_path(preview: &super::preview_pane::PreviewPane, abs_path: &std::path::Path) -> String {
+fn compute_include_path(
+    preview: &super::preview_pane::PreviewPane,
+    abs_path: &std::path::Path,
+) -> String {
     if let Some(root) = preview.root_file_path() {
         if let Some(root_dir) = root.parent() {
             if let Ok(rel) = abs_path.strip_prefix(root_dir) {
@@ -3195,7 +3339,8 @@ fn compute_include_path(preview: &super::preview_pane::PreviewPane, abs_path: &s
             }
         }
     }
-    abs_path.file_name()
+    abs_path
+        .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("file.typ")
         .to_string()
@@ -3207,7 +3352,10 @@ fn extract_doc_title(content: &str) -> Option<String> {
         let end = rest.find("\n---\n").or_else(|| rest.find("\n---"));
         if let Some(end) = end {
             for line in rest[..end].lines() {
-                if let Some(val) = line.strip_prefix("title = ").or_else(|| line.strip_prefix("title: ")) {
+                if let Some(val) = line
+                    .strip_prefix("title = ")
+                    .or_else(|| line.strip_prefix("title: "))
+                {
                     let title = val.trim().trim_matches('"').to_string();
                     if !title.is_empty() {
                         return Some(title);
@@ -3317,34 +3465,34 @@ fn build_hamburger_menu_items() -> HamburgerItems {
     let d = crate::keybindings::display_binding;
 
     HamburgerItems {
-        menu_new_template_item:    make_menu_item("New from Template…",         None),
+        menu_new_template_item: make_menu_item("New from Template…", None),
         menu_reapply_template_item: make_menu_item("Update Template Settings…", None),
-        menu_repair_markers_item:  make_menu_item("Repair Template Markers…",   None),
-        menu_refs_item:            make_menu_item("Reference Manager…",        None),
-        menu_depgraph_item:        make_menu_item("Dependency Graph…",         None),
-        menu_table_item:           make_menu_item("Insert Table…",             None),
-        menu_new_item:             make_menu_item("New Blank Document…",         None),
-        menu_open_item:            make_menu_item("Open File…",                  None),
-        menu_save_item:            make_menu_item("Save",                      Some(&d(&kb.save))),
-        menu_save_as_item:         make_menu_item("Save As…",                    None),
-        menu_snapshots_item:       make_menu_item("Browse Snapshots…",           None),
-        menu_history_item:         make_menu_item("File History…",               None),
-        menu_export_item:          make_menu_item("Export…",                     None),
-        menu_export_web_item:      make_menu_item("Export for Web…",             None),
+        menu_repair_markers_item: make_menu_item("Repair Template Markers…", None),
+        menu_refs_item: make_menu_item("Reference Manager…", None),
+        menu_depgraph_item: make_menu_item("Dependency Graph…", None),
+        menu_table_item: make_menu_item("Insert Table…", None),
+        menu_new_item: make_menu_item("New Blank Document…", None),
+        menu_open_item: make_menu_item("Open File…", None),
+        menu_save_item: make_menu_item("Save", Some(&d(&kb.save))),
+        menu_save_as_item: make_menu_item("Save As…", None),
+        menu_snapshots_item: make_menu_item("Browse Snapshots…", None),
+        menu_history_item: make_menu_item("File History…", None),
+        menu_export_item: make_menu_item("Export…", None),
+        menu_export_web_item: make_menu_item("Export for Web…", None),
         // Print and Import aren't in keybindings.toml — they're fixed in the
         // key handler, so a literal is the honest label here.
-        menu_print_item:           make_menu_item("Print\u{2026}",               Some("Ctrl+P")),
-        menu_import_item:          make_menu_item("Import…",                     Some("Ctrl+Shift+I")),
-        menu_docs_item:            make_menu_item("Browse Documents…",           None),
-        menu_settings_item:        make_menu_item("Settings",                    None),
-        menu_help_item:            make_menu_item("Help",                      Some("Ctrl+?")),
+        menu_print_item: make_menu_item("Print\u{2026}", Some("Ctrl+P")),
+        menu_import_item: make_menu_item("Import…", Some("Ctrl+Shift+I")),
+        menu_docs_item: make_menu_item("Browse Documents…", None),
+        menu_settings_item: make_menu_item("Settings", None),
+        menu_help_item: make_menu_item("Help", Some("Ctrl+?")),
         // The keybinding-aware shortcuts window was reachable only by its
         // shortcut; nothing in the menu opened it.
-        menu_shortcuts_item:       make_menu_item("Keyboard Shortcuts", Some(&d(&kb.shortcuts_help))),
-        menu_writing_stats_item:   make_menu_item("Writing Stats",               None),
-        menu_about_item:           make_menu_item("About Zerkalo",               None),
-        menu_whats_new_item:       make_menu_item("What's New",                  None),
-        menu_import_pdf_item:      make_menu_item("Import PDF File…",            None),
+        menu_shortcuts_item: make_menu_item("Keyboard Shortcuts", Some(&d(&kb.shortcuts_help))),
+        menu_writing_stats_item: make_menu_item("Writing Stats", None),
+        menu_about_item: make_menu_item("About Zerkalo", None),
+        menu_whats_new_item: make_menu_item("What's New", None),
+        menu_import_pdf_item: make_menu_item("Import PDF File…", None),
     }
 }
 
@@ -3435,7 +3583,10 @@ pub(super) fn show_file_history_window(
 /// fresh one, so it shows the current project's real dependency graph rather
 /// than starting empty. Unparents first since a widget can only have one
 /// parent at a time and this may be a second-or-later open.
-pub(super) fn show_dep_graph_window(parent: &adw::ApplicationWindow, dep_graph: &super::dep_graph::DepGraph) {
+pub(super) fn show_dep_graph_window(
+    parent: &adw::ApplicationWindow,
+    dep_graph: &super::dep_graph::DepGraph,
+) {
     let graph_window = adw::Window::builder()
         .title("Dependency Graph")
         .transient_for(parent)
@@ -3466,7 +3617,10 @@ pub(super) fn show_dep_graph_window(parent: &adw::ApplicationWindow, dep_graph: 
 /// singleton-reuse rationale as `show_dep_graph_window` above: it's kept in
 /// sync with the current bibliography via `load_bib`/rename callbacks wired
 /// once at startup, so a fresh instance here would show nothing.
-pub(super) fn show_ref_manager_window(parent: &adw::ApplicationWindow, ref_manager: &super::ref_manager::RefManager) {
+pub(super) fn show_ref_manager_window(
+    parent: &adw::ApplicationWindow,
+    ref_manager: &super::ref_manager::RefManager,
+) {
     let refs_window = adw::Window::builder()
         .title("Reference Manager")
         .transient_for(parent)
@@ -3720,7 +3874,9 @@ fn apply_doc_font_edit(
     edited: Option<String>,
     update_sidecar: impl FnOnce(&mut super::template_dialog::SidecarSettings),
 ) -> bool {
-    let Some(path) = editor.get_active_path() else { return false };
+    let Some(path) = editor.get_active_path() else {
+        return false;
+    };
     let Some(updated) = edited else {
         toast_overlay.add_toast(adw::Toast::new(
             "This document has no Zerkalo template block — nothing to change. \
@@ -3828,9 +3984,8 @@ fn apply_template_result(
                 SpliceOutcome::BodyRegenerated => toast_overlay.add_toast(adw::Toast::new(
                     &format!("Layout changed, so the CV body was rebuilt.{backup_note}"),
                 )),
-                SpliceOutcome::WholeDocumentReplaced => toast_overlay.add_toast(
-                    adw::Toast::new(&format!("Document replaced.{backup_note}")),
-                ),
+                SpliceOutcome::WholeDocumentReplaced => toast_overlay
+                    .add_toast(adw::Toast::new(&format!("Document replaced.{backup_note}"))),
                 _ => {}
             }
         }
@@ -3842,11 +3997,13 @@ fn apply_template_result(
         let confirm = adw::MessageDialog::new(
             Some(window),
             Some("Replace entire document?"),
-            Some("This document has no body marker, so the template \
+            Some(
+                "This document has no body marker, so the template \
                   will replace the whole file. Your current text will be \
                   moved to a .typ.bak backup alongside it.\n\n\
                   If you meant to keep this text, cancel and use \
-                  Repair Template Markers first."),
+                  Repair Template Markers first.",
+            ),
         );
         confirm.add_response("cancel", "Cancel");
         confirm.add_response("replace", "Replace Document");

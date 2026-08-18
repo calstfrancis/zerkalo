@@ -58,7 +58,11 @@ impl PaperSpec {
         let uniform = sizes.iter().all(|(w, h)| {
             (w - width_pt).abs() <= SIZE_EPSILON_PT && (h - height_pt).abs() <= SIZE_EPSILON_PT
         });
-        Some(PaperSpec { width_pt, height_pt, uniform })
+        Some(PaperSpec {
+            width_pt,
+            height_pt,
+            uniform,
+        })
     }
 
     pub fn is_landscape(&self) -> bool {
@@ -85,7 +89,11 @@ impl PaperSpec {
     /// "A4 portrait" or "120 × 200 mm landscape".
     pub fn describe(&self) -> String {
         let (pw, ph) = self.portrait_mm();
-        let orientation = if self.is_landscape() { "landscape" } else { "portrait" };
+        let orientation = if self.is_landscape() {
+            "landscape"
+        } else {
+            "portrait"
+        };
         let named = KNOWN_SIZES.iter().find(|(_, w, h)| {
             (pw - w).abs() <= NAME_TOLERANCE_MM && (ph - h).abs() <= NAME_TOLERANCE_MM
         });
@@ -129,7 +137,10 @@ impl PageNumbering {
     /// disagree the distinction is worth surfacing and when they agree
     /// mentioning it is just noise.
     pub fn matches_physical_order(&self) -> bool {
-        self.logical.iter().enumerate().all(|(i, n)| *n == i as u64 + 1)
+        self.logical
+            .iter()
+            .enumerate()
+            .all(|(i, n)| *n == i as u64 + 1)
     }
 
     /// Resolve a range expression written in the document's own numbering into
@@ -166,9 +177,16 @@ impl PageNumbering {
                     (n, n)
                 }
                 Some((start, end)) => {
-                    let from =
-                        if start.trim().is_empty() { lowest } else { parse_page_number(start)? };
-                    let to = if end.trim().is_empty() { highest } else { parse_page_number(end)? };
+                    let from = if start.trim().is_empty() {
+                        lowest
+                    } else {
+                        parse_page_number(start)?
+                    };
+                    let to = if end.trim().is_empty() {
+                        highest
+                    } else {
+                        parse_page_number(end)?
+                    };
                     if from > to {
                         return Err(format!("“{token}” counts backwards."));
                     }
@@ -267,8 +285,12 @@ impl Imposition {
 
     /// The order the print sheet lists them in, and the order their config
     /// strings are indexed by.
-    pub const ALL: [Imposition; 4] =
-        [Imposition::Off, Imposition::TwoUp, Imposition::FourUp, Imposition::Booklet];
+    pub const ALL: [Imposition; 4] = [
+        Imposition::Off,
+        Imposition::TwoUp,
+        Imposition::FourUp,
+        Imposition::Booklet,
+    ];
 
     pub fn config_key(self) -> &'static str {
         match self {
@@ -399,10 +421,18 @@ mod tests {
 
     #[test]
     fn known_sizes_are_named() {
-        assert_eq!(PaperSpec::from_page_sizes(&[A4]).unwrap().describe(), "A4 portrait");
-        assert_eq!(PaperSpec::from_page_sizes(&[A5]).unwrap().describe(), "A5 portrait");
         assert_eq!(
-            PaperSpec::from_page_sizes(&[(A4.1, A4.0)]).unwrap().describe(),
+            PaperSpec::from_page_sizes(&[A4]).unwrap().describe(),
+            "A4 portrait"
+        );
+        assert_eq!(
+            PaperSpec::from_page_sizes(&[A5]).unwrap().describe(),
+            "A5 portrait"
+        );
+        assert_eq!(
+            PaperSpec::from_page_sizes(&[(A4.1, A4.0)])
+                .unwrap()
+                .describe(),
             "A4 landscape"
         );
     }
@@ -442,7 +472,10 @@ mod tests {
 
     #[test]
     fn overlapping_tokens_are_deduplicated_and_sorted() {
-        assert_eq!(sequential(6).resolve("4,1-2,2-5").unwrap(), vec![0, 1, 2, 3, 4]);
+        assert_eq!(
+            sequential(6).resolve("4,1-2,2-5").unwrap(),
+            vec![0, 1, 2, 3, 4]
+        );
     }
 
     #[test]
@@ -469,7 +502,10 @@ mod tests {
         let n = sequential(5);
         assert!(n.resolve("banana").is_err());
         assert!(n.resolve("4-2").is_err());
-        assert!(n.resolve("99").is_err(), "a range matching nothing is an error, not a no-op");
+        assert!(
+            n.resolve("99").is_err(),
+            "a range matching nothing is an error, not a no-op"
+        );
     }
 
     #[test]
@@ -555,7 +591,10 @@ mod tests {
                 leaves[count - 1 - sheet * 2] = front[0];
             }
             let read: Vec<usize> = leaves.into_iter().flatten().collect();
-            assert_eq!(read, pages, "booklet of {count} pages must fold into reading order");
+            assert_eq!(
+                read, pages,
+                "booklet of {count} pages must fold into reading order"
+            );
         }
     }
 
@@ -580,9 +619,18 @@ mod tests {
 
     #[test]
     fn slots_and_grids_agree() {
-        for imp in [Imposition::Off, Imposition::TwoUp, Imposition::FourUp, Imposition::Booklet] {
+        for imp in [
+            Imposition::Off,
+            Imposition::TwoUp,
+            Imposition::FourUp,
+            Imposition::Booklet,
+        ] {
             let (cols, rows) = imp.grid();
-            assert_eq!(cols * rows, imp.slots_per_side(), "{imp:?} grid must fill its slots");
+            assert_eq!(
+                cols * rows,
+                imp.slots_per_side(),
+                "{imp:?} grid must fill its slots"
+            );
         }
     }
 }
