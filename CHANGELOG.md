@@ -5,6 +5,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.24.2] "True Source" — 2026-08-18 — Citation source dialog and sidebar collapse fixes
+
+### Fixed
+
+- **Choosing a bibliography file, vault, or creating a new one from the
+  citation panel's dialogs didn't update the document** — only
+  `Config::bib_path`, which drives the citation panel's own autocomplete
+  but nothing in the document itself. The `#bibliography(...)` line was
+  left pointing at the old (or no) source, breaking compilation until
+  fixed by hand. All three dialogs now rewrite the active document's
+  bibliography call directly, preserving style/title, and uncommenting
+  a placeholder line if the document had none active yet.
+- **Collapsing the Packages/Comments sidebar sections hid their content
+  but left the space they used behind as a blank gap**, instead of
+  giving it to whichever section is actually open. Both sides of that
+  divider already refuse to shrink past their natural size, so driving
+  it to its extreme on collapse — and restoring the saved position on
+  expand — reclaims the space correctly.
+
+---
+
 ## [0.24.1] "Clean Copy" — 2026-08-18 — Citation reliability and editor interaction fixes
 
 ### Added

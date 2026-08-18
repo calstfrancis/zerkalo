@@ -7,7 +7,7 @@ use libadwaita as adw;
 use adw::prelude::*;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const RELEASE_NAME: &str = "Clean Copy";
+pub const RELEASE_NAME: &str = "True Source";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -137,9 +137,10 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
+                "Choosing a bibliography file, vault, or creating a new one from the citation panel now actually updates the document's #bibliography(...) line, instead of only the app-wide setting — no more fixing it by hand afterward.",
+                "Collapsing the Packages or Comments sidebar section now reclaims the space it used, instead of leaving a blank gap behind.",
                 "A malformed date in one bibliography entry no longer breaks every citation in the document — Zerkalo now reads the file as leniently as its own citation panel already did, instead of failing the whole file over one bad entry.",
                 "A bibliography path outside the project — most commonly a Kartoteka vault — now works regardless of how it got into the document, not just when it's also set in Settings.",
-                "The Packages and Comments sidebar sections can be collapsed to just their header row, via a chevron button next to each.",
                 "Clicking a format bar button (Bold, a heading, Insert Table…) no longer moves the keyboard focus off the document — apply it and keep typing.",
                 "Clicking on error-underlined text now places the cursor there directly, instead of just dismissing the error popup and needing a second click.",
             ] {

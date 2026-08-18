@@ -80,6 +80,14 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.24.2" date="2026-08-18">
+      <description>
+        <p>0.24.2 "True Source" — choosing a bibliography file, vault, or creating a new one
+        from the citation panel now actually updates the document's #bibliography(...) line
+        instead of only the app-wide setting, and collapsing the Packages or Comments
+        sidebar section now reclaims the space it used instead of leaving a blank gap.</p>
+      </description>
+    </release>
     <release version="0.24.1" date="2026-08-18">
       <description>
         <p>0.24.1 "Clean Copy" — a malformed date in one bibliography entry no longer breaks
