@@ -3512,7 +3512,16 @@ pub(super) fn open_template_for_active_document(
 
     {
         let cfg = config.borrow();
-        dlg.set_bib_path(cfg.bib_path.clone());
+        // A project-level bib_path override (`.zerkalo/config.toml`) wasn't
+        // consulted here — only the global Settings one — so a document
+        // whose bibliography was configured per-project (as Kartoteka vault
+        // setups typically are) opened this dialog with no bib_path at all,
+        // and clicking Apply regenerated the document with the bibliography
+        // line *commented out* instead of pointing at the vault. Same
+        // resolution `effective_bib` already uses at startup.
+        let proj_cfg = crate::config::ProjectConfig::load(project_root).unwrap_or_default();
+        let effective_bib = proj_cfg.bib_path.clone().or_else(|| cfg.bib_path.clone());
+        dlg.set_bib_path(effective_bib);
         dlg.preselect_locked_identity(&cfg.locked_author.clone(), &cfg.locked_affiliation.clone());
         dlg.set_cv_elements_path(cfg.cv_elements_path.clone());
     }
