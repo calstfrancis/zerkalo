@@ -15,7 +15,8 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
     let style_name = CITATION_STYLES.get(s.style_idx).map(|(n, _)| *n).unwrap_or("Chicago");
     let bib = bib_style(style_key);
     let bib_line = s.bib_path.as_ref().map(|p| {
-        format!("#bibliography(\"{}\", style: \"{}\")", typst_str(&p.to_string_lossy()), bib)
+        let target = crate::bibliography::bib_target_path(p);
+        format!("#bibliography(\"{}\", style: \"{}\")", typst_str(&target.to_string_lossy()), bib)
     });
 
     // GOST 7.32 mandates A4, specific margins, and 14 pt body text regardless of form selection.

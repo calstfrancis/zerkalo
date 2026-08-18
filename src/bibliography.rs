@@ -40,6 +40,24 @@ pub fn is_vault_dir(path: &Path) -> bool {
     path.is_dir() && path.join("entries").is_dir()
 }
 
+/// The path a Typst `#bibliography(...)` call should actually name for
+/// `bib_path`: unchanged for a plain `.bib`/`.yaml` file, or the vault's
+/// `library.yml` when `bib_path` is a Kartoteka vault directory. Typst's
+/// `bibliography()` reads a data *file*, not a directory — a raw vault path
+/// used to be written verbatim, which meant a configured vault could never
+/// actually resolve any citation at compile time even once it was readable
+/// (see `compiler::ZerkaloWorld`'s `extra_root`), since Typst had nothing to
+/// parse there. `library.yml` is the vault's own committed, Typst-consumable
+/// export (`fond_bib::Library::regenerate_library_yml`), kept in sync with
+/// `entries/` automatically by Kartoteka.
+pub fn bib_target_path(bib_path: &Path) -> std::path::PathBuf {
+    if is_vault_dir(bib_path) {
+        bib_path.join("library.yml")
+    } else {
+        bib_path.to_path_buf()
+    }
+}
+
 /// Loads every entry from a Kartoteka vault directly through `fond-bib`,
 /// bypassing `library.yml` (a derived export) so this always reflects the
 /// authoritative `entries/*.yml` files on disk.
@@ -395,6 +413,19 @@ mod tests {
         assert!(!is_vault_dir(dir.path()));
         std::fs::create_dir(dir.path().join("entries")).unwrap();
         assert!(is_vault_dir(dir.path()));
+    }
+
+    #[test]
+    fn bib_target_path_appends_library_yml_for_a_vault() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("entries")).unwrap();
+        assert_eq!(bib_target_path(dir.path()), dir.path().join("library.yml"));
+    }
+
+    #[test]
+    fn bib_target_path_leaves_a_plain_file_unchanged() {
+        let path = Path::new("/home/user/refs.bib");
+        assert_eq!(bib_target_path(path), path);
     }
 
     #[test]

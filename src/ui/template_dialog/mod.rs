@@ -2793,7 +2793,7 @@ fn render_template_preview(
         if matches!(body_kind, BodyKind::Cv) {
             overrides.insert(tmp_dir.join("cv-helpers.typ"), crate::cv_mode::CV_HELPERS_TYPST.to_string());
         }
-        return crate::compiler::compile_to_png_bytes(&typ_path, 1.5, &overrides, &std::collections::HashMap::new())
+        return crate::compiler::compile_to_png_bytes(&typ_path, 1.5, &overrides, &std::collections::HashMap::new(), None)
             .map(|pages| {
                 let png = pages.into_iter().next().unwrap_or_default();
                 if let Some(ref c) = cache_path { let _ = std::fs::write(c, &png); }
@@ -2826,7 +2826,7 @@ fn render_template_preview(
     std::fs::write(&bib_path, PREVIEW_BIB).map_err(|e| e.to_string())?;
     std::fs::write(&typ_path, &preamble).map_err(|e| e.to_string())?;
 
-    crate::compiler::compile_to_png_bytes(&typ_path, 1.5, &std::collections::HashMap::new(), &std::collections::HashMap::new())
+    crate::compiler::compile_to_png_bytes(&typ_path, 1.5, &std::collections::HashMap::new(), &std::collections::HashMap::new(), None)
         .map(|pages| {
             // Page 2 shows the content style; fall back to page 1 if only one page
             let page_idx = if pages.len() > 1 { 1 } else { 0 };
@@ -3286,7 +3286,7 @@ mod tests {
             dir.join("cv-helpers.typ"),
             include_str!("../../../templates/cv-helpers.typ").to_string(),
         );
-        let result = crate::compiler::compile_to_pdf_bytes(&path, &overrides, &HashMap::new());
+        let result = crate::compiler::compile_to_pdf_bytes(&path, &overrides, &HashMap::new(), None);
         let _ = std::fs::remove_file(&path);
         result.err()
     }
@@ -3462,7 +3462,7 @@ mod tests {
         let path = std::env::temp_dir()
             .join(format!("zerkalo_leading_{}_{leading}.typ", std::process::id()));
         std::fs::write(&path, src).unwrap();
-        let pages = crate::compiler::compile_to_png_bytes(&path, 1.0, &HashMap::new(), &HashMap::new())
+        let pages = crate::compiler::compile_to_png_bytes(&path, 1.0, &HashMap::new(), &HashMap::new(), None)
             .expect("leading probe compiles");
         let _ = std::fs::remove_file(&path);
         // PNG height is the second u32 of the IHDR chunk.
@@ -3684,7 +3684,7 @@ french:
             let mut inputs = HashMap::new();
             inputs.insert("skrizhal-cv-data".to_string(), cv_data.to_string());
 
-            let result = crate::compiler::compile_to_pdf_bytes(&path, &overrides, &inputs);
+            let result = crate::compiler::compile_to_pdf_bytes(&path, &overrides, &inputs, None);
             assert!(
                 result.is_ok(),
                 "CV style_idx={style_idx} should compile: {:?}",
@@ -3777,7 +3777,7 @@ french:
                 n
             ));
             std::fs::write(&path, src).unwrap();
-            let result = crate::compiler::compile_to_pdf_bytes(&path, &overrides, &inputs);
+            let result = crate::compiler::compile_to_pdf_bytes(&path, &overrides, &inputs, None);
             assert!(result.is_ok(), "spliced {label} CV should compile: {:?}", result.err());
             assert!(result.unwrap().starts_with(b"%PDF-"));
             let _ = std::fs::remove_file(&path);
@@ -3849,7 +3849,7 @@ french:
                 n
             ));
             std::fs::write(&path, src).unwrap();
-            let result = crate::compiler::compile_to_pdf_bytes(&path, &overrides, &inputs);
+            let result = crate::compiler::compile_to_pdf_bytes(&path, &overrides, &inputs, None);
             assert!(result.is_ok(), "spliced {label} CV should compile: {:?}", result.err());
             assert!(result.unwrap().starts_with(b"%PDF-"));
             let _ = std::fs::remove_file(&path);
@@ -3923,7 +3923,7 @@ french:
             cv_helpers_src.to_string(),
         );
 
-        let result = crate::compiler::compile_to_pdf_bytes(&path, &overrides, &HashMap::new());
+        let result = crate::compiler::compile_to_pdf_bytes(&path, &overrides, &HashMap::new(), None);
         assert!(
             result.is_ok(),
             "regenerated legacy CV document should still compile: {:?}",
@@ -3987,7 +3987,7 @@ french:
             let cv_helpers_src = include_str!("../../../templates/cv-helpers.typ");
             let mut overrides = HashMap::new();
             overrides.insert(std::path::PathBuf::from("/tmp/cv-helpers.typ"), cv_helpers_src.to_string());
-            let ok = crate::compiler::compile_to_pdf_bytes(&path, &overrides, &HashMap::new()).is_ok();
+            let ok = crate::compiler::compile_to_pdf_bytes(&path, &overrides, &HashMap::new(), None).is_ok();
             let _ = std::fs::remove_file(&path);
             ok
         };
@@ -4687,6 +4687,7 @@ Body text.\n";
             &path,
             &std::collections::HashMap::new(),
             &std::collections::HashMap::new(),
+            None,
         );
         assert!(result.is_ok(), "letter template should compile: {:?}", result.err());
         assert!(result.unwrap().starts_with(b"%PDF-"));

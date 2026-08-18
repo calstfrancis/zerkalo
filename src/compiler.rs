@@ -125,16 +125,43 @@ struct ZerkaloWorld {
 }
 
 impl ZerkaloWorld {
+    /// `extra_root` is a path a document needs to read that may live outside
+    /// the project — a configured `bib_path`, most commonly a Kartoteka
+    /// vault, which is meant to be shared across projects rather than living
+    /// inside any one of them. When it's outside the project directory, the
+    /// World's root widens to the filesystem root (`/`) so it's reachable at
+    /// all: Typst treats a leading `/` in a path argument as rooted at the
+    /// World's root, not the real filesystem, so a genuinely external
+    /// absolute path otherwise silently resolves to
+    /// `<project_root>/<extra_root>` instead of the real location — confirmed
+    /// by direct reproduction (`error: file not found (searched at
+    /// <project>/<extra_root>...)`) before this widening existed. Ordinary
+    /// projects with no such path keep the tighter, project-scoped root.
     fn new(
         root_file: &Path,
         overrides: HashMap<PathBuf, String>,
         sys_inputs: &HashMap<String, String>,
+        extra_root: Option<&Path>,
     ) -> Result<Self, String> {
-        let root = root_file
+        let project_root = root_file
             .parent()
             .ok_or_else(|| format!("no parent directory: {}", root_file.display()))?
             .to_path_buf();
-        let rel = root_file.strip_prefix(&root).unwrap_or(root_file);
+
+        let needs_widening = extra_root.is_some_and(|extra| {
+            let canon_project = std::fs::canonicalize(&project_root).unwrap_or_else(|_| project_root.clone());
+            let canon_extra = std::fs::canonicalize(extra).unwrap_or_else(|_| extra.to_path_buf());
+            !canon_extra.starts_with(&canon_project)
+        });
+
+        let (root, abs_root_file) = if needs_widening {
+            let canon = std::fs::canonicalize(root_file).unwrap_or_else(|_| root_file.to_path_buf());
+            (PathBuf::from("/"), canon)
+        } else {
+            (project_root, root_file.to_path_buf())
+        };
+
+        let rel = abs_root_file.strip_prefix(&root).unwrap_or(&abs_root_file);
         let main_id = FileId::new(None, VirtualPath::new(rel));
         let library = build_library(sys_inputs);
         Ok(Self {
@@ -294,8 +321,9 @@ pub fn compile_to_pdf_bytes(
     root_file: &Path,
     overrides: &HashMap<PathBuf, String>,
     sys_inputs: &HashMap<String, String>,
+    extra_root: Option<&Path>,
 ) -> Result<Vec<u8>, String> {
-    let world = ZerkaloWorld::new(root_file, overrides.clone(), sys_inputs)?;
+    let world = ZerkaloWorld::new(root_file, overrides.clone(), sys_inputs, extra_root)?;
     let (doc, _warnings) = finish::<PagedDocument>(&world, typst::compile(&world))?;
     pdf_bytes_from_document(&doc)
 }
@@ -333,8 +361,9 @@ pub fn compile_document(
     root_file: &Path,
     overrides: &HashMap<PathBuf, String>,
     sys_inputs: &HashMap<String, String>,
+    extra_root: Option<&Path>,
 ) -> Result<PagedDocument, String> {
-    let world = ZerkaloWorld::new(root_file, overrides.clone(), sys_inputs)?;
+    let world = ZerkaloWorld::new(root_file, overrides.clone(), sys_inputs, extra_root)?;
     finish::<PagedDocument>(&world, typst::compile(&world)).map(|(doc, _warnings)| doc)
 }
 
@@ -366,8 +395,9 @@ pub fn compile_to_rgba_pages(
     pixel_per_pt: f32,
     overrides: &HashMap<PathBuf, String>,
     sys_inputs: &HashMap<String, String>,
+    extra_root: Option<&Path>,
 ) -> Result<(Vec<RenderedPage>, String), String> {
-    let world = ZerkaloWorld::new(root_file, overrides.clone(), sys_inputs)?;
+    let world = ZerkaloWorld::new(root_file, overrides.clone(), sys_inputs, extra_root)?;
     let (doc, warnings) = finish::<PagedDocument>(&world, typst::compile(&world))?;
     // tiny-skia stores premultiplied RGBA; GdkPixbuf wants straight.
     // Typst pages are opaque so this is usually identity, but pages with
@@ -383,8 +413,9 @@ pub fn compile_to_png_bytes(
     pixel_per_pt: f32,
     overrides: &HashMap<PathBuf, String>,
     sys_inputs: &HashMap<String, String>,
+    extra_root: Option<&Path>,
 ) -> Result<Vec<Vec<u8>>, String> {
-    let world = ZerkaloWorld::new(root_file, overrides.clone(), sys_inputs)?;
+    let world = ZerkaloWorld::new(root_file, overrides.clone(), sys_inputs, extra_root)?;
     let (doc, _warnings) = finish::<PagedDocument>(&world, typst::compile(&world))?;
     let mut pages = Vec::with_capacity(doc.pages.len());
     for page in &doc.pages {
@@ -413,10 +444,84 @@ mod tests {
         path
     }
 
+    /// Reproduces the reported bug directly: a bibliography source outside
+    /// the project directory (e.g. a Kartoteka vault, which is meant to be
+    /// shared across projects rather than living inside any one of them) is
+    /// unreachable without `extra_root` — Typst treats the leading `/` in a
+    /// path argument as rooted at the World's root, not the real filesystem,
+    /// so it silently resolves to `<project>/<the external path>` instead of
+    /// the real location, and the compile fails with "file not found"
+    /// naming that wrong, doubled path.
+    #[test]
+    fn an_external_bib_path_is_unreachable_without_extra_root() {
+        let doc_dir = std::env::temp_dir().join(format!("zerkalo_root_test_doc_{}", std::process::id()));
+        let vault_dir = std::env::temp_dir().join(format!("zerkalo_root_test_vault_{}", std::process::id()));
+        std::fs::create_dir_all(&doc_dir).unwrap();
+        std::fs::create_dir_all(&vault_dir).unwrap();
+        std::fs::write(vault_dir.join("library.yml"), "smith2020:\n  type: article\n  title: T\n  author: J\n  date: 2020\n").unwrap();
+
+        let doc_path = doc_dir.join("main.typ");
+        std::fs::write(
+            &doc_path,
+            format!("#bibliography(\"{}\")\n\nSee @smith2020.\n", vault_dir.join("library.yml").display()),
+        ).unwrap();
+
+        let result = compile_to_pdf_bytes(&doc_path, &HashMap::new(), &HashMap::new(), None);
+        assert!(result.is_err(), "external path should be unreachable without extra_root");
+        assert!(result.unwrap_err().contains("file not found"));
+
+        let _ = std::fs::remove_dir_all(&doc_dir);
+        let _ = std::fs::remove_dir_all(&vault_dir);
+    }
+
+    /// The fix: passing the external bib path as `extra_root` widens the
+    /// World's root to `/`, so the same document as above compiles and
+    /// actually resolves the citation.
+    #[test]
+    fn an_external_bib_path_resolves_when_passed_as_extra_root() {
+        let doc_dir = std::env::temp_dir().join(format!("zerkalo_root_test_doc2_{}", std::process::id()));
+        let vault_dir = std::env::temp_dir().join(format!("zerkalo_root_test_vault2_{}", std::process::id()));
+        std::fs::create_dir_all(&doc_dir).unwrap();
+        std::fs::create_dir_all(&vault_dir).unwrap();
+        let lib_path = vault_dir.join("library.yml");
+        std::fs::write(&lib_path, "smith2020:\n  type: article\n  title: T\n  author: J\n  date: 2020\n").unwrap();
+
+        let doc_path = doc_dir.join("main.typ");
+        std::fs::write(
+            &doc_path,
+            format!("#bibliography(\"{}\")\n\nSee @smith2020.\n", lib_path.display()),
+        ).unwrap();
+
+        let result = compile_to_pdf_bytes(&doc_path, &HashMap::new(), &HashMap::new(), Some(&lib_path));
+        assert!(result.is_ok(), "external path should resolve with extra_root: {:?}", result.err());
+        assert!(result.unwrap().starts_with(b"%PDF-"));
+
+        let _ = std::fs::remove_dir_all(&doc_dir);
+        let _ = std::fs::remove_dir_all(&vault_dir);
+    }
+
+    /// A bib path already inside the project needs no widening — this just
+    /// locks in that the common case is unaffected by the new parameter.
+    #[test]
+    fn a_bib_path_already_inside_the_project_compiles_without_widening() {
+        let doc_dir = std::env::temp_dir().join(format!("zerkalo_root_test_doc3_{}", std::process::id()));
+        std::fs::create_dir_all(&doc_dir).unwrap();
+        let bib_path = doc_dir.join("refs.bib");
+        std::fs::write(&bib_path, "@article{smith2020,\n  author = {J},\n  title = {T},\n  year = {2020},\n}\n").unwrap();
+
+        let doc_path = doc_dir.join("main.typ");
+        std::fs::write(&doc_path, "#bibliography(\"refs.bib\")\n\nSee @smith2020.\n").unwrap();
+
+        let result = compile_to_pdf_bytes(&doc_path, &HashMap::new(), &HashMap::new(), Some(&bib_path));
+        assert!(result.is_ok(), "bib already inside the project should compile: {:?}", result.err());
+
+        let _ = std::fs::remove_dir_all(&doc_dir);
+    }
+
     #[test]
     fn compile_trivial_document_to_pdf() {
         let path = write_temp_typ("Hello, world!");
-        let result = compile_to_pdf_bytes(&path, &HashMap::new(), &HashMap::new());
+        let result = compile_to_pdf_bytes(&path, &HashMap::new(), &HashMap::new(), None);
         assert!(result.is_ok(), "trivial doc should compile: {:?}", result.err());
         let bytes = result.unwrap();
         assert!(bytes.starts_with(b"%PDF-"), "output should be valid PDF");
@@ -430,7 +535,7 @@ mod tests {
         // location was ever emitted and the UI's fallback pinned everything to
         // line 1. Typst's own WorldExt::range covers both cases.
         let path = write_temp_typ("= Title\n\nSome text.\n\n#no-such-function()\n");
-        let err = compile_to_pdf_bytes(&path, &HashMap::new(), &HashMap::new())
+        let err = compile_to_pdf_bytes(&path, &HashMap::new(), &HashMap::new(), None)
             .expect_err("undefined function should fail to compile");
         assert!(
             err.contains(" --> "),
@@ -454,7 +559,7 @@ mod tests {
         let main = dir.join("main.typ");
         std::fs::write(&main, "= Doc\n\n#include \"helper.typ\"\n").unwrap();
 
-        let err = compile_to_pdf_bytes(&main, &HashMap::new(), &HashMap::new())
+        let err = compile_to_pdf_bytes(&main, &HashMap::new(), &HashMap::new(), None)
             .expect_err("error in the included file should fail the compile");
         let loc = err
             .lines()
@@ -472,7 +577,7 @@ mod tests {
         // compiler output through the panel's parser, which is where the
         // line-1 fallback used to swallow everything.
         let path = write_temp_typ("= Title\n\nText.\n\n#no-such-thing()\n");
-        let err = compile_to_pdf_bytes(&path, &HashMap::new(), &HashMap::new()).unwrap_err();
+        let err = compile_to_pdf_bytes(&path, &HashMap::new(), &HashMap::new(), None).unwrap_err();
         let parsed = crate::ui::error_panel::parse_typst_errors(
             &err,
             path.parent().unwrap(),
@@ -491,7 +596,7 @@ mod tests {
     #[test]
     fn compile_with_heading_and_content() {
         let path = write_temp_typ("= Introduction\n\nThis is a test document.\n");
-        let result = compile_to_pdf_bytes(&path, &HashMap::new(), &HashMap::new());
+        let result = compile_to_pdf_bytes(&path, &HashMap::new(), &HashMap::new(), None);
         assert!(result.is_ok(), "document with heading should compile");
     }
 
@@ -499,14 +604,14 @@ mod tests {
     fn compile_nonexistent_root_fails() {
         let path = std::path::PathBuf::from("/tmp/zerkalo-nonexistent-root-abc123.typ");
         let _ = std::fs::remove_file(&path);
-        let result = compile_to_pdf_bytes(&path, &HashMap::new(), &HashMap::new());
+        let result = compile_to_pdf_bytes(&path, &HashMap::new(), &HashMap::new(), None);
         assert!(result.is_err(), "compiling a nonexistent root file should fail");
     }
 
     #[test]
     fn compile_to_png_single_page() {
         let path = write_temp_typ("= Heading\n\nSome content here.");
-        let result = compile_to_png_bytes(&path, 1.0, &HashMap::new(), &HashMap::new());
+        let result = compile_to_png_bytes(&path, 1.0, &HashMap::new(), &HashMap::new(), None);
         assert!(result.is_ok(), "doc should compile to PNG");
         let pages = result.unwrap();
         assert!(!pages.is_empty(), "should produce at least one page");
@@ -516,7 +621,7 @@ mod tests {
     #[test]
     fn compile_to_rgba_produces_buffer_matching_declared_dimensions() {
         let path = write_temp_typ("= Heading\n\nSome content here.");
-        let result = compile_to_rgba_pages(&path, 1.0, &HashMap::new(), &HashMap::new());
+        let result = compile_to_rgba_pages(&path, 1.0, &HashMap::new(), &HashMap::new(), None);
         assert!(result.is_ok(), "doc should render to RGBA: {:?}", result.err());
         let (pages, _warnings) = result.unwrap();
         assert!(!pages.is_empty(), "should produce at least one page");
@@ -534,7 +639,7 @@ mod tests {
     #[test]
     fn compile_to_rgba_renders_page_content_opaque() {
         let path = write_temp_typ("= Heading\n\nSome content here.");
-        let (pages, _) = compile_to_rgba_pages(&path, 1.0, &HashMap::new(), &HashMap::new()).unwrap();
+        let (pages, _) = compile_to_rgba_pages(&path, 1.0, &HashMap::new(), &HashMap::new(), None).unwrap();
         let p = &pages[0];
         assert!(
             p.rgba.chunks_exact(4).all(|px| px[3] == 255),
@@ -554,7 +659,7 @@ mod tests {
         // `#set page(width: auto)` inside a container warns without failing.
         let path = write_temp_typ("#let x = 1\n#x\n#show heading: it => it\n= H\n#[#set par(justify: true)]\n");
         let (_pages, warnings) =
-            compile_to_rgba_pages(&path, 1.0, &HashMap::new(), &HashMap::new())
+            compile_to_rgba_pages(&path, 1.0, &HashMap::new(), &HashMap::new(), None)
                 .expect("document should still compile");
         // Not asserting on a specific warning text — Typst's own set changes
         // between versions. What matters is that the channel exists and the
@@ -625,12 +730,12 @@ mod tests {
         // is one-off cost, not growth.
         for i in 0..20 {
             std::fs::write(&path, format!("= Title\n\nSome prose {i}.\n")).unwrap();
-            compile_to_pdf_bytes(&path, &HashMap::new(), &HashMap::new()).unwrap();
+            compile_to_pdf_bytes(&path, &HashMap::new(), &HashMap::new(), None).unwrap();
         }
         let base = rss_kb();
         for i in 20..220 {
             std::fs::write(&path, format!("= Title\n\nSome prose {i}.\n")).unwrap();
-            compile_to_pdf_bytes(&path, &HashMap::new(), &HashMap::new()).unwrap();
+            compile_to_pdf_bytes(&path, &HashMap::new(), &HashMap::new(), None).unwrap();
         }
         let growth = rss_kb().saturating_sub(base);
         println!("RSS growth over 200 compiles: {growth} kB");
@@ -646,7 +751,7 @@ mod tests {
     fn compile_document_reports_page_count_for_printing() {
         // The print dialog's page range depends on this count being right.
         let path = write_temp_typ("First page.\n#pagebreak()\nSecond page.");
-        let doc = compile_document(&path, &HashMap::new(), &HashMap::new())
+        let doc = compile_document(&path, &HashMap::new(), &HashMap::new(), None)
             .expect("document should compile");
         assert_eq!(doc.pages.len(), 2, "two pages after an explicit pagebreak");
     }
@@ -655,7 +760,7 @@ mod tests {
     fn compile_document_surfaces_errors_rather_than_returning_empty() {
         // Printing used to discard this, leaving the button apparently dead.
         let path = write_temp_typ("#panic(\"boom\")");
-        let result = compile_document(&path, &HashMap::new(), &HashMap::new());
+        let result = compile_document(&path, &HashMap::new(), &HashMap::new(), None);
         assert!(result.is_err(), "a failing document must report an error");
     }
 
@@ -664,7 +769,7 @@ mod tests {
         // draw_page relies on this: it renders at PRINT_DPI/72 and scales the
         // Cairo context back down by the same factor to land at true size.
         let path = write_temp_typ("= Heading");
-        let doc = compile_document(&path, &HashMap::new(), &HashMap::new()).unwrap();
+        let doc = compile_document(&path, &HashMap::new(), &HashMap::new(), None).unwrap();
         let low = render_page_rgba(&doc.pages[0], 1.0);
         let high = render_page_rgba(&doc.pages[0], 2.0);
         // Page dimensions are fractional points, so doubling the scale lands
@@ -690,7 +795,7 @@ mod tests {
         let mut inputs = HashMap::new();
         inputs.insert("zerkalo-test".to_string(), "present".to_string());
         assert!(
-            compile_document(&path, &HashMap::new(), &inputs).is_ok(),
+            compile_document(&path, &HashMap::new(), &inputs, None).is_ok(),
             "sys inputs must reach the compiled document"
         );
     }
@@ -702,7 +807,7 @@ mod tests {
         );
         let mut inputs = HashMap::new();
         inputs.insert("draft".to_string(), "true".to_string());
-        let result = compile_to_png_bytes(&path, 1.0, &HashMap::new(), &inputs);
+        let result = compile_to_png_bytes(&path, 1.0, &HashMap::new(), &inputs, None);
         assert!(result.is_ok(), "doc with sys.inputs should compile: {:?}", result.err());
     }
 
@@ -746,7 +851,7 @@ mdiv-2024:
         let mut inputs = HashMap::new();
         inputs.insert("skrizhal-cv-data".to_string(), cv_data.to_string());
 
-        let result = compile_to_pdf_bytes(&path, &overrides, &inputs);
+        let result = compile_to_pdf_bytes(&path, &overrides, &inputs, None);
         assert!(result.is_ok(), "CV-mode document should compile: {:?}", result.err());
         let bytes = result.unwrap();
         assert!(bytes.starts_with(b"%PDF-"), "output should be valid PDF");
@@ -807,7 +912,7 @@ _profiles:
         let mut inputs = HashMap::new();
         inputs.insert("skrizhal-cv-data".to_string(), cv_data.to_string());
 
-        let result = compile_to_pdf_bytes(&path, &overrides, &inputs);
+        let result = compile_to_pdf_bytes(&path, &overrides, &inputs, None);
         assert!(
             result.is_ok(),
             "CV-profile document should compile: {:?}",

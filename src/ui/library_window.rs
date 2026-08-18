@@ -2645,6 +2645,9 @@ impl LibraryWindow {
             // effective_cv_elements to resolve here yet — a CV-mode
             // document exported this way (rather than via the main Export
             // dialog, which is covered) won't resolve #cv-entry/#cv-section.
+            // Same gap applies to bib_path: a document whose bibliography
+            // lives outside the project (e.g. a Kartoteka vault) won't
+            // resolve citations exported this way either.
             let (tx, rx) = std::sync::mpsc::sync_channel::<Result<Vec<u8>, String>>(1);
             let src_for_thread = src.clone();
             std::thread::spawn(move || {
@@ -2652,6 +2655,7 @@ impl LibraryWindow {
                     &src_for_thread,
                     &std::collections::HashMap::new(),
                     &std::collections::HashMap::new(),
+                    None,
                 ).map_err(|e| e.to_string());
                 let _ = tx.send(result);
             });

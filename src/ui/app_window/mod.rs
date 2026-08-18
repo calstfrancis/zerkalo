@@ -408,6 +408,7 @@ impl AppWindow {
             CV_HELPERS_TYPST.to_string(),
         );
         preview_pane.set_cv_elements_path(effective_cv_elements.clone());
+        preview_pane.set_bib_path(effective_bib.clone());
         let error_panel = ErrorPanel::new();
         error_panel.widget().set_visible(false);
 
@@ -723,6 +724,7 @@ impl AppWindow {
             compile_mode_btn: compile_mode_btn.clone(),
             compile_mode_label: compile_mode_label.clone(),
             effective_cv_elements: effective_cv_elements.clone(),
+            effective_bib: effective_bib.clone(),
             auto_detected_bib: auto_detected_bib.clone(),
             print_header_btn: print_header_btn.clone(),
             save_btn: save_btn.clone(),
@@ -2702,7 +2704,7 @@ impl AppWindow {
                     editor.save_all_modified();
                     // Same inputs the preview compiles with — assembling them
                     // by hand here is what left CV documents exporting blank.
-                    if let Some((root_path, overrides, sys_inputs)) = preview.compile_inputs() {
+                    if let Some((root_path, overrides, sys_inputs, bib_path)) = preview.compile_inputs() {
                         let dest = root_path.with_extension("pdf");
                         let t = adw::Toast::new("Exporting PDF…");
                         t.set_timeout(2);
@@ -2714,6 +2716,7 @@ impl AppWindow {
                                 &root_for_thread,
                                 &overrides,
                                 &sys_inputs,
+                                bib_path.as_deref(),
                             ).map_err(|e| e.to_string());
                             let _ = tx.send(result);
                         });

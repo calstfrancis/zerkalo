@@ -1951,7 +1951,10 @@ fn post_process_latex_import(content: &str, bib_path: Option<&std::path::Path>) 
         .unwrap_or_else(|| "chicago-author-date".to_string());
 
     let bib_call = match bib_path {
-        Some(bp) => format!("#bibliography(\"{}\", style: \"{}\")", bp.display(), bib_style),
+        Some(bp) => {
+            let target = crate::bibliography::bib_target_path(bp);
+            format!("#bibliography(\"{}\", style: \"{}\")", target.display(), bib_style)
+        }
         None if bib_idx.is_some() => body[bib_idx.unwrap()].trim().to_string(),
         None => format!("// #bibliography(\"refs.bib\", style: \"{}\")", bib_style),
     };
