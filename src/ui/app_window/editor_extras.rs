@@ -198,7 +198,7 @@ pub(super) fn wire_sidebar_toolbar(ctx: &SidebarToolbarCtx) -> (GtkBox, Button) 
     packages_comments_pane.set_shrink_start_child(false);
     packages_comments_pane.set_shrink_end_child(false);
     packages_comments_pane.set_vexpand(true);
-    persist_vertical_split(&packages_comments_pane, ctx.current_config.clone(), |c, pos| {
+    let packages_comments_suppress = persist_vertical_split(&packages_comments_pane, ctx.current_config.clone(), |c, pos| {
         c.sidebar_packages_split = pos;
     });
 
@@ -230,15 +230,41 @@ pub(super) fn wire_sidebar_toolbar(ctx: &SidebarToolbarCtx) -> (GtkBox, Button) 
 
     // Packages and Comments can be collapsed to just their header row —
     // useful once a project's manuscript is stable and neither is needed
-    // for a while, without losing the split position underneath.
-    ctx.package_browser.set_collapsed(ctx.current_config.borrow().sidebar_packages_collapsed);
-    ctx.comments_panel.set_collapsed(ctx.current_config.borrow().sidebar_comments_collapsed);
+    // for a while. Collapsing actually reclaims the freed space for its
+    // sibling in the shared Paned (see wire_collapse_reclaims_space) rather
+    // than hiding the content and leaving a blank gap where it was.
+    let packages_reclaim = wire_collapse_reclaims_space(
+        &packages_comments_pane,
+        true,
+        packages_comments_suppress.clone(),
+        ctx.current_config.clone(),
+        |c| c.sidebar_packages_split,
+    );
+    let comments_reclaim = wire_collapse_reclaims_space(
+        &packages_comments_pane,
+        false,
+        packages_comments_suppress,
+        ctx.current_config.clone(),
+        |c| c.sidebar_packages_split,
+    );
+
+    let initial_packages_collapsed = ctx.current_config.borrow().sidebar_packages_collapsed;
+    let initial_comments_collapsed = ctx.current_config.borrow().sidebar_comments_collapsed;
+    ctx.package_browser.set_collapsed(initial_packages_collapsed);
+    ctx.comments_panel.set_collapsed(initial_comments_collapsed);
+    if initial_packages_collapsed {
+        packages_reclaim(true);
+    } else if initial_comments_collapsed {
+        comments_reclaim(true);
+    }
     {
         let cfg = ctx.current_config.clone();
         ctx.package_browser.set_on_collapse_toggle(move |collapsed| {
             let mut c = cfg.borrow_mut();
             c.sidebar_packages_collapsed = collapsed;
             let _ = c.save();
+            drop(c);
+            packages_reclaim(collapsed);
         });
     }
     {
@@ -247,6 +273,8 @@ pub(super) fn wire_sidebar_toolbar(ctx: &SidebarToolbarCtx) -> (GtkBox, Button) 
             let mut c = cfg.borrow_mut();
             c.sidebar_comments_collapsed = collapsed;
             let _ = c.save();
+            drop(c);
+            comments_reclaim(collapsed);
         });
     }
 
@@ -267,7 +295,11 @@ pub(super) fn wire_sidebar_toolbar(ctx: &SidebarToolbarCtx) -> (GtkBox, Button) 
 /// primary sidebar/preview splits; a local copy here since these three
 /// sidebar-section dividers are constructed and owned by this function, not
 /// threaded back up to `AppWindow::new`.
-fn persist_vertical_split(paned: &gtk4::Paned, cfg: Rc<RefCell<Config>>, setter: impl Fn(&mut Config, i32) + 'static) {
+/// Returns a `suppress` flag: set it `true` around a programmatic
+/// `paned.set_position(...)` (e.g. driving a collapse/expand) so that move
+/// isn't mistaken for a user drag and persisted over their real preferred
+/// split — see `wire_collapse_reclaims_space` below.
+fn persist_vertical_split(paned: &gtk4::Paned, cfg: Rc<RefCell<Config>>, setter: impl Fn(&mut Config, i32) + 'static) -> Rc<std::cell::Cell<bool>> {
     let setter = Rc::new(setter);
     let ready = Rc::new(std::cell::Cell::new(false));
     let ready2 = ready.clone();
@@ -275,9 +307,11 @@ fn persist_vertical_split(paned: &gtk4::Paned, cfg: Rc<RefCell<Config>>, setter:
         let r = ready2.clone();
         glib::idle_add_local_once(move || { r.set(true); });
     });
+    let suppress = Rc::new(std::cell::Cell::new(false));
+    let suppress2 = suppress.clone();
     let pending: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
     paned.connect_position_notify(move |p| {
-        if !ready.get() { return; }
+        if !ready.get() || suppress2.get() { return; }
         let pos = p.position();
         let cfg2 = cfg.clone();
         let setter2 = setter.clone();
@@ -294,4 +328,35 @@ fn persist_vertical_split(paned: &gtk4::Paned, cfg: Rc<RefCell<Config>>, setter:
             },
         ));
     });
+    suppress
+}
+
+/// Wires a Paned's start/end collapse toggles (from `PackageBrowser`/
+/// `CommentsPanel`'s own collapse buttons) to actually reclaim the freed
+/// space, not just hide content while the divider — and the blank gap
+/// beneath the header it leaves — stays put. `shrink_start_child(false)`/
+/// `shrink_end_child(false)` are already set on `paned`, so driving the
+/// position to an extreme is enough: GTK clamps it to the collapsed side's
+/// new minimum (now just its header, once the Revealer inside hides its
+/// body) instead of actually shrinking past that — no manual height
+/// measurement needed. `suppress` (from `persist_vertical_split`) stops
+/// these programmatic moves from being saved as the user's real split
+/// preference.
+fn wire_collapse_reclaims_space(
+    paned: &gtk4::Paned,
+    is_start_child: bool,
+    suppress: Rc<std::cell::Cell<bool>>,
+    cfg: Rc<RefCell<Config>>,
+    getter: impl Fn(&Config) -> i32 + 'static,
+) -> impl Fn(bool) + 'static {
+    let paned = paned.clone();
+    move |collapsed| {
+        suppress.set(true);
+        if collapsed {
+            paned.set_position(if is_start_child { 0 } else { i32::MAX });
+        } else {
+            paned.set_position(getter(&cfg.borrow()));
+        }
+        suppress.set(false);
+    }
 }
