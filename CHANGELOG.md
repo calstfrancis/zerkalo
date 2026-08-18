@@ -151,6 +151,13 @@ Snapshots into one Versions system" project noted at the bottom of it.
   and a vault path resolves to its `library.yml` automatically. A document
   created before this fix needs Update Template Settings → Apply once to
   pick up the corrected bibliography line.
+- **Update Template Settings → Apply didn't pick up a project-level
+  bibliography path** (`.zerkalo/config.toml`'s `bib_path`, how a vault
+  set up per-project is normally configured) — only the app-wide Settings
+  one, so opening the dialog on such a document showed no bibliography
+  configured at all, and Apply would have written the line as commented
+  out. It now resolves the same project-then-global fallback used
+  everywhere else.
 
 ### Changed
 
