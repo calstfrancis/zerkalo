@@ -80,6 +80,47 @@ pub fn install_package(spec_str: &str) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// `sanitize_bib`'s output for a `.bib` path, keyed by that path and the
+/// file's own mtime at the time it was sanitized — a cache HIT means "this
+/// exact file content was already checked," so a stable bibliography file is
+/// only ever read and parsed once, not on every single compile.
+///
+/// Without this, a large bibliography (Zotero exports run to hundreds of KB)
+/// was being fully re-read, re-parsed through `biblatex`, and — every time —
+/// re-serialized into a fresh owned `String`, on *every* compile, since a
+/// compile fires on every debounced edit regardless of whether the
+/// bibliography itself changed. Sustained typing while a large `.bib` was
+/// configured could pile up compiles and allocations faster than they were
+/// freed; a real crash report (2026-08-18, "keeps crashing after I edit the
+/// bibliography source") matched an OOM-kill signature exactly — the log cut
+/// off mid-routine-activity with no panic message at all, which a Rust
+/// panic (even an uncaught one) would have printed first.
+type BibSanitizeCacheValue = Option<String>;
+static BIB_SANITIZE_CACHE: OnceLock<Mutex<HashMap<PathBuf, (std::time::SystemTime, BibSanitizeCacheValue)>>> = OnceLock::new();
+
+fn bib_sanitize_cache() -> &'static Mutex<HashMap<PathBuf, (std::time::SystemTime, BibSanitizeCacheValue)>> {
+    BIB_SANITIZE_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Cached wrapper around `bib_sanitize::sanitize_bib` — reads and sanitizes
+/// `path` only when it's not already cached under its current mtime.
+fn sanitize_bib_cached(path: &Path) -> BibSanitizeCacheValue {
+    let Ok(mtime) = std::fs::metadata(path).and_then(|m| m.modified()) else {
+        return None;
+    };
+    {
+        let cache = poisoned_lock(bib_sanitize_cache());
+        if let Some((cached_mtime, value)) = cache.get(path) {
+            if *cached_mtime == mtime {
+                return value.clone();
+            }
+        }
+    }
+    let computed = std::fs::read_to_string(path).ok().and_then(|raw| crate::bib_sanitize::sanitize_bib(&raw));
+    poisoned_lock(bib_sanitize_cache()).insert(path.to_path_buf(), (mtime, computed.clone()));
+    computed
+}
+
 /// Typst memoizes across compiles in a process-global `comemo` cache. Nothing
 /// evicts it on its own, so an editor that recompiles on every debounce grows
 /// without bound — measured at roughly 24 MB per 1000 compiles of a three-line
@@ -180,7 +221,7 @@ impl ZerkaloWorld {
         // buffers — rather than just reporting the failure.
         if let Some(p) = doc_bib_path_raw.as_deref().filter(|p| p.to_ascii_lowercase().ends_with(".bib")) {
             let resolved = if p.starts_with('/') { PathBuf::from(p) } else { project_root.join(p) };
-            if let Some(fixed) = std::fs::read_to_string(&resolved).ok().and_then(|raw| crate::bib_sanitize::sanitize_bib(&raw)) {
+            if let Some(fixed) = sanitize_bib_cached(&resolved) {
                 overrides.insert(resolved, fixed);
             }
         }
@@ -476,6 +517,39 @@ mod tests {
         ));
         std::fs::write(&path, content).unwrap();
         path
+    }
+
+    #[test]
+    fn sanitize_bib_cached_returns_the_same_result_for_an_unchanged_file() {
+        let path = std::env::temp_dir().join(format!("zerkalo_bib_cache_test_a_{}.bib", std::process::id()));
+        std::fs::write(&path, "@article{key,\n  title = {T},\n  year = {Winter 2001},\n}\n").unwrap();
+        let first = sanitize_bib_cached(&path);
+        let second = sanitize_bib_cached(&path);
+        assert_eq!(first, second);
+        assert!(first.unwrap().contains("year = {2001}"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn sanitize_bib_cached_picks_up_a_changed_file_rather_than_serving_a_stale_fix() {
+        let path = std::env::temp_dir().join(format!("zerkalo_bib_cache_test_b_{}.bib", std::process::id()));
+        std::fs::write(&path, "@article{key,\n  title = {T},\n  year = {Winter 2001},\n}\n").unwrap();
+        let first = sanitize_bib_cached(&path);
+        assert!(first.is_some(), "the malformed date should have been fixed");
+
+        // Ensure a distinct mtime even on filesystems with coarse resolution.
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(&path, "@article{key,\n  title = {T},\n  year = {2001},\n}\n").unwrap();
+        let second = sanitize_bib_cached(&path);
+        assert!(second.is_none(), "the now-clean file needs no fix, and must not reuse the stale cached one: {second:?}");
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn sanitize_bib_cached_returns_none_for_a_missing_file() {
+        let path = std::env::temp_dir().join(format!("zerkalo_bib_cache_test_missing_{}.bib", std::process::id()));
+        assert!(sanitize_bib_cached(&path).is_none());
     }
 
     /// Reproduces the reported bug directly: a bibliography source outside

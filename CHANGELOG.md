@@ -5,6 +5,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.24.3] "Steady Hand" — 2026-08-18 — Crash fix: bibliography re-parsed on every edit
+
+### Fixed
+
+- **Zerkalo could crash outright (window closes/disappears entirely) after
+  editing the bibliography source**, when a large `.bib` file (Zotero
+  exports commonly run to hundreds of KB) was configured. The date-leniency
+  fix in 0.24.1 was re-reading, re-parsing, and re-serializing the *entire*
+  bibliography file on every single compile, and a compile fires on every
+  debounced keystroke — sustained typing could pile up that work faster
+  than it was freed, matching an out-of-memory crash signature exactly.
+  Fixed with a process-global cache keyed by the file's path and
+  modification time, so a stable bibliography is now read and sanitized
+  once, not on every compile — confirmed empirically: a cold compile of a
+  623KB bibliography took ~340ms, every warm compile afterward ~1ms.
+
+---
+
 ## [0.24.2] "True Source" — 2026-08-18 — Citation source dialog and sidebar collapse fixes
 
 ### Fixed

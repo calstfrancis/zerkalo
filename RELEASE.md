@@ -1,4 +1,4 @@
-# Zerkalo v0.24.2 "True Source"
+# Zerkalo v0.24.3 "Steady Hand"
 
 Install via Flatpak:
 
@@ -18,9 +18,7 @@ flatpak update io.github.calstfrancis.Zerkalo
 
 ### What's new
 
-**Choosing a bibliography file, vault, or creating a new one from the citation panel now actually updates the document.** Previously these dialogs only updated the app-wide setting that drives the citation panel's own autocomplete — the document's `#bibliography(...)` line was left pointing at the old (or no) source, which meant the document wouldn't compile until that line was fixed by hand. All three dialogs now rewrite the active document's bibliography call directly, preserving its style and title.
-
-**Collapsing the Packages or Comments sidebar section now reclaims the space it used.** Previously the content hid but the divider stayed put, leaving a blank gap where the section used to be instead of giving that room to whichever section is actually open.
+**Fixes a crash after editing the bibliography source.** A large `.bib` file (Zotero exports commonly run to hundreds of KB) was being fully re-read, re-parsed, and re-serialized on every single compile — and a compile fires on every debounced keystroke. Sustained typing while a large bibliography was configured could pile up that work faster than it was freed, matching an out-of-memory crash exactly: the window would close or disappear entirely with no warning. Fixed with a cache keyed by the file's path and modification time, so a stable bibliography is now read and sanitized once instead of on every compile — confirmed empirically: a cold compile of a 623KB bibliography took ~340ms, every warm compile after that ~1ms.
 
 ---
 

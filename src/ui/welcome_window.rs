@@ -7,7 +7,7 @@ use libadwaita as adw;
 use adw::prelude::*;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const RELEASE_NAME: &str = "True Source";
+pub const RELEASE_NAME: &str = "Steady Hand";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -137,6 +137,7 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
+                "Fixed a crash after editing the bibliography source — a large .bib file was being re-parsed on every single compile instead of only when it changed, which could exhaust memory during sustained editing.",
                 "Choosing a bibliography file, vault, or creating a new one from the citation panel now actually updates the document's #bibliography(...) line, instead of only the app-wide setting — no more fixing it by hand afterward.",
                 "Collapsing the Packages or Comments sidebar section now reclaims the space it used, instead of leaving a blank gap behind.",
                 "A malformed date in one bibliography entry no longer breaks every citation in the document — Zerkalo now reads the file as leniently as its own citation panel already did, instead of failing the whole file over one bad entry.",
