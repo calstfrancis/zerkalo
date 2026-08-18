@@ -7,6 +7,14 @@
 //! v1 scope, per `KILLER-APP-PLAN.md` Phase 11's own design pass:
 //! comments only (threaded, resolvable) — not suggested edits, which need a
 //! diff/patch model this doesn't attempt.
+//!
+//! Phase 12 (`KILLER-APP-PLAN.md`) extends a `Comment` with an optional
+//! [`Suggestion`] — a proposed insertion or deletion, the model Word's
+//! `<w:ins>`/`<w:del>` track-changes runs map onto on DOCX import. Both
+//! kinds keep their text visible in the document from the moment they're
+//! imported (Typst has no track-changes rendering, so "review in context"
+//! means the proposed text is just... there); accepting or rejecting is
+//! what decides whether it stays. See [`suggestion_removes_text`].
 
 use std::path::{Path, PathBuf};
 
@@ -16,6 +24,31 @@ use serde::{Deserialize, Serialize};
 pub struct CommentReply {
     pub body: String,
     pub created_at: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub enum SuggestionKind {
+    Insertion,
+    Deletion,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Default)]
+pub enum SuggestionStatus {
+    #[default]
+    Pending,
+    Accepted,
+    Rejected,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Suggestion {
+    pub kind: SuggestionKind,
+    /// The exact substring proposed for insertion or deletion, as it reads
+    /// in the document right now — both kinds are inlined into the text on
+    /// import so a reviewer sees them in context.
+    pub text: String,
+    #[serde(default)]
+    pub status: SuggestionStatus,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -34,6 +67,20 @@ pub struct Comment {
     pub resolved: bool,
     #[serde(default)]
     pub replies: Vec<CommentReply>,
+    #[serde(default)]
+    pub suggestion: Option<Suggestion>,
+}
+
+/// What accepting or rejecting a suggestion means for the live document:
+/// whether its `text` should now be removed. Both kinds start out visible
+/// (inlined at import time) — an insertion is undone by *rejecting* it,
+/// a deletion is carried out by *accepting* it. Pure and unit-tested on its
+/// own since the actual removal happens in the GTK layer, which isn't.
+pub fn suggestion_removes_text(kind: &SuggestionKind, accepted: bool) -> bool {
+    match kind {
+        SuggestionKind::Insertion => !accepted,
+        SuggestionKind::Deletion => accepted,
+    }
 }
 
 #[derive(Serialize, Deserialize, Default, Clone, Debug)]
@@ -71,8 +118,46 @@ impl CommentThread {
             created_at: now_str(),
             resolved: false,
             replies: Vec::new(),
+            suggestion: None,
         });
         id
+    }
+
+    /// Same shape as `add`, but attaches a pending [`Suggestion`] — used by
+    /// DOCX import to turn a `<w:ins>`/`<w:del>` run into a reviewable entry.
+    pub fn add_suggestion(
+        &mut self,
+        anchor_line: u32,
+        anchor_snippet: String,
+        kind: SuggestionKind,
+        text: String,
+        body: String,
+    ) -> u64 {
+        let id = self.next_id;
+        self.next_id += 1;
+        self.comments.push(Comment {
+            id,
+            anchor_line,
+            anchor_snippet,
+            body,
+            created_at: now_str(),
+            resolved: false,
+            replies: Vec::new(),
+            suggestion: Some(Suggestion { kind, text, status: SuggestionStatus::Pending }),
+        });
+        id
+    }
+
+    /// Sets a suggestion's accept/reject status and, since a resolved
+    /// suggestion has nothing left to review, marks the comment resolved
+    /// too. No-op on a plain comment (`suggestion` is `None`).
+    pub fn set_suggestion_status(&mut self, id: u64, status: SuggestionStatus) {
+        if let Some(c) = self.comments.iter_mut().find(|c| c.id == id) {
+            if let Some(s) = c.suggestion.as_mut() {
+                s.status = status;
+                c.resolved = true;
+            }
+        }
     }
 
     pub fn reply(&mut self, id: u64, body: String) {
@@ -276,6 +361,73 @@ mod tests {
     fn relocate_on_an_empty_document_returns_none() {
         let lines: Vec<&str> = vec![];
         assert_eq!(relocate(&lines, 1, "anything"), None);
+    }
+
+    #[test]
+    fn add_suggestion_attaches_a_pending_suggestion() {
+        let mut t = CommentThread::default();
+        let id = t.add_suggestion(4, "line text".into(), SuggestionKind::Insertion, "new text".into(), String::new());
+        let c = t.comments.iter().find(|c| c.id == id).unwrap();
+        let s = c.suggestion.as_ref().unwrap();
+        assert_eq!(s.kind, SuggestionKind::Insertion);
+        assert_eq!(s.text, "new text");
+        assert_eq!(s.status, SuggestionStatus::Pending);
+        assert!(!c.resolved);
+    }
+
+    #[test]
+    fn plain_comments_have_no_suggestion() {
+        let mut t = CommentThread::default();
+        let id = t.add(1, "a".into(), "just a note".into());
+        assert!(t.comments.iter().find(|c| c.id == id).unwrap().suggestion.is_none());
+    }
+
+    #[test]
+    fn set_suggestion_status_resolves_the_comment_too() {
+        let mut t = CommentThread::default();
+        let id = t.add_suggestion(1, "x".into(), SuggestionKind::Deletion, "old text".into(), String::new());
+        t.set_suggestion_status(id, SuggestionStatus::Accepted);
+        let c = t.comments.iter().find(|c| c.id == id).unwrap();
+        assert_eq!(c.suggestion.as_ref().unwrap().status, SuggestionStatus::Accepted);
+        assert!(c.resolved);
+    }
+
+    #[test]
+    fn set_suggestion_status_is_a_noop_on_a_plain_comment() {
+        let mut t = CommentThread::default();
+        let id = t.add(1, "x".into(), "note".into());
+        t.set_suggestion_status(id, SuggestionStatus::Accepted);
+        assert!(!t.comments.iter().find(|c| c.id == id).unwrap().resolved);
+    }
+
+    #[test]
+    fn suggestion_sidecar_round_trips_through_toml() {
+        let dir = tempfile::tempdir().unwrap();
+        let typ_path = dir.path().join("doc.typ");
+        std::fs::write(&typ_path, "content").unwrap();
+
+        let mut t = CommentThread::default();
+        let id = t.add_suggestion(2, "= Intro".into(), SuggestionKind::Deletion, "obsolete phrase".into(), String::new());
+        t.set_suggestion_status(id, SuggestionStatus::Rejected);
+        t.save(&typ_path);
+
+        let loaded = CommentThread::load(&typ_path);
+        let s = loaded.comments[0].suggestion.as_ref().unwrap();
+        assert_eq!(s.kind, SuggestionKind::Deletion);
+        assert_eq!(s.text, "obsolete phrase");
+        assert_eq!(s.status, SuggestionStatus::Rejected);
+    }
+
+    #[test]
+    fn accepting_an_insertion_keeps_it_but_rejecting_removes_it() {
+        assert!(!suggestion_removes_text(&SuggestionKind::Insertion, true));
+        assert!(suggestion_removes_text(&SuggestionKind::Insertion, false));
+    }
+
+    #[test]
+    fn accepting_a_deletion_removes_it_but_rejecting_keeps_it() {
+        assert!(suggestion_removes_text(&SuggestionKind::Deletion, true));
+        assert!(!suggestion_removes_text(&SuggestionKind::Deletion, false));
     }
 
     #[test]

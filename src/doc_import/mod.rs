@@ -32,6 +32,13 @@ pub enum Inline {
     Link { href: String, body: Vec<Inline> },
     /// A hard line break inside a paragraph.
     Break,
+    /// Wraps inlines that came from a track-changes run (Word's
+    /// `<w:ins>`/`<w:del>`, ODT's `<text:change>`). Renders exactly like
+    /// untracked content — Typst has no track-changes markup, so the
+    /// proposed text is simply inlined for the reader to see in context —
+    /// the wrapping exists only so [`collect_tracked_changes`] can later
+    /// flatten it into `Imported::tracked_changes` for the comments sidebar.
+    Tracked { kind: crate::comments::SuggestionKind, body: Vec<Inline> },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -54,6 +61,82 @@ pub struct Imported {
     /// Anything the reader understood but couldn't represent, surfaced in the
     /// preview so the conversion doesn't quietly lose things.
     pub notes: Vec<String>,
+    /// Track-changes runs found while parsing, flattened to plain text, in
+    /// document order — the import flow locates each one's exact text in the
+    /// rendered Typst output to anchor a [`crate::comments::Suggestion`].
+    /// Only DOCX populates this today; ODT/Markdown default to empty.
+    pub tracked_changes: Vec<TrackedChange>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TrackedChange {
+    pub kind: crate::comments::SuggestionKind,
+    pub text: String,
+}
+
+/// Flattens every [`Inline::Tracked`] span found anywhere in `blocks`, in
+/// document order, to plain text (markup like bold/italic stripped, since
+/// the search this feeds is a substring match against escaped Typst output
+/// where those characters render differently).
+pub fn collect_tracked_changes(blocks: &[Block]) -> Vec<TrackedChange> {
+    let mut out = Vec::new();
+    collect_tracked_in_blocks(blocks, &mut out);
+    out
+}
+
+fn collect_tracked_in_blocks(blocks: &[Block], out: &mut Vec<TrackedChange>) {
+    for block in blocks {
+        match block {
+            Block::Heading { body, .. } | Block::Paragraph(body) => collect_tracked_in_inlines(body, out),
+            Block::List { items, .. } => {
+                for item in items {
+                    collect_tracked_in_blocks(item, out);
+                }
+            }
+            Block::Quote(inner) => collect_tracked_in_blocks(inner, out),
+            Block::Table { rows } => {
+                for row in rows {
+                    for cell in row {
+                        collect_tracked_in_inlines(cell, out);
+                    }
+                }
+            }
+            Block::Code { .. } | Block::Image { .. } | Block::Rule => {}
+        }
+    }
+}
+
+fn collect_tracked_in_inlines(inlines: &[Inline], out: &mut Vec<TrackedChange>) {
+    for item in inlines {
+        match item {
+            Inline::Tracked { kind, body } => {
+                let mut text = String::new();
+                flatten_inline_plain(body, &mut text);
+                if !text.is_empty() {
+                    out.push(TrackedChange { kind: kind.clone(), text });
+                }
+                // Handles a tracked span nested inside another (rare, but
+                // possible if a document has overlapping revisions) as a
+                // second, separate entry.
+                collect_tracked_in_inlines(body, out);
+            }
+            Inline::Bold(inner) | Inline::Italic(inner) => collect_tracked_in_inlines(inner, out),
+            Inline::Link { body, .. } => collect_tracked_in_inlines(body, out),
+            Inline::Text(_) | Inline::Code(_) | Inline::Break => {}
+        }
+    }
+}
+
+fn flatten_inline_plain(inlines: &[Inline], out: &mut String) {
+    for item in inlines {
+        match item {
+            Inline::Text(t) | Inline::Code(t) => out.push_str(t),
+            Inline::Bold(inner) | Inline::Italic(inner) => flatten_inline_plain(inner, out),
+            Inline::Link { body, .. } => flatten_inline_plain(body, out),
+            Inline::Tracked { body, .. } => flatten_inline_plain(body, out),
+            Inline::Break => out.push('\n'),
+        }
+    }
 }
 
 /// Characters that start Typst markup and so must be escaped in body text.
@@ -61,7 +144,10 @@ pub struct Imported {
 /// Missing one doesn't produce a visible mistake — it produces a document that
 /// fails to compile, or silently changes meaning (`*` turning a price into bold
 /// text), which is the failure mode users can least diagnose.
-fn escape_text(s: &str) -> String {
+///
+/// `pub(crate)`: the import flow also needs it to find a tracked change's
+/// plain text inside the escaped Typst output it produced.
+pub(crate) fn escape_text(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
         match c {
@@ -109,6 +195,7 @@ fn emit_inlines(items: &[Inline], out: &mut String) {
                 out.push(']');
             }
             Inline::Break => out.push_str(" \\\n"),
+            Inline::Tracked { body, .. } => emit_inlines(body, out),
         }
     }
 }

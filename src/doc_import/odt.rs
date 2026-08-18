@@ -171,7 +171,7 @@ pub fn read(path: &Path) -> Result<Imported, String> {
     if blocks.is_empty() {
         return Err("This .odt appears to have no text in it.".to_string());
     }
-    Ok(Imported { blocks, media, notes })
+    Ok(Imported { blocks, media, notes, tracked_changes: Vec::new() })
 }
 
 fn walk_body(

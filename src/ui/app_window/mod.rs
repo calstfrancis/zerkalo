@@ -1100,6 +1100,12 @@ impl AppWindow {
                 (line, snippet)
             });
         }
+        {
+            let editor_for_suggestion = editor_pane.clone();
+            comments_panel.set_on_apply_suggestion(move |line, text| {
+                editor_for_suggestion.remove_text_at_line(line, &text);
+            });
+        }
 
         // ── Outline + title: update on tab switch ──────────────────────────
 
