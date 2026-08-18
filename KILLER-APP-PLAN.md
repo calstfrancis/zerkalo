@@ -1009,6 +1009,52 @@ accessibility-audited in `HEALTH-PLAN.md` Phase 6, a real but bounded
 size). The pattern is now established firmly enough that sweeping another
 file is mechanical repetition of what's in this phase, not a design
 question.
+
+### Follow-up (2026-08-18) — this phase's new dependencies broke `./dev-build.sh`, fixed by clearing stale cache
+
+Cal ran `./dev-build.sh` for `v0.24.0-dev7` (after this phase and Phase 9
+had both landed) and hit a different failure than Phase 1's: the offline
+dependency fetch succeeded this time, but the `zerkalo` module (module 2)
+failed compiling with `failed to write .../.fingerprint/biblatex-.../
+lib-biblatex: Read-only file system`.
+
+Root cause: `.flatpak-builder/build/zerkalo-deps-3` (the cached module-1
+dependency precompilation) was dated **2026-08-17 19:11 — before this
+phase added `fluent-templates`/`unic-langid` to `Cargo.lock`** on
+2026-08-18. Confirmed directly (`find ... -iname "*fluent*"` inside that
+cached build dir came back empty). `flatpak-builder`'s own cache-hit logic
+for module `zerkalo-deps` didn't invalidate on the `Cargo.lock` change, so
+module 2 ended up needing to compile packages whose dependency-graph
+resolution had shifted (adding `fluent-templates` can reshuffle shared
+transitive dependency versions even for unrelated crates like `biblatex`)
+against module 1's stale, read-only, already-finalized output —
+`flatpak-builder`'s `rofiles-fuse` overlay allows writing *new* paths from
+the current module but not overwriting a path an earlier module already
+produced, hence the `EROFS`.
+
+**Not a manifest bug this time** — nothing to fix in
+`io.github.calstfrancis.Zerkalo.yml`. Fixed by clearing the stale cache
+(confirmed with Cal first, given the ~2.2 GB / next-build-is-slower cost):
+`rm -rf .flatpak-builder/build/zerkalo-deps-{1,2,3} .flatpak-builder/build/zerkalo-{1,2,3}`
+plus the now-dangling `zerkalo` symlink. `.flatpak-builder/` is pure,
+git-ignored, fully regenerable cache per this repo's own conventions — not
+something committed or otherwise persisted, so no data was at risk, only
+rebuild time.
+
+**Worth remembering for next time this bites:** any dev-build session that
+adds/removes/updates a dependency (regenerating `cargo-sources.json`, per
+this project's own documented requirement) and *doesn't* get a
+`./dev-build.sh` run immediately after is a latent trap — if
+`flatpak-builder`'s cache-hit check for `zerkalo-deps` doesn't actually key
+off `Cargo.lock` content the way the manifest's own comment claims it
+does ("Cache key is based only on Cargo.toml, Cargo.lock, and
+cargo-sources.json"), a build days or commits later can silently reuse a
+now-stale dependency precompilation and fail in a confusing,
+dependency-name-shifted way (here, `biblatex`, nothing to do with the
+actual new dependency) rather than a clear "stale cache" message. If this
+recurs, clearing `.flatpak-builder/build/zerkalo-deps-*` is the fix, not
+debugging the named package in the error.
+
 **Risk:** low (infra) → high (translation coverage over time) · **Effort:**
 large · **Depends on:** nothing technically, but doing this *after* Phases
 4–9 land means wrapping more new strings later rather than fewer now — see
