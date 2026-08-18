@@ -26,6 +26,10 @@ Snapshots into one Versions system" project noted at the bottom of it.
 - **Reference Manager and Dependency Graph are reachable now.** Both
   existed and worked internally but had no way to be opened; they're now
   in the hamburger menu ("Reference Manager…", "Dependency Graph…").
+- **A Zotero (or Mendeley, or any other reference manager) library now
+  says explicitly that it's supported.** Exporting as BibTeX and using
+  "Choose Bibliography File" already worked, but nothing said so —
+  Settings, the Citations panel, and the README now mention it by name.
 
 ### Changed
 

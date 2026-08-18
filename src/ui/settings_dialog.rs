@@ -383,7 +383,7 @@ impl SettingsDialog {
         bib_row.add_suffix(&vault_browse_btn);
         bib_group.add(&bib_row);
         bib_group.set_description(Some(
-            "A .bib/.yaml file, or a Kartoteka vault folder for live citation autocomplete as you edit the vault.",
+            "A .bib/.yaml file — including a library exported from Zotero, Mendeley, or any other reference manager as BibTeX — or a Kartoteka vault folder for live citation autocomplete as you edit the vault.",
         ));
 
         let csl_row = adw::EntryRow::new();

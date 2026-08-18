@@ -105,7 +105,9 @@ impl CitationPanel {
         let choose_btn = Button::from_icon_name("document-open-symbolic");
         choose_btn.add_css_class("flat");
         choose_btn.add_css_class("circular");
-        choose_btn.set_tooltip_text(Some("Choose bibliography file (.bib, .yaml)"));
+        choose_btn.set_tooltip_text(Some(
+            "Choose bibliography file (.bib, .yaml) — including a library exported from Zotero, Mendeley, or any other reference manager as BibTeX",
+        ));
         choose_btn.update_property(&[gtk4::accessible::Property::Label("Choose bibliography file")]);
         header_box.append(&choose_btn);
 
@@ -308,7 +310,9 @@ impl CitationPanel {
         } else {
             self.title_label.set_text("Citations");
             self.search.set_placeholder_text(Some("Search by key, author, title…"));
-            self.choose_btn.set_tooltip_text(Some("Choose bibliography file (.bib, .yaml)"));
+            self.choose_btn.set_tooltip_text(Some(
+                "Choose bibliography file (.bib, .yaml) — including a library exported from Zotero, Mendeley, or any other reference manager as BibTeX",
+            ));
             self.choose_btn.update_property(&[gtk4::accessible::Property::Label(
                 "Choose bibliography file",
             )]);

@@ -578,4 +578,48 @@ multi:
         };
         assert_eq!(format_author_year(&e), "nodata");
     }
+
+    // Representative of Zotero's default BibTeX export: non-standard extra
+    // fields (urldate, file, keywords), a `date` field instead of `year`,
+    // an attachment path with colons/spaces, and LaTeX escapes in the
+    // abstract — real quirks Zotero's export is known to include, any one
+    // of which could silently zero out the whole file if the parser
+    // choked on it (parse_bib returns an empty Vec on any parse error,
+    // with nothing surfaced to the user).
+    const ZOTERO_EXPORT_SAMPLE: &str = r#"
+@article{smith_study_2020,
+	title = {A study of everything, {With} a colon: subtitle},
+	volume = {12},
+	issn = {1234-5678},
+	url = {https://example.com/article},
+	abstract = {An abstract with {\'e} and \& an ampersand.},
+	number = {3},
+	journal = {Journal of Examples},
+	author = {Smith, John and Doe, Jane},
+	urldate = {2023-01-15},
+	date = {2020},
+	note = {shortDOI: 10.1234/abcd},
+	keywords = {example, test, multi-word tag},
+	file = {Snapshot:/home/user/Zotero/storage/ABCD1234/smith - 2020 - A study.pdf:application/pdf},
+}
+
+@book{doe_important_2019,
+	title = {Important {Book} on {Zotero} Export Quirks},
+	publisher = {Academic Press},
+	author = {Doe, Jane},
+	date = {2019},
+	keywords = {book},
+}
+"#;
+
+    #[test]
+    fn parse_bib_handles_a_realistic_zotero_export() {
+        let entries = parse_bib(ZOTERO_EXPORT_SAMPLE);
+        assert_eq!(entries.len(), 2, "a real Zotero export must not silently parse to zero entries");
+        assert_eq!(entries[0].key, "smith_study_2020");
+        assert_eq!(entries[0].author, "John Smith and Jane Doe");
+        assert_eq!(entries[0].year, "2020");
+        assert_eq!(entries[1].key, "doe_important_2019");
+        assert_eq!(entries[1].year, "2019");
+    }
 }
