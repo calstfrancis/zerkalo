@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.24.7-dev1] — Menu cleanup, save/compile fix, trash data-integrity fix
+## [0.24.7-dev2] — Menu cleanup, save/compile fix, trash data-integrity fix
 
 ### Changed
 
@@ -32,7 +32,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   disk, full drive, permissions) left the database and the filesystem
   disagreeing about where the document was. The filesystem move is now
   authoritative: the database is only updated once the file has genuinely
-  landed in the trash directory.
+  landed in the trash directory. If the fallback copy-then-remove path lost
+  the race (copy succeeded, removing the original failed), the orphaned copy
+  in Trash is now cleaned up rather than left behind alongside the original.
+- **Permanently deleting a document from Trash could lose track of a file
+  that failed to delete.** The database row was removed regardless of
+  whether the on-disk file actually went away; now a failed delete keeps the
+  row (and surfaces the error) instead of silently orphaning the file.
 - Added a 15-second timeout to the GitHub sign-in HTTP client, which
   previously could hang indefinitely on a stalled (not just down) response.
 - A crash now makes a best-effort attempt to flush a recovery autosave of

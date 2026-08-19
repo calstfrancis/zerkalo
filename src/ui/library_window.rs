@@ -2331,7 +2331,11 @@ impl LibraryWindow {
         let id = doc.id;
         dlg.connect_response(None, move |_, resp| {
             if resp == "delete" {
-                this.library.borrow_mut().permanently_delete(id).ok();
+                if let Err(e) = this.library.borrow_mut().permanently_delete(id) {
+                    tracing::error!("permanently_delete failed: {e}");
+                    let toast = adw::Toast::new(&format!("Couldn't delete: {e}"));
+                    this.toast_overlay.add_toast(toast);
+                }
                 this.refresh();
             }
         });

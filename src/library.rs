@@ -668,7 +668,12 @@ impl Library {
         // sitting at its original path.
         if std::fs::rename(&doc.path, &trash_path).is_err() {
             std::fs::copy(&doc.path, &trash_path)?;
-            std::fs::remove_file(&doc.path)?;
+            if let Err(e) = std::fs::remove_file(&doc.path) {
+                // Don't leave an orphaned copy in Trash if the original
+                // couldn't be removed — the document is still not deleted.
+                let _ = std::fs::remove_file(&trash_path);
+                return Err(e.into());
+            }
         }
 
         let trash_str = trash_path.to_string_lossy().to_string();
@@ -709,7 +714,10 @@ impl Library {
         Ok(())
     }
 
-    pub fn permanently_delete(&mut self, doc_id: i64) -> SqlResult<()> {
+    /// Removing the trashed file is authoritative, matching `move_to_trash`:
+    /// if it can't be removed, the database keeps its reference to it rather
+    /// than silently losing track of a file that's still on disk.
+    pub fn permanently_delete(&mut self, doc_id: i64) -> Result<(), TrashError> {
         let trash_path: Option<String> = self
             .conn
             .query_row(
@@ -720,7 +728,11 @@ impl Library {
             .optional()?
             .flatten();
         if let Some(tpath) = trash_path {
-            std::fs::remove_file(&tpath).ok();
+            if let Err(e) = std::fs::remove_file(&tpath) {
+                if e.kind() != std::io::ErrorKind::NotFound {
+                    return Err(e.into());
+                }
+            }
         }
         self.conn
             .execute("DELETE FROM documents WHERE id=?1", params![doc_id])?;
@@ -1478,6 +1490,64 @@ mod tests {
             .filter_map(|e| e.ok())
             .count();
         assert_eq!(remaining, 0, "trashed file should be gone from disk");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn move_to_trash_removes_the_orphaned_copy_if_removing_the_original_fails() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let (mut lib, work) = fixture();
+        let src_dir = work.path().join("src");
+        std::fs::create_dir_all(&src_dir).expect("src dir");
+        let path = src_dir.join("essay.typ");
+        std::fs::write(&path, "= Heading\n").expect("write doc");
+        let id = lib.upsert_document(&path).expect("upsert");
+
+        let original_mode = std::fs::metadata(&src_dir).expect("stat").permissions();
+        std::fs::set_permissions(&src_dir, std::fs::Permissions::from_mode(0o555))
+            .expect("make src dir read-only");
+
+        let result = lib.move_to_trash(id);
+
+        std::fs::set_permissions(&src_dir, original_mode).expect("restore permissions for cleanup");
+
+        assert!(result.is_err());
+        let leftover = std::fs::read_dir(work.path().join("trash"))
+            .expect("trash dir")
+            .filter_map(|e| e.ok())
+            .count();
+        assert_eq!(
+            leftover, 0,
+            "the copy landed in trash must be cleaned up, not orphaned"
+        );
+    }
+
+    #[test]
+    fn permanently_delete_keeps_the_row_if_the_file_cannot_be_removed() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let (mut lib, work) = fixture();
+        let (id, _) = add_doc(&mut lib, &work, "essay.typ");
+        lib.move_to_trash(id).expect("trash");
+
+        let trash_dir = work.path().join("trash");
+        let original_mode = std::fs::metadata(&trash_dir).expect("stat").permissions();
+        std::fs::set_permissions(&trash_dir, std::fs::Permissions::from_mode(0o555))
+            .expect("make trash dir read-only");
+
+        let result = lib.permanently_delete(id);
+
+        std::fs::set_permissions(&trash_dir, original_mode).expect("restore permissions for cleanup");
+
+        assert!(
+            result.is_err(),
+            "should not silently succeed if the file can't be removed"
+        );
+        assert!(
+            lib.doc_by_id(id).expect("query").is_some(),
+            "row must survive a failed filesystem delete"
+        );
     }
 
     #[test]

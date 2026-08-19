@@ -145,7 +145,7 @@ impl WelcomeWindow {
             for item in [
                 "The ≡ menu is simpler — rarely-used items (template repair, the project file map, git history) now live inside a few grouped flyouts like Document Tools and Version History, instead of crowding the top level.",
                 "Fixed a bug where Save could silently recompile stale content in \"Compile on Save\" mode, showing an outdated preview no matter how many times you saved.",
-                "Moving a document to Trash is now all-or-nothing — if the file can't actually be moved (a read-only disk, a full drive), it's no longer marked deleted in the Library while still sitting at its original location.",
+                "Moving a document to Trash, and permanently deleting one, are now both all-or-nothing — if the underlying file operation fails (a read-only disk, a full drive), the Library no longer disagrees with what's actually on disk.",
                 "If Zerkalo ever crashes, it now makes a best-effort attempt to save a recovery copy of your unsaved work first.",
             ] {
                 body.append(&bullet_row(item));
