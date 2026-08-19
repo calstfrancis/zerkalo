@@ -1,8 +1,8 @@
 # Release CI setup — one-time, Cal only
 
-`release-flatpak.yml` needs two repo secrets to build and publish releases. Claude can't set
-these — they involve your GPG private key and a token with push access to another repo, both
-of which should go in directly by you, not pass through a session transcript.
+`release-flatpak.yml` needs three repo secrets to build and publish releases. Claude can't
+set these — they involve your GPG private key (and its passphrase) and a token with push
+access to another repo, none of which should pass through a session transcript.
 
 Run these from `~/Projects/zerkalo`. Requires `gh` to already be authenticated (it is, on
 this machine).
@@ -16,12 +16,16 @@ gpg --export-secret-keys --armor A2918A9B43B199ADF9879F934AC9D5173DE4BC41 \
   | gh secret set FLATPAK_GPG_PRIVATE_KEY --repo calstfrancis/zerkalo
 ```
 
-**If that key has a passphrase**, the workflow's `gpg --batch --import` step will still
-succeed (import doesn't need to unlock the key), but the later `flatpak build-export
---gpg-sign=...` step will fail trying to prompt for it non-interactively. If the first real
-run fails there, tell Claude — the fix is a second secret (`FLATPAK_GPG_PASSPHRASE`) plus a
-`--pinentry-mode loopback --passphrase-fd 0` flag on the signing steps, which needs a small
-workflow edit to wire in.
+**The key has a passphrase** (confirmed 2026-08-19 — the first real run failed exactly here).
+Importing it is fine on its own, but signing later needs it unlocked, and there's nothing to
+prompt for non-interactively in CI — so the workflow presets the passphrase into the agent's
+cache once, up front (`gpg-agent --preset`), rather than trying to feed it interactively per
+signing call:
+
+```bash
+gh secret set FLATPAK_GPG_PASSPHRASE --repo calstfrancis/zerkalo
+# paste the passphrase, Ctrl-D
+```
 
 ## 2. `FLATPAK_REPO_TOKEN`
 
@@ -55,7 +59,7 @@ repo. Worth doing once before relying on this for a real release.
 
 ## Rolling this out to the other seven flatpak apps
 
-This setup is Zerkalo-only for now. The same two secrets, the same workflow shape (just
+This setup is Zerkalo-only for now. The same three secrets, the same workflow shape (just
 swapping the manifest path and app ID), would need repeating per-app — worth doing as a
 shared reusable workflow (`workflow_call`) rather than copy-pasted eight times, if/when you
 want the rest of the suite on this too.
