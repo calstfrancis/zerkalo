@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.24.5] "Clear Glass" — 2026-08-19 — rusqlite/hayagriva updated
+
+### Internal
+
+- Updated `rusqlite` (0.32→0.40) and `hayagriva` (0.9→0.10) — no user-visible
+  change. Both were blocked on Kartoteka's own dependency pins; Kartoteka
+  released v0.5.1 with matching versions, which also fixed an intermittent
+  search-index rebuild race and closed two dependency security advisories
+  on its own side. `fond-bib`/`fond-vault` now point at that release.
+
+---
+
 ## [0.24.4] "Sound Footing" — 2026-08-18 — Save reliability, a print freeze fix, and dependency/security updates
 
 ### Fixed

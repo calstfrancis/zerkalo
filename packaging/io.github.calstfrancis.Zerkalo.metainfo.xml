@@ -80,6 +80,14 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.24.5" date="2026-08-19">
+      <description>
+        <p>0.24.5 "Clear Glass" — no user-visible changes. Updates the `rusqlite` and
+        `hayagriva` dependencies to current releases, unblocked by an upstream Kartoteka
+        update that also fixed an intermittent search-index rebuild race and closed two
+        dependency security advisories on its own side.</p>
+      </description>
+    </release>
     <release version="0.24.4" date="2026-08-18">
       <description>
         <p>0.24.4 "Sound Footing" — Save, Autosave, and closing the window with unsaved
