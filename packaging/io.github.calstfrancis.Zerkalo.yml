@@ -99,7 +99,17 @@ modules:
       # Copy vendor sources to a stable /app/ path so Module 2 uses the same path
       # in cargo fingerprints (fingerprints are path-sensitive for vendor sources).
       - cp -r cargo/vendor /app/zerkalo-cargo-vendor
-      - printf '[source.vendored-sources]\ndirectory = "/app/zerkalo-cargo-vendor"\n\n[source.crates-io]\nreplace-with = "vendored-sources"\n\n[source."https://github.com/calstfrancis/skrizhal"]\ngit = "https://github.com/calstfrancis/skrizhal"\nreplace-with = "vendored-sources"\ntag = "v0.3.0"\n\n[source."https://github.com/calstfrancis/kartoteka"]\ngit = "https://github.com/calstfrancis/kartoteka"\nreplace-with = "vendored-sources"\ntag = "v0.5.0"\n' > cargo/config
+      # Tags read from Cargo.toml itself (already a source, above) rather than
+      # hardcoded here — a hardcoded copy silently went stale after a Kartoteka
+      # version bump: cargo-sources.json's own vendoring correctly tracked the
+      # new tag, but this file's literal `tag = "..."` didn't, so cargo tried to
+      # fetch the new tag from the real network mid-offline-build and failed.
+      # Reading Cargo.toml here means this can never drift again.
+      - |
+        set -e
+        SKRIZHAL_TAG=$(grep 'calstfrancis/skrizhal' Cargo.toml | grep -o 'tag = "[^"]*"' | head -1 | cut -d'"' -f2)
+        KARTOTEKA_TAG=$(grep 'calstfrancis/kartoteka' Cargo.toml | grep -o 'tag = "[^"]*"' | head -1 | cut -d'"' -f2)
+        printf '[source.vendored-sources]\ndirectory = "/app/zerkalo-cargo-vendor"\n\n[source.crates-io]\nreplace-with = "vendored-sources"\n\n[source."https://github.com/calstfrancis/skrizhal"]\ngit = "https://github.com/calstfrancis/skrizhal"\nreplace-with = "vendored-sources"\ntag = "%s"\n\n[source."https://github.com/calstfrancis/kartoteka"]\ngit = "https://github.com/calstfrancis/kartoteka"\nreplace-with = "vendored-sources"\ntag = "%s"\n' "$SKRIZHAL_TAG" "$KARTOTEKA_TAG" > cargo/config
       # Stub main.rs so cargo compiles all deps but not the real app code
       - mkdir -p src
       - echo 'fn main() {}' > src/main.rs
@@ -130,9 +140,16 @@ modules:
       - type: file
         path: io.github.calstfrancis.Zerkalo.metainfo.xml
     build-commands:
-      # Point cargo at the vendor dir and pre-built target from zerkalo-deps
+      # Point cargo at the vendor dir and pre-built target from zerkalo-deps.
+      # Tags read from Cargo.toml itself (checked out via the git source above)
+      # rather than hardcoded — see the matching comment in the zerkalo-deps
+      # module for why a literal copy here goes stale.
       - mkdir -p cargo
-      - printf '[source.vendored-sources]\ndirectory = "/app/zerkalo-cargo-vendor"\n\n[source.crates-io]\nreplace-with = "vendored-sources"\n\n[source."https://github.com/calstfrancis/skrizhal"]\ngit = "https://github.com/calstfrancis/skrizhal"\nreplace-with = "vendored-sources"\ntag = "v0.3.0"\n\n[source."https://github.com/calstfrancis/kartoteka"]\ngit = "https://github.com/calstfrancis/kartoteka"\nreplace-with = "vendored-sources"\ntag = "v0.5.0"\n' > cargo/config
+      - |
+        set -e
+        SKRIZHAL_TAG=$(grep 'calstfrancis/skrizhal' Cargo.toml | grep -o 'tag = "[^"]*"' | head -1 | cut -d'"' -f2)
+        KARTOTEKA_TAG=$(grep 'calstfrancis/kartoteka' Cargo.toml | grep -o 'tag = "[^"]*"' | head -1 | cut -d'"' -f2)
+        printf '[source.vendored-sources]\ndirectory = "/app/zerkalo-cargo-vendor"\n\n[source.crates-io]\nreplace-with = "vendored-sources"\n\n[source."https://github.com/calstfrancis/skrizhal"]\ngit = "https://github.com/calstfrancis/skrizhal"\nreplace-with = "vendored-sources"\ntag = "%s"\n\n[source."https://github.com/calstfrancis/kartoteka"]\ngit = "https://github.com/calstfrancis/kartoteka"\nreplace-with = "vendored-sources"\ntag = "%s"\n' "$SKRIZHAL_TAG" "$KARTOTEKA_TAG" > cargo/config
       # zerkalo-deps' pre-built target dir lives in the shared /app tree,
       # which flatpak-builder mounts read-only via rofiles-fuse whenever that
       # module is a cache hit (i.e. most builds, once dependencies stop
