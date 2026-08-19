@@ -638,6 +638,12 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
             Ok(Some(path)) => {
                 if let Ok(content) = std::fs::read_to_string(&path) {
                     save_snapshot(&root_for_menu_save, &path, &content);
+                    // The debounced on-change compile is deliberately suppressed
+                    // in Compile-on-Save/Manual modes (see mod.rs's on_change
+                    // wiring), so the preview's buffer_snapshot override can be
+                    // stale from whenever this tab was last switched to. Refresh
+                    // it here or Save silently recompiles old content.
+                    preview_for_menu_save.set_buffer_snapshot(path.clone(), content);
                 }
                 preview_for_menu_save.trigger_compile();
             }
@@ -662,6 +668,7 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
             Ok(Some(path)) => {
                 if let Ok(content) = std::fs::read_to_string(&path) {
                     save_snapshot(&root_for_save_btn, &path, &content);
+                    preview_for_save_btn.set_buffer_snapshot(path.clone(), content);
                 }
                 preview_for_save_btn.trigger_compile();
             }

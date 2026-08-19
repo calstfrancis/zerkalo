@@ -11,6 +11,7 @@ mod comments;
 mod compile_stats;
 mod compiler;
 mod config;
+mod crash_flush;
 mod cv_mode;
 mod doc_import;
 mod error;
@@ -75,6 +76,8 @@ fn main() -> ExitCode {
         "Zerkalo starting — log: {}",
         log_dir.join("zerkalo.log").display()
     );
+
+    crash_flush::install_panic_hook();
 
     // ── CLI help ─────────────────────────────────────────────────────────────
     if env::args().any(|a| a == "--help" || a == "-h") {

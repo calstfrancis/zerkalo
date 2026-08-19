@@ -1391,7 +1391,11 @@ impl LibraryWindow {
             let pop = popover.clone();
             trash_b.connect_clicked(move |_| {
                 pop.popdown();
-                this.library.borrow_mut().move_to_trash(id).ok();
+                if let Err(e) = this.library.borrow_mut().move_to_trash(id) {
+                    tracing::error!("move_to_trash failed: {e}");
+                    let toast = adw::Toast::new(&format!("Couldn't move to trash: {e}"));
+                    this.toast_overlay.add_toast(toast);
+                }
                 this.refresh();
             });
         }

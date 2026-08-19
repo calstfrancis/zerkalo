@@ -489,7 +489,7 @@ impl ErrorPanel {
         stuck_label.set_tooltip_text(Some(
             "Same error for 3+ compiles in a row.\n\
              Tip: check for a missing closing bracket, parenthesis, or quote.\n\
-             Or open 'Update Template Settings' to reset the template.",
+             Or open 'Change Document Style' to reset the template.",
         ));
         stuck_label.set_visible(false);
         header.append(&stuck_label);
