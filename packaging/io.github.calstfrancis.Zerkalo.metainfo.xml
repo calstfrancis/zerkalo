@@ -80,6 +80,14 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.24.6" date="2026-08-19">
+      <description>
+        <p>0.24.6 "Steady Glance" — fixes a crash that hit reliably whenever a Typst
+        compile error's inline popup closed: moving the mouse off an error-underlined
+        line, clicking anywhere in the editor, or the editor losing focus while the
+        popup was open all triggered it, every time.</p>
+      </description>
+    </release>
     <release version="0.24.5" date="2026-08-19">
       <description>
         <p>0.24.5 "Clear Glass" — no user-visible changes. Updates the `rusqlite` and

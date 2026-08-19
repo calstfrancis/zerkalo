@@ -3487,7 +3487,19 @@ impl EditorPane {
                     // Moved off the error entirely — with autohide(false)
                     // (see why at the popover's own construction below)
                     // nothing else closes this, so it must be done here.
-                    if let Some(p) = active_popup_c.borrow_mut().take() {
+                    //
+                    // The extracted Option is bound to its own `let` first,
+                    // not matched directly on `.borrow_mut().take()` — Rust
+                    // extends that temporary RefMut's lifetime to the end of
+                    // the `if let` block otherwise, so it's still held while
+                    // popdown() runs. popdown() synchronously fires this
+                    // popover's own `connect_closed` handler below, which
+                    // does `ap_closed.borrow_mut()` on the same RefCell —
+                    // a real double-borrow panic, hit live (RefCell already
+                    // borrowed, aborting the whole process, every time the
+                    // mouse left an error line with the popup still open).
+                    let taken = active_popup_c.borrow_mut().take();
+                    if let Some(p) = taken {
                         p.popdown();
                     }
                     return;
@@ -3617,7 +3629,11 @@ impl EditorPane {
                     // keyboard while you type), so they'd otherwise sit there.
                     lsp_popup_click.hide();
                     bib_popup_click.hide();
-                    if let Some(p) = active_error_popup_click.borrow_mut().take() {
+                    // See the matching comment on the hover handler above for why this
+                    // can't be `if let Some(p) = ...borrow_mut().take() { p.popdown(); }`
+                    // directly — same double-borrow panic, same fix.
+                    let taken = active_error_popup_click.borrow_mut().take();
+                    if let Some(p) = taken {
                         p.popdown();
                     }
                     clear_citation_ghost(&ghost_click, &ghost_bib_click, &hint_click);
@@ -3659,7 +3675,9 @@ impl EditorPane {
                     pause();
                     lsp_popup_focus.hide();
                     bib_popup_focus.hide();
-                    if let Some(p) = active_error_popup_focus.borrow_mut().take() {
+                    // Same double-borrow hazard and fix as the hover handler above.
+                    let taken = active_error_popup_focus.borrow_mut().take();
+                    if let Some(p) = taken {
                         p.popdown();
                     }
                     clear_citation_ghost(&ghost_focus, &ghost_bib_focus, &hint_focus);
