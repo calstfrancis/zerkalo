@@ -85,12 +85,19 @@ jobs:
         # services to restart, even with `apt-get install -y` — there's nothing to answer
         # that prompt in CI, so the step just sits forever with no error and no log output.
         # NEEDRESTART_MODE=a (automatic, no prompt) is the documented fix.
+        #
+        # Separately, Azure's mirror for Ubuntu's noble-security pocket periodically hangs
+        # fetching InRelease with no timeout — apt has no default network timeout, so a
+        # stalled TCP connection there also sits forever with no error. Acquire::Retries/
+        # Acquire::http(s)::Timeout bound each attempt (~20s) and retry a few times, so a
+        # bad mirror fails fast and gets retried instead of hanging the whole job.
         env:
           DEBIAN_FRONTEND: noninteractive
           NEEDRESTART_MODE: a
         run: |
-          sudo apt-get update
-          sudo apt-get install -y flatpak flatpak-builder
+          APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20"
+          sudo apt-get update $APT_OPTS
+          sudo apt-get install -y $APT_OPTS flatpak flatpak-builder
           flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
 
       - name: Install runtime, SDK, and rust-stable extension
