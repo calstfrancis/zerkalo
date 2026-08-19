@@ -18,6 +18,9 @@ on:
 jobs:
   publish-flatpak:
     runs-on: ubuntu-24.04
+    # Generous headroom for a real build (local builds run a couple minutes with warm
+    # caches, longer cold) without leaving a hang to run for GitHub's 6-hour default.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -74,6 +77,14 @@ jobs:
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
       - name: Install flatpak and flatpak-builder
+        # Ubuntu 24.04 runners silently hang here otherwise: needrestart intercepts apt
+        # installs that touch certain libraries and prompts interactively for which
+        # services to restart, even with `apt-get install -y` — there's nothing to answer
+        # that prompt in CI, so the step just sits forever with no error and no log output.
+        # NEEDRESTART_MODE=a (automatic, no prompt) is the documented fix.
+        env:
+          DEBIAN_FRONTEND: noninteractive
+          NEEDRESTART_MODE: a
         run: |
           sudo apt-get update
           sudo apt-get install -y flatpak flatpak-builder
