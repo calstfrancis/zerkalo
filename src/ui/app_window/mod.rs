@@ -131,6 +131,14 @@ impl AppWindow {
                 });
                 lib.import_directory(&work_dir_bg).ok();
                 lib.fix_created_dates_from_fs();
+                match lib.reconcile_trash_state() {
+                    Ok(notes) => {
+                        for note in notes {
+                            tracing::info!("Trash reconciliation: {note}");
+                        }
+                    }
+                    Err(e) => tracing::warn!("Trash reconciliation failed: {e}"),
+                }
                 sender.send(lib).ok();
             });
             glib::timeout_add_local(Duration::from_millis(100), move || {

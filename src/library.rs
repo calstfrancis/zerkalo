@@ -684,6 +684,105 @@ impl Library {
         Ok(())
     }
 
+    /// Recovers from the DB-write-fails-after-filesystem-succeeds cases that
+    /// `move_to_trash`/`restore_from_trash`/`permanently_delete` can't fully
+    /// rule out on their own: those methods make the filesystem authoritative
+    /// and abort before touching the database if the filesystem step fails,
+    /// but the reverse ordering (filesystem step succeeds, then the
+    /// subsequent DB write itself fails — a locked/full/corrupt DB) can still
+    /// leave the two disagreeing. Run once at startup, after `import_directory`,
+    /// so a crash or DB error mid-operation self-heals on next launch instead
+    /// of leaving a document stuck in a state the UI can't explain. Returns a
+    /// human-readable note per fixup applied, for logging.
+    pub fn reconcile_trash_state(&mut self) -> SqlResult<Vec<String>> {
+        let mut notes = Vec::new();
+
+        let trashed: Vec<(i64, Option<String>)> = {
+            let mut stmt = self
+                .conn
+                .prepare("SELECT id, trash_path FROM documents WHERE deleted=1")?;
+            let rows = stmt
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<SqlResult<Vec<_>>>()?;
+            rows
+        };
+        for (id, trash_path) in trashed {
+            let trash_file_exists = trash_path.as_deref().is_some_and(|p| Path::new(p).exists());
+            if trash_file_exists {
+                continue;
+            }
+            let doc_path: Option<String> = self
+                .conn
+                .query_row(
+                    "SELECT path FROM documents WHERE id=?1",
+                    params![id],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            if doc_path.as_deref().is_some_and(|p| Path::new(p).exists()) {
+                // restore_from_trash's rename landed back at the original path
+                // before the DB update that would have recorded it failed.
+                self.conn.execute(
+                    "UPDATE documents SET deleted=0, trash_path=NULL WHERE id=?1",
+                    params![id],
+                )?;
+                notes.push(format!(
+                    "Document {id} was already restored on disk but still listed as \
+                     trashed; corrected the record"
+                ));
+            } else if let Some(found) = trash_file_for_doc(&self.trash_dir, id) {
+                // move_to_trash's file move succeeded, but either the original
+                // trash_path UPDATE failed, or the row's recorded path is stale.
+                let found_str = found.to_string_lossy().to_string();
+                self.conn.execute(
+                    "UPDATE documents SET trash_path=?1 WHERE id=?2",
+                    params![found_str, id],
+                )?;
+                notes.push(format!("Resynced trash path for document {id}"));
+            } else {
+                // permanently_delete's file removal succeeded but the row's
+                // DELETE failed — nothing left to restore, so drop the row.
+                self.conn
+                    .execute("DELETE FROM documents WHERE id=?1", params![id])?;
+                notes.push(format!(
+                    "Document {id} was already permanently deleted; dropped its stale record"
+                ));
+            }
+        }
+
+        let active: Vec<(i64, String)> = {
+            let mut stmt = self
+                .conn
+                .prepare("SELECT id, path FROM documents WHERE deleted=0")?;
+            let rows = stmt
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<SqlResult<Vec<_>>>()?;
+            rows
+        };
+        for (id, path) in active {
+            if Path::new(&path).exists() {
+                continue;
+            }
+            if let Some(found) = trash_file_for_doc(&self.trash_dir, id) {
+                // move_to_trash's file move succeeded but the deleted=1 UPDATE
+                // failed, leaving an "active" row whose file is actually in Trash.
+                let found_str = found.to_string_lossy().to_string();
+                self.conn.execute(
+                    "UPDATE documents SET deleted=1, trash_path=?1 WHERE id=?2",
+                    params![found_str, id],
+                )?;
+                notes.push(format!(
+                    "Document {id}'s file was found in Trash but the database still \
+                     listed it as active; marked it trashed to match"
+                ));
+            }
+            // Otherwise the file is simply missing (moved/deleted outside the
+            // app) — not a case this method knows how to safely fix.
+        }
+
+        Ok(notes)
+    }
+
     pub fn restore_from_trash(&mut self, doc_id: i64) -> SqlResult<()> {
         let trash_path: Option<String> = self
             .conn
@@ -1127,6 +1226,25 @@ fn search_clause(prefix: &str, param: usize) -> String {
     )
 }
 
+/// Looks for a file in `trash_dir` matching `move_to_trash`'s
+/// `{timestamp}-{doc_id}-{original name}` naming, by doc id. Used by
+/// `reconcile_trash_state` to relocate a trashed file whose `trash_path`
+/// column didn't get recorded (or got recorded, then went stale).
+fn trash_file_for_doc(trash_dir: &Path, doc_id: i64) -> Option<PathBuf> {
+    let needle = format!("-{doc_id}-");
+    let entries = std::fs::read_dir(trash_dir).ok()?;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if let Some(idx) = name.find(needle.as_str()) {
+            if name[..idx].chars().all(|c| c.is_ascii_digit()) {
+                return Some(entry.path());
+            }
+        }
+    }
+    None
+}
+
 /// Finds a free path near `path` (e.g. `essay.typ` -> `essay (restored).typ`,
 /// then `essay (restored 2).typ`, ...) for use when the original path is
 /// already occupied by a different file.
@@ -1490,6 +1608,104 @@ mod tests {
             .filter_map(|e| e.ok())
             .count();
         assert_eq!(remaining, 0, "trashed file should be gone from disk");
+    }
+
+    #[test]
+    fn reconcile_marks_trashed_a_doc_whose_file_moved_but_whose_row_was_never_updated() {
+        let (mut lib, work) = fixture();
+        let (id, _) = add_doc(&mut lib, &work, "essay.typ");
+        lib.move_to_trash(id).expect("trash");
+        // Simulate the DB UPDATE having failed right after the fs move
+        // succeeded: put the row back as if it were still active.
+        lib.conn
+            .execute(
+                "UPDATE documents SET deleted=0, trash_path=NULL WHERE id=?1",
+                params![id],
+            )
+            .expect("simulate stale row");
+
+        let notes = lib.reconcile_trash_state().expect("reconcile");
+
+        assert_eq!(notes.len(), 1);
+        assert!(lib.doc_by_id(id).expect("query").is_some(), "row still exists");
+        let deleted: i64 = lib
+            .conn
+            .query_row(
+                "SELECT deleted FROM documents WHERE id=?1",
+                params![id],
+                |r| r.get(0),
+            )
+            .expect("read deleted flag");
+        assert_eq!(deleted, 1, "should be corrected back to trashed");
+    }
+
+    #[test]
+    fn reconcile_restores_a_doc_whose_file_was_put_back_but_whose_row_still_says_trashed() {
+        let (mut lib, work) = fixture();
+        let (id, path) = add_doc(&mut lib, &work, "essay.typ");
+        lib.move_to_trash(id).expect("trash");
+        let trash_path: String = lib
+            .conn
+            .query_row(
+                "SELECT trash_path FROM documents WHERE id=?1",
+                params![id],
+                |r| r.get(0),
+            )
+            .expect("read trash_path");
+        // Simulate restore_from_trash's rename having succeeded, followed by
+        // its DB UPDATE failing.
+        std::fs::rename(&trash_path, &path).expect("simulate fs-only restore");
+
+        let notes = lib.reconcile_trash_state().expect("reconcile");
+
+        assert_eq!(notes.len(), 1);
+        let deleted: i64 = lib
+            .conn
+            .query_row(
+                "SELECT deleted FROM documents WHERE id=?1",
+                params![id],
+                |r| r.get(0),
+            )
+            .expect("read deleted flag");
+        assert_eq!(deleted, 0, "should be corrected back to active");
+    }
+
+    #[test]
+    fn reconcile_drops_a_row_whose_trashed_file_was_already_permanently_removed() {
+        let (mut lib, work) = fixture();
+        let (id, _) = add_doc(&mut lib, &work, "essay.typ");
+        lib.move_to_trash(id).expect("trash");
+        let trash_path: String = lib
+            .conn
+            .query_row(
+                "SELECT trash_path FROM documents WHERE id=?1",
+                params![id],
+                |r| r.get(0),
+            )
+            .expect("read trash_path");
+        // Simulate permanently_delete's remove_file having succeeded, followed
+        // by its DB DELETE failing.
+        std::fs::remove_file(&trash_path).expect("simulate fs-only permanent delete");
+
+        let notes = lib.reconcile_trash_state().expect("reconcile");
+
+        assert_eq!(notes.len(), 1);
+        assert!(
+            lib.doc_by_id(id).expect("query").is_none(),
+            "stale row should be dropped"
+        );
+    }
+
+    #[test]
+    fn reconcile_is_a_no_op_when_db_and_filesystem_already_agree() {
+        let (mut lib, work) = fixture();
+        let (id, _) = add_doc(&mut lib, &work, "essay.typ");
+        add_doc(&mut lib, &work, "other.typ");
+        lib.move_to_trash(id).expect("trash");
+
+        let notes = lib.reconcile_trash_state().expect("reconcile");
+
+        assert!(notes.is_empty(), "nothing should need fixing: {notes:?}");
     }
 
     #[cfg(unix)]
