@@ -7,7 +7,7 @@ use gtk4::{Align, Box as GtkBox, Button, Label, Orientation, ScrolledWindow, Sep
 use libadwaita as adw;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const RELEASE_NAME: &str = "Clear Glass";
+pub const RELEASE_NAME: &str = "Steady Glance";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -143,6 +143,7 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
+                "Fixed a crash that hit reliably whenever a Typst compile error's inline popup closed — moving the mouse off an error-underlined line, clicking anywhere in the editor, or losing focus while it was open all triggered it.",
                 "Save and Autosave now tell you when a write actually fails (a full disk, a permissions problem), instead of quietly doing nothing.",
                 "Closing the window with unsaved changes: if \"Save All\" fails, the window now stays open and tells you which files didn't save, instead of closing and losing that work anyway.",
                 "Printing with an imposition layout (booklet, two-up) no longer briefly freezes the app on a large document.",

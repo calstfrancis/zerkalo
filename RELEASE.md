@@ -1,4 +1,4 @@
-# Zerkalo v0.24.5 "Clear Glass"
+# Zerkalo v0.24.6 "Steady Glance"
 
 Install via Flatpak:
 
@@ -18,7 +18,7 @@ flatpak update io.github.calstfrancis.Zerkalo
 
 ### What's new
 
-No user-visible changes in this release. It updates the `rusqlite` and `hayagriva` dependencies to their current releases — both were blocked on an upstream Kartoteka pin, and Kartoteka just released a version with matching updates (which also fixed an intermittent search-index rebuild race and closed two dependency security advisories on its own side).
+**Fixes a crash that hit reliably whenever a Typst compile error's inline popup closed.** Moving the mouse off an error-underlined line, clicking anywhere in the editor, or the editor losing focus while the popup was open all triggered it — every time, with no warning, the window would just exit. The popup's dismiss handling and its own "closed" signal both tried to update the same tracked state simultaneously, which Rust correctly refuses; as a panic inside a GTK callback, the process can't recover and exits immediately rather than showing an error.
 
 ---
 

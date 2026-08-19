@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.24.6] "Steady Glance" — 2026-08-19 — Crash fix: hovering a compile-error popup
+
+### Fixed
+
+- **Fixed a crash that hit reliably whenever a Typst compile error's inline
+  popup closed** — moving the mouse off an error-underlined line, clicking
+  anywhere in the editor, or the editor losing focus while the popup was
+  open all triggered it, every time. The popup's dismiss handler and its
+  own "closed" signal both tried to update the same tracked state at once,
+  which Rust correctly refuses — as a panic inside a GTK callback, which
+  the process can't recover from and just exits with no warning.
+
 ## [0.24.5] "Clear Glass" — 2026-08-19 — rusqlite/hayagriva updated
 
 ### Internal
