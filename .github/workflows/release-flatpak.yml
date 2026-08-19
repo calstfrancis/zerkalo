@@ -1,0 +1,124 @@
+name: Release flatpak
+
+# Triggers on the same tag pattern release.yml (the GitHub Release workflow) uses, plus a
+# manual dispatch for testing this workflow itself without cutting a real version tag.
+# Requires two repo secrets that only Cal can set up (see zerkalo/RELEASE-CI-SETUP.md):
+#   FLATPAK_GPG_PRIVATE_KEY — armored export of the signing key
+#   FLATPAK_REPO_TOKEN      — a token with push access to calstfrancis/flatpak
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (must match Cargo.toml, e.g. 0.24.5)"
+        required: true
+
+jobs:
+  publish-flatpak:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # Structural version of a check CLAUDE.md used to ask Cal to remember to do by hand:
+      # don't publish a build from a commit whose own CI run (build/test/clippy) didn't pass.
+      # Skipped on manual dispatch — that path is for testing this workflow itself.
+      - name: Require CI to have passed for this commit
+        if: github.event_name != 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          SHA="${{ github.sha }}"
+          # The legacy commits/{sha}/status API doesn't reflect GitHub Actions results at
+          # all (always empty/pending for Actions-only repos) — check-runs is the one that
+          # does. ci.yml's two jobs are named "build" and "version-consistency".
+          for JOB in build version-consistency; do
+            CONCLUSION=$(gh api "repos/${{ github.repository }}/commits/$SHA/check-runs" \
+              --jq ".check_runs[] | select(.name == \"$JOB\") | .conclusion")
+            if [[ "$CONCLUSION" != "success" ]]; then
+              echo "ERROR: ci.yml's '$JOB' job for commit $SHA is '$CONCLUSION', not 'success' — refusing to publish."
+              exit 1
+            fi
+            echo "ci.yml '$JOB' for $SHA: $CONCLUSION"
+          done
+
+      # Mirrors publish-flatpak.sh's own sanity check.
+      - name: Verify version matches Cargo.toml
+        run: |
+          set -euo pipefail
+          VERSION="${{ github.event.inputs.version || '' }}"
+          if [[ -z "$VERSION" ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          CARGO_VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          if [[ "$CARGO_VERSION" != "$VERSION" ]]; then
+            echo "ERROR: Cargo.toml says version is '$CARGO_VERSION', but this run is for '$VERSION'."
+            exit 1
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Install flatpak and flatpak-builder
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder
+          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+
+      - name: Install runtime, SDK, and rust-stable extension
+        run: |
+          RUNTIME_VERSION=$(grep '^runtime-version' packaging/io.github.calstfrancis.Zerkalo.yml | sed "s/runtime-version: *'\(.*\)'/\1/")
+          flatpak install --user -y flathub \
+            "org.gnome.Platform//$RUNTIME_VERSION" \
+            "org.gnome.Sdk//$RUNTIME_VERSION" \
+            "org.freedesktop.Sdk.Extension.rust-stable//$RUNTIME_VERSION"
+
+      - name: Import GPG signing key
+        run: |
+          echo "${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}" | gpg --batch --import
+
+      - name: Build flatpak
+        run: |
+          flatpak-builder --force-clean --user --install build-flatpak \
+            packaging/io.github.calstfrancis.Zerkalo.yml
+
+      - name: Clone public flatpak repo
+        run: |
+          git clone "https://x-access-token:${{ secrets.FLATPAK_REPO_TOKEN }}@github.com/calstfrancis/flatpak" /tmp/flatpak-checkout
+
+      - name: Export build into the repo
+        run: |
+          flatpak build-export \
+            --gpg-sign=A2918A9B43B199ADF9879F934AC9D5173DE4BC41 \
+            /tmp/flatpak-checkout \
+            build-flatpak \
+            master
+
+      - name: Regenerate OSTree summary
+        run: |
+          flatpak build-update-repo \
+            --gpg-sign=A2918A9B43B199ADF9879F934AC9D5173DE4BC41 \
+            /tmp/flatpak-checkout
+
+      # Same check publish-flatpak.sh runs: build-export silently produces an unsigned
+      # commit if --gpg-sign is missing or the key is unavailable — catch that here rather
+      # than let it surface later as a GPG failure on someone else's install.
+      - name: Verify the commit actually got signed
+        run: |
+          set -euo pipefail
+          APP_ID="io.github.calstfrancis.Zerkalo"
+          COMMIT="$(cat "/tmp/flatpak-checkout/refs/heads/app/$APP_ID/x86_64/master")"
+          if [[ ! -f "/tmp/flatpak-checkout/objects/${COMMIT:0:2}/${COMMIT:2}.commitmeta" ]]; then
+            echo "ERROR: commit $COMMIT for $APP_ID carries no GPG signature."
+            exit 1
+          fi
+          echo "Signature verified for $APP_ID"
+
+      - name: Push flatpak repo
+        run: |
+          cd /tmp/flatpak-checkout
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Zerkalo $VERSION"
+          git push origin main

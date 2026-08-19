@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# publish-flatpak.sh — build and publish Zerkalo to the personal flatpak repo
+# publish-flatpak.sh — push a release; GitHub Actions builds and publishes it
 #
 # Usage:
 #   ./publish-flatpak.sh 1.2.0
@@ -12,19 +12,20 @@
 #
 # What this script DOES do:
 #   1. Verify the version you pass matches what's in Cargo.toml (sanity check)
-#   2. Push this repo to GitHub (flatpak-builder pulls sources from there)
-#   3. Build the flatpak
-#   4. Pull/clone the public flatpak repo
-#   5. Export the build into it
-#   6. Regenerate the OSTree summary
-#   7. Commit and push the flatpak repo
+#   2. Push main and the version tag to GitHub
+#
+# Pushing the tag is what triggers .github/workflows/release-flatpak.yml, which does
+# everything this script used to do locally: build the flatpak, export it into the public
+# repo, GPG-sign it, and push. Watch it at:
+#   https://github.com/calstfrancis/zerkalo/actions/workflows/release-flatpak.yml
+#
+# Needs CI to have already passed for this commit — release-flatpak.yml checks this itself
+# and refuses to publish otherwise, so there's no separate manual check to remember here
+# anymore. If GitHub Actions is down or you need to debug the build locally, use
+# publish-flatpak-local.sh instead (does the full build+publish here, same as this script
+# used to).
 
 set -euo pipefail
-
-GPG_KEY="A2918A9B43B199ADF9879F934AC9D5173DE4BC41"
-FLATPAK_REPO="/tmp/flatpak-checkout"
-MANIFEST="packaging/io.github.calstfrancis.Zerkalo.yml"
-APP_LABEL="Zerkalo"
 
 # ── argument check ────────────────────────────────────────────────────────────
 if [[ $# -ne 1 ]]; then
@@ -41,58 +42,10 @@ if [[ "$CARGO_VERSION" != "$VERSION" ]]; then
   exit 1
 fi
 
-echo "==> Publishing $APP_LABEL $VERSION"
-
-# ── 1. push this repo so flatpak-builder can pull it ─────────────────────────
-echo "==> Pushing source repo to GitHub..."
+echo "==> Publishing Zerkalo $VERSION"
 git push origin main
-git push origin "v$VERSION" 2>/dev/null || true
-
-# ── 2. build the flatpak ──────────────────────────────────────────────────────
-echo "==> Building flatpak (this will take a while)..."
-flatpak-builder --force-clean --user --install build-flatpak "$MANIFEST"
-
-# ── 3. pull / clone the public flatpak repo ───────────────────────────────────
-echo "==> Syncing public flatpak repo..."
-if [[ -d "$FLATPAK_REPO/.git" ]]; then
-  git -C "$FLATPAK_REPO" pull
-else
-  git clone https://github.com/calstfrancis/flatpak "$FLATPAK_REPO"
-fi
-
-# ── 4. export build into the repo ────────────────────────────────────────────
-echo "==> Exporting build..."
-flatpak build-export \
-  --gpg-sign="$GPG_KEY" \
-  "$FLATPAK_REPO" \
-  build-flatpak \
-  master
-
-# ── 5. regenerate summary ────────────────────────────────────────────────────
-echo "==> Regenerating OSTree summary..."
-flatpak build-update-repo \
-  --gpg-sign="$GPG_KEY" \
-  "$FLATPAK_REPO"
-
-# ── verify the commit actually got signed ──────────────────────────────────
-# build-export produces an unsigned commit if --gpg-sign is missing or the key
-# is unavailable, and says nothing. The repo summary still signs fine, so the
-# breakage only surfaces later as a GPG failure on someone else's install.
-APP_ID="$(basename "$MANIFEST" .yml)"
-COMMIT="$(cat "$FLATPAK_REPO/refs/heads/app/$APP_ID/x86_64/master")"
-if [[ ! -f "$FLATPAK_REPO/objects/${COMMIT:0:2}/${COMMIT:2}.commitmeta" ]]; then
-  echo "ERROR: commit $COMMIT for $APP_ID carries no GPG signature."
-  echo "Refusing to push. Re-run build-export with --gpg-sign=\"$GPG_KEY\"."
-  exit 1
-fi
-echo "==> Signature verified for $APP_ID"
-
-# ── 6. commit and push flatpak repo ──────────────────────────────────────────
-echo "==> Pushing flatpak repo..."
-cd "$FLATPAK_REPO"
-git add -A
-git commit -m "$APP_LABEL $VERSION"
-git push origin main
+git push origin "v$VERSION"
 
 echo ""
-echo "Done! $APP_LABEL $VERSION is live at https://calstfrancis.github.io/flatpak/"
+echo "Done! GitHub Actions is building and publishing $VERSION now:"
+echo "  https://github.com/calstfrancis/zerkalo/actions/workflows/release-flatpak.yml"
