@@ -124,7 +124,7 @@ impl WelcomeWindow {
                 "Open or create a .typ file from the title-bar dropdown",
                 "Press Ctrl+S to save — the preview on the right updates immediately",
                 "Use the formatting bar above the editor for Bold, Italic, and Headings",
-                "Use Update Template Settings in the ≡ menu to change title, author, and style",
+                "Use Change Document Style, under Document Tools in the ≡ menu, to change title, author, and style",
                 "The Outline panel on the left shows your document structure — click to navigate",
             ] {
                 body.append(&bullet_row(item));
@@ -135,7 +135,7 @@ impl WelcomeWindow {
             for item in [
                 "Type @ to insert a citation, once you've added a bibliography from the Citations panel",
                 "Type # to see suggestions for tables, figures, and other building blocks",
-                "Zerkalo hides the technical setup lines at the top of the file — change them from Update Template Settings in the ≡ menu, not by scrolling up",
+                "Zerkalo hides the technical setup lines at the top of the file — change them from Change Document Style (≡ → Document Tools), not by scrolling up",
                 "Turn Simple Mode off with the SIMPLE button in the header, beside Library, if you ever want to see that setup section directly",
             ] {
                 body.append(&bullet_row(item));
@@ -143,10 +143,10 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
-                "Fixed a crash that hit reliably whenever a Typst compile error's inline popup closed — moving the mouse off an error-underlined line, clicking anywhere in the editor, or losing focus while it was open all triggered it.",
-                "Save and Autosave now tell you when a write actually fails (a full disk, a permissions problem), instead of quietly doing nothing.",
-                "Closing the window with unsaved changes: if \"Save All\" fails, the window now stays open and tells you which files didn't save, instead of closing and losing that work anyway.",
-                "Printing with an imposition layout (booklet, two-up) no longer briefly freezes the app on a large document.",
+                "The ≡ menu is simpler — rarely-used items (template repair, the project file map, git history) now live inside a few grouped flyouts like Document Tools and Version History, instead of crowding the top level.",
+                "Fixed a bug where Save could silently recompile stale content in \"Compile on Save\" mode, showing an outdated preview no matter how many times you saved.",
+                "Moving a document to Trash is now all-or-nothing — if the file can't actually be moved (a read-only disk, a full drive), it's no longer marked deleted in the Library while still sitting at its original location.",
+                "If Zerkalo ever crashes, it now makes a best-effort attempt to save a recovery copy of your unsaved work first.",
             ] {
                 body.append(&bullet_row(item));
             }

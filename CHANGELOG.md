@@ -5,6 +5,41 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.24.7-dev1] — Menu cleanup, save/compile fix, trash data-integrity fix
+
+### Changed
+
+- **Hamburger menu simplified.** Rarely-touched or technical items — template
+  repair, the project file map, git history, Writing Stats/Help/Shortcuts/
+  What's New/About — are now grouped into a handful of flyout submenus
+  (Document Tools, Version History, Export & Print, Help & About) instead of
+  sitting as 22 top-level rows. Several labels were also renamed to plain
+  language: "Reference Manager" → "Citations & Bibliography", "Dependency
+  Graph" → "Project File Map", "Update Template Settings" → "Change Document
+  Style", "Browse Snapshots" → "Saved Versions", "File History" → "Git
+  Change History".
+
+### Fixed
+
+- **Save could silently recompile stale content in "Compile on Save" mode.**
+  The compile-mode toggle cycles auto → on-save → manual; in on-save mode
+  the debounced auto-compile is deliberately suppressed, but Save wasn't
+  refreshing the preview's content override first, so it kept recompiling
+  whatever the tab looked like at its last switch-to, ignoring every
+  subsequent save.
+- **Moving a document to Trash could mark it deleted in the Library even
+  when the file never actually moved** — a filesystem failure (read-only
+  disk, full drive, permissions) left the database and the filesystem
+  disagreeing about where the document was. The filesystem move is now
+  authoritative: the database is only updated once the file has genuinely
+  landed in the trash directory.
+- Added a 15-second timeout to the GitHub sign-in HTTP client, which
+  previously could hang indefinitely on a stalled (not just down) response.
+- A crash now makes a best-effort attempt to flush a recovery autosave of
+  any modified documents before the process exits.
+
+---
+
 ## [0.24.6] "Steady Glance" — 2026-08-19 — Crash fix: hovering a compile-error popup
 
 ### Fixed

@@ -195,12 +195,13 @@ pub(super) fn build_header() -> HeaderWidgets {
 
     // ── Popover layout ────────────────────────────────────────────────────
     //
-    // Grouped into seven logical clusters (New & Open, Current Document,
-    // Save & Versions, Export & Print, App, Help) — down from seven, since
-    // Document Fonts, Set Up Zerkalo, Backup Locations, and Tools moved into
-    // Settings (they're one-off/rarely-touched configuration, not everyday
-    // actions — Settings is also where people actually look for that kind of
-    // thing). A first pass labelled each cluster with `fond_section_header`
+    // Down to five top-level clusters (New & Open, Save, Export & Print
+    // — flyout, Settings, Help — flyout), each holding only what most users
+    // reach for often. Rarely-touched or technical actions (template repair,
+    // the project file-graph, git history) are folded into two flyout
+    // submenus — Document Tools and Help & About — via `make_submenu_button`,
+    // rather than sitting as top-level rows nobody but a power user ever
+    // clicks. A first pass labelled each cluster with `fond_section_header`
     // (the sidebar panels' section-header widget), which turned out to make
     // the hamburger's `MenuButton` stop opening its `Popover` at all in real
     // use — reproduced consistently, cause not yet isolated. Left as plain
@@ -220,23 +221,47 @@ pub(super) fn build_header() -> HeaderWidgets {
     menu_popover_box.append(&menu_docs_item);
     menu_popover_box.append(&menu_import_item);
     menu_popover_box.append(&Separator::new(Orientation::Horizontal));
-    // Current document
-    menu_popover_box.append(&menu_reapply_template_item);
-    menu_popover_box.append(&menu_repair_markers_item);
-    menu_popover_box.append(&menu_refs_item);
-    menu_popover_box.append(&menu_depgraph_item);
-    menu_popover_box.append(&menu_table_item);
+
+    // Document Tools: everything that acts on the current document but isn't
+    // an everyday action — inserting a table is the only one of these most
+    // users touch regularly, the rest (style/template settings, citations,
+    // the project file map) are occasional or advanced.
+    let document_tools_btn = super::make_submenu_button(
+        "Document Tools",
+        &[
+            menu_table_item.clone(),
+            menu_refs_item.clone(),
+            menu_reapply_template_item.clone(),
+            menu_depgraph_item.clone(),
+            menu_repair_markers_item.clone(),
+        ],
+    );
+    menu_popover_box.append(&document_tools_btn);
     menu_popover_box.append(&Separator::new(Orientation::Horizontal));
-    // Save / versions
+
+    // Save / versions: Save and Save As are everyday; the two ways to look
+    // back at older versions (local snapshots vs. git history) are related
+    // enough to share one flyout rather than each being its own row.
     menu_popover_box.append(&menu_save_item);
     menu_popover_box.append(&menu_save_as_item);
-    menu_popover_box.append(&menu_snapshots_item);
-    menu_popover_box.append(&menu_history_item);
+    let version_history_btn = super::make_submenu_button(
+        "Version History",
+        &[menu_snapshots_item.clone(), menu_history_item.clone()],
+    );
+    menu_popover_box.append(&version_history_btn);
     menu_popover_box.append(&Separator::new(Orientation::Horizontal));
-    // Export & print
-    menu_popover_box.append(&menu_export_item);
-    menu_popover_box.append(&menu_export_web_item);
-    menu_popover_box.append(&menu_print_item);
+
+    // Export & print: three ways of getting the document out of Zerkalo,
+    // grouped under one flyout instead of three top-level rows.
+    let export_print_btn = super::make_submenu_button(
+        "Export & Print",
+        &[
+            menu_export_item.clone(),
+            menu_export_web_item.clone(),
+            menu_print_item.clone(),
+        ],
+    );
+    menu_popover_box.append(&export_print_btn);
     menu_popover_box.append(&Separator::new(Orientation::Horizontal));
     // App
     menu_settings_item.set_tooltip_text(Some(
@@ -247,14 +272,22 @@ pub(super) fn build_header() -> HeaderWidgets {
     let gost_menu_slot = GtkBox::new(Orientation::Vertical, 0);
     menu_popover_box.append(&gost_menu_slot);
     menu_popover_box.append(&Separator::new(Orientation::Horizontal));
-    // Help: What's New and Writing Stats are both "look at information about
-    // the app or your work," the same drawer as About/Help/Shortcuts, rather
-    // than reading as settings.
-    menu_popover_box.append(&menu_writing_stats_item);
-    menu_popover_box.append(&menu_help_item);
-    menu_popover_box.append(&menu_shortcuts_item);
-    menu_popover_box.append(&menu_whats_new_item);
-    menu_popover_box.append(&menu_about_item);
+
+    // Help & About: What's New and Writing Stats are both "look at
+    // information about the app or your work," the same drawer as
+    // About/Help/Shortcuts, rather than reading as settings — and none of
+    // these are everyday actions, so one flyout replaces five top-level rows.
+    let help_about_btn = super::make_submenu_button(
+        "Help & About",
+        &[
+            menu_writing_stats_item.clone(),
+            menu_help_item.clone(),
+            menu_shortcuts_item.clone(),
+            menu_whats_new_item.clone(),
+            menu_about_item.clone(),
+        ],
+    );
+    menu_popover_box.append(&help_about_btn);
 
     let menu_popover = Popover::new();
     menu_popover.set_child(Some(&menu_popover_box));

@@ -99,7 +99,7 @@ impl SnapshotDialog {
         current_content: &str,
     ) -> Self {
         let window = adw::Window::builder()
-            .title("Browse Snapshots")
+            .title("Saved Versions")
             .transient_for(parent)
             .modal(true)
             .default_width(800)

@@ -75,6 +75,7 @@ struct CreatedRepo {
 fn client() -> Result<reqwest::blocking::Client, GithubAuthError> {
     Ok(reqwest::blocking::Client::builder()
         .user_agent(USER_AGENT)
+        .timeout(std::time::Duration::from_secs(15))
         .build()?)
 }
 

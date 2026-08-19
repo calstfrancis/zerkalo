@@ -3466,17 +3466,17 @@ fn build_hamburger_menu_items() -> HamburgerItems {
 
     HamburgerItems {
         menu_new_template_item: make_menu_item("New from Template…", None),
-        menu_reapply_template_item: make_menu_item("Update Template Settings…", None),
-        menu_repair_markers_item: make_menu_item("Repair Template Markers…", None),
-        menu_refs_item: make_menu_item("Reference Manager…", None),
-        menu_depgraph_item: make_menu_item("Dependency Graph…", None),
+        menu_reapply_template_item: make_menu_item("Change Document Style…", None),
+        menu_repair_markers_item: make_menu_item("Repair Document Template…", None),
+        menu_refs_item: make_menu_item("Citations & Bibliography…", None),
+        menu_depgraph_item: make_menu_item("Project File Map…", None),
         menu_table_item: make_menu_item("Insert Table…", None),
         menu_new_item: make_menu_item("New Blank Document…", None),
         menu_open_item: make_menu_item("Open File…", None),
         menu_save_item: make_menu_item("Save", Some(&d(&kb.save))),
         menu_save_as_item: make_menu_item("Save As…", None),
-        menu_snapshots_item: make_menu_item("Browse Snapshots…", None),
-        menu_history_item: make_menu_item("File History…", None),
+        menu_snapshots_item: make_menu_item("Saved Versions…", None),
+        menu_history_item: make_menu_item("Git Change History…", None),
         menu_export_item: make_menu_item("Export…", None),
         menu_export_web_item: make_menu_item("Export for Web…", None),
         // Print and Import aren't in keybindings.toml — they're fixed in the
@@ -3520,6 +3520,46 @@ fn make_menu_item(label: &str, shortcut: Option<&str>) -> Button {
     }
 
     btn.set_child(Some(&row));
+    btn
+}
+
+/// Build a hamburger-menu row that opens a nested flyout of related items on
+/// click, for clusters of rarely-used or narrowly-scoped actions that would
+/// otherwise clutter the top-level menu (e.g. "Export & Print" holding
+/// Export/Export for Web/Print). Styled to match `make_menu_item` — flush-left
+/// label — with a trailing chevron instead of a shortcut. Reuses the passed-in
+/// buttons as-is, so click handlers and `set_sensitive` calls wired against
+/// them elsewhere keep working unchanged regardless of which popover they end
+/// up inside.
+fn make_submenu_button(label: &str, items: &[Button]) -> gtk4::MenuButton {
+    let row = GtkBox::new(Orientation::Horizontal, 0);
+    row.set_margin_start(4);
+    row.set_margin_end(6);
+
+    let name_lbl = Label::new(Some(label));
+    name_lbl.set_halign(Align::Start);
+    name_lbl.set_hexpand(true);
+    row.append(&name_lbl);
+
+    let chevron = gtk4::Image::from_icon_name("go-next-symbolic");
+    chevron.add_css_class("dim-label");
+    row.append(&chevron);
+
+    let sub_box = GtkBox::new(Orientation::Vertical, 0);
+    sub_box.set_margin_top(4);
+    sub_box.set_margin_bottom(4);
+    sub_box.set_width_request(240);
+    for item in items {
+        sub_box.append(item);
+    }
+
+    let sub_popover = gtk4::Popover::new();
+    sub_popover.set_child(Some(&sub_box));
+
+    let btn = gtk4::MenuButton::new();
+    btn.add_css_class("flat");
+    btn.set_child(Some(&row));
+    btn.set_popover(Some(&sub_popover));
     btn
 }
 

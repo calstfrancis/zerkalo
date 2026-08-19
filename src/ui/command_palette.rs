@@ -346,12 +346,12 @@ pub fn default_commands() -> Vec<PaletteItem> {
         },
         PaletteItem {
             id: "browse_snapshots".into(),
-            label: "Browse Snapshots\u{2026}".into(),
+            label: "Saved Versions\u{2026}".into(),
             subtitle: "Local backups saved automatically every time you save".into(),
         },
         PaletteItem {
             id: "browse_history".into(),
-            label: "File History\u{2026}".into(),
+            label: "Git Change History\u{2026}".into(),
             subtitle: "Synced history of earlier versions and what changed".into(),
         },
         PaletteItem {

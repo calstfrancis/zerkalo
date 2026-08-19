@@ -15,6 +15,19 @@ fn default_trash_dir() -> PathBuf {
     glib::user_data_dir().join("zerkalo").join("trash")
 }
 
+/// `move_to_trash` must never mark a document deleted in the database unless
+/// the file actually landed in the trash directory — a filesystem failure
+/// (read-only fs, full disk, permissions) has to abort the whole operation
+/// rather than leave the database and the filesystem disagreeing about
+/// where the document is.
+#[derive(Debug, thiserror::Error)]
+pub enum TrashError {
+    #[error("could not move file to trash: {0}")]
+    Io(#[from] std::io::Error),
+    #[error(transparent)]
+    Db(#[from] rusqlite::Error),
+}
+
 #[derive(Clone, Debug)]
 #[allow(dead_code)] // mirrors the documents table; not every column is read yet
 pub struct Document {
@@ -628,13 +641,13 @@ impl Library {
         Ok(out)
     }
 
-    pub fn move_to_trash(&mut self, doc_id: i64) -> SqlResult<()> {
+    pub fn move_to_trash(&mut self, doc_id: i64) -> Result<(), TrashError> {
         let doc = match self.doc_by_id(doc_id)? {
             Some(d) => d,
             None => return Ok(()),
         };
         let trash_dir = self.trash_dir.clone();
-        std::fs::create_dir_all(&trash_dir).ok();
+        std::fs::create_dir_all(&trash_dir)?;
         let ts = Utc::now().timestamp();
         // Prefix with doc_id (unique, from the primary key) rather than relying
         // on timestamp+basename alone, which can collide when two same-named
@@ -645,11 +658,19 @@ impl Library {
             .map(|n| format!("{}-{}-{}", ts, doc_id, n.to_string_lossy()))
             .unwrap_or_else(|| format!("{ts}-{doc_id}.typ"));
         let trash_path = trash_dir.join(&filename);
-        if std::fs::rename(&doc.path, &trash_path).is_err()
-            && std::fs::copy(&doc.path, &trash_path).is_ok()
-        {
-            std::fs::remove_file(&doc.path).ok();
+
+        // The filesystem move is authoritative: only mark the document
+        // deleted in the database once the file has genuinely landed in the
+        // trash directory. If rename fails (e.g. cross-device) and the copy
+        // fallback also fails, or the copy succeeds but removing the
+        // original doesn't, propagate the error and leave the database
+        // untouched rather than recording a "trashed" file that's still
+        // sitting at its original path.
+        if std::fs::rename(&doc.path, &trash_path).is_err() {
+            std::fs::copy(&doc.path, &trash_path)?;
+            std::fs::remove_file(&doc.path)?;
         }
+
         let trash_str = trash_path.to_string_lossy().to_string();
         self.conn.execute(
             "UPDATE documents SET deleted=1, trash_path=?1 WHERE id=?2",
@@ -1252,6 +1273,92 @@ mod tests {
         assert_eq!(entries.len(), 1, "exactly one file should be in the trash");
         let contents = std::fs::read_to_string(entries[0].path()).expect("read trashed file");
         assert_eq!(contents, "= Original body\n");
+    }
+
+    #[test]
+    fn move_to_trash_leaves_the_row_untouched_if_the_source_file_is_already_gone() {
+        let (mut lib, work) = fixture();
+        let (id, path) = add_doc(&mut lib, &work, "essay.typ");
+        std::fs::remove_file(&path).expect("remove out from under the library");
+
+        let err = lib
+            .move_to_trash(id)
+            .expect_err("rename and copy both fail");
+        assert!(matches!(err, TrashError::Io(_)));
+
+        let docs = lib
+            .documents(LibraryFilter::All, "", SortOrder::Modified)
+            .expect("list");
+        assert_eq!(
+            ids(&docs),
+            vec![id],
+            "must not be flagged deleted if the file never moved"
+        );
+    }
+
+    #[test]
+    fn move_to_trash_leaves_the_row_untouched_if_the_trash_dir_cannot_be_created() {
+        let (mut lib, work) = fixture();
+        let (id, path) = add_doc(&mut lib, &work, "essay.typ");
+        // A plain file sitting at the trash dir's path makes `create_dir_all`
+        // fail with "not a directory" — stands in for a real-world case like
+        // a full disk or a permissions error preventing trash dir creation.
+        std::fs::write(work.path().join("trash"), b"not a directory").expect("blocker file");
+
+        let err = lib
+            .move_to_trash(id)
+            .expect_err("trash dir cannot be created");
+        assert!(matches!(err, TrashError::Io(_)));
+
+        assert!(path.exists(), "original file must be left in place");
+        let docs = lib
+            .documents(LibraryFilter::All, "", SortOrder::Modified)
+            .expect("list");
+        assert_eq!(
+            ids(&docs),
+            vec![id],
+            "must not be flagged deleted if the file never moved"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn move_to_trash_leaves_the_row_untouched_if_the_source_cannot_be_removed_after_copying() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let (mut lib, work) = fixture();
+        let src_dir = work.path().join("src");
+        std::fs::create_dir_all(&src_dir).expect("src dir");
+        let path = src_dir.join("essay.typ");
+        std::fs::write(&path, "= Heading\n").expect("write doc");
+        let id = lib.upsert_document(&path).expect("upsert");
+
+        // Read-only source directory: `rename` needs write permission on the
+        // source dir to unlink the entry, so it falls back to `copy` (which
+        // only needs read on the file itself, so it succeeds) — but the
+        // subsequent `remove_file` needs the same write permission `rename`
+        // was missing, so it fails too. This reproduces "copy succeeded but
+        // removing the original didn't" without needing a real cross-device
+        // filesystem boundary to force `rename`'s EXDEV path.
+        let original_mode = std::fs::metadata(&src_dir).expect("stat").permissions();
+        std::fs::set_permissions(&src_dir, std::fs::Permissions::from_mode(0o555))
+            .expect("make src dir read-only");
+
+        let result = lib.move_to_trash(id);
+
+        std::fs::set_permissions(&src_dir, original_mode).expect("restore permissions for cleanup");
+
+        let err = result.expect_err("copy succeeds but removing the original fails");
+        assert!(matches!(err, TrashError::Io(_)));
+        assert!(path.exists(), "original file must still be present");
+        let docs = lib
+            .documents(LibraryFilter::All, "", SortOrder::Modified)
+            .expect("list");
+        assert_eq!(
+            ids(&docs),
+            vec![id],
+            "must not be flagged deleted if the original wasn't removed"
+        );
     }
 
     /// The `{ts}-{doc_id}-{name}` scheme exists because timestamp+basename alone
