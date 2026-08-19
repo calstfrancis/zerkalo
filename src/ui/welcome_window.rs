@@ -7,7 +7,7 @@ use gtk4::{Align, Box as GtkBox, Button, Label, Orientation, ScrolledWindow, Sep
 use libadwaita as adw;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const RELEASE_NAME: &str = "Steady Hand";
+pub const RELEASE_NAME: &str = "Sound Footing";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -143,13 +143,9 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
-                "Fixed a crash after editing the bibliography source — a large .bib file was being re-parsed on every single compile instead of only when it changed, which could exhaust memory during sustained editing.",
-                "Choosing a bibliography file, vault, or creating a new one from the citation panel now actually updates the document's #bibliography(...) line, instead of only the app-wide setting — no more fixing it by hand afterward.",
-                "Collapsing the Packages or Comments sidebar section now reclaims the space it used, instead of leaving a blank gap behind.",
-                "A malformed date in one bibliography entry no longer breaks every citation in the document — Zerkalo now reads the file as leniently as its own citation panel already did, instead of failing the whole file over one bad entry.",
-                "A bibliography path outside the project — most commonly a Kartoteka vault — now works regardless of how it got into the document, not just when it's also set in Settings.",
-                "Clicking a format bar button (Bold, a heading, Insert Table…) no longer moves the keyboard focus off the document — apply it and keep typing.",
-                "Clicking on error-underlined text now places the cursor there directly, instead of just dismissing the error popup and needing a second click.",
+                "Save and Autosave now tell you when a write actually fails (a full disk, a permissions problem), instead of quietly doing nothing.",
+                "Closing the window with unsaved changes: if \"Save All\" fails, the window now stays open and tells you which files didn't save, instead of closing and losing that work anyway.",
+                "Printing with an imposition layout (booklet, two-up) no longer briefly freezes the app on a large document.",
             ] {
                 body.append(&bullet_row(item));
             }

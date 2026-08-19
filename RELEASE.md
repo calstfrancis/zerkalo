@@ -1,4 +1,4 @@
-# Zerkalo v0.24.3 "Steady Hand"
+# Zerkalo v0.24.4 "Sound Footing"
 
 Install via Flatpak:
 
@@ -18,7 +18,11 @@ flatpak update io.github.calstfrancis.Zerkalo
 
 ### What's new
 
-**Fixes a crash after editing the bibliography source.** A large `.bib` file (Zotero exports commonly run to hundreds of KB) was being fully re-read, re-parsed, and re-serialized on every single compile — and a compile fires on every debounced keystroke. Sustained typing while a large bibliography was configured could pile up that work faster than it was freed, matching an out-of-memory crash exactly: the window would close or disappear entirely with no warning. Fixed with a cache keyed by the file's path and modification time, so a stable bibliography is now read and sanitized once instead of on every compile — confirmed empirically: a cold compile of a 623KB bibliography took ~340ms, every warm compile after that ~1ms.
+**Save, Autosave, and closing the window could all silently fail on a write error** — a full disk, a permissions problem — instead of telling you. The worst case: choosing "Save All" from the "Save before closing?" dialog closed the window even if the save itself failed, discarding the unsaved document with no recovery path. Save and Autosave now show a toast when a write fails, and the window-close dialog now stays open and names the files that didn't save, instead of closing regardless.
+
+**Printing with an imposition layout (booklet, two-up) could briefly freeze the app** on a large document — the page-rearrangement work ran on the main thread before the print job even started sending. It now runs on the same background thread the print job already used.
+
+Also updates the GTK4/libadwaita/GtkSourceView toolkit bindings to their current releases (no user-visible change, but closes several years of upstream bug and soundness fixes) and fixes two dependency security advisories flagged by a newly-added `cargo audit` CI check.
 
 ---
 

@@ -5,6 +5,38 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.24.4] "Sound Footing" — 2026-08-18 — Save reliability, a print freeze fix, and dependency/security updates
+
+### Fixed
+
+- **Save, Autosave, and closing the window could all silently fail on a
+  write error** (full disk, permissions) instead of telling you. Worst
+  case: choosing "Save All" from the "Save before closing?" dialog closed
+  the window even if the save itself failed, discarding the unsaved
+  document with no recovery path. Save and Autosave now show a toast on
+  failure; the window-close dialog now stays open and names the files that
+  failed to save, instead of closing regardless.
+- **Printing with an imposition layout (booklet, two-up) could briefly
+  freeze the app** on a large document — the page-rearrangement work ran on
+  the main thread before the print job even started sending. It now runs on
+  the same background thread the print job already used.
+
+### Internal
+
+- Updated `gtk4`/`libadwaita`/`sourceview5`/`glib` to current releases
+  (0.7→0.11 / 0.5→0.9 / 0.7→0.11 / 0.18→0.22) — no user-visible change, but
+  closes several years of upstream bug and soundness fixes in the toolkit
+  bindings, including a real advisory (`glib`'s `VariantStrIter`
+  unsoundness, RUSTSEC-2024-0429).
+- Fixed a `crossbeam-epoch` advisory (RUSTSEC-2026-0204, an invalid-pointer
+  dereference in a debug-formatting impl).
+- Added a `cargo audit` check to CI, so dependency vulnerabilities get
+  caught automatically going forward.
+- Ran the codebase through `cargo fmt` for the first time and added a CI
+  check to keep it that way — no behavior change.
+
+---
+
 ## [0.24.3] "Steady Hand" — 2026-08-18 — Crash fix: bibliography re-parsed on every edit
 
 ### Fixed
