@@ -34,9 +34,23 @@ jobs:
           # The legacy commits/{sha}/status API doesn't reflect GitHub Actions results at
           # all (always empty/pending for Actions-only repos) — check-runs is the one that
           # does. ci.yml's two jobs are named "build" and "version-consistency".
+          #
+          # publish-flatpak.sh pushes main and the tag back to back, and ci.yml triggers off
+          # the main push — so ci.yml is often still running (conclusion "") when this step
+          # first checks, not actually failed. Poll instead of checking once: up to 20
+          # attempts, 15s apart (5 minutes), which comfortably covers how long ci.yml's build
+          # job takes.
           for JOB in build version-consistency; do
-            CONCLUSION=$(gh api "repos/${{ github.repository }}/commits/$SHA/check-runs" \
-              --jq ".check_runs[] | select(.name == \"$JOB\") | .conclusion")
+            CONCLUSION=""
+            for attempt in $(seq 1 20); do
+              CONCLUSION=$(gh api "repos/${{ github.repository }}/commits/$SHA/check-runs" \
+                --jq ".check_runs[] | select(.name == \"$JOB\") | .conclusion")
+              if [[ -n "$CONCLUSION" ]]; then
+                break
+              fi
+              echo "ci.yml '$JOB' for $SHA hasn't finished yet (attempt $attempt/20) — waiting..."
+              sleep 15
+            done
             if [[ "$CONCLUSION" != "success" ]]; then
               echo "ERROR: ci.yml's '$JOB' job for commit $SHA is '$CONCLUSION', not 'success' — refusing to publish."
               exit 1
