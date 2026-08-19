@@ -18,9 +18,11 @@ on:
 jobs:
   publish-flatpak:
     runs-on: ubuntu-24.04
-    # Generous headroom for a real build (local builds run a couple minutes with warm
-    # caches, longer cold) without leaving a hang to run for GitHub's 6-hour default.
-    timeout-minutes: 30
+    # Generous headroom: up to 15 min just waiting on ci.yml (see the polling loop below),
+    # plus the actual build (a couple minutes locally with warm caches, longer cold on a
+    # runner with nothing cached yet) — without leaving a hang to run for GitHub's 6-hour
+    # default.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -40,18 +42,19 @@ jobs:
           #
           # publish-flatpak.sh pushes main and the tag back to back, and ci.yml triggers off
           # the main push — so ci.yml is often still running (conclusion "") when this step
-          # first checks, not actually failed. Poll instead of checking once: up to 20
-          # attempts, 15s apart (5 minutes), which comfortably covers how long ci.yml's build
-          # job takes.
+          # first checks, not actually failed. Poll instead of checking once: up to 60
+          # attempts, 15s apart (15 minutes). ci.yml's build job has consistently taken
+          # ~6-6.5 minutes in practice; a first 5-minute window (20 attempts) wasn't enough
+          # margin and this step gave up mid-build on a real release attempt.
           for JOB in build version-consistency; do
             CONCLUSION=""
-            for attempt in $(seq 1 20); do
+            for attempt in $(seq 1 60); do
               CONCLUSION=$(gh api "repos/${{ github.repository }}/commits/$SHA/check-runs" \
                 --jq ".check_runs[] | select(.name == \"$JOB\") | .conclusion")
               if [[ -n "$CONCLUSION" ]]; then
                 break
               fi
-              echo "ci.yml '$JOB' for $SHA hasn't finished yet (attempt $attempt/20) — waiting..."
+              echo "ci.yml '$JOB' for $SHA hasn't finished yet (attempt $attempt/60) — waiting..."
               sleep 15
             done
             if [[ "$CONCLUSION" != "success" ]]; then
