@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.24.7-dev2] — Menu cleanup, save/compile fix, trash data-integrity fix
+## [0.24.7-dev3] — Menu cleanup, save/compile fix, trash data-integrity fix
 
 ### Changed
 
@@ -39,6 +39,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   that failed to delete.** The database row was removed regardless of
   whether the on-disk file actually went away; now a failed delete keeps the
   row (and surfaces the error) instead of silently orphaning the file.
+- **A rare DB write failure occurring right after a successful Trash/restore/
+  permanent-delete filesystem operation could still leave the database and
+  Trash directory disagreeing**, since the two can't be updated in one atomic
+  step. Startup now runs a reconciliation pass that detects and self-heals
+  the three possible cases: a file that moved to Trash but whose row still
+  looked active, a file that was restored but whose row still looked
+  trashed, and a trashed file that was already permanently removed but whose
+  row survived.
 - Added a 15-second timeout to the GitHub sign-in HTTP client, which
   previously could hang indefinitely on a stalled (not just down) response.
 - A crash now makes a best-effort attempt to flush a recovery autosave of
