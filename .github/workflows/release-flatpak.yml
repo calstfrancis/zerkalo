@@ -94,12 +94,22 @@ jobs:
           flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
 
       - name: Install runtime, SDK, and rust-stable extension
+        # org.freedesktop.Sdk.Extension.rust-stable is versioned against the Freedesktop SDK
+        # release GNOME's runtime pairs with, not the GNOME runtime number itself — install
+        # failed with "Nothing matches ... in remote flathub" trying //50, since no such
+        # branch exists for this extension. GNOME Platform/Sdk 50 pairs with Freedesktop SDK
+        # 25.08 (confirmed via the installed Sdk 50's own metadata: every one of its other
+        # org.freedesktop.Platform.* extension points names 25.08 explicitly). This mapping
+        # isn't derivable from the manifest, which never states it — flatpak-builder resolves
+        # it automatically at build time, but this pre-install step has to know it by hand,
+        # so it'll need updating by hand too if runtime-version ever moves past 50.
         run: |
           RUNTIME_VERSION=$(grep '^runtime-version' packaging/io.github.calstfrancis.Zerkalo.yml | sed "s/runtime-version: *'\(.*\)'/\1/")
+          RUST_EXTENSION_BRANCH="25.08"
           flatpak install --user -y flathub \
             "org.gnome.Platform//$RUNTIME_VERSION" \
             "org.gnome.Sdk//$RUNTIME_VERSION" \
-            "org.freedesktop.Sdk.Extension.rust-stable//$RUNTIME_VERSION"
+            "org.freedesktop.Sdk.Extension.rust-stable//$RUST_EXTENSION_BRANCH"
 
       - name: Import GPG signing key
         run: |
