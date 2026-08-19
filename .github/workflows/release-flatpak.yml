@@ -77,6 +77,35 @@ jobs:
         run: |
           echo "${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}" | gpg --batch --import
 
+      # The signing key has a passphrase, so importing it isn't enough — flatpak build-export
+      # (via libostree, via GPGME) asks gpg-agent for a signature and gpg-agent will try to
+      # prompt for that passphrase interactively, which has nothing to prompt on here and just
+      # fails. Preset it into the agent's cache instead, once, up front — every later signing
+      # operation in this job (build-export and build-update-repo, both keyed by the same
+      # keygrip) then finds it already unlocked and never needs the passphrase again.
+      - name: Preset GPG passphrase into the agent
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.gnupg
+          echo "allow-preset-passphrase" >> ~/.gnupg/gpg-agent.conf
+          gpgconf --kill gpg-agent
+          gpgconf --launch gpg-agent
+          KEYGRIP=$(gpg --with-colons --with-keygrip --list-secret-keys \
+            A2918A9B43B199ADF9879F934AC9D5173DE4BC41 | awk -F: '/^grp/ {print $10; exit}')
+          PRESET_BIN=""
+          for candidate in "$(command -v gpg-preset-passphrase 2>/dev/null || true)" \
+            /usr/lib/gnupg/gpg-preset-passphrase /usr/lib/gnupg2/gpg-preset-passphrase; do
+            if [[ -x "$candidate" ]]; then
+              PRESET_BIN="$candidate"
+              break
+            fi
+          done
+          if [[ -z "$PRESET_BIN" ]]; then
+            echo "ERROR: gpg-preset-passphrase not found anywhere expected." >&2
+            exit 1
+          fi
+          echo "${{ secrets.FLATPAK_GPG_PASSPHRASE }}" | "$PRESET_BIN" --preset "$KEYGRIP"
+
       - name: Build flatpak
         run: |
           flatpak-builder --force-clean --user --install build-flatpak \
