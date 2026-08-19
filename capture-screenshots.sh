@@ -37,6 +37,17 @@
 # Requires: Xvfb, ImageMagick (magick), a built and current
 # target/release/zerkalo binary, and network access to fetch two Typst
 # packages (@preview/droplet, @preview/marginalia) into the isolated cache.
+#
+# Xvfb and the app are launched via `setsid` and torn down by killing their
+# whole process group (`kill -- -$PID`), not just the tracked PID — dbus-run-
+# session spawns its own dbus-daemon as a child, which a plain `kill "$PID"`
+# never reaches. Found a few dozen of these orphaned dbus-daemons accumulated
+# from past runs before this fix: whenever this script (or its caller) was
+# killed hard enough to skip the EXIT trap, that daemon leaked and ran
+# forever. If invoking this from an external wrapper that might need to kill
+# it, send SIGTERM (or `timeout --signal=TERM --kill-after=Ns`), not SIGKILL —
+# SIGKILL of the top-level process can't be caught, so the trap never runs and
+# nothing this script does can clean up after that.
 
 set -euo pipefail
 
@@ -62,12 +73,21 @@ WINDOW_H=1000
 TITLE_PAGE_START=47
 TITLE_PAGE_END=62
 
+# APP_PID is dbus-run-session's pid, not the app's — dbus-run-session spawns
+# its own dbus-daemon as a *child* of that pid, which a plain `kill "$APP_PID"`
+# never touches. If dbus-run-session itself dies uncleanly (this script killed
+# by something that doesn't run EXIT traps, e.g. an external SIGKILL) that
+# daemon is orphaned and leaks forever — found a few dozen of these
+# accumulated in the wild before this fix, one pair per unclean exit. Launching
+# both APP_PID and XVFB_PID via `setsid` puts each in its own process group, so
+# `kill -- -$PID` (negative PID = whole group) reaches every descendant in one
+# shot regardless of what dbus-run-session's own cleanup does.
 cleanup() {
-  [[ -n "${APP_PID:-}" ]] && kill "$APP_PID" 2>/dev/null || true
-  [[ -n "${XVFB_PID:-}" ]] && kill "$XVFB_PID" 2>/dev/null || true
+  [[ -n "${APP_PID:-}" ]] && kill -TERM -- "-$APP_PID" 2>/dev/null || true
+  [[ -n "${XVFB_PID:-}" ]] && kill -- "-$XVFB_PID" 2>/dev/null || true
   rm -rf "$DEMO_HOME"
 }
-trap cleanup EXIT
+trap cleanup EXIT INT TERM
 
 VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
 
@@ -132,7 +152,7 @@ for pkg in droplet:0.3.1 marginalia:0.3.1; do
   name="${pkg%%:*}"; ver="${pkg##*:}"
   dest="$XDG_CACHE_HOME/typst/packages/preview/$name/$ver"
   mkdir -p "$dest"
-  curl -sL "https://packages.typst.org/preview/${name}-${ver}.tar.gz" | tar -xz -C "$dest"
+  curl -sL --connect-timeout 10 --max-time 30 "https://packages.typst.org/preview/${name}-${ver}.tar.gz" | tar -xz -C "$dest"
 done
 
 # Isolated Xvfb display, well clear of any real display number in use.
@@ -142,7 +162,7 @@ while [[ -e "/tmp/.X${DISPLAY_NUM}-lock" ]]; do
 done
 
 echo "==> Starting isolated Xvfb on :$DISPLAY_NUM"
-Xvfb ":$DISPLAY_NUM" -screen 0 "${WINDOW_W}x${WINDOW_H}x24" &
+setsid Xvfb ":$DISPLAY_NUM" -screen 0 "${WINDOW_W}x${WINDOW_H}x24" &
 XVFB_PID=$!
 sleep 2
 
@@ -163,7 +183,7 @@ color-scheme='$scheme'
 KEYFILE
 
   echo "==> Launching Zerkalo ($scheme) against demo data inside the isolated display"
-  env -u WAYLAND_DISPLAY GDK_BACKEND=x11 ADW_DISABLE_PORTAL=1 GSETTINGS_BACKEND=keyfile \
+  setsid env -u WAYLAND_DISPLAY GDK_BACKEND=x11 ADW_DISABLE_PORTAL=1 GSETTINGS_BACKEND=keyfile \
     DISPLAY=":$DISPLAY_NUM" dbus-run-session -- "./$BINARY" &
   APP_PID=$!
 
@@ -192,7 +212,10 @@ KEYFILE
     sleep 10
   done
 
-  kill "$APP_PID" 2>/dev/null || true
+  # Whole process group, same reason as the EXIT trap: a plain `kill "$APP_PID"`
+  # only reaches dbus-run-session, not the dbus-daemon it spawned as a child —
+  # that daemon would otherwise survive into the next capture_scheme() call.
+  kill -TERM -- "-$APP_PID" 2>/dev/null || true
   wait "$APP_PID" 2>/dev/null || true
   APP_PID=
 }
