@@ -80,6 +80,17 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.24.4" date="2026-08-18">
+      <description>
+        <p>0.24.4 "Sound Footing" — Save, Autosave, and closing the window with unsaved
+        changes could all silently fail on a write error instead of telling you; worst case,
+        "Save All" could close the window even if the save itself failed. Save/Autosave now
+        show a toast on failure and the window-close dialog stays open and names the files
+        that didn't save. Printing with an imposition layout (booklet, two-up) no longer
+        briefly freezes the app on a large document. Also updates the GTK4/libadwaita
+        toolkit bindings to current releases and fixes two dependency security advisories.</p>
+      </description>
+    </release>
     <release version="0.24.3" date="2026-08-18">
       <description>
         <p>0.24.3 "Steady Hand" — fixes a crash after editing the bibliography source: a
