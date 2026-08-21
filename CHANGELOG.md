@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.25.0-dev2] — Sidebar collapse rework, sync status badge, menu cleanup, save/compile fix, trash data-integrity fix
+## [0.25.0] "Steady Panes" — 2026-08-21 — Sidebar collapse rework, sync status badge, decluttered header
 
 ### Changed
 
@@ -29,12 +29,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   Style", "Browse Snapshots" → "Saved Versions", "File History" → "Git
   Change History".
 - **The Sync (Save a Version & Back It Up) button now shows whether there's
-  anything waiting to be backed up.** It stays in the header, next to Save,
-  rather than folding into the status bar's row of minor view toggles —
-  whether your work is backed up is a data-safety question, not a
-  preference. A colour badge over its icon lights up amber the moment there
-  are unsynced changes, and turns red if the last backup attempt failed, so
-  you don't have to click it (or wonder) to find out.
+  anything waiting to be backed up.** It stays in the header rather than
+  folding into the status bar's row of minor view toggles — whether your
+  work is backed up is a data-safety question, not a preference. A colour
+  badge over its icon lights up amber the moment there are unsynced
+  changes, and turns red if the last backup attempt failed, so you don't
+  have to click it (or wonder) to find out. It now also updates immediately
+  after every save, rather than up to 30 seconds later.
+- **The plain Save icon is gone from the header.** With Sync — which saves
+  everything and then backs it up — right beside it, a separate button that
+  only did part of that job was redundant, and made it unclear which one to
+  reach for. Ctrl+S and the hamburger menu's Save row still do a fast,
+  local-only save exactly as before; only the header icon is gone.
+- **Dragging one sidebar section's divider no longer resizes unrelated
+  sections.** Citations, Packages, and Comments each used to redistribute
+  space to their neighbors proportionally whenever an ancestor pane changed
+  size — including from dragging a *different* divider, or just resizing
+  the window — so a carefully-set Packages/Comments split could shift on
+  its own. Only Outline now flexes with the window; every section below it
+  holds the exact height you gave it.
 
 ### Fixed
 

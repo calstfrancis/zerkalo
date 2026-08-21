@@ -442,7 +442,6 @@ pub struct AnnotationTargets<'a> {
     pub sidebar_btn: &'a gtk4::Button,
     pub file_title_widget: &'a libadwaita::WindowTitle,
     pub style_btn: &'a gtk4::Button,
-    pub save_btn: &'a gtk4::Button,
     pub sync_btn: &'a gtk4::Button,
     pub library_btn: &'a gtk4::Button,
     pub preview_label: &'a Label,
@@ -492,14 +491,9 @@ pub fn annotate_window(overlay: &HelpOverlay, t: &AnnotationTargets) {
         "Title, author, margins, fonts and citation style — everything about how the document is set out.",
     );
     overlay.annotate(
-        t.save_btn,
-        "Save",
-        "Saves to disk and keeps a copy of this version, so you can come back to it. Ctrl+S does the same.",
-    );
-    overlay.annotate(
         t.sync_btn,
         "Save & Back Up",
-        "Saves a version and sends it to your backup, so it survives losing this computer. Ctrl+Shift+S.",
+        "Saves everything and sends it to your backup, so it survives losing this computer. Ctrl+Shift+S — plain Ctrl+S saves to disk without backing up.",
     );
     overlay.annotate(
         t.compile_btn,

@@ -175,7 +175,8 @@ impl CitationPanel {
         revealer.set_child(Some(&body));
         widget.append(&revealer);
 
-        let on_collapse_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>> = Rc::new(RefCell::new(None));
+        let on_collapse_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>> =
+            Rc::new(RefCell::new(None));
         {
             let revealer = revealer.clone();
             let collapse_btn_c = collapse_btn.clone();

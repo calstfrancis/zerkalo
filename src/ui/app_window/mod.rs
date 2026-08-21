@@ -2242,6 +2242,7 @@ impl AppWindow {
             toast_overlay: toast_overlay.clone(),
             current_config: current_config.clone(),
             project_root: project_root.clone(),
+            sync_badge: sync_badge.clone(),
         });
         let (left_box, template_btn) = wire_sidebar_toolbar(&SidebarToolbarCtx {
             window: window.clone(),
@@ -2399,7 +2400,6 @@ impl AppWindow {
                 sidebar_btn: &sidebar_btn,
                 file_title_widget: &file_title_widget,
                 style_btn: &style_btn,
-                save_btn: &save_btn,
                 sync_btn: &sync_btn,
                 library_btn: &library_btn,
                 preview_label: &preview_label,

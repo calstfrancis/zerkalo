@@ -12,6 +12,9 @@
 .DS_Store
 Thumbs.db
 release.md
+CLAUDE.md
+*PLAN.md
+
 # Generated icons (produced by install.sh from the SVG source in assets/)
 assets/icons/
 

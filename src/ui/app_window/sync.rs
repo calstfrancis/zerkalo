@@ -45,6 +45,30 @@ pub(super) fn set_sync_badge(badge: &Label, state: SyncBadge) {
     }
 }
 
+/// Recomputes "is there anything waiting to back up" from the working
+/// tree's actual git status and updates the badge accordingly. Never
+/// downgrades a known `Failed` state to `Pending` on its own — that only
+/// clears once an actual sync attempt (`do_sync`/`auto_sync_quiet`)
+/// succeeds — but does clear it back to `Pending`/`Clear` once nothing's
+/// dirty, since "failed to back up something that no longer exists" isn't
+/// worth staying red over.
+///
+/// Called from three places so the badge never lags behind reality by more
+/// than an idle main-loop turn: once at startup, every 30s from the quiet
+/// auto-backup poll, and immediately after every save (`editor_extras.rs`'s
+/// `on_file_dirty` hook) — that last one is what makes the badge light up
+/// the moment you save, rather than up to 30s later.
+pub(super) fn refresh_badge(root: &std::path::Path, badge: &Label) {
+    let dirty = git_sync::has_remote(root) && !git_sync::changed_files(root).is_empty();
+    if dirty {
+        if !badge.has_css_class("error") {
+            set_sync_badge(badge, SyncBadge::Pending);
+        }
+    } else {
+        set_sync_badge(badge, SyncBadge::Clear);
+    }
+}
+
 pub(super) fn do_sync(
     root: PathBuf,
     window: adw::ApplicationWindow,
