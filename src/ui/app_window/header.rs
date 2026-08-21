@@ -167,12 +167,20 @@ pub(super) fn build_header() -> HeaderWidgets {
 
     let sync_btn = Button::new();
     sync_btn.set_child(Some(&sync_overlay));
-    sync_btn.set_tooltip_text(Some("Save a Version & Back It Up (Ctrl+Shift+G)"));
+    sync_btn.set_tooltip_text(Some("Save a Version & Back It Up (Ctrl+Shift+S)"));
     sync_btn.add_css_class("flat");
     sync_btn.update_property(&[gtk4::accessible::Property::Label(
         "Save a version and back it up",
     )]);
 
+    // Not shown in the header: with Sync (which saves everything first,
+    // then backs it up) standing right beside it, a separate plain-Save
+    // icon was a second button doing a subset of what the first already
+    // does — redundant, and confusing about which one to reach for. Ctrl+S
+    // (bound directly in `mod.rs`'s key handler, not through this button)
+    // and the hamburger's Save row still do a fast, non-backing-up save;
+    // the button itself is kept, unpacked, only because the command palette
+    // and a few other call sites still address it by emitting its click.
     let save_btn = Button::from_icon_name("document-save-symbolic");
     save_btn.set_tooltip_text(Some("Save (Ctrl+S)"));
     save_btn.add_css_class("flat");
@@ -319,19 +327,19 @@ pub(super) fn build_header() -> HeaderWidgets {
     menu_btn.set_popover(Some(&menu_popover));
 
     // Header end section layout (left → right):
-    //   sync | save | todo | print | ⟳ compile now | compile mode | Preview | ≡
+    //   sync | print | ⟳ compile now | compile mode | Preview | ≡
     // In GTK4 pack_end the last-packed widget is leftmost in the end section.
     // `compile_mode_slot` is packed empty here and filled further down, once
     // the config-backed compile-mode button exists — packing it late would
     // otherwise land it at the far left of the section, away from the
-    // compile buttons it belongs with.
+    // compile buttons it belongs with. `save_btn` is deliberately not
+    // packed anywhere — see the comment where it's built, above.
     let compile_mode_slot = GtkBox::new(Orientation::Horizontal, 0);
     header.pack_end(&menu_btn);
     header.pack_end(&compile_btn);
     header.pack_end(&compile_mode_slot);
     header.pack_end(&recompile_header_btn);
     header.pack_end(&print_header_btn);
-    header.pack_end(&save_btn);
     header.pack_end(&sync_btn);
 
     // ── Setzer-style open dropdown ───────────────────────────────────────

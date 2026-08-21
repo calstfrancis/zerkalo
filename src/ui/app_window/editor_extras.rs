@@ -27,14 +27,32 @@ pub(super) struct EditorExtrasCtx {
     pub(super) toast_overlay: adw::ToastOverlay,
     pub(super) current_config: Rc<RefCell<Config>>,
     pub(super) project_root: PathBuf,
+    pub(super) sync_badge: gtk4::Label,
 }
 
 pub(super) fn wire_editor_extras(ctx: &EditorExtrasCtx) {
-    // ── Unsaved-file indicator in file tree ─────────────────────────────
+    // ── Unsaved-file indicator in file tree, and an immediate sync-badge
+    // refresh ─────────────────────────────────────────────────────────────
+    //
+    // `on_file_dirty` fires `(path, false)` from `mark_saved` right after any
+    // successful disk write — Ctrl+S, the Save button, or Save All — so it
+    // doubles as "just saved" without a new callback. Without this, the
+    // badge only reflected reality on the 30s auto-backup poll (see
+    // `lifecycle.rs`), so saving and immediately checking the badge could
+    // show stale "all backed up" for up to half a minute.
     {
         let ft = ctx.file_tree.clone();
+        let badge = ctx.sync_badge.clone();
+        let root_fallback = ctx.project_root.clone();
         ctx.editor_pane.set_on_file_dirty(move |path, dirty| {
             ft.set_file_modified(&path, dirty);
+            if !dirty {
+                let root = path
+                    .parent()
+                    .and_then(crate::git_sync::git_repo_root)
+                    .unwrap_or_else(|| root_fallback.clone());
+                super::sync::refresh_badge(&root, &badge);
+            }
         });
     }
 
@@ -212,7 +230,16 @@ pub(super) fn wire_sidebar_toolbar(ctx: &SidebarToolbarCtx) -> (GtkBox, Button) 
     packages_comments_pane.set_start_child(Some(ctx.package_browser.widget()));
     packages_comments_pane.set_end_child(Some(ctx.comments_panel.widget()));
     packages_comments_pane.set_position(ctx.current_config.borrow().sidebar_packages_split);
-    packages_comments_pane.set_resize_start_child(true);
+    // Packages (start) keeps the exact pixel height the user last set it to,
+    // regardless of anything above it changing size — resize_start_child
+    // false means this pane never redistributes space *into* it on its own;
+    // only Comments (end) absorbs a size change imposed from outside (the
+    // window resizing, or Citations' own divider moving above). Both used to
+    // be true, which had GTK split any such change proportionally across
+    // *both* Packages and Comments — meaning dragging Citations' divider (or
+    // resizing the window) visibly nudged a Packages/Comments split the user
+    // had deliberately set, with no drag on that divider involved at all.
+    packages_comments_pane.set_resize_start_child(false);
     packages_comments_pane.set_resize_end_child(true);
     packages_comments_pane.set_shrink_start_child(false);
     packages_comments_pane.set_shrink_end_child(false);
@@ -229,7 +256,12 @@ pub(super) fn wire_sidebar_toolbar(ctx: &SidebarToolbarCtx) -> (GtkBox, Button) 
     citations_packages_pane.set_start_child(Some(ctx.citation_panel.widget()));
     citations_packages_pane.set_end_child(Some(&packages_comments_pane));
     citations_packages_pane.set_position(ctx.current_config.borrow().sidebar_citations_split);
-    citations_packages_pane.set_resize_start_child(true);
+    // Same reasoning as packages_comments_pane above: Citations (start)
+    // keeps its set height regardless of the window resizing; the
+    // Packages+Comments block (end) absorbs that instead — which itself
+    // only passes the change on to Comments, per its own resize flags,
+    // leaving Packages' height untouched too.
+    citations_packages_pane.set_resize_start_child(false);
     citations_packages_pane.set_resize_end_child(true);
     citations_packages_pane.set_shrink_start_child(false);
     citations_packages_pane.set_shrink_end_child(false);
@@ -246,8 +278,13 @@ pub(super) fn wire_sidebar_toolbar(ctx: &SidebarToolbarCtx) -> (GtkBox, Button) 
     outline_rest_pane.set_start_child(Some(ctx.outline_panel.widget()));
     outline_rest_pane.set_end_child(Some(&citations_packages_pane));
     outline_rest_pane.set_position(ctx.current_config.borrow().sidebar_outline_split);
+    // Outline (start) is the one section that *does* flex with the window —
+    // it's the natural "everything else is fixed, this fills the rest" pane
+    // at the top of the stack, so it's the only one with resize_start_child
+    // true. Citations/Packages/Comments (all inside the end child here) each
+    // keep the exact height last configured, window resizes and all.
     outline_rest_pane.set_resize_start_child(true);
-    outline_rest_pane.set_resize_end_child(true);
+    outline_rest_pane.set_resize_end_child(false);
     outline_rest_pane.set_shrink_start_child(false);
     outline_rest_pane.set_shrink_end_child(false);
     outline_rest_pane.set_vexpand(true);
@@ -333,14 +370,12 @@ pub(super) fn wire_sidebar_toolbar(ctx: &SidebarToolbarCtx) -> (GtkBox, Button) 
                     let pc_min = packages_comments_pane.measure(Orientation::Vertical, -1).1;
                     citations_packages_suppress.set(true);
                     if ci {
-                        let ci_min =
-                            citation_panel.widget().measure(Orientation::Vertical, -1).1;
+                        let ci_min = citation_panel.widget().measure(Orientation::Vertical, -1).1;
                         citations_packages_pane.set_position(ci_min);
                     } else if pk && cm {
                         citations_packages_pane.set_position((cp_total - pc_min).max(0));
                     } else {
-                        citations_packages_pane
-                            .set_position(cfg.borrow().sidebar_citations_split);
+                        citations_packages_pane.set_position(cfg.borrow().sidebar_citations_split);
                     }
                     citations_packages_suppress.set(false);
                 }
@@ -349,9 +384,7 @@ pub(super) fn wire_sidebar_toolbar(ctx: &SidebarToolbarCtx) -> (GtkBox, Button) 
                 if or_total > 0 {
                     outline_rest_suppress.set(true);
                     if ci && pk && cm {
-                        let cp_min = citations_packages_pane
-                            .measure(Orientation::Vertical, -1)
-                            .1;
+                        let cp_min = citations_packages_pane.measure(Orientation::Vertical, -1).1;
                         outline_rest_pane.set_position((or_total - cp_min).max(0));
                     } else {
                         outline_rest_pane.set_position(cfg.borrow().sidebar_outline_split);
@@ -388,14 +421,13 @@ pub(super) fn wire_sidebar_toolbar(ctx: &SidebarToolbarCtx) -> (GtkBox, Button) 
     {
         let cfg = ctx.current_config.clone();
         let reflow = reflow_outer_sections.clone();
-        ctx.citation_panel
-            .set_on_collapse_toggle(move |collapsed| {
-                let mut c = cfg.borrow_mut();
-                c.sidebar_citations_collapsed = collapsed;
-                let _ = c.save();
-                drop(c);
-                reflow();
-            });
+        ctx.citation_panel.set_on_collapse_toggle(move |collapsed| {
+            let mut c = cfg.borrow_mut();
+            c.sidebar_citations_collapsed = collapsed;
+            let _ = c.save();
+            drop(c);
+            reflow();
+        });
     }
     {
         let cfg = ctx.current_config.clone();

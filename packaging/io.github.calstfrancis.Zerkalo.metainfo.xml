@@ -37,7 +37,7 @@
       <li>BibTeX and Hayagriva YAML bibliography support, with cited-only bibliography export and project-wide citation key rename — a Kartoteka vault folder works as a live bibliography source too</li>
       <li>Compile on save with live preview; scroll position preserved across recompiles</li>
       <li>Auto-save to recovery file on idle; periodic save every 30 seconds</li>
-      <li>Git sync — commit and push to all remotes in one click, with git bundled so there's nothing to install; three-screen setup signs in with GitHub (which supplies your name and email automatically), creates and links a new repository, or backs up to a plain folder or drive with no account at all; once set up, backups also happen automatically in the background and once more on quit, with no button to remember</li>
+      <li>Git sync — commit and push to all remotes in one click, with git bundled so there's nothing to install; three-screen setup signs in with GitHub (which supplies your name and email automatically), creates and links a new repository, or backs up to a plain folder or drive with no account at all; once set up, backups also happen automatically in the background and once more on quit, with no button to remember — a colour badge on the Sync button shows whether anything's waiting to be backed up, or if the last attempt failed</li>
     </ul>
     <p>CV mode:</p>
     <ul>
@@ -80,6 +80,20 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.25.0" date="2026-08-21">
+      <description>
+        <p>0.25.0 "Steady Panes" — the sidebar's Citations, Packages, and Comments
+        sections can each be collapsed to just their header in one click, with the
+        space actually reclaimed all the way up the stack instead of leaving a gap
+        you had to drag closed by hand; dragging one section's divider no longer
+        nudges the size of sections you didn't touch. The Sync button now shows a
+        colour badge — amber for unsynced changes, red if a backup failed — updated
+        immediately after every save. The redundant plain Save icon is gone from the
+        header (Ctrl+S and the menu's Save row are unchanged). Also: a simplified
+        hamburger menu, a "Compile on Save" staleness fix, and Trash/Library
+        data-integrity fixes.</p>
+      </description>
+    </release>
     <release version="0.24.6" date="2026-08-19">
       <description>
         <p>0.24.6 "Steady Glance" — fixes a crash that hit reliably whenever a Typst

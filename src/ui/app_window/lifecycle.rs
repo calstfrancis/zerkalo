@@ -220,11 +220,7 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
                 .and_then(|p| p.parent().map(|d| d.to_path_buf()))
                 .and_then(|dir| crate::git_sync::git_repo_root(&dir))
                 .unwrap_or(root_fallback);
-            let dirty = crate::git_sync::has_remote(&root)
-                && !crate::git_sync::changed_files(&root).is_empty();
-            if dirty {
-                super::sync::set_sync_badge(&badge, super::sync::SyncBadge::Pending);
-            }
+            super::sync::refresh_badge(&root, &badge);
         });
     }
 
@@ -235,17 +231,12 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
             .and_then(|dir| crate::git_sync::git_repo_root(&dir))
             .unwrap_or_else(|| root_for_autosync.clone());
 
-        let has_remote = crate::git_sync::has_remote(&root);
-        let dirty = has_remote && !crate::git_sync::changed_files(&root).is_empty();
-
         // Reflect "there's something waiting to back up" on every tick, not
         // just when a sync actually fires below — the badge should light up
         // the moment a change lands, not 12 minutes later.
-        if dirty && !sync_badge_for_autosync.has_css_class("error") {
-            super::sync::set_sync_badge(&sync_badge_for_autosync, super::sync::SyncBadge::Pending);
-        } else if !dirty {
-            super::sync::set_sync_badge(&sync_badge_for_autosync, super::sync::SyncBadge::Clear);
-        }
+        super::sync::refresh_badge(&root, &sync_badge_for_autosync);
+        let dirty =
+            crate::git_sync::has_remote(&root) && !crate::git_sync::changed_files(&root).is_empty();
 
         let due = last_auto_sync
             .borrow()
