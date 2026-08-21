@@ -26,6 +26,7 @@ pub(super) struct LifecycleCtx {
     pub(super) project_root: PathBuf,
     pub(super) auto_save_idle_ms: Rc<RefCell<u64>>,
     pub(super) sync_btn: gtk4::Button,
+    pub(super) sync_badge: gtk4::Label,
     /// "New from Template…" menu button — the welcome window's "Get Started"
     /// fires this directly rather than just closing, so a first-time user
     /// lands in document creation instead of a blank window.
@@ -202,8 +203,31 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
     let editor_for_autosync = ctx.editor_pane.clone();
     let overlay_for_autosync = ctx.toast_overlay.clone();
     let sync_btn_for_autosync = ctx.sync_btn.clone();
+    let sync_badge_for_autosync = ctx.sync_badge.clone();
     let root_for_autosync = ctx.project_root.clone();
     let last_auto_sync: Rc<RefCell<Option<std::time::Instant>>> = Rc::new(RefCell::new(None));
+
+    // Paint the badge's initial state right away rather than leaving it
+    // blank for up to 30s — reopening the app with unsynced work from last
+    // time should show that immediately.
+    {
+        let editor = ctx.editor_pane.clone();
+        let badge = ctx.sync_badge.clone();
+        let root_fallback = ctx.project_root.clone();
+        glib::idle_add_local_once(move || {
+            let root = editor
+                .get_active_path()
+                .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+                .and_then(|dir| crate::git_sync::git_repo_root(&dir))
+                .unwrap_or(root_fallback);
+            let dirty = crate::git_sync::has_remote(&root)
+                && !crate::git_sync::changed_files(&root).is_empty();
+            if dirty {
+                super::sync::set_sync_badge(&badge, super::sync::SyncBadge::Pending);
+            }
+        });
+    }
+
     glib::timeout_add_local(Duration::from_secs(30), move || {
         let root = editor_for_autosync
             .get_active_path()
@@ -211,16 +235,24 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
             .and_then(|dir| crate::git_sync::git_repo_root(&dir))
             .unwrap_or_else(|| root_for_autosync.clone());
 
+        let has_remote = crate::git_sync::has_remote(&root);
+        let dirty = has_remote && !crate::git_sync::changed_files(&root).is_empty();
+
+        // Reflect "there's something waiting to back up" on every tick, not
+        // just when a sync actually fires below — the badge should light up
+        // the moment a change lands, not 12 minutes later.
+        if dirty && !sync_badge_for_autosync.has_css_class("error") {
+            super::sync::set_sync_badge(&sync_badge_for_autosync, super::sync::SyncBadge::Pending);
+        } else if !dirty {
+            super::sync::set_sync_badge(&sync_badge_for_autosync, super::sync::SyncBadge::Clear);
+        }
+
         let due = last_auto_sync
             .borrow()
             .map(|t| t.elapsed() >= AUTO_SYNC_INTERVAL)
             .unwrap_or(true);
 
-        if due
-            && sync_btn_for_autosync.is_sensitive()
-            && crate::git_sync::has_remote(&root)
-            && !crate::git_sync::changed_files(&root).is_empty()
-        {
+        if due && sync_btn_for_autosync.is_sensitive() && dirty {
             *last_auto_sync.borrow_mut() = Some(std::time::Instant::now());
             editor_for_autosync.save_all_modified();
             sync_btn_for_autosync.set_sensitive(false);
@@ -228,6 +260,7 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
             super::sync::auto_sync_quiet(
                 root,
                 Some(overlay_for_autosync.clone()),
+                Some(sync_badge_for_autosync.clone()),
                 crate::secret_store::load_github_token(),
                 move || btn_done.set_sensitive(true),
             );

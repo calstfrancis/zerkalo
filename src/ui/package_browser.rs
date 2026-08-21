@@ -93,6 +93,15 @@ impl PackageBrowser {
         status_label.set_margin_start(8);
         status_label.set_margin_bottom(4);
         status_label.set_visible(false);
+        // Without wrap/a width cap, a long network-error message (e.g. a raw
+        // reqwest error appended to "Couldn't reach Typst Universe…") makes
+        // this label request a wide natural size. The sidebar's outer Paned
+        // has shrink_start_child(false), so that natural size becomes a
+        // floor the user can't drag the sidebar narrower than — a long error
+        // could shove the sidebar wide and lock it there.
+        status_label.set_wrap(true);
+        status_label.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
+        status_label.set_max_width_chars(24);
         body.append(&status_label);
 
         let scroll = ScrolledWindow::new();

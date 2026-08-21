@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.24.7-dev3] — Menu cleanup, save/compile fix, trash data-integrity fix
+## [0.25.0-dev1] — Sync status badge, menu cleanup, save/compile fix, trash data-integrity fix
 
 ### Changed
 
@@ -18,9 +18,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   Graph" → "Project File Map", "Update Template Settings" → "Change Document
   Style", "Browse Snapshots" → "Saved Versions", "File History" → "Git
   Change History".
+- **The Sync (Save a Version & Back It Up) button now shows whether there's
+  anything waiting to be backed up.** It stays in the header, next to Save,
+  rather than folding into the status bar's row of minor view toggles —
+  whether your work is backed up is a data-safety question, not a
+  preference. A colour badge over its icon lights up amber the moment there
+  are unsynced changes, and turns red if the last backup attempt failed, so
+  you don't have to click it (or wonder) to find out.
 
 ### Fixed
 
+- **A long error message in the sidebar's Packages panel could force the
+  whole sidebar wide and lock it there.** A network-fetch error with no
+  wrap or width cap made that label request a wide natural size, and the
+  sidebar's divider can't be dragged narrower than its content's natural
+  width — so the sidebar stayed stuck wide until the error cleared. The
+  Packages status message and the Comments panel's suggestion/comment/reply
+  text now all wrap within a fixed width instead.
 - **Save could silently recompile stale content in "Compile on Save" mode.**
   The compile-mode toggle cycles auto → on-save → manual; in on-save mode
   the debounced auto-compile is deliberately suppressed, but Save wasn't

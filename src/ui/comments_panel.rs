@@ -416,6 +416,8 @@ impl CommentsPanel {
                 )));
                 text_lbl.set_xalign(0.0);
                 text_lbl.set_wrap(true);
+                text_lbl.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
+                text_lbl.set_max_width_chars(24);
                 text_lbl.set_selectable(true);
                 sugg_row.append(&text_lbl);
                 outer.append(&sugg_row);
@@ -425,6 +427,8 @@ impl CommentsPanel {
                 let body_lbl = Label::new(Some(&comment.body));
                 body_lbl.set_xalign(0.0);
                 body_lbl.set_wrap(true);
+                body_lbl.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
+                body_lbl.set_max_width_chars(24);
                 body_lbl.set_selectable(true);
                 outer.append(&body_lbl);
             }
@@ -437,6 +441,8 @@ impl CommentsPanel {
                 let reply_lbl = Label::new(Some(&reply.body));
                 reply_lbl.set_xalign(0.0);
                 reply_lbl.set_wrap(true);
+                reply_lbl.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
+                reply_lbl.set_max_width_chars(24);
                 reply_lbl.set_selectable(true);
                 reply_box.append(&bullet);
                 reply_box.append(&reply_lbl);
