@@ -3,8 +3,8 @@ use std::rc::Rc;
 
 use gtk4::prelude::*;
 use gtk4::{
-    Align, Box as GtkBox, Button, Label, ListBox, ListBoxRow, Orientation, ScrolledWindow,
-    SearchEntry, SelectionMode, Separator,
+    Align, Box as GtkBox, Button, Label, ListBox, ListBoxRow, Orientation, Revealer,
+    RevealerTransitionType, ScrolledWindow, SearchEntry, SelectionMode, Separator,
 };
 
 use crate::bibliography::BibEntry;
@@ -39,6 +39,9 @@ pub struct CitationPanel {
     skrizhal_btn: Button,
     bib_filename: Rc<RefCell<Option<String>>>,
     cv_filename: Rc<RefCell<Option<String>>>,
+    collapse_btn: Button,
+    revealer: Revealer,
+    on_collapse_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
 }
 
 impl CitationPanel {
@@ -124,9 +127,23 @@ impl CitationPanel {
         )]);
         header_box.append(&new_bib_btn);
 
+        // Furthest right on the bar, matching Comments' and Packages'
+        // collapse toggle — collapsing hides everything below the header via
+        // the Revealer wrapping `body` below, and `AppWindow`'s sidebar
+        // wiring (editor_extras.rs) reclaims the freed space in the shared
+        // Paned rather than leaving a blank gap.
+        let collapse_btn = Button::from_icon_name("pan-down-symbolic");
+        collapse_btn.add_css_class("flat");
+        collapse_btn.set_tooltip_text(Some("Hide Citations"));
+        collapse_btn.update_property(&[gtk4::accessible::Property::Label("Hide Citations")]);
+        header_box.append(&collapse_btn);
+
         widget.append(&Separator::new(Orientation::Horizontal));
         widget.append(&header_box);
         widget.append(&Separator::new(Orientation::Horizontal));
+
+        let body = GtkBox::new(Orientation::Vertical, 0);
+        body.set_vexpand(true);
 
         let search = SearchEntry::new();
         search.set_placeholder_text(Some("Search by key, author, title…"));
@@ -135,8 +152,8 @@ impl CitationPanel {
         search.set_margin_top(6);
         search.set_margin_bottom(6);
         search.set_size_request(0, -1);
-        widget.append(&search);
-        widget.append(&Separator::new(Orientation::Horizontal));
+        body.append(&search);
+        body.append(&Separator::new(Orientation::Horizontal));
 
         let scroll = ScrolledWindow::new();
         scroll.set_vexpand(true);
@@ -149,7 +166,38 @@ impl CitationPanel {
         list.set_margin_end(12);
         list.set_margin_bottom(8);
         scroll.set_child(Some(&list));
-        widget.append(&scroll);
+        body.append(&scroll);
+
+        let revealer = Revealer::new();
+        revealer.set_transition_type(RevealerTransitionType::SlideDown);
+        revealer.set_reveal_child(true);
+        revealer.set_vexpand(true);
+        revealer.set_child(Some(&body));
+        widget.append(&revealer);
+
+        let on_collapse_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>> = Rc::new(RefCell::new(None));
+        {
+            let revealer = revealer.clone();
+            let collapse_btn_c = collapse_btn.clone();
+            let on_collapse_toggle_c = on_collapse_toggle.clone();
+            collapse_btn.connect_clicked(move |_| {
+                let now_collapsed = revealer.reveals_child();
+                revealer.set_reveal_child(!now_collapsed);
+                collapse_btn_c.set_icon_name(if now_collapsed {
+                    "pan-end-symbolic"
+                } else {
+                    "pan-down-symbolic"
+                });
+                collapse_btn_c.set_tooltip_text(Some(if now_collapsed {
+                    "Show Citations"
+                } else {
+                    "Hide Citations"
+                }));
+                if let Some(f) = on_collapse_toggle_c.borrow().as_ref() {
+                    f(now_collapsed);
+                }
+            });
+        }
 
         let on_insert: InsertCb = Rc::new(RefCell::new(None));
         let on_choose_bib: ChooseCb = Rc::new(RefCell::new(None));
@@ -258,6 +306,9 @@ impl CitationPanel {
             skrizhal_btn,
             bib_filename: Rc::new(RefCell::new(None)),
             cv_filename: Rc::new(RefCell::new(None)),
+            collapse_btn,
+            revealer,
+            on_collapse_toggle,
         };
 
         {
@@ -286,6 +337,32 @@ impl CitationPanel {
 
     pub fn widget(&self) -> &GtkBox {
         &self.widget
+    }
+
+    /// Restores a persisted collapsed/expanded state — called once at
+    /// startup, same idiom as `PackageBrowser`/`CommentsPanel`.
+    pub fn set_collapsed(&self, collapsed: bool) {
+        self.revealer.set_reveal_child(!collapsed);
+        self.collapse_btn.set_icon_name(if collapsed {
+            "pan-end-symbolic"
+        } else {
+            "pan-down-symbolic"
+        });
+        self.collapse_btn.set_tooltip_text(Some(if collapsed {
+            "Show Citations"
+        } else {
+            "Hide Citations"
+        }));
+    }
+
+    pub fn is_collapsed(&self) -> bool {
+        !self.revealer.reveals_child()
+    }
+
+    /// Fires with the new collapsed state whenever the user clicks the
+    /// header's collapse toggle, so the caller can persist it.
+    pub fn set_on_collapse_toggle(&self, f: impl Fn(bool) + 'static) {
+        *self.on_collapse_toggle.borrow_mut() = Some(Box::new(f));
     }
 
     pub fn load_bib(&self, entries: Vec<BibEntry>) {

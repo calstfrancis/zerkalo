@@ -150,6 +150,7 @@ impl WelcomeWindow {
                 "If Zerkalo ever crashes, it now makes a best-effort attempt to save a recovery copy of your unsaved work first.",
                 "The Sync button now shows a colour badge when there's something waiting to be backed up (or when a backup attempt failed), so you don't have to click it just to find out.",
                 "Fixed a bug where a long error message in the Packages panel could force the sidebar wide and lock it there until the error cleared.",
+                "Collapsing Citations, Packages, or Comments to just their header now actually finishes the job — every section above the one you collapsed grows to fill the freed space, instead of leaving a gap you had to drag closed by hand. Citations also gained its own minimize button.",
             ] {
                 body.append(&bullet_row(item));
             }

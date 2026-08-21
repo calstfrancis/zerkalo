@@ -5,10 +5,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.25.0-dev1] — Sync status badge, menu cleanup, save/compile fix, trash data-integrity fix
+## [0.25.0-dev2] — Sidebar collapse rework, sync status badge, menu cleanup, save/compile fix, trash data-integrity fix
 
 ### Changed
 
+- **Citations, Packages, and Comments now all collapse to just their header
+  row, and doing so actually finishes the job in one click.** Previously,
+  collapsing a section only reclaimed space from its immediate neighbor —
+  collapsing both Packages and Comments left a dead gap that only a manual
+  drag could close, and the order you collapsed vs. dragged in made the
+  sizes visibly fight each other. Every section above a newly-collapsed one
+  now grows to absorb the freed space, all the way up to Outline if
+  everything below it is collapsed. Citations gained a minimize button for
+  this (previously only Packages and Comments had one), and Packages'
+  button moved to the far right of its header bar to match the other two.
 - **Hamburger menu simplified.** Rarely-touched or technical items — template
   repair, the project file map, git history, Writing Stats/Help/Shortcuts/
   What's New/About — are now grouped into a handful of flyout submenus

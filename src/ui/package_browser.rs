@@ -60,16 +60,18 @@ impl PackageBrowser {
         title.add_css_class("heading");
         header.append(&title);
 
+        let refresh_btn = Button::from_icon_name("view-refresh-symbolic");
+        refresh_btn.add_css_class("flat");
+        refresh_btn.set_tooltip_text(Some("Refresh the Typst Universe package list"));
+        header.append(&refresh_btn);
+
+        // Furthest right on the bar, matching Comments' and Citations'
+        // collapse toggle placement.
         let collapse_btn = Button::from_icon_name("pan-down-symbolic");
         collapse_btn.add_css_class("flat");
         collapse_btn.set_tooltip_text(Some("Hide Packages"));
         collapse_btn.update_property(&[gtk4::accessible::Property::Label("Hide Packages")]);
         header.append(&collapse_btn);
-
-        let refresh_btn = Button::from_icon_name("view-refresh-symbolic");
-        refresh_btn.add_css_class("flat");
-        refresh_btn.set_tooltip_text(Some("Refresh the Typst Universe package list"));
-        header.append(&refresh_btn);
 
         widget.append(&Separator::new(Orientation::Horizontal));
         widget.append(&header);
@@ -213,6 +215,10 @@ impl PackageBrowser {
         } else {
             "Hide Packages"
         }));
+    }
+
+    pub fn is_collapsed(&self) -> bool {
+        !self.revealer.reveals_child()
     }
 
     /// Fires with the new collapsed state whenever the user clicks the
