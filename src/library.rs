@@ -713,11 +713,9 @@ impl Library {
             }
             let doc_path: Option<String> = self
                 .conn
-                .query_row(
-                    "SELECT path FROM documents WHERE id=?1",
-                    params![id],
-                    |r| r.get(0),
-                )
+                .query_row("SELECT path FROM documents WHERE id=?1", params![id], |r| {
+                    r.get(0)
+                })
                 .optional()?;
             if doc_path.as_deref().is_some_and(|p| Path::new(p).exists()) {
                 // restore_from_trash's rename landed back at the original path
@@ -1627,7 +1625,10 @@ mod tests {
         let notes = lib.reconcile_trash_state().expect("reconcile");
 
         assert_eq!(notes.len(), 1);
-        assert!(lib.doc_by_id(id).expect("query").is_some(), "row still exists");
+        assert!(
+            lib.doc_by_id(id).expect("query").is_some(),
+            "row still exists"
+        );
         let deleted: i64 = lib
             .conn
             .query_row(
@@ -1754,7 +1755,8 @@ mod tests {
 
         let result = lib.permanently_delete(id);
 
-        std::fs::set_permissions(&trash_dir, original_mode).expect("restore permissions for cleanup");
+        std::fs::set_permissions(&trash_dir, original_mode)
+            .expect("restore permissions for cleanup");
 
         assert!(
             result.is_err(),
