@@ -133,7 +133,12 @@ if command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/n
   fi
   tag="v$APP_VERSION"
   if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
-    if [ "$(git rev-parse "$tag")" = "$(git rev-parse HEAD)" ]; then
+    # "$tag^{}" peels an annotated tag down to the commit it points at —
+    # this repo's git config forces annotated (signed) tags, and a bare
+    # `git rev-parse "$tag"` on one returns the *tag object's* own hash,
+    # not the commit's, so the plain comparison here failed on every
+    # annotated tag regardless of whether it actually pointed at HEAD.
+    if [ "$(git rev-parse "$tag^{}")" = "$(git rev-parse HEAD)" ]; then
       note "tag $tag points at HEAD"
     else
       err "tag $tag exists but does not point at HEAD — HEAD has moved past the release commit"
