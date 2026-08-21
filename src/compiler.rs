@@ -953,11 +953,11 @@ mod tests {
             compile_to_rgba_pages(&path, 1.0, &HashMap::new(), &HashMap::new(), None).unwrap();
         let p = &pages[0];
         assert!(
-            p.rgba.chunks_exact(4).all(|px| px[3] == 255),
+            p.rgba.as_chunks::<4>().0.iter().all(|px| px[3] == 255),
             "a Typst page background is opaque; a transparent result means demultiply is wrong"
         );
         assert!(
-            p.rgba.chunks_exact(4).any(|px| px[0] < 128),
+            p.rgba.as_chunks::<4>().0.iter().any(|px| px[0] < 128),
             "page should contain dark pixels — the rendered glyphs"
         );
     }
