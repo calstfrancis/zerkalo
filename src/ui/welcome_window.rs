@@ -148,6 +148,8 @@ impl WelcomeWindow {
                 "Moving a document to Trash, and permanently deleting one, are now both all-or-nothing — if the underlying file operation fails (a read-only disk, a full drive), the Library no longer disagrees with what's actually on disk.",
                 "Zerkalo now double-checks Trash and the Library agree on startup, and quietly fixes it if a rare failure ever left them out of sync.",
                 "If Zerkalo ever crashes, it now makes a best-effort attempt to save a recovery copy of your unsaved work first.",
+                "The Sync button now shows a colour badge when there's something waiting to be backed up (or when a backup attempt failed), so you don't have to click it just to find out.",
+                "Fixed a bug where a long error message in the Packages panel could force the sidebar wide and lock it there until the error cleared.",
             ] {
                 body.append(&bullet_row(item));
             }

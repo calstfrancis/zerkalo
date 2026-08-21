@@ -64,6 +64,7 @@ pub(super) struct MenuCtx {
     pub(super) print_header_btn: Button,
     pub(super) save_btn: Button,
     pub(super) sync_btn: Button,
+    pub(super) sync_badge: Label,
 }
 
 /// Application-level rows: Browse Documents, Settings, Help, Setup, Backup
@@ -798,6 +799,7 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
 
     let window_for_sync = ctx.window.clone();
     let sync_btn_ref = ctx.sync_btn.clone();
+    let sync_badge_ref = ctx.sync_badge.clone();
     let editor_for_sync = ctx.editor_pane.clone();
     let toast_for_sync_closure = ctx.toast_overlay.clone();
 
@@ -869,6 +871,7 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
             .unwrap_or_else(|| project_root_for_sync_fallback.clone());
         let win = window_for_sync.clone();
         let btn = sync_btn_ref.clone();
+        let badge = sync_badge_ref.clone();
         let toasts = toast_for_sync_closure.clone();
         let token = crate::secret_store::load_github_token();
         let cfg_rc = config_for_sync.clone();
@@ -891,6 +894,6 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
             return;
         }
 
-        do_sync(root, win, toasts, btn, token, cfg_rc);
+        do_sync(root, win, toasts, btn, badge, token, cfg_rc);
     });
 }

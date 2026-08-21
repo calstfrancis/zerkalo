@@ -65,6 +65,7 @@ pub(super) struct HeaderWidgets {
     pub(super) style_btn: Button,
     pub(super) style_popover: Popover,
     pub(super) sync_btn: Button,
+    pub(super) sync_badge: Label,
     pub(super) title_extras: GtkBox,
 }
 
@@ -144,7 +145,28 @@ pub(super) fn build_header() -> HeaderWidgets {
     recompile_header_btn.add_css_class("flat");
     recompile_header_btn.update_property(&[gtk4::accessible::Property::Label("Compile now")]);
 
-    let sync_btn = Button::from_icon_name("vcs-push-symbolic");
+    // A plain icon button gives no sign that there's anything waiting to be
+    // backed up, so a small dot is overlaid on the icon and toggled between
+    // hidden (everything backed up), amber (changes waiting to sync — the
+    // "warning" style class) and red ("error") on the last attempt failing.
+    // See `AppWindow::update_sync_badge` for what drives it.
+    // "vcs-push-symbolic" isn't in the Adwaita icon set (only in some
+    // desktop-provided themes like Breeze), so it silently rendered as a
+    // missing-icon placeholder in the flatpak, which only bundles Adwaita.
+    // "mail-send-receive-symbolic" — the up/down arrow pair GNOME apps
+    // already use for a sync action — actually resolves everywhere.
+    let sync_icon = gtk4::Image::from_icon_name("mail-send-receive-symbolic");
+    let sync_badge = Label::new(Some("\u{25cf}"));
+    sync_badge.add_css_class("fond-section-dot");
+    sync_badge.set_valign(Align::Start);
+    sync_badge.set_halign(Align::End);
+    sync_badge.set_visible(false);
+    let sync_overlay = gtk4::Overlay::new();
+    sync_overlay.set_child(Some(&sync_icon));
+    sync_overlay.add_overlay(&sync_badge);
+
+    let sync_btn = Button::new();
+    sync_btn.set_child(Some(&sync_overlay));
     sync_btn.set_tooltip_text(Some("Save a Version & Back It Up (Ctrl+Shift+G)"));
     sync_btn.add_css_class("flat");
     sync_btn.update_property(&[gtk4::accessible::Property::Label(
@@ -403,6 +425,7 @@ pub(super) fn build_header() -> HeaderWidgets {
         style_btn,
         style_popover,
         sync_btn,
+        sync_badge,
         title_extras,
     }
 }

@@ -15,11 +15,42 @@ use super::show_alert;
 use crate::config::Config;
 use crate::git_sync;
 
+/// What the small dot overlaid on the header's sync icon shows: nothing
+/// waiting to back up, work waiting to be backed up, or the last attempt
+/// failing outright. Driven from every path that changes sync state — the
+/// manual button, the quiet periodic auto-backup, and the on-quit backup —
+/// so the badge can never read "all backed up" while a push has actually
+/// failed.
+pub(super) enum SyncBadge {
+    Clear,
+    Pending,
+    Failed,
+}
+
+pub(super) fn set_sync_badge(badge: &Label, state: SyncBadge) {
+    badge.remove_css_class("warning");
+    badge.remove_css_class("error");
+    match state {
+        SyncBadge::Clear => badge.set_visible(false),
+        SyncBadge::Pending => {
+            badge.add_css_class("warning");
+            badge.set_tooltip_text(Some("Changes waiting to be backed up"));
+            badge.set_visible(true);
+        }
+        SyncBadge::Failed => {
+            badge.add_css_class("error");
+            badge.set_tooltip_text(Some("Last backup attempt failed"));
+            badge.set_visible(true);
+        }
+    }
+}
+
 pub(super) fn do_sync(
     root: PathBuf,
     window: adw::ApplicationWindow,
     overlay: adw::ToastOverlay,
     btn: Button,
+    badge: Label,
     token: Option<String>,
     current_config: Rc<RefCell<Config>>,
 ) {
@@ -41,6 +72,7 @@ pub(super) fn do_sync(
             show_sync_result(
                 &window,
                 &overlay,
+                &badge,
                 result,
                 root.clone(),
                 current_config.clone(),
@@ -63,6 +95,7 @@ pub(super) fn do_sync(
 pub(super) fn auto_sync_quiet(
     root: PathBuf,
     overlay: Option<adw::ToastOverlay>,
+    badge: Option<Label>,
     token: Option<String>,
     on_done: impl FnOnce() + 'static,
 ) {
@@ -77,8 +110,19 @@ pub(super) fn auto_sync_quiet(
     let on_done = Rc::new(RefCell::new(Some(on_done)));
     glib::timeout_add_local(Duration::from_millis(200), move || match rx.try_recv() {
         Ok(result) => {
+            let failed = result.error.is_some() || !result.push_errors.is_empty();
+            if let Some(badge) = &badge {
+                set_sync_badge(
+                    badge,
+                    if failed {
+                        SyncBadge::Failed
+                    } else {
+                        SyncBadge::Clear
+                    },
+                );
+            }
             if let Some(overlay) = &overlay {
-                if result.error.is_some() || !result.push_errors.is_empty() {
+                if failed {
                     let t = adw::Toast::new("Backup didn't go through — try Sync from the menu.");
                     t.set_timeout(6);
                     overlay.add_toast(t);
@@ -112,20 +156,24 @@ pub(super) fn auto_sync_quiet(
 fn show_sync_result(
     window: &adw::ApplicationWindow,
     overlay: &adw::ToastOverlay,
+    badge: &Label,
     result: git_sync::SyncResult,
     root: PathBuf,
     current_config: Rc<RefCell<Config>>,
 ) {
     if let Some(err) = result.error {
+        set_sync_badge(badge, SyncBadge::Failed);
         show_alert(window, "Sync Failed", &err);
         return;
     }
     if !result.push_errors.is_empty() {
+        set_sync_badge(badge, SyncBadge::Failed);
         let detail = result.push_errors.join("\n");
         if result.auth_failed {
             show_github_token_dialog(
                 window,
                 overlay,
+                badge.clone(),
                 root,
                 current_config,
                 "Zerkalo's sign-in to GitHub has stopped working, so backups can't go through. \
@@ -158,6 +206,7 @@ fn show_sync_result(
         return;
     }
     if result.pushed {
+        set_sync_badge(badge, SyncBadge::Clear);
         let summary = result
             .commit_message
             .lines()
@@ -166,10 +215,14 @@ fn show_sync_result(
             .to_string();
         overlay.add_toast(adw::Toast::new(&format!("Synced — {summary}")));
     } else if result.committed {
+        // Committed locally but nothing pushed (e.g. no network) — still
+        // waiting to actually reach the backup, so the badge stays lit.
+        set_sync_badge(badge, SyncBadge::Pending);
         overlay.add_toast(adw::Toast::new(
             "Saved a version — not backed up online yet",
         ));
     } else {
+        set_sync_badge(badge, SyncBadge::Clear);
         overlay.add_toast(adw::Toast::new("Nothing to sync"));
     }
 }
@@ -177,6 +230,7 @@ fn show_sync_result(
 fn show_github_token_dialog(
     window: &adw::ApplicationWindow,
     overlay: &adw::ToastOverlay,
+    badge: Label,
     root: PathBuf,
     current_config: Rc<RefCell<Config>>,
     message: &str,
@@ -241,6 +295,7 @@ fn show_github_token_dialog(
     let entry_save = entry.clone();
     let overlay_retry = overlay.clone();
     let window_retry = window.clone();
+    let badge_retry = badge.clone();
     save_btn.connect_clicked(move |btn| {
         let tok = entry_save.text().to_string();
         if tok.is_empty() {
@@ -257,6 +312,7 @@ fn show_github_token_dialog(
         let root_result = root.clone();
         let win2 = window_retry.clone();
         let ov2 = overlay_retry.clone();
+        let badge2 = badge_retry.clone();
         let cfg2 = current_config.clone();
         let (tx, rx) = std::sync::mpsc::sync_channel::<git_sync::SyncResult>(1);
         std::thread::spawn(move || {
@@ -267,7 +323,14 @@ fn show_github_token_dialog(
             use std::sync::mpsc::TryRecvError;
             match rx.try_recv() {
                 Ok(result) => {
-                    show_sync_result(&win2, &ov2, result, root_result.clone(), cfg2.clone());
+                    show_sync_result(
+                        &win2,
+                        &ov2,
+                        &badge2,
+                        result,
+                        root_result.clone(),
+                        cfg2.clone(),
+                    );
                     glib::ControlFlow::Break
                 }
                 Err(TryRecvError::Empty) => glib::ControlFlow::Continue,

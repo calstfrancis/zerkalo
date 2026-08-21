@@ -2139,11 +2139,6 @@ impl EditorPane {
             .insert_child_after(w, Some(&self.format_bar_toggle_btn));
     }
 
-    /// Put a widget in the status bar's right group, before the version button.
-    pub fn status_bar_append_right(&self, w: &impl gtk4::prelude::IsA<gtk4::Widget>) {
-        self.status_bar.append(w);
-    }
-
     pub fn breadcrumb_bar_append(&self, w: &impl gtk4::prelude::IsA<gtk4::Widget>) {
         self.breadcrumb_bar.append(w);
     }

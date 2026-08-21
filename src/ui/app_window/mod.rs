@@ -79,6 +79,7 @@ pub struct AppWindow {
     help_overlay: Rc<super::help_overlay::HelpOverlay>,
     project_root: PathBuf,
     sync_btn: Button,
+    sync_badge: Label,
     search_panel: super::search_panel::SearchPanel,
     #[allow(dead_code)]
     toast_overlay: adw::ToastOverlay,
@@ -222,6 +223,7 @@ impl AppWindow {
             style_btn,
             style_popover,
             sync_btn,
+            sync_badge,
             title_extras,
         } = build_header();
         let Panels {
@@ -584,15 +586,11 @@ impl AppWindow {
         editor_pane.status_bar_append_left(&editor_pane.focus_button_for_header());
         editor_pane.status_bar_append_left(&editor_pane.simple_mode_button_for_header());
 
-        // Git as a word, beside the other status-bar words, rather than an icon
-        // in a header that has too many already.
-        header.remove(&sync_btn);
-        let git_label = Label::new(Some("Git"));
-        git_label.add_css_class("caption");
-        git_label.add_css_class("dim-label");
-        sync_btn.set_child(Some(&git_label));
-        sync_btn.add_css_class("status-toggle");
-        editor_pane.status_bar_append_right(&sync_btn);
+        // Sync stays in the header, not folded into the status bar's row of
+        // quiet name-as-label toggles: whether your work is backed up is a
+        // data-safety question, not a minor view preference, so it keeps an
+        // icon at eye level with a colour badge (see update_sync_badge) that
+        // announces itself rather than waiting to be found.
 
         header.remove(&print_header_btn);
         header.remove(&recompile_header_btn);
@@ -750,6 +748,7 @@ impl AppWindow {
             print_header_btn: print_header_btn.clone(),
             save_btn: save_btn.clone(),
             sync_btn: sync_btn.clone(),
+            sync_badge: sync_badge.clone(),
         };
 
         wire_app_menus(&menu_ctx, &menus);
@@ -1659,6 +1658,7 @@ impl AppWindow {
             project_root: project_root.clone(),
             auto_save_idle_ms: auto_save_idle_ms.clone(),
             sync_btn: sync_btn.clone(),
+            sync_badge: sync_badge.clone(),
             menu_new_template_item: menus.menu_new_template_item.clone(),
             lsp_client: lsp_client.clone(),
             lsp_has_diags: lsp_has_diags.clone(),
@@ -2432,6 +2432,7 @@ impl AppWindow {
             help_overlay,
             project_root,
             sync_btn,
+            sync_badge,
             search_panel,
             toast_overlay,
             file_tree,
@@ -2975,6 +2976,7 @@ impl AppWindow {
         let file_start_words_for_close = self.file_start_words.clone();
         let session_start_for_close = self.session_start.clone();
         let project_root_for_close = self.project_root.clone();
+        let sync_badge_for_close = self.sync_badge.clone();
 
         self.window.connect_close_request(move |_| {
             // Stage 1: an unsaved-buffer dialog resolves into a second call
@@ -3067,6 +3069,7 @@ impl AppWindow {
                     sync::auto_sync_quiet(
                         root,
                         None,
+                        Some(sync_badge_for_close.clone()),
                         crate::secret_store::load_github_token(),
                         move || {
                             if !*closed_a.borrow() {
