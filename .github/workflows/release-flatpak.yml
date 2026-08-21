@@ -113,10 +113,30 @@ jobs:
         run: |
           RUNTIME_VERSION=$(grep '^runtime-version' packaging/io.github.calstfrancis.Zerkalo.yml | sed "s/runtime-version: *'\(.*\)'/\1/")
           RUST_EXTENSION_BRANCH="25.08"
-          flatpak install --user -y flathub \
-            "org.gnome.Platform//$RUNTIME_VERSION" \
-            "org.gnome.Sdk//$RUNTIME_VERSION" \
+          REFS=(
+            "org.gnome.Platform//$RUNTIME_VERSION"
+            "org.gnome.Sdk//$RUNTIME_VERSION"
             "org.freedesktop.Sdk.Extension.rust-stable//$RUST_EXTENSION_BRANCH"
+          )
+          # Flathub's CDN occasionally 404s on a specific static-delta object
+          # partway through a pull — seen live on 2026-08-21, reproduced
+          # identically twice in a row at the same point in the download —
+          # while the same ref resolves fine via `remote-info` (which only
+          # reads metadata, not the delta) and a plain object-by-object pull
+          # from elsewhere. Matches the existing `apt-get` step's own
+          # Acquire::Retries hardening above for the same class of flaky-
+          # mirror problem: retry a few times, and if it's still failing,
+          # fall back to --no-static-deltas so flatpak fetches individual
+          # objects instead of the (apparently broken) delta bundle.
+          for attempt in 1 2 3; do
+            if flatpak install --user -y flathub "${REFS[@]}"; then
+              exit 0
+            fi
+            echo "flatpak install attempt $attempt failed, retrying in 15s…"
+            sleep 15
+          done
+          echo "Retrying once more with --no-static-deltas…"
+          flatpak install --user -y --no-static-deltas flathub "${REFS[@]}"
 
       - name: Import GPG signing key
         run: |
