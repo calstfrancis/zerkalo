@@ -179,6 +179,10 @@ impl CommentsPanel {
         }));
     }
 
+    pub fn is_collapsed(&self) -> bool {
+        !self.revealer.reveals_child()
+    }
+
     /// Fires with the new collapsed state whenever the user clicks the
     /// header's collapse toggle, so the caller can persist it.
     pub fn set_on_collapse_toggle(&self, f: impl Fn(bool) + 'static) {

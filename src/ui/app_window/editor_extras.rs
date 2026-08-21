@@ -234,7 +234,7 @@ pub(super) fn wire_sidebar_toolbar(ctx: &SidebarToolbarCtx) -> (GtkBox, Button) 
     citations_packages_pane.set_shrink_start_child(false);
     citations_packages_pane.set_shrink_end_child(false);
     citations_packages_pane.set_vexpand(true);
-    persist_vertical_split(
+    let citations_packages_suppress = persist_vertical_split(
         &citations_packages_pane,
         ctx.current_config.clone(),
         |c, pos| {
@@ -251,15 +251,30 @@ pub(super) fn wire_sidebar_toolbar(ctx: &SidebarToolbarCtx) -> (GtkBox, Button) 
     outline_rest_pane.set_shrink_start_child(false);
     outline_rest_pane.set_shrink_end_child(false);
     outline_rest_pane.set_vexpand(true);
-    persist_vertical_split(&outline_rest_pane, ctx.current_config.clone(), |c, pos| {
-        c.sidebar_outline_split = pos;
-    });
+    let outline_rest_suppress =
+        persist_vertical_split(&outline_rest_pane, ctx.current_config.clone(), |c, pos| {
+            c.sidebar_outline_split = pos;
+        });
 
-    // Packages and Comments can be collapsed to just their header row —
-    // useful once a project's manuscript is stable and neither is needed
-    // for a while. Collapsing actually reclaims the freed space for its
-    // sibling in the shared Paned (see wire_collapse_reclaims_space) rather
-    // than hiding the content and leaving a blank gap where it was.
+    // Citations, Packages and Comments can each be collapsed to just their
+    // header row — useful once a project's manuscript is stable and a
+    // section isn't needed for a while. A single collapse reclaims the
+    // freed space for its sibling in the shared Paned (see
+    // wire_collapse_reclaims_space), same as before. What's new here is
+    // `reflow_outer_sections`: previously, collapsing *both* Packages and
+    // Comments only reclaimed space within their own shared Paned — the
+    // Citations/Packages+Comments divider above them never moved, so the
+    // freed space sat as a dead gap below the two collapsed headers instead
+    // of flowing up to Citations, and the only way to actually close that
+    // gap was to also drag the divider by hand (in a specific order, or the
+    // sizes visibly fought each other). `reflow_outer_sections` re-derives
+    // both outer dividers from the three sections' live collapsed states —
+    // relying on `shrink_start_child(false)`/`shrink_end_child(false)`
+    // (already set on every pane here) making each Paned's own minimum size
+    // the sum of its children's minimums, so asking for an extreme position
+    // is enough for GTK to clamp it to exactly "both collapsed, no gap"
+    // without measuring anything by hand — so it's called after every
+    // toggle of any of the three, not just its own.
     let packages_reclaim = wire_collapse_reclaims_space(
         &packages_comments_pane,
         true,
@@ -275,8 +290,92 @@ pub(super) fn wire_sidebar_toolbar(ctx: &SidebarToolbarCtx) -> (GtkBox, Button) 
         |c| c.sidebar_packages_split,
     );
 
+    let reflow_outer_sections: Rc<dyn Fn()> = Rc::new({
+        let citation_panel = ctx.citation_panel.clone();
+        let package_browser = ctx.package_browser.clone();
+        let comments_panel = ctx.comments_panel.clone();
+        let citations_packages_pane = citations_packages_pane.clone();
+        let outline_rest_pane = outline_rest_pane.clone();
+        let packages_comments_pane = packages_comments_pane.clone();
+        let cfg = ctx.current_config.clone();
+        let citations_packages_suppress = citations_packages_suppress.clone();
+        let outline_rest_suppress = outline_rest_suppress.clone();
+        move || {
+            // Deferred one main-loop turn: this runs in the same call stack
+            // as the Revealer's `set_reveal_child`, whose effect on its
+            // ancestors' minimum-size caches GTK only finishes processing on
+            // the next iteration. Reading/setting positions synchronously
+            // here worked for a single Paned's own collapse (the existing
+            // `wire_collapse_reclaims_space` calls above), but not through
+            // this second hop — `citations_packages_pane` reacting to its
+            // end child's (`packages_comments_pane`) minimum shrinking. And
+            // extreme sentinel values (`i32::MAX`) turned out not to be safe
+            // to rely on either: measured directly, an un-clamped `i32::MAX`
+            // survived as the literal stored position rather than getting
+            // clamped against the live minimum, so this computes an exact
+            // target from real, current measurements instead.
+            let citation_panel = citation_panel.clone();
+            let package_browser = package_browser.clone();
+            let comments_panel = comments_panel.clone();
+            let citations_packages_pane = citations_packages_pane.clone();
+            let outline_rest_pane = outline_rest_pane.clone();
+            let packages_comments_pane = packages_comments_pane.clone();
+            let cfg = cfg.clone();
+            let citations_packages_suppress = citations_packages_suppress.clone();
+            let outline_rest_suppress = outline_rest_suppress.clone();
+            glib::idle_add_local_once(move || {
+                let ci = citation_panel.is_collapsed();
+                let pk = package_browser.is_collapsed();
+                let cm = comments_panel.is_collapsed();
+
+                let cp_total = citations_packages_pane.height();
+                if cp_total > 0 {
+                    let pc_min = packages_comments_pane.measure(Orientation::Vertical, -1).1;
+                    citations_packages_suppress.set(true);
+                    if ci {
+                        let ci_min =
+                            citation_panel.widget().measure(Orientation::Vertical, -1).1;
+                        citations_packages_pane.set_position(ci_min);
+                    } else if pk && cm {
+                        citations_packages_pane.set_position((cp_total - pc_min).max(0));
+                    } else {
+                        citations_packages_pane
+                            .set_position(cfg.borrow().sidebar_citations_split);
+                    }
+                    citations_packages_suppress.set(false);
+                }
+
+                let or_total = outline_rest_pane.height();
+                if or_total > 0 {
+                    outline_rest_suppress.set(true);
+                    if ci && pk && cm {
+                        let cp_min = citations_packages_pane
+                            .measure(Orientation::Vertical, -1)
+                            .1;
+                        outline_rest_pane.set_position((or_total - cp_min).max(0));
+                    } else {
+                        outline_rest_pane.set_position(cfg.borrow().sidebar_outline_split);
+                    }
+                    outline_rest_suppress.set(false);
+                }
+            });
+        }
+    });
+
+    // The pane has zero allocated height until the window is actually shown,
+    // so a reflow requested before then (below, for a section that starts
+    // collapsed per persisted config) has nothing real to measure yet —
+    // retry once realization gives it real geometry.
+    {
+        let reflow = reflow_outer_sections.clone();
+        citations_packages_pane.connect_realize(move |_| reflow());
+    }
+
+    let initial_citations_collapsed = ctx.current_config.borrow().sidebar_citations_collapsed;
     let initial_packages_collapsed = ctx.current_config.borrow().sidebar_packages_collapsed;
     let initial_comments_collapsed = ctx.current_config.borrow().sidebar_comments_collapsed;
+    ctx.citation_panel
+        .set_collapsed(initial_citations_collapsed);
     ctx.package_browser
         .set_collapsed(initial_packages_collapsed);
     ctx.comments_panel.set_collapsed(initial_comments_collapsed);
@@ -285,8 +384,22 @@ pub(super) fn wire_sidebar_toolbar(ctx: &SidebarToolbarCtx) -> (GtkBox, Button) 
     } else if initial_comments_collapsed {
         comments_reclaim(true);
     }
+    reflow_outer_sections();
     {
         let cfg = ctx.current_config.clone();
+        let reflow = reflow_outer_sections.clone();
+        ctx.citation_panel
+            .set_on_collapse_toggle(move |collapsed| {
+                let mut c = cfg.borrow_mut();
+                c.sidebar_citations_collapsed = collapsed;
+                let _ = c.save();
+                drop(c);
+                reflow();
+            });
+    }
+    {
+        let cfg = ctx.current_config.clone();
+        let reflow = reflow_outer_sections.clone();
         ctx.package_browser
             .set_on_collapse_toggle(move |collapsed| {
                 let mut c = cfg.borrow_mut();
@@ -294,16 +407,19 @@ pub(super) fn wire_sidebar_toolbar(ctx: &SidebarToolbarCtx) -> (GtkBox, Button) 
                 let _ = c.save();
                 drop(c);
                 packages_reclaim(collapsed);
+                reflow();
             });
     }
     {
         let cfg = ctx.current_config.clone();
+        let reflow = reflow_outer_sections;
         ctx.comments_panel.set_on_collapse_toggle(move |collapsed| {
             let mut c = cfg.borrow_mut();
             c.sidebar_comments_collapsed = collapsed;
             let _ = c.save();
             drop(c);
             comments_reclaim(collapsed);
+            reflow();
         });
     }
 
