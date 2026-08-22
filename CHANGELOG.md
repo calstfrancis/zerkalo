@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.26.0] "Open Folio" — 2026-08-22 — Title page and bibliography toggles
+
+### Added
+
+- **Title Page and Bibliography toggles**, in Template Settings' Sections tab, both on by default. Title Page off skips generating the cover page entirely (letters still get their letterhead regardless — that's a separate section). Bibliography off suppresses the `#bibliography(...)` call even when a `.bib` file is attached via the Citations panel, leaving a commented-out example line so it's easy to turn back on. Both round-trip through a document's sidecar the same way the existing Table of Contents/Abstract/Keywords toggles do; documents saved before this existed keep both on, matching the behavior they always had.
+
+---
+
 ## [0.25.1] "Quiet Anchor" — 2026-08-22 — Right-click scroll jump, live search, print duplex fix
 
 ### Fixed

@@ -560,6 +560,8 @@ pub fn default_import_preamble() -> String {
         dropcap_color: String::new(),
         body_kind: BodyKind::default(),
         bib_path: None,
+        include_title_page: true,
+        include_bibliography: true,
     };
     let full = generate_typst_template(&settings);
     if let Some(end_pos) = full.find(TEMPLATE_END) {

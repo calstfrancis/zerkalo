@@ -120,6 +120,8 @@ pub fn build_sidecar(t: &TemplateSettings) -> SidecarSettings {
             .bib_path
             .as_ref()
             .map(|p| p.to_string_lossy().into_owned()),
+        title_page_enabled: t.include_title_page,
+        bibliography_enabled: t.include_bibliography,
         body_kind: match t.body_kind {
             BodyKind::Book => "book".into(),
             BodyKind::Cv => "cv".into(),
@@ -193,6 +195,8 @@ pub fn sidecar_to_settings(sc: &SidecarSettings) -> TemplateSettings {
         dropcap_color: sc.dropcap_color.clone(),
         body_kind: body_kind_from_key(&sc.body_kind),
         bib_path: sc.bib_path.as_ref().map(std::path::PathBuf::from),
+        include_title_page: sc.title_page_enabled,
+        include_bibliography: sc.bibliography_enabled,
     }
 }
 

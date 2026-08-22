@@ -20,14 +20,18 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
         .map(|(n, _)| *n)
         .unwrap_or("Chicago");
     let bib = bib_style(style_key);
-    let bib_line = s.bib_path.as_ref().map(|p| {
-        let target = crate::bibliography::bib_target_path(p);
-        format!(
-            "#bibliography(\"{}\", style: \"{}\")",
-            typst_str(&target.to_string_lossy()),
-            bib
-        )
-    });
+    let bib_line = if s.include_bibliography {
+        s.bib_path.as_ref().map(|p| {
+            let target = crate::bibliography::bib_target_path(p);
+            format!(
+                "#bibliography(\"{}\", style: \"{}\")",
+                typst_str(&target.to_string_lossy()),
+                bib
+            )
+        })
+    } else {
+        None
+    };
 
     // GOST 7.32 mandates A4, specific margins, and 14 pt body text regardless of form selection.
     let (paper_line, mt, mb, ml, mr, font_size) = if style_key == "gost-r-705" {
@@ -184,11 +188,14 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
     let _ = writeln!(out, "{TEMPLATE_END}");
     let _ = writeln!(out);
 
-    // Title block (style-specific) — letters get a letterhead instead of a title page
+    // Title block (style-specific) — letters get a letterhead instead of a title
+    // page, unaffected by the title-page toggle (it's a different section).
     let title_block = if matches!(s.body_kind, BodyKind::Letter) {
         generate_letter_header(s)
-    } else {
+    } else if s.include_title_page {
         generate_title_page(style_key, s)
+    } else {
+        String::new()
     };
     let _ = write!(out, "{title_block}");
 
@@ -978,6 +985,8 @@ pub fn rebuild_title_page_for_style(content: &str, new_style_key: &str) -> Strin
         dropcap_color: String::new(),
         body_kind: BodyKind::Academic,
         bib_path: None,
+        include_title_page: true,
+        include_bibliography: true,
     };
     let new_page = generate_title_page(new_style_key, &s);
     // Wrap with a fake TEMPLATE_END so replace_title_page can locate the zone start
@@ -1062,6 +1071,13 @@ pub(crate) fn header_block(style: u32) -> Option<String> {
 
 pub(crate) fn default_dropcap_lines() -> u32 {
     3
+}
+
+/// Serde default for sidecar fields added after both the title page and the
+/// bibliography were always emitted unconditionally — a sidecar saved before
+/// either toggle existed must still produce the document it always did.
+pub(crate) fn default_true() -> bool {
+    true
 }
 
 pub fn bib_style(style_key: &str) -> &'static str {

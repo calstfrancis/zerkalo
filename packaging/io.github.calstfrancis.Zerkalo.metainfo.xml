@@ -80,6 +80,16 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.26.0" date="2026-08-22">
+      <description>
+        <p>0.26.0 "Open Folio" — Template Settings' Sections tab gains two new
+        toggles, Title Page and Bibliography, both on by default. Title Page
+        off skips the generated cover page (letters keep their letterhead
+        regardless). Bibliography off suppresses the #bibliography(...) call
+        even with a .bib file attached, leaving a commented-out line so it's
+        easy to switch back on.</p>
+      </description>
+    </release>
     <release version="0.25.1" date="2026-08-22">
       <description>
         <p>0.25.1 "Quiet Anchor" — right-clicking in the editor, especially on a
