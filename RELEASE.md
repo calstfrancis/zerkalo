@@ -18,6 +18,8 @@ flatpak update io.github.calstfrancis.Zerkalo
 
 ### What's new
 
+**Right-clicking in the editor could still jump the view to the top of the document.** The 0.25.1 fix covered the jump on *opening* a context menu or the spell-suggestion popover; dismissing one by clicking elsewhere in the editor could still trigger it, since that used a separate, older mechanism that assumed GTK's own focus-snap would still be pending when it tried to undo it. Both paths now share the same continuous-hold approach already used for paste and accepting a spell suggestion, which doesn't depend on that timing.
+
 **Two new toggles in Template Settings' Sections tab: Title Page and Bibliography, both on by default.** Turn off Title Page for a document that shouldn't have a generated cover page — letters keep their letterhead regardless, since that's a separate section. Turn off Bibliography to suppress the `#bibliography(...)` call even when a `.bib` file is attached via the Citations panel; it leaves a commented-out example line in its place, so it's easy to switch back on later. Both settings round-trip through a document's sidecar the same way the existing Table of Contents, Abstract, and Keywords toggles do, and documents saved before this release keep both on, matching the behavior they always had.
 
 ---
