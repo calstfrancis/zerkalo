@@ -3618,6 +3618,8 @@ impl EditorPane {
                 let ghost_bib_click = ghost_bib_entry.clone();
                 let hint_click = self.lsp_status_label.clone();
                 let active_error_popup_click = active_error_popup.clone();
+                let hold_pos_click = hold_position.clone();
+                let hold_until_click = hold_until.clone();
                 any_click.connect_pressed(move |_, _, _, _| {
                     // Clicking anywhere in the text dismisses a suggestion —
                     // the popovers are autohide(false) (they must not steal the
@@ -3634,17 +3636,25 @@ impl EditorPane {
                     clear_citation_ghost(&ghost_click, &ghost_bib_click, &hint_click);
                     clear_ghost(&ghost_click, &ghost_item_click, &hint_click);
                     if !view_fc.has_focus() {
-                        // View is gaining focus → GTK will snap to insert mark → restore both axes.
-                        // Use a 0ms timeout (not idle_add) so we fire AFTER the entire idle queue
-                        // drains, including GTK's own focus-snap scroll_mark_onscreen idle.
+                        // View is gaining focus → GTK will snap to insert mark. A
+                        // single "capture now, restore once at the next zero-delay
+                        // timeout" used to live here, but that only works if GTK's
+                        // snap is strictly slower than our restore — and dismissing
+                        // a popover/menu by clicking elsewhere in the view (rather
+                        // than e.g. pressing Escape) fires this same focus-gain
+                        // path, where the snap can already be synchronously done by
+                        // the time this handler runs. Use the same continuous-hold
+                        // mechanism as paste and spell-suggestion-accept instead:
+                        // reassert the captured position on every adjustment change
+                        // for a short window, which is correct regardless of when
+                        // GTK's own snap actually lands.
                         let val = sc.vadjustment().value();
                         let hval = sc.hadjustment().value();
-                        let sc2 = sc.clone();
                         pause();
-                        glib::timeout_add_local_once(Duration::ZERO, move || {
-                            sc2.vadjustment().set_value(val);
-                            sc2.hadjustment().set_value(hval);
-                        });
+                        hold_pos_click.set(Some((val, hval)));
+                        hold_until_click.set(Instant::now() + PASTE_HOLD);
+                        let release = hold_pos_click.clone();
+                        glib::timeout_add_local_once(PASTE_HOLD, move || release.set(None));
                     }
                 });
             }

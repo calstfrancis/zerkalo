@@ -5,11 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.26.1] "Even Keel" — 2026-08-22 — Release/versioning fix, no user-facing changes
+## [0.26.1] "Even Keel" — 2026-08-22 — Right-click scroll jump still possible on dismiss; release re-cut
 
 ### Fixed
 
-- The `v0.26.0` tag was force-moved twice after its initial push to fix a `cargo fmt` violation and a clippy lint that failed CI, so it never reached a clean, stable state before publishing. Re-cut as a fresh `v0.26.1` instead of leaving a rewritten tag behind. Carries the same Title Page/Bibliography toggles as the intended 0.26.0 (see below) — no other changes.
+- **The editor could still jump to the top of the document when a right-click menu or the spell-suggestion popover was dismissed by clicking elsewhere in the editor**, even after 0.25.1's fix for the same jump on opening one. That fix made the scroll-position tracker stop *recording* bad positions while a menu held focus, but the click that dismisses a menu by landing back in the editor was handled by a separate, older mechanism — capture the pre-click position once, then restore it a single time after GTK's own idle queue drains. That single restore assumed GTK's focus-snap would always still be pending when it ran; dismissing a menu this way could let the snap complete synchronously first, so the "restore" just reapplied the already-wrong position. It now uses the same continuous-hold mechanism already used for paste and accepting a spell suggestion — reasserting the correct position on every change for a short window — which is correct regardless of exactly when GTK's snap lands.
+
+### Release notes
+
+- The `v0.26.0` tag was force-moved twice after its initial push to fix a `cargo fmt` violation and a clippy lint that failed CI, so it never reached a clean, stable state before publishing. Re-cut as a fresh `v0.26.1`, which also carries the same Title Page/Bibliography toggles originally intended for 0.26.0 (see below).
 
 ---
 
