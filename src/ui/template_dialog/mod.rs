@@ -475,11 +475,13 @@ pub(crate) struct TemplateSettings {
     dropcap_color: String,
     body_kind: BodyKind,
     bib_path: Option<PathBuf>,
+    include_title_page: bool,
+    include_bibliography: bool,
 }
 
 /// Canonical settings persisted as `<stem>.zerkalo.toml` alongside each `.typ` file.
 /// This is the single source of truth for "Update Template Settings" pre-fill.
-#[derive(serde::Serialize, serde::Deserialize, Default, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct SidecarSettings {
     pub title: String,
     pub subtitle: String,
@@ -521,6 +523,10 @@ pub struct SidecarSettings {
     #[serde(default)]
     pub dropcap_color: String,
     pub bib_path: Option<String>,
+    #[serde(default = "default_true")]
+    pub title_page_enabled: bool,
+    #[serde(default = "default_true")]
+    pub bibliography_enabled: bool,
     pub body_kind: String,
     /// CV style key ("modern"/"academic"/"classic"/"sidebar"), independent of
     /// `style`'s citation-style keys. Empty on non-CV documents and on
@@ -528,6 +534,55 @@ pub struct SidecarSettings {
     /// `preselect_from_sidecar` for the legacy fallback in that case.
     #[serde(default)]
     pub cv_style: String,
+}
+
+/// A hand-written `Default` impl, not `#[derive(Default)]`: `title_page_enabled`
+/// and `bibliography_enabled` must default to `true` — both were emitted
+/// unconditionally before either toggle existed — and a derived impl would give
+/// every `bool` field `false` regardless of its `#[serde(default = "...")]`
+/// (that attribute only governs missing-field deserialization, not this trait).
+/// Every other field keeps the same value the derive would have produced.
+impl Default for SidecarSettings {
+    fn default() -> Self {
+        Self {
+            title: String::new(),
+            subtitle: String::new(),
+            author: String::new(),
+            affiliation: String::new(),
+            course: String::new(),
+            professor: String::new(),
+            date: String::new(),
+            style: String::new(),
+            font: String::new(),
+            font_size: String::new(),
+            paper: String::new(),
+            custom_paper_w: String::new(),
+            custom_paper_h: String::new(),
+            margin: 0,
+            custom_margin: String::new(),
+            spacing: String::new(),
+            page_numbers: 0,
+            header_style: 0,
+            toc: false,
+            toc_depth: 0,
+            abstract_enabled: false,
+            abstract_text: String::new(),
+            keywords_enabled: false,
+            keywords_text: String::new(),
+            heading_numbering: false,
+            numbering_format: String::new(),
+            languages: Vec::new(),
+            packages: Vec::new(),
+            dropcap_font: String::new(),
+            dropcap_lines: 0,
+            dropcap_color: String::new(),
+            bib_path: None,
+            title_page_enabled: true,
+            bibliography_enabled: true,
+            body_kind: String::new(),
+            cv_style: String::new(),
+        }
+    }
 }
 
 // ── Dialog ────────────────────────────────────────────────────────────────────
@@ -843,6 +898,8 @@ fn build_layout_tab(notebook: &Notebook) -> LayoutTab {
 }
 
 struct SectionsTab {
+    title_page_row: adw::SwitchRow,
+    bibliography_row: adw::SwitchRow,
     toc_row: adw::SwitchRow,
     toc_depth_row: adw::ComboRow,
     abstract_row: adw::SwitchRow,
@@ -858,6 +915,18 @@ fn build_sections_tab(notebook: &Notebook) -> SectionsTab {
     // ── Tab 3: Sections ──────────────────────────────────────────────────
     let sec_group = adw::PreferencesGroup::new();
     sec_group.set_title("Document Sections");
+
+    let title_page_row = adw::SwitchRow::new();
+    title_page_row.set_title("Title Page");
+    title_page_row.set_subtitle("Letters use a letterhead instead, regardless of this toggle");
+    title_page_row.set_active(true);
+    sec_group.add(&title_page_row);
+
+    let bibliography_row = adw::SwitchRow::new();
+    bibliography_row.set_title("Bibliography");
+    bibliography_row.set_subtitle("Only emitted when a bibliography file is attached, via the Citations panel");
+    bibliography_row.set_active(true);
+    sec_group.add(&bibliography_row);
 
     let toc_row = adw::SwitchRow::new();
     toc_row.set_title("Table of Contents");
@@ -938,6 +1007,8 @@ fn build_sections_tab(notebook: &Notebook) -> SectionsTab {
     notebook.append_page(&tab3_scroll, Some(&tab_label("Sections")));
 
     SectionsTab {
+        title_page_row,
+        bibliography_row,
         toc_row,
         toc_depth_row,
         abstract_row,
@@ -1191,6 +1262,8 @@ struct FormWidgets {
     cv_switch: Switch,
     body_kind: Rc<RefCell<BodyKind>>,
     bib_path: Rc<RefCell<Option<PathBuf>>>,
+    title_page: adw::SwitchRow,
+    bibliography: adw::SwitchRow,
 }
 
 impl FormWidgets {
@@ -1241,6 +1314,8 @@ impl FormWidgets {
                 .unwrap_or_else(|| "1.5em".to_string()),
             page_num_pos: self.pnum.selected(),
             header_style: self.header.selected(),
+            include_title_page: self.title_page.is_active(),
+            include_bibliography: self.bibliography.is_active(),
             include_toc: self.toc.is_active(),
             toc_depth,
             include_abstract: self.abstract_sw.is_active(),
@@ -1436,6 +1511,14 @@ impl FormWidgets {
         }
     }
 
+    fn set_title_page(&self, active: bool) {
+        self.title_page.set_active(active);
+    }
+
+    fn set_bibliography(&self, active: bool) {
+        self.bibliography.set_active(active);
+    }
+
     fn set_toc(&self, active: bool, depth: u32) {
         self.toc.set_active(active);
         let idx = match depth {
@@ -1576,6 +1659,8 @@ impl FormWidgets {
             &s.professor,
             &s.date,
         );
+        self.set_title_page(s.title_page_enabled);
+        self.set_bibliography(s.bibliography_enabled);
         self.set_toc(s.toc, s.toc_depth);
         self.set_abstract(s.abstract_enabled, &s.abstract_text);
         self.set_keywords(s.keywords_enabled, &s.keywords_text);
@@ -2480,6 +2565,8 @@ impl TemplateDialog {
         } = build_layout_tab(&notebook);
 
         let SectionsTab {
+            title_page_row,
+            bibliography_row,
             toc_row,
             toc_depth_row,
             abstract_row,
@@ -2536,6 +2623,8 @@ impl TemplateDialog {
             spacing: spacing_row.clone(),
             pnum: pnum_row.clone(),
             header: header_row.clone(),
+            title_page: title_page_row.clone(),
+            bibliography: bibliography_row.clone(),
             toc: toc_row.clone(),
             toc_depth: toc_depth_row.clone(),
             abstract_sw: abstract_row.clone(),
@@ -2990,6 +3079,8 @@ fn preview_settings_for_preset(p: &TemplatePreset) -> TemplateSettings {
         dropcap_color: String::new(),
         body_kind: p.body_kind,
         bib_path: None,
+        include_title_page: true,
+        include_bibliography: true,
     }
 }
 
@@ -3928,6 +4019,8 @@ mod tests {
             dropcap_color: String::new(),
             body_kind: BodyKind::Cv,
             bib_path: None,
+            include_title_page: true,
+            include_bibliography: true,
         };
         let src = generate_typst_template(&settings);
         assert!(src.contains("#let CV_STYLE = \"sidebar\""));
@@ -4035,6 +4128,8 @@ french:
                 dropcap_color: String::new(),
                 body_kind: BodyKind::Cv,
                 bib_path: None,
+                include_title_page: true,
+                include_bibliography: true,
             }
         }
 
@@ -4136,6 +4231,8 @@ french:
             dropcap_color: String::new(),
             body_kind: BodyKind::Cv,
             bib_path: None,
+            include_title_page: true,
+            include_bibliography: true,
         };
         let sidebar_src = generate_typst_template(&sidebar_settings);
         assert!(sidebar_src.contains("columns: (1fr, 2fr)"));
@@ -4237,6 +4334,8 @@ french:
                 dropcap_color: String::new(),
                 body_kind: BodyKind::Cv,
                 bib_path: None,
+                include_title_page: true,
+                include_bibliography: true,
             }
         }
 
@@ -4335,6 +4434,8 @@ french:
             dropcap_color: String::new(),
             body_kind: BodyKind::Cv,
             bib_path: None,
+            include_title_page: true,
+            include_bibliography: true,
         };
 
         // generate_typst_template only ever produces the current (post-rewrite)
@@ -4444,6 +4545,8 @@ french:
                 dropcap_color: String::new(),
                 body_kind,
                 bib_path: None,
+                include_title_page: true,
+                include_bibliography: true,
             }
         }
 
@@ -4547,6 +4650,8 @@ french:
             dropcap_color: String::new(),
             body_kind: BodyKind::Academic,
             bib_path: None,
+            include_title_page: true,
+            include_bibliography: true,
         };
         let src = generate_typst_template(&settings);
         assert!(src.contains("width: 150mm"));
@@ -4677,6 +4782,8 @@ french:
             custom_paper_h: String::new(),
             custom_margin: String::new(),
             bib_path: None,
+            include_title_page: true,
+            include_bibliography: true,
         };
         let doc = generate_typst_template(&settings);
         assert!(doc.contains("@zerkalo-style: chicago-notes"));
@@ -4734,6 +4841,8 @@ french:
             custom_paper_h: String::new(),
             custom_margin: String::new(),
             bib_path: None,
+            include_title_page: true,
+            include_bibliography: true,
         };
         let doc = generate_typst_template(&settings);
         let to_ieee = replace_heading_styles_in_template(&doc, "ieee");
@@ -4900,6 +5009,8 @@ Body text.\n";
             custom_paper_h: String::new(),
             custom_margin: String::new(),
             bib_path: None,
+            include_title_page: true,
+            include_bibliography: true,
         };
         let old_doc = generate_typst_template(&settings);
         let new_settings = TemplateSettings {
@@ -4971,6 +5082,8 @@ Body text.\n";
             custom_paper_h: String::new(),
             custom_margin: String::new(),
             bib_path: Some(std::path::PathBuf::from("/home/user/refs.bib")),
+            include_title_page: true,
+            include_bibliography: true,
         };
 
         let sc = build_sidecar(&settings);
@@ -5049,6 +5162,8 @@ Body text.\n";
                 dropcap_color: String::new(),
                 body_kind: BodyKind::Cv,
                 bib_path: None,
+                include_title_page: true,
+                include_bibliography: true,
             }
         }
 
@@ -5181,6 +5296,8 @@ Body text.\n";
             custom_paper_h: String::new(),
             custom_margin: String::new(),
             bib_path: None,
+            include_title_page: true,
+            include_bibliography: true,
         };
         let original = generate_typst_template(&settings);
 
@@ -5272,6 +5389,8 @@ Body text.\n";
             custom_paper_h: String::new(),
             custom_margin: String::new(),
             bib_path: Some(std::path::PathBuf::from("refs.bib")),
+            include_title_page: true,
+            include_bibliography: true,
         };
         let existing = generate_typst_template(&settings);
         assert!(
@@ -5293,6 +5412,124 @@ Body text.\n";
         assert!(
             !result.contains("style: \"chicago-author-date\""),
             "old bib style must be gone"
+        );
+    }
+
+    #[test]
+    fn title_page_toggle_off_removes_the_cover_page() {
+        let settings = TemplateSettings {
+            title: "A Study".to_string(),
+            subtitle: String::new(),
+            author: "Jane Doe".to_string(),
+            affiliation: String::new(),
+            course: String::new(),
+            professor: String::new(),
+            date: String::new(),
+            style_idx: 2,
+            paper_idx: 0,
+            margin_idx: 0,
+            font: "Times New Roman".to_string(),
+            spacing: "0.9em".to_string(),
+            page_num_pos: 0,
+            header_style: 0,
+            include_toc: false,
+            toc_depth: 2,
+            include_abstract: false,
+            abstract_text: String::new(),
+            include_keywords: false,
+            keywords: String::new(),
+            languages: vec![],
+            packages: vec![],
+            dropcap_font: String::new(),
+            dropcap_lines: 3,
+            dropcap_color: String::new(),
+            body_kind: BodyKind::Academic,
+            font_size: "12pt".into(),
+            heading_numbering: false,
+            numbering_format: String::new(),
+            custom_paper_w: String::new(),
+            custom_paper_h: String::new(),
+            custom_margin: String::new(),
+            bib_path: None,
+            include_title_page: true,
+            include_bibliography: true,
+        };
+        let with_cover = generate_typst_template(&settings);
+        assert!(
+            with_cover.contains("#counter(page).update(1)"),
+            "title page on: cover page present"
+        );
+
+        let without = TemplateSettings {
+            include_title_page: false,
+            ..settings
+        };
+        let no_cover = generate_typst_template(&without);
+        assert!(
+            !no_cover.contains("#counter(page).update(1)"),
+            "title page off: no cover page"
+        );
+        assert!(
+            !no_cover.contains("\"A Study\""),
+            "title page off: the title itself doesn't render anywhere"
+        );
+    }
+
+    #[test]
+    fn bibliography_toggle_off_suppresses_the_bibliography_line_even_with_a_bib_path() {
+        let settings = TemplateSettings {
+            title: String::new(),
+            subtitle: String::new(),
+            author: String::new(),
+            affiliation: String::new(),
+            course: String::new(),
+            professor: String::new(),
+            date: String::new(),
+            style_idx: 2,
+            paper_idx: 0,
+            margin_idx: 0,
+            font: "Times New Roman".to_string(),
+            spacing: "0.9em".to_string(),
+            page_num_pos: 0,
+            header_style: 0,
+            include_toc: false,
+            toc_depth: 2,
+            include_abstract: false,
+            abstract_text: String::new(),
+            include_keywords: false,
+            keywords: String::new(),
+            languages: vec![],
+            packages: vec![],
+            dropcap_font: String::new(),
+            dropcap_lines: 3,
+            dropcap_color: String::new(),
+            body_kind: BodyKind::Academic,
+            font_size: "12pt".into(),
+            heading_numbering: false,
+            numbering_format: String::new(),
+            custom_paper_w: String::new(),
+            custom_paper_h: String::new(),
+            custom_margin: String::new(),
+            bib_path: Some(std::path::PathBuf::from("refs.bib")),
+            include_title_page: true,
+            include_bibliography: true,
+        };
+        let with_bib = generate_typst_template(&settings);
+        assert!(
+            with_bib.contains("\n#bibliography("),
+            "bibliography on: bib call present and active (not commented out)"
+        );
+
+        let without = TemplateSettings {
+            include_bibliography: false,
+            ..settings
+        };
+        let no_bib = generate_typst_template(&without);
+        assert!(
+            !no_bib.contains("\n#bibliography("),
+            "bibliography off: no active bib call, even though bib_path is still set \
+             (the generator still writes an explanatory `// #bibliography(...)` comment, \
+             which is fine — this checks there's no live, uncommented call)"
         );
     }
 
@@ -5334,6 +5571,8 @@ Body text.\n";
             custom_paper_h: String::new(),
             custom_margin: String::new(),
             bib_path: None,
+            include_title_page: true,
+            include_bibliography: true,
         };
         let fresh = generate_typst_template(&fresh_settings);
         let result = apply_body_splice(existing, &fresh);
@@ -5384,6 +5623,8 @@ Body text.\n";
             dropcap_color: String::new(),
             body_kind: BodyKind::Letter,
             bib_path: None,
+            include_title_page: true,
+            include_bibliography: true,
         };
         let src = generate_typst_template(&settings);
 
@@ -5458,6 +5699,8 @@ Body text.\n";
             dropcap_color: String::new(),
             body_kind: BodyKind::Letter,
             bib_path: None,
+            include_title_page: true,
+            include_bibliography: true,
         };
         let sc = build_sidecar(&settings);
         assert_eq!(sc.body_kind, "letter");

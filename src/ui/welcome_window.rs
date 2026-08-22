@@ -7,7 +7,7 @@ use gtk4::{Align, Box as GtkBox, Button, Label, Orientation, ScrolledWindow, Sep
 use libadwaita as adw;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const RELEASE_NAME: &str = "Quiet Anchor";
+pub const RELEASE_NAME: &str = "Open Folio";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -143,9 +143,7 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
-                "Fixed a bug where right-clicking in the editor — especially on a highlighted spelling error — could throw the view to the top of the document. This also fixed the same jump when dismissing the menu by clicking away from it.",
-                "The Find bar now jumps to (and highlights) a match as soon as you type it, instead of waiting for Enter or the next/previous buttons.",
-                "Fixed the Long Edge / Short Edge duplex options in the print dialog being swapped, so \"long edge\" was actually sending a short-edge flip to the printer and vice versa.",
+                "New Template Settings toggles: Title Page and Bibliography, in the Sections tab, both on by default. Turn off Title Page for a document that shouldn't have a cover page; turn off Bibliography to suppress the #bibliography(...) call even if a .bib file is attached — it leaves a commented-out line so it's easy to switch back on.",
             ] {
                 body.append(&bullet_row(item));
             }
