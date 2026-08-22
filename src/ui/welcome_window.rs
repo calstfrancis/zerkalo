@@ -7,7 +7,7 @@ use gtk4::{Align, Box as GtkBox, Button, Label, Orientation, ScrolledWindow, Sep
 use libadwaita as adw;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const RELEASE_NAME: &str = "Steady Panes";
+pub const RELEASE_NAME: &str = "Quiet Anchor";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -143,16 +143,9 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
-                "The ≡ menu is simpler — rarely-used items (template repair, the project file map, git history) now live inside a few grouped flyouts like Document Tools and Version History, instead of crowding the top level.",
-                "Fixed a bug where Save could silently recompile stale content in \"Compile on Save\" mode, showing an outdated preview no matter how many times you saved.",
-                "Moving a document to Trash, and permanently deleting one, are now both all-or-nothing — if the underlying file operation fails (a read-only disk, a full drive), the Library no longer disagrees with what's actually on disk.",
-                "Zerkalo now double-checks Trash and the Library agree on startup, and quietly fixes it if a rare failure ever left them out of sync.",
-                "If Zerkalo ever crashes, it now makes a best-effort attempt to save a recovery copy of your unsaved work first.",
-                "The Sync button now shows a colour badge when there's something waiting to be backed up (or when a backup attempt failed) — updated immediately after every save, not just periodically — so you don't have to click it just to find out.",
-                "Fixed a bug where a long error message in the Packages panel could force the sidebar wide and lock it there until the error cleared.",
-                "Collapsing Citations, Packages, or Comments to just their header now actually finishes the job — every section above the one you collapsed grows to fill the freed space, instead of leaving a gap you had to drag closed by hand. Citations also gained its own minimize button.",
-                "Dragging one sidebar section's divider no longer nudges the size of sections you didn't touch.",
-                "The plain Save icon is gone from the header — Sync already saves everything before backing it up, so it was a second button doing part of the same job. Ctrl+S and the ≡ menu's Save row are unchanged.",
+                "Fixed a bug where right-clicking in the editor — especially on a highlighted spelling error — could throw the view to the top of the document. This also fixed the same jump when dismissing the menu by clicking away from it.",
+                "The Find bar now jumps to (and highlights) a match as soon as you type it, instead of waiting for Enter or the next/previous buttons.",
+                "Fixed the Long Edge / Short Edge duplex options in the print dialog being swapped, so \"long edge\" was actually sending a short-edge flip to the printer and vice versa.",
             ] {
                 body.append(&bullet_row(item));
             }

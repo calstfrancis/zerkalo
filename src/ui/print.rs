@@ -390,8 +390,12 @@ async fn print_via_portal(
     settings = match prefs.duplex {
         DuplexPref::Printer => settings,
         DuplexPref::OneSided => settings.set_duplex(Duplex::Simplex),
-        DuplexPref::LongEdge => settings.set_duplex(Duplex::Horizontal),
-        DuplexPref::ShortEdge => settings.set_duplex(Duplex::Vertical),
+        // ashpd's own doc comments: Horizontal = "flip on short edge",
+        // Vertical = "flip on long edge" — the opposite of what the names
+        // suggest. This mapping had them swapped, so choosing "long edge" in
+        // Zerkalo's print dialog sent the portal a short-edge flip and vice versa.
+        DuplexPref::LongEdge => settings.set_duplex(Duplex::Vertical),
+        DuplexPref::ShortEdge => settings.set_duplex(Duplex::Horizontal),
     };
     if let Some(ranges) = ranges {
         settings = settings

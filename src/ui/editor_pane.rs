@@ -6939,6 +6939,7 @@ impl EditorPane {
             let held = hold_position.clone();
             let held_until = hold_until.clone();
             let reasserting: Rc<Cell<bool>> = Rc::new(Cell::new(false));
+            let view_v = view.clone();
             scroll.vadjustment().connect_value_changed(move |adj| {
                 if let Some((v, _)) = held.get() {
                     if Instant::now() < held_until.get() {
@@ -6952,7 +6953,18 @@ impl EditorPane {
                     }
                     held.set(None);
                 }
-                if Instant::now() >= until.get() {
+                // Only record while the view actually has keyboard focus. A
+                // right-click context menu (native or the spell popover) takes
+                // focus away from the view for as long as it stays open, and
+                // GTK can snap the viewport to the cursor at some point during
+                // that window — with no fixed bound on when, since the menu
+                // may stay open however long the user takes to read it. If
+                // that snap got recorded as the "real" position, restoring it
+                // on focus return threw the view to wherever the cursor was
+                // (usually the top of the file) and left it stuck there. The
+                // time-based pause below still covers same-focus snaps (a
+                // plain click, which never fires a focus event at all).
+                if view_v.has_focus() && Instant::now() >= until.get() {
                     sv.set(adj.value());
                 }
             });
@@ -6961,6 +6973,7 @@ impl EditorPane {
             let held_h = hold_position.clone();
             let held_until_h = hold_until.clone();
             let reasserting_h: Rc<Cell<bool>> = Rc::new(Cell::new(false));
+            let view_h = view.clone();
             scroll.hadjustment().connect_value_changed(move |adj| {
                 if let Some((_, h)) = held_h.get() {
                     if Instant::now() < held_until_h.get() {
@@ -6972,7 +6985,7 @@ impl EditorPane {
                         return;
                     }
                 }
-                if Instant::now() >= until.get() {
+                if view_h.has_focus() && Instant::now() >= until.get() {
                     sh.set(adj.value());
                 }
             });
