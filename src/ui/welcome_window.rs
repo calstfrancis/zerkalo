@@ -142,11 +142,13 @@ impl WelcomeWindow {
             }
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
-            for item in [
-                "New Template Settings toggles: Title Page and Bibliography, in the Sections tab, both on by default. Turn off Title Page for a document that shouldn't have a cover page; turn off Bibliography to suppress the #bibliography(...) call even if a .bib file is attached — it leaves a commented-out line so it's easy to switch back on.",
-            ] {
-                body.append(&bullet_row(item));
-            }
+            body.append(&bullet_row(
+                "New Template Settings toggles: Title Page and Bibliography, in the Sections \
+                 tab, both on by default. Turn off Title Page for a document that shouldn't have \
+                 a cover page; turn off Bibliography to suppress the #bibliography(...) call even \
+                 if a .bib file is attached — it leaves a commented-out line so it's easy to \
+                 switch back on.",
+            ));
         }
 
         body.append(&Separator::new(Orientation::Horizontal));
