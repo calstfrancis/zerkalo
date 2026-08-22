@@ -80,6 +80,17 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.25.1" date="2026-08-22">
+      <description>
+        <p>0.25.1 "Quiet Anchor" — right-clicking in the editor, especially on a
+        highlighted spelling error, could throw the viewport to the top of the
+        document; that's fixed, along with the same jump when dismissing the
+        menu by clicking away from it. The Find bar now searches and jumps to
+        matches as you type, instead of waiting for Enter or the next/previous
+        buttons. The print dialog's Long Edge / Short Edge duplex options were
+        swapped and now send the correct flip to the printer.</p>
+      </description>
+    </release>
     <release version="0.25.0" date="2026-08-21">
       <description>
         <p>0.25.0 "Steady Panes" — the sidebar's Citations, Packages, and Comments

@@ -125,6 +125,17 @@ impl FindBar {
                 }
             });
         }
+        // Search as you type, not just on Enter/next/prev — so the view and
+        // cursor jump to the first match as soon as it's typed, matching what
+        // Ctrl+F does in most editors.
+        {
+            let cb = on_search.clone();
+            find_entry.connect_changed(move |e| {
+                if let Some(f) = cb.borrow().as_ref() {
+                    f(&e.text(), true);
+                }
+            });
+        }
         {
             let cb = on_replace_one.clone();
             let fe = find_entry.clone();

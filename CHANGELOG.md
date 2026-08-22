@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.25.1] "Quiet Anchor" — 2026-08-22 — Right-click scroll jump, live search, print duplex fix
+
+### Fixed
+
+- **Right-clicking in the editor — especially on a highlighted spelling error — could throw the viewport to the top of the document.** The scroll-position tracker recorded the current position on a timer-based pause, but a context menu (native, or the spell-suggestion popover) could take longer to open/close than that timer allowed, and any GTK auto-scroll-to-cursor snap that happened after the timer expired got baked in as "the" position and restored later. It now only records position while the editor actually holds keyboard focus, covering the entire time a menu or popover has taken it — this also fixed the same jump when dismissing a right-click menu by clicking away from it.
+- **The Find bar didn't search as you typed.** It only searched (and jumped/scrolled to the match) on Enter or the prev/next buttons; typing into it did nothing until you triggered one of those explicitly. It now searches live on every keystroke.
+- **The print dialog's Long Edge / Short Edge duplex options were swapped.** Choosing "long edge" sent the system print portal a short-edge flip, and vice versa — `ashpd::Duplex::Horizontal` means a short-edge flip and `Duplex::Vertical` means long-edge, the opposite of what the names suggest, and Zerkalo had them backwards.
+
+---
+
 ## [0.25.0] "Steady Panes" — 2026-08-21 — Sidebar collapse rework, sync status badge, decluttered header
 
 ### Changed
