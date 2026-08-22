@@ -100,7 +100,7 @@ jobs:
           sudo apt-get install -y $APT_OPTS flatpak flatpak-builder
           flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
 
-      - name: Install runtime, SDK, and rust-stable extension
+      - name: Determine runtime/extension versions
         # org.freedesktop.Sdk.Extension.rust-stable is versioned against the Freedesktop SDK
         # release GNOME's runtime pairs with, not the GNOME runtime number itself — install
         # failed with "Nothing matches ... in remote flathub" trying //50, since no such
@@ -112,22 +112,33 @@ jobs:
         # so it'll need updating by hand too if runtime-version ever moves past 50.
         run: |
           RUNTIME_VERSION=$(grep '^runtime-version' packaging/io.github.calstfrancis.Zerkalo.yml | sed "s/runtime-version: *'\(.*\)'/\1/")
-          RUST_EXTENSION_BRANCH="25.08"
+          echo "RUNTIME_VERSION=$RUNTIME_VERSION" >> "$GITHUB_ENV"
+          echo "RUST_EXTENSION_BRANCH=25.08" >> "$GITHUB_ENV"
+
+      # Flathub's CDN has repeatedly 404'd on the same static-delta object partway through
+      # this pull, specifically from GitHub-hosted runners (reproduces every time from here,
+      # while the same ref pulls fine locally and even resolves fine via `remote-info` on the
+      # runner, which only reads metadata, not the delta) — not a one-off blip, a systemic
+      # network-path issue. Caching the installed --user flatpak dir sidesteps it entirely
+      # after the first successful install: once the cache is warm, the `flatpak install`
+      # below finds everything already present and never touches the network. Keyed on the
+      # runtime/extension versions so a bump invalidates it automatically.
+      - name: Cache flatpak user installation
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/flatpak
+          key: flatpak-gnome${{ env.RUNTIME_VERSION }}-rust${{ env.RUST_EXTENSION_BRANCH }}-v1
+
+      - name: Install runtime, SDK, and rust-stable extension
+        run: |
           REFS=(
             "org.gnome.Platform//$RUNTIME_VERSION"
             "org.gnome.Sdk//$RUNTIME_VERSION"
             "org.freedesktop.Sdk.Extension.rust-stable//$RUST_EXTENSION_BRANCH"
           )
-          # Flathub's CDN occasionally 404s on a specific static-delta object
-          # partway through a pull — seen live on 2026-08-21, reproduced
-          # identically twice in a row at the same point in the download —
-          # while the same ref resolves fine via `remote-info` (which only
-          # reads metadata, not the delta) and a plain object-by-object pull
-          # from elsewhere. Matches the existing `apt-get` step's own
-          # Acquire::Retries hardening above for the same class of flaky-
-          # mirror problem: retry a few times, and if it's still failing,
-          # fall back to --no-static-deltas so flatpak fetches individual
-          # objects instead of the (apparently broken) delta bundle.
+          # Cache hit: everything's already installed, this is a fast no-op with no network
+          # traffic. Cache miss: falls through to the retry/no-static-deltas fallback below
+          # for the same CDN flakiness described above.
           for attempt in 1 2 3; do
             if flatpak install --user -y flathub "${REFS[@]}"; then
               exit 0
