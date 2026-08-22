@@ -80,14 +80,16 @@
     </screenshot>
   </screenshots>
   <releases>
-    <release version="0.26.0" date="2026-08-22">
+    <release version="0.26.1" date="2026-08-22">
       <description>
-        <p>0.26.0 "Open Folio" — Template Settings' Sections tab gains two new
+        <p>0.26.1 "Even Keel" — Template Settings' Sections tab gains two new
         toggles, Title Page and Bibliography, both on by default. Title Page
         off skips the generated cover page (letters keep their letterhead
         regardless). Bibliography off suppresses the #bibliography(...) call
         even with a .bib file attached, leaving a commented-out line so it's
-        easy to switch back on.</p>
+        easy to switch back on. (0.26.0 never published — a CI failure caught
+        before release forced two follow-up fixes, so this is the first
+        clean build of this feature.)</p>
       </description>
     </release>
     <release version="0.25.1" date="2026-08-22">

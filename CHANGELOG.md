@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.26.1] "Even Keel" — 2026-08-22 — Release/versioning fix, no user-facing changes
+
+### Fixed
+
+- The `v0.26.0` tag was force-moved twice after its initial push to fix a `cargo fmt` violation and a clippy lint that failed CI, so it never reached a clean, stable state before publishing. Re-cut as a fresh `v0.26.1` instead of leaving a rewritten tag behind. Carries the same Title Page/Bibliography toggles as the intended 0.26.0 (see below) — no other changes.
+
+---
+
 ## [0.26.0] "Open Folio" — 2026-08-22 — Title page and bibliography toggles
 
 ### Added

@@ -1,4 +1,4 @@
-# Zerkalo v0.26.0 "Open Folio"
+# Zerkalo v0.26.1 "Even Keel"
 
 Install via Flatpak:
 
