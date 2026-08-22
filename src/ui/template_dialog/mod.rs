@@ -924,7 +924,8 @@ fn build_sections_tab(notebook: &Notebook) -> SectionsTab {
 
     let bibliography_row = adw::SwitchRow::new();
     bibliography_row.set_title("Bibliography");
-    bibliography_row.set_subtitle("Only emitted when a bibliography file is attached, via the Citations panel");
+    bibliography_row
+        .set_subtitle("Only emitted when a bibliography file is attached, via the Citations panel");
     bibliography_row.set_active(true);
     sec_group.add(&bibliography_row);
 
