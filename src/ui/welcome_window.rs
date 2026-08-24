@@ -142,11 +142,9 @@ impl WelcomeWindow {
             }
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
-            for item in [
+            body.append(&bullet_row(
                 "Fixed typewriter scroll doing nothing while typing inside a wrapped paragraph — it now re-centers on every wrapped line, not just at paragraph breaks, so text no longer runs off screen.",
-            ] {
-                body.append(&bullet_row(item));
-            }
+            ));
         }
 
         body.append(&Separator::new(Orientation::Horizontal));
