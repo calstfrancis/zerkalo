@@ -3815,6 +3815,22 @@ pub(super) fn open_template_for_active_document(
     // Font size in particular had no reader at all on the no-sidecar path,
     // so re-opening this dialog on a 14 pt document and pressing Apply reset
     // it to 12 pt — the parser existed, it was just never called.
+    //
+    // Citation style had the same class of bug, but on the *sidecar* path
+    // instead: the header bar's "Style" dropdown (EditorPane::apply_style,
+    // routed through replace_heading_styles_in_template for a document that
+    // already has a template block) rewrites the document's @zerkalo-style
+    // annotation and heading rules directly, without ever touching the
+    // sidecar file. The `if let Some(sidecar) = ...` branch above only reads
+    // style from the sidecar, so switching styles via that dropdown left the
+    // dialog showing the style from *before* the switch — and pressing Apply
+    // would silently regenerate the old style's headings/title page back
+    // onto a document the user had just changed. Re-deriving from the
+    // document here, same as font/size/paper/spacing/margin below, makes the
+    // document consistently win.
+    if let Some(style_key) = td::parse_style_key(&current_content) {
+        dlg.preselect_style(&style_key);
+    }
     if let Some(f) = td::parse_font(&current_content) {
         dlg.preselect_font(&f);
     }

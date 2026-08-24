@@ -121,7 +121,7 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
         );
         let _ = writeln!(
             out,
-            "#set par(leading: 0.55em, spacing: 0.55em, first-line-indent: 1.8em, justify: true)"
+            "#set par(leading: 0.55em, spacing: 1.1em, first-line-indent: 1.8em, justify: true)"
         );
         let _ = writeln!(
             out,
@@ -135,17 +135,22 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
             s.font.trim()
         };
         let leading = user_length_or(&s.spacing, "em", "0.65em");
+        let spacing = paragraph_spacing_for_leading(&leading);
         let _ = writeln!(
             out,
             "#set text(font: \"{}\", size: {font_size}, lang: \"en\")",
             typst_str(font)
         );
-        // `spacing` matches `leading` so paragraphs are marked by the indent
-        // alone. A fixed 1.2em gap on top of the indent marked every paragraph
-        // twice — and on a double-spaced document it also broke the even line
-        // grid that APA, MLA, Chicago and Turabian all specify. The LaTeX Look
-        // branch above has always tied the two together; this is the same rule.
-        let _ = writeln!(out, "#set par(leading: {leading}, spacing: {leading}, first-line-indent: 1em, justify: true)");
+        // `spacing` is double `leading`, not equal to it — a fixed 1.2em gap
+        // regardless of line spacing marked every paragraph twice on top of
+        // the indent, but making it match `leading` exactly (the previous
+        // fix for that) went too far the other way: a paragraph break then
+        // read as no different from an ordinary wrapped line, with only the
+        // indent left to notice. Doubling gives a break that's actually
+        // visible while staying an exact multiple of the line pitch, so it
+        // doesn't break the even line grid that APA, MLA, Chicago and
+        // Turabian all specify.
+        let _ = writeln!(out, "#set par(leading: {leading}, spacing: {spacing}, first-line-indent: 1em, justify: true)");
     }
     let _ = writeln!(out);
 

@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### Fixed
+
+- **Paragraph spacing rendered identically to an ordinary wrapped line.** `#set par`'s `spacing` (the gap between paragraphs) was set equal to `leading` (the gap between lines within one), so a paragraph break was marked only by the first-line indent — no visible gap at all. `spacing` is now double `leading` in every generated template and in the legacy header "Style" dropdown's built-in styles (SBL, Chicago, MLA, APA, ASA, Turabian, Harvard), giving paragraphs a break a reader actually sees while staying an exact multiple of the line pitch, so it doesn't disturb the even baseline grid academic citation styles rely on. CVs are unaffected — their tighter `spacing < leading` is a deliberate, separate choice for a dense one-page layout.
+- **The header bar's "Style" dropdown could silently desync from Update Template Settings.** Picking a style there rewrites the document's headings, title page, and `@zerkalo-style` annotation directly, but never touched the `.zerkalo.toml` sidecar Update Template Settings reads from — so reopening that dialog after using the dropdown showed the *previous* style, and pressing Apply would regenerate the document back onto it, silently discarding the dropdown's choice. Fixed at the source (the dropdown now keeps the sidecar's `style` in step) and defensively (the dialog now also re-derives the citation style from the document itself when it opens, the same way it already does for font, size, paper, and margin).
+- **Template Settings let you pick a Body Font or Line Spacing that "LaTeX Look" would then silently ignore.** That style has always hardcoded New Computer Modern and its own tight leading, but the two rows stayed fully editable with no indication a choice there wouldn't take effect. They're now greyed out with an explanatory tooltip while LaTeX Look is selected.
+
+---
+
 ## [0.26.1] "Even Keel" — 2026-08-22 — Right-click scroll jump still possible on dismiss; release re-cut
 
 ### Fixed

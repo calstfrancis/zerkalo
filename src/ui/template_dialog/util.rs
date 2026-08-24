@@ -100,6 +100,35 @@ pub(crate) fn user_length_or(raw: &str, default_unit: &str, fallback: &str) -> S
     user_length(raw, default_unit).unwrap_or_else(|| fallback.to_string())
 }
 
+/// Typst's `par.leading` (gap between lines within a paragraph) and
+/// `par.spacing` (gap between paragraphs) are unrelated settings, but the
+/// generator used to point `spacing` at the exact same value as `leading` —
+/// which puts exactly one ordinary line-gap between two paragraphs, i.e. a
+/// paragraph break reads as no different from a wrapped line, with only the
+/// first-line indent left to mark it. Doubling `leading` gives a break a
+/// reader actually sees, while staying an exact multiple of the line pitch
+/// so it doesn't throw off the even baseline grid academic citation styles
+/// (MLA/APA/Chicago/Turabian) rely on for page-count-accurate formatting.
+/// `leading` is always a value `user_length`/`user_length_or` already
+/// produced (a valid Typst length), so the numeric-prefix parse below always
+/// succeeds; the fallback only guards a value that reached here some other
+/// way.
+pub(crate) fn paragraph_spacing_for_leading(leading: &str) -> String {
+    let split = leading
+        .find(|c: char| !(c.is_ascii_digit() || c == '.'))
+        .unwrap_or(leading.len());
+    let Ok(value) = leading[..split].parse::<f64>() else {
+        return leading.to_string();
+    };
+    let unit = &leading[split..];
+    let doubled = value * 2.0;
+    if doubled.fract() == 0.0 {
+        format!("{}{unit}", doubled as i64)
+    } else {
+        format!("{doubled}{unit}")
+    }
+}
+
 /// Validate a dropcap `fill:` value. Accepts the presets from
 /// [`DROPCAP_COLORS`] and a bare `#rrggbb` hex the user may have typed, and
 /// rejects everything else — an arbitrary string is emitted as a Typst
