@@ -80,6 +80,13 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.26.3" date="2026-08-24">
+      <description>
+        <p>0.26.3 "Steady Margin" — typewriter scroll now re-centers while
+        typing inside a wrapped paragraph, instead of only at paragraph
+        breaks, so text no longer runs off screen.</p>
+      </description>
+    </release>
     <release version="0.26.2" date="2026-08-24">
       <description>
         <p>0.26.2 "Clean Break" — paragraph breaks used to render identically

@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.26.3] "Steady Margin" — 2026-08-24 — Typewriter scroll fix
+
+### Fixed
+
+- **Typewriter scroll did nothing while typing inside a wrapped paragraph.** It re-centered the viewport based on the buffer's *logical* line number, but with word wrap on (the default), a single long paragraph spans many wrapped display rows while staying one logical line — so the re-center never fired until the next paragraph break, letting text run off screen the whole time. Now tracked by the cursor's actual vertical position instead, so it re-centers on every wrapped display line, not just at paragraph boundaries.
+
+---
+
 ## [0.26.2] "Clean Break" — 2026-08-24 — Paragraph spacing, Style/Template Settings desync fix, Typst 0.15
 
 ### Changed

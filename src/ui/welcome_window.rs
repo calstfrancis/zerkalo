@@ -7,7 +7,7 @@ use gtk4::{Align, Box as GtkBox, Button, Label, Orientation, ScrolledWindow, Sep
 use libadwaita as adw;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const RELEASE_NAME: &str = "Clean Break";
+pub const RELEASE_NAME: &str = "Steady Margin";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -143,9 +143,7 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
-                "Fixed paragraph spacing: paragraph breaks used to render identically to an ordinary wrapped line, marked only by the first-line indent. There's now a visible gap between paragraphs in every generated template.",
-                "Fixed the header bar's Style dropdown silently falling out of sync with Update Template Settings — picking a style there could leave that dialog showing the old one, and Apply would silently revert your choice.",
-                "Template Settings now greys out Body Font and Line Spacing with an explanation while LaTeX Look is selected, instead of letting you pick values that style was always going to ignore.",
+                "Fixed typewriter scroll doing nothing while typing inside a wrapped paragraph — it now re-centers on every wrapped line, not just at paragraph breaks, so text no longer runs off screen.",
             ] {
                 body.append(&bullet_row(item));
             }
