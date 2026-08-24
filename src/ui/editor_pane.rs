@@ -7478,9 +7478,14 @@ impl EditorPane {
         let crosshair_for_mark = self.typewriter_crosshair.clone();
         let crosshair_timer_for_mark = self.typewriter_crosshair_timer.clone();
         let view_for_scroll_margin = tab.view.clone();
-        // Track last line the typewriter tab.scroll recentered on, so we only fire
-        // when the cursor crosses a line boundary (not every column move).
-        let last_tw_line: Rc<std::cell::Cell<i32>> = Rc::new(std::cell::Cell::new(-1));
+        // Track the cursor's last vertical (window) position the typewriter
+        // tab.scroll recentered on, so we only fire when the cursor moves to a
+        // new display line (not every column move). This must be the *display*
+        // line, not the buffer line: with word wrap on (the default), a single
+        // long paragraph spans many display lines but is all one buffer line,
+        // so gating on buf line() alone would never recenter while typing
+        // within a wrapped paragraph and text would run off screen.
+        let last_tw_y: Rc<std::cell::Cell<i32>> = Rc::new(std::cell::Cell::new(i32::MIN));
         // Only do typewriter tab.scroll when typing, not on mouse click.
         // connect_changed fires before connect_mark_set on keyboard input.
         let typing_flag: Rc<std::cell::Cell<bool>> = Rc::new(std::cell::Cell::new(false));
@@ -7578,12 +7583,17 @@ impl EditorPane {
 
                 // Typewriter scroll: only recenter when typing (not on mouse click).
                 // Debounced 80 ms so rapid line crossings coalesce into one recenter.
-                if *typewriter_for_mark.borrow()
-                    && was_typing
-                    && !buf.has_selection()
-                    && cursor.line() != last_tw_line.get()
-                {
-                    last_tw_line.set(cursor.line());
+                // Compared by the cursor's buffer-space y (display line), not the
+                // logical buf.line() — see last_tw_y's doc comment above.
+                let tw_y = if *typewriter_for_mark.borrow() {
+                    Some(view_for_scroll_margin.iter_location(&cursor).y())
+                } else {
+                    None
+                };
+                if let Some(y) = tw_y.filter(|&y| {
+                    was_typing && !buf.has_selection() && y != last_tw_y.get()
+                }) {
+                    last_tw_y.set(y);
                     let mut c = cursor;
                     let vt = view_for_typewriter.clone();
                     let sc_tw = scroll_for_typewriter.clone();
