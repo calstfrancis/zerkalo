@@ -84,7 +84,8 @@
       <description>
         <p>0.26.3 "Steady Margin" — typewriter scroll now re-centers while
         typing inside a wrapped paragraph, instead of only at paragraph
-        breaks, so text no longer runs off screen.</p>
+        breaks, so text no longer runs off screen. The right-click spelling
+        suggestions popover no longer flashes shut before it can be read.</p>
       </description>
     </release>
     <release version="0.26.2" date="2026-08-24">

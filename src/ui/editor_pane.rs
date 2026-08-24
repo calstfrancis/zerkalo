@@ -7292,7 +7292,19 @@ impl EditorPane {
                     // the user clicked to dismiss the popover.
                 });
 
-                popover.popup();
+                // Deferred to the next idle, not called here directly: this
+                // whole handler runs on the right-click's button-*press*, with
+                // the button still down (connect_pressed, not connect_released
+                // — see the comment on this gesture's creation for why).
+                // Calling popup() synchronously starts the popover's autohide
+                // grab immediately, and the paired button-*release* — which
+                // hasn't happened yet and lands back on the editor, outside the
+                // popover's own surface — then reads to that grab as an
+                // outside click and closes the popover right away, before the
+                // suggestions even finish rendering. Waiting for an idle lets
+                // the release finish being dispatched first.
+                let popover_open = popover.clone();
+                glib::idle_add_local_once(move || popover_open.popup());
             });
             view.add_controller(gesture);
         }
