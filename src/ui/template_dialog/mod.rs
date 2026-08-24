@@ -2165,6 +2165,82 @@ struct CvModeTargets<'a> {
     tab5_scroll: &'a ScrolledWindow,
 }
 
+const LATEX_LOCK_TOOLTIP: &str = "LaTeX Look always uses New Computer Modern at its \
+own tight leading — Body Font and Line Spacing are ignored while this style is selected";
+
+/// `generate_typst_template`'s `style_key == "latex"` branch hardcodes the
+/// font and leading/spacing outright, ignoring `TemplateSettings::font` and
+/// `::spacing` completely — but until this existed, the Body Font and Line
+/// Spacing rows stayed fully interactive with no sign that a choice made
+/// there would silently do nothing on Apply while LaTeX Look was selected.
+/// Grey both rows out and say why instead.
+fn apply_latex_font_lock(
+    font: &adw::ComboRow,
+    custom_font: &adw::EntryRow,
+    spacing: &adw::ComboRow,
+    is_latex: bool,
+) {
+    let tip = is_latex.then_some(LATEX_LOCK_TOOLTIP);
+    font.set_sensitive(!is_latex);
+    custom_font.set_sensitive(!is_latex);
+    spacing.set_sensitive(!is_latex);
+    font.set_tooltip_text(tip);
+    spacing.set_tooltip_text(tip);
+}
+
+/// Recomputes whether the Style row currently resolves to "LaTeX Look" — false
+/// whenever CV Mode is on, since the row's model is swapped to CV_STYLE_OPTIONS
+/// then and its indices don't mean citation-style keys at all.
+fn style_row_is_latex(style: &adw::ComboRow, cv_switch: &Switch) -> bool {
+    !cv_switch.is_active()
+        && CITATION_STYLES
+            .get(style.selected() as usize)
+            .is_some_and(|(_, key)| *key == "latex")
+}
+
+/// Keeps the Body Font / Line Spacing lock (see `apply_latex_font_lock`) in
+/// sync with both of the Style row's own two triggers: picking a different
+/// citation style directly, and CV Mode swapping its model out from under it.
+/// Connected after `wire_cv_mode_toggle` so its own `cv_switch` handler (which
+/// swaps the Style row's model/selection) always runs first on the same
+/// signal — otherwise this would sometimes read the pre-swap selection.
+fn wire_latex_font_lock(form: &FormWidgets) {
+    apply_latex_font_lock(
+        &form.font,
+        &form.custom_font,
+        &form.spacing,
+        style_row_is_latex(&form.style, &form.cv_switch),
+    );
+    {
+        let font = form.font.clone();
+        let custom_font = form.custom_font.clone();
+        let spacing = form.spacing.clone();
+        let cv_switch = form.cv_switch.clone();
+        form.style.connect_selected_notify(move |style| {
+            apply_latex_font_lock(
+                &font,
+                &custom_font,
+                &spacing,
+                style_row_is_latex(style, &cv_switch),
+            );
+        });
+    }
+    {
+        let font = form.font.clone();
+        let custom_font = form.custom_font.clone();
+        let spacing = form.spacing.clone();
+        let style = form.style.clone();
+        form.cv_switch.connect_active_notify(move |cv_switch| {
+            apply_latex_font_lock(
+                &font,
+                &custom_font,
+                &spacing,
+                style_row_is_latex(&style, cv_switch),
+            );
+        });
+    }
+}
+
 /// CV Mode: filters the gallery to CV presets, hides the Sections and Packages
 /// tabs, reveals the Skrizhal group, and swaps the Style row between citation
 /// styles and CV layouts.
@@ -2674,6 +2750,7 @@ impl TemplateDialog {
                 serif_idx: default_font_idx,
             },
         );
+        wire_latex_font_lock(&form);
 
         // ── Layout ───────────────────────────────────────────────────────────
         let toolbar_view = adw::ToolbarView::new();
@@ -3921,14 +3998,21 @@ mod tests {
     }
 
     #[test]
-    fn paragraph_spacing_matches_leading_rather_than_doubling_the_cue() {
+    fn paragraph_spacing_is_visibly_larger_than_leading() {
         for (_, leading) in SPACING_OPTIONS {
             let mut s = matrix_base();
             s.spacing = leading.to_string();
             let doc = generate_typst_template(&s);
+            let expected_spacing = paragraph_spacing_for_leading(leading);
+            assert_ne!(
+                expected_spacing, *leading,
+                "test setup: doubling should never land back on the same value"
+            );
             assert!(
-                doc.contains(&format!("leading: {leading}, spacing: {leading}")),
-                "expected paragraph spacing to track leading for {leading}"
+                doc.contains(&format!("leading: {leading}, spacing: {expected_spacing}")),
+                "expected paragraph spacing to be double the leading ({leading} -> \
+                 {expected_spacing}), so a paragraph break reads as more than an \
+                 ordinary wrapped line"
             );
         }
     }

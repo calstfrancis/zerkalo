@@ -2820,6 +2820,23 @@ impl EditorPane {
                 }
             }
         }
+
+        // Keep the sidecar's `style` in step with the document, same as
+        // `apply_doc_font_edit` already does for the format bar's font/size
+        // pickers. Without this, the header Style dropdown changed the
+        // document's headings/title page/@zerkalo-style annotation directly
+        // but left the `.zerkalo.toml` sidecar on whatever style was active
+        // before — so "Update Template Settings" would reopen showing the
+        // *old* style, and Apply would silently regenerate the document back
+        // onto it, discarding the choice made here.
+        if crate::styles::has_template_block(&content) {
+            if let Some(mut sc) = super::template_dialog::load_sidecar(&path) {
+                if sc.style != style_key {
+                    sc.style = style_key.to_string();
+                    super::template_dialog::save_sidecar(&path, &sc);
+                }
+            }
+        }
     }
 
     pub fn insert_at_cursor(&self, text: &str) {
