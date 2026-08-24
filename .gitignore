@@ -1,6 +1,7 @@
 # Rust / Cargo
 /target/
-.cargo/
+.cargo/*
+!.cargo/audit.toml
 
 # flatpak-builder cache/build state (large, machine-local)
 /.flatpak-builder/
