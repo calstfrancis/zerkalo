@@ -7590,9 +7590,9 @@ impl EditorPane {
                 } else {
                     None
                 };
-                if let Some(y) = tw_y.filter(|&y| {
-                    was_typing && !buf.has_selection() && y != last_tw_y.get()
-                }) {
+                if let Some(y) =
+                    tw_y.filter(|&y| was_typing && !buf.has_selection() && y != last_tw_y.get())
+                {
                     last_tw_y.set(y);
                     let mut c = cursor;
                     let vt = view_for_typewriter.clone();
