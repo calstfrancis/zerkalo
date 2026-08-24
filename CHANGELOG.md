@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [Unreleased]
+## [0.26.2] "Clean Break" — 2026-08-24 — Paragraph spacing, Style/Template Settings desync fix, Typst 0.15
 
 ### Changed
 

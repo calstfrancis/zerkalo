@@ -80,6 +80,20 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.26.2" date="2026-08-24">
+      <description>
+        <p>0.26.2 "Clean Break" — paragraph breaks used to render identically
+        to an ordinary wrapped line, marked only by the first-line indent;
+        there's now a visible gap between paragraphs. Fixed the header bar's
+        Style dropdown silently falling out of sync with Update Template
+        Settings, which could leave that dialog showing a stale style and
+        silently revert a choice made through the dropdown. Template Settings
+        now greys out Body Font and Line Spacing with an explanation while
+        LaTeX Look is selected, instead of letting you pick values that style
+        was always going to ignore. Also upgraded the embedded Typst compiler
+        to 0.15.1 (internal, no formatting or citation-output change).</p>
+      </description>
+    </release>
     <release version="0.26.1" date="2026-08-22">
       <description>
         <p>0.26.1 "Even Keel" — right-clicking in the editor could still jump
