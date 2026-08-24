@@ -10,7 +10,7 @@ use typst::text::{Font, FontBook};
 use typst::utils::{LazyHash, Scalar};
 use typst::{Library, LibraryExt, World as TypstWorld, WorldExt};
 use typst_kit::downloader::SystemDownloader;
-use typst_kit::fonts::{embedded, FontStore};
+use typst_kit::fonts::{embedded, system, FontStore};
 use typst_kit::packages::{FsPackages, SystemPackages, UniversePackages};
 use typst_layout::PagedDocument;
 
@@ -30,6 +30,10 @@ fn global_fonts() -> &'static FontStore {
     FONTS.get_or_init(|| {
         let mut store = FontStore::new();
         store.extend(embedded());
+        // System-installed fonts (e.g. Atkinson Hyperlegible, Goudy Initialen)
+        // so documents referencing them resolve without a Zerkalo-specific
+        // fonts folder — matches typst-cli's own default font search.
+        store.extend(system());
         store
     })
 }
