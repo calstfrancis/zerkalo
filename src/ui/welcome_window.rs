@@ -142,9 +142,12 @@ impl WelcomeWindow {
             }
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
-            body.append(&bullet_row(
+            for item in [
                 "Fixed typewriter scroll doing nothing while typing inside a wrapped paragraph — it now re-centers on every wrapped line, not just at paragraph breaks, so text no longer runs off screen.",
-            ));
+                "Fixed the right-click spelling-suggestions popover opening and closing again almost instantly — it now waits for the click that opened it to finish before showing.",
+            ] {
+                body.append(&bullet_row(item));
+            }
         }
 
         body.append(&Separator::new(Orientation::Horizontal));

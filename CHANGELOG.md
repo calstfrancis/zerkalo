@@ -5,11 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.26.3] "Steady Margin" — 2026-08-24 — Typewriter scroll fix
+## [0.26.3] "Steady Margin" — 2026-08-24 — Typewriter scroll and spell popover fixes
 
 ### Fixed
 
 - **Typewriter scroll did nothing while typing inside a wrapped paragraph.** It re-centered the viewport based on the buffer's *logical* line number, but with word wrap on (the default), a single long paragraph spans many wrapped display rows while staying one logical line — so the re-center never fired until the next paragraph break, letting text run off screen the whole time. Now tracked by the cursor's actual vertical position instead, so it re-centers on every wrapped display line, not just at paragraph boundaries.
+- **Right-clicking a misspelled word opened the suggestions popover and closed it again almost instantly**, too fast to read or click anything. The popover opened on the button-*press* (button-release for a right-click is eaten by GtkSourceView's own handling before it reaches Zerkalo, so press is the only reliable signal), but that starts the popover's autohide grab while the mouse button is still down — the paired release, landing back on the editor outside the popover's surface, then read as an outside click and closed it right away. The popover now opens on the next idle cycle instead, after that release has finished being dispatched.
 
 ---
 
