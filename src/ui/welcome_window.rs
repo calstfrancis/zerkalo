@@ -7,7 +7,7 @@ use gtk4::{Align, Box as GtkBox, Button, Label, Orientation, ScrolledWindow, Sep
 use libadwaita as adw;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const RELEASE_NAME: &str = "Even Keel";
+pub const RELEASE_NAME: &str = "Clean Break";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -143,8 +143,9 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
-                "Fixed a bug where right-clicking in the editor could still throw the view to the top of the document when the menu was dismissed by clicking elsewhere, even after an earlier fix for the same jump on opening one.",
-                "New Template Settings toggles: Title Page and Bibliography, in the Sections tab, both on by default. Turn off Title Page for a document that shouldn't have a cover page; turn off Bibliography to suppress the #bibliography(...) call even if a .bib file is attached — it leaves a commented-out line so it's easy to switch back on.",
+                "Fixed paragraph spacing: paragraph breaks used to render identically to an ordinary wrapped line, marked only by the first-line indent. There's now a visible gap between paragraphs in every generated template.",
+                "Fixed the header bar's Style dropdown silently falling out of sync with Update Template Settings — picking a style there could leave that dialog showing the old one, and Apply would silently revert your choice.",
+                "Template Settings now greys out Body Font and Line Spacing with an explanation while LaTeX Look is selected, instead of letting you pick values that style was always going to ignore.",
             ] {
                 body.append(&bullet_row(item));
             }
