@@ -1,0 +1,19 @@
+# cargo-audit config, read by `rustsec/audit-check` in .github/workflows/*.yml.
+[advisories]
+ignore = [
+    # quick-xml DoS advisories (quadratic attribute-name check / unbounded
+    # namespace allocation on untrusted XML). Reachable only transitively:
+    #   - via citationberg 0.7.0 (pins quick-xml = "0.38.1"), used for CSL
+    #     citation-style parsing
+    #   - via plist -> syntect (syntax-highlighting themes), used for
+    #     Sublime-style theme parsing
+    # citationberg is already at its latest crates.io release with no newer
+    # quick-xml pin available, so this can't be fixed with a version bump
+    # right now. Both paths parse local/trusted files (citation styles,
+    # syntax themes bundled with typst), not untrusted network input, so the
+    # DoS impact doesn't apply to how zerkalo uses these crates.
+    # Revisit when citationberg/hayagriva bump their quick-xml requirement
+    # past 0.41.0.
+    "RUSTSEC-2026-0194",
+    "RUSTSEC-2026-0195",
+]
