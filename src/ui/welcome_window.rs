@@ -7,7 +7,7 @@ use gtk4::{Align, Box as GtkBox, Button, Label, Orientation, ScrolledWindow, Sep
 use libadwaita as adw;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const RELEASE_NAME: &str = "Steady Margin";
+pub const RELEASE_NAME: &str = "Clear Glyph";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -143,6 +143,7 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
+                "Fixed system-installed fonts (e.g. Atkinson Hyperlegible, Goudy Initialen) failing to resolve in compiled documents since 0.26.2 — the compiler now scans installed system fonts again.",
                 "Fixed typewriter scroll doing nothing while typing inside a wrapped paragraph — it now re-centers on every wrapped line, not just at paragraph breaks, so text no longer runs off screen.",
                 "Fixed the right-click spelling-suggestions popover opening and closing again almost instantly — it now waits for the click that opened it to finish before showing.",
             ] {

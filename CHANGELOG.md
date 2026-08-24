@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.26.4] "Clear Glyph" — 2026-08-24 — System fonts restored
+
+### Fixed
+
+- **System-installed fonts (e.g. Atkinson Hyperlegible, Goudy Initialen) stopped resolving in compiled documents as of 0.26.2**, failing with "unknown font family," even though they compiled fine before. The 0.26.2 upgrade of the embedded Typst compiler to 0.15.1 migrated font loading from `typst-kit`'s old `FontSearcher` (which scanned system fonts by default) to the new `FontStore` API, but the migration only carried over the bundled embedded fonts and silently dropped the system-font scan. The compiler now also scans installed system fonts again, matching `typst-cli`'s own default behavior.
+
+---
+
 ## [0.26.3] "Steady Margin" — 2026-08-24 — Typewriter scroll and spell popover fixes
 
 ### Fixed

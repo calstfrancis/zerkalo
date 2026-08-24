@@ -80,6 +80,15 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.26.4" date="2026-08-24">
+      <description>
+        <p>0.26.4 "Clear Glyph" — system-installed fonts (e.g. Atkinson
+        Hyperlegible, Goudy Initialen) stopped resolving in compiled
+        documents as of 0.26.2's compiler upgrade, failing with "unknown
+        font family." The compiler now scans installed system fonts again,
+        matching typst-cli's own default behavior.</p>
+      </description>
+    </release>
     <release version="0.26.3" date="2026-08-24">
       <description>
         <p>0.26.3 "Steady Margin" — typewriter scroll now re-centers while
