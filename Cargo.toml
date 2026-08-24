@@ -44,10 +44,11 @@ fond-bib = { git = "https://github.com/calstfrancis/kartoteka", tag = "v0.5.1" }
 fond-vault = { git = "https://github.com/calstfrancis/kartoteka", tag = "v0.5.1" }
 
 # Embedded Typst compiler
-typst = "0.14"
-typst-render = "0.14"
-typst-pdf = "0.14"
-typst-kit = { version = "0.14", features = ["embed-fonts"] }
+typst = "0.15"
+typst-layout = "0.15"
+typst-render = "0.15"
+typst-pdf = "0.15"
+typst-kit = { version = "0.15", features = ["embedded-fonts", "system-packages", "universe-packages", "system-downloader"] }
 tiny-skia = { version = "0.11", features = ["png"] }
 url = "2"
 ashpd = { version = "0.13.13", default-features = false, features = ["print", "tokio"] }

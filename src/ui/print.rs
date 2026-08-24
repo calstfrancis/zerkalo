@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use gtk4::prelude::*;
 use gtk4::{PrintOperation, PrintOperationAction, Window};
-use typst::layout::PagedDocument;
+use typst_layout::PagedDocument;
 
 use crate::config::{DuplexPref, PrintPrefs};
 use crate::print_layout::{physical_ranges_string, Imposition, PageNumbering, PaperSpec};
@@ -75,7 +75,7 @@ pub struct Prepared {
 impl Prepared {
     fn from_document(doc: PagedDocument, pdf: Vec<u8>) -> Result<Self, String> {
         let sizes: Vec<(f64, f64)> = doc
-            .pages
+            .pages()
             .iter()
             .map(|p| {
                 let size = p.frame.size();
@@ -84,7 +84,7 @@ impl Prepared {
             .collect();
         let paper = PaperSpec::from_page_sizes(&sizes)
             .ok_or_else(|| "The document has no pages to print.".to_string())?;
-        let numbering = PageNumbering::new(doc.pages.iter().map(|p| p.number).collect());
+        let numbering = PageNumbering::new(doc.pages().iter().map(|p| p.number).collect());
         Ok(Prepared {
             pdf,
             doc,
@@ -518,7 +518,7 @@ fn run_gtk_print_dialog(
         let Some(index) = pages.get(nth as usize) else {
             return;
         };
-        let Some(page) = prepared.doc.pages.get(*index) else {
+        let Some(page) = prepared.doc.pages().get(*index) else {
             return;
         };
         draw_page(&ctx.cairo_context(), page, raster_dpi(ctx));
@@ -585,7 +585,7 @@ fn raster_dpi(ctx: &gtk4::PrintContext) -> f64 {
     }
 }
 
-fn draw_page(cr: &gtk4::cairo::Context, page: &typst::layout::Page, dpi: f64) {
+fn draw_page(cr: &gtk4::cairo::Context, page: &typst_layout::Page, dpi: f64) {
     let scale = (dpi / POINTS_PER_INCH) as f32;
     let rendered = crate::compiler::render_page_rgba(page, scale);
     if rendered.width == 0 || rendered.height == 0 {

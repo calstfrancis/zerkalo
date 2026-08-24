@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Upgraded the embedded Typst compiler from 0.14.2 to 0.15.1** (and `hayagriva`'s citation engine stays matched at 0.10.1). Mostly internal — `typst-kit`'s font/package-download subsystem was ported to its new composable API (`FontStore`, `SystemPackages`/`UniversePackages`/`SystemDownloader`), and a handful of `typst`/`typst-syntax` API relocations were followed. No user-visible formatting or citation-output change: the full test suite (including the tests that actually compile real documents in every citation style and CV layout) passes unchanged. Does *not* close the `quick-xml` DoS advisories `cargo-audit` flags — those come from `hayagriva`'s `citationberg` dependency and, separately, from `typst-library`'s own `syntect` dependency, neither of which has a fixed release to move to yet; both were already present before this bump, not introduced by it.
+
 ### Fixed
 
 - **Paragraph spacing rendered identically to an ordinary wrapped line.** `#set par`'s `spacing` (the gap between paragraphs) was set equal to `leading` (the gap between lines within one), so a paragraph break was marked only by the first-line indent — no visible gap at all. `spacing` is now double `leading` in every generated template and in the legacy header "Style" dropdown's built-in styles (SBL, Chicago, MLA, APA, ASA, Turabian, Harvard), giving paragraphs a break a reader actually sees while staying an exact multiple of the line pitch, so it doesn't disturb the even baseline grid academic citation styles rely on. CVs are unaffected — their tighter `spacing < leading` is a deliberate, separate choice for a dense one-page layout.

@@ -513,7 +513,7 @@ fn draw_sheet_preview(
         let Some(index) = entry else {
             continue;
         };
-        let Some(page) = doc.doc.pages.get(*index) else {
+        let Some(page) = doc.doc.pages().get(*index) else {
             continue;
         };
 

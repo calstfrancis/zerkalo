@@ -4,15 +4,15 @@ use std::sync::{Mutex, OnceLock};
 
 use chrono::Datelike;
 use typst::diag::{FileError, FileResult, Severity, SourceDiagnostic, Warned};
-use typst::foundations::{Bytes, Datetime, Dict, IntoValue, Str};
-use typst::layout::PagedDocument;
-use typst::syntax::{FileId, Source, VirtualPath};
+use typst::foundations::{Bytes, Datetime, Dict, Duration, IntoValue, Str};
+use typst::syntax::{FileId, RootedPath, Source, VirtualPath, VirtualRoot};
 use typst::text::{Font, FontBook};
-use typst::utils::LazyHash;
+use typst::utils::{LazyHash, Scalar};
 use typst::{Library, LibraryExt, World as TypstWorld, WorldExt};
-use typst_kit::download::{Downloader, ProgressSink};
-use typst_kit::fonts::{FontSearcher, FontSlot, Fonts};
-use typst_kit::package::PackageStorage;
+use typst_kit::downloader::SystemDownloader;
+use typst_kit::fonts::{embedded, FontStore};
+use typst_kit::packages::{FsPackages, SystemPackages, UniversePackages};
+use typst_layout::PagedDocument;
 
 /// A panic anywhere else while holding one of these cache locks would otherwise
 /// poison it permanently, turning one unrelated crash into "compiling is broken
@@ -25,11 +25,12 @@ fn poisoned_lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 // ── Static globals: fonts only — library is built per-compile with inputs ─────
 
-static FONTS: OnceLock<(LazyHash<FontBook>, Vec<FontSlot>)> = OnceLock::new();
-fn global_fonts() -> &'static (LazyHash<FontBook>, Vec<FontSlot>) {
+static FONTS: OnceLock<FontStore> = OnceLock::new();
+fn global_fonts() -> &'static FontStore {
     FONTS.get_or_init(|| {
-        let Fonts { book, fonts } = FontSearcher::new().search();
-        (LazyHash::new(book), fonts)
+        let mut store = FontStore::new();
+        store.extend(embedded());
+        store
     })
 }
 
@@ -46,21 +47,24 @@ pub fn package_cache_root() -> PathBuf {
     cache_root.join("typst/packages")
 }
 
-static PACKAGES: OnceLock<PackageStorage> = OnceLock::new();
+static PACKAGES: OnceLock<SystemPackages> = OnceLock::new();
 
 /// Package storage that downloads `@preview` packages on first use instead of
 /// failing. Previously a package that happened not to be in the cache already
 /// surfaced as `file not found` naming an internal cache path, with no way to
 /// act on it from inside Zerkalo.
 ///
-/// `package_path` is left to the default so `@local` packages resolve from the
-/// user's data dir as they do under `typst-cli`.
-fn package_storage() -> &'static PackageStorage {
+/// `data` is left to the default (`FsPackages::system_data`) so `@local`
+/// packages resolve from the user's data dir as they do under `typst-cli`.
+fn package_storage() -> &'static SystemPackages {
     PACKAGES.get_or_init(|| {
-        PackageStorage::new(
-            Some(package_cache_root()),
-            None,
-            Downloader::new(concat!("zerkalo/", env!("CARGO_PKG_VERSION"))),
+        SystemPackages::from_parts(
+            FsPackages::system_data(),
+            Some(FsPackages::new(package_cache_root())),
+            UniversePackages::new(SystemDownloader::new(concat!(
+                "zerkalo/",
+                env!("CARGO_PKG_VERSION")
+            ))),
         )
     })
 }
@@ -68,13 +72,13 @@ fn package_storage() -> &'static PackageStorage {
 /// Downloads a `@preview` package into the shared cache ahead of time, so the
 /// package browser can offer an explicit "Install" action instead of relying
 /// only on the implicit download the first time a document imports it.
-/// Reuses the same [`PackageStorage`] the compiler itself resolves imports
+/// Reuses the same [`SystemPackages`] the compiler itself resolves imports
 /// through, so an install here is immediately visible to the next compile.
 /// Blocking (network + disk) — callers must not run this on the main thread.
 pub fn install_package(spec_str: &str) -> Result<(), String> {
     let spec: typst::syntax::package::PackageSpec = spec_str.parse().map_err(|e| format!("{e}"))?;
     package_storage()
-        .prepare_package(&spec, &mut ProgressSink)
+        .obtain(&spec)
         .map(|_| ())
         .map_err(|e| e.to_string())
 }
@@ -259,8 +263,13 @@ impl ZerkaloWorld {
             (project_root, root_file.to_path_buf())
         };
 
-        let rel = abs_root_file.strip_prefix(&root).unwrap_or(&abs_root_file);
-        let main_id = FileId::new(None, VirtualPath::new(rel));
+        let vpath = VirtualPath::virtualize(&root, &abs_root_file).map_err(|e| {
+            format!(
+                "failed to resolve root file path {}: {e}",
+                abs_root_file.display()
+            )
+        })?;
+        let main_id = FileId::new(RootedPath::new(VirtualRoot::Project, vpath));
         let library = build_library(sys_inputs);
         Ok(Self {
             root,
@@ -274,17 +283,18 @@ impl ZerkaloWorld {
 
     fn resolve(&self, id: FileId) -> FileResult<PathBuf> {
         let vpath = id.vpath();
-        let base = if let Some(spec) = id.package() {
-            package_storage()
-                .prepare_package(spec, &mut ProgressSink)
+        let base = match id.root() {
+            VirtualRoot::Project => self.root.clone(),
+            VirtualRoot::Package(spec) => package_storage()
+                .obtain(spec)
                 .map_err(FileError::Package)?
-        } else {
-            self.root.clone()
+                .path()
+                .to_path_buf(),
         };
 
         vpath
-            .resolve(&base)
-            .ok_or_else(|| FileError::NotFound(vpath.as_rootless_path().to_path_buf()))
+            .realize(&base)
+            .map_err(|_| FileError::NotFound(PathBuf::from(vpath.get_without_slash())))
     }
 }
 
@@ -294,7 +304,7 @@ impl typst::World for ZerkaloWorld {
     }
 
     fn book(&self) -> &LazyHash<FontBook> {
-        &global_fonts().0
+        global_fonts().book()
     }
 
     fn main(&self) -> FileId {
@@ -340,11 +350,11 @@ impl typst::World for ZerkaloWorld {
     }
 
     fn font(&self, index: usize) -> Option<Font> {
-        global_fonts().1.get(index)?.get()
+        global_fonts().font(index)
     }
 
-    fn today(&self, offset: Option<i64>) -> Option<Datetime> {
-        let tz_secs = (offset.unwrap_or(0) * 3600) as i32;
+    fn today(&self, offset: Option<Duration>) -> Option<Datetime> {
+        let tz_secs = offset.map(|d| d.seconds()).unwrap_or(0.0) as i32;
         let tz = chrono::FixedOffset::east_opt(tz_secs)?;
         let now = chrono::Local::now().with_timezone(&tz);
         Datetime::from_ymd(now.year(), now.month() as u8, now.day() as u8)
@@ -408,7 +418,7 @@ fn format_one(world: &ZerkaloWorld, d: &SourceDiagnostic) -> String {
         let path = world
             .resolve(fid)
             .map(|p| p.display().to_string())
-            .unwrap_or_else(|_| src.id().vpath().as_rootless_path().display().to_string());
+            .unwrap_or_else(|_| src.id().vpath().get_without_slash().to_string());
         Some(format!("{path}:{line}:{col}"))
     });
 
@@ -417,7 +427,7 @@ fn format_one(world: &ZerkaloWorld, d: &SourceDiagnostic) -> String {
         out.push_str(&format!("\n --> {loc}"));
     }
     for hint in &d.hints {
-        out.push_str(&format!("\n   = hint: {hint}"));
+        out.push_str(&format!("\n   = hint: {}", hint.v));
     }
     out
 }
@@ -476,8 +486,14 @@ pub fn compile_document(
 }
 
 /// Render a single already-laid-out page to straight RGBA8.
-pub fn render_page_rgba(page: &typst::layout::Page, pixel_per_pt: f32) -> RenderedPage {
-    let pixmap = typst_render::render(page, pixel_per_pt);
+pub fn render_page_rgba(page: &typst_layout::Page, pixel_per_pt: f32) -> RenderedPage {
+    let pixmap = typst_render::render(
+        page,
+        &typst_render::RenderOptions {
+            pixel_per_pt: Scalar::new(pixel_per_pt as f64),
+            render_bleed: false,
+        },
+    );
     let mut rgba = Vec::with_capacity(pixmap.pixels().len() * 4);
     for px in pixmap.pixels() {
         let c = px.demultiply();
@@ -515,7 +531,7 @@ pub fn compile_to_rgba_pages(
     // Typst pages are opaque so this is usually identity, but pages with
     // a transparent background would otherwise darken. See render_page_rgba.
     let pages = doc
-        .pages
+        .pages()
         .iter()
         .map(|p| render_page_rgba(p, pixel_per_pt))
         .collect();
@@ -533,9 +549,15 @@ pub fn compile_to_png_bytes(
 ) -> Result<Vec<Vec<u8>>, String> {
     let world = ZerkaloWorld::new(root_file, overrides.clone(), sys_inputs, extra_root)?;
     let (doc, _warnings) = finish::<PagedDocument>(&world, typst::compile(&world))?;
-    let mut pages = Vec::with_capacity(doc.pages.len());
-    for page in &doc.pages {
-        let pixmap = typst_render::render(page, pixel_per_pt);
+    let mut pages = Vec::with_capacity(doc.pages().len());
+    for page in doc.pages() {
+        let pixmap = typst_render::render(
+            page,
+            &typst_render::RenderOptions {
+                pixel_per_pt: Scalar::new(pixel_per_pt as f64),
+                render_bleed: false,
+            },
+        );
         let png_bytes = pixmap
             .encode_png()
             .map_err(|e| format!("PNG encode error: {e}"))?;
@@ -1066,7 +1088,11 @@ mod tests {
         let path = write_temp_typ("First page.\n#pagebreak()\nSecond page.");
         let doc = compile_document(&path, &HashMap::new(), &HashMap::new(), None)
             .expect("document should compile");
-        assert_eq!(doc.pages.len(), 2, "two pages after an explicit pagebreak");
+        assert_eq!(
+            doc.pages().len(),
+            2,
+            "two pages after an explicit pagebreak"
+        );
     }
 
     #[test]
@@ -1083,8 +1109,8 @@ mod tests {
         // Cairo context back down by the same factor to land at true size.
         let path = write_temp_typ("= Heading");
         let doc = compile_document(&path, &HashMap::new(), &HashMap::new(), None).unwrap();
-        let low = render_page_rgba(&doc.pages[0], 1.0);
-        let high = render_page_rgba(&doc.pages[0], 2.0);
+        let low = render_page_rgba(&doc.pages()[0], 1.0);
+        let high = render_page_rgba(&doc.pages()[0], 2.0);
         // Page dimensions are fractional points, so doubling the scale lands
         // within a pixel of double the size rather than exactly on it.
         assert!(
