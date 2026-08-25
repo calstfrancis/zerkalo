@@ -358,7 +358,7 @@ impl EditorPane {
         }
 
         // Install Typst language definition
-        let lang_dir = glib::user_data_dir().join("zerkalo/language-specs");
+        let lang_dir = crate::config::zerkalo_data_dir().join("language-specs");
         let lang_file = lang_dir.join("typst.lang");
         if !lang_file.exists() && std::fs::create_dir_all(&lang_dir).is_ok() {
             let _ = std::fs::write(&lang_file, TYPST_LANG);
@@ -7147,20 +7147,7 @@ impl EditorPane {
                 let ws_off = word_start.offset();
                 let we_off = word_end.offset();
 
-                let (tx, rx) = std::sync::mpsc::sync_channel::<Vec<String>>(1);
-                {
-                    let word_bg = word.clone();
-                    std::thread::spawn(move || {
-                        let out = if already_ignored {
-                            Vec::new()
-                        } else {
-                            crate::spellcheck::suggestions_for_word(&word_bg, &lang)
-                        };
-                        tx.send(out).ok();
-                    });
-                }
-
-                let rx = Rc::new(rx);
+                let rx = Self::spawn_spelling_suggestions(&word, lang, already_ignored);
                 let sugg_box_fill = sugg_box.clone();
                 let pending_fill = pending.clone();
                 let popover_fill = popover.clone();
@@ -7890,20 +7877,7 @@ impl EditorPane {
                 let ws_off = word_start.offset();
                 let we_off = word_end.offset();
 
-                let (tx, rx) = std::sync::mpsc::sync_channel::<Vec<String>>(1);
-                {
-                    let word_bg = word.clone();
-                    std::thread::spawn(move || {
-                        let out = if already_ignored {
-                            Vec::new()
-                        } else {
-                            crate::spellcheck::suggestions_for_word(&word_bg, &lang)
-                        };
-                        tx.send(out).ok();
-                    });
-                }
-
-                let rx = Rc::new(rx);
+                let rx = Self::spawn_spelling_suggestions(&word, lang, already_ignored);
                 let vbox_fill = vbox.clone();
                 let pending_fill = pending.clone();
                 let popover_fill = popover.clone();
@@ -7976,6 +7950,36 @@ impl EditorPane {
             });
             tab.view.add_controller(ae_ctrl);
         }
+    }
+
+    /// Looks up hunspell suggestions for `word` on a background thread — the
+    /// fork/exec/wait is too slow to run inline on the GTK main thread,
+    /// whether triggered from a click (spell popover) or a keystroke
+    /// (autocorrect). `already_ignored` short-circuits to no suggestions
+    /// without spawning a thread at all, matching what the two popover call
+    /// sites already did before this was pulled out.
+    ///
+    /// Only the lookup itself is shared — each caller's poll loop still
+    /// differs (whether it bails when a popover closes, how it applies a
+    /// result), so this returns the `Rc`-wrapped receiver for the caller to
+    /// poll on its own `glib::timeout_add_local`, rather than taking a
+    /// callback.
+    fn spawn_spelling_suggestions(
+        word: &str,
+        lang: String,
+        already_ignored: bool,
+    ) -> Rc<std::sync::mpsc::Receiver<Vec<String>>> {
+        let (tx, rx) = std::sync::mpsc::sync_channel::<Vec<String>>(1);
+        let word_bg = word.to_string();
+        std::thread::spawn(move || {
+            let out = if already_ignored {
+                Vec::new()
+            } else {
+                crate::spellcheck::suggestions_for_word(&word_bg, &lang)
+            };
+            tx.send(out).ok();
+        });
+        Rc::new(rx)
     }
 
     fn wire_spellcheck(&self, tab: &TabContext) {
@@ -8153,16 +8157,10 @@ impl EditorPane {
                 // the meantime are safely ignored.
                 let ws_off = word_start.offset();
                 let we_off = word_end.offset();
-                let word_c = word.clone();
                 let buf_c = buf_ac.clone();
-                let (tx, rx) = std::sync::mpsc::sync_channel::<Vec<String>>(1);
-                std::thread::spawn(move || {
-                    tx.send(crate::spellcheck::suggestions_for_word(&word_c, &lang))
-                        .ok();
-                });
+                let rx = Self::spawn_spelling_suggestions(&word, lang, false);
 
                 let word_c = word.clone();
-                let rx = Rc::new(rx);
                 glib::timeout_add_local(Duration::from_millis(30), move || {
                     let suggestions = match rx.try_recv() {
                         Ok(s) => s,

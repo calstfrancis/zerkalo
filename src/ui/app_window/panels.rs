@@ -56,7 +56,12 @@ pub(super) fn build_panels(
     let editor_pane = EditorPane::new();
     crate::crash_flush::register(&editor_pane);
 
-    let library_window = LibraryWindow::new(app, library.clone(), config.work_dir.clone());
+    let library_window = LibraryWindow::new(
+        app,
+        library.clone(),
+        config.work_dir.clone(),
+        current_config.clone(),
+    );
     {
         let ep = editor_pane.clone();
         let win_for_open = window.clone();

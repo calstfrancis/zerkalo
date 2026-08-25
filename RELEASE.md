@@ -1,4 +1,4 @@
-# Zerkalo v0.26.4 "Clear Glyph"
+# Zerkalo v0.26.5 "Tidy Ledger"
 
 Install via Flatpak:
 
@@ -18,11 +18,13 @@ flatpak update io.github.calstfrancis.Zerkalo
 
 ### What's new
 
-**System-installed fonts work again.** Since 0.26.2's compiler upgrade, documents referencing an installed font like Atkinson Hyperlegible or Goudy Initialen failed to compile with "unknown font family," even though the font was right there on the system. The upgrade had switched font loading over to a new API and only carried over Zerkalo's bundled fonts, not the system font scan. System fonts are found again now, the same way they always were.
+**Enter now confirms every name prompt in the Library window.** Rename Project, Rename Document, New Project, and New Project from an existing document all needed a mouse click to confirm — typing a name and pressing Enter did nothing, unlike their siblings (Rename Category, Add Subcategory, New Category), which already worked that way.
 
-**Typewriter scroll actually scrolls now.** It re-centered the viewport based on the buffer's logical line number, but with word wrap on (the default), a single long paragraph spans many wrapped display rows while staying one logical line — so the re-center only fired at paragraph breaks, and text could run off screen the whole time you were typing inside one. It's now tracked by the cursor's actual vertical position, so it re-centers on every wrapped display line.
+**Exporting a CV or citation document from the Library window no longer comes out broken.** Using the Library window's own Export action (rather than the header's Export button on an already-open document) skipped the step that resolves a document's CV data source and bibliography path, so the exported PDF was missing `#cv-entry`/`#cv-section` content and citations. Both now resolve the same way for either export path.
 
-**Right-clicking a misspelling no longer flashes the suggestions popover shut before you can read it.** It was opening and then closing again almost instantly — a timing quirk in how GTK's popover autohide interacts with the mouse-button release from the right-click that opened it. It now waits a beat for that release to finish before showing.
+**A few secondary windows (Insert Table, Saved Versions, GitHub sign-in) now have the same header divider every other window in the app already has** — they were quietly missing the line that separates the header from the content below.
+
+Also in this release: a few dependency updates and some internal cleanup (duplicated code consolidated behind shared helpers, and leftover `.deb`/RPM packaging configuration removed now that distribution is flatpak-only) — nothing user-visible on their own, but worth a mention for anyone building from source.
 
 ---
 

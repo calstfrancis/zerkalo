@@ -113,13 +113,9 @@ impl SnapshotDialog {
         let close_btn = Button::with_label("Close");
         header.pack_end(&close_btn);
 
-        let content_box = GtkBox::new(Orientation::Vertical, 0);
-        content_box.append(&header);
-
         let body = GtkBox::new(Orientation::Horizontal, 0);
         body.set_hexpand(true);
         body.set_vexpand(true);
-        content_box.append(&body);
 
         // ── Left: snapshot list ───────────────────────────────────────────────
         let left = GtkBox::new(Orientation::Vertical, 0);
@@ -192,7 +188,11 @@ impl SnapshotDialog {
 
         body.append(&right);
 
-        window.set_content(Some(&content_box));
+        let toolbar_view = adw::ToolbarView::new();
+        toolbar_view.set_top_bar_style(adw::ToolbarStyle::RaisedBorder);
+        toolbar_view.add_top_bar(&header);
+        toolbar_view.set_content(Some(&body));
+        window.set_content(Some(&toolbar_view));
 
         // ── Populate snapshot list ─────────────────────────────────────────────
         let dir = snapshot_dir(project_root, file_path);

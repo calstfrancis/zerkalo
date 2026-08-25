@@ -13,6 +13,7 @@ use gtk4::{
 };
 use libadwaita as adw;
 
+use crate::config::Config;
 use crate::library::{Library, LibraryFilter, SortOrder};
 
 const TAG_COLORS: &[&str] = &[
@@ -51,6 +52,7 @@ pub struct LibraryWindow {
     toast_overlay: adw::ToastOverlay,
     on_open: Rc<RefCell<Option<Box<dyn Fn(PathBuf)>>>>,
     work_dir: PathBuf,
+    config: Rc<RefCell<Config>>,
     view_mode: Rc<RefCell<ViewMode>>,
     stats_label: Label,
     bottom_filter_list: ListBox,
@@ -59,7 +61,12 @@ pub struct LibraryWindow {
 }
 
 impl LibraryWindow {
-    pub fn new(_app: &adw::Application, library: Rc<RefCell<Library>>, work_dir: PathBuf) -> Self {
+    pub fn new(
+        _app: &adw::Application,
+        library: Rc<RefCell<Library>>,
+        work_dir: PathBuf,
+        config: Rc<RefCell<Config>>,
+    ) -> Self {
         let window = adw::Window::new();
         window.set_title(Some("Library — Zerkalo"));
         window.set_default_width(900);
@@ -323,6 +330,7 @@ impl LibraryWindow {
             toast_overlay,
             on_open: Rc::new(RefCell::new(None)),
             work_dir,
+            config,
             view_mode: Rc::new(RefCell::new(ViewMode::List)),
             stats_label,
             bottom_filter_list,
@@ -1533,6 +1541,7 @@ impl LibraryWindow {
         dlg.set_close_response("cancel");
         let entry = Entry::new();
         entry.set_text(current_name);
+        entry.set_activates_default(true);
         dlg.set_extra_child(Some(&entry));
         let this = self.clone();
         let entry_c = entry.clone();
@@ -1882,6 +1891,7 @@ impl LibraryWindow {
         dlg.set_close_response("cancel");
         let entry = Entry::new();
         entry.set_text(&doc.title);
+        entry.set_activates_default(true);
         dlg.set_extra_child(Some(&entry));
         let this = self.clone();
         let id = doc.id;
@@ -2219,6 +2229,7 @@ impl LibraryWindow {
         dlg.set_close_response("cancel");
         let entry = Entry::new();
         entry.set_placeholder_text(Some("Project name"));
+        entry.set_activates_default(true);
         dlg.set_extra_child(Some(&entry));
         let this = self.clone();
         let entry_c = entry.clone();
@@ -2298,6 +2309,7 @@ impl LibraryWindow {
         dlg.set_close_response("cancel");
         let entry = Entry::new();
         entry.set_placeholder_text(Some("Project name"));
+        entry.set_activates_default(true);
         dlg.set_extra_child(Some(&entry));
         let this = self.clone();
         let entry_c = entry.clone();
@@ -2757,6 +2769,7 @@ impl LibraryWindow {
 
         let src = doc.path.clone();
         let window = self.window.clone();
+        let config = self.config.clone();
         dialog.save(
             Some(&self.window),
             gtk4::gio::Cancellable::NONE,
@@ -2771,45 +2784,54 @@ impl LibraryWindow {
                     dest
                 };
 
-                // CV mode gap (see skrizhal/plan.md Phase 3a): LibraryWindow has no
-                // Config reference and this can export any document in the
-                // library, not just the active one, so there's no
-                // effective_cv_elements to resolve here yet — a CV-mode
-                // document exported this way (rather than via the main Export
-                // dialog, which is covered) won't resolve #cv-entry/#cv-section.
-                // Same gap applies to bib_path: a document whose bibliography
-                // lives outside the project (e.g. a Kartoteka vault) won't
-                // resolve citations exported this way either.
+                // bib_path/cv_elements_path are project-wide config, the same
+                // ones PreviewPane::compile_inputs() reads — apply to every
+                // document in this project's library, not just the one
+                // currently open in the editor, so resolving them from
+                // `config` here (rather than an empty HashMap/None, as this
+                // used to) fixes CV-mode and out-of-project-bibliography
+                // documents exporting blank/uncited PDFs from this dialog.
+                let cfg = config.borrow();
+                let mut sys_inputs = std::collections::HashMap::new();
+                if let Some(cv_path) = cfg.cv_elements_path.clone() {
+                    match std::fs::read_to_string(&cv_path) {
+                        Ok(yaml) => {
+                            sys_inputs.insert("skrizhal-cv-data".to_string(), yaml);
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                "CV mode: couldn't read {}: {e}",
+                                cv_path.display()
+                            );
+                        }
+                    }
+                }
+                let bib_path = cfg.bib_path.clone();
+
                 let (tx, rx) = std::sync::mpsc::sync_channel::<Result<Vec<u8>, String>>(1);
                 let src_for_thread = src.clone();
                 std::thread::spawn(move || {
                     let result = crate::compiler::compile_to_pdf_bytes(
                         &src_for_thread,
                         &std::collections::HashMap::new(),
-                        &std::collections::HashMap::new(),
-                        None,
+                        &sys_inputs,
+                        bib_path.as_deref(),
                     )
                     .map_err(|e| e.to_string());
                     let _ = tx.send(result);
                 });
 
-                glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
-                    use std::sync::mpsc::TryRecvError;
-                    match rx.try_recv() {
-                        Ok(Ok(bytes)) => {
-                            if let Err(e) = std::fs::write(&dest, &bytes) {
-                                show_export_error(&window, &e.to_string());
-                            }
-                            glib::ControlFlow::Break
+                let window_err = window.clone();
+                crate::ui::async_poll::poll_result(
+                    rx,
+                    std::time::Duration::from_millis(100),
+                    move |bytes| {
+                        if let Err(e) = std::fs::write(&dest, &bytes) {
+                            show_export_error(&window, &e.to_string());
                         }
-                        Ok(Err(e)) => {
-                            show_export_error(&window, &e);
-                            glib::ControlFlow::Break
-                        }
-                        Err(TryRecvError::Empty) => glib::ControlFlow::Continue,
-                        Err(_) => glib::ControlFlow::Break,
-                    }
-                });
+                    },
+                    move |e| show_export_error(&window_err, &e),
+                );
             },
         );
     }

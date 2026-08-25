@@ -2834,34 +2834,30 @@ impl AppWindow {
                             let _ = tx.send(result);
                         });
                         let toast_ref = toast_for_key.clone();
-                        glib::timeout_add_local(Duration::from_millis(100), move || {
-                            use std::sync::mpsc::TryRecvError;
-                            match rx.try_recv() {
-                                Ok(Ok(bytes)) => {
-                                    let msg = match std::fs::write(&dest, &bytes) {
-                                        Ok(_) => format!(
-                                            "Exported {}",
-                                            dest.file_name()
-                                                .and_then(|n| n.to_str())
-                                                .unwrap_or("PDF")
-                                        ),
-                                        Err(e) => format!("Write failed: {e}"),
-                                    };
-                                    let t = adw::Toast::new(&msg);
-                                    t.set_timeout(4);
-                                    toast_ref.add_toast(t);
-                                    glib::ControlFlow::Break
-                                }
-                                Ok(Err(e)) => {
-                                    let t = adw::Toast::new(&format!("Export failed: {e}"));
-                                    t.set_timeout(4);
-                                    toast_ref.add_toast(t);
-                                    glib::ControlFlow::Break
-                                }
-                                Err(TryRecvError::Empty) => glib::ControlFlow::Continue,
-                                Err(_) => glib::ControlFlow::Break,
-                            }
-                        });
+                        let toast_ref_err = toast_for_key.clone();
+                        crate::ui::async_poll::poll_result(
+                            rx,
+                            Duration::from_millis(100),
+                            move |bytes| {
+                                let msg = match std::fs::write(&dest, &bytes) {
+                                    Ok(_) => format!(
+                                        "Exported {}",
+                                        dest.file_name()
+                                            .and_then(|n| n.to_str())
+                                            .unwrap_or("PDF")
+                                    ),
+                                    Err(e) => format!("Write failed: {e}"),
+                                };
+                                let t = adw::Toast::new(&msg);
+                                t.set_timeout(4);
+                                toast_ref.add_toast(t);
+                            },
+                            move |e| {
+                                let t = adw::Toast::new(&format!("Export failed: {e}"));
+                                t.set_timeout(4);
+                                toast_ref_err.add_toast(t);
+                            },
+                        );
                     }
                     return glib::Propagation::Stop;
                 }

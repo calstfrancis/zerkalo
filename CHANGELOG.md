@@ -5,6 +5,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.26.5] "Tidy Ledger" — 2026-08-25 — Library window fixes, dependency and packaging cleanup
+
+### Fixed
+
+- **Enter didn't confirm 4 of the 7 name-prompt dialogs in the Library window** (Rename Project, Rename Document, New Project, New Project from an existing document) — a missing `activates_default` left them needing a mouse click, unlike their siblings (Rename Category, Add Subcategory, New Category).
+- **Exporting a CV or citation document from the Library window (rather than the header's Export button) could produce a broken PDF** — that export path didn't resolve the CV data source or bibliography path a compile needs, so `#cv-entry`/`#cv-section` came back empty and citations didn't resolve. It now resolves both the same way the header's own export already did.
+- **Insert Table, Saved Versions, and GitHub sign-in were missing the header's divider line** that separates it from the content below, unlike every other secondary window in the app — their headers were appended into a plain box instead of the shared toolbar chrome.
+
+### Changed
+
+- Removed leftover `.deb`/RPM packaging configuration (`Cargo.toml` metadata blocks, an RPM spec file, and an openSUSE Build Service config, all stale and unreferenced by any build step) — distribution has been flatpak-only for a while; this just catches the packaging files up to that.
+- Refreshed several dependencies: `biblatex` and `roxmltree` bumped to match what the rest of the dependency tree already needs, an unused `tiny-skia` dependency removed, `tokio`'s feature set trimmed to just what's used, and the pinned `skrizhal-core` (v0.3.0→v0.4.0) and Kartoteka `fond-bib`/`fond-vault` (v0.5.1→v0.7.0) git dependencies brought up to each project's latest release.
+- Internal cleanup: consolidated several duplicated background-thread-and-poll patterns and data-directory-path lookups behind shared helpers. No user-visible behavior change.
+
+---
+
 ## [0.26.4] "Clear Glyph" — 2026-08-24 — System fonts restored
 
 ### Fixed

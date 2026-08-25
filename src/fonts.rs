@@ -3,7 +3,7 @@ static GOST_B_BYTES: &[u8] = include_bytes!("../assets/fonts/gosttypeb.ttf");
 /// Write the bundled GOST type B font to the user data dir so fontconfig can find it.
 /// Returns the font family name to use in CSS.
 pub fn ensure_gost_font() -> &'static str {
-    let font_dir = glib::user_data_dir().join("zerkalo/fonts");
+    let font_dir = crate::config::zerkalo_data_dir().join("fonts");
     let font_path = font_dir.join("gosttypeb.ttf");
     if !font_path.exists() {
         let _ = std::fs::create_dir_all(&font_dir);

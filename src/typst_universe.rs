@@ -30,9 +30,7 @@ pub struct UniversePackage {
 }
 
 fn cache_path() -> PathBuf {
-    glib::user_cache_dir()
-        .join("zerkalo")
-        .join("typst-universe-index.json")
+    crate::config::zerkalo_cache_dir().join("typst-universe-index.json")
 }
 
 /// True if a cached index exists and is recent enough that a caller can show

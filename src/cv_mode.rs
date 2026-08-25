@@ -66,19 +66,16 @@ pub fn rename_cv_entry_key_in_text(text: &str, old_key: &str, new_key: &str) -> 
 
 /// Drops reserved (`_`-prefixed) top-level blocks from CV-elements YAML.
 ///
-/// Skrizhal reserves underscore-prefixed top-level keys for configuration
-/// rather than CV entries — `_profiles` since Skrizhal 0.4.0. The pinned
-/// `skrizhal-core` (v0.3.0) predates that convention and deserializes the
-/// whole file as one map of entries, so a single `_profiles` block makes the
-/// *entire* parse fail — and every call site here uses `unwrap_or_default()`,
-/// which turns that into a silently empty entry list: no `!` autocomplete, no
-/// CV panel contents, no error shown.
-///
-/// Filtering textually rather than bumping the dependency keeps this
-/// independent of which `skrizhal-core` is pinned, which is worth having on
-/// its own: one unrecognized block should never cost the user every entry in
-/// the file. Newer `skrizhal-core` skips these keys itself, and then this
-/// simply has nothing left to do.
+/// Historical note: this existed because `skrizhal-core` v0.3.0 (pinned at
+/// the time) predated the `_profiles` convention and failed the *entire*
+/// parse on one reserved block — silently emptying the CV list, since every
+/// call site here uses `unwrap_or_default()`. `skrizhal-core` v0.4.0+ (the
+/// pin as of this comment) parses `_profiles` natively via `ParseOutcome`
+/// and never fails on an unrecognized `_`-prefixed key at all, so this is
+/// now a no-op pass-through in practice — kept anyway as defense in depth
+/// (independent of whichever `skrizhal-core` ends up pinned) rather than
+/// removed, since a stray malformed reserved block costing the user every
+/// entry in the file is exactly the failure mode this guards against.
 ///
 /// Top-level YAML keys sit at column 0 and Skrizhal writes plain block-style
 /// YAML, so "drop from a `_`-prefixed key until the next column-0 line" is
@@ -111,7 +108,7 @@ pub fn load_cv_entries(path: &std::path::Path) -> Vec<skrizhal_core::CvEntry> {
         return Vec::new();
     };
     match skrizhal_core::parse_str(&strip_reserved_blocks(&text)) {
-        Ok(entries) => entries,
+        Ok(outcome) => outcome.entries,
         Err(err) => {
             tracing::warn!("Failed to parse CV elements at {}: {err}", path.display());
             Vec::new()
@@ -135,22 +132,30 @@ mod tests {
                                  \x20 category: Award\n\
                                  \x20 title: An Award\n";
 
-    /// The regression this exists for: with the pinned skrizhal-core v0.3.0,
-    /// a `_profiles` block fails the whole parse, and `unwrap_or_default()`
-    /// turns that into an empty CV list with nothing shown to the user.
+    /// The regression this exists for: with skrizhal-core v0.3.0 (the pin
+    /// at the time), a `_profiles` block failed the whole parse, and
+    /// `unwrap_or_default()` turned that into an empty CV list with nothing
+    /// shown to the user.
     #[test]
     fn a_reserved_block_does_not_cost_us_the_other_entries() {
-        let entries = skrizhal_core::parse_str(&strip_reserved_blocks(WITH_PROFILES))
+        let outcome = skrizhal_core::parse_str(&strip_reserved_blocks(WITH_PROFILES))
             .expect("filtered YAML should parse");
-        let keys: Vec<&str> = entries.iter().map(|e| e.key.as_str()).collect();
+        let keys: Vec<&str> = outcome.entries.iter().map(|e| e.key.as_str()).collect();
         assert_eq!(keys, vec!["job-one", "job-two"]);
     }
 
     #[test]
-    fn unfiltered_input_still_breaks_the_parser() {
-        // Guards the premise: if this ever starts succeeding, the pin has
-        // moved and the filter is redundant rather than load-bearing.
-        assert!(skrizhal_core::parse_str(WITH_PROFILES).is_err());
+    fn unfiltered_input_now_parses_natively_since_the_skrizhal_core_0_4_0_bump() {
+        // This used to assert the opposite (`.is_err()`) — its own comment
+        // predicted exactly this: "if this ever starts succeeding, the pin
+        // has moved and the filter is redundant rather than load-bearing."
+        // skrizhal-core v0.4.0 parses `_profiles` into `ParseOutcome::profiles`
+        // natively rather than failing, so `strip_reserved_blocks` is now
+        // defense in depth, not load-bearing — see its doc comment.
+        let outcome = skrizhal_core::parse_str(WITH_PROFILES).expect("parses without filtering");
+        assert_eq!(outcome.profiles.len(), 1);
+        let keys: Vec<&str> = outcome.entries.iter().map(|e| e.key.as_str()).collect();
+        assert_eq!(keys, vec!["job-one", "job-two"]);
     }
 
     #[test]
