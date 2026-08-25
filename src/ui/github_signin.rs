@@ -62,12 +62,16 @@ pub fn present(parent: &impl IsA<gtk4::Window>, on_connected: impl Fn(String) + 
     spinner.set_halign(Align::Center);
 
     let vbox = GtkBox::new(Orientation::Vertical, 4);
-    vbox.append(&header);
     vbox.append(&status_lbl);
     vbox.append(&code_lbl);
     vbox.append(&open_link);
     vbox.append(&spinner);
-    dialog.set_content(Some(&vbox));
+
+    let toolbar_view = adw::ToolbarView::new();
+    toolbar_view.set_top_bar_style(adw::ToolbarStyle::RaisedBorder);
+    toolbar_view.add_top_bar(&header);
+    toolbar_view.set_content(Some(&vbox));
+    dialog.set_content(Some(&toolbar_view));
 
     let cancelled = Arc::new(AtomicBool::new(false));
 

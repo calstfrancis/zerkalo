@@ -247,7 +247,7 @@ fn list_system_fonts() -> Vec<String> {
 }
 
 fn prefs_path() -> PathBuf {
-    glib::user_config_dir().join("zerkalo").join(PREFS_FILE)
+    crate::config::zerkalo_config_dir().join(PREFS_FILE)
 }
 
 fn load_prefs() -> BTreeMap<String, bool> {

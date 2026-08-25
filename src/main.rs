@@ -55,7 +55,7 @@ use ui::app_window::AppWindow;
 
 fn main() -> ExitCode {
     // ── Logging: persistent file + stderr ────────────────────────────────────
-    let log_dir = glib::user_data_dir().join("zerkalo");
+    let log_dir = crate::config::zerkalo_data_dir();
     std::fs::create_dir_all(&log_dir).ok();
 
     let file_appender = tracing_appender::rolling::never(&log_dir, "zerkalo.log");

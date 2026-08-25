@@ -1,4 +1,5 @@
 pub mod app_window;
+pub mod async_poll;
 pub mod bib_popup;
 pub mod citation_panel;
 pub mod command_palette;

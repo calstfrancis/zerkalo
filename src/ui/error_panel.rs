@@ -621,7 +621,7 @@ impl ErrorPanel {
                 if lines.is_empty() {
                     return;
                 }
-                let dir = glib::user_data_dir().join("zerkalo");
+                let dir = crate::config::zerkalo_data_dir();
                 let _ = std::fs::create_dir_all(&dir);
                 let path = dir.join("error_log.txt");
                 if std::fs::write(&path, &lines).is_ok() {

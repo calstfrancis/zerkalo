@@ -1,6 +1,6 @@
 [package]
 name = "zerkalo"
-version = "0.26.4"
+version = "0.26.5"
 edition = "2021"
 license = "MIT"
 description = "Contemplative Typst editor with live preview, LSP completions, and git sync"
@@ -12,7 +12,7 @@ gtk4 = { version = "0.11", features = ["v4_10"] }
 libadwaita = { version = "0.9", features = ["v1_4"] }
 sourceview5 = { version = "0.11", features = ["gtk_v4_10"] }
 glib = "0.22"
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["rt"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 toml = "0.8"
@@ -28,20 +28,20 @@ chrono = "0.4"
 shellexpand = "3.1"
 notify = "6"
 rusqlite = { version = "0.40", features = ["bundled"] }
-biblatex = "0.11"
+biblatex = "0.12"
 hayagriva = "0.10"
 
 # Skrizhal CV entry schema/parsing (no GTK deps — see skrizhal's plan.md
 # for why this is the core crate specifically, not the `skrizhal` GUI
 # package, which pins an incompatible gtk4/libadwaita version).
-skrizhal-core = { git = "https://github.com/calstfrancis/skrizhal", tag = "v0.3.0" }
+skrizhal-core = { git = "https://github.com/calstfrancis/skrizhal", tag = "v0.4.0" }
 
 # Kartoteka's shared bibliography model and vault file-watcher, for tight
 # integration with a Kartoteka vault as a live bibliography source (no
 # "acquire" feature — that pulls in reqwest/tokio for DOI/ISBN lookup,
 # irrelevant here).
-fond-bib = { git = "https://github.com/calstfrancis/kartoteka", tag = "v0.5.1" }
-fond-vault = { git = "https://github.com/calstfrancis/kartoteka", tag = "v0.5.1" }
+fond-bib = { git = "https://github.com/calstfrancis/kartoteka", tag = "v0.7.0" }
+fond-vault = { git = "https://github.com/calstfrancis/kartoteka", tag = "v0.7.0" }
 
 # Embedded Typst compiler
 typst = "0.15"
@@ -49,7 +49,6 @@ typst-layout = "0.15"
 typst-render = "0.15"
 typst-pdf = "0.15"
 typst-kit = { version = "0.15", features = ["embedded-fonts", "scan-fonts", "system-packages", "universe-packages", "system-downloader"] }
-tiny-skia = { version = "0.11", features = ["png"] }
 url = "2"
 ashpd = { version = "0.13.13", default-features = false, features = ["print", "tokio"] }
 lopdf = { version = "0.44.0", default-features = false }
@@ -57,7 +56,7 @@ lopdf = { version = "0.44.0", default-features = false }
 # .odt are ZIP archives of XML, .md is text. Keeps the common import paths
 # working with nothing installed outside Zerkalo.
 zip = { version = "2", default-features = false, features = ["deflate"] }
-roxmltree = "0.20"
+roxmltree = "0.21"
 pulldown-cmark = { version = "0.13", default-features = false }
 fluent-templates = "0.15.1"
 unic-langid = { version = "0.9.6", features = ["macros"] }
@@ -74,46 +73,3 @@ opt-level = 3
 lto = "thin"
 codegen-units = 4
 strip = true
-
-# ── Debian/Ubuntu package (.deb) ─────────────────────────────────────────────
-[package.metadata.deb]
-name = "zerkalo"
-maintainer = "Cal St Francis <calstfrancis@gmail.com>"
-copyright = "2026, Cal St Francis"
-section = "text"
-priority = "optional"
-depends = "libc6, libglib2.0-0, libgtk-4-1 (>= 4.10), libadwaita-1-0 (>= 1.4), libgtksourceview-5-0, libcairo2, libgdk-pixbuf-2.0-0, libpango-1.0-0, libssl3, zlib1g, git, pandoc, hunspell"
-assets = [
-    ["target/release/zerkalo", "usr/bin/", "755"],
-    ["packaging/io.github.calstfrancis.Zerkalo.desktop", "usr/share/applications/", "644"],
-    ["packaging/zerkalo.svg", "usr/share/icons/hicolor/scalable/apps/zerkalo.svg", "644"],
-    ["packaging/tinymist", "usr/lib/zerkalo/tinymist", "755"],
-]
-
-# ── RPM package (Fedora/openSUSE/RHEL) ───────────────────────────────────────
-[package.metadata.generate-rpm]
-
-[[package.metadata.generate-rpm.assets]]
-source = "target/release/zerkalo"
-dest = "/usr/bin/zerkalo"
-mode = "755"
-
-[[package.metadata.generate-rpm.assets]]
-source = "packaging/io.github.calstfrancis.Zerkalo.desktop"
-dest = "/usr/share/applications/io.github.calstfrancis.Zerkalo.desktop"
-mode = "644"
-
-[[package.metadata.generate-rpm.assets]]
-source = "packaging/zerkalo.svg"
-dest = "/usr/share/icons/hicolor/scalable/apps/zerkalo.svg"
-mode = "644"
-
-[[package.metadata.generate-rpm.assets]]
-source = "packaging/tinymist"
-dest = "/usr/lib/zerkalo/tinymist"
-mode = "755"
-
-[package.metadata.generate-rpm.requires]
-git = "*"
-pandoc = "*"
-hunspell = "*"

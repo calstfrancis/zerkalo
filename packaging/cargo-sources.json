@@ -2,14 +2,14 @@
     {
         "type": "git",
         "url": "https://github.com/calstfrancis/kartoteka",
-        "commit": "d27b434655ab7d3f0099c8e71181976ef23a2211",
-        "dest": "flatpak-cargo/git/kartoteka-d27b434"
+        "commit": "78e72b656a648df22cb0e420ccf93b1156bc9c2d",
+        "dest": "flatpak-cargo/git/kartoteka-78e72b6"
     },
     {
         "type": "git",
         "url": "https://github.com/calstfrancis/skrizhal",
-        "commit": "538bcf141eca860ed0050ee0277b2d62c4a18dd8",
-        "dest": "flatpak-cargo/git/skrizhal-538bcf1"
+        "commit": "ac38d887ee80ba054e0f69a2931ea9afec7ebe7c",
+        "dest": "flatpak-cargo/git/skrizhal-ac38d88"
     },
     {
         "type": "archive",
@@ -1522,7 +1522,7 @@
     {
         "type": "shell",
         "commands": [
-            "cp -r --reflink=auto \"flatpak-cargo/git/kartoteka-d27b434/crates/fond-bib\" \"cargo/vendor/fond-bib\""
+            "cp -r --reflink=auto \"flatpak-cargo/git/kartoteka-78e72b6/crates/fond-bib\" \"cargo/vendor/fond-bib\""
         ]
     },
     {
@@ -1540,7 +1540,7 @@
     {
         "type": "shell",
         "commands": [
-            "cp -r --reflink=auto \"flatpak-cargo/git/kartoteka-d27b434/crates/fond-vault\" \"cargo/vendor/fond-vault\""
+            "cp -r --reflink=auto \"flatpak-cargo/git/kartoteka-78e72b6/crates/fond-vault\" \"cargo/vendor/fond-vault\""
         ]
     },
     {
@@ -3859,19 +3859,6 @@
     {
         "type": "archive",
         "archive-type": "tar-gzip",
-        "url": "https://static.crates.io/crates/png/png-0.17.16.crate",
-        "sha256": "82151a2fc869e011c153adc57cf2789ccb8d9906ce52c0b39a6b5697749d7526",
-        "dest": "cargo/vendor/png-0.17.16"
-    },
-    {
-        "type": "inline",
-        "contents": "{\"package\": \"82151a2fc869e011c153adc57cf2789ccb8d9906ce52c0b39a6b5697749d7526\", \"files\": {}}",
-        "dest": "cargo/vendor/png-0.17.16",
-        "dest-filename": ".cargo-checksum.json"
-    },
-    {
-        "type": "archive",
-        "archive-type": "tar-gzip",
         "url": "https://static.crates.io/crates/png/png-0.18.1.crate",
         "sha256": "60769b8b31b2a9f263dae2776c37b1b28ae246943cf719eb6946a1db05128a61",
         "dest": "cargo/vendor/png-0.18.1"
@@ -4951,12 +4938,12 @@
     {
         "type": "shell",
         "commands": [
-            "cp -r --reflink=auto \"flatpak-cargo/git/skrizhal-538bcf1/core\" \"cargo/vendor/skrizhal-core\""
+            "cp -r --reflink=auto \"flatpak-cargo/git/skrizhal-ac38d88/core\" \"cargo/vendor/skrizhal-core\""
         ]
     },
     {
         "type": "inline",
-        "contents": "[package]\nname = \"skrizhal-core\"\nversion = \"0.3.0\"\nedition = \"2021\"\nlicense = \"MIT\"\ndescription = \"CV entry schema, parsing, and validation for Skrizhal \u2014 no GUI dependencies, so Zerkalo (or anything else) can depend on it without pulling in a second copy of GTK4/libadwaita\"\nhomepage = \"https://github.com/calstfrancis/skrizhal\"\nrepository = \"https://github.com/calstfrancis/skrizhal\"\n\n[dependencies]\nserde_yaml_ng = \"0.10.0\"\nthiserror = \"2.0.18\"\n\n[dependencies.serde]\nversion = \"1.0.228\"\nfeatures = [\"derive\"]\n\n[dev-dependencies]\ntempfile = \"3.27.0\"\n",
+        "contents": "[package]\nname = \"skrizhal-core\"\nversion = \"0.4.0-dev3\"\nedition = \"2021\"\nlicense = \"MIT\"\ndescription = \"CV entry schema, parsing, and validation for Skrizhal \u2014 no GUI dependencies, so Zerkalo (or anything else) can depend on it without pulling in a second copy of GTK4/libadwaita\"\nhomepage = \"https://github.com/calstfrancis/skrizhal\"\nrepository = \"https://github.com/calstfrancis/skrizhal\"\n\n[dependencies]\nserde_yaml_ng = \"0.10.0\"\nthiserror = \"2.0.18\"\n\n[dependencies.serde]\nversion = \"1.0.228\"\nfeatures = [\"derive\"]\n\n[dev-dependencies]\ntempfile = \"3.27.0\"\n",
         "dest": "cargo/vendor/skrizhal-core",
         "dest-filename": "Cargo.toml"
     },
@@ -5437,19 +5424,6 @@
     {
         "type": "archive",
         "archive-type": "tar-gzip",
-        "url": "https://static.crates.io/crates/tiny-skia/tiny-skia-0.11.4.crate",
-        "sha256": "83d13394d44dae3207b52a326c0c85a8bf87f1541f23b0d143811088497b09ab",
-        "dest": "cargo/vendor/tiny-skia-0.11.4"
-    },
-    {
-        "type": "inline",
-        "contents": "{\"package\": \"83d13394d44dae3207b52a326c0c85a8bf87f1541f23b0d143811088497b09ab\", \"files\": {}}",
-        "dest": "cargo/vendor/tiny-skia-0.11.4",
-        "dest-filename": ".cargo-checksum.json"
-    },
-    {
-        "type": "archive",
-        "archive-type": "tar-gzip",
         "url": "https://static.crates.io/crates/tiny-skia/tiny-skia-0.12.0.crate",
         "sha256": "47ffee5eaaf5527f630fb0e356b90ebdec84d5d18d937c5e440350f88c5a91ea",
         "dest": "cargo/vendor/tiny-skia-0.12.0"
@@ -5458,19 +5432,6 @@
         "type": "inline",
         "contents": "{\"package\": \"47ffee5eaaf5527f630fb0e356b90ebdec84d5d18d937c5e440350f88c5a91ea\", \"files\": {}}",
         "dest": "cargo/vendor/tiny-skia-0.12.0",
-        "dest-filename": ".cargo-checksum.json"
-    },
-    {
-        "type": "archive",
-        "archive-type": "tar-gzip",
-        "url": "https://static.crates.io/crates/tiny-skia-path/tiny-skia-path-0.11.4.crate",
-        "sha256": "9c9e7fc0c2e86a30b117d0462aa261b72b7a99b7ebd7deb3a14ceda95c5bdc93",
-        "dest": "cargo/vendor/tiny-skia-path-0.11.4"
-    },
-    {
-        "type": "inline",
-        "contents": "{\"package\": \"9c9e7fc0c2e86a30b117d0462aa261b72b7a99b7ebd7deb3a14ceda95c5bdc93\", \"files\": {}}",
-        "dest": "cargo/vendor/tiny-skia-path-0.11.4",
         "dest-filename": ".cargo-checksum.json"
     },
     {
@@ -5536,19 +5497,6 @@
         "type": "inline",
         "contents": "{\"package\": \"8fc7f01b389ac15039e4dc9531aa973a135d7a4135281b12d7c1bc79fd57fffe\", \"files\": {}}",
         "dest": "cargo/vendor/tokio-1.52.3",
-        "dest-filename": ".cargo-checksum.json"
-    },
-    {
-        "type": "archive",
-        "archive-type": "tar-gzip",
-        "url": "https://static.crates.io/crates/tokio-macros/tokio-macros-2.7.0.crate",
-        "sha256": "385a6cb71ab9ab790c5fe8d67f1645e6c450a7ce006a33de03daa956cf70a496",
-        "dest": "cargo/vendor/tokio-macros-2.7.0"
-    },
-    {
-        "type": "inline",
-        "contents": "{\"package\": \"385a6cb71ab9ab790c5fe8d67f1645e6c450a7ce006a33de03daa956cf70a496\", \"files\": {}}",
-        "dest": "cargo/vendor/tokio-macros-2.7.0",
         "dest-filename": ".cargo-checksum.json"
     },
     {
@@ -7516,7 +7464,7 @@
     },
     {
         "type": "inline",
-        "contents": "[source.vendored-sources]\ndirectory = \"cargo/vendor\"\n\n[source.crates-io]\nreplace-with = \"vendored-sources\"\n\n[source.\"https://github.com/calstfrancis/kartoteka\"]\ngit = \"https://github.com/calstfrancis/kartoteka\"\nreplace-with = \"vendored-sources\"\ntag = \"v0.5.1\"\n\n[source.\"https://github.com/calstfrancis/skrizhal\"]\ngit = \"https://github.com/calstfrancis/skrizhal\"\nreplace-with = \"vendored-sources\"\ntag = \"v0.3.0\"\n",
+        "contents": "[source.vendored-sources]\ndirectory = \"cargo/vendor\"\n\n[source.crates-io]\nreplace-with = \"vendored-sources\"\n\n[source.\"https://github.com/calstfrancis/kartoteka\"]\ngit = \"https://github.com/calstfrancis/kartoteka\"\nreplace-with = \"vendored-sources\"\ntag = \"v0.7.0\"\n\n[source.\"https://github.com/calstfrancis/skrizhal\"]\ngit = \"https://github.com/calstfrancis/skrizhal\"\nreplace-with = \"vendored-sources\"\ntag = \"v0.4.0\"\n",
         "dest": "cargo",
         "dest-filename": "config"
     }

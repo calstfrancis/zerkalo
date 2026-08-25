@@ -7,7 +7,7 @@ use gtk4::{Align, Box as GtkBox, Button, Label, Orientation, ScrolledWindow, Sep
 use libadwaita as adw;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const RELEASE_NAME: &str = "Clear Glyph";
+pub const RELEASE_NAME: &str = "Tidy Ledger";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -17,8 +17,8 @@ pub struct WelcomeWindow {
 impl WelcomeWindow {
     /// True when no marker exists — the very first launch.
     pub fn is_first_run() -> bool {
-        !glib::user_data_dir()
-            .join("zerkalo/.welcome_version")
+        !crate::config::zerkalo_data_dir()
+            .join(".welcome_version")
             .exists()
     }
 
@@ -143,9 +143,9 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
-                "Fixed system-installed fonts (e.g. Atkinson Hyperlegible, Goudy Initialen) failing to resolve in compiled documents since 0.26.2 — the compiler now scans installed system fonts again.",
-                "Fixed typewriter scroll doing nothing while typing inside a wrapped paragraph — it now re-centers on every wrapped line, not just at paragraph breaks, so text no longer runs off screen.",
-                "Fixed the right-click spelling-suggestions popover opening and closing again almost instantly — it now waits for the click that opened it to finish before showing.",
+                "Fixed Enter not confirming a few Library window dialogs (Rename Project, Rename Document, New Project) — it now works the same as every other name prompt in the app.",
+                "Fixed exporting a CV or citation document from the Library window (rather than the header's Export button) producing a PDF missing the CV content or citations.",
+                "Fixed a few secondary windows (Insert Table, Saved Versions, GitHub sign-in) missing the header's divider line, unlike every other window in the app.",
             ] {
                 body.append(&bullet_row(item));
             }
@@ -215,7 +215,7 @@ impl WelcomeWindow {
 
     /// Returns true when the welcome window should be shown (new install or version upgrade).
     pub fn should_show() -> bool {
-        let marker = glib::user_data_dir().join("zerkalo/.welcome_version");
+        let marker = crate::config::zerkalo_data_dir().join(".welcome_version");
         std::fs::read_to_string(&marker)
             .map(|s| s.trim().to_string())
             .unwrap_or_default()
@@ -224,7 +224,7 @@ impl WelcomeWindow {
 
     /// Record that the welcome window has been shown for this version.
     pub fn mark_shown() {
-        let marker = glib::user_data_dir().join("zerkalo/.welcome_version");
+        let marker = crate::config::zerkalo_data_dir().join(".welcome_version");
         if let Some(parent) = marker.parent() {
             let _ = std::fs::create_dir_all(parent);
         }

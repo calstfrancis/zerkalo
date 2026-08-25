@@ -230,12 +230,16 @@ impl TableDialog {
             });
         }
 
-        let outer = GtkBox::new(Orientation::Vertical, 0);
-        outer.append(&header);
-        outer.append(&controls);
-        outer.append(&align_row);
-        outer.append(&scroll);
-        window.set_content(Some(&outer));
+        let content = GtkBox::new(Orientation::Vertical, 0);
+        content.append(&controls);
+        content.append(&align_row);
+        content.append(&scroll);
+
+        let toolbar_view = adw::ToolbarView::new();
+        toolbar_view.set_top_bar_style(adw::ToolbarStyle::RaisedBorder);
+        toolbar_view.add_top_bar(&header);
+        toolbar_view.set_content(Some(&content));
+        window.set_content(Some(&toolbar_view));
 
         {
             let win = window.clone();

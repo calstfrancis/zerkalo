@@ -240,6 +240,30 @@ fn default_work_dir() -> PathBuf {
 pub fn default_work_dir_pub() -> PathBuf {
     default_work_dir()
 }
+
+/// Zerkalo's own subdirectory of the platform data dir (trash, templates,
+/// language specs, the welcome-version marker, log files, …). One canonical
+/// function rather than each call site independently joining `"zerkalo"`
+/// onto `glib::user_data_dir()`, which had drifted into ~9 near-identical
+/// copies before this — see `WINDOWS-HARDENING-PLAN.md` Phase 6c.
+pub fn zerkalo_data_dir() -> PathBuf {
+    glib::user_data_dir().join("zerkalo")
+}
+
+/// Zerkalo's own subdirectory of the platform config dir (currently just
+/// the Font Manager's per-font preferences file). Companion to
+/// `zerkalo_data_dir` — most persistent state lives in the data dir, but a
+/// couple of things go here instead, matching what they already did before
+/// this consolidation.
+pub fn zerkalo_config_dir() -> PathBuf {
+    glib::user_config_dir().join("zerkalo")
+}
+
+/// Zerkalo's own subdirectory of the platform cache dir (currently just the
+/// cached Typst Universe package index).
+pub fn zerkalo_cache_dir() -> PathBuf {
+    glib::user_cache_dir().join("zerkalo")
+}
 fn default_debounce_ms() -> u64 {
     800
 }

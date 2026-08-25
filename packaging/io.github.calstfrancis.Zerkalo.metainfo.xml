@@ -80,6 +80,16 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.26.5" date="2026-08-25">
+      <description>
+        <p>0.26.5 "Tidy Ledger" — fixes a missing Enter-to-confirm in several
+        Library window dialogs, a broken PDF when exporting a CV or citation
+        document from the Library window instead of the header's Export
+        button, and a missing header divider on three secondary windows.
+        Also refreshes several dependencies and removes leftover, unused
+        .deb/RPM packaging configuration.</p>
+      </description>
+    </release>
     <release version="0.26.4" date="2026-08-24">
       <description>
         <p>0.26.4 "Clear Glyph" — system-installed fonts (e.g. Atkinson

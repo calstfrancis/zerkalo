@@ -18,7 +18,7 @@ pub struct UserTemplate {
 }
 
 pub fn templates_dir() -> PathBuf {
-    glib::user_data_dir().join("zerkalo").join("templates")
+    crate::config::zerkalo_data_dir().join("templates")
 }
 
 /// The file a template with this name lives in. Two names that slugify the

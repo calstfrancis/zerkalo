@@ -285,22 +285,21 @@ impl PackageBrowser {
         });
 
         let pb = self.clone();
-        glib::timeout_add_local(Duration::from_millis(150), move || match rx.try_recv() {
-            Ok(Ok(pkgs)) => {
+        let pb_err = self.clone();
+        crate::ui::async_poll::poll_result(
+            rx,
+            Duration::from_millis(150),
+            move |pkgs| {
                 *pb.remote.borrow_mut() = pkgs;
                 pb.status_label.set_visible(false);
                 pb.rebuild_list(pb.filter_entry.text().as_ref());
-                glib::ControlFlow::Break
-            }
-            Ok(Err(e)) => {
-                pb.status_label.set_text(&format!(
+            },
+            move |e| {
+                pb_err.status_label.set_text(&format!(
                     "Couldn't reach Typst Universe — showing what's cached. ({e})"
                 ));
-                glib::ControlFlow::Break
-            }
-            Err(mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
-            Err(mpsc::TryRecvError::Disconnected) => glib::ControlFlow::Break,
-        });
+            },
+        );
     }
 
     fn install(&self, namespace: &str, name: &str, version: &str) {
@@ -318,27 +317,27 @@ impl PackageBrowser {
         });
 
         let pb = self.clone();
+        let pb_err = self.clone();
         let key_for_poll = key.clone();
-        glib::timeout_add_local(Duration::from_millis(150), move || match rx.try_recv() {
-            Ok(result) => {
+        let key_for_err = key.clone();
+        crate::ui::async_poll::poll_result(
+            rx,
+            Duration::from_millis(150),
+            move |()| {
                 pb.installing.borrow_mut().remove(&key_for_poll);
-                match result {
-                    Ok(()) => {
-                        pb.scan_local_packages();
-                        pb.status_label.set_visible(false);
-                    }
-                    Err(e) => {
-                        pb.status_label
-                            .set_text(&format!("Couldn't install {key_for_poll}: {e}"));
-                        pb.status_label.set_visible(true);
-                    }
-                }
+                pb.scan_local_packages();
+                pb.status_label.set_visible(false);
                 pb.rebuild_list(pb.filter_entry.text().as_ref());
-                glib::ControlFlow::Break
-            }
-            Err(mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
-            Err(mpsc::TryRecvError::Disconnected) => glib::ControlFlow::Break,
-        });
+            },
+            move |e| {
+                pb_err.installing.borrow_mut().remove(&key_for_err);
+                pb_err
+                    .status_label
+                    .set_text(&format!("Couldn't install {key_for_err}: {e}"));
+                pb_err.status_label.set_visible(true);
+                pb_err.rebuild_list(pb_err.filter_entry.text().as_ref());
+            },
+        );
     }
 
     /// Merges installed packages with the Typst Universe index into one

@@ -12,7 +12,7 @@ pub struct Library {
 }
 
 fn default_trash_dir() -> PathBuf {
-    glib::user_data_dir().join("zerkalo").join("trash")
+    crate::config::zerkalo_data_dir().join("trash")
 }
 
 /// `move_to_trash` must never mark a document deleted in the database unless
@@ -193,7 +193,7 @@ fn doc_cols_prefixed(prefix: &str) -> String {
 
 impl Library {
     pub fn open() -> SqlResult<Self> {
-        let dir = glib::user_data_dir().join("zerkalo");
+        let dir = crate::config::zerkalo_data_dir();
         std::fs::create_dir_all(&dir).ok();
         let path = dir.join("library.sqlite");
         let conn = Connection::open(path)?;
