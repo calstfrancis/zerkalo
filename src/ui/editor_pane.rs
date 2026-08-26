@@ -7184,10 +7184,23 @@ impl EditorPane {
                 let ws_off = word_start.offset();
                 let we_off = word_end.offset();
 
+                // Tracks "the user dismissed this popover," set in
+                // connect_closed below. `popover.is_visible()` used to serve
+                // this purpose, but that's also false during the window
+                // between this handler returning and the delayed popup()
+                // actually showing it (see the popup() delay's own comment,
+                // further down) — a poll tick landing in that window used to
+                // read "not visible" as "already dismissed" and cancel itself
+                // permanently, before the popover had even appeared, so
+                // suggestions that arrived after that point were silently
+                // dropped and "Checking…" never updated.
+                let dismissed: Rc<Cell<bool>> = Rc::new(Cell::new(false));
+
                 let rx = Self::spawn_spelling_suggestions(&word, lang, already_ignored);
                 let sugg_box_fill = sugg_box.clone();
                 let pending_fill = pending.clone();
                 let popover_fill = popover.clone();
+                let dismissed_fill = dismissed.clone();
                 let buf_fill = buf_rc.clone();
                 let scroll_fill = scroll_rc.clone();
                 let hold_pos_fill = hold_pos_spell.clone();
@@ -7197,14 +7210,14 @@ impl EditorPane {
                     let suggestions = match rx.try_recv() {
                         Ok(s) => s,
                         Err(std::sync::mpsc::TryRecvError::Empty) => {
-                            if !popover_fill.is_visible() {
+                            if dismissed_fill.get() {
                                 return glib::ControlFlow::Break;
                             }
                             return glib::ControlFlow::Continue;
                         }
                         Err(_) => return glib::ControlFlow::Break,
                     };
-                    if !popover_fill.is_visible() {
+                    if dismissed_fill.get() {
                         return glib::ControlFlow::Break;
                     }
                     sugg_box_fill.remove(&pending_fill);
@@ -7309,7 +7322,9 @@ impl EditorPane {
                 popover.set_child(Some(&vbox));
 
                 let pop_close = popover.clone();
+                let dismissed_close = dismissed.clone();
                 popover.connect_closed(move |_| {
+                    dismissed_close.set(true);
                     pop_close.unparent();
                     // Do NOT restore scroll here. The idle in popup() already
                     // anchored the view. Restoring on close fights with whatever

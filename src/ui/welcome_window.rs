@@ -7,7 +7,7 @@ use gtk4::{Align, Box as GtkBox, Button, Label, Orientation, ScrolledWindow, Sep
 use libadwaita as adw;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const RELEASE_NAME: &str = "Tidy Ledger";
+pub const RELEASE_NAME: &str = "Honest Glass";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -144,7 +144,7 @@ impl WelcomeWindow {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
                 "Fixed the running header setting being silently dropped, and resetting to \"None\" every time you reopened the dialog, whenever the title page was off.",
-                "Fixed the spell-check suggestions popover (and a few right-click menus) opening and closing instantly instead of staying open.",
+                "Fixed the spell-check suggestions popover (and a few right-click menus) opening and closing instantly instead of staying open, and fixed it hanging on \"Checking\u{2026}\" once it did stay open.",
                 "The preview now scrolls to follow your cursor as you type, instead of only jumping when you click into it.",
                 "Fixed the Tools window always showing pandoc as installed, even when it wasn't.",
                 "Removed the redundant \"Browse Documents\" window — the Library window (Ctrl+L) already covers this with search, filters, and more.",
