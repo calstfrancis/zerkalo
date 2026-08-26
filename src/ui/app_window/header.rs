@@ -15,7 +15,6 @@ use super::{build_hamburger_menu_items, HamburgerItems};
 pub(super) struct Menus {
     pub(super) menu_about_item: Button,
     pub(super) menu_whats_new_item: Button,
-    pub(super) menu_docs_item: Button,
     pub(super) menu_export_item: Button,
     pub(super) menu_export_web_item: Button,
     pub(super) menu_help_item: Button,
@@ -59,7 +58,6 @@ pub(super) struct HeaderWidgets {
     pub(super) print_header_btn: Button,
     pub(super) recent_popover: Popover,
     pub(super) recompile_header_btn: Button,
-    pub(super) save_btn: Button,
     pub(super) sidebar_btn: Button,
     pub(super) style_box: GtkBox,
     pub(super) style_btn: Button,
@@ -101,7 +99,10 @@ pub(super) fn build_header() -> HeaderWidgets {
     let style_btn = Button::with_label("Style");
     style_btn.add_css_class("flat");
     style_btn.add_css_class("caption");
-    style_btn.set_tooltip_text(Some("Apply a formatting style to the document"));
+    style_btn.set_tooltip_text(Some(
+        "Switch citation & heading style instantly (Ctrl+Z to undo). For CV, title \
+         page, and other document settings, use ≡ → Change Document Style…",
+    ));
     {
         let sp = style_popover.clone();
         let sb = style_btn.clone();
@@ -173,20 +174,21 @@ pub(super) fn build_header() -> HeaderWidgets {
         "Save a version and back it up",
     )]);
 
-    // Not shown in the header: with Sync (which saves everything first,
-    // then backs it up) standing right beside it, a separate plain-Save
-    // icon was a second button doing a subset of what the first already
+    // No separate plain-Save icon in the header: with Sync (which saves
+    // everything first, then backs it up) standing right beside it, that
+    // would be a second button doing a subset of what the first already
     // does — redundant, and confusing about which one to reach for. Ctrl+S
-    // (bound directly in `mod.rs`'s key handler, not through this button)
-    // and the hamburger's Save row still do a fast, non-backing-up save;
-    // the button itself is kept, unpacked, only because the command palette
-    // and a few other call sites still address it by emitting its click.
-    let save_btn = Button::from_icon_name("document-save-symbolic");
-    save_btn.set_tooltip_text(Some("Save (Ctrl+S)"));
-    save_btn.add_css_class("flat");
-    save_btn.update_property(&[gtk4::accessible::Property::Label(
-        "Save the current document",
-    )]);
+    // (bound directly in `mod.rs`'s key handler) and the hamburger's Save
+    // row (which the command palette's "Save" entry also dispatches
+    // through) cover a fast, non-backing-up save. A previous version of
+    // this comment claimed a hidden `save_btn` was still needed because
+    // "the command palette and a few other call sites address it by
+    // emitting its click" — that stopped being true (the palette's "save"
+    // id maps to the hamburger's row, not this one) well before the button
+    // itself was ever removed, leaving it fully unreachable: never packed
+    // into any container, and nothing left calling `.emit_clicked()` on it
+    // either. Removed rather than left as dead code with a stale
+    // justification.
 
     // Connected further down, alongside the hamburger's Print item — the
     // panes it needs don't exist yet at this point.
@@ -198,7 +200,6 @@ pub(super) fn build_header() -> HeaderWidgets {
     // ── Hamburger menu items (using make_menu_item for left+shortcut layout) ──
     let HamburgerItems {
         menu_about_item,
-        menu_docs_item,
         menu_export_item,
         menu_export_web_item,
         menu_help_item,
@@ -248,7 +249,6 @@ pub(super) fn build_header() -> HeaderWidgets {
     menu_popover_box.append(&menu_new_item);
     menu_popover_box.append(&Separator::new(Orientation::Horizontal));
     menu_popover_box.append(&menu_open_item);
-    menu_popover_box.append(&menu_docs_item);
     menu_popover_box.append(&menu_import_item);
     menu_popover_box.append(&Separator::new(Orientation::Horizontal));
 
@@ -332,8 +332,7 @@ pub(super) fn build_header() -> HeaderWidgets {
     // `compile_mode_slot` is packed empty here and filled further down, once
     // the config-backed compile-mode button exists — packing it late would
     // otherwise land it at the far left of the section, away from the
-    // compile buttons it belongs with. `save_btn` is deliberately not
-    // packed anywhere — see the comment where it's built, above.
+    // compile buttons it belongs with.
     let compile_mode_slot = GtkBox::new(Orientation::Horizontal, 0);
     header.pack_end(&menu_btn);
     header.pack_end(&compile_btn);
@@ -388,7 +387,6 @@ pub(super) fn build_header() -> HeaderWidgets {
     HeaderWidgets {
         menus: Menus {
             menu_about_item,
-            menu_docs_item,
             menu_export_item,
             menu_export_web_item,
             menu_help_item,
@@ -427,7 +425,6 @@ pub(super) fn build_header() -> HeaderWidgets {
         print_header_btn,
         recent_popover,
         recompile_header_btn,
-        save_btn,
         sidebar_btn,
         style_box,
         style_btn,

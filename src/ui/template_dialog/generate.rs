@@ -200,7 +200,9 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
     } else if s.include_title_page {
         generate_title_page(style_key, s)
     } else {
-        String::new()
+        // A running header still needs to work with the title page off — see
+        // generate_header_only's doc comment.
+        generate_header_only(s)
     };
     let _ = write!(out, "{title_block}");
 
@@ -745,6 +747,54 @@ pub(crate) fn generate_cv_sidebar_body(mut out: String) -> String {
     let _ = writeln!(out, "  ],");
     let _ = writeln!(out, ")");
 
+    out
+}
+
+/// The running-header block (see `header_block`) references `#doc-title`/
+/// `#doc-author`/etc., which otherwise only exist inside the title-page or
+/// letterhead blocks — so with the title page off and no letterhead, a
+/// chosen running header was silently dropped: `header_block` was never
+/// even called, since it only lived inside `generate_title_page`/
+/// `generate_letter_header`. That also broke round-tripping for every
+/// metadata field, not just the header — `parse_meta` and
+/// `parse_header_style` both scan the whole document for exact text those
+/// two functions emit, and nothing was ever written for either to find, so
+/// Title/Author/Affiliation/etc. *and* the header style all read back as
+/// blank/"None" every time the dialog reopened.
+///
+/// Only activates when a header is actually chosen: with no header and no
+/// title page, none of these variables are referenced by anything, so
+/// there's nothing to preserve — emitting unused `#let` bindings for their
+/// own sake isn't worth the clutter in the common "just write" case.
+pub(crate) fn generate_header_only(s: &TemplateSettings) -> String {
+    let mut out = String::new();
+    if s.header_style == 0 {
+        return out;
+    }
+    let _ = writeln!(
+        out,
+        "#let doc-title = \"{}\"",
+        typst_str(if s.title.is_empty() {
+            "Untitled"
+        } else {
+            &s.title
+        })
+    );
+    let _ = writeln!(out, "#let doc-subtitle = \"{}\"", typst_str(&s.subtitle));
+    let _ = writeln!(out, "#let doc-author = \"{}\"", typst_str(&s.author));
+    let _ = writeln!(out, "#let doc-affil = \"{}\"", typst_str(&s.affiliation));
+    let _ = writeln!(out, "#let doc-course = \"{}\"", typst_str(&s.course));
+    let _ = writeln!(out, "#let doc-professor = \"{}\"", typst_str(&s.professor));
+    let date_val = if s.date.is_empty() {
+        Local::now().format("%B %-d, %Y").to_string()
+    } else {
+        s.date.clone()
+    };
+    let _ = writeln!(out, "#let doc-date = \"{}\"", typst_str(&date_val));
+    if let Some(hdr) = header_block(s.header_style) {
+        let _ = writeln!(out, "{hdr}");
+    }
+    let _ = writeln!(out);
     out
 }
 

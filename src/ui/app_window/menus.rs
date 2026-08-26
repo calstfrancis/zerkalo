@@ -12,7 +12,6 @@ use gtk4::prelude::*;
 use gtk4::{Button, Label, Popover};
 use libadwaita as adw;
 
-use super::super::docs_browser::DocsBrowser;
 use super::super::editor_pane::EditorPane;
 use super::super::error_panel::ErrorPanel;
 use super::super::export_dialog::ExportDialog;
@@ -62,31 +61,13 @@ pub(super) struct MenuCtx {
     pub(super) effective_bib: Option<std::path::PathBuf>,
     pub(super) auto_detected_bib: Rc<RefCell<Option<std::path::PathBuf>>>,
     pub(super) print_header_btn: Button,
-    pub(super) save_btn: Button,
     pub(super) sync_btn: Button,
     pub(super) sync_badge: Label,
 }
 
-/// Application-level rows: Browse Documents, Settings, Help, Setup, Backup
-/// Remotes, About, Writing Stats, Export, Print, Font Management.
+/// Application-level rows: Settings, Help, Setup, Backup Remotes, About,
+/// Writing Stats, Export, Print, Font Management.
 pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
-    // ── Menu: Browse Documents ──────────────────────────────────────────
-    let window_for_docs = ctx.window.clone();
-    let editor_for_docs = ctx.editor_pane.clone();
-    let root_for_docs = ctx.project_root.clone();
-    let menu_popover_for_docs = ctx.menu_popover.clone();
-    menus.menu_docs_item.connect_clicked(move |_| {
-        menu_popover_for_docs.popdown();
-        let browser = DocsBrowser::new(&window_for_docs, root_for_docs.clone());
-        let ep = editor_for_docs.clone();
-        browser.set_on_open(move |path| {
-            if let Ok(content) = std::fs::read_to_string(&path) {
-                ep.open_file(path, &content);
-            }
-        });
-        browser.present();
-    });
-
     // ── Compile/Preview toggle button ───────────────────────────────────
     // Wired after preview_outer is created (see below, search "ctx.preview_vis_holder.borrow_mut")
 
@@ -509,7 +490,7 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
         dlg.present();
     });
 
-    // ── Menu: Update Template Settings ─────────────────────────────────
+    // ── Menu: Change Document Style ──────────────────────────────────────
 
     let window_for_reapply = ctx.window.clone();
     let editor_for_reapply = ctx.editor_pane.clone();
@@ -656,30 +637,6 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
             }
         }
     });
-
-    // ── Header: Save ────────────────────────────────────────────────────
-    // Same action as the ≡ menu's Save, including the snapshot.
-
-    let editor_for_save_btn = ctx.editor_pane.clone();
-    let preview_for_save_btn = ctx.preview_pane.clone();
-    let root_for_save_btn = ctx.project_root.clone();
-    let toast_for_save_btn = ctx.toast_overlay.clone();
-    ctx.save_btn
-        .connect_clicked(move |_| match editor_for_save_btn.save_current() {
-            Ok(Some(path)) => {
-                if let Ok(content) = std::fs::read_to_string(&path) {
-                    save_snapshot(&root_for_save_btn, &path, &content);
-                    preview_for_save_btn.set_buffer_snapshot(path.clone(), content);
-                }
-                preview_for_save_btn.trigger_compile();
-            }
-            Ok(None) => {}
-            Err(e) => {
-                let t = adw::Toast::new(&format!("Save failed: {e}"));
-                t.set_timeout(6);
-                toast_for_save_btn.add_toast(t);
-            }
-        });
 
     // ── Menu: Save As ───────────────────────────────────────────────────
 

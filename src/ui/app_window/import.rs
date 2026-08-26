@@ -263,6 +263,20 @@ fn show_import_history_dialog_filtered(
                         source.clone(),
                         fmt,
                     );
+                } else {
+                    // Matches this history record's stored format string
+                    // against today's IMPORT_FORMATS by exact label text —
+                    // if a label is ever renamed, older records still carry
+                    // the old one and this falls through here. That used to
+                    // be a silent no-op (the button did nothing, with no
+                    // clue why); surfacing it means a future rename gets
+                    // noticed instead of quietly breaking old history entries.
+                    let t = adw::Toast::new(&format!(
+                        "Can't retry — unrecognized import format \"{format_label}\". \
+                         Use Import… to pick the format again.",
+                    ));
+                    t.set_timeout(6);
+                    toast_c.add_toast(t);
                 }
             });
             row.add_suffix(&retry_btn);

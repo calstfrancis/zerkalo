@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::time::Duration;
 
 use adw::prelude::*;
 use gtk4::glib;
@@ -15,6 +16,24 @@ use libadwaita as adw;
 
 use crate::config::Config;
 use crate::library::{Library, LibraryFilter, SortOrder};
+
+/// Every right-click context menu in this window (document, project,
+/// category rows) builds a plain `Popover` and needs to show it from a
+/// button-3 `connect_pressed` handler, which runs before that same click's
+/// button-*release* has landed. Calling `popover.popup()` synchronously
+/// there starts the autohide grab immediately, and the release then reads as
+/// an outside click and dismisses the popover the instant it arrives —
+/// visible as the menu opening and closing instantly on a normal fast
+/// right-click. A short real delay survives this regardless of how the
+/// backend batches input events (an idle-priority deferral does not — see
+/// editor_pane.rs's spell-suggestions popover for the fuller writeup and why
+/// that weaker fix wasn't enough on its own).
+fn popup_after_click(popover: &Popover) {
+    let popover = popover.clone();
+    glib::timeout_add_local_once(Duration::from_millis(40), move || {
+        popover.popup();
+    });
+}
 
 const TAG_COLORS: &[&str] = &[
     "#3584e4", "#33d17a", "#f6d32d", "#ff7800", "#e01b24", "#9141ac", "#dc8add", "#986a44",
@@ -58,6 +77,8 @@ pub struct LibraryWindow {
     bottom_filter_list: ListBox,
     doc_list_stack: Stack,
     empty_page: adw::StatusPage,
+    empty_new_doc_btn: Button,
+    empty_clear_search_btn: Button,
 }
 
 impl LibraryWindow {
@@ -191,6 +212,22 @@ impl LibraryWindow {
         empty_page.set_title("No documents");
         empty_page.set_description(Some("Nothing here yet"));
         empty_page.set_vexpand(true);
+
+        // One of these two is shown at a time, matching whichever empty-state
+        // message populate_doc_list picked — a bare "Nothing here yet"/"Try a
+        // different search" with no button was a dead end, since "New
+        // Document" already sits right above in the header.
+        let empty_new_doc_btn = Button::with_label("New Document");
+        empty_new_doc_btn.add_css_class("fond-pill");
+        empty_new_doc_btn.set_halign(Align::Center);
+        let empty_clear_search_btn = Button::with_label("Clear Search");
+        empty_clear_search_btn.add_css_class("flat");
+        empty_clear_search_btn.set_halign(Align::Center);
+        empty_clear_search_btn.set_visible(false);
+        let empty_actions = GtkBox::new(Orientation::Vertical, 0);
+        empty_actions.append(&empty_new_doc_btn);
+        empty_actions.append(&empty_clear_search_btn);
+        empty_page.set_child(Some(&empty_actions));
 
         let doc_list_stack = Stack::new();
         doc_list_stack.set_vexpand(true);
@@ -336,6 +373,8 @@ impl LibraryWindow {
             bottom_filter_list,
             doc_list_stack,
             empty_page,
+            empty_new_doc_btn,
+            empty_clear_search_btn,
         };
 
         lw.populate_filter_list();
@@ -540,6 +579,16 @@ impl LibraryWindow {
         {
             let this = self.clone();
             new_doc_btn.connect_clicked(move |_| this.new_document());
+        }
+        {
+            let this = self.clone();
+            self.empty_new_doc_btn.connect_clicked(move |_| this.new_document());
+        }
+        {
+            let this = self.clone();
+            self.empty_clear_search_btn.connect_clicked(move |_| {
+                this.search_entry.set_text("");
+            });
         }
         {
             let this = self.clone();
@@ -885,11 +934,14 @@ impl LibraryWindow {
             .unwrap_or_default();
 
         if docs.is_empty() {
-            self.empty_page.set_description(Some(if !search.is_empty() {
+            let searching = !search.is_empty();
+            self.empty_page.set_description(Some(if searching {
                 "Try a different search"
             } else {
                 "Nothing here yet"
             }));
+            self.empty_new_doc_btn.set_visible(!searching);
+            self.empty_clear_search_btn.set_visible(searching);
             self.doc_list_stack.set_visible_child_name("empty");
             return;
         }
@@ -1227,7 +1279,7 @@ impl LibraryWindow {
             vbox.append(&del_b);
 
             popover.set_child(Some(&vbox));
-            popover.popup();
+            popup_after_click(&popover);
             return;
         }
 
@@ -1410,7 +1462,7 @@ impl LibraryWindow {
         vbox.append(&trash_b);
 
         popover.set_child(Some(&vbox));
-        popover.popup();
+        popup_after_click(&popover);
     }
 
     fn edit_notes_dialog(&self, doc: &crate::library::Document) {
@@ -1529,7 +1581,7 @@ impl LibraryWindow {
         vbox.append(&delete_b);
 
         popover.set_child(Some(&vbox));
-        popover.popup();
+        popup_after_click(&popover);
     }
 
     fn rename_project_dialog(&self, project_id: i64, current_name: &str) {
@@ -1646,7 +1698,7 @@ impl LibraryWindow {
         }
         vbox.append(&delete_b);
         popover.set_child(Some(&vbox));
-        popover.popup();
+        popup_after_click(&popover);
     }
 
     fn rename_category_dialog(&self, current_name: &str) {

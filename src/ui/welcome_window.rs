@@ -143,9 +143,11 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
-                "Fixed Enter not confirming a few Library window dialogs (Rename Project, Rename Document, New Project) — it now works the same as every other name prompt in the app.",
-                "Fixed exporting a CV or citation document from the Library window (rather than the header's Export button) producing a PDF missing the CV content or citations.",
-                "Fixed a few secondary windows (Insert Table, Saved Versions, GitHub sign-in) missing the header's divider line, unlike every other window in the app.",
+                "Fixed the running header setting being silently dropped, and resetting to \"None\" every time you reopened the dialog, whenever the title page was off.",
+                "Fixed the spell-check suggestions popover (and a few right-click menus) opening and closing instantly instead of staying open.",
+                "The preview now scrolls to follow your cursor as you type, instead of only jumping when you click into it.",
+                "Fixed the Tools window always showing pandoc as installed, even when it wasn't.",
+                "Removed the redundant \"Browse Documents\" window — the Library window (Ctrl+L) already covers this with search, filters, and more.",
             ] {
                 body.append(&bullet_row(item));
             }

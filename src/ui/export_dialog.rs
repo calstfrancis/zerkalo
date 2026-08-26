@@ -164,7 +164,7 @@ impl ExportDialog {
         let install_btn = Button::with_label("Install Dependencies…");
         install_btn.add_css_class("flat");
         install_btn.set_tooltip_text(Some(
-            "Open the System Check Wizard to install missing tools",
+            "Open Tools to see what's missing and how to install it",
         ));
 
         let export_btn = Button::with_label("Export");
@@ -181,11 +181,13 @@ impl ExportDialog {
         toolbar_view.set_content(Some(&content));
         window.set_content(Some(&toolbar_view));
 
-        // Wire install button → open Setup Wizard
+        // Wire install button → open Tools. Installing Skrizhal is a tools
+        // question, not a setup one; Tools also now checks pandoc for real
+        // rather than assuming it's bundled, so this shows accurate install
+        // instructions instead of a false checkmark.
         let parent_clone = parent.clone();
         let project_root_for_cv = project_root.clone();
         install_btn.connect_clicked(move |_| {
-            // Installing Skrizhal is a tools question, not a setup one.
             super::tools_window::ToolsWindow::new(&parent_clone).present();
         });
 
