@@ -5,6 +5,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.27.0-dev1] — 2026-08-26 — Running header off the title page, spell-popover dismiss fixed for real, UX audit fixes
+
+### Fixed
+
+- **The running header setting was silently dropped whenever the title page was off**, and reset to "None" every time the dialog reopened. `header_block` (the running-header codegen) was only ever called from inside the title-page/letterhead generator — with the title page off and no letterhead, that whole section was an empty string, so the header was never written, and the round-trip parser found nothing to read back. The same bug hit every other metadata field too (Subtitle, Affiliation, Course, Professor, Date): all five are also only written inside those same two blocks, so with the title page off they silently reset on every reopen as well. Fixed by generating the header (and the metadata it needs) independent of the title page.
+- **The spell-check suggestions popover opening and closing instantly on right-click, again.** The 0.26.3 fix deferred `popup()` to the next idle cycle, reasoning that the paired button-release would finish dispatching first — true on X11, not reliably true on Wayland, where a fast right-click's press and release can land in the same main-loop iteration before any idle source runs at all, so the fix won zero time against the race it targeted. Replaced with a real 40ms delay, which can't lose that race regardless of how the backend batches input events.
+- **The same instant-open-close bug was also sitting in the tab context menu and all four Library window right-click menus** (document, project, category, category-child rows) — none of them had even the partial idle-based mitigation the spell popover did. Fixed the same way.
+- **The Tools window always showed pandoc as installed**, even when it wasn't. It was listed as `Bundled` (like git and tinymist, which genuinely are) and that status unconditionally reports "OK" regardless of whether the command is actually found — but nothing in the flatpak manifest builds or installs pandoc. Now checked for real, with normal per-distro install instructions when it's missing.
+- **A stale "Update Template Settings" label survived in five places** — an error alert, a toast, the dialog's own window title, and two code comments — after the menu row itself was renamed to "Change Document Style…". The window title in particular meant the dialog opened by that row was titled by its old name.
+- **The Help window's "Shortcuts" tab went stale after rebinding a key**, unlike the hamburger's own "Keyboard Shortcuts" dialog, which reads `keybindings.toml` live. Both now read live bindings for the ~11 actions that are actually rebindable. Also fixed the *other* dynamic shortcuts dialog showing raw lowercase binding strings (`ctrl+s`) instead of the formatted `Ctrl+S`.
+- **Import History's "Retry" failed silently** if a stored record's format label didn't match a current `IMPORT_FORMATS` entry — now shows a toast explaining why instead of doing nothing.
+
+### Added
+
+- **The preview now scrolls to follow the cursor as you type**, instead of only jumping when you click into it. A coarse line-fraction approximation (not true source-span mapping), debounced and independent of auto-compile settings.
+- **Library's empty states now offer a way out.** "Nothing here yet" shows a New Document button; a search with no matches shows a Clear Search button. Both used to be dead ends.
+
+### Changed
+
+- **Removed the redundant "Browse Documents" window.** It was a thinner, unfiltered duplicate of the Library window (Ctrl+L) — a plain filesystem scan with only a search box, versus Library's database-backed search, project/category/tag filters, sort, pin, and bulk actions, kept in sync with the filesystem on every launch. Nothing distinguished the two to a user.
+- **Removed the header's hidden Save button**, unreachable since it was never packed into any container. The comment justifying its existence ("kept because the command palette and other call sites still address it by emitting its click") was false — the palette's Save entry dispatches through the hamburger's row, and nothing else referenced this button at all. Its click handler was identical to the hamburger row's, so nothing is lost; Ctrl+S and the hamburger's Save row still cover the same action.
+- **Disambiguated the header's Style button from the Template dialog's own Style setting** — both apply the same citation/heading presets, but landed in either place expecting the other's scope. Tooltips on both now explain the difference (instant switch vs. bundled with the rest of the document's settings) and that the header switch is instant but undoable (Ctrl+Z).
+- **Standardized backup/sync wording** — toasts, alert titles, and the button tooltip used three different phrasings ("Synced" / "Save a Version & Back It Up" / "Backup Locations") for the same operation. Now consistently "back up." Also fixed one toast that told users to "try Sync from the menu" — there is no such menu row; the only entry point is the header button.
+- Renamed the command palette's "New File" to "New Blank Document…", matching the hamburger row and distinguishing it from the neighboring "New from Template…". Fixed the palette's Export subtitle, which was missing EPUB from the format list.
+- The "Repair Document Template…" row now has a tooltip explaining it's post-corruption recovery, not a routine setting.
+
+---
+
 ## [0.26.5] "Tidy Ledger" — 2026-08-25 — Library window fixes, dependency and packaging cleanup
 
 ### Fixed

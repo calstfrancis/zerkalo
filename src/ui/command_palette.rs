@@ -296,7 +296,7 @@ pub fn default_commands() -> Vec<PaletteItem> {
     vec![
         PaletteItem {
             id: "new_file".into(),
-            label: "New File".into(),
+            label: "New Blank Document…".into(),
             subtitle: "Create a new document in the work folder".into(),
         },
         PaletteItem {
@@ -312,7 +312,7 @@ pub fn default_commands() -> Vec<PaletteItem> {
         PaletteItem {
             id: "export".into(),
             label: "Export…".into(),
-            subtitle: "Export to PDF, HTML, DOCX, ODT or LaTeX".into(),
+            subtitle: "Export to PDF, HTML, DOCX, ODT, LaTeX or EPUB".into(),
         },
         PaletteItem {
             id: "print".into(),

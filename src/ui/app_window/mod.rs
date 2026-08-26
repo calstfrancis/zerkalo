@@ -217,7 +217,6 @@ impl AppWindow {
             print_header_btn,
             recent_popover,
             recompile_header_btn,
-            save_btn,
             sidebar_btn,
             style_box,
             style_btn,
@@ -746,7 +745,6 @@ impl AppWindow {
             effective_bib: effective_bib.clone(),
             auto_detected_bib: auto_detected_bib.clone(),
             print_header_btn: print_header_btn.clone(),
-            save_btn: save_btn.clone(),
             sync_btn: sync_btn.clone(),
             sync_badge: sync_badge.clone(),
         };
@@ -994,12 +992,32 @@ impl AppWindow {
         let gen2 = gen.clone();
         let editor_pane_for_delta = editor_pane.clone();
         let editor_pane_for_bib = editor_pane.clone();
+        // Preview scroll-follow: independent of the compile debounce above
+        // (and of auto-compile/manual-compile-only settings) so the preview
+        // keeps following the cursor even with auto-compile off.
+        let scroll_gen: Rc<RefCell<u64>> = Rc::new(RefCell::new(0));
+        let scroll_gen2 = scroll_gen.clone();
+        let preview_for_scroll_follow = preview_pane.clone();
+        let editor_for_scroll_follow = editor_pane.clone();
         editor_pane.set_on_change(move || {
             // While the citation popup is open, suppress compile and LSP updates —
             // partial @keys cause spurious errors and make typing difficult.
             if editor_pane_for_bib.is_bib_active() {
                 return;
             }
+            *scroll_gen2.borrow_mut() += 1;
+            let my_scroll_gen = *scroll_gen2.borrow();
+            let preview_sf = preview_for_scroll_follow.clone();
+            let editor_sf = editor_for_scroll_follow.clone();
+            let scroll_gen3 = scroll_gen2.clone();
+            glib::timeout_add_local(Duration::from_millis(120), move || {
+                if *scroll_gen3.borrow() == my_scroll_gen {
+                    if let Some(frac) = editor_sf.active_cursor_line_fraction() {
+                        preview_sf.scroll_to_fraction(frac);
+                    }
+                }
+                glib::ControlFlow::Break
+            });
             *last_edit_for_change.borrow_mut() = Some(std::time::Instant::now());
             *gen2.borrow_mut() += 1;
             let my_gen = *gen2.borrow();
@@ -3187,6 +3205,7 @@ fn show_dynamic_shortcuts_window(
     kb: &crate::keybindings::Keybindings,
 ) {
     use gtk4::prelude::*;
+    let d = crate::keybindings::display_binding;
     let body = format!(
         "Editing\n\
          \u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\u{2014}\n\
@@ -3211,17 +3230,17 @@ fn show_dynamic_shortcuts_window(
          Keyboard Shortcuts  {shortcuts_help}\n\
          Quit                {quit}\n\n\
          Keybindings file: ~/.config/zerkalo/keybindings.toml",
-        save = kb.save,
-        find = kb.find,
-        next_tab = kb.next_tab,
-        prev_tab = kb.prev_tab,
-        add_ref = kb.add_reference,
-        palette = kb.command_palette,
-        compile = kb.compile,
-        git_sync = kb.git_sync,
-        shortcuts_help = kb.shortcuts_help,
-        help_overlay = kb.help_overlay,
-        quit = kb.quit,
+        save = d(&kb.save),
+        find = d(&kb.find),
+        next_tab = d(&kb.next_tab),
+        prev_tab = d(&kb.prev_tab),
+        add_ref = d(&kb.add_reference),
+        palette = d(&kb.command_palette),
+        compile = d(&kb.compile),
+        git_sync = d(&kb.git_sync),
+        shortcuts_help = d(&kb.shortcuts_help),
+        help_overlay = d(&kb.help_overlay),
+        quit = d(&kb.quit),
     );
     let dlg = adw::MessageDialog::new(Some(window), Some("Keyboard Shortcuts"), Some(&body));
     dlg.add_response("ok", "OK");
@@ -3455,7 +3474,6 @@ struct HamburgerItems {
     menu_export_web_item: Button,
     menu_print_item: Button,
     menu_import_item: Button,
-    menu_docs_item: Button,
     menu_settings_item: Button,
     menu_help_item: Button,
     menu_shortcuts_item: Button,
@@ -3474,7 +3492,18 @@ fn build_hamburger_menu_items() -> HamburgerItems {
     HamburgerItems {
         menu_new_template_item: make_menu_item("New from Template…", None),
         menu_reapply_template_item: make_menu_item("Change Document Style…", None),
-        menu_repair_markers_item: make_menu_item("Repair Document Template…", None),
+        menu_repair_markers_item: {
+            let item = make_menu_item("Repair Document Template…", None);
+            // Filed in the "Document Tools" flyout alongside routine settings
+            // rows, but its own dialog frames itself as post-corruption
+            // recovery ("A backup was saved as .typ.bak") — nothing else in
+            // the menu signalled that distinction before this tooltip.
+            item.set_tooltip_text(Some(
+                "Only needed if Zerkalo's template markers were damaged — e.g. by \
+                 hand-editing the preamble. Makes a .typ.bak backup first.",
+            ));
+            item
+        },
         menu_refs_item: make_menu_item("Citations & Bibliography…", None),
         menu_depgraph_item: make_menu_item("Project File Map…", None),
         menu_table_item: make_menu_item("Insert Table…", None),
@@ -3490,7 +3519,6 @@ fn build_hamburger_menu_items() -> HamburgerItems {
         // key handler, so a literal is the honest label here.
         menu_print_item: make_menu_item("Print\u{2026}", Some("Ctrl+P")),
         menu_import_item: make_menu_item("Import…", Some("Ctrl+Shift+I")),
-        menu_docs_item: make_menu_item("Browse Documents…", None),
         menu_settings_item: make_menu_item("Settings", None),
         menu_help_item: make_menu_item("Help", Some("Ctrl+?")),
         // The keybinding-aware shortcuts window was reachable only by its
@@ -3695,7 +3723,7 @@ pub(super) fn show_ref_manager_window(
 }
 
 /// Opens the template dialog preloaded from the active document, for both the
-/// hamburger's "Update Template Settings…" and the header's "Template" button.
+/// hamburger's "Change Document Style…" and the header's "Template" button.
 ///
 /// These were two ~110-line copies of the same preselection sequence, and had
 /// already drifted: the header copy hardcoded the advanced-expander state,
@@ -3715,7 +3743,7 @@ pub(super) fn open_template_for_active_document(
         show_alert(
             window,
             "No document open",
-            "Open a .typ file first, then use Update Template Settings.",
+            "Open a .typ file first, then use Change Document Style…",
         );
         return;
     };
@@ -3927,7 +3955,7 @@ pub(super) fn open_template_for_active_document(
 /// The sidecar is only *updated*, never created here: an absent sidecar means
 /// the document itself is the record of its settings, and writing a fresh one
 /// from a single font pick would claim defaults for every setting it doesn't
-/// know, which "Update Template Settings" would then trust over the file.
+/// know, which "Change Document Style…" would then trust over the file.
 /// Returns whether the document actually changed, so the caller only relabels
 /// the format bar for an edit that landed.
 fn apply_doc_font_edit(
@@ -3943,7 +3971,7 @@ fn apply_doc_font_edit(
     let Some(updated) = edited else {
         toast_overlay.add_toast(adw::Toast::new(
             "This document has no Zerkalo template block — nothing to change. \
-             Use Update Template Settings… to give it one.",
+             Use Change Document Style… to give it one.",
         ));
         return false;
     };

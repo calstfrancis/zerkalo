@@ -12,6 +12,9 @@ pub(crate) enum Block<'a> {
     H2(&'a str),
     Body(&'a str),
     Code(&'a str),
+    /// Same rendering as `Code`, for text built at runtime (e.g. from live
+    /// keybindings) rather than a string literal.
+    CodeOwned(String),
     Gap,
 }
 
@@ -202,18 +205,43 @@ fn cheatsheet_blocks() -> Vec<Block<'static>> {
     ]
 }
 
+/// Reads live keybindings so a rebind updates this tab too — it used to be a
+/// fully static list sitting right next to the hamburger's "Keyboard
+/// Shortcuts" row, which reads `keybindings.toml` live; the two disagreed
+/// after any rebind. Only the ~11 actions that are actually rebindable
+/// (`crate::keybindings::Keybindings`) are substituted; everything else here
+/// is fixed and stays a string literal.
 fn shortcuts_blocks() -> Vec<Block<'static>> {
+    let kb = crate::keybindings::Keybindings::load();
+    let d = crate::keybindings::display_binding;
+    let save = d(&kb.save);
+    let find = d(&kb.find);
+    let next_tab = d(&kb.next_tab);
+    let prev_tab = d(&kb.prev_tab);
+    let compile = d(&kb.compile);
+    let palette = d(&kb.command_palette);
+    let git_sync = d(&kb.git_sync);
+    let shortcuts_help = d(&kb.shortcuts_help);
+    let help_overlay = d(&kb.help_overlay);
+    let quit = d(&kb.quit);
+
     vec![
         Block::H1("Keyboard Shortcuts"),
         Block::Gap,
         Block::H2("Editing"),
-        Block::Code("Ctrl+S              Save current file\nCtrl+F              Find & Replace\nCtrl+Tab            Next tab\nCtrl+Shift+Tab      Previous tab\nCtrl+Left/Right     Word jump (Typst-aware: treats #keyword and @cite as units)\nCtrl+Shift+Up/Down  Jump to previous / next heading in the document\nCtrl+D              Duplicate line or selection\nCtrl+/              Toggle line comment\nCtrl+Enter          Insert page break\nMiddle-click tab    Close tab"),
+        Block::CodeOwned(format!(
+            "{save:<20}Save current file\n{find:<20}Find & Replace\n{next_tab:<20}Next tab\n{prev_tab:<20}Previous tab\nCtrl+Left/Right     Word jump (Typst-aware: treats #keyword and @cite as units)\nCtrl+Shift+Up/Down  Jump to previous / next heading in the document\nCtrl+D              Duplicate line or selection\nCtrl+/              Toggle line comment\nCtrl+Enter          Insert page break\nMiddle-click tab    Close tab"
+        )),
         Block::Gap,
         Block::H2("Compiling & Preview"),
-        Block::Code("Ctrl+Shift+P        Compile and refresh preview\nCtrl+Shift+E        Export PDF to document folder (no dialog)\nCtrl+P              Print — page range, layout, then the system print dialog\nAuto-compile        Fires automatically after each change\nCtrl+Click preview  Jump to the nearby paragraph in the source\nDouble-click preview Jump to the exact word in the source"),
+        Block::CodeOwned(format!(
+            "{compile:<20}Compile and refresh preview\nCtrl+Shift+E        Export PDF to document folder (no dialog)\nCtrl+P              Print — page range, layout, then the system print dialog\nAuto-compile        Fires automatically after each change\nCtrl+Click preview  Jump to the nearby paragraph in the source\nDouble-click preview Jump to the exact word in the source"
+        )),
         Block::Gap,
         Block::H2("Navigation"),
-        Block::Code("Ctrl+K              Command palette (commands + headings)\nCtrl+G              Command palette pre-filtered to headings only\nCtrl+Shift+F        Find in Files (project-wide search)"),
+        Block::CodeOwned(format!(
+            "{palette:<20}Command palette (commands + headings)\nCtrl+G              Command palette pre-filtered to headings only\nCtrl+Shift+F        Find in Files (project-wide search)"
+        )),
         Block::Gap,
         Block::H2("Autocomplete"),
         Block::Code("#                   Inline suggestion — a preview of what will be inserted appears\n                    dim after the cursor, with its signature in the status bar\nTab                 Accept the inline suggestion\n#xx                 After two characters, a short list of matches opens too\n                    (matches anywhere in the name: #break finds pagebreak)\n↑ / ↓               Navigate the list — the status bar describes each entry\nTab / Return        Accept the selected entry from the list\n@                   Citation popup (requires a .bib file)\nEsc                 Dismiss for this word — your text is left alone\n                    (clicking elsewhere dismisses too)\n@ / !               Citations and CV entries behave the same way"),
@@ -222,10 +250,14 @@ fn shortcuts_blocks() -> Vec<Block<'static>> {
         Block::Code("Ctrl+Shift+I        Open the Import picker (LaTeX/Word/Markdown/ODT/HTML/EPUB/RTF/PDF)\nCtrl+Shift+V        Paste as Document (reads clipboard text as Markdown)\nDrag & drop         Drop a document file onto the editor to import it directly"),
         Block::Gap,
         Block::H2("What things do"),
-        Block::Code("F1                  Label every button and panel on screen, in place\nEsc                 Take the labels away (clicking anywhere does too)"),
+        Block::CodeOwned(format!(
+            "{help_overlay:<20}Label every button and panel on screen, in place\nEsc                 Take the labels away (clicking anywhere does too)"
+        )),
         Block::Gap,
         Block::H2("Git & Window"),
-        Block::Code("Ctrl+Shift+S        Commit & push (git sync)\nCtrl+Shift+H        Show keyboard shortcuts (dynamic)\nCtrl+R              Refresh file tree\nCtrl+Q              Quit\nCtrl+?              Open this help window\nSidebar button      Toggle left sidebar\nInsert button       Toggle insert snippets panel\nPop-out button      Open preview in a separate window"),
+        Block::CodeOwned(format!(
+            "{git_sync:<20}Commit & push (git sync)\n{shortcuts_help:<20}Show keyboard shortcuts\nCtrl+R              Refresh file tree\n{quit:<20}Quit\nCtrl+?              Open this help window\nSidebar button      Toggle left sidebar\nInsert button       Toggle insert snippets panel\nPop-out button      Open preview in a separate window"
+        )),
     ]
 }
 
@@ -502,6 +534,9 @@ pub(crate) fn make_rich_tab(blocks: Vec<Block<'_>>) -> ScrolledWindow {
             Block::H2(text) => insert_inline(&buf, &mut iter, text, "h2"),
             Block::Body(text) => insert_inline(&buf, &mut iter, text, "body"),
             Block::Code(text) => insert_with_tag(&buf, &mut iter, &format!("{text}\n"), "code"),
+            Block::CodeOwned(text) => {
+                insert_with_tag(&buf, &mut iter, &format!("{text}\n"), "code")
+            }
             Block::Gap => buf.insert(&mut iter, "\n"),
         }
     }

@@ -678,6 +678,10 @@ fn build_document_tab(notebook: &Notebook, cv_switch: &Switch) -> DocumentTab {
 
     let style_group = adw::PreferencesGroup::new();
     style_group.set_title("Citation & Heading Style");
+    style_group.set_description(Some(
+        "The same presets as the header's Style button, applied together with the \
+         document settings below when you click Apply.",
+    ));
 
     let style_labels: Vec<&str> = CITATION_STYLES.iter().map(|(n, _)| *n).collect();
     let style_model = gtk4::StringList::new(&style_labels);
@@ -2851,8 +2855,9 @@ impl TemplateDialog {
     pub fn set_on_apply(&self, f: impl Fn(String, SidecarSettings) + 'static) {
         *self.on_apply.borrow_mut() = Some(Box::new(f));
         self.apply_btn.set_visible(true);
-        // Retitle the window to clarify intent
-        self.window.set_title(Some("Update Template Settings"));
+        // Retitle the window to clarify intent — must match the menu row
+        // that opens it ("Change Document Style…", app_window/mod.rs).
+        self.window.set_title(Some("Change Document Style"));
     }
 
     /// Pre-select a citation style by its internal key (e.g. "sbl", "apa").

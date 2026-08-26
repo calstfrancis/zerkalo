@@ -74,8 +74,8 @@ pub fn tools_group() -> (adw::PreferencesGroup, bool, Vec<Rc<dyn Fn()>>) {
     let group = adw::PreferencesGroup::new();
     group.set_title("Tools");
     group.set_description(Some(
-        "git, tinymist and pandoc are bundled with Zerkalo — nothing to install. \
-         The rest are optional.",
+        "git and tinymist are bundled with Zerkalo — nothing to install there. \
+         The rest, including pandoc, are optional.",
     ));
 
     let distro = detect_distro();
@@ -102,7 +102,15 @@ pub fn tools_group() -> (adw::PreferencesGroup, bool, Vec<Rc<dyn Fn()>>) {
     for (name, cmd, purpose, kind, required) in [
         ("git", "git", git_purpose, git_kind, true),
         ("tinymist", "tinymist", "Completions and diagnostics — bundled", ToolKind::Bundled, false),
-        ("pandoc", "pandoc", "LaTeX, HTML, EPUB and RTF import; export — bundled", ToolKind::Bundled, false),
+        // Unlike git and tinymist, pandoc is not actually built into the
+        // flatpak (nothing in packaging/*.yml fetches or installs it) — it
+        // used to be listed as `ToolKind::Bundled` here, which always reports
+        // `ok = true` regardless of whether the command is found, so this row
+        // silently showed a green checkmark even when export_dialog.rs's own
+        // independent pandoc check had just disabled every non-PDF format.
+        ("pandoc", "pandoc", "LaTeX, HTML, EPUB and RTF import; export", ToolKind::Package {
+            apt: "pandoc", dnf: "pandoc", pacman: "pandoc", zypper: "pandoc",
+        }, false),
         ("hunspell", "hunspell", "Spell checking — optional", ToolKind::Package {
             apt: "hunspell", dnf: "hunspell", pacman: "hunspell", zypper: "hunspell",
         }, false),

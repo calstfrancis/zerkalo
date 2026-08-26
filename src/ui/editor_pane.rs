@@ -4092,6 +4092,31 @@ impl EditorPane {
         None
     }
 
+    /// Cursor's vertical position in the active document as a 0.0–1.0
+    /// fraction of total lines. Drives the preview's scroll-follow — coarse
+    /// (line density isn't uniform with PDF page position) but needs no
+    /// compiler-level source-span support, unlike click-to-jump.
+    pub fn active_cursor_line_fraction(&self) -> Option<f64> {
+        let current = self.notebook.current_page()?;
+        let state = self.state.borrow();
+        for tab in state.tabs.values() {
+            if let Some(n) = self.notebook.page_num(&tab.scroll_window) {
+                if n == current {
+                    let total_lines = tab.buffer.line_count();
+                    if total_lines <= 1 {
+                        return Some(0.0);
+                    }
+                    let cursor_line = tab
+                        .buffer
+                        .iter_at_offset(tab.buffer.cursor_position())
+                        .line();
+                    return Some(cursor_line as f64 / (total_lines - 1) as f64);
+                }
+            }
+        }
+        None
+    }
+
     /// The live text of one line of an open file (1-based), or None if the file
     /// isn't open.
     ///
@@ -5846,7 +5871,19 @@ impl EditorPane {
             rc_for_gesture.connect_pressed(move |_, _, x, y| {
                 pop_for_rc
                     .set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
-                pop_for_rc.popup();
+                // Same fix, same reason, as the spell-suggestions popover
+                // below (search this file for "feels instant" for the full
+                // writeup): calling popup() synchronously here starts the
+                // autohide grab while this right-click's button-release
+                // hasn't landed yet, and that release then dismisses the
+                // popover the instant it arrives. A real short delay survives
+                // that regardless of how the backend batches input events;
+                // an idle-priority deferral (tried first for the spell
+                // popover) does not.
+                let pop_delayed = pop_for_rc.clone();
+                glib::timeout_add_local_once(Duration::from_millis(40), move || {
+                    pop_delayed.popup();
+                });
             });
             tab_box.add_controller(rc_for_gesture);
         }
@@ -7279,19 +7316,33 @@ impl EditorPane {
                     // the user clicked to dismiss the popover.
                 });
 
-                // Deferred to the next idle, not called here directly: this
-                // whole handler runs on the right-click's button-*press*, with
-                // the button still down (connect_pressed, not connect_released
-                // — see the comment on this gesture's creation for why).
-                // Calling popup() synchronously starts the popover's autohide
-                // grab immediately, and the paired button-*release* — which
-                // hasn't happened yet and lands back on the editor, outside the
-                // popover's own surface — then reads to that grab as an
-                // outside click and closes the popover right away, before the
-                // suggestions even finish rendering. Waiting for an idle lets
-                // the release finish being dispatched first.
+                // Deferred by a short real delay, not called here directly:
+                // this whole handler runs on the right-click's button-*press*,
+                // with the button still down (connect_pressed, not
+                // connect_released — see the comment on this gesture's
+                // creation for why). Calling popup() synchronously starts the
+                // popover's autohide grab immediately, and the paired
+                // button-*release* — which hasn't happened yet and lands back
+                // on the editor, outside the popover's own surface — then
+                // reads to that grab as an outside click and closes the
+                // popover right away, before the suggestions even finish
+                // rendering.
+                //
+                // This used to defer via `glib::idle_add_local_once` instead
+                // (zero-delay, next main-loop iteration) on the reasoning that
+                // it would run after the release finished dispatching — that
+                // held on X11 but not reliably on Wayland, where a fast
+                // right-click's press and release can arrive and both get
+                // processed within the same main-loop iteration, before any
+                // idle source runs at all, so the deferral won zero time
+                // against the race it was meant to avoid. A real (not just
+                // idle-priority) delay can't lose that race regardless of how
+                // the backend batches input events, and 40ms is well under the
+                // ~100ms "feels instant" threshold.
                 let popover_open = popover.clone();
-                glib::idle_add_local_once(move || popover_open.popup());
+                glib::timeout_add_local_once(Duration::from_millis(40), move || {
+                    popover_open.popup()
+                });
             });
             view.add_controller(gesture);
         }

@@ -147,7 +147,9 @@ pub(super) fn auto_sync_quiet(
             }
             if let Some(overlay) = &overlay {
                 if failed {
-                    let t = adw::Toast::new("Backup didn't go through — try Sync from the menu.");
+                    let t = adw::Toast::new(
+                        "Backup didn't go through — try the Back Up button again (Ctrl+Shift+S).",
+                    );
                     t.set_timeout(6);
                     overlay.add_toast(t);
                 } else if result.pushed {
@@ -155,7 +157,7 @@ pub(super) fn auto_sync_quiet(
                         .commit_message
                         .lines()
                         .next()
-                        .unwrap_or("Synced")
+                        .unwrap_or("your changes")
                         .to_string();
                     let t = adw::Toast::new(&format!("Backed up — {summary}"));
                     t.set_timeout(3);
@@ -187,7 +189,7 @@ fn show_sync_result(
 ) {
     if let Some(err) = result.error {
         set_sync_badge(badge, SyncBadge::Failed);
-        show_alert(window, "Sync Failed", &err);
+        show_alert(window, "Backup Failed", &err);
         return;
     }
     if !result.push_errors.is_empty() {
@@ -212,9 +214,9 @@ fn show_sync_result(
                 .commit_message
                 .lines()
                 .next()
-                .unwrap_or("Synced")
+                .unwrap_or("your changes")
                 .to_string();
-            overlay.add_toast(adw::Toast::new(&format!("Synced — {summary}")));
+            overlay.add_toast(adw::Toast::new(&format!("Backed up — {summary}")));
             show_alert(window, "Some backups failed", &detail);
         } else if is_conflict {
             show_alert(
@@ -225,7 +227,7 @@ fn show_sync_result(
                  versions and decide what to keep before syncing again.",
             );
         } else {
-            show_alert(window, "Push Failed", &detail);
+            show_alert(window, "Backup Failed", &detail);
         }
         return;
     }
@@ -235,9 +237,9 @@ fn show_sync_result(
             .commit_message
             .lines()
             .next()
-            .unwrap_or("Synced")
+            .unwrap_or("your changes")
             .to_string();
-        overlay.add_toast(adw::Toast::new(&format!("Synced — {summary}")));
+        overlay.add_toast(adw::Toast::new(&format!("Backed up — {summary}")));
     } else if result.committed {
         // Committed locally but nothing pushed (e.g. no network) — still
         // waiting to actually reach the backup, so the badge stays lit.
@@ -247,7 +249,7 @@ fn show_sync_result(
         ));
     } else {
         set_sync_badge(badge, SyncBadge::Clear);
-        overlay.add_toast(adw::Toast::new("Nothing to sync"));
+        overlay.add_toast(adw::Toast::new("Nothing new to back up"));
     }
 }
 
