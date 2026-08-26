@@ -6571,7 +6571,43 @@ impl EditorPane {
                     last_ap.set(false);
                     return glib::Propagation::Proceed;
                 }
-                // Don't auto-pair when there is a selection
+                let pair = match key {
+                    Key::parenleft => Some(("(", ")")),
+                    Key::bracketleft => Some(("[", "]")),
+                    Key::braceleft => Some(("{", "}")),
+                    Key::quotedbl => Some(("\"", "\"")),
+                    Key::dollar => Some(("$", "$")),
+                    _ => None,
+                };
+
+                // With a selection, an opening pair character wraps the
+                // selected text instead of replacing it (the same behavior
+                // as VS Code, Sublime, etc.) — e.g. selecting a word and
+                // typing `"` surrounds it in one quote each side, rather
+                // than deleting it and leaving a lone `"`. Any other key
+                // (including a closing bracket alone) falls through to
+                // GTK's normal replace-selection behavior, unchanged.
+                if let Some((open, close)) = pair {
+                    if let Some((start, end)) = buf_pair.selection_bounds() {
+                        let start_off = start.offset();
+                        let end_off = end.offset();
+                        buf_pair.begin_user_action();
+                        let mut end_iter = buf_pair.iter_at_offset(end_off);
+                        buf_pair.insert(&mut end_iter, close);
+                        let mut start_iter = buf_pair.iter_at_offset(start_off);
+                        buf_pair.insert(&mut start_iter, open);
+                        buf_pair.end_user_action();
+                        // Re-select the original text, now shifted right by
+                        // the inserted opening character, so the wrap can be
+                        // chained (select again, wrap again) or the
+                        // selection simply continues to read naturally.
+                        let new_start = buf_pair.iter_at_offset(start_off + 1);
+                        let new_end = buf_pair.iter_at_offset(end_off + 1);
+                        buf_pair.select_range(&new_start, &new_end);
+                        last_ap.set(false);
+                        return glib::Propagation::Stop;
+                    }
+                }
                 if buf_pair.has_selection() {
                     last_ap.set(false);
                     return glib::Propagation::Proceed;
@@ -6597,14 +6633,6 @@ impl EditorPane {
                     }
                 }
 
-                let pair = match key {
-                    Key::parenleft => Some(("(", ")")),
-                    Key::bracketleft => Some(("[", "]")),
-                    Key::braceleft => Some(("{", "}")),
-                    Key::quotedbl => Some(("\"", "\"")),
-                    Key::dollar => Some(("$", "$")),
-                    _ => None,
-                };
                 if let Some((open, close)) = pair {
                     buf_pair.begin_user_action();
                     buf_pair.insert_at_cursor(open);

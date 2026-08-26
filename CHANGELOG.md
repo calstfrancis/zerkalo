@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.28.0] "Home Ground" — 2026-08-26 — Spell check and HTML export now run in-process, wrap-selection
+
+### Added
+
+- **Selecting text and typing an opening `(`, `[`, `{`, `"`, or `$` now wraps the selection instead of replacing it** — the same behavior as VS Code, Sublime, and other editors with "smart" auto-pairing. Select a word and type `"` and it becomes `"word"` with the original text still selected, rather than being deleted down to a lone `"`. Works uniformly across all five pair characters the editor already auto-pairs while typing.
+
+### Changed
+
+- **Spell checking no longer shells out to a `hunspell` subprocess.** It now reads the same system Hunspell-format `.aff`/`.dic` dictionary files directly, in-process, via `spellbook` (the same crate the Helix editor uses for its own spell checking). No fork/exec per lookup, no dependency on a `hunspell` binary being on the host's PATH — which, inside a flatpak sandbox, it usually isn't, since nothing spawns it via `flatpak-spawn --host`. This is also what was actually behind the "hangs on Checking…" bug fixed last release: that fix's own polling logic no longer matters the same way once there's no subprocess round-trip to wait on. The Tools window and startup check now correctly report on dictionary *files* being present rather than a command being on PATH, since that's what actually determines whether spell check works now.
+- **HTML export no longer needs pandoc.** It now compiles through Typst's own HTML exporter (`typst-html`), in-process, the same way PDF export already does — reusing the exact same bibliography-sanitizing, root-widening compile path. Output is genuinely standalone: images embed as base64 data URIs instead of pandoc's loose `--extract-media` files, math renders as real MathML instead of an image or raw LaTeX fallback, and footnotes/citations carry proper ARIA roles. Typst's own compiler still flags HTML export as under active development upstream — noted here for anyone who wants to know, but hands-on testing against citations, footnotes, images, math, and tables all came back solid. DOCX, ODT, LaTeX, and EPUB export are unchanged and still use pandoc; so does the separate "Export for Web" fragment output, which has its own pandoc-shaped post-processing that wasn't part of this pass.
+
+---
+
 ## [0.27.0] "Honest Glass" — 2026-08-26 — Running header off the title page, spell-popover fixed for real, UX audit fixes
 
 ### Fixed

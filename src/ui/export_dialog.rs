@@ -72,8 +72,10 @@ impl ExportDialog {
         prefs_group.set_margin_bottom(8);
 
         // Checked once up front rather than only discovered at export time —
-        // PDF (index 0) compiles in-process and never needs this; every other
-        // format shells out to the host's pandoc, which a flatpak install may
+        // PDF (index 0) and HTML (index 1) both compile in-process (the
+        // embedded Typst compiler, and Typst's own HTML exporter — see
+        // compiler::compile_to_html) and never need this; DOCX/ODT/LaTeX/EPUB
+        // still shell out to the host's pandoc, which a flatpak install may
         // not have.
         let pandoc_available = crate::git_sync::host_command("pandoc")
             .arg("--version")
@@ -86,7 +88,7 @@ impl ExportDialog {
             .enumerate()
             .map(|(i, (label, _))| {
                 let cb = CheckButton::with_label(label);
-                let needs_pandoc = i != 0;
+                let needs_pandoc = i != 0 && i != 1;
                 if needs_pandoc && !pandoc_available {
                     cb.set_active(false);
                     cb.set_sensitive(false);
@@ -112,8 +114,8 @@ impl ExportDialog {
 
         if !pandoc_available {
             let note = Label::new(Some(
-                "Only PDF is available until pandoc is installed — it's needed for \
-                 HTML, DOCX, ODT, LaTeX, and EPUB export.",
+                "Only PDF and HTML are available until pandoc is installed — it's \
+                 needed for DOCX, ODT, LaTeX, and EPUB export.",
             ));
             note.add_css_class("caption");
             note.add_css_class("dim-label");
@@ -275,11 +277,26 @@ impl ExportDialog {
                                     Err(e) => Err(e),
                                 }
                             }
+                            1 => {
+                                // HTML via Typst's own exporter — in-process,
+                                // no pandoc, and self-contained (images embed
+                                // as data URIs rather than writing loose
+                                // files next to the output).
+                                match crate::compiler::compile_to_html(
+                                    &input_owned,
+                                    &cv_overrides_owned,
+                                    &cv_sys_inputs_owned,
+                                    bib_path_owned.as_deref(),
+                                ) {
+                                    Ok(html) => std::fs::write(&out_path, html.as_bytes())
+                                        .map_err(|e| format!("Write error: {e}")),
+                                    Err(e) => Err(e),
+                                }
+                            }
                             _ => {
-                                // All other formats via pandoc.
-                                // HTML, DOCX, ODT, LaTeX, EPUB — pandoc reads typst natively.
+                                // DOCX, ODT, LaTeX, EPUB — pandoc reads typst
+                                // natively; no Typst-native writer for these.
                                 let pandoc_fmt = match fmt_idx {
-                                    1 => "html",
                                     2 => "docx",
                                     3 => "odt",
                                     4 => "latex",

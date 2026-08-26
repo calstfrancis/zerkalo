@@ -89,7 +89,7 @@ raw markup dead-end: a live preview pane always shows the real formatting next t
 | **Citations & Bibliography** | ☰ → Document Tools → Citations & Bibliography — a fuller view of the loaded bibliography than the sidebar Citations panel, including project-wide citation key rename |
 | **Project File Map** | ☰ → Document Tools → Project File Map — visualises which files `#include`/`#import` which, opened as its own window |
 | **Document import** | Ctrl+Shift+I, or Import… in the Library window — converts to Typst, with a preview before anything is written. Word (`.docx`), OpenDocument (`.odt`) and Markdown are read by Zerkalo itself, so they need nothing installed; LaTeX, HTML, EPUB and RTF use `pandoc`, and PDF uses `pdftotext` |
-| **Export** | PDF (in-process), HTML, DOCX, ODT, LaTeX (via `pandoc` where needed) — the export dialog checks upfront whether `pandoc` is available and disables the formats that need it if not, instead of only failing after you've clicked Export |
+| **Export** | PDF and HTML compile in-process (both via the embedded Typst compiler — no `pandoc`); DOCX, ODT, LaTeX and EPUB go through `pandoc` — the export dialog checks upfront whether it's available and disables the formats that need it if not, instead of only failing after you've clicked Export |
 | **Print** | `Ctrl+P` opens the print sheet — page ranges in the document's own numbering, one/two/four pages a sheet or a fold-and-staple booklet, with a preview of the first sheet; hands off to the system print dialog with the paper size, copies, two-sided and colour already set. Text prints as vector at the printer's own resolution |
 | **Font management** | Settings → Editor → Document Fonts → Manage available fonts… — searchable list of system fonts; enable/disable; set default sans/serif fonts used for new documents and template previews |
 | **GOST Type B font** | Bundled and installed automatically on first launch |
@@ -109,8 +109,7 @@ raw markup dead-end: a live preview pane always shows the real formatting next t
 | Tool | Purpose | Install |
 |---|---|---|
 | `pandoc` | DOCX, ODT, LaTeX export; LaTeX, HTML, EPUB and RTF import (Word, OpenDocument and Markdown import need it no longer) | system package — the Export dialog detects whether it's available and tells you if it's missing |
-| `hunspell` | Spell checking | system package |
-| `hunspell-en` | English dictionaries (example) | `apt install hunspell-en-us` · `dnf install hunspell-en` · `zypper install hunspell-en` |
+| `hunspell-en` (dictionary files only — spell checking itself is built in, no `hunspell` command needed) | English dictionaries (example) | `apt install hunspell-en-us` · `dnf install hunspell-en` · `zypper install hunspell-en` |
 | `git` | Version history and sync | **bundled in the flatpak** — the GNOME runtime ships none; system package otherwise |
 | `tinymist` | LSP completions (optional) | `cargo install tinymist` for source builds |
 

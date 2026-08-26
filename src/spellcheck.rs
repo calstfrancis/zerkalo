@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::io::Write as IoWrite;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::sync::{Arc, Mutex, OnceLock};
 
 const DICT_DIRS: &[&str] = &[
     "/usr/share/hunspell",
@@ -154,16 +154,18 @@ impl SpellChecker {
             return HashMap::new();
         }
         // Start with all words flagged by the primary language (includes suggestions).
-        let mut result = run_hunspell_batch(&filtered, self.primary_language());
+        let mut result = check_words_in_language(&filtered, self.primary_language());
         // For each additional language, remove words that pass in that language.
         for lang in self.languages.iter().skip(1) {
-            let also_wrong = run_hunspell_batch(&filtered, lang);
+            let also_wrong = check_words_in_language(&filtered, lang);
             result.retain(|word, _| also_wrong.contains_key(word));
         }
         result
     }
 
     /// Return list of dictionary language codes installed on the system.
+    /// Requires both halves of the pair — a `.dic` with no matching `.aff`
+    /// isn't loadable.
     pub fn available_languages() -> Vec<String> {
         let mut langs = Vec::new();
         for dir in DICT_DIRS {
@@ -173,8 +175,10 @@ impl SpellChecker {
             for entry in entries.flatten() {
                 let name = entry.file_name();
                 let s = name.to_string_lossy();
-                if s.ends_with(".dic") {
-                    langs.push(s.trim_end_matches(".dic").to_string());
+                if let Some(stem) = s.strip_suffix(".dic") {
+                    if Path::new(dir).join(format!("{stem}.aff")).exists() {
+                        langs.push(stem.to_string());
+                    }
                 }
             }
         }
@@ -186,9 +190,11 @@ impl SpellChecker {
     /// Get suggestions for a single word (used by right-click menu).
     /// Uses the primary language for suggestions.
     ///
-    /// Spawns and waits on `hunspell`, so it must not be called from the GTK
-    /// main thread. Use [`suggestions_for_word`] from a worker instead when the
-    /// caller is on the main loop.
+    /// The first call for a given language loads and parses its dictionary
+    /// (real work — the full word list plus every affix rule), so this
+    /// still shouldn't be called from the GTK main thread. Use
+    /// [`suggestions_for_word`] from a worker instead when the caller is on
+    /// the main loop.
     #[allow(dead_code)] // the UI now calls suggestions_for_word off-thread
     pub fn suggestions_for(&self, word: &str) -> Vec<String> {
         if self.is_ignored(word) {
@@ -202,7 +208,7 @@ impl SpellChecker {
 /// so it can be sent to a worker thread while the main loop keeps running.
 pub fn suggestions_for_word(word: &str, language: &str) -> Vec<String> {
     let words = [word];
-    run_hunspell_batch(&words, language)
+    check_words_in_language(&words, language)
         .remove(&word.to_lowercase())
         .unwrap_or_default()
 }
@@ -403,7 +409,60 @@ fn skip_balanced(chars: &[char], start: usize, n: usize) -> usize {
     i
 }
 
-// ── Hunspell subprocess ───────────────────────────────────────────────────────
+// ── Dictionary loading ────────────────────────────────────────────────────────
+//
+// In-process against the system's own Hunspell-format `.aff`/`.dic` files —
+// no `hunspell` binary or subprocess. This used to shell out to `hunspell -a`
+// (ispell pipe mode) per batch, which meant a fork/exec per call, a real
+// dependency on the CLI tool being on the host's PATH (awkward from inside a
+// flatpak sandbox, where reaching a host binary at all needs
+// `flatpak-spawn --host`), and made the poll/timing bugs around it (see
+// editor_pane.rs's spell-suggestions popover) possible to hit in the first
+// place. A dictionary is real work to parse (the full word list plus every
+// affix rule), so each one is loaded once per language and cached — every
+// caller already runs on its own spawned thread (the background misspelling
+// scan, the right-click suggestions popup, autocorrect), so a
+// Mutex-guarded cache is enough; nothing here is on the keystroke path.
+fn dictionary_cache() -> &'static Mutex<HashMap<String, Option<Arc<spellbook::Dictionary>>>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, Option<Arc<spellbook::Dictionary>>>>> =
+        OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// The `.aff`/`.dic` pair for `language` (e.g. `"en_US"`), if both exist in
+/// any of `DICT_DIRS`.
+fn find_dict_files(language: &str) -> Option<(PathBuf, PathBuf)> {
+    for dir in DICT_DIRS {
+        let aff = Path::new(dir).join(format!("{language}.aff"));
+        let dic = Path::new(dir).join(format!("{language}.dic"));
+        if aff.exists() && dic.exists() {
+            return Some((aff, dic));
+        }
+    }
+    None
+}
+
+fn get_dictionary(language: &str) -> Option<Arc<spellbook::Dictionary>> {
+    let mut cache = dictionary_cache().lock().unwrap();
+    if let Some(entry) = cache.get(language) {
+        return entry.clone();
+    }
+    let loaded = find_dict_files(language).and_then(|(aff_path, dic_path)| {
+        let aff = std::fs::read_to_string(&aff_path).ok()?;
+        let dic = std::fs::read_to_string(&dic_path).ok()?;
+        match spellbook::Dictionary::new(&aff, &dic) {
+            Ok(d) => Some(Arc::new(d)),
+            Err(e) => {
+                tracing::warn!("Failed to parse dictionary for {language}: {e}");
+                None
+            }
+        }
+    });
+    cache.insert(language.to_string(), loaded.clone());
+    loaded
+}
+
+// ── Batch checking ────────────────────────────────────────────────────────────
 
 pub(crate) fn check_words_batch(
     words: &[&str],
@@ -412,86 +471,30 @@ pub(crate) fn check_words_batch(
     if words.is_empty() || languages.is_empty() {
         return HashMap::new();
     }
-    let mut result = run_hunspell_batch(words, &languages[0]);
+    let mut result = check_words_in_language(words, &languages[0]);
     for lang in languages.iter().skip(1) {
-        let also_wrong = run_hunspell_batch(words, lang);
+        let also_wrong = check_words_in_language(words, lang);
         result.retain(|word, _| also_wrong.contains_key(word));
     }
     result
 }
 
-fn run_hunspell_batch(words: &[&str], language: &str) -> HashMap<String, Vec<String>> {
+fn check_words_in_language(words: &[&str], language: &str) -> HashMap<String, Vec<String>> {
     let mut result = HashMap::new();
     if words.is_empty() {
         return result;
     }
-
-    let input = words.join("\n") + "\n";
-
-    let mut child = match Command::new("hunspell")
-        .args(["-a", "-d", language])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-    {
-        Ok(c) => c,
-        Err(_) => return result,
+    let Some(dict) = get_dictionary(language) else {
+        return result;
     };
-
-    // Write stdin on its own thread while the parent reads stdout. Writing the
-    // whole word list first and only then reading deadlocks once hunspell's
-    // output fills the ~64 KB pipe buffer: it blocks writing, we block writing,
-    // and neither side ever drains. A long document's unique-word list reaches
-    // that comfortably.
-    let writer = child.stdin.take().map(|mut stdin| {
-        std::thread::spawn(move || {
-            let _ = stdin.write_all(input.as_bytes());
-            // Dropping stdin here closes the pipe, which is what tells hunspell
-            // to finish and exit.
-        })
-    });
-
-    let output = match child.wait_with_output() {
-        Ok(o) => o,
-        Err(_) => return result,
-    };
-    if let Some(w) = writer {
-        let _ = w.join();
-    }
-
-    let text = String::from_utf8_lossy(&output.stdout);
-
-    // Collect non-blank lines after the @ header.
-    // Each non-blank result line corresponds to one input word in order.
-    let result_lines: Vec<&str> = text
-        .lines()
-        .filter(|l| !l.is_empty() && !l.starts_with('@'))
-        .collect();
-
-    for (idx, line) in result_lines.iter().enumerate() {
-        let Some(word) = words.get(idx) else { break };
-        if line.starts_with('&') {
-            // & word count offset: sugg1, sugg2, ...
-            let suggestions: Vec<String> = line
-                .find(':')
-                .map(|pos| {
-                    line[pos + 1..]
-                        .split(',')
-                        .map(|s| s.trim().to_string())
-                        .filter(|s| !s.is_empty())
-                        .take(8)
-                        .collect()
-                })
-                .unwrap_or_default();
+    for word in words {
+        if !dict.check(word) {
+            let mut suggestions = Vec::new();
+            dict.suggest(word, &mut suggestions);
+            suggestions.truncate(8);
             result.insert(word.to_lowercase(), suggestions);
-        } else if line.starts_with('#') {
-            // # word offset — misspelled, no suggestions
-            result.insert(word.to_lowercase(), Vec::new());
         }
-        // * + - = correct, no entry needed
     }
-
     result
 }
 
@@ -727,5 +730,23 @@ mod tests {
     fn levenshtein_counts_code_points_not_bytes() {
         assert_eq!(levenshtein("café", "cafe"), 1);
         assert_eq!(levenshtein("naïve", "naive"), 1);
+    }
+
+    // ── Dictionary loading: only the not-found path is CI-safe to test here —
+    // CI runners have no hunspell dictionaries installed (nothing in
+    // .github/workflows installs one), so a real-dictionary test would be
+    // flaky there even though it passes locally (verified by hand against
+    // this machine's /usr/share/hunspell/en_US.{aff,dic}: check/suggest both
+    // behave as expected, e.g. "wrold" -> ["world", "wold"]).
+
+    #[test]
+    fn an_unknown_language_has_no_dictionary_files() {
+        assert_eq!(find_dict_files("xx_XX_not_a_real_language"), None);
+    }
+
+    #[test]
+    fn checking_against_an_unknown_language_returns_nothing_rather_than_panicking() {
+        assert!(check_words_in_language(&["word"], "xx_XX_not_a_real_language").is_empty());
+        assert!(get_dictionary("xx_XX_not_a_real_language").is_none());
     }
 }

@@ -108,10 +108,15 @@ pub fn tools_group() -> (adw::PreferencesGroup, bool, Vec<Rc<dyn Fn()>>) {
         // `ok = true` regardless of whether the command is found, so this row
         // silently showed a green checkmark even when export_dialog.rs's own
         // independent pandoc check had just disabled every non-PDF format.
-        ("pandoc", "pandoc", "LaTeX, HTML, EPUB and RTF import; export", ToolKind::Package {
+        ("pandoc", "pandoc", "LaTeX, HTML, EPUB and RTF import; DOCX, ODT, LaTeX and EPUB export", ToolKind::Package {
             apt: "pandoc", dnf: "pandoc", pacman: "pandoc", zypper: "pandoc",
         }, false),
-        ("hunspell", "hunspell", "Spell checking — optional", ToolKind::Package {
+        // Checked as dictionary files, not a `hunspell` command — see
+        // check_command's "hunspell" branch. `cmd` stays "hunspell" only as
+        // that branch's dispatch key and because installing the `hunspell`
+        // package is still the right hint (it typically pulls in a base
+        // dictionary as a recommended dependency).
+        ("Spelling dictionary", "hunspell", "Spell checking — optional", ToolKind::Package {
             apt: "hunspell", dnf: "hunspell", pacman: "hunspell", zypper: "hunspell",
         }, false),
         (
@@ -376,6 +381,13 @@ fn tool_row(
 pub fn check_command(cmd: &str) -> bool {
     if cmd == "git" {
         return crate::git_sync::git_available();
+    }
+    // Spell checking reads system dictionary files directly (spellcheck.rs)
+    // rather than shelling out to a `hunspell` binary, so "installed" means
+    // a usable .aff/.dic pair exists, not that a command is on PATH — there
+    // usually isn't one to find any more.
+    if cmd == "hunspell" {
+        return !crate::spellcheck::SpellChecker::available_languages().is_empty();
     }
     // tinymist may be bundled at a fixed path inside or outside the flatpak
     if cmd == "tinymist" {

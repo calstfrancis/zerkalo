@@ -3948,6 +3948,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "spellbook"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d204abcbdf8e88729306a8d0ca01a79d8a49969fe1f84696909d6dbc4321c1a"
+dependencies = [
+ "foldhash",
+ "hashbrown 0.17.1",
+]
+
+[[package]]
 name = "spin"
 version = "0.9.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5788,7 +5798,7 @@ dependencies = [
 
 [[package]]
 name = "zerkalo"
-version = "0.27.0"
+version = "0.28.0"
 dependencies = [
  "ashpd",
  "biblatex 0.12.0",
@@ -5814,6 +5824,7 @@ dependencies = [
  "shellexpand",
  "skrizhal-core",
  "sourceview5",
+ "spellbook",
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
@@ -5822,6 +5833,7 @@ dependencies = [
  "tracing-appender",
  "tracing-subscriber",
  "typst",
+ "typst-html",
  "typst-kit",
  "typst-layout",
  "typst-pdf",

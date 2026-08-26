@@ -14,7 +14,7 @@
     <p>Editor features:</p>
     <ul>
       <li>Multi-file tabs with modified indicator and inline compile-error dots</li>
-      <li>Syntax highlighting, find and replace, auto-pair brackets</li>
+      <li>Syntax highlighting, find and replace, auto-pair brackets — selecting text and typing an opening bracket or quote wraps the selection instead of replacing it</li>
       <li>Ctrl+B / Ctrl+I bold and italic formatting with toggle-off support</li>
       <li>Inline completion — type # for a dim suggestion after the cursor previewing what will be inserted, with its signature and keys in the status bar; Tab accepts, and a compact ranked list joins in once the prefix narrows things down. Backed by bundled tinymist where available</li>
       <li>Citation and CV autocomplete — type @ or ! for the same inline suggestion over BibTeX keys and Skrizhal CV entries</li>
@@ -80,6 +80,18 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.28.0" date="2026-08-26">
+      <description>
+        <p>0.28.0 "Home Ground" — spell checking now reads system dictionary
+        files directly in-process instead of shelling out to a hunspell
+        subprocess, and HTML export now compiles through Typst's own HTML
+        exporter instead of pandoc, with self-contained output (embedded
+        images, real MathML, proper ARIA roles for citations and footnotes).
+        Selecting text and typing an opening bracket or quote now wraps the
+        selection instead of replacing it, matching the same behavior in
+        editors like VS Code and Sublime.</p>
+      </description>
+    </release>
     <release version="0.27.0" date="2026-08-26">
       <description>
         <p>0.27.0 "Honest Glass" — the running header setting (and every
