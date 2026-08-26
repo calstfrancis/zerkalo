@@ -7,7 +7,7 @@ use gtk4::{Align, Box as GtkBox, Button, Label, Orientation, ScrolledWindow, Sep
 use libadwaita as adw;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const RELEASE_NAME: &str = "Honest Glass";
+pub const RELEASE_NAME: &str = "Home Ground";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -143,11 +143,12 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
+                "Selecting text and typing an opening bracket or quote now wraps the selection instead of replacing it, the same way it works in VS Code and Sublime.",
+                "Spell checking no longer depends on a hunspell binary being installed — it now reads the same dictionary files directly, which is faster and removes one thing that could go wrong inside the flatpak sandbox.",
+                "HTML export no longer needs pandoc — it compiles in-process through Typst's own HTML exporter, with images embedded directly in the file instead of written out separately.",
                 "Fixed the running header setting being silently dropped, and resetting to \"None\" every time you reopened the dialog, whenever the title page was off.",
                 "Fixed the spell-check suggestions popover (and a few right-click menus) opening and closing instantly instead of staying open, and fixed it hanging on \"Checking\u{2026}\" once it did stay open.",
                 "The preview now scrolls to follow your cursor as you type, instead of only jumping when you click into it.",
-                "Fixed the Tools window always showing pandoc as installed, even when it wasn't.",
-                "Removed the redundant \"Browse Documents\" window — the Library window (Ctrl+L) already covers this with search, filters, and more.",
             ] {
                 body.append(&bullet_row(item));
             }

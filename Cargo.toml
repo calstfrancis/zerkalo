@@ -1,6 +1,6 @@
 [package]
 name = "zerkalo"
-version = "0.27.0"
+version = "0.28.0"
 edition = "2021"
 license = "MIT"
 description = "Contemplative Typst editor with live preview, LSP completions, and git sync"
@@ -48,6 +48,7 @@ typst = "0.15"
 typst-layout = "0.15"
 typst-render = "0.15"
 typst-pdf = "0.15"
+typst-html = "0.15"
 typst-kit = { version = "0.15", features = ["embedded-fonts", "scan-fonts", "system-packages", "universe-packages", "system-downloader"] }
 url = "2"
 ashpd = { version = "0.13.13", default-features = false, features = ["print", "tokio"] }
@@ -60,6 +61,11 @@ roxmltree = "0.21"
 pulldown-cmark = { version = "0.13", default-features = false }
 fluent-templates = "0.15.1"
 unic-langid = { version = "0.9.6", features = ["macros"] }
+
+# Spell checking, in-process against the same Hunspell-format dictionaries
+# the system already has installed — no `hunspell` binary/subprocess. Used
+# by the Helix editor for the same purpose.
+spellbook = "0.4"
 
 [dev-dependencies]
 tempfile = "3"

@@ -8,7 +8,7 @@ use typst::foundations::{Bytes, Datetime, Dict, Duration, IntoValue, Str};
 use typst::syntax::{FileId, RootedPath, Source, VirtualPath, VirtualRoot};
 use typst::text::{Font, FontBook};
 use typst::utils::{LazyHash, Scalar};
-use typst::{Library, LibraryExt, World as TypstWorld, WorldExt};
+use typst::{Feature, Features, Library, LibraryExt, World as TypstWorld, WorldExt};
 use typst_kit::downloader::SystemDownloader;
 use typst_kit::fonts::{embedded, system, FontStore};
 use typst_kit::packages::{FsPackages, SystemPackages, UniversePackages};
@@ -159,14 +159,26 @@ fn finish<T>(
 }
 
 fn build_library(sys_inputs: &HashMap<String, String>) -> LazyHash<Library> {
+    // `Feature::Html` only changes anything when actually compiling to
+    // `typst_html::HtmlDocument` (see `compile_to_html`) — the check it gates
+    // is target-scoped, so enabling it here doesn't affect the PDF/PNG
+    // compiles every other caller does. Kept in one shared builder rather
+    // than a second one so HTML export reuses the exact same bib-sanitizing,
+    // root-widening `ZerkaloWorld` construction as every other output.
+    let features: Features = [Feature::Html].into_iter().collect();
     if sys_inputs.is_empty() {
-        return LazyHash::new(Library::default());
+        return LazyHash::new(Library::builder().with_features(features).build());
     }
     let mut dict = Dict::new();
     for (k, v) in sys_inputs {
         dict.insert(Str::from(k.as_str()), v.as_str().into_value());
     }
-    LazyHash::new(Library::builder().with_inputs(dict).build())
+    LazyHash::new(
+        Library::builder()
+            .with_inputs(dict)
+            .with_features(features)
+            .build(),
+    )
 }
 
 // ── World implementation ──────────────────────────────────────────────────────
@@ -448,6 +460,29 @@ pub fn compile_to_pdf_bytes(
     let world = ZerkaloWorld::new(root_file, overrides.clone(), sys_inputs, extra_root)?;
     let (doc, _warnings) = finish::<PagedDocument>(&world, typst::compile(&world))?;
     pdf_bytes_from_document(&doc)
+}
+
+/// Compile `root_file` in-process to a standalone HTML string — no pandoc.
+///
+/// Typst's own HTML export (`typst_html`) is registered into the same
+/// `Library` every other compile already builds (see `build_library`), so
+/// this reuses `ZerkaloWorld` exactly like the PDF path: same bib
+/// sanitizing, same root-widening for an external bibliography. The
+/// upstream compiler treats HTML export as still under active development
+/// (it attaches a warning to every compile saying so) — discarded here
+/// rather than surfaced, the same way `compile_document`'s callers already
+/// discard warnings for a one-shot export rather than reformatting the
+/// live-preview error panel around them.
+pub fn compile_to_html(
+    root_file: &Path,
+    overrides: &HashMap<PathBuf, String>,
+    sys_inputs: &HashMap<String, String>,
+    extra_root: Option<&Path>,
+) -> Result<String, String> {
+    let world = ZerkaloWorld::new(root_file, overrides.clone(), sys_inputs, extra_root)?;
+    let (doc, _warnings) = finish::<typst_html::HtmlDocument>(&world, typst::compile(&world))?;
+    typst_html::html(&doc, &typst_html::HtmlOptions { pretty: true })
+        .map_err(|errors| format_diagnostics(&world, &errors))
 }
 
 /// Serialise an already-laid-out document to PDF.
@@ -827,6 +862,47 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&doc_dir);
+    }
+
+    #[test]
+    fn compile_to_html_produces_a_standalone_document() {
+        let path = write_temp_typ("= Title\n\nA paragraph with *bold* text.\n");
+        let html = compile_to_html(&path, &HashMap::new(), &HashMap::new(), None)
+            .expect("trivial doc should compile to html");
+        assert!(html.starts_with("<!DOCTYPE html>"));
+        assert!(html.contains("<h2>Title</h2>"), "got: {html}");
+        assert!(html.contains("<strong>bold</strong>"), "got: {html}");
+    }
+
+    #[test]
+    fn compile_to_html_embeds_images_as_data_uris() {
+        // A standalone export can't rely on a sibling file surviving being
+        // copied/emailed/pasted elsewhere — unlike pandoc's HTML output,
+        // which writes loose image files needing --extract-media, Typst's
+        // own HTML export inlines them.
+        let dir = std::env::temp_dir().join(format!("zerkalo_html_img_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("dot.svg"),
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><circle cx="5" cy="5" r="4"/></svg>"#,
+        )
+        .unwrap();
+        let doc_path = dir.join("main.typ");
+        std::fs::write(&doc_path, "#image(\"dot.svg\")\n").unwrap();
+
+        let html = compile_to_html(&doc_path, &HashMap::new(), &HashMap::new(), None)
+            .expect("doc with an image should compile to html");
+        assert!(html.contains("data:image/svg+xml;base64,"), "got: {html}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn compile_to_html_reports_errors_the_same_way_as_pdf() {
+        let path = write_temp_typ("#no-such-function()\n");
+        let err = compile_to_html(&path, &HashMap::new(), &HashMap::new(), None)
+            .expect_err("undefined function should fail to compile");
+        assert!(err.contains(" --> "), "should carry a source location, got:\n{err}");
     }
 
     #[test]

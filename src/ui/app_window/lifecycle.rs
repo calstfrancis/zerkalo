@@ -78,12 +78,8 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
             t.set_timeout(12);
             toast_for_check.add_toast(t);
         }
-        if std::process::Command::new("hunspell")
-            .arg("--version")
-            .output()
-            .is_err()
-        {
-            tracing::info!("hunspell not found — spell check disabled");
+        if crate::spellcheck::SpellChecker::available_languages().is_empty() {
+            tracing::info!("no spelling dictionaries found — spell check disabled");
         }
         if crate::git_sync::host_command("pandoc")
             .arg("--version")

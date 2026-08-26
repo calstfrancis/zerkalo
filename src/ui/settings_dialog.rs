@@ -688,10 +688,11 @@ impl SettingsDialog {
         }
         sync_group.add(&backup_locations_row);
 
-        // Tools status (git/tinymist/pandoc bundled, everything else optional)
-        // used to be its own hamburger row — a diagnostic you check when
-        // something looks wrong belongs beside the rest of setup, not
-        // floating as a top-level menu action.
+        // Tools status (git and tinymist bundled; pandoc and hunspell
+        // dictionaries are real, optional host dependencies) used to be its
+        // own hamburger row — a diagnostic you check when something looks
+        // wrong belongs beside the rest of setup, not floating as a
+        // top-level menu action.
         let (tools_group, _tools_ok, tools_rechecks) = super::tools_window::tools_group();
         // Re-check whenever the window regains focus, matching the
         // standalone Tools window this group used to live in — installing
