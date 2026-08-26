@@ -32,7 +32,7 @@
       <li>New from Template — dialog generates a complete Typst preamble; save your own customised templates alongside the built-in gallery</li>
       <li>Import from Word, ODT, Markdown, LaTeX, HTML, EPUB, RTF, or PDF, previewed before anything is written — Word, ODT and Markdown are converted by Zerkalo itself with nothing to install; drag-and-drop, batch/folder import, Paste as Document, and an Import History with retry, undo, and search; a .docx with Word's track changes turns them into reviewable suggested edits instead of silently accepting or dropping them</li>
       <li>Insert Table — set row/column count, per-cell text, per-column alignment, an optional header row, and per-cell colspan/rowspan, then generate a complete Typst table block at the cursor</li>
-      <li>Export to PDF, HTML, DOCX, ODT, or LaTeX; Ctrl+Shift+E for instant PDF export</li>
+      <li>Export to PDF, HTML, DOCX, ODT, LaTeX, or EPUB; Ctrl+Shift+E for instant PDF export</li>
       <li>Citation style switcher — APA, Chicago, GOST 7.32, and more, plus custom CSL styles</li>
       <li>BibTeX and Hayagriva YAML bibliography support, with cited-only bibliography export and project-wide citation key rename — a Kartoteka vault folder works as a live bibliography source too</li>
       <li>Compile on save with live preview; scroll position preserved across recompiles</li>
@@ -80,6 +80,21 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.27.0" date="2026-08-26">
+      <description>
+        <p>0.27.0 "Honest Glass" — the running header setting (and every
+        other document metadata field) no longer resets to blank whenever
+        the title page is off. The spell-check suggestions popover no
+        longer opens and closes instantly on right-click, and no longer
+        hangs on "Checking…" once it stays open — the same fix also went
+        into the tab context menu and the Library window's four right-click
+        menus. The Tools window no longer shows pandoc as installed when
+        it isn't. Also includes a round of UX cleanup: a redundant document
+        browser removed, inconsistent backup/sync wording standardized, a
+        stale "Update Template Settings" label fixed everywhere it lingered,
+        and the preview now follows the cursor as you type.</p>
+      </description>
+    </release>
     <release version="0.26.5" date="2026-08-25">
       <description>
         <p>0.26.5 "Tidy Ledger" — fixes a missing Enter-to-confirm in several

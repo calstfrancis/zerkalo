@@ -1,4 +1,4 @@
-# Zerkalo v0.26.5 "Tidy Ledger"
+# Zerkalo v0.27.0 "Honest Glass"
 
 Install via Flatpak:
 
@@ -18,13 +18,15 @@ flatpak update io.github.calstfrancis.Zerkalo
 
 ### What's new
 
-**Enter now confirms every name prompt in the Library window.** Rename Project, Rename Document, New Project, and New Project from an existing document all needed a mouse click to confirm — typing a name and pressing Enter did nothing, unlike their siblings (Rename Category, Add Subcategory, New Category), which already worked that way.
+**The running header setting no longer resets to "None" every time you reopen the template dialog.** With the title page turned off, the running header (and every other metadata field — Subtitle, Affiliation, Course, Professor, Date) was only ever written into the document from inside the title-page generator. No title page meant none of it was written at all, so the setting had nothing to read back on reopen. All of it now works independent of the title page.
 
-**Exporting a CV or citation document from the Library window no longer comes out broken.** Using the Library window's own Export action (rather than the header's Export button on an already-open document) skipped the step that resolves a document's CV data source and bibliography path, so the exported PDF was missing `#cv-entry`/`#cv-section` content and citations. Both now resolve the same way for either export path.
+**Right-click spelling suggestions are reliable again.** The popover no longer opens and closes instantly before you can read it, and — new in this release — it no longer hangs forever on "Checking…" once it does stay open. Both were timing races against the same right-click's button-release event; the fix now tracks whether the popover was actually dismissed instead of inferring it from a visibility check that turned out to have its own blind spot. The same instant-close bug was also fixed in the tab context menu and all four Library window right-click menus.
 
-**A few secondary windows (Insert Table, Saved Versions, GitHub sign-in) now have the same header divider every other window in the app already has** — they were quietly missing the line that separates the header from the content below.
+**The Tools window no longer claims pandoc is installed when it isn't.** It was treated the same as genuinely-bundled tools like git and tinymist, which always report "OK" regardless of whether the command is actually found — but pandoc isn't bundled. It's now checked for real, with normal install instructions when it's missing.
 
-Also in this release: a few dependency updates and some internal cleanup (duplicated code consolidated behind shared helpers, and leftover `.deb`/RPM packaging configuration removed now that distribution is flatpak-only) — nothing user-visible on their own, but worth a mention for anyone building from source.
+**The preview now follows your cursor as you type**, instead of only jumping when you click into it.
+
+Also in this release: a round of interface cleanup — a redundant "Browse Documents" window removed (Library, on Ctrl+L, already does everything it did and more), a dead header Save button removed, inconsistent backup/sync wording standardized to "back up" throughout, Library's empty states now offer a way out instead of a dead end, and a stale "Update Template Settings" label fixed everywhere it had lingered after that menu row was renamed.
 
 ---
 
