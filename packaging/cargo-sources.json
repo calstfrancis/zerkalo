@@ -5034,6 +5034,19 @@
     {
         "type": "archive",
         "archive-type": "tar-gzip",
+        "url": "https://static.crates.io/crates/spellbook/spellbook-0.4.2.crate",
+        "sha256": "0d204abcbdf8e88729306a8d0ca01a79d8a49969fe1f84696909d6dbc4321c1a",
+        "dest": "cargo/vendor/spellbook-0.4.2"
+    },
+    {
+        "type": "inline",
+        "contents": "{\"package\": \"0d204abcbdf8e88729306a8d0ca01a79d8a49969fe1f84696909d6dbc4321c1a\", \"files\": {}}",
+        "dest": "cargo/vendor/spellbook-0.4.2",
+        "dest-filename": ".cargo-checksum.json"
+    },
+    {
+        "type": "archive",
+        "archive-type": "tar-gzip",
         "url": "https://static.crates.io/crates/spin/spin-0.9.8.crate",
         "sha256": "6980e8d7511241f8acf4aebddbb1ff938df5eebe98691418c4468d0b72a96a67",
         "dest": "cargo/vendor/spin-0.9.8"
