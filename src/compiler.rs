@@ -880,7 +880,8 @@ mod tests {
         // copied/emailed/pasted elsewhere — unlike pandoc's HTML output,
         // which writes loose image files needing --extract-media, Typst's
         // own HTML export inlines them.
-        let dir = std::env::temp_dir().join(format!("zerkalo_html_img_test_{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("zerkalo_html_img_test_{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
             dir.join("dot.svg"),
@@ -902,7 +903,10 @@ mod tests {
         let path = write_temp_typ("#no-such-function()\n");
         let err = compile_to_html(&path, &HashMap::new(), &HashMap::new(), None)
             .expect_err("undefined function should fail to compile");
-        assert!(err.contains(" --> "), "should carry a source location, got:\n{err}");
+        assert!(
+            err.contains(" --> "),
+            "should carry a source location, got:\n{err}"
+        );
     }
 
     #[test]
