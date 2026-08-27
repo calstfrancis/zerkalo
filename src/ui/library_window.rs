@@ -582,7 +582,8 @@ impl LibraryWindow {
         }
         {
             let this = self.clone();
-            self.empty_new_doc_btn.connect_clicked(move |_| this.new_document());
+            self.empty_new_doc_btn
+                .connect_clicked(move |_| this.new_document());
         }
         {
             let this = self.clone();
@@ -2851,10 +2852,7 @@ impl LibraryWindow {
                             sys_inputs.insert("skrizhal-cv-data".to_string(), yaml);
                         }
                         Err(e) => {
-                            tracing::warn!(
-                                "CV mode: couldn't read {}: {e}",
-                                cv_path.display()
-                            );
+                            tracing::warn!("CV mode: couldn't read {}: {e}", cv_path.display());
                         }
                     }
                 }

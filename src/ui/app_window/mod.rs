@@ -2860,9 +2860,7 @@ impl AppWindow {
                                 let msg = match std::fs::write(&dest, &bytes) {
                                     Ok(_) => format!(
                                         "Exported {}",
-                                        dest.file_name()
-                                            .and_then(|n| n.to_str())
-                                            .unwrap_or("PDF")
+                                        dest.file_name().and_then(|n| n.to_str()).unwrap_or("PDF")
                                     ),
                                     Err(e) => format!("Write failed: {e}"),
                                 };
