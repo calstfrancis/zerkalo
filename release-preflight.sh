@@ -182,14 +182,37 @@ if [ -f Cargo.toml ]; then
     # has changed since cargo-sources.json was last regenerated, that alone
     # is the exact condition that broke v0.28.0's offline build, regardless
     # of which crates ended up different.
+    #
+    # A plain `git diff` on the whole file is too eager, though: it also
+    # fires on a bare version bump of zerkalo's own package block (which has
+    # no `source = "registry+...` line and was never part of the vendored
+    # set to begin with) — and that line changes on *every* release, so a
+    # byte-diff check would fail every single release preflight regardless
+    # of whether any actual dependency moved. Only the registry-sourced
+    # (name, version) pairs matter, so compare those sets instead.
     last_vendor_commit=$(git log -1 --format=%H -- packaging/cargo-sources.json)
     if [ -z "$last_vendor_commit" ]; then
       err "packaging/cargo-sources.json exists but has no git history — can't check it's current"
-    elif git diff --quiet "$last_vendor_commit" -- Cargo.lock 2>/dev/null; then
-      note "packaging/cargo-sources.json is current with Cargo.lock (unchanged since $last_vendor_commit)"
     else
-      err "Cargo.lock has changed since packaging/cargo-sources.json was last regenerated ($last_vendor_commit) — the offline flatpak build will fail exactly like v0.28.0 did:"
-      note "regenerate: /tmp/fcg-venv/bin/python ~/Projects/kartoteka/flatpak-cargo-generator.py Cargo.lock -o packaging/cargo-sources.json"
+      extract_registry_deps() {
+        awk '
+          /^\[\[package\]\]$/ { name=""; version=""; is_registry=0 }
+          /^name = / { name=$0; sub(/^name = "/, "", name); sub(/"$/, "", name) }
+          /^version = / { version=$0; sub(/^version = "/, "", version); sub(/"$/, "", version) }
+          /^source = "registry\+/ { is_registry=1 }
+          /^$/ { if (is_registry && name != "") print name, version }
+          END { if (is_registry && name != "") print name, version }
+        ' "$1" | sort
+      }
+      old_deps=$(git show "$last_vendor_commit:Cargo.lock" 2>/dev/null | extract_registry_deps -)
+      new_deps=$(extract_registry_deps Cargo.lock)
+      if [ "$old_deps" = "$new_deps" ]; then
+        note "packaging/cargo-sources.json covers the same registry crates as Cargo.lock (unchanged since $last_vendor_commit)"
+      else
+        err "Cargo.lock's registry dependencies changed since packaging/cargo-sources.json was last regenerated ($last_vendor_commit) — the offline flatpak build will fail exactly like v0.28.0 did:"
+        diff <(echo "$old_deps") <(echo "$new_deps") | sed 's/^/    /'
+        note "regenerate: /tmp/fcg-venv/bin/python ~/Projects/kartoteka/flatpak-cargo-generator.py Cargo.lock -o packaging/cargo-sources.json"
+      fi
     fi
   fi
 fi
