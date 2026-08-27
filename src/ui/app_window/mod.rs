@@ -3886,6 +3886,11 @@ pub(super) fn open_template_for_active_document(
         if !format.is_empty() {
             dlg.preselect_heading_format(&format);
         }
+        // Unlike TOC/abstract/keywords, this had no reader at all on the
+        // no-sidecar path — see parse_has_title_page's doc comment. Ignored
+        // by generation for BodyKind::Letter, so it's fine that letterheads
+        // also read as "has a title page" here.
+        dlg.preselect_title_page(td::parse_has_title_page(&current_content));
     }
 
     // The body is ground truth for CV-ness: if the sidecar/marker path above

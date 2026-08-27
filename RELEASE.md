@@ -1,4 +1,4 @@
-# Zerkalo v0.28.0 "Home Ground"
+# Zerkalo v0.28.1 "Steady Preamble"
 
 Install via Flatpak:
 
@@ -18,11 +18,9 @@ flatpak update io.github.calstfrancis.Zerkalo
 
 ### What's new
 
-**Selecting text and typing an opening bracket or quote now wraps the selection instead of replacing it.** Select a word and type `"` and it becomes `"word"`, with the original text still selected — the same auto-pairing behavior VS Code, Sublime, and other editors use. Works uniformly across all five pair characters the editor already auto-inserts while typing: `()`, `[]`, `{}`, `""`, and `$$`.
+**"Update Template Settings" no longer regenerates an unwanted title page on a document that had it off.** If a document had no sidecar file, the Title Page switch was the one setting in that dialog with no way to read its actual state back from the document — every other setting (margin, header, spacing, and more) did. It silently stayed on the dialog's default of "on," so applying any change at all — even just picking a running header — could resurrect a full cover page with placeholder "Untitled" text on a document that never had one.
 
-**Spell checking no longer shells out to a `hunspell` subprocess.** It now reads the same system dictionary files directly, in-process, via the same library the Helix editor uses for its own spell checking. No fork/exec per lookup, no dependency on a `hunspell` binary being on the host's PATH. This also closes out a bug from last release: the right-click suggestions popover hanging forever on "Checking…" was tangled up with the subprocess round-trip it no longer has to wait on.
-
-**HTML export no longer needs pandoc.** It compiles through Typst's own HTML exporter now, in-process, the same way PDF export already does. The output is genuinely standalone — images embed directly in the file instead of being written out as loose media files, math renders as real math markup instead of an image, and footnotes/citations come out with proper accessibility roles. DOCX, ODT, LaTeX, and EPUB export are unchanged and still use pandoc.
+**Document metadata (title, author, and the rest) is no longer silently discarded just because no running header was chosen.** These fields are only ever written into the file inside the header/title-page code, so a document with both off had nowhere for its own metadata to survive without a sidecar — turning a header on later showed blank or placeholder text instead of what you'd actually typed. Now preserved whenever there's real content to keep.
 
 ---
 

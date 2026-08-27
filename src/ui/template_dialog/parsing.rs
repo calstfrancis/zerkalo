@@ -1039,6 +1039,23 @@ pub fn parse_has_toc(content: &str) -> bool {
     })
 }
 
+/// True if the document currently has a title page (or, for `BodyKind::Letter`,
+/// a letterhead — the toggle is ignored there anyway, see
+/// `generate_typst_template`). Both `generate_title_page` and
+/// `generate_letter_header` open with the exact `// ── Title block` comment;
+/// `generate_header_only` never writes it.
+///
+/// Without this, the "Title Page" switch had no reader at all on the
+/// no-sidecar path — every other section toggle (TOC, abstract, keywords)
+/// has one, but this one didn't, so it silently stayed at the dialog's
+/// construction-time default (on) regardless of what the document actually
+/// had. Reopening "Update Template Settings" on a document with the title
+/// page off and pressing Apply for any reason (e.g. just to change the
+/// running header) silently regenerated an unwanted title page back onto it.
+pub fn parse_has_title_page(content: &str) -> bool {
+    preamble_region_with_frontmatter(content).contains("// ── Title block")
+}
+
 pub fn parse_toc_depth(content: &str) -> u32 {
     for line in content.lines() {
         let t = line.trim();
