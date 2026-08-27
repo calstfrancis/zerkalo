@@ -2936,6 +2936,10 @@ impl TemplateDialog {
         self.form.set_toc(active, depth);
     }
 
+    pub fn preselect_title_page(&self, active: bool) {
+        self.form.set_title_page(active);
+    }
+
     pub fn preselect_abstract(&self, active: bool, text: &str) {
         self.form.set_abstract(active, text);
     }
@@ -5560,9 +5564,21 @@ Body text.\n";
             "title page off: no cover page"
         );
         assert!(
-            !no_cover.contains("\"A Study\""),
-            "title page off: the title itself doesn't render anywhere"
+            !no_cover.contains("#align(center)[#doc-title]")
+                && !no_cover.contains("text(size: 16pt, weight: \"bold\")[#doc-title]"),
+            "title page off: nothing actually renders the title on the page"
         );
+        // The metadata itself still round-trips as a #let binding, though —
+        // see generate_header_only's doc comment: with no header chosen
+        // either, this used to be silently dropped, so reopening "Update
+        // Template Settings" on a document like this could never recover the
+        // real title/author, only "Untitled"/blank.
+        assert!(
+            no_cover.contains("#let doc-title = \"A Study\""),
+            "title metadata survives even with no header and no title page"
+        );
+        assert_eq!(parse_meta(&no_cover, "title"), "A Study");
+        assert_eq!(parse_meta(&no_cover, "author"), "Jane Doe");
     }
 
     #[test]
@@ -5796,5 +5812,134 @@ Body text.\n";
         assert_eq!(sc.body_kind, "letter");
         let round_tripped = sidecar_to_settings(&sc);
         assert_eq!(round_tripped.body_kind, BodyKind::Letter);
+    }
+
+    /// Adding a running header to a document with LaTeX margins and no title
+    /// page, and no sidecar, used to regenerate an unwanted title page: the
+    /// "Title Page" switch had no reader on the no-sidecar path at all (see
+    /// `parse_has_title_page`'s doc comment), so it silently stayed at the
+    /// dialog's construction-time default (on) instead of the document's
+    /// actual (off) state. Reproduces the exact document a real bug report
+    /// was filed against.
+    #[test]
+    fn no_sidecar_header_change_does_not_resurrect_the_title_page() {
+        let existing = "// ZERKALO-TEMPLATE-BEGIN\n\
+// Created with Zerkalo \u{b7} Chicago (Notes-Bib) style\n\
+// @zerkalo-style: chicago-notes\n\
+// @zerkalo-version: 0.28.0\n\
+\n\
+#import \"@preview/droplet:0.3.1\": dropcap\n\
+#let dropcap = dropcap.with(font: \"Goudy Initialen\", height: 4, fill: rgb(\"#a3231f\"))\n\
+\n\
+#set page(\n\
+  paper: \"us-letter\",\n\
+  margin: (top: 1.75in, bottom: 1.75in, left: 1.75in, right: 1.75in),\n\
+  numbering: \"1\",\n\
+  number-align: bottom + center,\n\
+)\n\
+\n\
+#set text(font: \"Atkinson Hyperlegible\", size: 18pt, lang: \"en\")\n\
+#set par(leading: 0.65em, spacing: 1.3em, first-line-indent: 1em, justify: true)\n\
+\n\
+// Chicago (Notes-Bibliography) heading styles\n\
+#show heading.where(level: 1): it => block(width: 100%, above: 1em, below: 0.5em)[\n\
+  #set par(first-line-indent: 0pt)\n\
+  #align(center)[#text(weight: \"bold\")[#it.body]]\n\
+]\n\
+\n\
+// ZERKALO-TEMPLATE-END\n\
+\n\
+// \u{2500}\u{2500} Document body \u{2500} Zerkalo uses this exact line to find where your writing starts. Leave it in place; everything below it is yours to edit freely.\n\
+// \u{2500}\u{2500} Document body \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\n\
+\n\
+= Introduction\n\
+\n\
+Some real writing the user already did.\n";
+
+        assert_eq!(parse_margin(existing), 3, "sanity: LaTeX margin");
+        assert!(!parse_has_title_page(existing), "sanity: no title page yet");
+        assert_eq!(parse_header_style(existing), 0, "sanity: no header yet");
+
+        // Simulate the dialog's no-sidecar preselect fallback exactly as
+        // app_window.rs's open_template_for_active_document does it, starting
+        // from the widget defaults a freshly-built TemplateDialog has (the
+        // "auto-preview first preset" state: TEMPLATE_PRESETS[0], including
+        // the Title Page switch's own construction-time default of *on*).
+        let p0 = &TEMPLATE_PRESETS[0];
+        let mut s = TemplateSettings {
+            title: String::new(),
+            subtitle: String::new(),
+            author: String::new(),
+            affiliation: String::new(),
+            course: String::new(),
+            professor: String::new(),
+            date: String::new(),
+            style_idx: p0.style_idx as usize,
+            paper_idx: p0.paper_idx as usize,
+            margin_idx: p0.margin_idx as usize,
+            custom_paper_w: String::new(),
+            custom_paper_h: String::new(),
+            custom_margin: String::new(),
+            font: String::new(),
+            font_size: String::new(),
+            spacing: SPACING_OPTIONS[p0.spacing_idx as usize].1.to_string(),
+            page_num_pos: p0.page_num_pos,
+            header_style: p0.header_idx,
+            include_toc: p0.include_toc,
+            toc_depth: 2,
+            include_abstract: p0.include_abstract,
+            abstract_text: String::new(),
+            include_keywords: p0.include_keywords,
+            keywords: String::new(),
+            heading_numbering: false,
+            numbering_format: String::new(),
+            languages: Vec::new(),
+            packages: Vec::new(),
+            dropcap_font: String::new(),
+            dropcap_lines: 3,
+            dropcap_color: String::new(),
+            body_kind: p0.body_kind,
+            bib_path: None,
+            include_title_page: true,
+            include_bibliography: true,
+        };
+
+        if has_page_margins(existing) {
+            s.margin_idx = parse_margin(existing);
+        }
+        if has_template_block(existing) {
+            s.header_style = parse_header_style(existing);
+            s.include_title_page = parse_has_title_page(existing); // the fix
+        }
+
+        assert!(
+            !s.include_title_page,
+            "preselect correctly reads title page as off"
+        );
+
+        // The user's one action: Header -> "Author \u{b7} Title" (7).
+        s.header_style = 7;
+
+        let fresh = generate_typst_template(&s);
+        let (updated, outcome) = apply_body_splice_reporting(existing, &fresh);
+
+        assert_eq!(outcome, SpliceOutcome::Preserved);
+        assert_eq!(
+            parse_margin(&updated),
+            3,
+            "margin untouched by the header change"
+        );
+        assert!(
+            !updated.contains("#counter(page).update(1)"),
+            "no title page resurrected just from changing the header"
+        );
+        assert!(
+            updated.contains("#set page(header: align(center)[#doc-author \u{b7} #doc-title])"),
+            "the Author\u{b7}Title header block is actually present"
+        );
+        assert!(
+            updated.contains("Some real writing the user already did."),
+            "the user's body text survives untouched"
+        );
     }
 }

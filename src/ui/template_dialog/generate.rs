@@ -762,13 +762,24 @@ pub(crate) fn generate_cv_sidebar_body(mut out: String) -> String {
 /// Title/Author/Affiliation/etc. *and* the header style all read back as
 /// blank/"None" every time the dialog reopened.
 ///
-/// Only activates when a header is actually chosen: with no header and no
-/// title page, none of these variables are referenced by anything, so
-/// there's nothing to preserve — emitting unused `#let` bindings for their
-/// own sake isn't worth the clutter in the common "just write" case.
+/// Skipped only when there's truly nothing to preserve: no header chosen
+/// *and* every metadata field is blank. Originally this skipped whenever no
+/// header was chosen, full stop — but a document can have real title/author
+/// typed in at creation with the header left "None", and since these `#let`
+/// bindings are the *only* place that metadata is ever written when there's
+/// no title page either, skipping them silently discarded it. The document
+/// then had no way to recover its own title/author the next time the dialog
+/// opened (`parse_meta` had nothing to find), and turning the header on
+/// later rendered it with blank/"Untitled" text instead of the real values.
 pub(crate) fn generate_header_only(s: &TemplateSettings) -> String {
     let mut out = String::new();
-    if s.header_style == 0 {
+    let has_metadata = !s.title.is_empty()
+        || !s.subtitle.is_empty()
+        || !s.author.is_empty()
+        || !s.affiliation.is_empty()
+        || !s.course.is_empty()
+        || !s.professor.is_empty();
+    if s.header_style == 0 && !has_metadata {
         return out;
     }
     let _ = writeln!(

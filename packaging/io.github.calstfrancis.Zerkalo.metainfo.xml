@@ -80,6 +80,16 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.28.1" date="2026-08-27">
+      <description>
+        <p>0.28.1 "Steady Preamble" — "Update Template Settings" no longer
+        regenerates an unwanted title page on a document that had it off,
+        when there's no sidecar file and any other setting is changed and
+        applied. Document metadata (title, author, and the rest) is also no
+        longer silently discarded just because no running header was
+        chosen.</p>
+      </description>
+    </release>
     <release version="0.28.0" date="2026-08-26">
       <description>
         <p>0.28.0 "Home Ground" — spell checking now reads system dictionary

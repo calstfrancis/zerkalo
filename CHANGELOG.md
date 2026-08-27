@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.28.1] "Steady Preamble" — 2026-08-27 — Update Template Settings no longer resurrects a stale title page
+
+### Fixed
+
+- **"Update Template Settings" silently regenerated an unwanted title page on a document that had it off, whenever any other setting was changed and applied — with no sidecar file present.** Margin, header, spacing, and every other setting are re-derived from the document itself when there's no sidecar to read, but the Title Page switch was the one exception with no reader at all: it silently stayed at the dialog's built-in default (on) regardless of what the document actually had. Applying any change — even just picking a running header — regenerated a full cover page using placeholder "Untitled"/blank text, since the real title/author were also unrecoverable (see next). This was a gap left by 0.27.0's own header/title-page fix, which added round-trip readers for the header and its metadata but not for the title-page toggle itself.
+- **Document metadata (title, author, subtitle, affiliation, course, professor) was silently discarded whenever no running header was chosen** — even when a title page was also off and the fields had real content. These are only ever written to the file inside the header/title-page code, so a document with both off had nowhere for its own metadata to live once there was no sidecar; turning a header on later rendered it with blank/"Untitled" text instead of the real values. Now preserved whenever there's actually something to keep.
+
+---
+
 ## [0.28.0] "Home Ground" — 2026-08-26 — Spell check and HTML export now run in-process, wrap-selection
 
 ### Added
