@@ -124,7 +124,77 @@ if [ -n "$release_name_val" ]; then
   fi
 fi
 
-# --- 5: git tag and working tree, if this is a git checkout ---
+# --- 5: the checks CI actually runs, run here BEFORE the tag exists ---
+# Every one of the last 4 tag pushes (v0.26.5, v0.27.0-dev1, v0.27.0, v0.28.0)
+# failed ci.yml's Format step on the exact tagged commit — this preflight
+# checked version/CHANGELOG/metainfo agreement and said "OK" every time while
+# the tagged commit was already guaranteed to fail CI. Once a commit is
+# tagged and pushed, "fixing forward" on main does NOT fix that tag: the
+# release-flatpak gate checks the check-runs for the tagged SHA specifically,
+# which stays "failure" forever — the only fix is moving the tag, which is
+# exactly what had to happen to recover v0.28.0. Running the real CI checks
+# here, before Cal is told "Ready", closes the loop instead of relying on
+# memory to run `cargo fmt` before every commit.
+if [ -f Cargo.toml ]; then
+  if ! command -v cargo >/dev/null 2>&1; then
+    err "cargo not found — cannot run the CI-equivalent checks"
+  else
+    if cargo fmt --check >/tmp/preflight-fmt.log 2>&1; then
+      note "cargo fmt --check clean"
+    else
+      err "cargo fmt --check failed — this is exactly what has broken the last 4 tag pushes; run 'cargo fmt' and re-run this script:"
+      cat /tmp/preflight-fmt.log
+    fi
+    if cargo build --release >/tmp/preflight-build.log 2>&1; then
+      note "cargo build --release clean"
+    else
+      err "cargo build --release failed:"
+      tail -40 /tmp/preflight-build.log
+    fi
+    if cargo test --release >/tmp/preflight-test.log 2>&1; then
+      note "cargo test --release clean"
+    else
+      err "cargo test --release failed:"
+      tail -40 /tmp/preflight-test.log
+    fi
+    if cargo clippy --all-targets -- -D warnings >/tmp/preflight-clippy.log 2>&1; then
+      note "cargo clippy clean"
+    else
+      err "cargo clippy failed:"
+      tail -40 /tmp/preflight-clippy.log
+    fi
+  fi
+
+  # --- 5b: offline flatpak vendoring must actually cover Cargo.lock ---
+  # The exact second way the last release stalled: Cargo.lock gained
+  # `spellbook` for v0.28.0's in-process spell check, but
+  # packaging/cargo-sources.json was never regenerated (last touched at
+  # v0.26.5), so the offline flatpak build failed with "no matching package
+  # named spellbook found" even after CI itself was green. Only checked for
+  # apps that actually have both files (Zerkalo/Kartoteka's offline-vendored
+  # flatpak builds); silently skipped otherwise.
+  if [ -f packaging/cargo-sources.json ] && command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    # Matching crates one-by-one against Cargo.lock isn't reliable: the
+    # generator only vendors crates actually reachable for the Linux flatpak
+    # build, so cfg(windows)-only deps (windows-sys, zbus, ...) are correctly
+    # absent and would show up as false-positive "missing" entries on every
+    # run. Comparing against git history avoids that entirely: if Cargo.lock
+    # has changed since cargo-sources.json was last regenerated, that alone
+    # is the exact condition that broke v0.28.0's offline build, regardless
+    # of which crates ended up different.
+    last_vendor_commit=$(git log -1 --format=%H -- packaging/cargo-sources.json)
+    if [ -z "$last_vendor_commit" ]; then
+      err "packaging/cargo-sources.json exists but has no git history — can't check it's current"
+    elif git diff --quiet "$last_vendor_commit" -- Cargo.lock 2>/dev/null; then
+      note "packaging/cargo-sources.json is current with Cargo.lock (unchanged since $last_vendor_commit)"
+    else
+      err "Cargo.lock has changed since packaging/cargo-sources.json was last regenerated ($last_vendor_commit) — the offline flatpak build will fail exactly like v0.28.0 did:"
+      note "regenerate: /tmp/fcg-venv/bin/python ~/Projects/kartoteka/flatpak-cargo-generator.py Cargo.lock -o packaging/cargo-sources.json"
+    fi
+  fi
+fi
+
+# --- 6: git tag and working tree, if this is a git checkout ---
 if command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   if [ -n "$(git status --porcelain)" ]; then
     err "working tree is not clean — commit or stash before releasing"
