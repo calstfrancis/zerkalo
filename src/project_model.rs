@@ -216,6 +216,7 @@ mod tests {
         assert_eq!(detect_root(&files, &imports), Some(b));
     }
 
+    #[cfg(unix)]
     #[test]
     fn scan_through_a_symlinked_root_still_detects_the_correct_compile_root() {
         // Reproduces the canonicalization mismatch: parse_imports() always

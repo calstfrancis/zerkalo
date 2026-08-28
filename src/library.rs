@@ -1740,6 +1740,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn permanently_delete_keeps_the_row_if_the_file_cannot_be_removed() {
         use std::os::unix::fs::PermissionsExt;

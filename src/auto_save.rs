@@ -248,6 +248,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn save_reports_failure_instead_of_lying_when_the_write_fails() {
         use std::os::unix::fs::PermissionsExt;
