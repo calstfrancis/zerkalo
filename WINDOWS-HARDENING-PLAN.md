@@ -255,7 +255,41 @@ tests specifically since both crates feed that path.
 
 ## Phase 3 — Windows path/config-resolution hardening (do this before any Windows build attempt)
 
-**Status:** ☐ not started · **Risk:** medium · **Effort:** medium
+**Status:** ☑ DONE (2026-08-28) · **Risk:** medium · **Effort:** medium
+
+All three sub-items (3a, 3b, 3c) landed in one commit. `session.rs`/
+`preview_pane.rs` now route through `config.rs`'s already-existing
+`zerkalo_data_dir()`/`zerkalo_cache_dir()` (built in Phase 6), removing the
+`$HOME`/bare-`"/tmp"` fallback and the hardcoded `/tmp/zerkalo_preview`
+entirely; `config.rs`'s own `config_file()`/`default_work_dir()` moved off
+hand-rolled `shellexpand::tilde` onto the same GLib-based resolution,
+with `default_work_dir` now respecting the user's actual Documents folder
+via `glib::user_special_dir` rather than hardcoding `~/Documents`. 3b:
+`git_sync.rs::is_local_path()` and both `compiler.rs` absolute-path checks
+now use `Path::is_absolute()` instead of `starts_with('/')`. 3c: solved
+via `COLLATE NOCASE` appended to the `WHERE path = ?N` queries on
+`#[cfg(windows)]` only (a `PATH_COLLATE` const, empty on other platforms)
+rather than lowercasing the stored path string — this way the real
+on-disk case is never touched on any platform, only how Windows *matches*
+an existing row; also fixed the case-sensitive `.typ` extension check in
+`import_directory`.
+
+Deliberately did **not** use `canonicalize()` for 3c (the plan's other
+option) — that would also collapse symlinked-but-distinct paths into one
+row on Linux, a real behavior change this phase wasn't scoped to make.
+
+No Linux behavior change verified directly: `XDG_CONFIG_HOME`/
+`XDG_DATA_HOME`/`XDG_CACHE_HOME` are unset in this dev environment, so
+`glib::user_*_dir()` falls back to the same `~/.config`/`~/.local/share`/
+`~/.cache` paths the old hardcoded strings resolved to, and `xdg-user-dir
+DOCUMENTS` resolves to the same `~/Documents` the old fallback used. The
+one intentional Linux-visible change: the default preview output dir
+moves from `/tmp/zerkalo_preview` to the XDG cache dir, matching what
+Rubric already does for the same purpose.
+
+Verification: 584 tests passed (up from 578 at Phase 5's count — other
+work landed in between), clippy clean, `cargo fmt` clean, release build
+clean, version guard clean.
 
 These are silent-corruption/wrong-location bugs, not compile failures — the
 app would build and appear to run on Windows with these unfixed, then
