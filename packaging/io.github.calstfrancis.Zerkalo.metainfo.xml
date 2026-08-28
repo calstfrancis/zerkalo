@@ -80,6 +80,15 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.28.4" date="2026-08-28">
+      <description>
+        <p>0.28.4 "True Anchor" — spell check no longer flags contractions
+        and possessives ("doesn't", "Cal's") as misspelled. Search results,
+        preview click-to-jump, and heading navigation now actually scroll
+        the editor to show the result, fixed at the root: the editor view's
+        real scroll adjustments were never bound to it.</p>
+      </description>
+    </release>
     <release version="0.28.3" date="2026-08-28">
       <description>
         <p>0.28.3 "Clear Reflection" — clicking the preview now actually

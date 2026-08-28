@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [dev] — 2026-08-28 — Spell check now understands contractions; editor scroll-to-position fixed at the root
+## [0.28.4] "True Anchor" — 2026-08-28 — Spell check now understands contractions; editor scroll-to-position fixed at the root
 
 ### Fixed
 
