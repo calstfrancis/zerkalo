@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.28.2] "Sound Footing" — 2026-08-28 — Windows path-resolution hardening
+
+### Changed
+
+- **No visible change on Linux.** This release is groundwork ahead of a planned Windows build: config, session, and live-preview paths now resolve through one consistent, platform-aware helper instead of a mix of hardcoded `~/.config`/`~/Documents`/`/tmp` strings that only worked by assuming a Unix-style `$HOME`. Absolute-path detection (used for external bibliography files and git remote targets) now recognizes Windows-style absolute paths too, and the document library no longer risks creating duplicate entries for the same file reached via two differently-cased paths on a case-insensitive filesystem. The one concretely observable change on this platform: the live-preview temp directory moves from a hardcoded `/tmp/zerkalo_preview` to the standard XDG cache directory.
+
+---
+
 ## [0.28.1] "Steady Preamble" — 2026-08-27 — Update Template Settings no longer resurrects a stale title page
 
 ### Fixed

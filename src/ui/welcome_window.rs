@@ -7,7 +7,7 @@ use gtk4::{Align, Box as GtkBox, Button, Label, Orientation, ScrolledWindow, Sep
 use libadwaita as adw;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const RELEASE_NAME: &str = "Steady Preamble";
+pub const RELEASE_NAME: &str = "Sound Footing";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -142,12 +142,9 @@ impl WelcomeWindow {
             }
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
-            for item in [
-                "Fixed \"Update Template Settings\" silently regenerating an unwanted title page (with placeholder \"Untitled\" text) on a document that had its title page off and no sidecar file, whenever any other setting was changed and applied.",
-                "Fixed document metadata (title, author, etc.) being silently discarded when no running header was chosen, even if you'd actually typed it in — it's now preserved whenever there's real content to keep.",
-            ] {
-                body.append(&bullet_row(item));
-            }
+            body.append(&bullet_row(
+                "No visible change in this release. It's internal path-resolution hardening ahead of a planned Windows build — the one concretely observable difference is the live-preview temp directory moving to the standard cache directory.",
+            ));
         }
 
         body.append(&Separator::new(Orientation::Horizontal));

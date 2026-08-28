@@ -80,6 +80,14 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.28.2" date="2026-08-28">
+      <description>
+        <p>0.28.2 "Sound Footing" — internal path-resolution hardening ahead
+        of a planned Windows build. No visible change on Linux, aside from
+        the live-preview temp directory moving from a hardcoded location to
+        the standard cache directory.</p>
+      </description>
+    </release>
     <release version="0.28.1" date="2026-08-27">
       <description>
         <p>0.28.1 "Steady Preamble" — "Update Template Settings" no longer
