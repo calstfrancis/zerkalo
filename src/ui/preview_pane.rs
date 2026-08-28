@@ -311,7 +311,7 @@ impl PreviewPane {
             cancel_btn,
             error_label,
             output_dir: Rc::new(
-                output_dir.unwrap_or_else(|| PathBuf::from("/tmp/zerkalo_preview")),
+                output_dir.unwrap_or_else(|| crate::config::zerkalo_cache_dir().join("preview")),
             ),
             extra_args: Rc::new(extra_args),
             root_file: Rc::new(RefCell::new(root_file)),

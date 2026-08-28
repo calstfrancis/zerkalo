@@ -183,6 +183,17 @@ impl SortOrder {
 const DOC_COLS: &str =
     "id, path, title, category, archived, pinned, notes, created_at, modified_at, last_opened_at";
 
+/// Suffix for `path = ?N` comparisons — case-insensitive on Windows, where
+/// the same file reached via two differently-cased paths would otherwise
+/// upsert as two distinct library rows (Windows filesystems are normally
+/// case-insensitive, so this doesn't change what file the path resolves
+/// to). No-op on other platforms: the stored path's real case is never
+/// touched either way, only how it's matched.
+#[cfg(windows)]
+const PATH_COLLATE: &str = " COLLATE NOCASE";
+#[cfg(not(windows))]
+const PATH_COLLATE: &str = "";
+
 fn doc_cols_prefixed(prefix: &str) -> String {
     DOC_COLS
         .split(", ")
@@ -368,7 +379,7 @@ impl Library {
         let existing: Option<i64> = self
             .conn
             .query_row(
-                "SELECT id FROM documents WHERE path = ?1",
+                &format!("SELECT id FROM documents WHERE path = ?1{PATH_COLLATE}"),
                 params![path_str],
                 |r| r.get(0),
             )
@@ -395,7 +406,7 @@ impl Library {
         let path_str = path.to_string_lossy().to_string();
         let now = Utc::now().to_rfc3339();
         self.conn.execute(
-            "UPDATE documents SET last_opened_at = ?1 WHERE path = ?2",
+            &format!("UPDATE documents SET last_opened_at = ?1 WHERE path = ?2{PATH_COLLATE}"),
             params![now, path_str],
         )?;
         Ok(())
@@ -406,7 +417,7 @@ impl Library {
         let path_str = path.to_string_lossy().to_string();
         let now = Utc::now().to_rfc3339();
         self.conn.execute(
-            "UPDATE documents SET modified_at = ?1 WHERE path = ?2",
+            &format!("UPDATE documents SET modified_at = ?1 WHERE path = ?2{PATH_COLLATE}"),
             params![now, path_str],
         )?;
         Ok(())
@@ -1164,7 +1175,7 @@ impl Library {
     #[allow(dead_code)]
     pub fn doc_by_path(&self, path: &Path) -> SqlResult<Option<Document>> {
         let path_str = path.to_string_lossy().to_string();
-        let sql = format!("SELECT {DOC_COLS} FROM documents WHERE path = ?1");
+        let sql = format!("SELECT {DOC_COLS} FROM documents WHERE path = ?1{PATH_COLLATE}");
         self.conn
             .query_row(&sql, params![path_str], row_to_doc)
             .optional()
@@ -1205,7 +1216,10 @@ impl Library {
                 if !hidden {
                     count += self.import_directory(&path)?;
                 }
-            } else if path.extension().map(|e| e == "typ").unwrap_or(false) {
+            } else if path
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("typ"))
+            {
                 self.upsert_document(&path)?;
                 count += 1;
             }
