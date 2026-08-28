@@ -7,7 +7,7 @@ use gtk4::{Align, Box as GtkBox, Button, Label, Orientation, ScrolledWindow, Sep
 use libadwaita as adw;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const RELEASE_NAME: &str = "Clear Reflection";
+pub const RELEASE_NAME: &str = "True Anchor";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -143,8 +143,8 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
-                "Clicking the preview now actually jumps to the matching source line — it used to silently require holding Ctrl first, with no hint anywhere that this was needed. Double-click still jumps to the exact word.",
-                "The preview no longer auto-scrolls to follow the cursor as you type. It was a rough approximation that often landed on visually unrelated content — clicking the preview to jump the editor is the reliable direction, so that's what's left.",
+                "Spell check no longer flags contractions and possessives as misspelled — \"doesn't\" was being checked as \"doesn\" (never a real word) because the apostrophe split it in two. Whole words with an apostrophe are now checked as themselves.",
+                "Search, click-to-jump from the preview, and heading navigation now actually scroll the editor to show the result. The cursor and match count were always updating correctly — the view itself just wasn't scrolling to follow.",
             ] {
                 body.append(&bullet_row(item));
             }
