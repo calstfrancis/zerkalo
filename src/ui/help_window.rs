@@ -235,7 +235,7 @@ fn shortcuts_blocks() -> Vec<Block<'static>> {
         Block::Gap,
         Block::H2("Compiling & Preview"),
         Block::CodeOwned(format!(
-            "{compile:<20}Compile and refresh preview\nCtrl+Shift+E        Export PDF to document folder (no dialog)\nCtrl+P              Print — page range, layout, then the system print dialog\nAuto-compile        Fires automatically after each change\nCtrl+Click preview  Jump to the nearby paragraph in the source\nDouble-click preview Jump to the exact word in the source"
+            "{compile:<20}Compile and refresh preview\nCtrl+Shift+E        Export PDF to document folder (no dialog)\nCtrl+P              Print — page range, layout, then the system print dialog\nAuto-compile        Fires automatically after each change\nClick preview       Jump to the nearby paragraph in the source\nDouble-click preview Jump to the exact word in the source"
         )),
         Block::Gap,
         Block::H2("Navigation"),

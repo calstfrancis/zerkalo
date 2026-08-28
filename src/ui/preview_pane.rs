@@ -246,7 +246,10 @@ impl PreviewPane {
         let on_word_click_jump: Rc<RefCell<Option<Box<dyn Fn(usize, f64, f64)>>>> =
             Rc::new(RefCell::new(None));
 
-        // Ctrl+Click → jump to the nearby line; Double-click → jump to the exact word
+        // Click → jump to the nearby line; Double-click → jump to the exact word.
+        // The preview has no other use for a plain click (it's rendered pixbufs,
+        // not selectable/interactive content), so no modifier is needed — a
+        // click needing Ctrl held first made this undiscoverable in practice.
         {
             let on_click_jump_c = on_click_jump.clone();
             let on_word_click_jump_c = on_word_click_jump.clone();
@@ -255,13 +258,8 @@ impl PreviewPane {
             let scroll_c = img_scroll.clone();
             let gesture = GestureClick::new();
             gesture.set_button(1);
-            gesture.connect_pressed(move |g, n_press, x, y| {
-                let state = g.current_event_state();
+            gesture.connect_pressed(move |_g, n_press, x, y| {
                 let is_double = n_press == 2;
-                let is_ctrl_click = state.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
-                if !is_double && !is_ctrl_click {
-                    return;
-                }
                 let zoom = *zoom_c.borrow();
                 let adj_val = scroll_c.vadjustment().value();
                 let doc_y = y + adj_val;
@@ -687,15 +685,6 @@ impl PreviewPane {
         pbs.len().saturating_sub(1)
     }
 
-    #[allow(dead_code)] // kept alongside the other scroll helpers
-    pub fn scroll_to_fraction(&self, frac: f64) {
-        let adj = self.img_scroll.vadjustment();
-        let range = adj.upper() - adj.lower() - adj.page_size();
-        if range > 0.0 {
-            adj.set_value(frac.clamp(0.0, 1.0) * range + adj.lower());
-        }
-    }
-
     pub fn scroll_to_page(&self, idx: usize) {
         let z = *self.zoom.borrow();
         let pbs = self.page_pixbufs.borrow();
@@ -1059,6 +1048,7 @@ fn ensure_pdf_path(inputs: &PdfTextInputs) -> Option<PathBuf> {
             inputs.bib_path.as_deref(),
         )
         .ok()?;
+        std::fs::create_dir_all(&inputs.output_dir).ok()?;
         std::fs::write(&pdf_path, bytes).ok()?;
     }
     Some(pdf_path)

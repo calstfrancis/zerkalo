@@ -4096,27 +4096,6 @@ impl EditorPane {
     /// fraction of total lines. Drives the preview's scroll-follow — coarse
     /// (line density isn't uniform with PDF page position) but needs no
     /// compiler-level source-span support, unlike click-to-jump.
-    pub fn active_cursor_line_fraction(&self) -> Option<f64> {
-        let current = self.notebook.current_page()?;
-        let state = self.state.borrow();
-        for tab in state.tabs.values() {
-            if let Some(n) = self.notebook.page_num(&tab.scroll_window) {
-                if n == current {
-                    let total_lines = tab.buffer.line_count();
-                    if total_lines <= 1 {
-                        return Some(0.0);
-                    }
-                    let cursor_line = tab
-                        .buffer
-                        .iter_at_offset(tab.buffer.cursor_position())
-                        .line();
-                    return Some(cursor_line as f64 / (total_lines - 1) as f64);
-                }
-            }
-        }
-        None
-    }
-
     /// The live text of one line of an open file (1-based), or None if the file
     /// isn't open.
     ///

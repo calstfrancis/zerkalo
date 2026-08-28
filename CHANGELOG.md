@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [dev] — 2026-08-28 — Preview click-to-jump fixed; removed the cursor-follow auto-scroll
+
+### Fixed
+
+- **Clicking the preview to jump to the matching source line silently did nothing.** It required holding Ctrl while clicking, with no visible hint anywhere in the app that this was needed — a plain click (the obvious, expected gesture) had no effect. Ctrl is no longer needed; a single click jumps to the nearby paragraph, a double-click still jumps to the exact word. The preview has no other use for a plain click (it's rendered pixbufs, not selectable text), so nothing is lost by dropping the modifier requirement.
+- **The same click-to-jump (and word-jump) could fail on a genuinely fresh install** — the directory the feature caches a lookup PDF in was never created before being written into, so the very first attempt failed outright unless that directory happened to already exist from some earlier, unrelated run.
+
+### Removed
+
+- **The preview no longer auto-scrolls to follow the cursor as you type or move around.** Added in 0.27.0 as a coarse source-line-fraction approximation (cursor line ÷ total lines, mapped linearly onto the rendered PDF's scroll range), it had no way to account for how unevenly source lines translate into rendered space — a heading, an image, or a dense paragraph all occupy wildly different amounts of page height per line — so it routinely landed the preview somewhere visually unrelated to what was actually being edited. Getting this right would need real source-position-to-rendered-page mapping, not a fraction estimate; until/unless that exists, following the reverse direction (click the preview, jump the code) is the reliable one.
+
+---
+
 ## [0.28.2] "Sound Footing" — 2026-08-28 — Windows path-resolution hardening
 
 ### Changed

@@ -992,32 +992,12 @@ impl AppWindow {
         let gen2 = gen.clone();
         let editor_pane_for_delta = editor_pane.clone();
         let editor_pane_for_bib = editor_pane.clone();
-        // Preview scroll-follow: independent of the compile debounce above
-        // (and of auto-compile/manual-compile-only settings) so the preview
-        // keeps following the cursor even with auto-compile off.
-        let scroll_gen: Rc<RefCell<u64>> = Rc::new(RefCell::new(0));
-        let scroll_gen2 = scroll_gen.clone();
-        let preview_for_scroll_follow = preview_pane.clone();
-        let editor_for_scroll_follow = editor_pane.clone();
         editor_pane.set_on_change(move || {
             // While the citation popup is open, suppress compile and LSP updates —
             // partial @keys cause spurious errors and make typing difficult.
             if editor_pane_for_bib.is_bib_active() {
                 return;
             }
-            *scroll_gen2.borrow_mut() += 1;
-            let my_scroll_gen = *scroll_gen2.borrow();
-            let preview_sf = preview_for_scroll_follow.clone();
-            let editor_sf = editor_for_scroll_follow.clone();
-            let scroll_gen3 = scroll_gen2.clone();
-            glib::timeout_add_local(Duration::from_millis(120), move || {
-                if *scroll_gen3.borrow() == my_scroll_gen {
-                    if let Some(frac) = editor_sf.active_cursor_line_fraction() {
-                        preview_sf.scroll_to_fraction(frac);
-                    }
-                }
-                glib::ControlFlow::Break
-            });
             *last_edit_for_change.borrow_mut() = Some(std::time::Instant::now());
             *gen2.borrow_mut() += 1;
             let my_gen = *gen2.borrow();
