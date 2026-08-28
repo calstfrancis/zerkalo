@@ -92,6 +92,7 @@ mod tests {
         assert!(strays.is_empty(), "temp files left behind: {strays:?}");
     }
 
+    #[cfg(unix)]
     #[test]
     fn atomic_write_preserves_permissions() {
         use std::os::unix::fs::PermissionsExt;
