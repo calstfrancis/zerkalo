@@ -150,9 +150,9 @@ pub fn get_remote_url(repo_path: &Path, name: &str) -> Option<String> {
 }
 
 /// Add (or update) a remote named "backup". Removes any existing "backup" first.
-/// If `target` is a local path (starts with `/`, `~`, `./`, or `../`), a bare
-/// git repository is initialised there automatically so the path is ready to
-/// receive pushes.
+/// If `target` is a local path (absolute, or starts with `~`, `./`, or
+/// `../`), a bare git repository is initialised there automatically so the
+/// path is ready to receive pushes.
 pub fn add_backup_remote(repo_path: &Path, target: &str) -> Result<(), String> {
     add_named_remote(repo_path, "backup", target)
 }
@@ -192,7 +192,7 @@ pub fn list_backup_remotes(repo_path: &Path) -> Vec<(String, String)> {
 
 /// Returns true when the string looks like a filesystem path rather than a git URL.
 pub fn is_local_path(s: &str) -> bool {
-    s.starts_with('/') || s.starts_with('~') || s.starts_with("./") || s.starts_with("../")
+    Path::new(s).is_absolute() || s.starts_with('~') || s.starts_with("./") || s.starts_with("../")
 }
 
 /// Ensures `path` contains a bare git repository, creating one if needed.

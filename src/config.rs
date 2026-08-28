@@ -234,7 +234,9 @@ pub struct Config {
 }
 
 fn default_work_dir() -> PathBuf {
-    PathBuf::from(shellexpand::tilde("~/Documents/Zerkalo").into_owned())
+    glib::user_special_dir(glib::UserDirectory::Documents)
+        .unwrap_or_else(|| PathBuf::from(shellexpand::tilde("~/Documents").into_owned()))
+        .join("Zerkalo")
 }
 
 pub fn default_work_dir_pub() -> PathBuf {
@@ -250,8 +252,8 @@ pub fn zerkalo_data_dir() -> PathBuf {
     glib::user_data_dir().join("zerkalo")
 }
 
-/// Zerkalo's own subdirectory of the platform config dir (currently just
-/// the Font Manager's per-font preferences file). Companion to
+/// Zerkalo's own subdirectory of the platform config dir: `config.toml`
+/// itself and the Font Manager's per-font preferences file. Companion to
 /// `zerkalo_data_dir` — most persistent state lives in the data dir, but a
 /// couple of things go here instead, matching what they already did before
 /// this consolidation.
@@ -510,8 +512,7 @@ impl Config {
     }
 
     fn config_file() -> Result<PathBuf> {
-        let base = shellexpand::tilde("~/.config/zerkalo").into_owned();
-        Ok(PathBuf::from(base).join("config.toml"))
+        Ok(zerkalo_config_dir().join("config.toml"))
     }
 }
 

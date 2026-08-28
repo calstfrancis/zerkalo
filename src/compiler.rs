@@ -242,7 +242,7 @@ impl ZerkaloWorld {
             .map(str::to_string);
         let doc_bib_abs_path = doc_bib_path_raw
             .as_deref()
-            .filter(|p| p.starts_with('/'))
+            .filter(|p| Path::new(p).is_absolute())
             .map(PathBuf::from);
 
         let needs_widening = extra_root.is_some_and(is_outside_project)
@@ -261,7 +261,7 @@ impl ZerkaloWorld {
             .as_deref()
             .filter(|p| p.to_ascii_lowercase().ends_with(".bib"))
         {
-            let resolved = if p.starts_with('/') {
+            let resolved = if Path::new(p).is_absolute() {
                 PathBuf::from(p)
             } else {
                 project_root.join(p)

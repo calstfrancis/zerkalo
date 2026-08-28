@@ -32,6 +32,5 @@ impl Session {
 }
 
 fn session_path() -> PathBuf {
-    let base = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    PathBuf::from(base).join(".local/share/zerkalo/session.json")
+    crate::config::zerkalo_data_dir().join("session.json")
 }
