@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [dev] — 2026-08-28 — Spell check now understands contractions; editor scroll-to-position fixed at the root
+
+### Fixed
+
+- **Spell check flagged every contraction and possessive as misspelled** — "doesn't" was tokenized as "doesn" (the apostrophe split the word), so "doesn"/"don"/"isn" and the like were checked on their own and never matched, even though the dictionary has "doesn't"/"don't" as real entries. An apostrophe with a letter on both sides (a contraction or possessive) now stays attached to the word instead of splitting it; a genuine quote mark (nothing but whitespace/punctuation on one side) still doesn't get absorbed.
+- **Search/find results, click-to-jump from the preview, heading navigation, and a few other editor scroll targets could update the cursor and selection correctly but never actually scroll the view to show them** — root cause found, not worked around: the editor view's real vertical/horizontal scroll adjustments were never bound to it. Its direct parent is an `Overlay` (needed for the "start writing" ghost-text placeholder), and `Overlay` doesn't implement `GtkScrollable`, so nothing ever connected the view's own scroll position to the `ScrolledWindow`'s real, visible one — every `scroll_to_mark`/`scroll_to_iter` call was quietly succeeding against a disconnected adjustment nobody was listening to. Explicitly binding the view to the `ScrolledWindow`'s actual adjustments fixes every scroll-to-position call site at once, not just search.
+
+---
+
 ## [0.28.3] "Clear Reflection" — 2026-08-28 — Preview click-to-jump fixed; removed the cursor-follow auto-scroll
 
 ### Fixed

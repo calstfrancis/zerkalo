@@ -3394,6 +3394,20 @@ impl EditorPane {
         scroll.set_child(Some(&view_overlay));
         scroll.set_hexpand(true);
         scroll.set_vexpand(true);
+        // The view's direct parent is view_overlay (a plain Overlay, needed for
+        // the ghost-text placeholder), not the ScrolledWindow itself — Overlay
+        // doesn't implement GtkScrollable, so nothing ever binds the view's own
+        // vadjustment/hadjustment to the ScrolledWindow's real ones. Without
+        // this, the view silently keeps its own default, entirely disconnected
+        // adjustment: scroll_to_mark()/scroll_to_iter() (search jump, click-to-
+        // jump, heading navigation, ...) call happily succeed against it and
+        // report the position they set, but nothing visible ever moves, since
+        // that adjustment has no scrollbar or viewport listening to it.
+        {
+            use gtk4::prelude::ScrollableExt;
+            view.set_vadjustment(Some(&scroll.vadjustment()));
+            view.set_hadjustment(Some(&scroll.hadjustment()));
+        }
         // Horizontal scroll is permanently disabled — all wrapping is done in the
         // text view itself. Kinetic scrolling is disabled to prevent the view from
         // "coasting" past where the user clicked.

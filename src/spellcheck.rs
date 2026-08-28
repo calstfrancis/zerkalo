@@ -371,8 +371,22 @@ pub fn extract_words(text: &str) -> Vec<(usize, usize, String)> {
         // ── collect alphabetic word ───────────────────────────────────────────
         if c.is_alphabetic() {
             let start = i;
-            while i < n && chars[i].is_alphabetic() {
-                i += 1;
+            loop {
+                if i < n && chars[i].is_alphabetic() {
+                    i += 1;
+                } else if i < n
+                    && matches!(chars[i], '\'' | '\u{2018}' | '\u{2019}')
+                    && chars.get(i + 1).is_some_and(|c| c.is_alphabetic())
+                {
+                    // An apostrophe flanked by letters is part of the word
+                    // itself — a contraction ("doesn't") or possessive
+                    // ("Cal's") — not a quote mark, so it's kept attached
+                    // rather than splitting the word into fragments that
+                    // are never real dictionary entries on their own.
+                    i += 1;
+                } else {
+                    break;
+                }
             }
             // Accept words of 3+ chars to reduce false positives
             if i - start >= 3 {
@@ -568,9 +582,21 @@ mod tests {
     }
 
     #[test]
-    fn hyphens_and_apostrophes_split_words_into_parts() {
+    fn hyphens_split_words_but_apostrophes_stay_attached() {
         assert_eq!(words("well-known"), vec!["well", "known"]);
-        assert_eq!(words("don't"), vec!["don"]);
+        // Contractions and possessives keep their apostrophe — checking
+        // "don" or "doesn" against the dictionary on its own is never
+        // going to be a real word, so splitting on the apostrophe just
+        // manufactures a false positive.
+        assert_eq!(words("don't"), vec!["don't"]);
+        assert_eq!(words("doesn't"), vec!["doesn't"]);
+        assert_eq!(words("Cal's book"), vec!["Cal's", "book"]);
+        assert_eq!(words("I'll"), vec!["I'll"]);
+        // A quote mark isn't part of the word: only an apostrophe with a
+        // letter on both sides counts, so a trailing possessive plural or
+        // a genuinely quoted word doesn't absorb the punctuation.
+        assert_eq!(words("the dogs' toys"), vec!["the", "dogs", "toys"]);
+        assert_eq!(words("she said 'hello'"), vec!["she", "said", "hello"]);
     }
 
     /// Offsets are code-point positions (matching `TextIter::offset()`), not
