@@ -1,4 +1,4 @@
-# Zerkalo v0.28.1 "Steady Preamble"
+# Zerkalo v0.28.2 "Sound Footing"
 
 Install via Flatpak:
 
@@ -18,9 +18,9 @@ flatpak update io.github.calstfrancis.Zerkalo
 
 ### What's new
 
-**"Update Template Settings" no longer regenerates an unwanted title page on a document that had it off.** If a document had no sidecar file, the Title Page switch was the one setting in that dialog with no way to read its actual state back from the document — every other setting (margin, header, spacing, and more) did. It silently stayed on the dialog's default of "on," so applying any change at all — even just picking a running header — could resurrect a full cover page with placeholder "Untitled" text on a document that never had one.
+**No visible change on Linux.** This release is internal groundwork ahead of a planned Windows build. Config, session, and live-preview paths now resolve through one consistent, platform-aware helper instead of a mix of hardcoded `~/.config`/`~/Documents`/`/tmp` strings that only worked by assuming a Unix-style `$HOME`; absolute-path detection (used for external bibliography files and git remote targets) now also recognizes Windows-style absolute paths; and the document library no longer risks creating duplicate entries for the same file reached via two differently-cased paths on a case-insensitive filesystem.
 
-**Document metadata (title, author, and the rest) is no longer silently discarded just because no running header was chosen.** These fields are only ever written into the file inside the header/title-page code, so a document with both off had nowhere for its own metadata to survive without a sidecar — turning a header on later showed blank or placeholder text instead of what you'd actually typed. Now preserved whenever there's real content to keep.
+The one thing you might actually notice: the live-preview temp directory moves from a hardcoded `/tmp/zerkalo_preview` to the standard cache directory.
 
 ---
 
