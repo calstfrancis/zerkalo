@@ -1,4 +1,4 @@
-# Zerkalo v0.28.2 "Sound Footing"
+# Zerkalo v0.28.3 "Clear Reflection"
 
 Install via Flatpak:
 
@@ -18,9 +18,9 @@ flatpak update io.github.calstfrancis.Zerkalo
 
 ### What's new
 
-**No visible change on Linux.** This release is internal groundwork ahead of a planned Windows build. Config, session, and live-preview paths now resolve through one consistent, platform-aware helper instead of a mix of hardcoded `~/.config`/`~/Documents`/`/tmp` strings that only worked by assuming a Unix-style `$HOME`; absolute-path detection (used for external bibliography files and git remote targets) now also recognizes Windows-style absolute paths; and the document library no longer risks creating duplicate entries for the same file reached via two differently-cased paths on a case-insensitive filesystem.
+**Clicking the preview now actually jumps to the matching source line.** It used to silently require holding Ctrl while clicking, with no hint anywhere in the app that this was needed — a plain click, the obvious gesture, had no visible effect. Ctrl is no longer needed; a single click jumps to the nearby paragraph, and double-click still jumps to the exact word.
 
-The one thing you might actually notice: the live-preview temp directory moves from a hardcoded `/tmp/zerkalo_preview` to the standard cache directory.
+**The preview no longer auto-scrolls to follow the cursor as you type.** That behavior, added in 0.27.0, approximated scroll position from the cursor's line number alone — with no way to account for how unevenly source lines translate into rendered space (a heading, an image, or a dense paragraph all take up very different amounts of page height per line), it routinely landed the preview somewhere visually unrelated to what was actually being edited. Click-to-jump — preview to editor — is the direction that's actually reliable, so that's what's left.
 
 ---
 

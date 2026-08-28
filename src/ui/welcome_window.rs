@@ -7,7 +7,7 @@ use gtk4::{Align, Box as GtkBox, Button, Label, Orientation, ScrolledWindow, Sep
 use libadwaita as adw;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const RELEASE_NAME: &str = "Sound Footing";
+pub const RELEASE_NAME: &str = "Clear Reflection";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -142,9 +142,12 @@ impl WelcomeWindow {
             }
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
-            body.append(&bullet_row(
-                "No visible change in this release. It's internal path-resolution hardening ahead of a planned Windows build — the one concretely observable difference is the live-preview temp directory moving to the standard cache directory.",
-            ));
+            for item in [
+                "Clicking the preview now actually jumps to the matching source line — it used to silently require holding Ctrl first, with no hint anywhere that this was needed. Double-click still jumps to the exact word.",
+                "The preview no longer auto-scrolls to follow the cursor as you type. It was a rough approximation that often landed on visually unrelated content — clicking the preview to jump the editor is the reliable direction, so that's what's left.",
+            ] {
+                body.append(&bullet_row(item));
+            }
         }
 
         body.append(&Separator::new(Orientation::Horizontal));

@@ -80,6 +80,16 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.28.3" date="2026-08-28">
+      <description>
+        <p>0.28.3 "Clear Reflection" — clicking the preview now actually
+        jumps to the matching source line, instead of silently requiring an
+        undocumented Ctrl+Click. The preview no longer auto-scrolls to
+        follow the cursor as you type, since that approximation often
+        landed on unrelated content — click-to-jump is the reliable
+        direction.</p>
+      </description>
+    </release>
     <release version="0.28.2" date="2026-08-28">
       <description>
         <p>0.28.2 "Sound Footing" — internal path-resolution hardening ahead
