@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [dev] — 2026-08-28 — Preview click-to-jump fixed; removed the cursor-follow auto-scroll
+## [0.28.3] "Clear Reflection" — 2026-08-28 — Preview click-to-jump fixed; removed the cursor-follow auto-scroll
 
 ### Fixed
 
