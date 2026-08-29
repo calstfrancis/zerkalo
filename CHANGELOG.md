@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.28.5] "Steady Current" — 2026-08-29 — Code editor scrolling restored
+
+### Fixed
+
+- **The code editor stopped scrolling entirely** — mouse wheel, keyboard, and the scrollbar all had no effect. Regression from 0.28.4's scroll-to-position fix: that fix bound the editor view directly to the `ScrolledWindow`'s adjustments so `scroll_to_mark`/`scroll_to_iter` calls (search jump, click-to-jump, heading navigation) would actually move the view — but the view's parent was still a plain `Overlay` (kept for the "start writing" ghost-text placeholder), which doesn't implement `GtkScrollable`. GTK responded by auto-wrapping that `Overlay` in its own `Viewport`, and with the view's adjustment now also pointed at the same object the `Viewport` was using to physically pan it, the two fought each other instead of cooperating — the net effect was that nothing visibly moved at all, a much worse regression than the bug 0.28.4 set out to fix.
+- Fixed at the actual root this time: the view is now the `ScrolledWindow`'s direct child (no `Overlay` in between, no auto-`Viewport`), which is the normal, correct way to embed a scrollable `TextView`/`SourceView`. The placeholder now overlays the `ScrolledWindow` itself instead of the view, so it keeps wrapping to the full editor width without interfering with real scrolling. Verified live under a headless X11 harness: mouse-wheel scrolling through a long document, heading-navigation jumps, and the empty-buffer placeholder's layout all confirmed working before release.
+
+---
+
 ## [0.28.4] "True Anchor" — 2026-08-28 — Spell check now understands contractions; editor scroll-to-position fixed at the root
 
 ### Fixed
