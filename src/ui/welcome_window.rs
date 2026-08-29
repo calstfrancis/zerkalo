@@ -7,7 +7,7 @@ use gtk4::{Align, Box as GtkBox, Button, Label, Orientation, ScrolledWindow, Sep
 use libadwaita as adw;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const RELEASE_NAME: &str = "True Anchor";
+pub const RELEASE_NAME: &str = "Steady Current";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -142,12 +142,9 @@ impl WelcomeWindow {
             }
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
-            for item in [
-                "Spell check no longer flags contractions and possessives as misspelled — \"doesn't\" was being checked as \"doesn\" (never a real word) because the apostrophe split it in two. Whole words with an apostrophe are now checked as themselves.",
-                "Search, click-to-jump from the preview, and heading navigation now actually scroll the editor to show the result. The cursor and match count were always updating correctly — the view itself just wasn't scrolling to follow.",
-            ] {
-                body.append(&bullet_row(item));
-            }
+            body.append(&bullet_row(
+                "Fixed a regression that broke code editor scrolling entirely — mouse wheel, keyboard, and the scrollbar all had no effect. Scrolling is back, and search/click-to-jump/heading-navigation jumps still work too.",
+            ));
         }
 
         body.append(&Separator::new(Orientation::Horizontal));

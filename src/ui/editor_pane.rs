@@ -157,6 +157,12 @@ struct EditorTab {
     buffer: Buffer,
     view: View,
     scroll_window: ScrolledWindow,
+    // The actual notebook page widget (an Overlay wrapping scroll_window, for
+    // the empty-buffer placeholder — see where it's built). Distinct from
+    // scroll_window because ScrolledWindow-specific calls (set_policy,
+    // vadjustment, ...) need the real ScrolledWindow, while notebook.page_num/
+    // remove_page/etc. need whatever was actually passed to append_page.
+    notebook_page: gtk4::Overlay,
     modified: bool,
     diag_dot: Label,
     dot_label: Label,
@@ -1465,7 +1471,7 @@ impl EditorPane {
                     let bstate = state2.borrow();
                     let mut found = None;
                     for (path, tab) in &bstate.tabs {
-                        if nb.page_num(&tab.scroll_window) == Some(page_num) {
+                        if nb.page_num(&tab.notebook_page) == Some(page_num) {
                             let (s, e) = tab.buffer.bounds();
                             let content = tab.buffer.text(&s, &e, true).to_string();
                             let can_undo = tab.buffer.can_undo();
@@ -1692,7 +1698,7 @@ impl EditorPane {
                     .tabs
                     .iter()
                     .filter_map(|(path, tab)| {
-                        let page = ep_tabs.notebook.page_num(&tab.scroll_window)?;
+                        let page = ep_tabs.notebook.page_num(&tab.notebook_page)?;
                         let name = path
                             .file_name()
                             .and_then(|n| n.to_str())
@@ -1928,7 +1934,7 @@ impl EditorPane {
                     state
                         .tabs
                         .values()
-                        .find(|tab| nb_u.page_num(&tab.scroll_window) == Some(current))
+                        .find(|tab| nb_u.page_num(&tab.notebook_page) == Some(current))
                         .map(|tab| tab.buffer.clone())
                 };
                 if let Some(buf) = buffer {
@@ -1946,7 +1952,7 @@ impl EditorPane {
                     state
                         .tabs
                         .values()
-                        .find(|tab| nb_r.page_num(&tab.scroll_window) == Some(current))
+                        .find(|tab| nb_r.page_num(&tab.notebook_page) == Some(current))
                         .map(|tab| tab.buffer.clone())
                 };
                 if let Some(buf) = buffer {
@@ -2546,7 +2552,7 @@ impl EditorPane {
             state
                 .tabs
                 .values()
-                .find(|tab| self.notebook.page_num(&tab.scroll_window) == Some(current))
+                .find(|tab| self.notebook.page_num(&tab.notebook_page) == Some(current))
                 .map(|tab| TabInfo {
                     view: tab.view.clone(),
                     buffer: tab.buffer.clone(),
@@ -2870,7 +2876,7 @@ impl EditorPane {
         };
         let state = self.state.borrow();
         for tab in state.tabs.values() {
-            if self.notebook.page_num(&tab.scroll_window) == Some(current) {
+            if self.notebook.page_num(&tab.notebook_page) == Some(current) {
                 let (s, e) = tab.buffer.bounds();
                 let text = tab.buffer.text(&s, &e, false);
                 let current_words = count_words(&text) as i32;
@@ -3193,7 +3199,7 @@ impl EditorPane {
             state
                 .tabs
                 .get(&path)
-                .map(|tab| (tab.buffer.clone(), tab.scroll_window.clone()))
+                .map(|tab| (tab.buffer.clone(), tab.notebook_page.clone()))
         };
         if let Some((buffer, scroll)) = existing {
             buffer.set_text(content);
@@ -3221,7 +3227,7 @@ impl EditorPane {
             state
                 .tabs
                 .get(&path)
-                .map(|tab| (tab.buffer.clone(), tab.scroll_window.clone()))
+                .map(|tab| (tab.buffer.clone(), tab.notebook_page.clone()))
         };
         let Some((buffer, scroll)) = existing else {
             self.open_file(path, full_new_content);
@@ -3272,7 +3278,7 @@ impl EditorPane {
         {
             let state = self.state.borrow();
             if let Some(tab) = state.tabs.get(&path) {
-                if let Some(n) = self.notebook.page_num(&tab.scroll_window) {
+                if let Some(n) = self.notebook.page_num(&tab.notebook_page) {
                     self.notebook.set_current_page(Some(n));
                 }
                 return;
@@ -3366,7 +3372,41 @@ impl EditorPane {
 
         self.wire_drag_and_drop(&view);
 
-        // Ghost-text placeholder — shown when the buffer is empty.
+        let scroll = ScrolledWindow::new();
+        // The view must be the ScrolledWindow's direct child — not wrapped in
+        // an Overlay — so GTK wires up its real, ScrolledWindow-owned
+        // adjustments the normal way. An Overlay doesn't implement
+        // GtkScrollable, so the ScrolledWindow would auto-wrap it in its own
+        // Viewport instead, and forcing the view's adjustments to match the
+        // Viewport's afterward (tried previously) makes both the Viewport and
+        // the view apply the same scroll offset independently — worse than
+        // the original bug it was meant to fix: it doesn't just fail to
+        // auto-scroll on jumps, it breaks scrolling entirely. With the view
+        // as the direct child, scroll_to_mark/scroll_to_iter (search jump,
+        // click-to-jump, heading navigation, ...) and ordinary wheel/keyboard
+        // scrolling all go through the same, single, correctly-connected
+        // adjustment.
+        scroll.set_child(Some(&view));
+        scroll.set_hexpand(true);
+        scroll.set_vexpand(true);
+        // Horizontal scroll is permanently disabled — all wrapping is done in the
+        // text view itself. Kinetic scrolling is disabled to prevent the view from
+        // "coasting" past where the user clicked.
+        let h_policy = if *self.word_wrap.borrow() {
+            gtk4::PolicyType::Never
+        } else {
+            gtk4::PolicyType::Automatic
+        };
+        scroll.set_policy(h_policy, gtk4::PolicyType::Automatic);
+        scroll.set_kinetic_scrolling(false);
+
+        // Ghost-text placeholder — shown when the buffer is empty. This wraps
+        // the ScrolledWindow (not the view) in a plain gtk4::Overlay, so the
+        // view keeps its direct-child adjustments above while the placeholder
+        // is still free to take its natural wrap width instead of the view's
+        // own (buffer-coordinate) overlay sizing, which allocates a child
+        // only its minimum size — enough for one word per line for text this
+        // long.
         let placeholder_lbl = Label::new(Some(
             "Start writing. Use = Heading for headings, *word* for bold, _word_ for italic, @key to cite."
         ));
@@ -3379,47 +3419,19 @@ impl EditorPane {
         placeholder_lbl.set_sensitive(false);
         placeholder_lbl.set_visible(buffer.char_count() == 0);
 
-        let view_overlay = gtk4::Overlay::new();
-        view_overlay.set_child(Some(&view));
-        view_overlay.add_overlay(&placeholder_lbl);
-        view_overlay.set_hexpand(true);
-        view_overlay.set_vexpand(true);
+        let editor_overlay = gtk4::Overlay::new();
+        editor_overlay.set_child(Some(&scroll));
+        editor_overlay.add_overlay(&placeholder_lbl);
+        editor_overlay.set_hexpand(true);
+        editor_overlay.set_vexpand(true);
 
         let ph_lbl_for_buf = placeholder_lbl.clone();
         buffer.connect_changed(move |buf| {
             ph_lbl_for_buf.set_visible(buf.char_count() == 0);
         });
 
-        let scroll = ScrolledWindow::new();
-        scroll.set_child(Some(&view_overlay));
-        scroll.set_hexpand(true);
-        scroll.set_vexpand(true);
-        // The view's direct parent is view_overlay (a plain Overlay, needed for
-        // the ghost-text placeholder), not the ScrolledWindow itself — Overlay
-        // doesn't implement GtkScrollable, so nothing ever binds the view's own
-        // vadjustment/hadjustment to the ScrolledWindow's real ones. Without
-        // this, the view silently keeps its own default, entirely disconnected
-        // adjustment: scroll_to_mark()/scroll_to_iter() (search jump, click-to-
-        // jump, heading navigation, ...) call happily succeed against it and
-        // report the position they set, but nothing visible ever moves, since
-        // that adjustment has no scrollbar or viewport listening to it.
-        {
-            use gtk4::prelude::ScrollableExt;
-            view.set_vadjustment(Some(&scroll.vadjustment()));
-            view.set_hadjustment(Some(&scroll.hadjustment()));
-        }
-        // Horizontal scroll is permanently disabled — all wrapping is done in the
-        // text view itself. Kinetic scrolling is disabled to prevent the view from
-        // "coasting" past where the user clicked.
-        let h_policy = if *self.word_wrap.borrow() {
-            gtk4::PolicyType::Never
-        } else {
-            gtk4::PolicyType::Automatic
-        };
-        scroll.set_policy(h_policy, gtk4::PolicyType::Automatic);
-        scroll.set_kinetic_scrolling(false);
-
-        let (tab_box, dot_label, diag_dot) = self.build_tab_label(&path, &display_name, &scroll);
+        let (tab_box, dot_label, diag_dot) =
+            self.build_tab_label(&path, &display_name, &editor_overlay);
 
         let tab = TabContext {
             path: path.clone(),
@@ -3851,8 +3863,8 @@ impl EditorPane {
 
         // ── Insert into notebook ──────────────────────────────────────────────
 
-        let page_index = self.notebook.append_page(&scroll, Some(&tab_box));
-        self.notebook.set_tab_reorderable(&scroll, true);
+        let page_index = self.notebook.append_page(&editor_overlay, Some(&tab_box));
+        self.notebook.set_tab_reorderable(&editor_overlay, true);
 
         let path_for_callback = tab.path.clone();
         let content_for_callback = content.to_string();
@@ -3864,6 +3876,7 @@ impl EditorPane {
                 buffer,
                 view,
                 scroll_window: scroll,
+                notebook_page: editor_overlay,
                 modified: false,
                 dot_label,
                 diag_dot,
@@ -3913,7 +3926,7 @@ impl EditorPane {
             state
                 .tabs
                 .get(path)
-                .and_then(|t| self.notebook.page_num(&t.scroll_window))
+                .and_then(|t| self.notebook.page_num(&t.notebook_page))
         };
         self.state.borrow_mut().tabs.remove(path);
         if let Some(n) = page_num {
@@ -3929,7 +3942,7 @@ impl EditorPane {
         };
         let state = self.state.borrow();
         for tab in state.tabs.values() {
-            if self.notebook.page_num(&tab.scroll_window) == Some(current) {
+            if self.notebook.page_num(&tab.notebook_page) == Some(current) {
                 return tab.buffer.line_count() as u32;
             }
         }
@@ -3940,7 +3953,7 @@ impl EditorPane {
         let current = self.notebook.current_page()?;
         let state = self.state.borrow();
         for tab in state.tabs.values() {
-            if let Some(n) = self.notebook.page_num(&tab.scroll_window) {
+            if let Some(n) = self.notebook.page_num(&tab.notebook_page) {
                 if n == current {
                     let (start, end) = tab.buffer.bounds();
                     return Some(tab.buffer.text(&start, &end, true).to_string());
@@ -3961,7 +3974,7 @@ impl EditorPane {
             state
                 .tabs
                 .values()
-                .find(|t| self.notebook.page_num(&t.scroll_window) == Some(current))
+                .find(|t| self.notebook.page_num(&t.notebook_page) == Some(current))
                 .map(|t| t.buffer.clone())
         };
         if let Some(buffer) = buf {
@@ -3984,7 +3997,7 @@ impl EditorPane {
             state
                 .tabs
                 .values()
-                .find(|t| self.notebook.page_num(&t.scroll_window) == Some(current))
+                .find(|t| self.notebook.page_num(&t.notebook_page) == Some(current))
                 .map(|t| t.buffer.clone())
         };
         if let Some(buffer) = buf {
@@ -4022,7 +4035,7 @@ impl EditorPane {
     pub fn switch_to_file(&self, path: &PathBuf) {
         let state = self.state.borrow();
         if let Some(tab) = state.tabs.get(path) {
-            if let Some(n) = self.notebook.page_num(&tab.scroll_window) {
+            if let Some(n) = self.notebook.page_num(&tab.notebook_page) {
                 self.notebook.set_current_page(Some(n));
             }
         }
@@ -4067,7 +4080,7 @@ impl EditorPane {
             .iter()
             .filter_map(|(path, tab)| {
                 self.notebook
-                    .page_num(&tab.scroll_window)
+                    .page_num(&tab.notebook_page)
                     .map(|n| (n, path.clone()))
             })
             .collect();
@@ -4097,7 +4110,7 @@ impl EditorPane {
         let current = self.notebook.current_page()?;
         let state = self.state.borrow();
         for (path, tab) in &state.tabs {
-            if let Some(n) = self.notebook.page_num(&tab.scroll_window) {
+            if let Some(n) = self.notebook.page_num(&tab.notebook_page) {
                 if n == current {
                     return Some(path.clone());
                 }
@@ -4301,7 +4314,7 @@ impl EditorPane {
         let current = self.notebook.current_page().unwrap_or(0);
         let state = self.state.borrow();
         for tab in state.tabs.values() {
-            if self.notebook.page_num(&tab.scroll_window) == Some(current) {
+            if self.notebook.page_num(&tab.notebook_page) == Some(current) {
                 return tab.session_start_words;
             }
         }
@@ -4388,7 +4401,7 @@ impl EditorPane {
         let current = self.notebook.current_page()?;
         let state = self.state.borrow();
         for tab in state.tabs.values() {
-            if self.notebook.page_num(&tab.scroll_window) == Some(current) {
+            if self.notebook.page_num(&tab.notebook_page) == Some(current) {
                 return Some((tab.view.clone(), tab.buffer.clone()));
             }
         }
@@ -5048,7 +5061,7 @@ fn close_tab_with_dirty_check(
     ep: EditorPane,
     state: Rc<RefCell<EditorState>>,
     notebook: Notebook,
-    scroll: ScrolledWindow,
+    scroll: gtk4::Overlay,
     path: PathBuf,
     display_name: String,
 ) {
@@ -5714,7 +5727,7 @@ impl EditorPane {
         &self,
         path: &Path,
         display_name: &str,
-        scroll: &ScrolledWindow,
+        page_widget: &gtk4::Overlay,
     ) -> (GtkBox, Label, Label) {
         let tab_box = GtkBox::new(Orientation::Horizontal, 4);
         tab_box.set_margin_start(2);
@@ -5742,7 +5755,7 @@ impl EditorPane {
         let state_for_close = self.state.clone();
         let notebook_for_close = self.notebook.clone();
         let path_for_close = path.to_path_buf();
-        let scroll_for_close = scroll.clone();
+        let scroll_for_close = page_widget.clone();
         let ep_for_close = self.clone();
         let dn_for_close = display_name.to_string();
         close_btn.connect_clicked(move |_| {
@@ -5759,7 +5772,7 @@ impl EditorPane {
         // Middle-click anywhere on the tab label also closes the tab
         {
             let nb_mc = self.notebook.clone();
-            let sc_mc = scroll.clone();
+            let sc_mc = page_widget.clone();
             let st_mc = self.state.clone();
             let p_mc = path.to_path_buf();
             let ep_mc = self.clone();
@@ -5782,7 +5795,7 @@ impl EditorPane {
         // Right-click context menu on tab: close tab, delete file
         {
             let nb_rc = self.notebook.clone();
-            let sc_rc = scroll.clone();
+            let sc_rc = page_widget.clone();
             let st_rc = self.state.clone();
             let path_rc = path.to_path_buf();
             let del_cb = self.on_delete_file.clone();

@@ -80,6 +80,17 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.28.5" date="2026-08-29">
+      <description>
+        <p>0.28.5 "Steady Current" — fixes a regression from 0.28.4 that
+        broke code editor scrolling entirely (mouse wheel, keyboard, and
+        the scrollbar all had no effect). The editor view is now the
+        ScrolledWindow's direct child again, the normal and correct way to
+        embed a scrollable text view, so scrolling works and
+        scroll-to-position jumps (search, click-to-jump, heading
+        navigation) still work too.</p>
+      </description>
+    </release>
     <release version="0.28.4" date="2026-08-28">
       <description>
         <p>0.28.4 "True Anchor" — spell check no longer flags contractions
