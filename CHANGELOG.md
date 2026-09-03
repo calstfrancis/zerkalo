@@ -5,6 +5,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.29.0] "Open Ledger" — 2026-09-03 — Documents can belong to multiple categories
+
+### Added
+
+- **A document can now belong to more than one category**, including two sibling categories under the same parent — previously `documents.category` was a single flat field, so a document could only ever hold exactly one category at all. Categories now work the same many-to-many way tags already did. The single-document category dialog is now **Edit Categories…**, a checkbox list (grouped under each category's parent) with inline "New category…" creation, replacing the old single free-text field.
+- **New bulk "Categorize…" action** in the selection action bar, alongside the existing "Tag…" action — assign one or more categories to several selected documents at once.
+- Dragging a document onto a category in the sidebar now **adds** that category to the document instead of replacing its existing ones.
+- Document rows in the Library now show one colored chip per category (click to filter), the same way tags already render.
+- Added a **Recolor…** item to a category's right-click menu — previously the only way to change an existing category's color was the free-text dialog this release removes.
+
+### Fixed
+
+- The bulk **"Tag Documents…"** dialog (multi-select action bar) had no way to create a new tag inline — only the single-document "Edit Tags…" dialog did. Both now support creating a tag on the spot.
+
+---
+
 ## [0.28.5] "Steady Current" — 2026-08-29 — Code editor scrolling restored
 
 ### Fixed
