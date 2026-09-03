@@ -59,7 +59,7 @@
     <p>Document Library (Ctrl+L):</p>
     <ul>
       <li>SQLite-backed library of all your Typst documents with search, sort, and filter</li>
-      <li>Organise with projects, categories (with colours), and frequency heat-coloured tags</li>
+      <li>Organise with projects, categories (with colours, and a document may belong to several at once), and frequency heat-coloured tags</li>
       <li>Card view with prose word count; compact single-line view for dense lists</li>
       <li>Pinned documents, trash (soft delete with restore), archive, and bulk operations</li>
       <li>Create new documents from templates; import BibTeX author names as tags</li>
@@ -80,6 +80,22 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.29.0" date="2026-09-03">
+      <description>
+        <p>0.29.0 "Open Ledger" — documents can now belong to more than
+        one category, including two sibling categories under the same
+        parent, the same many-to-many way tags already worked. The
+        single-document category dialog is now Edit Categories…, a
+        checkbox list with inline creation; a new bulk Categorize…
+        action assigns categories to several selected documents at
+        once; dragging a document onto a sidebar category now adds to
+        its categories instead of replacing them; document rows show a
+        colored chip per category; and a category's right-click menu
+        gained a Recolor… item. Also fixes the bulk "Tag Documents…"
+        dialog, which was missing the inline tag-creation row the
+        single-document dialog already had.</p>
+      </description>
+    </release>
     <release version="0.28.5" date="2026-08-29">
       <description>
         <p>0.28.5 "Steady Current" — fixes a regression from 0.28.4 that
