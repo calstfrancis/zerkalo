@@ -34,7 +34,6 @@ pub struct Document {
     pub id: i64,
     pub path: PathBuf,
     pub title: String,
-    pub category: Option<String>,
     pub archived: bool,
     pub pinned: bool,
     pub notes: Option<String>,
@@ -129,16 +128,25 @@ impl LibraryFilter {
                 order_override: Some("modified_at DESC"),
                 ..plain("deleted = 1")
             },
+            // `EXISTS` rather than a `doc_categories` join: a document can now
+            // carry more than one category (including a parent and one of its
+            // own children at once), so a join could match the same document
+            // through more than one row and duplicate it in the results.
             LibraryFilter::Category(cat) => FilterSpec {
                 param: Some(cat.into()),
-                ..plain("category = ?1 AND archived = 0 AND deleted = 0")
+                ..plain(
+                    "EXISTS (SELECT 1 FROM doc_categories dc \
+                         WHERE dc.doc_id = id AND dc.category = ?1) \
+                     AND archived = 0 AND deleted = 0",
+                )
             },
             LibraryFilter::CategoryGroup(parent) => FilterSpec {
                 param: Some(parent.into()),
                 ..plain(
-                    "category IN (\
-                         SELECT name FROM categories WHERE name = ?1 OR parent = ?1\
-                     ) AND archived = 0 AND deleted = 0",
+                    "EXISTS (SELECT 1 FROM doc_categories dc \
+                         WHERE dc.doc_id = id AND dc.category IN (\
+                             SELECT name FROM categories WHERE name = ?1 OR parent = ?1\
+                         )) AND archived = 0 AND deleted = 0",
                 )
             },
             LibraryFilter::Project(pid) => FilterSpec {
@@ -181,7 +189,7 @@ impl SortOrder {
 }
 
 const DOC_COLS: &str =
-    "id, path, title, category, archived, pinned, notes, created_at, modified_at, last_opened_at";
+    "id, path, title, archived, pinned, notes, created_at, modified_at, last_opened_at";
 
 /// Suffix for `path = ?N` comparisons — case-insensitive on Windows, where
 /// the same file reached via two differently-cased paths would otherwise
@@ -235,6 +243,14 @@ impl Library {
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 path TEXT NOT NULL UNIQUE,
                 title TEXT NOT NULL,
+                -- `category` is vestigial: superseded by the many-to-many
+                -- `doc_categories` table below (a document can now hold more
+                -- than one category, the same way `doc_tags` already works
+                -- for tags). Left in place rather than rebuilt out, since
+                -- `documents` has several other tables' foreign keys
+                -- pointing at it. Nothing reads or writes this column
+                -- anymore except the one-time backfill into
+                -- `doc_categories` further down in this function.
                 category TEXT,
                 archived INTEGER NOT NULL DEFAULT 0,
                 notes TEXT,
@@ -291,18 +307,35 @@ impl Library {
         self.migrate_category_colors_to_nullable();
         self.conn
             .execute_batch(
+                "CREATE TABLE IF NOT EXISTS doc_categories (
+                    doc_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+                    category TEXT NOT NULL REFERENCES categories(name) ON DELETE CASCADE,
+                    PRIMARY KEY (doc_id, category)
+                );",
+            )
+            .ok();
+        self.conn
+            .execute_batch(
                 "CREATE INDEX IF NOT EXISTS idx_doc_category ON documents(category);
              CREATE INDEX IF NOT EXISTS idx_doc_archived ON documents(archived, deleted);
              CREATE INDEX IF NOT EXISTS idx_doc_last_opened ON documents(last_opened_at);
              CREATE INDEX IF NOT EXISTS idx_doc_modified ON documents(modified_at);
              CREATE INDEX IF NOT EXISTS idx_doc_tags_tag ON doc_tags(tag_id);
-             CREATE INDEX IF NOT EXISTS idx_doc_tags_doc ON doc_tags(doc_id);",
+             CREATE INDEX IF NOT EXISTS idx_doc_tags_doc ON doc_tags(doc_id);
+             CREATE INDEX IF NOT EXISTS idx_doc_categories_cat ON doc_categories(category);
+             CREATE INDEX IF NOT EXISTS idx_doc_categories_doc ON doc_categories(doc_id);",
             )
             .ok();
         self.conn
             .execute_batch(
                 "INSERT OR IGNORE INTO categories (name)
              SELECT DISTINCT category FROM documents WHERE category IS NOT NULL;",
+            )
+            .ok();
+        self.conn
+            .execute_batch(
+                "INSERT OR IGNORE INTO doc_categories (doc_id, category)
+             SELECT id, category FROM documents WHERE category IS NOT NULL;",
             )
             .ok();
         Ok(())
@@ -525,14 +558,17 @@ impl Library {
                 |r| r.get(0),
             ),
             LibraryFilter::Category(cat) => self.conn.query_row(
-                "SELECT COUNT(*) FROM documents WHERE category=?1 AND archived=0 AND deleted=0",
+                "SELECT COUNT(*) FROM documents WHERE archived=0 AND deleted=0
+                 AND EXISTS (SELECT 1 FROM doc_categories dc WHERE dc.doc_id=documents.id AND dc.category=?1)",
                 params![cat],
                 |r| r.get(0),
             ),
             LibraryFilter::CategoryGroup(parent) => self.conn.query_row(
-                "SELECT COUNT(*) FROM documents
-                 WHERE category IN (SELECT name FROM categories WHERE name=?1 OR parent=?1)
-                 AND archived=0 AND deleted=0",
+                "SELECT COUNT(*) FROM documents WHERE archived=0 AND deleted=0
+                 AND EXISTS (
+                     SELECT 1 FROM doc_categories dc WHERE dc.doc_id=documents.id
+                     AND dc.category IN (SELECT name FROM categories WHERE name=?1 OR parent=?1)
+                 )",
                 params![parent],
                 |r| r.get(0),
             ),
@@ -582,14 +618,49 @@ impl Library {
         Ok(())
     }
 
-    pub fn set_category(&mut self, doc_id: i64, category: Option<&str>) -> SqlResult<()> {
-        if let Some(name) = category {
-            self.ensure_category(name)?;
-        }
-        self.conn.execute(
-            "UPDATE documents SET category = ?1 WHERE id = ?2",
-            params![category, doc_id],
+    /// Categories currently assigned to a document, ordered like
+    /// `all_categories_structured` (parents before children, then by name).
+    pub fn doc_categories(&self, doc_id: i64) -> SqlResult<Vec<Category>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT c.name, c.color_hex, c.parent FROM categories c
+             JOIN doc_categories dc ON dc.category = c.name
+             WHERE dc.doc_id = ?1 ORDER BY c.parent NULLS FIRST, c.name",
         )?;
+        let rows = stmt.query_map(params![doc_id], |r| {
+            Ok(Category {
+                name: r.get(0)?,
+                color_hex: r.get(1)?,
+                parent: r.get(2)?,
+            })
+        })?;
+        let mut cats = Vec::new();
+        for r in rows {
+            cats.push(r?);
+        }
+        Ok(cats)
+    }
+
+    /// Replaces a document's full set of categories (mirrors `set_doc_tags`).
+    pub fn set_doc_categories(&mut self, doc_id: i64, names: &[String]) -> SqlResult<()> {
+        self.conn.execute(
+            "DELETE FROM doc_categories WHERE doc_id = ?1",
+            params![doc_id],
+        )?;
+        self.add_doc_categories(doc_id, names)
+    }
+
+    /// Adds categories to a document without disturbing any it already has
+    /// (mirrors `add_doc_tags`) — used by drag-and-drop-to-category and bulk
+    /// assignment, where dropping onto a category should add it, not replace
+    /// whatever the document already belongs to.
+    pub fn add_doc_categories(&mut self, doc_id: i64, names: &[String]) -> SqlResult<()> {
+        for name in names {
+            self.ensure_category(name)?;
+            self.conn.execute(
+                "INSERT OR IGNORE INTO doc_categories (doc_id, category) VALUES (?1, ?2)",
+                params![doc_id, name],
+            )?;
+        }
         Ok(())
     }
 
@@ -638,11 +709,12 @@ impl Library {
     /// distinct uncolored categories don't all render identically.
     pub fn all_categories_with_colors(&self) -> SqlResult<Vec<(String, Option<String>)>> {
         let mut stmt = self.conn.prepare(
-            "SELECT DISTINCT d.category, c.color_hex
-             FROM documents d
-             LEFT JOIN categories c ON c.name = d.category
-             WHERE d.category IS NOT NULL AND d.deleted = 0
-             ORDER BY d.category",
+            "SELECT DISTINCT dc.category, c.color_hex
+             FROM doc_categories dc
+             JOIN documents d ON d.id = dc.doc_id
+             LEFT JOIN categories c ON c.name = dc.category
+             WHERE d.deleted = 0
+             ORDER BY dc.category",
         )?;
         let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
         let mut out = Vec::new();
@@ -987,11 +1059,11 @@ impl Library {
         Ok(())
     }
 
+    #[allow(dead_code)] // rounds out the CRUD surface over the library DB; exercised by tests
     pub fn all_categories(&self) -> SqlResult<Vec<String>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT DISTINCT category FROM documents
-             WHERE category IS NOT NULL ORDER BY category",
-        )?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT DISTINCT category FROM doc_categories ORDER BY category")?;
         let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
         let mut cats = Vec::new();
         for r in rows {
@@ -1011,7 +1083,7 @@ impl Library {
     #[allow(dead_code)] // rounds out the CRUD surface over the library DB
     pub fn delete_category(&mut self, name: &str) -> SqlResult<()> {
         self.conn.execute(
-            "UPDATE documents SET category = NULL WHERE category = ?1",
+            "DELETE FROM doc_categories WHERE category = ?1",
             params![name],
         )?;
         Ok(())
@@ -1029,7 +1101,8 @@ impl Library {
             params![new_name, old_name],
         )?;
         tx.execute(
-            "UPDATE documents SET category = ?1 WHERE category = ?2",
+            "INSERT OR IGNORE INTO doc_categories (doc_id, category)
+             SELECT doc_id, ?1 FROM doc_categories WHERE category = ?2",
             params![new_name, old_name],
         )?;
         tx.execute("DELETE FROM categories WHERE name = ?1", params![old_name])?;
@@ -1068,10 +1141,9 @@ impl Library {
         if self.category_has_children(name)? {
             return Ok(false);
         }
-        self.conn.execute(
-            "UPDATE documents SET category = NULL WHERE category = ?1",
-            params![name],
-        )?;
+        // Relies on `doc_categories.category`'s `ON DELETE CASCADE` to clear
+        // the category from every document that had it, same as
+        // `delete_tag` relies on `doc_tags`'s cascade.
         self.conn
             .execute("DELETE FROM categories WHERE name = ?1", params![name])?;
         Ok(true)
@@ -1231,7 +1303,8 @@ impl Library {
 fn search_clause(prefix: &str, param: usize) -> String {
     format!(
         "({prefix}title LIKE ?{param} \
-         OR {prefix}category LIKE ?{param} \
+         OR {prefix}id IN (SELECT doc_id FROM doc_categories \
+                           WHERE category LIKE ?{param}) \
          OR {prefix}id IN (SELECT doc_id FROM doc_tags _dt \
                            JOIN tags _t ON _t.id = _dt.tag_id \
                            WHERE _t.name LIKE ?{param}))"
@@ -1335,13 +1408,12 @@ fn row_to_doc(row: &rusqlite::Row<'_>) -> rusqlite::Result<Document> {
         id: row.get(0)?,
         path: PathBuf::from(row.get::<_, String>(1)?),
         title: row.get(2)?,
-        category: row.get(3)?,
-        archived: row.get::<_, i64>(4)? != 0,
-        pinned: row.get::<_, i64>(5)? != 0,
-        notes: row.get(6)?,
-        created_at: row.get(7)?,
-        modified_at: row.get(8)?,
-        last_opened_at: row.get(9)?,
+        archived: row.get::<_, i64>(3)? != 0,
+        pinned: row.get::<_, i64>(4)? != 0,
+        notes: row.get(5)?,
+        created_at: row.get(6)?,
+        modified_at: row.get(7)?,
+        last_opened_at: row.get(8)?,
     })
 }
 
@@ -1795,7 +1867,8 @@ mod tests {
         let (id, _) = add_doc(&mut lib, &work, "essay.typ");
         let tag = lib.create_tag("draft", "#ff0000").expect("tag");
         lib.set_doc_tags(id, &[tag]).expect("set tags");
-        lib.set_category(id, Some("Essays")).expect("category");
+        lib.add_doc_categories(id, &["Essays".to_string()])
+            .expect("category");
         lib.touch_opened(&work.path().join("essay.typ"))
             .expect("open");
 
@@ -1891,9 +1964,12 @@ mod tests {
         lib.create_category("Academic", None).expect("parent cat");
         lib.create_category("Essays", Some("Academic"))
             .expect("child cat");
-        lib.set_category(parent_doc, Some("Academic")).expect("set");
-        lib.set_category(child_doc, Some("Essays")).expect("set");
-        lib.set_category(other_doc, Some("Sermons")).expect("set");
+        lib.add_doc_categories(parent_doc, &["Academic".to_string()])
+            .expect("set");
+        lib.add_doc_categories(child_doc, &["Essays".to_string()])
+            .expect("set");
+        lib.add_doc_categories(other_doc, &["Sermons".to_string()])
+            .expect("set");
 
         let docs = lib
             .documents(
@@ -1978,7 +2054,7 @@ mod tests {
         let (mut lib, work) = fixture();
         let (by_category, _) = add_doc(&mut lib, &work, "one.typ");
         let (by_tag, _) = add_doc(&mut lib, &work, "two.typ");
-        lib.set_category(by_category, Some("Homiletics"))
+        lib.add_doc_categories(by_category, &["Homiletics".to_string()])
             .expect("category");
         let tag = lib.create_tag("patristics", "#ff0000").expect("tag");
         lib.set_doc_tags(by_tag, &[tag]).expect("set tags");
@@ -2281,7 +2357,8 @@ mod tests {
         let (mut lib, work) = fixture();
         let (id, _) = add_doc(&mut lib, &work, "essay.typ");
 
-        lib.set_category(id, Some("Sermons")).expect("set");
+        lib.add_doc_categories(id, &["Sermons".to_string()])
+            .expect("set");
 
         assert_eq!(lib.all_categories().expect("cats"), vec!["Sermons"]);
         assert!(lib
@@ -2289,6 +2366,88 @@ mod tests {
             .expect("structured")
             .iter()
             .any(|c| c.name == "Sermons"));
+    }
+
+    /// The literal reported bug: a document must be able to hold more than
+    /// one category at once, including two siblings under the same parent —
+    /// not just one category total, and not just one-per-parent.
+    #[test]
+    fn a_document_can_hold_two_categories_under_the_same_parent() {
+        let (mut lib, work) = fixture();
+        let (id, _) = add_doc(&mut lib, &work, "essay.typ");
+        lib.create_category("Academic", None).expect("parent");
+        lib.create_category("Essays", Some("Academic"))
+            .expect("child 1");
+        lib.create_category("Lectures", Some("Academic"))
+            .expect("child 2");
+
+        lib.add_doc_categories(id, &["Essays".to_string(), "Lectures".to_string()])
+            .expect("set both");
+
+        let mut names: Vec<String> = lib
+            .doc_categories(id)
+            .expect("doc cats")
+            .into_iter()
+            .map(|c| c.name)
+            .collect();
+        names.sort();
+        assert_eq!(names, vec!["Essays".to_string(), "Lectures".to_string()]);
+
+        for cat in ["Essays", "Lectures"] {
+            let docs = lib
+                .documents(LibraryFilter::Category(cat.into()), "", SortOrder::Title)
+                .expect("list");
+            assert_eq!(ids(&docs), vec![id], "filter on {cat}");
+        }
+        let group = lib
+            .documents(
+                LibraryFilter::CategoryGroup("Academic".into()),
+                "",
+                SortOrder::Title,
+            )
+            .expect("list");
+        assert_eq!(
+            ids(&group),
+            vec![id],
+            "doc matching two children of the group must not be duplicated"
+        );
+    }
+
+    #[test]
+    fn add_doc_categories_is_additive_set_doc_categories_replaces() {
+        let (mut lib, work) = fixture();
+        let (id, _) = add_doc(&mut lib, &work, "essay.typ");
+
+        lib.add_doc_categories(id, &["Sermons".to_string()])
+            .expect("add first");
+        lib.add_doc_categories(id, &["Essays".to_string()])
+            .expect("add second");
+        let mut names: Vec<String> = lib
+            .doc_categories(id)
+            .expect("doc cats")
+            .into_iter()
+            .map(|c| c.name)
+            .collect();
+        names.sort();
+        assert_eq!(
+            names,
+            vec!["Essays".to_string(), "Sermons".to_string()],
+            "add_doc_categories must not clobber an existing category"
+        );
+
+        lib.set_doc_categories(id, &["Lectures".to_string()])
+            .expect("replace");
+        let names: Vec<String> = lib
+            .doc_categories(id)
+            .expect("doc cats")
+            .into_iter()
+            .map(|c| c.name)
+            .collect();
+        assert_eq!(
+            names,
+            vec!["Lectures".to_string()],
+            "set_doc_categories must replace the full set"
+        );
     }
 
     #[test]
@@ -2315,7 +2474,8 @@ mod tests {
         lib.ensure_category("Essays").expect("ensure");
         lib.create_category("Homilies", None).expect("create");
         let (id, _) = add_doc(&mut lib, &work, "essay.typ");
-        lib.set_category(id, Some("Sermons")).expect("set");
+        lib.add_doc_categories(id, &["Sermons".to_string()])
+            .expect("set");
 
         assert_eq!(lib.get_category_color("Essays"), None);
         assert_eq!(lib.get_category_color("Homilies"), None);
@@ -2513,6 +2673,53 @@ mod tests {
         assert_eq!(not_null, 0);
     }
 
+    /// Pre-multi-category databases stored a document's one category in
+    /// `documents.category` directly; `migrate()` must backfill that value
+    /// into `doc_categories` so existing libraries don't lose their
+    /// categorization the first time they're opened after the upgrade.
+    #[test]
+    fn migration_backfills_existing_document_categories_into_the_join_table() {
+        let conn = Connection::open_in_memory().expect("in-memory DB");
+        conn.execute_batch(
+            "PRAGMA foreign_keys = ON;
+             CREATE TABLE documents (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 path TEXT NOT NULL UNIQUE,
+                 title TEXT NOT NULL,
+                 category TEXT,
+                 archived INTEGER NOT NULL DEFAULT 0,
+                 notes TEXT,
+                 created_at TEXT NOT NULL,
+                 modified_at TEXT NOT NULL,
+                 last_opened_at TEXT
+             );
+             INSERT INTO documents (path, title, category, created_at, modified_at)
+                 VALUES ('/tmp/essay.typ', 'Essay', 'Sermons', '2020-01-01', '2020-01-01');",
+        )
+        .expect("legacy documents schema");
+        let lib = Library {
+            conn,
+            trash_dir: PathBuf::from("/nonexistent"),
+        };
+        lib.migrate().expect("migrate");
+
+        let id: i64 = lib
+            .conn
+            .query_row(
+                "SELECT id FROM documents WHERE path = '/tmp/essay.typ'",
+                [],
+                |r| r.get(0),
+            )
+            .expect("doc id");
+        let names: Vec<String> = lib
+            .doc_categories(id)
+            .expect("doc cats")
+            .into_iter()
+            .map(|c| c.name)
+            .collect();
+        assert_eq!(names, vec!["Sermons".to_string()]);
+    }
+
     #[test]
     fn renaming_a_category_moves_its_documents_and_reparents_its_children() {
         let (mut lib, work) = fixture();
@@ -2520,15 +2727,19 @@ mod tests {
         lib.create_category("Academic", None).expect("parent");
         lib.create_category("Essays", Some("Academic"))
             .expect("child");
-        lib.set_category(id, Some("Academic")).expect("set");
+        lib.add_doc_categories(id, &["Academic".to_string()])
+            .expect("set");
 
         lib.rename_category("Academic", "Scholarly")
             .expect("rename");
 
-        assert_eq!(
-            lib.doc_by_id(id).unwrap().unwrap().category,
-            Some("Scholarly".to_string())
-        );
+        let doc_cat_names: Vec<String> = lib
+            .doc_categories(id)
+            .expect("doc cats")
+            .into_iter()
+            .map(|c| c.name)
+            .collect();
+        assert_eq!(doc_cat_names, vec!["Scholarly".to_string()]);
         let child = lib
             .all_categories_structured()
             .expect("cats")
@@ -2565,13 +2776,14 @@ mod tests {
     fn force_deleting_a_childless_category_clears_it_from_its_documents() {
         let (mut lib, work) = fixture();
         let (id, _) = add_doc(&mut lib, &work, "essay.typ");
-        lib.set_category(id, Some("Essays")).expect("set");
+        lib.add_doc_categories(id, &["Essays".to_string()])
+            .expect("set");
 
         assert!(lib
             .force_delete_category_if_no_children("Essays")
             .expect("delete"));
 
-        assert_eq!(lib.doc_by_id(id).unwrap().unwrap().category, None);
+        assert!(lib.doc_categories(id).expect("doc cats").is_empty());
         assert!(lib.all_categories().expect("cats").is_empty());
     }
 
@@ -2777,7 +2989,10 @@ mod sql_shape {
                 "id NOT IN (SELECT DISTINCT doc_id FROM doc_tags)",
             ),
             (LibraryFilter::Recent, "last_opened_at IS NOT NULL"),
-            (LibraryFilter::Category("C".into()), "category = ?1"),
+            (
+                LibraryFilter::Category("C".into()),
+                "EXISTS (SELECT 1 FROM doc_categories dc WHERE dc.doc_id = id AND dc.category = ?1)",
+            ),
             (
                 LibraryFilter::CategoryGroup("G".into()),
                 "name = ?1 OR parent = ?1",

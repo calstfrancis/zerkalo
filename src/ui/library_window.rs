@@ -263,6 +263,10 @@ impl LibraryWindow {
         bulk_tag_btn.add_css_class("flat");
         action_bar.append(&bulk_tag_btn);
 
+        let bulk_category_btn = Button::with_label("Categorize…");
+        bulk_category_btn.add_css_class("flat");
+        action_bar.append(&bulk_category_btn);
+
         let bulk_project_btn = Button::with_label("Add to Project…");
         bulk_project_btn.add_css_class("flat");
         action_bar.append(&bulk_project_btn);
@@ -388,6 +392,7 @@ impl LibraryWindow {
             &sort_dropdown,
             &bulk_archive_btn,
             &bulk_tag_btn,
+            &bulk_category_btn,
             &bulk_project_btn,
             &bulk_remove_btn,
             &clear_btn,
@@ -408,6 +413,7 @@ impl LibraryWindow {
         sort_dropdown: &gtk4::DropDown,
         bulk_archive_btn: &Button,
         bulk_tag_btn: &Button,
+        bulk_category_btn: &Button,
         bulk_project_btn: &Button,
         bulk_remove_btn: &Button,
         clear_btn: &Button,
@@ -549,6 +555,15 @@ impl LibraryWindow {
                 let ids: Vec<i64> = this.selection.borrow().iter().cloned().collect();
                 if !ids.is_empty() {
                     this.bulk_tag_dialog(ids);
+                }
+            });
+        }
+        {
+            let this = self.clone();
+            bulk_category_btn.connect_clicked(move |_| {
+                let ids: Vec<i64> = this.selection.borrow().iter().cloned().collect();
+                if !ids.is_empty() {
+                    this.bulk_category_dialog(ids);
                 }
             });
         }
@@ -758,7 +773,10 @@ impl LibraryWindow {
                                         this2
                                             .library
                                             .borrow_mut()
-                                            .set_category(doc_id, Some(&cname2))
+                                            .add_doc_categories(
+                                                doc_id,
+                                                std::slice::from_ref(&cname2),
+                                            )
                                             .ok();
                                         this2.refresh();
                                         return true;
@@ -811,7 +829,7 @@ impl LibraryWindow {
                         if let Ok(doc_id) = id_str.parse::<i64>() {
                             this.library
                                 .borrow_mut()
-                                .set_category(doc_id, Some(&cat_name))
+                                .add_doc_categories(doc_id, std::slice::from_ref(&cat_name))
                                 .ok();
                             this.refresh();
                             return true;
@@ -986,8 +1004,19 @@ impl LibraryWindow {
             let last_idx = group.len() - 1;
             for (i, doc) in group.into_iter().enumerate() {
                 let tags = self.library.borrow().doc_tags(doc.id).unwrap_or_default();
-                let row =
-                    self.make_doc_row(&doc, &tags, project_reorder, mode.clone(), &cat_colors);
+                let categories = self
+                    .library
+                    .borrow()
+                    .doc_categories(doc.id)
+                    .unwrap_or_default();
+                let row = self.make_doc_row(
+                    &doc,
+                    &tags,
+                    &categories,
+                    project_reorder,
+                    mode.clone(),
+                    &cat_colors,
+                );
                 if i == 0 {
                     row.add_css_class("fond-card-first");
                 }
@@ -1014,6 +1043,7 @@ impl LibraryWindow {
         &self,
         doc: &crate::library::Document,
         tags: &[crate::library::Tag],
+        categories: &[crate::library::Category],
         project_reorder: Option<i64>,
         mode: ViewMode,
         cat_colors: &HashMap<String, String>,
@@ -1043,11 +1073,11 @@ impl LibraryWindow {
             hbox.append(&pin);
         }
 
-        let cue_color = doc.category.as_ref().map(|cat| {
+        let cue_color = categories.first().map(|cat| {
             cat_colors
-                .get(cat)
+                .get(&cat.name)
                 .map(|s| s.to_string())
-                .unwrap_or_else(|| stable_palette_color(cat).to_string())
+                .unwrap_or_else(|| stable_palette_color(&cat.name).to_string())
         });
         hbox.append(&crate::ui::styles::fond_cue(cue_color.as_deref()));
 
@@ -1057,10 +1087,38 @@ impl LibraryWindow {
         title.set_ellipsize(gtk4::pango::EllipsizeMode::End);
         hbox.append(&title);
 
-        if let Some(cat) = &doc.category {
-            let cat_lbl = Label::new(Some(cat));
+        for cat in categories {
+            let cat_lbl = Label::new(Some(&cat.name));
             cat_lbl.add_css_class("fond-row-detail");
+            cat_lbl.set_tooltip_text(Some(&format!("Show only {}", cat.name)));
             hbox.append(&cat_lbl);
+            let cat_click = gtk4::GestureClick::new();
+            cat_click.set_button(1);
+            let this_cat = self.clone();
+            let cat_name = cat.name.clone();
+            let cat_lbl_ref = cat_lbl.clone();
+            cat_click.connect_pressed(move |g, _, _, _| {
+                g.set_state(gtk4::EventSequenceState::Claimed);
+                cat_lbl_ref.add_css_class("chip-active");
+                let lbl_weak = cat_lbl_ref.downgrade();
+                glib::timeout_add_local_once(std::time::Duration::from_millis(200), move || {
+                    if let Some(l) = lbl_weak.upgrade() {
+                        l.remove_css_class("chip-active");
+                    }
+                });
+                *this_cat.current_filter.borrow_mut() = LibraryFilter::Category(cat_name.clone());
+                this_cat.populate_doc_list();
+                let row_name = format!("category:{}", cat_name);
+                let mut i = 0;
+                while let Some(row) = this_cat.filter_list.row_at_index(i) {
+                    if row.widget_name().as_str() == row_name {
+                        this_cat.filter_list.select_row(Some(&row));
+                        return;
+                    }
+                    i += 1;
+                }
+            });
+            cat_lbl.add_controller(cat_click);
         }
         for tag in tags.iter().take(4) {
             let chip = Label::new(Some(&tag.name));
@@ -1320,14 +1378,14 @@ impl LibraryWindow {
         }
         vbox.append(&rename_b);
 
-        let cat_b = mk("Set Category…");
+        let cat_b = mk("Edit Categories…");
         {
             let this = self.clone();
-            let doc = doc.clone();
+            let id = doc.id;
             let pop = popover.clone();
             cat_b.connect_clicked(move |_| {
                 pop.popdown();
-                this.set_category_dialog(&doc);
+                this.edit_categories_dialog(id);
             });
         }
         vbox.append(&cat_b);
@@ -1672,6 +1730,17 @@ impl LibraryWindow {
             });
         }
         vbox.append(&rename_b);
+        let recolor_b = mk("Recolor…");
+        {
+            let this = self.clone();
+            let pop = popover.clone();
+            let cname = cat_name.to_string();
+            recolor_b.connect_clicked(move |_| {
+                pop.popdown();
+                this.recolor_category_dialog(&cname);
+            });
+        }
+        vbox.append(&recolor_b);
         let delete_b = mk("Delete Category");
         delete_b.add_css_class("error");
         if has_children {
@@ -1727,6 +1796,47 @@ impl LibraryWindow {
                     *this.current_filter.borrow_mut() = LibraryFilter::All;
                     this.refresh();
                 }
+            }
+        });
+        dlg.present();
+    }
+
+    fn recolor_category_dialog(&self, name: &str) {
+        let dlg = adw::MessageDialog::new(Some(&self.window), Some("Recolor Category"), None);
+        dlg.add_response("cancel", "Cancel");
+        dlg.add_response("ok", "Set");
+        dlg.set_response_appearance("ok", adw::ResponseAppearance::Suggested);
+        dlg.set_default_response(Some("ok"));
+        dlg.set_close_response("cancel");
+
+        let color_row = GtkBox::new(Orientation::Horizontal, 4);
+        let initial_color = self
+            .library
+            .borrow()
+            .get_category_color(name)
+            .unwrap_or_else(|| stable_palette_color(name).to_string());
+        let selected_color: Rc<RefCell<String>> = Rc::new(RefCell::new(initial_color));
+        for color in TAG_COLORS {
+            let btn = Button::new();
+            btn.set_size_request(20, 20);
+            apply_color_css(&btn, color);
+            let sel = selected_color.clone();
+            let c = color.to_string();
+            btn.connect_clicked(move |_| *sel.borrow_mut() = c.clone());
+            color_row.append(&btn);
+        }
+        dlg.set_extra_child(Some(&color_row));
+
+        let this = self.clone();
+        let name = name.to_string();
+        dlg.connect_response(None, move |_, resp| {
+            if resp == "ok" {
+                let color = selected_color.borrow().clone();
+                this.library
+                    .borrow_mut()
+                    .set_category_color(&name, &color)
+                    .ok();
+                this.refresh();
             }
         });
         dlg.present();
@@ -1841,9 +1951,11 @@ impl LibraryWindow {
         dlg.set_default_response(Some("ok"));
         dlg.set_close_response("cancel");
 
+        let container = GtkBox::new(Orientation::Vertical, 6);
+        container.set_width_request(300);
+
         let scroll = ScrolledWindow::new();
         scroll.set_min_content_height(160);
-        scroll.set_width_request(300);
         let listbox = ListBox::new();
         listbox.add_css_class("boxed-list");
         listbox.set_selection_mode(gtk4::SelectionMode::None);
@@ -1858,7 +1970,66 @@ impl LibraryWindow {
             checks.borrow_mut().push((tag.id, check));
         }
         scroll.set_child(Some(&listbox));
-        dlg.set_extra_child(Some(&scroll));
+        container.append(&scroll);
+
+        // Inline new-tag row — mirrors edit_tags_dialog's, so creating a tag
+        // that doesn't exist yet doesn't require detouring through Manage Tags.
+        let new_tag_box = GtkBox::new(Orientation::Horizontal, 4);
+        new_tag_box.set_margin_top(4);
+        let new_tag_entry = Entry::new();
+        new_tag_entry.set_placeholder_text(Some("New tag…"));
+        new_tag_entry.set_hexpand(true);
+        new_tag_entry.set_activates_default(false);
+        new_tag_box.append(&new_tag_entry);
+
+        let new_color: Rc<RefCell<String>> = Rc::new(RefCell::new(TAG_COLORS[0].to_string()));
+        for color in TAG_COLORS {
+            let btn = Button::new();
+            btn.set_size_request(20, 20);
+            apply_color_css(&btn, color);
+            let sel = new_color.clone();
+            let c = color.to_string();
+            btn.connect_clicked(move |_| *sel.borrow_mut() = c.clone());
+            new_tag_box.append(&btn);
+        }
+
+        let add_tag_btn = Button::with_label("+");
+        add_tag_btn.add_css_class("suggested-action");
+        new_tag_box.append(&add_tag_btn);
+        container.append(&new_tag_box);
+        dlg.set_extra_child(Some(&container));
+
+        {
+            let this = self.clone();
+            let entry = new_tag_entry.clone();
+            let color = new_color.clone();
+            let listbox_c = listbox.clone();
+            let checks_c = checks.clone();
+            let add_tag_btn_c = add_tag_btn.clone();
+            add_tag_btn.connect_clicked(move |_| {
+                let name = entry.text().to_string();
+                let name = name.trim().to_string();
+                if name.is_empty() {
+                    return;
+                }
+                let color_val = color.borrow().clone();
+                let result = this.library.borrow_mut().create_tag(&name, &color_val);
+                if let Ok(new_id) = result {
+                    let check = CheckButton::with_label(&name);
+                    check.set_active(true);
+                    let r = ListBoxRow::new();
+                    r.set_selectable(false);
+                    r.set_child(Some(&check));
+                    listbox_c.append(&r);
+                    checks_c.borrow_mut().push((new_id, check));
+                    entry.set_text("");
+                    this.populate_filter_list();
+                }
+            });
+            new_tag_entry.connect_activate(move |_| {
+                add_tag_btn_c.emit_clicked();
+            });
+        }
 
         let this = self.clone();
         dlg.connect_response(None, move |_, resp| {
@@ -1961,88 +2132,219 @@ impl LibraryWindow {
         dlg.present();
     }
 
-    fn set_category_dialog(&self, doc: &crate::library::Document) {
-        let cats = self.library.borrow().all_categories().unwrap_or_default();
-        let body = if cats.is_empty() {
-            None
-        } else {
-            Some(format!("Existing: {}", cats.join(", ")))
-        };
-        let dlg =
-            adw::MessageDialog::new(Some(&self.window), Some("Set Category"), body.as_deref());
-        dlg.add_response("clear", "Clear");
-        dlg.add_response("cancel", "Cancel");
-        dlg.add_response("ok", "Set");
-        dlg.set_response_appearance("ok", adw::ResponseAppearance::Suggested);
-        dlg.set_default_response(Some("ok"));
-        dlg.set_close_response("cancel");
-        let container = GtkBox::new(Orientation::Vertical, 8);
-        container.set_width_request(280);
-        let entry = Entry::new();
-        entry.set_placeholder_text(Some("Category name"));
-        if let Some(cat) = &doc.category {
-            entry.set_text(cat);
-        }
-        container.append(&entry);
+    /// Builds the shared part of the category-checkbox dialogs (single-doc
+    /// edit and bulk categorize): a scrollable checklist grouped by parent
+    /// (indented children under their parent, standalone categories after),
+    /// plus an inline "New category…" row with color swatches and a "+"
+    /// button that creates a top-level category and checks it. Mirrors
+    /// `edit_tags_dialog`'s inline-create block, adapted for categories'
+    /// tree structure and optional (rather than always-set) color.
+    fn build_category_checklist(
+        &self,
+        all_cats: &[crate::library::Category],
+        checked: &std::collections::HashSet<String>,
+    ) -> (GtkBox, Rc<RefCell<Vec<(String, CheckButton)>>>) {
+        let container = GtkBox::new(Orientation::Vertical, 6);
+        container.set_width_request(300);
 
-        let color_row = GtkBox::new(Orientation::Horizontal, 4);
-        let initial_color = doc
-            .category
-            .as_ref()
-            .and_then(|c| {
-                self.library
-                    .borrow()
-                    .get_category_color(c)
-                    .or_else(|| Some(stable_palette_color(c).to_string()))
-            })
-            .unwrap_or_else(|| TAG_COLORS[0].to_string());
-        let selected_color: Rc<RefCell<String>> = Rc::new(RefCell::new(initial_color));
-        // Only persisted if the user actually clicks a swatch. Saving the
-        // pre-filled colour regardless would pin every category to whatever it
-        // happened to be showing, which is what made the palette fallback
-        // pointless in the first place.
+        let scroll = ScrolledWindow::new();
+        scroll.set_min_content_height(160);
+        let listbox = ListBox::new();
+        listbox.add_css_class("boxed-list");
+        listbox.set_selection_mode(gtk4::SelectionMode::None);
+
+        let checks: Rc<RefCell<Vec<(String, CheckButton)>>> = Rc::new(RefCell::new(Vec::new()));
+        let parent_names: std::collections::HashSet<String> =
+            all_cats.iter().filter_map(|c| c.parent.clone()).collect();
+        let add_row = |listbox: &ListBox,
+                       checks: &Rc<RefCell<Vec<(String, CheckButton)>>>,
+                       name: &str,
+                       label: &str,
+                       active: bool| {
+            let check = CheckButton::with_label(label);
+            check.set_active(active);
+            let r = ListBoxRow::new();
+            r.set_selectable(false);
+            r.set_child(Some(&check));
+            listbox.append(&r);
+            checks.borrow_mut().push((name.to_string(), check));
+        };
+        for cat in all_cats.iter().filter(|c| c.parent.is_none()) {
+            add_row(
+                &listbox,
+                &checks,
+                &cat.name,
+                &cat.name,
+                checked.contains(&cat.name),
+            );
+            if parent_names.contains(&cat.name) {
+                for child in all_cats
+                    .iter()
+                    .filter(|c| c.parent.as_deref() == Some(cat.name.as_str()))
+                {
+                    add_row(
+                        &listbox,
+                        &checks,
+                        &child.name,
+                        &format!("    {}", child.name),
+                        checked.contains(&child.name),
+                    );
+                }
+            }
+        }
+        scroll.set_child(Some(&listbox));
+        container.append(&scroll);
+
+        let new_cat_box = GtkBox::new(Orientation::Horizontal, 4);
+        new_cat_box.set_margin_top(4);
+        let new_cat_entry = Entry::new();
+        new_cat_entry.set_placeholder_text(Some("New category…"));
+        new_cat_entry.set_hexpand(true);
+        new_cat_box.append(&new_cat_entry);
+
+        let new_color: Rc<RefCell<String>> = Rc::new(RefCell::new(TAG_COLORS[0].to_string()));
+        // Only applied if the user actually clicks a swatch — matches the
+        // old single-category dialog's care about not force-coloring every
+        // new category with whatever the first swatch happens to be.
         let color_picked = Rc::new(std::cell::Cell::new(false));
         for color in TAG_COLORS {
             let btn = Button::new();
             btn.set_size_request(20, 20);
             apply_color_css(&btn, color);
-            let sel = selected_color.clone();
+            let sel = new_color.clone();
             let picked = color_picked.clone();
             let c = color.to_string();
             btn.connect_clicked(move |_| {
                 *sel.borrow_mut() = c.clone();
                 picked.set(true);
             });
-            color_row.append(&btn);
+            new_cat_box.append(&btn);
         }
-        container.append(&color_row);
+
+        let add_cat_btn = Button::with_label("+");
+        add_cat_btn.add_css_class("suggested-action");
+        new_cat_box.append(&add_cat_btn);
+        container.append(&new_cat_box);
+
+        {
+            let this = self.clone();
+            let entry = new_cat_entry.clone();
+            let color = new_color.clone();
+            let listbox_c = listbox.clone();
+            let checks_c = checks.clone();
+            let add_cat_btn_c = add_cat_btn.clone();
+            add_cat_btn.connect_clicked(move |_| {
+                let name = entry.text().to_string();
+                let name = name.trim().to_string();
+                if name.is_empty() {
+                    return;
+                }
+                this.library.borrow_mut().create_category(&name, None).ok();
+                if color_picked.get() {
+                    let color_val = color.borrow().clone();
+                    this.library
+                        .borrow_mut()
+                        .set_category_color(&name, &color_val)
+                        .ok();
+                }
+                let check = CheckButton::with_label(&name);
+                check.set_active(true);
+                let r = ListBoxRow::new();
+                r.set_selectable(false);
+                r.set_child(Some(&check));
+                listbox_c.append(&r);
+                checks_c.borrow_mut().push((name, check));
+                entry.set_text("");
+                this.populate_filter_list();
+            });
+            new_cat_entry.connect_activate(move |_| {
+                add_cat_btn_c.emit_clicked();
+            });
+        }
+
+        (container, checks)
+    }
+
+    fn edit_categories_dialog(&self, doc_id: i64) {
+        let all_cats = self
+            .library
+            .borrow()
+            .all_categories_structured()
+            .unwrap_or_default();
+        let current: std::collections::HashSet<String> = self
+            .library
+            .borrow()
+            .doc_categories(doc_id)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|c| c.name)
+            .collect();
+
+        let dlg = adw::MessageDialog::new(Some(&self.window), Some("Edit Categories"), None);
+        dlg.add_response("cancel", "Cancel");
+        dlg.add_response("ok", "Save");
+        dlg.set_response_appearance("ok", adw::ResponseAppearance::Suggested);
+        dlg.set_default_response(Some("ok"));
+        dlg.set_close_response("cancel");
+
+        let (container, checks) = self.build_category_checklist(&all_cats, &current);
         dlg.set_extra_child(Some(&container));
 
         let this = self.clone();
-        let id = doc.id;
-        let entry_c = entry.clone();
-        let color_sel = selected_color.clone();
-        let color_picked_c = color_picked.clone();
-        dlg.connect_response(None, move |_, resp| match resp {
-            "ok" => {
-                let cat = entry_c.text().to_string();
-                let cat = cat.trim();
-                let value = if cat.is_empty() { None } else { Some(cat) };
-                this.library.borrow_mut().set_category(id, value).ok();
-                if let (Some(name), true) = (value, color_picked_c.get()) {
-                    let color = color_sel.borrow().clone();
+        dlg.connect_response(None, move |_, resp| {
+            if resp == "ok" {
+                let selected: Vec<String> = checks
+                    .borrow()
+                    .iter()
+                    .filter(|(_, c)| c.is_active())
+                    .map(|(name, _)| name.clone())
+                    .collect();
+                this.library
+                    .borrow_mut()
+                    .set_doc_categories(doc_id, &selected)
+                    .ok();
+                this.populate_doc_list();
+            }
+        });
+        dlg.present();
+    }
+
+    fn bulk_category_dialog(&self, doc_ids: Vec<i64>) {
+        let all_cats = self
+            .library
+            .borrow()
+            .all_categories_structured()
+            .unwrap_or_default();
+        let dlg = adw::MessageDialog::new(Some(&self.window), Some("Categorize Documents"), None);
+        dlg.add_response("cancel", "Cancel");
+        dlg.add_response("ok", "Apply");
+        dlg.set_response_appearance("ok", adw::ResponseAppearance::Suggested);
+        dlg.set_default_response(Some("ok"));
+        dlg.set_close_response("cancel");
+
+        let (container, checks) =
+            self.build_category_checklist(&all_cats, &std::collections::HashSet::new());
+        dlg.set_extra_child(Some(&container));
+
+        let this = self.clone();
+        dlg.connect_response(None, move |_, resp| {
+            if resp == "ok" {
+                let selected: Vec<String> = checks
+                    .borrow()
+                    .iter()
+                    .filter(|(_, c)| c.is_active())
+                    .map(|(name, _)| name.clone())
+                    .collect();
+                for doc_id in &doc_ids {
                     this.library
                         .borrow_mut()
-                        .set_category_color(name, &color)
+                        .add_doc_categories(*doc_id, &selected)
                         .ok();
                 }
+                this.selection.borrow_mut().clear();
+                this.update_action_bar();
                 this.refresh();
             }
-            "clear" => {
-                this.library.borrow_mut().set_category(id, None).ok();
-                this.refresh();
-            }
-            _ => {}
         });
         dlg.present();
     }
