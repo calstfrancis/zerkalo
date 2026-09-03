@@ -69,10 +69,10 @@ raw markup dead-end: a live preview pane always shows the real formatting next t
 | Feature | Detail |
 |---|---|
 | **SQLite-backed library** | Every `.typ` document Zerkalo knows about, with search, sort, and filter |
-| **Organisation** | Projects, coloured categories, and frequency-heat-coloured tags; sidebar filters for All Documents, Projects, Categories, Tags, Trash, and Archive |
+| **Organisation** | Projects, coloured categories (a document can belong to more than one, including several under the same parent), and frequency-heat-coloured tags; sidebar filters for All Documents, Projects, Categories, Tags, Trash, and Archive |
 | **Views** | Card view with prose word count; compact single-line view for dense lists |
 | **Document management** | Pin, archive, trash (soft delete with restore), and remove from the library (delists without touching the file on disk) — each confirmed before it happens |
-| **Bulk operations** | Multi-select for archive, tag, add-to-project, and remove |
+| **Bulk operations** | Multi-select for archive, tag, categorize, add-to-project, and remove |
 | **Import** | New Document and Import… are both reachable directly from the Library header |
 | **Auto-registration** | Any `.typ` file opened in the editor is added automatically |
 
