@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.29.1] "True Course" — 2026-09-04 — Kartoteka vault dependency refresh
+
+### Changed
+
+- **Bumped the pinned `fond-bib`/`fond-vault` dependency** (Kartoteka's shared bibliography model and vault file-watcher, used for the "point the bibliography at a Kartoteka vault folder" live-source feature) from `v0.7.0` to `v0.9.0`, matching Kartoteka's current release. Checked the diff between the two tags directly: the only change touching those two crates is Bookshelf-view cover-image caching (`fetch_isbn_cover`/`store_cover`), which Zerkalo's citation autocomplete doesn't use — so this is dependency hygiene, not a functional change. No user-visible behavior differs from 0.29.0.
+
+---
+
 ## [0.29.0] "Open Ledger" — 2026-09-03 — Documents can belong to multiple categories
 
 ### Added

@@ -7,7 +7,7 @@ use gtk4::{Align, Box as GtkBox, Button, Label, Orientation, ScrolledWindow, Sep
 use libadwaita as adw;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const RELEASE_NAME: &str = "Open Ledger";
+pub const RELEASE_NAME: &str = "True Course";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -143,10 +143,7 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             body.append(&bullet_row(
-                "A document can now belong to more than one category, including two sibling categories under the same parent. Edit Categories… (right-click a document) is now a checkbox list with inline creation; a new bulk Categorize… action assigns categories to several selected documents at once; dragging onto a sidebar category now adds to a document's categories instead of replacing them; and document rows show a chip per category.",
-            ));
-            body.append(&bullet_row(
-                "The bulk \"Tag Documents…\" dialog can now create a new tag inline, matching the single-document Edit Tags… dialog.",
+                "Refreshed the pinned Kartoteka dependency (fond-bib/fond-vault v0.7.0 → v0.9.0) to match Kartoteka's current release. Dependency hygiene only — nothing user-visible changes.",
             ));
         }
 
