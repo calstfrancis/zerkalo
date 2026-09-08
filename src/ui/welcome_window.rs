@@ -7,7 +7,7 @@ use gtk4::{Align, Box as GtkBox, Button, Label, Orientation, ScrolledWindow, Sep
 use libadwaita as adw;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const RELEASE_NAME: &str = "True Course";
+pub const RELEASE_NAME: &str = "Quiet Guard";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -143,7 +143,10 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             body.append(&bullet_row(
-                "Refreshed the pinned Kartoteka dependency (fond-bib/fond-vault v0.7.0 → v0.9.0) to match Kartoteka's current release. Dependency hygiene only — nothing user-visible changes.",
+                "Sync, Export, and Print now stop and tell you if a document fails to save, instead of silently proceeding with the old content.",
+            ));
+            body.append(&bullet_row(
+                "Hardened how the GitHub sync token is passed to git so it can't be recovered from the process list by another local user.",
             ));
         }
 

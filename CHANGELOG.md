@@ -5,6 +5,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.29.2] "Quiet Guard" — 2026-09-08 — Auth hardening, silent-save-failure fixes, dependency audit
+
+### Security
+
+- **The GitHub sync token is no longer recoverable from the process list.** It was passed to `git` as a base64-encoded `-c http.extraHeader=...` argument — base64 is trivially reversible, and command-line arguments are visible to any local user on this system for the life of the process (`/proc/<pid>/cmdline` is world-readable here, and that's not guaranteed to be blocked elsewhere either). It's now passed via `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_0`/`GIT_CONFIG_VALUE_0` environment variables instead, which land in `/proc/<pid>/environ` — owner-only regardless of `hidepid`.
+
+### Fixed
+
+- **Sync, PDF export (Ctrl+Shift+E), and Print now refuse to run on a save failure instead of silently proceeding with stale content.** All three flush unsaved tabs to disk first, but previously discarded the result — if a tab failed to save (full disk, permissions, a killed flatpak), sync would commit/push the old file, export would produce a PDF from stale content, and print would print stale content, none of it visibly different from success. They now show a toast naming the files that failed to save and stop.
+- Fixed two mutex-poisoning panic cascades: a panic anywhere while holding the compile-stats or spellcheck-dictionary lock used to turn every subsequent call into a second panic for the life of the process. Both now recover from a poisoned lock instead.
+
+### Changed
+
+- Bumped `git2` 0.20 → 0.21, resolving two RUSTSEC unsound-code advisories (`Remote::list()` and buffer-created `BlameHunk` signatures). Zerkalo's own dependency is fixed; a transitive copy at 0.20.4 still comes in via Kartoteka's `fond-vault` pending an upstream bump there.
+- The active UI locale is now read from `LC_ALL`/`LC_MESSAGES`/`LANG`/`LANGUAGE` (POSIX precedence order) instead of a hardcoded `en` constant. No user-visible effect yet — only `settings_dialog.rs` has been migrated to the lookup table so far, and no non-English locale exists yet — but the infrastructure now does what its own documentation already claimed.
+- Full audit of every `#[allow(dead_code)]` suppression in the codebase (45 sites): 12 stale ones removed (the code was actually in use), 9 genuinely-unused functions deleted, and 24 kept with a specific documented reason. Several of those turned out to be complete, working features with no caller anywhere rather than ordinary leftovers — worth a look before the next round of UI work: `FileTree`'s sidebar widget is built and fully wired but never attached to any container, so it's invisible; `PreviewPane`'s external-file-change watch mode has no caller; `OutlinePanel`'s outline/symbols mode toggle has no caller; and the Settings "recent projects" list is displayed but never populated.
+
+---
+
 ## [0.29.1] "True Course" — 2026-09-04 — Kartoteka vault dependency refresh
 
 ### Changed

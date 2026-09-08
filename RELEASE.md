@@ -1,4 +1,4 @@
-# Zerkalo v0.29.1 "True Course"
+# Zerkalo v0.29.2 "Quiet Guard"
 
 Install via Flatpak:
 
@@ -18,7 +18,13 @@ flatpak update io.github.calstfrancis.Zerkalo
 
 ### What's new
 
-**Dependency hygiene only.** The pinned Kartoteka `fond-bib`/`fond-vault` dependency (used by the "point the bibliography at a Kartoteka vault folder" live-source feature) is bumped from v0.7.0 to v0.9.0, matching Kartoteka's current release. Checked the diff between the two tags directly: the only change touching those two crates is Bookshelf-view cover-image caching, which Zerkalo's citation autocomplete doesn't use. Nothing user-visible changes in this release.
+A hardening and cleanup release, prompted by a deep codebase review — nothing broken before, but a few things quietly stronger now.
+
+**GitHub sync is more careful with your token.** It's now passed to git via environment variables instead of a command-line argument, so it can't be recovered from the process list by another user on the same machine.
+
+**Sync, PDF export, and Print now stop and tell you if a save fails**, instead of silently proceeding with the old content on disk. Previously, if a document failed to save — a full disk, a permissions problem — those three actions would quietly commit, export, or print the stale version with no visible difference from success.
+
+Also: two dependency security advisories resolved, two mutex-poisoning bugs fixed (a panic in one spot could previously cascade into repeated panics elsewhere), and a full audit of every suppressed dead-code warning in the codebase — some genuinely unused code removed, and a few complete-but-unwired features flagged for a future decision rather than silently deleted.
 
 ---
 

@@ -80,6 +80,16 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.29.2" date="2026-09-08">
+      <description>
+        <p>0.29.2 "Quiet Guard" — hardens how the GitHub sync token is
+        passed to git so it can't be recovered from the process list,
+        fixes Sync/Export/Print silently proceeding on a save failure
+        instead of stopping and telling you, resolves two dependency
+        security advisories, and cleans up dead code across the
+        codebase.</p>
+      </description>
+    </release>
     <release version="0.29.1" date="2026-09-04">
       <description>
         <p>0.29.1 "True Course" — refreshes the pinned Kartoteka
