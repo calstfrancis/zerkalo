@@ -53,10 +53,7 @@ pub fn load() -> CompileStats {
     // holding this lock shouldn't turn every subsequent stats read/write
     // into a second panic for the life of the process. Stats are
     // best-effort telemetry, not data whose consistency matters that much.
-    cache()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone()
+    cache().lock().unwrap_or_else(|e| e.into_inner()).clone()
 }
 
 pub fn record(ms: u64) {

@@ -1909,6 +1909,19 @@
     {
         "type": "archive",
         "archive-type": "tar-gzip",
+        "url": "https://static.crates.io/crates/git2/git2-0.21.0.crate",
+        "sha256": "ddddbf932745a6be37109b6112d3ee09696106f848449069d3a57bba937ab82e",
+        "dest": "cargo/vendor/git2-0.21.0"
+    },
+    {
+        "type": "inline",
+        "contents": "{\"package\": \"ddddbf932745a6be37109b6112d3ee09696106f848449069d3a57bba937ab82e\", \"files\": {}}",
+        "dest": "cargo/vendor/git2-0.21.0",
+        "dest-filename": ".cargo-checksum.json"
+    },
+    {
+        "type": "archive",
+        "archive-type": "tar-gzip",
         "url": "https://static.crates.io/crates/glib/glib-0.22.8.crate",
         "sha256": "ddbcf514bd1881fc1b960e4e52b4e82873f4da3bceddbd58d42827b508888100",
         "dest": "cargo/vendor/glib-0.22.8"
@@ -3100,19 +3113,6 @@
         "type": "inline",
         "contents": "{\"package\": \"f1d20bef17f513b9b3004532233187769cd072d790971f4e4da0e346eb6401e8\", \"files\": {}}",
         "dest": "cargo/vendor/libsqlite3-sys-0.38.2",
-        "dest-filename": ".cargo-checksum.json"
-    },
-    {
-        "type": "archive",
-        "archive-type": "tar-gzip",
-        "url": "https://static.crates.io/crates/libssh2-sys/libssh2-sys-0.3.1.crate",
-        "sha256": "220e4f05ad4a218192533b300327f5150e809b54c4ec83b5a1d91833601811b9",
-        "dest": "cargo/vendor/libssh2-sys-0.3.1"
-    },
-    {
-        "type": "inline",
-        "contents": "{\"package\": \"220e4f05ad4a218192533b300327f5150e809b54c4ec83b5a1d91833601811b9\", \"files\": {}}",
-        "dest": "cargo/vendor/libssh2-sys-0.3.1",
         "dest-filename": ".cargo-checksum.json"
     },
     {

@@ -2813,10 +2813,15 @@ impl AppWindow {
                     if !failed.is_empty() {
                         let names = failed
                             .iter()
-                            .map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default())
+                            .map(|p| {
+                                p.file_name()
+                                    .map(|n| n.to_string_lossy().into_owned())
+                                    .unwrap_or_default()
+                            })
                             .collect::<Vec<_>>()
                             .join(", ");
-                        let t = adw::Toast::new(&format!("Export stopped — couldn't save: {names}"));
+                        let t =
+                            adw::Toast::new(&format!("Export stopped — couldn't save: {names}"));
                         t.set_timeout(6);
                         toast_for_key.add_toast(t);
                         return glib::Propagation::Stop;
@@ -4130,7 +4135,11 @@ fn print_from_preview(
     if !failed.is_empty() {
         let names = failed
             .iter()
-            .map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default())
+            .map(|p| {
+                p.file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default()
+            })
             .collect::<Vec<_>>()
             .join(", ");
         let t = adw::Toast::new(&format!("Print stopped — couldn't save: {names}"));

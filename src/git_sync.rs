@@ -587,7 +587,9 @@ mod tests {
 
         let envs: std::collections::HashMap<_, _> = cmd.get_envs().collect();
         assert_eq!(
-            envs.get(std::ffi::OsStr::new("GIT_CONFIG_KEY_0")).copied().flatten(),
+            envs.get(std::ffi::OsStr::new("GIT_CONFIG_KEY_0"))
+                .copied()
+                .flatten(),
             Some(std::ffi::OsStr::new("http.https://github.com/.extraHeader"))
         );
         let value = envs
@@ -606,7 +608,10 @@ mod tests {
         // The token must never appear in argv at all — env vars, unlike
         // arguments, aren't visible via /proc/<pid>/cmdline.
         let args: Vec<_> = cmd.get_args().collect();
-        assert!(args.is_empty(), "token must not be passed as an argument: {args:?}");
+        assert!(
+            args.is_empty(),
+            "token must not be passed as an argument: {args:?}"
+        );
     }
 
     #[test]

@@ -824,7 +824,11 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
         if !failed.is_empty() {
             let names = failed
                 .iter()
-                .map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default())
+                .map(|p| {
+                    p.file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_default()
+                })
                 .collect::<Vec<_>>()
                 .join(", ");
             let t = adw::Toast::new(&format!("Sync stopped — couldn't save: {names}"));
