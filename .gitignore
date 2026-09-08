@@ -40,6 +40,8 @@ Reference Documents/
 
 # Plans / future work (local only)
 future-plans.md
+zerk-polish.md
+docs/archive/
 
 # Zerkalo user data (never commit these)
 *.todo
