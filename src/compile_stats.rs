@@ -12,6 +12,9 @@ pub struct CompileStats {
 }
 
 impl CompileStats {
+    // Read side of the compile-stats module: `record()` is called on every compile and persists
+    // to disk, but nothing displays the aggregated stats yet (no stats UI exists). Kept as the
+    // natural read API for whenever that lands, rather than collecting data nothing can read.
     #[allow(dead_code)]
     pub fn average_ms(&self) -> f64 {
         if self.total_compiles == 0 {
@@ -43,13 +46,21 @@ fn load_from_disk() -> CompileStats {
     CompileStats::default()
 }
 
+// See `average_ms`'s comment above — same "write path exists, read path doesn't yet" state.
 #[allow(dead_code)]
 pub fn load() -> CompileStats {
-    cache().lock().unwrap().clone()
+    // Recover from poisoning rather than panic — a panic elsewhere while
+    // holding this lock shouldn't turn every subsequent stats read/write
+    // into a second panic for the life of the process. Stats are
+    // best-effort telemetry, not data whose consistency matters that much.
+    cache()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
 }
 
 pub fn record(ms: u64) {
-    let mut stats = cache().lock().unwrap();
+    let mut stats = cache().lock().unwrap_or_else(|e| e.into_inner());
     stats.total_compiles += 1;
     stats.total_ms += ms;
     stats.last_ms = ms;

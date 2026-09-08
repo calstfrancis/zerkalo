@@ -244,7 +244,6 @@ impl RefManager {
         panel
     }
 
-    #[allow(dead_code)]
     pub fn widget(&self) -> &GtkBox {
         &self.widget
     }
@@ -275,12 +274,6 @@ impl RefManager {
         *self.bib_path.borrow_mut() = Some(path.to_path_buf());
         let entries = crate::bibliography::load_bib(path);
         *self.entries.borrow_mut() = entries;
-        self.rebuild_list("");
-    }
-
-    #[allow(dead_code)]
-    pub fn clear_entries(&self) {
-        self.entries.borrow_mut().clear();
         self.rebuild_list("");
     }
 

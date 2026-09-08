@@ -1213,6 +1213,10 @@ impl Library {
         Ok(())
     }
 
+    // CRUD symmetry for the multi-project-membership feature (v0.29.0, "Documents can belong to
+    // multiple categories") — `add_doc_to_project`/`set_project_root`/`project_root_path` are
+    // live; these three (remove/lookup-by-path/reverse-lookup) aren't wired to any UI action yet.
+    // Recent, active feature area — kept rather than deleted.
     #[allow(dead_code)]
     pub fn remove_doc_from_project(&mut self, project_id: i64, doc_id: i64) -> SqlResult<()> {
         self.conn.execute(
@@ -1244,6 +1248,7 @@ impl Library {
         Ok(res.map(PathBuf::from))
     }
 
+    // See `remove_doc_from_project`'s comment above.
     #[allow(dead_code)]
     pub fn doc_by_path(&self, path: &Path) -> SqlResult<Option<Document>> {
         let path_str = path.to_string_lossy().to_string();
@@ -1260,6 +1265,7 @@ impl Library {
             .optional()
     }
 
+    // See `remove_doc_from_project`'s comment above.
     #[allow(dead_code)]
     pub fn project_of_doc(&self, doc_id: i64) -> SqlResult<Option<(i64, String)>> {
         self.conn

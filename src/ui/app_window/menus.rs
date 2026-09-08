@@ -820,7 +820,18 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
     let config_for_sync = ctx.current_config.clone();
     let project_root_for_sync_fallback = ctx.project_root.clone();
     ctx.sync_btn.connect_clicked(move |_| {
-        editor_for_sync.save_all_modified();
+        let failed = editor_for_sync.save_all_modified();
+        if !failed.is_empty() {
+            let names = failed
+                .iter()
+                .map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let t = adw::Toast::new(&format!("Sync stopped — couldn't save: {names}"));
+            t.set_timeout(6);
+            toast_for_sync_closure.add_toast(t);
+            return;
+        }
         let root = editor_for_sync
             .get_active_path()
             .and_then(|p| p.parent().map(|d| d.to_path_buf()))

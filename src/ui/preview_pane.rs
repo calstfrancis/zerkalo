@@ -59,6 +59,9 @@ pub struct PreviewPane {
     on_click_jump: Rc<RefCell<Option<Box<dyn Fn(usize, f64)>>>>,
     on_word_click_jump: Rc<RefCell<Option<Box<dyn Fn(usize, f64, f64)>>>>,
     page_pixbufs: Rc<RefCell<Vec<Pixbuf>>>,
+    // Backs the watch-mode methods below (start_watch/stop_watch/is_watching) — see their
+    // comment for why this is kept despite no caller.
+    #[allow(dead_code)]
     watch_active: Rc<RefCell<bool>>,
     compile_gen: Rc<RefCell<u64>>,
     /// A Typst compile is running. Typst offers no way to abort one, so rather
@@ -547,7 +550,6 @@ impl PreviewPane {
         *self.draft_mode.borrow_mut() = draft;
     }
 
-    #[allow(dead_code)]
     pub fn is_draft_mode(&self) -> bool {
         *self.draft_mode.borrow()
     }
@@ -657,6 +659,10 @@ impl PreviewPane {
         *self.on_word_click_jump.borrow_mut() = Some(Box::new(f));
     }
 
+    // Part of the preview's polling-based external-change "watch mode" (start_watch/stop_watch/
+    // is_watching below) — a complete, working feature with no caller anywhere in the UI (no
+    // button/setting currently turns it on). Kept rather than deleted since it's coherent,
+    // tested-by-construction functionality, not a false start.
     #[allow(dead_code)]
     pub fn fire_jump_to_current_page(&self) {
         let page = self.current_page_idx();
@@ -712,6 +718,7 @@ impl PreviewPane {
 
     // ── Watch mode ────────────────────────────────────────────────────────────
 
+    // See `fire_jump_to_current_page`'s comment above.
     #[allow(dead_code)]
     pub fn start_watch(&self) {
         self.stop_watch();
@@ -749,11 +756,13 @@ impl PreviewPane {
         });
     }
 
+    // See `fire_jump_to_current_page`'s comment above.
     #[allow(dead_code)]
     pub fn stop_watch(&self) {
         *self.watch_active.borrow_mut() = false;
     }
 
+    // See `fire_jump_to_current_page`'s comment above.
     #[allow(dead_code)]
     pub fn is_watching(&self) -> bool {
         *self.watch_active.borrow()
@@ -974,11 +983,6 @@ impl PreviewPane {
         }
 
         self.fire_page_changed();
-    }
-
-    #[allow(dead_code)]
-    fn refit_drawing_area(&self) {
-        self.refit_drawing_area_centered(None);
     }
 
     fn refit_drawing_area_centered(&self, v_frac: Option<f64>) {

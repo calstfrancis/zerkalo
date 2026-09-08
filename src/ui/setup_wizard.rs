@@ -958,9 +958,16 @@ fn has_git_remote(work_dir: &Path) -> bool {
 fn get_git_remote(work_dir: &Path) -> Option<String> {
     let repo = git2::Repository::discover(work_dir).ok()?;
     let remotes = repo.remotes().ok()?;
-    let name = remotes.get(0)?;
+    // git2 0.21 changed `StringArray::get` from `Option<&str>` to
+    // `Result<Option<&str>, Error>` (a non-UTF-8 entry is now a real error
+    // rather than a silent None) — the outer `?` discards a lookup error,
+    // the inner one an out-of-range index, same as the old single `?` did.
+    let name = remotes.get(0).ok()??;
     let remote = repo.find_remote(name).ok()?;
-    remote.url().map(|s| s.to_string())
+    // git2 0.21 also changed `Remote::url` from `Option<&str>` (None on
+    // non-UTF-8) to `Result<&str, Error>` (an Err instead) — `.ok()` maps
+    // that back to the Option this function already returns.
+    remote.url().ok().map(|s| s.to_string())
 }
 
 fn set_git_remote(work_dir: &Path, url: &str) -> Result<(), String> {
@@ -1052,7 +1059,7 @@ mod tests {
         );
         let head_ref = repo.find_reference("HEAD").unwrap();
         assert_eq!(
-            head_ref.symbolic_target(),
+            head_ref.symbolic_target().unwrap(),
             Some("refs/heads/main"),
             "GitHub's default branch is main; starting on master creates a second branch on first push"
         );

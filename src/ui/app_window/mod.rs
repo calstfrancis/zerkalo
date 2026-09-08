@@ -72,8 +72,11 @@ pub struct AppWindow {
     window: adw::ApplicationWindow,
     editor_pane: EditorPane,
     preview_pane: PreviewPane,
-    #[allow(dead_code)]
     error_panel: ErrorPanel,
+    // Held on the window but never read back via `self.outline_panel` — every interaction with
+    // it happens through the `outline_panel` local variable captured directly into closures during
+    // construction. This struct copy looks redundant but wasn't independently verified safe to
+    // remove; left in place rather than risk it.
     #[allow(dead_code)]
     outline_panel: OutlinePanel,
     help_overlay: Rc<super::help_overlay::HelpOverlay>,
@@ -81,20 +84,24 @@ pub struct AppWindow {
     sync_btn: Button,
     sync_badge: Label,
     search_panel: super::search_panel::SearchPanel,
-    #[allow(dead_code)]
     toast_overlay: adw::ToastOverlay,
     file_tree: FileTree,
     writing_log: Rc<RefCell<WritingLog>>,
     file_start_words: FileStartWords,
     session_start: Rc<RefCell<std::time::Instant>>,
+    // Same situation as `outline_panel` above: an `Rc` clone already held by closures elsewhere,
+    // never read back via `self.compile_on_save`. Looks redundant, not independently verified safe
+    // to remove.
     #[allow(dead_code)]
     compile_on_save: Rc<RefCell<bool>>,
-    #[allow(dead_code)]
     manual_compile_only: Rc<RefCell<bool>>,
+    // Must stay alive for the life of the window or file-change notifications stop —
+    // `notify::RecommendedWatcher` stops watching when dropped. Never read via `self.file_watcher`
+    // because nothing needs to; it's held purely for this Drop-timing side effect, not because the
+    // value itself is used. This is the one field in this cluster that must not be deleted.
     #[allow(dead_code)]
     file_watcher: Option<notify::RecommendedWatcher>,
     compile_btn: Button,
-    #[allow(dead_code)]
     library: Rc<RefCell<Library>>,
     library_window: LibraryWindow,
     menu_import_item: Button,
@@ -2457,13 +2464,6 @@ impl AppWindow {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn show_toast(&self, msg: &str) {
-        let toast = adw::Toast::new(msg);
-        toast.set_timeout(3);
-        self.toast_overlay.add_toast(toast);
-    }
-
     pub fn setup_keybindings(&self) {
         Keybindings::write_default_if_missing();
         let kb = Keybindings::load();
@@ -2809,7 +2809,18 @@ impl AppWindow {
             {
                 use gtk4::gdk::Key;
                 if ctrl && shift && key == Key::e {
-                    editor.save_all_modified();
+                    let failed = editor.save_all_modified();
+                    if !failed.is_empty() {
+                        let names = failed
+                            .iter()
+                            .map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default())
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        let t = adw::Toast::new(&format!("Export stopped — couldn't save: {names}"));
+                        t.set_timeout(6);
+                        toast_for_key.add_toast(t);
+                        return glib::Propagation::Stop;
+                    }
                     // Same inputs the preview compiles with — assembling them
                     // by hand here is what left CV documents exporting blank.
                     if let Some((root_path, overrides, sys_inputs, bib_path)) =
@@ -4115,7 +4126,18 @@ fn print_from_preview(
     // carries the unsaved buffer contents, but only the preview's own snapshot —
     // so flush every other modified tab to disk first, the same way the
     // Ctrl+Shift+E export does.
-    editor.save_all_modified();
+    let failed = editor.save_all_modified();
+    if !failed.is_empty() {
+        let names = failed
+            .iter()
+            .map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let t = adw::Toast::new(&format!("Print stopped — couldn't save: {names}"));
+        t.set_timeout(6);
+        toast_overlay.add_toast(t);
+        return;
+    }
 
     let Some(request) = crate::ui::print_sheet::request_for(preview) else {
         toast_overlay.add_toast(adw::Toast::new("Nothing to print — no root file detected."));

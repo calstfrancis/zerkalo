@@ -12,7 +12,6 @@
 //! document shows progress and can be abandoned.
 
 use std::cell::RefCell;
-use std::path::PathBuf;
 use std::rc::Rc;
 
 use adw::prelude::*;
@@ -584,12 +583,6 @@ pub fn request_for(preview: &crate::ui::preview_pane::PreviewPane) -> Option<Pri
         bib_path,
         job_name,
     })
-}
-
-/// Path of the document a request refers to, for callers that want to log it.
-#[allow(dead_code)]
-pub fn request_root(request: &PrintRequest) -> PathBuf {
-    request.root.clone()
 }
 
 #[cfg(test)]

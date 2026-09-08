@@ -144,7 +144,6 @@ pub fn build_sidecar(t: &TemplateSettings) -> SidecarSettings {
 }
 
 /// Reconstructs a [`TemplateSettings`] from a saved [`SidecarSettings`].
-#[allow(dead_code)]
 pub fn sidecar_to_settings(sc: &SidecarSettings) -> TemplateSettings {
     // For CVs, prefer the dedicated `cv_style` field over aliasing through
     // CITATION_STYLES — falls back to the legacy alias lookup only for

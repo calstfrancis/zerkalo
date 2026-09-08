@@ -11,6 +11,8 @@ pub const CITE_KEY_CHARS: &str = "[A-Za-z][A-Za-z0-9_:-]*";
 #[derive(Clone, Debug, Default)]
 pub struct BibEntry {
     pub key: String,
+    // Parsed for completeness alongside every other BibEntry field but not yet surfaced in
+    // ref_manager's citation list UI (which only shows key/author/title/year today).
     #[allow(dead_code)]
     pub entry_type: String,
     pub author: String,

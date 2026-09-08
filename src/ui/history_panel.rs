@@ -162,6 +162,9 @@ impl HistoryPanel {
         }
     }
 
+    // No caller yet, but plausibly should be one: after a sync/commit lands, the history list
+    // for the currently-open file goes stale until the user reopens the panel. Kept as the
+    // obvious hook for that rather than deleted.
     #[allow(dead_code)]
     pub fn refresh(&self) {
         if let Some(path) = self.current_file.borrow().clone() {

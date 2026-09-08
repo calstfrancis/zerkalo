@@ -413,6 +413,11 @@ pub fn heading_items(content: &str, path: &Path) -> Vec<PaletteItem> {
         .collect()
 }
 
+// Builds palette rows from a file list but has no caller — the command palette currently
+// surfaces `default_commands()` and heading_items only, not recently-opened files, even though
+// `config.recent_files` (a separate, populated list — see the Ctrl+K palette's sibling "recent
+// files" popover in app_window/mod.rs) would be the natural input. Plausible small feature gap,
+// not abandoned code.
 #[allow(dead_code)]
 pub fn recent_file_items(files: &[PathBuf]) -> Vec<PaletteItem> {
     files

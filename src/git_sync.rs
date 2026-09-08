@@ -265,8 +265,9 @@ pub fn craft_message(changed: &[String]) -> String {
 /// Stage everything, commit with an auto-crafted message, pull from each remote
 /// (rebase), then push to every configured remote.
 ///
-/// `github_token` is injected into HTTPS GitHub remote URLs for authentication.
-/// `pushed` is true if at least one remote succeeded.
+/// `github_token` authenticates HTTPS GitHub remotes via a per-invocation
+/// `http.extraHeader` (see [`apply_github_auth`]), never embedded in the
+/// remote URL itself. `pushed` is true if at least one remote succeeded.
 pub fn sync(repo_path: &Path, github_token: Option<&str>) -> SyncResult {
     let changed = changed_files(repo_path);
     let msg = craft_message(&changed);
@@ -318,17 +319,20 @@ pub fn sync(repo_path: &Path, github_token: Option<&str>) -> SyncResult {
     let mut auth_failed = false;
 
     for remote in &remotes {
-        let auth_args: Vec<String> = match github_token {
+        let github_auth: Option<&str> = match github_token {
             Some(tok) if !tok.is_empty() => match get_remote_url(repo_path, remote) {
-                Some(url) if is_github_https(&url) => github_auth_args(tok),
-                _ => Vec::new(),
+                Some(url) if is_github_https(&url) => Some(tok),
+                _ => None,
             },
-            _ => Vec::new(),
+            _ => None,
         };
 
         // Pull --rebase before push so diverged histories are handled.
-        if let Ok(pull_out) = git_cmd(repo_path)
-            .args(auth_args.clone())
+        let mut pull_cmd = git_cmd(repo_path);
+        if let Some(tok) = github_auth {
+            apply_github_auth(&mut pull_cmd, tok);
+        }
+        if let Ok(pull_out) = pull_cmd
             .args(["pull", "--rebase", remote.as_str(), &branch])
             .output()
         {
@@ -365,8 +369,11 @@ pub fn sync(repo_path: &Path, github_token: Option<&str>) -> SyncResult {
             }
         }
 
-        match git_cmd(repo_path)
-            .args(auth_args.clone())
+        let mut push_cmd = git_cmd(repo_path);
+        if let Some(tok) = github_auth {
+            apply_github_auth(&mut push_cmd, tok);
+        }
+        match push_cmd
             .args(["push", "-u", remote.as_str(), &branch])
             .output()
         {
@@ -398,16 +405,25 @@ fn is_github_https(url: &str) -> bool {
     url.starts_with("https://github.com/")
 }
 
-/// Builds `-c http.<url>.extraHeader=...` args that authenticate as `token`,
-/// scoped to `https://github.com/` only. Passed as git config rather than
-/// embedded in the remote URL so the token never appears in argv (visible via
-/// `ps`/`/proc/<pid>/cmdline` for the life of the process) or in `git remote -v`.
-fn github_auth_args(token: &str) -> Vec<String> {
+/// Authenticates `cmd` as `token`, scoped to `https://github.com/` only, via
+/// `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_0`/`GIT_CONFIG_VALUE_0` (git >= 2.31)
+/// rather than a `-c http.<url>.extraHeader=...` argv entry. Command-line
+/// arguments are visible to any local user for the life of the process (this
+/// machine's `/proc/<pid>/cmdline` is world-readable, and even with
+/// `hidepid` set elsewhere that's not guaranteed) — base64-encoding the
+/// token, as the previous argv-based version did, only obscures it, since
+/// base64 is trivially reversible. Environment variables land in
+/// `/proc/<pid>/environ` instead, which is owner-only regardless of
+/// `hidepid`. Never embedded in the remote URL either, so it doesn't show up
+/// in `git remote -v`.
+fn apply_github_auth(cmd: &mut Command, token: &str) {
     let encoded = base64_encode(format!("x-access-token:{token}").as_bytes());
-    vec![
-        "-c".to_string(),
-        format!("http.https://github.com/.extraHeader=AUTHORIZATION: basic {encoded}"),
-    ]
+    cmd.env("GIT_CONFIG_COUNT", "1");
+    cmd.env("GIT_CONFIG_KEY_0", "http.https://github.com/.extraHeader");
+    cmd.env(
+        "GIT_CONFIG_VALUE_0",
+        format!("AUTHORIZATION: basic {encoded}"),
+    );
 }
 
 fn base64_encode(input: &[u8]) -> String {
@@ -565,14 +581,32 @@ mod tests {
     }
 
     #[test]
-    fn github_auth_args_scopes_header_to_github_and_never_includes_raw_token() {
-        let args = github_auth_args("abc123");
-        assert_eq!(args[0], "-c");
-        assert!(args[1].starts_with("http.https://github.com/.extraHeader=AUTHORIZATION: basic "));
-        assert!(
-            !args[1].contains("abc123"),
-            "raw token must not appear in argv: {args:?}"
+    fn apply_github_auth_scopes_header_to_github_and_keeps_token_out_of_argv() {
+        let mut cmd = Command::new("git");
+        apply_github_auth(&mut cmd, "abc123");
+
+        let envs: std::collections::HashMap<_, _> = cmd.get_envs().collect();
+        assert_eq!(
+            envs.get(std::ffi::OsStr::new("GIT_CONFIG_KEY_0")).copied().flatten(),
+            Some(std::ffi::OsStr::new("http.https://github.com/.extraHeader"))
         );
+        let value = envs
+            .get(std::ffi::OsStr::new("GIT_CONFIG_VALUE_0"))
+            .copied()
+            .flatten()
+            .expect("GIT_CONFIG_VALUE_0 must be set")
+            .to_str()
+            .unwrap();
+        assert!(value.starts_with("AUTHORIZATION: basic "));
+        assert!(
+            !value.contains("abc123"),
+            "raw token must not appear even in the (env-only) auth header: {value}"
+        );
+
+        // The token must never appear in argv at all — env vars, unlike
+        // arguments, aren't visible via /proc/<pid>/cmdline.
+        let args: Vec<_> = cmd.get_args().collect();
+        assert!(args.is_empty(), "token must not be passed as an argument: {args:?}");
     }
 
     #[test]

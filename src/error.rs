@@ -10,6 +10,9 @@ pub enum ZerkaloError {
     ConfigParse(#[from] toml::de::Error),
     #[error("Config serialize: {0}")]
     ConfigSerialize(#[from] toml::ser::Error),
+    // Reserved catch-all for ad hoc error messages (`.map_err(|e| ZerkaloError::Other(e.to_string()))`-style)
+    // that don't warrant their own variant. Not constructed yet, but this is the idiomatic escape
+    // hatch a thiserror enum keeps for that, not a leftover.
     #[allow(dead_code)]
     #[error("{0}")]
     Other(String),

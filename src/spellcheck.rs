@@ -457,7 +457,10 @@ fn find_dict_files(language: &str) -> Option<(PathBuf, PathBuf)> {
 }
 
 fn get_dictionary(language: &str) -> Option<Arc<spellbook::Dictionary>> {
-    let mut cache = dictionary_cache().lock().unwrap();
+    // Recover from poisoning rather than panic — a panic elsewhere while
+    // holding this lock shouldn't turn every subsequent spellcheck lookup
+    // into a second panic for the life of the process.
+    let mut cache = dictionary_cache().lock().unwrap_or_else(|e| e.into_inner());
     if let Some(entry) = cache.get(language) {
         return entry.clone();
     }

@@ -15,6 +15,13 @@ type Callback<T> = Rc<RefCell<Option<Box<dyn Fn(T)>>>>;
 
 #[derive(Clone)]
 pub struct FileTree {
+    // `root_widget` (returned by `widget()` below) is never appended to any container — every
+    // other panel (editor, preview, search, outline, citations...) is attached in app_window/mod.rs
+    // via `<panel>.widget()`, but `file_tree.widget()` is called nowhere. The rest of FileTree
+    // (callbacks, new/delete/rename actions, file_tree_wiring.rs) is fully wired and exercised —
+    // only the container attachment is missing, so the sidebar this builds is invisible in the
+    // running app. Needs a decision (mount it, or remove the ~400 lines of wiring that assume it
+    // will be) rather than a silent dead-code suppression; flagged, not resolved, here.
     #[allow(dead_code)]
     root_widget: GtkBox,
     list_box: ListBox,
@@ -241,6 +248,7 @@ impl FileTree {
         ft
     }
 
+    // See `root_widget`'s comment above.
     #[allow(dead_code)]
     pub fn widget(&self) -> &GtkBox {
         &self.root_widget
@@ -282,6 +290,7 @@ impl FileTree {
         *self.on_clear_root.borrow_mut() = Some(Box::new(f));
     }
 
+    // See `root_widget`'s comment above.
     #[allow(dead_code)]
     pub fn set_file_error(&self, path: &Path, has_error: bool) {
         let mut errors = self.file_errors.borrow_mut();

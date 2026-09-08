@@ -28,7 +28,6 @@ pub fn resolve_root_file(root: &Path, rel: &Path) -> Option<PathBuf> {
     }
 }
 
-#[allow(dead_code)]
 pub struct ProjectModel {
     pub root: PathBuf,
     /// Detected compilation root (the file that is not imported by any other).

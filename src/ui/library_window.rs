@@ -67,7 +67,6 @@ pub struct LibraryWindow {
     selection: Rc<RefCell<HashSet<i64>>>,
     action_bar_revealer: Revealer,
     selected_count_label: Label,
-    #[allow(dead_code)]
     toast_overlay: adw::ToastOverlay,
     on_open: Rc<RefCell<Option<Box<dyn Fn(PathBuf)>>>>,
     work_dir: PathBuf,
@@ -3214,7 +3213,6 @@ impl LibraryWindow {
         self.populate_doc_list();
     }
 
-    #[allow(dead_code)]
     pub fn window(&self) -> &adw::Window {
         &self.window
     }

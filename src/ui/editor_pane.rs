@@ -2088,16 +2088,6 @@ impl EditorPane {
         self.word_wrap_btn.set_active(active);
     }
 
-    #[allow(dead_code)]
-    pub fn set_word_wrap_btn_visible(&self, v: bool) {
-        self.word_wrap_btn.set_visible(v);
-    }
-
-    #[allow(dead_code)]
-    pub fn get_simple_mode(&self) -> bool {
-        *self.simple_mode.borrow()
-    }
-
     /// Apply simple mode to the current active buffer and update button label.
     pub fn apply_simple_mode(&self, on: bool) {
         *self.simple_mode.borrow_mut() = on;
@@ -2147,11 +2137,6 @@ impl EditorPane {
 
     pub fn breadcrumb_bar_append(&self, w: &impl gtk4::prelude::IsA<gtk4::Widget>) {
         self.breadcrumb_bar.append(w);
-    }
-
-    #[allow(dead_code)]
-    pub fn set_lsp_label_visible(&self, v: bool) {
-        self.lsp_status_label.set_visible(v);
     }
 
     pub fn apply_word_wrap(&self, enabled: bool) {
@@ -3106,12 +3091,6 @@ impl EditorPane {
         *self.on_focus_toggle.borrow_mut() = Some(Box::new(f));
     }
 
-    #[allow(dead_code)]
-    pub fn set_focus_active(&self, active: bool) {
-        set_toggle_label(&self.focus_label, "focus", active);
-        // aria-pressed for focus button updated in the click handler directly
-    }
-
     pub fn set_on_doc_font(&self, f: impl Fn(String) + 'static) {
         *self.on_doc_font.borrow_mut() = Some(Box::new(f));
     }
@@ -3120,7 +3099,6 @@ impl EditorPane {
         *self.on_doc_font_size.borrow_mut() = Some(Box::new(f));
     }
 
-    #[allow(dead_code)]
     pub fn set_doc_font_label(&self, name: &str) {
         self.font_bar_label.set_text(name);
     }
@@ -3963,29 +3941,6 @@ impl EditorPane {
         None
     }
 
-    #[allow(dead_code)]
-    pub fn set_active_content(&self, text: &str) {
-        let current = match self.notebook.current_page() {
-            Some(p) => p,
-            None => return,
-        };
-        let buf = {
-            let state = self.state.borrow();
-            state
-                .tabs
-                .values()
-                .find(|t| self.notebook.page_num(&t.notebook_page) == Some(current))
-                .map(|t| t.buffer.clone())
-        };
-        if let Some(buffer) = buf {
-            buffer.set_text(text);
-            {
-                let sm = *self.simple_mode.borrow();
-                apply_simple_mode_tag(&buffer, sm);
-            }
-        }
-    }
-
     /// Replace the active buffer's entire content as a single undoable user action.
     pub fn set_active_content_undoable(&self, text: &str) {
         let current = match self.notebook.current_page() {
@@ -4292,7 +4247,6 @@ impl EditorPane {
         Some(buf.text(&s, &e, true).to_string())
     }
 
-    #[allow(dead_code)]
     pub fn all_tab_texts(&self) -> Vec<(PathBuf, String)> {
         self.state
             .borrow()

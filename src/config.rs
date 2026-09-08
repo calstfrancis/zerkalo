@@ -390,6 +390,11 @@ impl Config {
         }
     }
 
+    // Population side of `recent_projects` (config.rs) — the field is read and shown in
+    // settings_dialog.rs, but nothing calls this to add to it yet, so the list is always empty
+    // in practice today. Kept rather than deleted since the field/display half is real and this
+    // is the missing other half, not dead code in the usual sense. Worth wiring at the project-open
+    // call site if the empty recent-projects list is ever noticed.
     #[allow(dead_code)]
     pub fn push_recent_project(&mut self, path: PathBuf) {
         self.recent_projects.retain(|p| p != &path);

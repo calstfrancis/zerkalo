@@ -19,10 +19,16 @@ pub struct OutlinePanel {
     on_jump: JumpCb,
     on_symbol_insert: InsertCb,
     on_project_mode: ProjectModeCb,
+    // `stack`/`outline_btn`/`symbols_btn` back an outline-vs-symbols mode toggle (`set_mode`
+    // below) that's fully implemented but never called from anywhere in the UI — no button or
+    // shortcut currently switches modes. Kept rather than deleted since it's a coherent, working
+    // feature one call site away from being live, not abandoned scaffolding.
     #[allow(dead_code)]
     stack: Stack,
+    // See `stack`'s comment above.
     #[allow(dead_code)]
     outline_btn: ToggleButton,
+    // See `stack`'s comment above.
     #[allow(dead_code)]
     symbols_btn: ToggleButton,
     /// (file_path, line_number) for each outline row — supports single and multi-file.
@@ -350,6 +356,7 @@ impl OutlinePanel {
         panel
     }
 
+    // See the `stack` field's comment above — the mode toggle this drives has no caller yet.
     #[allow(dead_code)]
     pub fn set_mode(&self, mode: &str) {
         self.stack.set_visible_child_name(mode);
