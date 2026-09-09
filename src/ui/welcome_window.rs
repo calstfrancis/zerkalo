@@ -7,7 +7,7 @@ use gtk4::{Align, Box as GtkBox, Button, Label, Orientation, ScrolledWindow, Sep
 use libadwaita as adw;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const RELEASE_NAME: &str = "Quiet Guard";
+pub const RELEASE_NAME: &str = "Clear Glass";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -73,6 +73,22 @@ impl WelcomeWindow {
         body.append(&Separator::new(Orientation::Horizontal));
 
         if is_first_run {
+            body.append(&section_label("Why Zerkalo"));
+            let why = Label::new(Some(
+                "Typst is a modern alternative to Word and LaTeX: plain markup that compiles to a \
+                 properly typeset PDF, without Word's formatting fights or LaTeX's steep learning \
+                 curve. Zerkalo wraps that compiler in an editor built for writing prose — live \
+                 preview, citations, academic styles, and git-backed history — so you get \
+                 typesetting quality without leaving a familiar editing flow.",
+            ));
+            why.set_wrap(true);
+            why.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
+            why.set_xalign(0.0);
+            why.set_hexpand(true);
+            why.set_halign(Align::Fill);
+            body.append(&why);
+
+            body.append(&Separator::new(Orientation::Horizontal));
             body.append(&section_label("How Zerkalo Works"));
             let intro = Label::new(Some(
                 "Zerkalo is a Typst editor with a live preview pane. You write in Typst markup \
@@ -136,17 +152,17 @@ impl WelcomeWindow {
                 "Type @ to insert a citation, once you've added a bibliography from the Citations panel",
                 "Type # to see suggestions for tables, figures, and other building blocks",
                 "Zerkalo hides the technical setup lines at the top of the file — change them from Change Document Style (≡ → Document Tools), not by scrolling up",
-                "Turn Simple Mode off with the SIMPLE button in the header, beside Library, if you ever want to see that setup section directly",
+                "Click the TEMPLATE button in the header, beside Library, if you ever want to see that setup section directly",
             ] {
                 body.append(&bullet_row(item));
             }
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             body.append(&bullet_row(
-                "Sync, Export, and Print now stop and tell you if a document fails to save, instead of silently proceeding with the old content.",
+                "The template toggle in the status bar now reads SHOW TEMPLATE / HIDE TEMPLATE instead of a bold/plain SIMPLE label, so the button always states what the next click does.",
             ));
             body.append(&bullet_row(
-                "Hardened how the GitHub sync token is passed to git so it can't be recovered from the process list by another local user.",
+                "This Welcome window now opens with a \"Why Zerkalo\" section for first-time users.",
             ));
         }
 

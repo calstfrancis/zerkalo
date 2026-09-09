@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.29.3] "Clear Glass" — 2026-09-09 — Clearer template toggle, better first-run explanation
+
+### Changed
+
+- **The template-visibility toggle in the status bar now reads "SHOW TEMPLATE" / "HIDE TEMPLATE"** instead of a bold/plain "SIMPLE" label — the button text states the action the next click performs, rather than naming an internal mode new users had to learn the meaning of.
+- **The first-run Welcome window now opens with a "Why Zerkalo" section** explaining what Typst is, how it compares to Word and LaTeX, and what Zerkalo adds on top — before the existing "How Zerkalo Works" mechanics walkthrough.
+
+---
+
 ## [0.29.2] "Quiet Guard" — 2026-09-08 — Auth hardening, silent-save-failure fixes, dependency audit
 
 ### Security

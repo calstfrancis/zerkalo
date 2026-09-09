@@ -1,4 +1,4 @@
-# Zerkalo v0.29.2 "Quiet Guard"
+# Zerkalo v0.29.3 "Clear Glass"
 
 Install via Flatpak:
 
@@ -18,13 +18,11 @@ flatpak update io.github.calstfrancis.Zerkalo
 
 ### What's new
 
-A hardening and cleanup release, prompted by a deep codebase review — nothing broken before, but a few things quietly stronger now.
+A small clarity release aimed squarely at new users.
 
-**GitHub sync is more careful with your token.** It's now passed to git via environment variables instead of a command-line argument, so it can't be recovered from the process list by another user on the same machine.
+**The template toggle in the status bar now says "SHOW TEMPLATE" or "HIDE TEMPLATE"**, instead of a bold/plain "SIMPLE" label. The button text always states what the next click does, rather than naming an internal mode you had to learn the meaning of first.
 
-**Sync, PDF export, and Print now stop and tell you if a save fails**, instead of silently proceeding with the old content on disk. Previously, if a document failed to save — a full disk, a permissions problem — those three actions would quietly commit, export, or print the stale version with no visible difference from success.
-
-Also: two dependency security advisories resolved, two mutex-poisoning bugs fixed (a panic in one spot could previously cascade into repeated panics elsewhere), and a full audit of every suppressed dead-code warning in the codebase — some genuinely unused code removed, and a few complete-but-unwired features flagged for a future decision rather than silently deleted.
+**The first-run Welcome window now opens with a "Why Zerkalo" section**, explaining what Typst is, how it compares to Word and LaTeX, and what Zerkalo adds on top — before getting into the mechanics of how the editor and preview work together.
 
 ---
 

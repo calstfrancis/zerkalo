@@ -80,6 +80,15 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.29.3" date="2026-09-09">
+      <description>
+        <p>0.29.3 "Clear Glass" — relabels the status bar's template
+        toggle to say "SHOW TEMPLATE" / "HIDE TEMPLATE" instead of a
+        bold/plain "SIMPLE" label, and opens the first-run Welcome window
+        with a new "Why Zerkalo" section explaining what Typst is and why
+        you'd use it.</p>
+      </description>
+    </release>
     <release version="0.29.2" date="2026-09-08">
       <description>
         <p>0.29.2 "Quiet Guard" — hardens how the GitHub sync token is

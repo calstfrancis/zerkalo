@@ -534,9 +534,9 @@ impl EditorPane {
         simple_mode_btn.add_css_class("flat");
         simple_mode_btn.add_css_class("status-toggle");
         simple_mode_btn.set_tooltip_text(Some(
-            "Simple Mode: hides Typst front-matter above the document body.\nEdit it via the Update Template button.",
+            "Show Template: reveals the Typst front-matter above the document body.\nEdit it via the Update Template button.",
         ));
-        simple_mode_btn.update_property(&[gtk4::accessible::Property::Label("Toggle simple mode")]);
+        simple_mode_btn.update_property(&[gtk4::accessible::Property::Label("Toggle template visibility")]);
 
         let sep1 = gtk4::Separator::new(Orientation::Vertical);
         sep1.add_css_class("statusbar-sep");
@@ -2089,9 +2089,13 @@ impl EditorPane {
     }
 
     /// Apply simple mode to the current active buffer and update button label.
+    /// The button reads "SHOW TEMPLATE" or "HIDE TEMPLATE" — the action the
+    /// next click performs — rather than a name-as-label bold/plain toggle,
+    /// since new users found "SIMPLE" ambiguous about what it did.
     pub fn apply_simple_mode(&self, on: bool) {
         *self.simple_mode.borrow_mut() = on;
-        set_toggle_label(&self.simple_mode_label, "SIMPLE", on);
+        self.simple_mode_label
+            .set_text(if on { "SHOW TEMPLATE" } else { "HIDE TEMPLATE" });
         self.apply_simple_mode_to_buffer(on);
         if on && !self.format_bar_visible() && !*self.user_dismissed_format_bar.borrow() {
             self.set_format_bar_visible(true);
