@@ -536,7 +536,9 @@ impl EditorPane {
         simple_mode_btn.set_tooltip_text(Some(
             "Show Template: reveals the Typst front-matter above the document body.\nEdit it via the Update Template button.",
         ));
-        simple_mode_btn.update_property(&[gtk4::accessible::Property::Label("Toggle template visibility")]);
+        simple_mode_btn.update_property(&[gtk4::accessible::Property::Label(
+            "Toggle template visibility",
+        )]);
 
         let sep1 = gtk4::Separator::new(Orientation::Vertical);
         sep1.add_css_class("statusbar-sep");
