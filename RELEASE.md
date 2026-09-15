@@ -1,4 +1,4 @@
-# Zerkalo v0.29.3 "Clear Glass"
+# Zerkalo v0.29.4 "Steady Hand"
 
 Install via Flatpak:
 
@@ -18,11 +18,11 @@ flatpak update io.github.calstfrancis.Zerkalo
 
 ### What's new
 
-A small clarity release aimed squarely at new users.
+A simplification and a data-safety fix.
 
-**The template toggle in the status bar now says "SHOW TEMPLATE" or "HIDE TEMPLATE"**, instead of a bold/plain "SIMPLE" label. The button text always states what the next click does, rather than naming an internal mode you had to learn the meaning of first.
+**The compile trigger is now a plain Auto / Manual choice.** The old three-way "Auto / On Save / Manual" pill in Settings, and the matching status-bar toggle, are down to two options — "On Save" behaved exactly like Manual in practice, since Save already recompiled either way, so it was one option too many. The status-bar button now reads "auto compile" or "manual compile" depending on which is active, and **Manual is the new default** for anyone starting fresh.
 
-**The first-run Welcome window now opens with a "Why Zerkalo" section**, explaining what Typst is, how it compares to Word and LaTeX, and what Zerkalo adds on top — before getting into the mechanics of how the editor and preview work together.
+**Applying a template to a document that was never templated no longer throws away what you wrote.** If you started typing before ever running "New from Template" or "Change Document Style…", applying one used to replace the whole file with the fresh template's placeholder text — your own writing survived only in a `.typ.bak` backup. Now it's kept: your existing text becomes the new document's body, under the template's regenerated preamble, the same way an already-templated document's body is preserved when you change its settings.
 
 ---
 

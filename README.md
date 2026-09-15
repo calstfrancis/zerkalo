@@ -79,12 +79,12 @@ raw markup dead-end: a live preview pane always shows the real formatting next t
 ### Document workflow
 | Feature | Detail |
 |---|---|
-| **Live preview** | Auto-compiles on every edit (debounced, configurable delay); all pages rendered; embedded Typst engine — no binary required |
+| **Live preview** | Auto or manual compile (status-bar toggle; manual is the default) — Auto recompiles on every edit, debounced with a configurable delay; all pages rendered; embedded Typst engine — no binary required |
 | **Cheatsheet & Help panel** | Toggle (`?` button) in preview toolbar shows a reference panel (Overview, Cheatsheet, Projects, Shortcuts, FAQ, About) in place of the preview |
 | **Style switcher** | Header-bar dropdown applies a citation style to the open document; button label shows the detected style name ("GOST 7.32") |
 | **New from Template** | Dialog with tabs for Document, Layout, Sections, Languages, and Packages — generates a complete `.typ` preamble; package descriptions lead with plain language, with the underlying Typst syntax in a tooltip |
 | **Saved templates** | The template dialog's gallery keeps your own templates under the built-in presets — set the form up, name it, and start future documents the same way. Stored one file per template in `~/.local/share/zerkalo/templates/` |
-| **Change Document Style** | ☰ → Document Tools → Change Document Style — re-applies preamble settings from a per-document `.zerkalo.toml` sidecar; splices at the `// ── Document body` marker so body content is never touched |
+| **Change Document Style** | ☰ → Document Tools → Change Document Style — re-applies preamble settings from a per-document `.zerkalo.toml` sidecar; splices at the `// ── Document body` marker so body content is never touched. Applying a template to a document that never had one adopts its existing text as the body instead of discarding it |
 | **Insert Table** | ☰ → Document Tools → Insert Table — set row/column count, per-cell text, per-column alignment, an optional header row, and per-cell colspan/rowspan, then generate a `#table(...)` block at the cursor. A form-then-generate dialog, not a live in-place editor — re-run it to build another table rather than editing an inserted one in place |
 | **Citations & Bibliography** | ☰ → Document Tools → Citations & Bibliography — a fuller view of the loaded bibliography than the sidebar Citations panel, including project-wide citation key rename |
 | **Project File Map** | ☰ → Document Tools → Project File Map — visualises which files `#include`/`#import` which, opened as its own window |
@@ -177,7 +177,7 @@ Global config at `~/.config/zerkalo/config.toml`:
 work_dir               = "/path/to/your/work/folder"
 bib_path               = "/path/to/references.bib"   # optional — a .bib/.yaml file, or a Kartoteka vault folder
 debounce_ms            = 800
-auto_compile           = true
+auto_compile           = false   # false = manual compile (default); true = auto
 theme                  = "system"    # "system" | "light" | "dark"
 editor_font_family     = "Monospace"
 editor_font_size       = 13

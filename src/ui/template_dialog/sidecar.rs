@@ -249,27 +249,36 @@ pub fn repair_template_markers(path: &std::path::Path) -> Result<bool, String> {
     write_atomically(&backup, &content)
         .map_err(|e| format!("Cannot create backup at {}: {e}", backup.display()))?;
 
-    let insert_before = preamble_end_line(&content);
+    let new_content = insert_body_marker(&content);
+    write_atomically(path, &new_content).map_err(|e| format!("Cannot write repaired file: {e}"))?;
+
+    Ok(true)
+}
+
+/// Inserts the `// ── Document body` marker right before whatever
+/// [`preamble_end_line`] considers the first line of content, so everything
+/// from there down survives verbatim as the body. Shared by
+/// `repair_template_markers` above and `apply_body_splice_reporting`'s
+/// no-marker case below — both are "this document was never a Zerkalo
+/// template; treat what's here as the body" situations.
+fn insert_body_marker(content: &str) -> String {
+    let insert_before = preamble_end_line(content);
     let lines: Vec<&str> = content.lines().collect();
     let prefix = lines[..insert_before].join("\n");
     let suffix = lines[insert_before..].join("\n");
 
-    let mut new_content = String::with_capacity(content.len() + 128);
-    new_content.push_str(&prefix);
+    let mut out = String::with_capacity(content.len() + 128);
+    out.push_str(&prefix);
     if !prefix.is_empty() {
-        new_content.push('\n');
+        out.push('\n');
     }
-    new_content.push_str("// ── Document body — Zerkalo uses this exact line to find where your writing starts. Leave it in place; everything below it is yours to edit freely.\n");
-    new_content
-        .push_str("// ── Document body ───────────────────────────────────────────────────\n\n");
-    new_content.push_str(&suffix);
-    if !suffix.is_empty() && !new_content.ends_with('\n') {
-        new_content.push('\n');
+    out.push_str("// ── Document body — Zerkalo uses this exact line to find where your writing starts. Leave it in place; everything below it is yours to edit freely.\n");
+    out.push_str("// ── Document body ───────────────────────────────────────────────────\n\n");
+    out.push_str(&suffix);
+    if !suffix.is_empty() && !out.ends_with('\n') {
+        out.push('\n');
     }
-
-    write_atomically(path, &new_content).map_err(|e| format!("Cannot write repaired file: {e}"))?;
-
-    Ok(true)
+    out
 }
 
 /// A `.typ.bak` path that doesn't already exist, so repairing a file twice
@@ -337,11 +346,16 @@ pub fn has_body_marker(content: &str) -> bool {
 pub enum SpliceOutcome {
     /// Preamble regenerated, the user's body preserved verbatim. The normal case.
     Preserved,
+    /// The document had no body marker at all — it was never templated — so
+    /// its entire existing content was adopted as the body under a freshly
+    /// generated preamble, rather than being discarded.
+    BodyAdopted,
     /// Body regenerated because the CV layout crossed the sidebar boundary.
     BodyRegenerated,
     /// Nothing applied: the new preamble would not compile against this body.
     RefusedIncompatible,
-    /// The whole document was replaced — there was no body to preserve.
+    /// The whole document was replaced — there was no existing content worth
+    /// preserving as a body.
     WholeDocumentReplaced,
 }
 
@@ -441,9 +455,28 @@ pub fn apply_body_splice_reporting(existing: &str, fresh: &str) -> (String, Spli
             format!("{fresh}{}", &existing[old_p..]),
             SpliceOutcome::Preserved,
         ),
-        // No body to preserve. Callers that can reach this confirm the
-        // whole-document replacement with the user first (see
-        // `has_body_marker`'s call site in app_window).
+        // Existing has never been templated (no marker at all) but there's
+        // real content in it — the user started writing before ever applying
+        // a template. Synthesize a marker at the same point
+        // `repair_template_markers` would (skipping any real preamble code
+        // the user happened to write by hand) and re-run the splice against
+        // that, so it goes through the exact same CV-compatibility checks and
+        // bib-style handling as a document that already had a template. This
+        // used to discard the user's writing outright, replacing it with the
+        // fresh template's placeholder body.
+        (None, Some(_)) if !existing.trim().is_empty() => {
+            let synthetic = insert_body_marker(existing);
+            let (spliced, sub_outcome) = apply_body_splice_reporting(&synthetic, fresh);
+            let outcome = if sub_outcome == SpliceOutcome::Preserved {
+                SpliceOutcome::BodyAdopted
+            } else {
+                sub_outcome
+            };
+            (spliced, outcome)
+        }
+        // Nothing to preserve either way: the existing document is empty, or
+        // the freshly generated one carries no marker to splice at (a
+        // generation bug — every generator emits one).
         (None, _) => (fresh.to_string(), SpliceOutcome::WholeDocumentReplaced),
     }
 }

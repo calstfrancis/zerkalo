@@ -52,8 +52,6 @@ pub(super) struct MenuCtx {
     pub(super) writing_log: Rc<RefCell<WritingLog>>,
     pub(super) menu_popover: Popover,
     pub(super) auto_compile: Rc<RefCell<bool>>,
-    pub(super) compile_on_save: Rc<RefCell<bool>>,
-    pub(super) manual_compile_only: Rc<RefCell<bool>>,
     pub(super) debounce_ms: Rc<RefCell<u64>>,
     pub(super) compile_mode_btn: Button,
     pub(super) compile_mode_label: Label,
@@ -77,8 +75,6 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
     let editor_for_settings = ctx.editor_pane.clone();
     let debounce_for_settings = ctx.debounce_ms.clone();
     let auto_compile_for_settings = ctx.auto_compile.clone();
-    let compile_on_save_for_settings = ctx.compile_on_save.clone();
-    let manual_compile_only_for_settings = ctx.manual_compile_only.clone();
     let current_config_for_settings = ctx.current_config.clone();
     let menu_popover_for_settings = ctx.menu_popover.clone();
     let compile_mode_btn_for_settings = ctx.compile_mode_btn.clone();
@@ -121,8 +117,6 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
         let editor = editor_for_settings.clone();
         let debounce = debounce_for_settings.clone();
         let auto_flag = auto_compile_for_settings.clone();
-        let cos_flag = compile_on_save_for_settings.clone();
-        let mco_flag = manual_compile_only_for_settings.clone();
         let cfg_rc = current_config_for_settings.clone();
         let window_for_save = window_for_settings.clone();
         let cm_btn_save = compile_mode_btn_for_settings.clone();
@@ -157,19 +151,8 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
         dialog.set_on_save(move |new_cfg| {
             *debounce.borrow_mut() = new_cfg.debounce_ms;
             *auto_flag.borrow_mut() = new_cfg.auto_compile;
-            *cos_flag.borrow_mut() = new_cfg.compile_on_save;
-            *mco_flag.borrow_mut() = new_cfg.manual_compile_only;
-            cm_lbl_save.set_text(compile_mode_label_str(
-                new_cfg.auto_compile,
-                new_cfg.compile_on_save,
-                new_cfg.manual_compile_only,
-            ));
-            apply_compile_mode_css(
-                &cm_btn_save,
-                new_cfg.auto_compile,
-                new_cfg.compile_on_save,
-                new_cfg.manual_compile_only,
-            );
+            cm_lbl_save.set_text(compile_mode_label_str(new_cfg.auto_compile));
+            apply_compile_mode_css(&cm_btn_save, new_cfg.auto_compile);
             editor.apply_font_size(new_cfg.editor_font_size);
             editor.apply_font_family(&new_cfg.editor_font_family);
             editor.apply_word_wrap(new_cfg.editor_word_wrap);
@@ -621,10 +604,10 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
                 if let Ok(content) = std::fs::read_to_string(&path) {
                     save_snapshot(&root_for_menu_save, &path, &content);
                     // The debounced on-change compile is deliberately suppressed
-                    // in Compile-on-Save/Manual modes (see mod.rs's on_change
-                    // wiring), so the preview's buffer_snapshot override can be
-                    // stale from whenever this tab was last switched to. Refresh
-                    // it here or Save silently recompiles old content.
+                    // in Manual mode (see mod.rs's on_change wiring), so the
+                    // preview's buffer_snapshot override can be stale from
+                    // whenever this tab was last switched to. Refresh it here
+                    // or Save silently recompiles old content.
                     preview_for_menu_save.set_buffer_snapshot(path.clone(), content);
                 }
                 preview_for_menu_save.trigger_compile();

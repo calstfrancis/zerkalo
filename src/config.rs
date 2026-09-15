@@ -120,7 +120,9 @@ pub struct Config {
     pub custom_csl_path: Option<PathBuf>,
     #[serde(default = "default_debounce_ms")]
     pub debounce_ms: u64,
-    #[serde(default = "default_true")]
+    /// Manual is the default: `false` means the user compiles explicitly
+    /// (Save, the compile button, or Ctrl+Shift+P) rather than on every edit.
+    #[serde(default)]
     pub auto_compile: bool,
     #[serde(default = "default_font_size")]
     pub editor_font_size: u32,
@@ -181,10 +183,6 @@ pub struct Config {
     pub batch_import_concurrency: u32,
     #[serde(default)]
     pub last_export_format: u32,
-    #[serde(default)]
-    pub compile_on_save: bool,
-    #[serde(default)]
-    pub manual_compile_only: bool,
     #[serde(default)]
     pub recent_searches: Vec<String>,
     #[serde(default)]
@@ -323,7 +321,7 @@ impl Default for Config {
             cv_elements_path: None,
             custom_csl_path: None,
             debounce_ms: 800,
-            auto_compile: true,
+            auto_compile: false,
             editor_font_size: 13,
             theme: Theme::default(),
             editor_font_family: default_font_family(),
@@ -349,8 +347,6 @@ impl Default for Config {
             sidebar_comments_collapsed: false,
             batch_import_concurrency: default_batch_import_concurrency(),
             last_export_format: 0,
-            compile_on_save: false,
-            manual_compile_only: false,
             recent_searches: Vec::new(),
             active_profile: CompileProfile::default(),
             auto_save_idle_ms: default_auto_save_idle_ms(),

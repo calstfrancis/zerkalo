@@ -7,7 +7,7 @@ use gtk4::{Align, Box as GtkBox, Button, Label, Orientation, ScrolledWindow, Sep
 use libadwaita as adw;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const RELEASE_NAME: &str = "Clear Glass";
+pub const RELEASE_NAME: &str = "Steady Hand";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -159,10 +159,10 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             body.append(&bullet_row(
-                "The template toggle in the status bar now reads SHOW TEMPLATE / HIDE TEMPLATE instead of a bold/plain SIMPLE label, so the button always states what the next click does.",
+                "The compile mode is now a simple Auto / Manual choice — the redundant \"On Save\" mode is gone, and the status-bar toggle reads \"auto compile\" / \"manual compile\". Manual is now the default.",
             ));
             body.append(&bullet_row(
-                "This Welcome window now opens with a \"Why Zerkalo\" section for first-time users.",
+                "Applying a template to a document that was never templated no longer discards what you wrote — your text is now kept as the new document's body instead of being replaced.",
             ));
         }
 

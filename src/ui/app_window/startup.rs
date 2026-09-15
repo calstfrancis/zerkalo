@@ -99,7 +99,7 @@ pub(super) struct WatcherCtx {
     pub(super) project_root: PathBuf,
     pub(super) library: Rc<RefCell<Library>>,
     pub(super) library_window: LibraryWindow,
-    pub(super) manual_compile_only: Rc<RefCell<bool>>,
+    pub(super) auto_compile: Rc<RefCell<bool>>,
 }
 
 pub(super) fn wire_file_watcher(ctx: &WatcherCtx) -> Option<notify::RecommendedWatcher> {
@@ -108,7 +108,7 @@ pub(super) fn wire_file_watcher(ctx: &WatcherCtx) -> Option<notify::RecommendedW
     // (e.g., a sync agent, another editor) so the preview stays current.
     let preview_for_watch = ctx.preview_pane.clone();
     let editor_for_watch = ctx.editor_pane.clone();
-    let mco_for_watch = ctx.manual_compile_only.clone();
+    let auto_for_watch = ctx.auto_compile.clone();
     let library_for_watch = ctx.library.clone();
     let lw_for_watch = ctx.library_window.clone();
     let file_watcher = crate::file_watcher::start(ctx.project_root.clone(), move |changed_path| {
@@ -122,7 +122,7 @@ pub(super) fn wire_file_watcher(ctx: &WatcherCtx) -> Option<notify::RecommendedW
         // Only react to files we don't have open — those are handled by
         // the editor's own save path.
         let is_open = editor_for_watch.is_file_open(&changed_path);
-        if !is_open && !*mco_for_watch.borrow() {
+        if !is_open && *auto_for_watch.borrow() {
             preview_for_watch.trigger_compile();
         }
     });

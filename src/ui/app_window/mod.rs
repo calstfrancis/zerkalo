@@ -89,12 +89,7 @@ pub struct AppWindow {
     writing_log: Rc<RefCell<WritingLog>>,
     file_start_words: FileStartWords,
     session_start: Rc<RefCell<std::time::Instant>>,
-    // Same situation as `outline_panel` above: an `Rc` clone already held by closures elsewhere,
-    // never read back via `self.compile_on_save`. Looks redundant, not independently verified safe
-    // to remove.
-    #[allow(dead_code)]
-    compile_on_save: Rc<RefCell<bool>>,
-    manual_compile_only: Rc<RefCell<bool>>,
+    auto_compile: Rc<RefCell<bool>>,
     // Must stay alive for the life of the window or file-change notifications stop —
     // `notify::RecommendedWatcher` stops watching when dropped. Never read via `self.file_watcher`
     // because nothing needs to; it's held purely for this Drop-timing side effect, not because the
@@ -196,9 +191,6 @@ impl AppWindow {
 
         let debounce_ms: Rc<RefCell<u64>> = Rc::new(RefCell::new(config.debounce_ms));
         let auto_compile: Rc<RefCell<bool>> = Rc::new(RefCell::new(config.auto_compile));
-        let compile_on_save: Rc<RefCell<bool>> = Rc::new(RefCell::new(config.compile_on_save));
-        let manual_compile_only: Rc<RefCell<bool>> =
-            Rc::new(RefCell::new(config.manual_compile_only));
         let auto_save_idle_ms: Rc<RefCell<u64>> = Rc::new(RefCell::new(config.auto_save_idle_ms));
         // The process-wide instance, not a copy — dialogs that change settings
         // mutate this same one, so nothing silently reverts anyone else's edit.
@@ -621,23 +613,14 @@ impl AppWindow {
         // ── Compile mode status bar toggle ──────────────────────────────────
         let compile_mode_label = Label::new(None);
         compile_mode_label.add_css_class("caption");
-        compile_mode_label.set_text(compile_mode_label_str(
-            config.auto_compile,
-            config.compile_on_save,
-            config.manual_compile_only,
-        ));
+        compile_mode_label.set_text(compile_mode_label_str(config.auto_compile));
         let compile_mode_btn = {
             let btn = Button::new();
             btn.set_child(Some(&compile_mode_label));
             btn.add_css_class("flat");
             btn.add_css_class("status-toggle");
-            btn.set_tooltip_text(Some("Cycle compile mode: auto → on save → manual"));
-            apply_compile_mode_css(
-                &btn,
-                config.auto_compile,
-                config.compile_on_save,
-                config.manual_compile_only,
-            );
+            btn.set_tooltip_text(Some("Toggle compile mode: auto compile / manual compile"));
+            apply_compile_mode_css(&btn, config.auto_compile);
 
             // Beside the compile buttons in the header — it says what those
             // buttons will do, so it belongs with them rather than at the far
@@ -645,29 +628,15 @@ impl AppWindow {
             compile_mode_slot.append(&btn);
 
             let auto_cm = auto_compile.clone();
-            let cos_cm = compile_on_save.clone();
-            let mco_cm = manual_compile_only.clone();
             let cfg_cm = current_config.clone();
             let cm_lbl = compile_mode_label.clone();
             btn.connect_clicked(move |b| {
-                let auto = *auto_cm.borrow();
-                let mco = *mco_cm.borrow();
-                let (new_auto, new_cos, new_mco) = if auto {
-                    (false, true, false)
-                } else if mco {
-                    (true, false, false)
-                } else {
-                    (false, false, true)
-                };
+                let new_auto = !*auto_cm.borrow();
                 *auto_cm.borrow_mut() = new_auto;
-                *cos_cm.borrow_mut() = new_cos;
-                *mco_cm.borrow_mut() = new_mco;
-                cm_lbl.set_text(compile_mode_label_str(new_auto, new_cos, new_mco));
-                apply_compile_mode_css(b, new_auto, new_cos, new_mco);
+                cm_lbl.set_text(compile_mode_label_str(new_auto));
+                apply_compile_mode_css(b, new_auto);
                 let mut cfg = cfg_cm.borrow_mut();
                 cfg.auto_compile = new_auto;
-                cfg.compile_on_save = new_cos;
-                cfg.manual_compile_only = new_mco;
                 let _ = cfg.save();
             });
             btn
@@ -743,8 +712,6 @@ impl AppWindow {
             writing_log: writing_log.clone(),
             menu_popover: menu_popover.clone(),
             auto_compile: auto_compile.clone(),
-            compile_on_save: compile_on_save.clone(),
-            manual_compile_only: manual_compile_only.clone(),
             debounce_ms: debounce_ms.clone(),
             compile_mode_btn: compile_mode_btn.clone(),
             compile_mode_label: compile_mode_label.clone(),
@@ -985,8 +952,6 @@ impl AppWindow {
         let editor_for_change = editor_pane.clone();
         let debounce_for_change = debounce_ms.clone();
         let auto_compile_for_change = auto_compile.clone();
-        let compile_on_save_for_change = compile_on_save.clone();
-        let manual_compile_only_for_change = manual_compile_only.clone();
         let outline_for_change = outline_panel.clone();
         let comments_for_change = comments_panel.clone();
         let refs_for_change = ref_manager.clone();
@@ -1012,8 +977,6 @@ impl AppWindow {
             let editor = editor_for_change.clone();
             let gen3 = gen2.clone();
             let auto = auto_compile_for_change.clone();
-            let cos = compile_on_save_for_change.clone();
-            let mco = manual_compile_only_for_change.clone();
             let outline = outline_for_change.clone();
             let comments = comments_for_change.clone();
             let refs = refs_for_change.clone();
@@ -1026,7 +989,7 @@ impl AppWindow {
             editor_pane_for_delta.set_session_delta(delta);
             glib::timeout_add_local(delay, move || {
                 if *gen3.borrow() == my_gen {
-                    let should_compile = *auto.borrow() && !*cos.borrow() && !*mco.borrow();
+                    let should_compile = *auto.borrow();
                     if should_compile {
                         if let Some(path) = editor.get_active_path() {
                             if let Some(content) = editor.get_active_content() {
@@ -2425,7 +2388,7 @@ impl AppWindow {
             project_root: project_root.clone(),
             library: library.clone(),
             library_window: library_window.clone(),
-            manual_compile_only: manual_compile_only.clone(),
+            auto_compile: auto_compile.clone(),
         });
 
         Self {
@@ -2444,8 +2407,7 @@ impl AppWindow {
             writing_log,
             file_start_words,
             session_start,
-            compile_on_save,
-            manual_compile_only,
+            auto_compile,
             file_watcher,
             compile_btn,
             library,
@@ -2474,7 +2436,7 @@ impl AppWindow {
         let sync = self.sync_btn.clone();
         let search = self.search_panel.clone();
         let file_tree = self.file_tree.clone();
-        let kb_manual_only = self.manual_compile_only.clone();
+        let kb_auto_compile = self.auto_compile.clone();
         let snapshot_root = self.project_root.clone();
         let toast_for_key = self.toast_overlay.clone();
         let config_for_print_key = self.config.clone();
@@ -2643,7 +2605,7 @@ impl AppWindow {
                             crate::auto_save::clear(&path);
                             library_for_key.borrow_mut().touch_saved(&path).ok();
                             save_snapshot(&snapshot_root, &path, &content);
-                            if !*kb_manual_only.borrow() {
+                            if *kb_auto_compile.borrow() {
                                 preview.set_buffer_snapshot(path.clone(), content);
                                 preview.set_root_file(path);
                                 preview.trigger_compile();
@@ -3128,27 +3090,20 @@ impl AppWindow {
     }
 }
 
-fn compile_mode_label_str(auto: bool, _cos: bool, mco: bool) -> &'static str {
-    // Anything that isn't manual or auto compiles on save, whether or not the
-    // compile_on_save flag is explicitly set.
-    if mco {
-        "manual"
-    } else if auto {
-        "auto"
+fn compile_mode_label_str(auto: bool) -> &'static str {
+    if auto {
+        "auto compile"
     } else {
-        "on save"
+        "manual compile"
     }
 }
 
-fn apply_compile_mode_css(btn: &Button, auto: bool, _cos: bool, mco: bool) {
-    if mco {
-        btn.add_css_class("compile-mode-manual");
-        btn.remove_css_class("compile-mode-auto");
-    } else if auto {
+fn apply_compile_mode_css(btn: &Button, auto: bool) {
+    if auto {
         btn.add_css_class("compile-mode-auto");
         btn.remove_css_class("compile-mode-manual");
     } else {
-        btn.remove_css_class("compile-mode-manual");
+        btn.add_css_class("compile-mode-manual");
         btn.remove_css_class("compile-mode-auto");
     }
 }
@@ -3924,19 +3879,16 @@ pub(super) fn open_template_for_active_document(
     );
 
     let ep = editor.clone();
-    let win = window.clone();
     let pv = preview.clone();
     let toasts = toast_overlay.clone();
     let root = project_root.to_path_buf();
     dlg.set_on_apply(move |new_content, sidecar| {
         apply_template_result(
-            &win,
             &ep,
             &pv,
             &toasts,
             &root,
             current_path.clone(),
-            current_content.clone(),
             new_content,
             sidecar,
         );
@@ -3996,13 +3948,11 @@ fn apply_doc_font_edit(
 /// document has no body marker, since applying then replaces the whole file.
 #[allow(clippy::too_many_arguments)]
 fn apply_template_result(
-    window: &adw::ApplicationWindow,
     editor: &super::editor_pane::EditorPane,
     preview: &super::preview_pane::PreviewPane,
     toast_overlay: &adw::ToastOverlay,
     project_root: &Path,
     path: PathBuf,
-    current_content: String,
     new_content: String,
     sidecar: super::template_dialog::SidecarSettings,
 ) {
@@ -4071,6 +4021,9 @@ fn apply_template_result(
             preview.trigger_compile();
 
             match outcome {
+                SpliceOutcome::BodyAdopted => toast_overlay.add_toast(adw::Toast::new(&format!(
+                    "This document had no template yet, so your writing became the body.{backup_note}"
+                ))),
                 SpliceOutcome::BodyRegenerated => toast_overlay.add_toast(adw::Toast::new(
                     &format!("Layout changed, so the CV body was rebuilt.{backup_note}"),
                 )),
@@ -4081,32 +4034,14 @@ fn apply_template_result(
         }
     };
 
-    if super::template_dialog::has_body_marker(&current_content) {
-        do_apply();
-    } else {
-        let confirm = adw::MessageDialog::new(
-            Some(window),
-            Some("Replace entire document?"),
-            Some(
-                "This document has no body marker, so the template \
-                  will replace the whole file. Your current text will be \
-                  moved to a .typ.bak backup alongside it.\n\n\
-                  If you meant to keep this text, cancel and use \
-                  Repair Template Markers first.",
-            ),
-        );
-        confirm.add_response("cancel", "Cancel");
-        confirm.add_response("replace", "Replace Document");
-        confirm.set_response_appearance("replace", adw::ResponseAppearance::Destructive);
-        confirm.set_default_response(Some("cancel"));
-        confirm.set_close_response("cancel");
-        confirm.connect_response(None, move |_, id| {
-            if id == "replace" {
-                do_apply();
-            }
-        });
-        confirm.present();
-    }
+    // Splicing preserves the user's writing whether or not the document ever
+    // had a template — see apply_body_splice_reporting's BodyAdopted case —
+    // so there's nothing destructive here left for a confirmation dialog to
+    // guard against. The only way to reach WholeDocumentReplaced now is an
+    // already-empty document (nothing to lose) or a fresh template with no
+    // marker of its own, which is a generation bug rather than a user
+    // decision.
+    do_apply();
 }
 
 /// Open the print sheet for the current document.

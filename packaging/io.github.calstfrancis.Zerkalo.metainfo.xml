@@ -35,7 +35,7 @@
       <li>Export to PDF, HTML, DOCX, ODT, LaTeX, or EPUB; Ctrl+Shift+E for instant PDF export</li>
       <li>Citation style switcher — APA, Chicago, GOST 7.32, and more, plus custom CSL styles</li>
       <li>BibTeX and Hayagriva YAML bibliography support, with cited-only bibliography export and project-wide citation key rename — a Kartoteka vault folder works as a live bibliography source too</li>
-      <li>Compile on save with live preview; scroll position preserved across recompiles</li>
+      <li>Auto or manual compile with live preview (status-bar toggle, manual by default); scroll position preserved across recompiles</li>
       <li>Auto-save to recovery file on idle; periodic save every 30 seconds</li>
       <li>Git sync — commit and push to all remotes in one click, with git bundled so there's nothing to install; three-screen setup signs in with GitHub (which supplies your name and email automatically), creates and links a new repository, or backs up to a plain folder or drive with no account at all; once set up, backups also happen automatically in the background and once more on quit, with no button to remember — a colour badge on the Sync button shows whether anything's waiting to be backed up, or if the last attempt failed</li>
     </ul>
@@ -80,6 +80,16 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.29.4" date="2026-09-15">
+      <description>
+        <p>0.29.4 "Steady Hand" — simplifies the compile trigger to a
+        plain Auto / Manual choice (the "On Save" mode is gone, since it
+        behaved identically to Manual), with Manual as the new default,
+        and fixes applying a template to a document that was never
+        templated so your existing writing becomes the new document's
+        body instead of being discarded.</p>
+      </description>
+    </release>
     <release version="0.29.3" date="2026-09-09">
       <description>
         <p>0.29.3 "Clear Glass" — relabels the status bar's template

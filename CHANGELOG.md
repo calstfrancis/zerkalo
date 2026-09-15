@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.29.4] "Steady Hand" — 2026-09-15 — Simpler compile mode, no more lost drafts on first template
+
+### Changed
+
+- **Removed the "On Save" compile mode** — the compile trigger is now a simple Auto / Manual choice, in Settings and in the status-bar toggle (now labeled "auto compile" / "manual compile"). "On Save" behaved identically to Manual in practice (Save already recompiled in every mode), so the third option was a distinction without a difference. **Manual is now the default** for new configs, rather than Auto.
+
+### Fixed
+
+- **Applying a template to a document that was never templated no longer discards what you wrote.** Previously, starting a document without a template and then using "Change Document Style…" would replace the whole file with the fresh template's placeholder body, keeping your original text only in a `.typ.bak` backup. Your existing text is now adopted as the new document's body under the applied template's preamble, the same way an already-templated document's body is preserved when its settings change.
+
+---
+
 ## [0.29.3] "Clear Glass" — 2026-09-09 — Clearer template toggle, better first-run explanation
 
 ### Changed

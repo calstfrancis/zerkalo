@@ -184,26 +184,21 @@ impl SettingsDialog {
         debounce_spin.set_subtitle(&tr("settings-compile-delay-subtitle"));
         debounce_spin.set_value(current.debounce_ms as f64);
 
-        // 3-way pill: Auto | On Save | Manual
+        // 2-way pill: Auto | Manual
         let btn_auto = gtk4::ToggleButton::with_label(&tr("settings-compile-mode-auto"));
-        let btn_save = gtk4::ToggleButton::with_label(&tr("settings-compile-mode-on-save"));
         let btn_manual = gtk4::ToggleButton::with_label(&tr("settings-compile-mode-manual"));
-        btn_save.set_group(Some(&btn_auto));
         btn_manual.set_group(Some(&btn_auto));
 
-        if current.manual_compile_only {
-            btn_manual.set_active(true);
-        } else if current.compile_on_save {
-            btn_save.set_active(true);
-        } else {
+        if current.auto_compile {
             btn_auto.set_active(true);
+        } else {
+            btn_manual.set_active(true);
         }
 
         let pill_box = GtkBox::new(Orientation::Horizontal, 0);
         pill_box.add_css_class("linked");
         pill_box.set_valign(Align::Center);
         pill_box.append(&btn_auto);
-        pill_box.append(&btn_save);
         pill_box.append(&btn_manual);
 
         let compile_mode_row = adw::ActionRow::new();
@@ -947,8 +942,6 @@ impl SettingsDialog {
                     custom_csl_path,
                     debounce_ms: debounce_spin.value() as u64,
                     auto_compile: btn_auto.is_active(),
-                    compile_on_save: btn_save.is_active(),
-                    manual_compile_only: btn_manual.is_active(),
                     editor_font_size,
                     theme,
                     editor_font_family,

@@ -22,10 +22,9 @@ settings-compilation-title = Compilation
 settings-compile-delay-title = Compile delay
 settings-compile-delay-subtitle = How long to wait after you stop typing before updating the preview, in milliseconds (Auto mode only)
 settings-compile-mode-auto = Auto
-settings-compile-mode-on-save = On Save
 settings-compile-mode-manual = Manual
 settings-compile-trigger-title = Compile trigger
-settings-compile-trigger-subtitle = Auto: after each keystroke · On Save: Ctrl+S only · Manual: Ctrl+Shift+P only
+settings-compile-trigger-subtitle = Auto: after each keystroke · Manual: Save, the compile button, or Ctrl+Shift+P
 
 ## Appearance
 

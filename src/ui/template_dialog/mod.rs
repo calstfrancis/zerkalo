@@ -3697,10 +3697,31 @@ mod tests {
     }
 
     #[test]
-    fn splice_reports_a_whole_document_replacement() {
+    fn splice_adopts_untemplated_text_as_the_body_instead_of_replacing_it() {
+        // A document with real content but no body marker at all — the user
+        // started writing before ever applying a template — must keep that
+        // writing as the new document's body rather than losing it to the
+        // fresh template's placeholder body.
         let fresh = generate_typst_template(&sidecar_to_settings(&SidecarSettings::default()));
-        let (_, outcome) = apply_body_splice_reporting("= Just my notes\n", &fresh);
+        let (out, outcome) = apply_body_splice_reporting("= Just my notes\n", &fresh);
+        assert_eq!(outcome, SpliceOutcome::BodyAdopted);
+        assert!(out.contains("= Just my notes"));
+        assert!(
+            out.contains("ZERKALO-TEMPLATE-BEGIN"),
+            "has a real preamble now"
+        );
+        assert!(
+            !out.contains("Start writing here..."),
+            "the generator's own placeholder body must not survive"
+        );
+    }
+
+    #[test]
+    fn splice_reports_a_whole_document_replacement_only_when_theres_nothing_to_keep() {
+        let fresh = generate_typst_template(&sidecar_to_settings(&SidecarSettings::default()));
+        let (out, outcome) = apply_body_splice_reporting("   \n\n", &fresh);
         assert_eq!(outcome, SpliceOutcome::WholeDocumentReplaced);
+        assert_eq!(out, fresh);
     }
 
     #[test]
@@ -5641,7 +5662,13 @@ Body text.\n";
 
     #[test]
     fn apply_body_splice_fallback_when_no_body_marker() {
-        // A document with no body marker should get the full fresh template
+        // A document with no body marker at all gets a real preamble spliced
+        // in front of it — its actual content (`= Heading` / `Content.`) is
+        // adopted as the body, not discarded. The one leading comment line is
+        // the exception: `preamble_end_line`'s heuristic treats a lone
+        // comment before the first real content as leftover preamble, the
+        // same way `repair_template_markers` would, so it's the fresh
+        // preamble that wins there, not the old comment.
         let existing = "// some old stuff\n= Heading\nContent.\n";
         let fresh_settings = TemplateSettings {
             title: "Fresh".to_string(),
@@ -5681,8 +5708,8 @@ Body text.\n";
             include_bibliography: true,
         };
         let fresh = generate_typst_template(&fresh_settings);
-        let result = apply_body_splice(existing, &fresh);
-        // When neither document has body markers, get the full fresh doc
+        let (result, outcome) = apply_body_splice_reporting(existing, &fresh);
+        assert_eq!(outcome, SpliceOutcome::BodyAdopted);
         assert!(
             result.contains("ZERKALO-TEMPLATE-BEGIN"),
             "has template markers"
@@ -5690,6 +5717,14 @@ Body text.\n";
         assert!(
             result.contains("doc-title = \"Fresh\""),
             "fresh title present"
+        );
+        assert!(
+            result.contains("= Heading"),
+            "existing content adopted as body"
+        );
+        assert!(
+            result.contains("Content."),
+            "existing content adopted as body"
         );
     }
 
