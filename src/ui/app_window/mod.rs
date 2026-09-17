@@ -80,6 +80,7 @@ pub struct AppWindow {
     #[allow(dead_code)]
     outline_panel: OutlinePanel,
     help_overlay: Rc<super::help_overlay::HelpOverlay>,
+    tour: Rc<super::tour::Tour>,
     project_root: PathBuf,
     sync_btn: Button,
     sync_badge: Label,
@@ -698,6 +699,8 @@ impl AppWindow {
             });
         }
 
+        let what_things_do_action: Rc<RefCell<Option<Box<dyn Fn()>>>> = Rc::new(RefCell::new(None));
+        let take_tour_action: Rc<RefCell<Option<Box<dyn Fn()>>>> = Rc::new(RefCell::new(None));
         let menu_ctx = MenuCtx {
             window: window.clone(),
             editor_pane: editor_pane.clone(),
@@ -721,6 +724,8 @@ impl AppWindow {
             print_header_btn: print_header_btn.clone(),
             sync_btn: sync_btn.clone(),
             sync_badge: sync_badge.clone(),
+            what_things_do_action: what_things_do_action.clone(),
+            take_tour_action: take_tour_action.clone(),
         };
 
         wire_app_menus(&menu_ctx, &menus);
@@ -1617,6 +1622,8 @@ impl AppWindow {
             });
         }
 
+        let start_tour_after_welcome: Rc<RefCell<Option<Box<dyn FnOnce()>>>> =
+            Rc::new(RefCell::new(None));
         wire_startup(&LifecycleCtx {
             window: window.clone(),
             editor_pane: editor_pane.clone(),
@@ -1633,6 +1640,7 @@ impl AppWindow {
             last_completion_request: last_completion_request.clone(),
             last_edit_instant: last_edit_instant.clone(),
             shown_simple_intro: config.shown_simple_intro,
+            start_tour_after_welcome: start_tour_after_welcome.clone(),
         });
         // ── Layout ──────────────────────────────────────────────────────────
 
@@ -2381,7 +2389,63 @@ impl AppWindow {
                 status_bar: editor_pane.status_bar_widget(),
             },
         );
-        window.set_content(Some(help_overlay.widget()));
+        // First-run guided tour, layered outside the F1 overlay so it draws
+        // above it (they're never shown at once in practice, but the tour
+        // owning the outermost layer is the one that should win if a key
+        // ever fires both).
+        let tour = super::tour::Tour::new(help_overlay.widget());
+        window.set_content(Some(tour.widget()));
+        {
+            let toast_for_tour = toast_overlay.clone();
+            tour.set_on_finished(move || {
+                let t = adw::Toast::new(
+                    "That's the tour — press F1 anytime to see what a button does, or replay it from Help & About.",
+                );
+                t.set_timeout(8);
+                toast_for_tour.add_toast(t);
+            });
+        }
+        {
+            // Steps are collected now, while every widget they point at is
+            // in scope, and moved whole into the closure `wire_startup`
+            // registered earlier — see `start_tour_after_welcome`'s doc
+            // comment for why this can't just be done inline up there.
+            let steps = super::tour::tour_steps(&super::help_overlay::AnnotationTargets {
+                sidebar_btn: &sidebar_btn,
+                file_title_widget: &file_title_widget,
+                style_btn: &style_btn,
+                sync_btn: &sync_btn,
+                library_btn: &library_btn,
+                preview_label: &preview_label,
+                menu_btn: &menu_btn,
+                compile_btn: &compile_btn,
+                compile_mode_slot: &compile_mode_slot,
+                outline: outline_panel.widget(),
+                citations: citation_panel.widget(),
+                editor: editor_pane.widget(),
+                preview: preview_pane.widget(),
+                status_bar: editor_pane.status_bar_widget(),
+            });
+            // Both closures need their own copy — a `move` closure captures
+            // by moving at creation time, not at call time, so the first one
+            // would otherwise take `steps` away from the second entirely.
+            let steps_for_welcome = steps.clone();
+            let tour_c = tour.clone();
+            *start_tour_after_welcome.borrow_mut() = Some(Box::new(move || {
+                tour_c.start(steps_for_welcome);
+            }));
+
+            let tour_for_menu = tour.clone();
+            *take_tour_action.borrow_mut() = Some(Box::new(move || {
+                tour_for_menu.start(steps.clone());
+            }));
+        }
+        {
+            let help_overlay_c = help_overlay.clone();
+            *what_things_do_action.borrow_mut() = Some(Box::new(move || {
+                help_overlay_c.toggle();
+            }));
+        }
         let file_watcher = wire_file_watcher(&WatcherCtx {
             editor_pane: editor_pane.clone(),
             preview_pane: preview_pane.clone(),
@@ -2398,6 +2462,7 @@ impl AppWindow {
             error_panel,
             outline_panel,
             help_overlay,
+            tour,
             project_root,
             sync_btn,
             sync_badge,
@@ -2578,6 +2643,7 @@ impl AppWindow {
         let work_dir_for_paste_key = self.project_root.clone();
         let toast_overlay_for_paste_key = self.toast_overlay.clone();
         let help_overlay_for_key = self.help_overlay.clone();
+        let tour_for_key = self.tour.clone();
 
         controller.connect_key_pressed(move |_, key, _, modifier| {
             use gtk4::gdk::ModifierType;
@@ -2585,11 +2651,22 @@ impl AppWindow {
             let shift = modifier.contains(ModifierType::SHIFT_MASK);
             let alt = modifier.contains(ModifierType::ALT_MASK);
 
+            // The guided tour, when it's running, takes priority over
+            // everything below — Escape ends it (same as clicking Skip), and
+            // F1 does nothing so the two coach-mark layers can never show at
+            // once.
+            if key == gtk4::gdk::Key::Escape && tour_for_key.is_shown() {
+                tour_for_key.finish();
+                return glib::Propagation::Stop;
+            }
+
             // Labels everything on screen; Escape takes the labels away.
             // Checked before anything else so the overlay can always be shut,
             // whatever else Escape might mean to the widget with focus.
             if matches_binding(&kb.help_overlay, ctrl, shift, alt, key) {
-                help_overlay_for_key.toggle();
+                if !tour_for_key.is_shown() {
+                    help_overlay_for_key.toggle();
+                }
                 return glib::Propagation::Stop;
             }
             if key == gtk4::gdk::Key::Escape && help_overlay_for_key.is_shown() {
@@ -3426,6 +3503,8 @@ struct HamburgerItems {
     menu_settings_item: Button,
     menu_help_item: Button,
     menu_shortcuts_item: Button,
+    menu_what_things_do_item: Button,
+    menu_take_tour_item: Button,
     menu_writing_stats_item: Button,
     menu_about_item: Button,
     menu_whats_new_item: Button,
@@ -3473,6 +3552,10 @@ fn build_hamburger_menu_items() -> HamburgerItems {
         // The keybinding-aware shortcuts window was reachable only by its
         // shortcut; nothing in the menu opened it.
         menu_shortcuts_item: make_menu_item("Keyboard Shortcuts", Some(&d(&kb.shortcuts_help))),
+        // Same story as Keyboard Shortcuts above: the F1 overlay existed
+        // long before anything in the menu pointed at it.
+        menu_what_things_do_item: make_menu_item("What Things Do", Some(&d(&kb.help_overlay))),
+        menu_take_tour_item: make_menu_item("Take the Tour", None),
         menu_writing_stats_item: make_menu_item("Writing Stats", None),
         menu_about_item: make_menu_item("About Zerkalo", None),
         menu_whats_new_item: make_menu_item("What's New", None),

@@ -7,7 +7,7 @@ use gtk4::{Align, Box as GtkBox, Button, Label, Orientation, ScrolledWindow, Sep
 use libadwaita as adw;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const RELEASE_NAME: &str = "Steady Hand";
+pub const RELEASE_NAME: &str = "Clear Reflection";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -153,16 +153,23 @@ impl WelcomeWindow {
                 "Type # to see suggestions for tables, figures, and other building blocks",
                 "Zerkalo hides the technical setup lines at the top of the file — change them from Change Document Style (≡ → Document Tools), not by scrolling up",
                 "Click the TEMPLATE button in the header, beside Library, if you ever want to see that setup section directly",
+                "Forgot what a button does? Press F1 to label everything on screen, or replay this walkthrough anytime from ≡ → Help & About → Take the Tour",
             ] {
                 body.append(&bullet_row(item));
             }
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             body.append(&bullet_row(
-                "The compile mode is now a simple Auto / Manual choice — the redundant \"On Save\" mode is gone, and the status-bar toggle reads \"auto compile\" / \"manual compile\". Manual is now the default.",
+                "A guided first-run tour — shown automatically the first time Zerkalo runs, and replayable anytime from ≡ → Help & About → Take the Tour. Walks through the editor, preview, template setup, library, compile mode, and backup in seven short steps.",
             ));
             body.append(&bullet_row(
-                "Applying a template to a document that was never templated no longer discards what you wrote — your text is now kept as the new document's body instead of being replaced.",
+                "What Things Do (the F1 overlay) is now reachable from the menu too — ≡ → Help & About — and its bubbles no longer crowd or overlap each other in busy areas like the header.",
+            ));
+            body.append(&bullet_row(
+                "What Things Do now also works inside New from Template / Change Document Style, and that dialog opens with a short banner explaining what it's about to do.",
+            ));
+            body.append(&bullet_row(
+                "Fixed Change Document Style showing both \"Create Document\" and \"Apply to Current\" at once — the second button did nothing when clicked.",
             ));
         }
 

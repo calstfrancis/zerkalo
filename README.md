@@ -36,7 +36,8 @@ raw markup dead-end: a live preview pane always shows the real formatting next t
 | **Cursor position** | Line and column in the editor status bar |
 | **Template toggle** | Off by default — the TEMPLATE button in the header shows or hides the document's technical setup lines above the body, so you can focus on writing prose; change them from the Update Template button instead |
 | **Focus Mode** | Hides the sidebar and secondary panels for distraction-free writing |
-| **What things do (F1)** | Labels every panel and control on screen with a bubble explaining it, drawn over the running window so the program stays visible underneath; Escape or a click dismisses. Covers the main editor window and the Library window |
+| **What things do (F1)** | Labels every panel and control on screen with a bubble explaining it, drawn over the running window so the program stays visible underneath; Escape or a click dismisses. Covers the main editor window, the Library window, and the New from Template / Change Document Style dialog. Also reachable from ☰ → Help & About → What Things Do, not just the F1 shortcut |
+| **Guided tour** | A short, step-by-step walkthrough of the essentials — editor, preview, template, library, sync, compile mode — shown automatically the first time Zerkalo runs, and replayable anytime from ☰ → Help & About → Take the Tour |
 | **Command palette** | `Ctrl+K`; fuzzy search over app commands and document headings; `Ctrl+G` for headings only |
 | **Session restore** | Open files, active tab, and cursor positions are restored on next launch |
 | **Save-before-close** | Closing with unsaved files shows a dialog listing modified files with Save All / Discard / Cancel |

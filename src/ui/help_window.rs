@@ -28,6 +28,8 @@ fn overview_blocks() -> Vec<Block<'static>> {
         Block::H2("Getting started"),
         Block::Body("Zerkalo opens your work folder (~/Documents/Zerkalo by default). The header dropdown shows your recent documents. Click the folder icon to browse all documents."),
         Block::Gap,
+        Block::Body("New here? ☰ → Help & About → Take the Tour walks through the essentials again, and What Things Do (or F1) labels any button or panel on screen with what it does — both run inside the editor and inside New from Template."),
+        Block::Gap,
         Block::Body("Create a new document from the hamburger menu (≡) or use New from Template… for a complete preamble. The left sidebar shows the document outline and a symbol insert panel."),
         Block::Gap,
         Block::Body("Once a template's settings are how you want them, press the save button beside \"Your Templates\" in that dialog to keep them under a name. Saved templates sit under the built-in presets and start a document exactly the way the last one started — the title, date, abstract and keywords are left out, since those belong to a single document rather than to a template."),

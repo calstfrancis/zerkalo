@@ -35,4 +35,5 @@ pub mod table_dialog;
 pub mod template_dialog;
 pub mod theme;
 pub mod tools_window;
+pub mod tour;
 pub mod welcome_window;

@@ -597,6 +597,8 @@ pub struct TemplateDialog {
     on_lock_identity: OnLockCb,
     on_advanced_toggle: OnAdvancedToggleCb,
     apply_btn: Button,
+    create_btn: Button,
+    intro_banner: adw::Banner,
     /// Every settings widget in the dialog. The `preselect_*` methods below are
     /// thin delegates onto it, so the gallery — which is built before this
     /// struct exists and holds only the form — pre-fills through exactly the
@@ -2551,6 +2553,53 @@ fn wire_action_buttons(
     });
 }
 
+/// F1 labels for the template dialog's own controls — the same "what things
+/// do" system the main window uses (`help_overlay.rs`), scoped to this
+/// dialog. `create_btn` and `apply_btn` are both annotated even though only
+/// one is ever visible at a time (Create vs Apply mode) — the overlay skips
+/// bubbles for anything not on screen, so writing copy for both here is
+/// simpler than threading the mode through.
+fn annotate_template_dialog(
+    overlay: &super::help_overlay::HelpOverlay,
+    cancel_btn: &Button,
+    preview_code_btn: &Button,
+    cv_toggle_box: &GtkBox,
+    notebook: &Notebook,
+    create_btn: &Button,
+    apply_btn: &Button,
+) {
+    overlay.annotate(
+        notebook,
+        "Everything about the setup",
+        "Template presets and your own saved templates here; Document, Layout, Sections, Languages and Packages in the tabs to the left.",
+    );
+    overlay.annotate(
+        cv_toggle_box,
+        "CV mode",
+        "Narrows every tab to résumé-relevant settings and swaps in the résumé templates instead of essay ones.",
+    );
+    overlay.annotate(
+        preview_code_btn,
+        "See it before you apply it",
+        "Shows the exact Typst preamble this will generate, without writing anything.",
+    );
+    overlay.annotate(
+        create_btn,
+        "Writes a brand-new file",
+        "Nothing is saved until you click this — pick a name and folder in the dialog that follows.",
+    );
+    overlay.annotate(
+        apply_btn,
+        "Keeps your writing",
+        "Regenerates only the setup above your text — title page, style, layout. Whatever you've already written stays exactly as it is, every time.",
+    );
+    overlay.annotate(
+        cancel_btn,
+        "Close without changing anything",
+        "Nothing here takes effect until Create or Apply is clicked, so Cancel is always safe.",
+    );
+}
+
 impl TemplateDialog {
     pub fn new(
         parent: &impl IsA<gtk4::Window>,
@@ -2756,12 +2805,68 @@ impl TemplateDialog {
         );
         wire_latex_font_lock(&form);
 
+        // ── Explanation banner ──────────────────────────────────────────────
+        // Same adw::Banner pattern as the editor's frontmatter banner — a
+        // one-time "here's the concept" strip, dismissible for this session.
+        // Text starts in Create framing; `set_on_apply` below rewrites it for
+        // Change Document Style, where the thing people actually need to
+        // know is that their existing writing survives.
+        let intro_banner = adw::Banner::new(
+            "Sets up title, layout, and citation style for a new document — nothing is \
+             written until you press Create Document.",
+        );
+        intro_banner.set_button_label(Some("Got it"));
+        intro_banner.set_revealed(true);
+        {
+            let b = intro_banner.clone();
+            intro_banner.connect_button_clicked(move |_| b.set_revealed(false));
+        }
+
         // ── Layout ───────────────────────────────────────────────────────────
+        let content_box = GtkBox::new(Orientation::Vertical, 0);
+        content_box.append(&intro_banner);
+        content_box.append(&notebook);
+
         let toolbar_view = adw::ToolbarView::new();
         toolbar_view.set_top_bar_style(adw::ToolbarStyle::RaisedBorder);
         toolbar_view.add_top_bar(&header);
-        toolbar_view.set_content(Some(&notebook));
-        window.set_content(Some(&toolbar_view));
+        toolbar_view.set_content(Some(&content_box));
+
+        // F1 labels this dialog's own controls — same system as the main
+        // window, just a separate overlay instance, since a modal dialog is
+        // its own top-level and never shares the window the other one wraps.
+        let dialog_help_overlay = super::help_overlay::HelpOverlay::new(&toolbar_view);
+        annotate_template_dialog(
+            &dialog_help_overlay,
+            &cancel_btn,
+            &preview_code_btn,
+            &cv_toggle_box,
+            &notebook,
+            &create_btn,
+            &apply_btn,
+        );
+        window.set_content(Some(dialog_help_overlay.widget()));
+        {
+            let kb = crate::keybindings::Keybindings::load();
+            let overlay = dialog_help_overlay.clone();
+            let controller = gtk4::EventControllerKey::new();
+            controller.connect_key_pressed(move |_, key, _, modifier| {
+                use gtk4::gdk::ModifierType;
+                let ctrl = modifier.contains(ModifierType::CONTROL_MASK);
+                let shift = modifier.contains(ModifierType::SHIFT_MASK);
+                let alt = modifier.contains(ModifierType::ALT_MASK);
+                if crate::keybindings::matches_binding(&kb.help_overlay, ctrl, shift, alt, key) {
+                    overlay.toggle();
+                    return glib::Propagation::Stop;
+                }
+                if key == gtk4::gdk::Key::Escape && overlay.is_shown() {
+                    overlay.hide();
+                    return glib::Propagation::Stop;
+                }
+                glib::Propagation::Proceed
+            });
+            window.add_controller(controller);
+        }
 
         wire_action_buttons(
             &window,
@@ -2793,6 +2898,8 @@ impl TemplateDialog {
             on_lock_identity,
             on_advanced_toggle,
             apply_btn,
+            create_btn,
+            intro_banner,
             form,
             cv_elements_row,
             cv_elements_path,
@@ -2855,9 +2962,22 @@ impl TemplateDialog {
     pub fn set_on_apply(&self, f: impl Fn(String, SidecarSettings) + 'static) {
         *self.on_apply.borrow_mut() = Some(Box::new(f));
         self.apply_btn.set_visible(true);
+        // Create Document has nothing to do in this mode — on_create is never
+        // set by this call path, so it would sit there as a live-looking
+        // button that silently does nothing if clicked. Previously left
+        // visible alongside Apply to Current, which read as "pick one of
+        // two ways to finish" when there was really only one.
+        self.create_btn.set_visible(false);
         // Retitle the window to clarify intent — must match the menu row
         // that opens it ("Change Document Style…", app_window/mod.rs).
         self.window.set_title(Some("Change Document Style"));
+        // The banner's whole point changes here: Create mode is about what's
+        // about to be generated, Apply mode is about what's about to be kept.
+        self.intro_banner.set_title(
+            "Applying only replaces the setup above your writing — title page, style, \
+             layout. Text you've already written is always kept, exactly as it is.",
+        );
+        self.intro_banner.set_revealed(true);
     }
 
     /// Pre-select a citation style by its internal key (e.g. "sbl", "apa").

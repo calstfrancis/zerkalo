@@ -25,7 +25,8 @@
       <li>Simple Mode — hides Typst front-matter, shows format bar, and hides line numbers for a clean writing view</li>
       <li>Configurable keybindings via keybindings.toml</li>
       <li>Font Management — enable/disable installed fonts and set default sans/serif fonts used for new documents and template previews</li>
-      <li>Press F1 for an in-place help overlay that labels every panel and control on screen</li>
+      <li>Press F1 (or ☰ → Help & About → What Things Do) for an in-place help overlay that labels every panel and control on screen, including inside New from Template / Change Document Style</li>
+      <li>A guided first-run tour of the essentials, replayable anytime from ☰ → Help & About → Take the Tour</li>
     </ul>
     <p>Document workflow:</p>
     <ul>
@@ -80,6 +81,17 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.30.0" date="2026-09-17">
+      <description>
+        <p>0.30.0 "Clear Reflection" — adds a guided first-run tour of the
+        essentials (replayable anytime from Help & About), makes the F1
+        "What Things Do" overlay reachable from the menu and usable inside
+        New from Template / Change Document Style, and fixes the overlay's
+        bubbles crowding or overlapping each other in busy areas like the
+        header. Also fixes Change Document Style showing a dead "Create
+        Document" button alongside "Apply to Current."</p>
+      </description>
+    </release>
     <release version="0.29.4" date="2026-09-15">
       <description>
         <p>0.29.4 "Steady Hand" — simplifies the compile trigger to a

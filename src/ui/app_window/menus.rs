@@ -61,6 +61,13 @@ pub(super) struct MenuCtx {
     pub(super) print_header_btn: Button,
     pub(super) sync_btn: Button,
     pub(super) sync_badge: Label,
+    /// Filled in later, once the F1 overlay and guided tour exist — both are
+    /// built after this ctx is handed to `wire_app_menus`, the same ordering
+    /// problem `LifecycleCtx::start_tour_after_welcome` documents. `Fn`
+    /// rather than `FnOnce`: unlike the welcome-dismiss hook, these menu rows
+    /// can be clicked any number of times.
+    pub(super) what_things_do_action: Rc<RefCell<Option<Box<dyn Fn()>>>>,
+    pub(super) take_tour_action: Rc<RefCell<Option<Box<dyn Fn()>>>>,
 }
 
 /// Application-level rows: Settings, Help, Setup, Backup Remotes, About,
@@ -247,6 +254,32 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
             &window_for_keys,
             &crate::keybindings::Keybindings::load(),
         );
+    });
+
+    // ── Menu: What Things Do ─────────────────────────────────────────────
+    // Same F1 overlay as the shortcut — this exists purely so it can be
+    // *found*, not just remembered. Before this row, the only way to
+    // discover the overlay was already knowing to press F1.
+
+    let menu_popover_for_wtd = ctx.menu_popover.clone();
+    let what_things_do_action = ctx.what_things_do_action.clone();
+    menus.menu_what_things_do_item.connect_clicked(move |_| {
+        menu_popover_for_wtd.popdown();
+        if let Some(f) = what_things_do_action.borrow().as_ref() {
+            f();
+        }
+    });
+
+    // ── Menu: Take the Tour ──────────────────────────────────────────────
+    // Replays the first-run guided walkthrough on demand.
+
+    let menu_popover_for_tour = ctx.menu_popover.clone();
+    let take_tour_action = ctx.take_tour_action.clone();
+    menus.menu_take_tour_item.connect_clicked(move |_| {
+        menu_popover_for_tour.popdown();
+        if let Some(f) = take_tour_action.borrow().as_ref() {
+            f();
+        }
     });
 
     // ── Menu: What's New ────────────────────────────────────────────────

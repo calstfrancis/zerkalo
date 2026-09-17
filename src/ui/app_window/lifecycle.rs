@@ -37,6 +37,12 @@ pub(super) struct LifecycleCtx {
     pub(super) last_edit_instant: Rc<RefCell<Option<std::time::Instant>>>,
     /// The config as loaded at startup, for the one-shot intro check.
     pub(super) shown_simple_intro: bool,
+    /// Set by `AppWindow::new` once the guided tour exists — it's built after
+    /// `wire_startup` runs, so this is how the welcome window's dismiss
+    /// handler (registered here, fired later) reaches something that doesn't
+    /// exist yet at the time this function runs. `FnOnce` because it only
+    /// ever fires once, on the very first launch.
+    pub(super) start_tour_after_welcome: Rc<RefCell<Option<Box<dyn FnOnce()>>>>,
 }
 
 pub(super) fn wire_startup(ctx: &LifecycleCtx) {
@@ -121,6 +127,7 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
     let win_for_welcome = ctx.window.clone();
     let root_for_welcome = ctx.project_root.clone();
     let new_template_for_welcome = ctx.menu_new_template_item.clone();
+    let start_tour_after_welcome = ctx.start_tour_after_welcome.clone();
     glib::timeout_add_local(Duration::from_millis(1200), move || {
         if super::super::welcome_window::WelcomeWindow::should_show() {
             let is_first_run = super::super::welcome_window::WelcomeWindow::is_first_run();
@@ -129,10 +136,18 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
                 super::super::welcome_window::WelcomeWindow::new(&win_for_welcome, is_first_run);
             if is_first_run {
                 // "Get Started" leads straight into creating a first document
-                // instead of just closing the window on a blank editor.
+                // instead of just closing the window on a blank editor. The
+                // guided tour starts right alongside it — the template dialog
+                // that opens is modal, so the tour sits ready underneath and
+                // is simply what the user sees once they finish there
+                // (create a document, or cancel back to the blank editor).
                 let new_template = new_template_for_welcome.clone();
+                let start_tour = start_tour_after_welcome.clone();
                 ww.set_on_dismissed(move || {
                     new_template.emit_clicked();
+                    if let Some(f) = start_tour.borrow_mut().take() {
+                        f();
+                    }
                 });
             } else {
                 // Chain: after "Close", check if setup wizard is needed.

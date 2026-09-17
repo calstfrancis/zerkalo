@@ -17,6 +17,11 @@ use gtk4::{Align, Box as GtkBox, DrawingArea, Fixed, Label, Orientation};
 const BUBBLE_W: i32 = 232;
 /// Gap between a bubble and the thing it points at.
 const GAP: f64 = 14.0;
+/// Minimum breathing room kept between two different bubbles. Plain overlap
+/// avoidance alone lets bubbles land edge-to-edge with zero gap — in a
+/// crowded header that reads as one unreadable merged block, since nothing
+/// but a hairline border tells two card-coloured bubbles apart.
+const BUBBLE_GAP: f64 = 10.0;
 /// Space kept clear at the window edges.
 const MARGIN: f64 = 8.0;
 
@@ -39,6 +44,13 @@ pub struct HelpOverlay {
     area: DrawingArea,
     targets: Rc<RefCell<Vec<Rc<Target>>>>,
     hint: GtkBox,
+    /// Guards against `relayout` re-entering itself: moving/showing a bubble
+    /// can synchronously trigger another `connect_resize`/`connect_map`
+    /// callback before the current pass over `self.targets` finishes, which
+    /// would interleave two different layouts and pin two bubbles to the
+    /// same spot. A reentrant call is deferred instead of run inline.
+    laying_out: Cell<bool>,
+    relayout_pending: Cell<bool>,
 }
 
 impl HelpOverlay {
@@ -73,6 +85,8 @@ impl HelpOverlay {
             area,
             targets: Rc::new(RefCell::new(Vec::new())),
             hint,
+            laying_out: Cell::new(false),
+            relayout_pending: Cell::new(false),
         });
 
         {
@@ -155,6 +169,19 @@ impl HelpOverlay {
 
     /// Works out where every bubble goes, then asks for a redraw.
     fn relayout(&self) {
+        if self.laying_out.get() {
+            self.relayout_pending.set(true);
+            return;
+        }
+        self.laying_out.set(true);
+        self.relayout_inner();
+        self.laying_out.set(false);
+        if self.relayout_pending.take() {
+            self.relayout();
+        }
+    }
+
+    fn relayout_inner(&self) {
         // Geometry comes from the drawing area, not the Fixed beside it: an
         // Overlay gives a Fixed no allocation of its own (it measures zero,
         // since its children are positioned rather than packed), so asking the
@@ -278,7 +305,7 @@ impl HelpOverlay {
 /// Chooses where a bubble goes for a target rectangle: beside it if there's
 /// room, otherwise above or below, then nudged clear of bubbles already
 /// placed. Returns the bubble's top-left corner.
-fn place_bubble(
+pub(crate) fn place_bubble(
     anchor: (f64, f64, f64, f64),
     bw: f64,
     bh: f64,
@@ -301,7 +328,10 @@ fn place_bubble(
         if cx < MARGIN || cy < MARGIN || cx + bw > width - MARGIN || cy + bh > height - MARGIN {
             continue;
         }
-        if placed.iter().any(|p| overlaps(*p, (cx, cy, bw, bh))) {
+        if placed
+            .iter()
+            .any(|p| overlaps_with_gap(*p, (cx, cy, bw, bh), BUBBLE_GAP))
+        {
             continue;
         }
         return (cx, cy);
@@ -311,7 +341,35 @@ fn place_bubble(
     // header buttons, where a dozen bubbles compete for the same strip of
     // window. Sweep the whole layer and take the free spot nearest the target:
     // a bubble further away joined by a longer line still reads, where two
-    // bubbles on top of each other read as neither.
+    // bubbles on top of each other read as neither. Tried first with the
+    // usual breathing room, then — only if the layer is crowded enough that
+    // even that fails — with plain no-touching overlap avoidance, so a busy
+    // window still never pins two bubbles to the same spot even though it
+    // gives up the gap between them.
+    if let Some(spot) = sweep(anchor, bw, bh, width, height, placed, BUBBLE_GAP) {
+        return spot;
+    }
+    if let Some(spot) = sweep(anchor, bw, bh, width, height, placed, 0.0) {
+        return spot;
+    }
+    // The window is genuinely full — no gap-free rectangle exists anywhere.
+    // Better a legible bubble in a known place than one silently guaranteed
+    // to sit on top of another.
+    (centre_x, centre_y)
+}
+
+/// Scans the whole layer on a coarse grid for the free `bw`×`bh` spot nearest
+/// `anchor`'s centre, keeping `gap` clear of every already-placed bubble.
+fn sweep(
+    anchor: (f64, f64, f64, f64),
+    bw: f64,
+    bh: f64,
+    width: f64,
+    height: f64,
+    placed: &[(f64, f64, f64, f64)],
+    gap: f64,
+) -> Option<(f64, f64)> {
+    let (ax, ay, aw, ah) = anchor;
     let step = 12.0;
     let (acx, acy) = (ax + aw / 2.0, ay + ah / 2.0);
     let mut best: Option<(f64, f64, f64)> = None;
@@ -319,7 +377,10 @@ fn place_bubble(
     while y + bh <= height - MARGIN {
         let mut x = MARGIN;
         while x + bw <= width - MARGIN {
-            if !placed.iter().any(|p| overlaps(*p, (x, y, bw, bh))) {
+            if !placed
+                .iter()
+                .any(|p| overlaps_with_gap(*p, (x, y, bw, bh), gap))
+            {
                 let d = (x + bw / 2.0 - acx).powi(2) + (y + bh / 2.0 - acy).powi(2);
                 if best.is_none_or(|b| d < b.2) {
                     best = Some((x, y, d));
@@ -329,21 +390,23 @@ fn place_bubble(
         }
         y += step;
     }
-    if let Some((x, y, _)) = best {
-        return (x, y);
-    }
-    // The window is genuinely full. Better a legible bubble in a known place
-    // than one pushed off the edge.
-    (centre_x, centre_y)
+    best.map(|(x, y, _)| (x, y))
 }
 
 fn overlaps(a: (f64, f64, f64, f64), b: (f64, f64, f64, f64)) -> bool {
     a.0 < b.0 + b.2 && b.0 < a.0 + a.2 && a.1 < b.1 + b.3 && b.1 < a.1 + a.3
 }
 
+/// `overlaps`, but treating `b` as if it were `gap` pixels bigger on every
+/// side — so two bubbles are rejected as soon as they'd sit closer than
+/// `gap` apart, not just when they'd actually touch.
+fn overlaps_with_gap(a: (f64, f64, f64, f64), b: (f64, f64, f64, f64), gap: f64) -> bool {
+    overlaps(a, (b.0 - gap, b.1 - gap, b.2 + gap * 2.0, b.3 + gap * 2.0))
+}
+
 /// The two ends of the line joining a bubble to its target: from the bubble
 /// edge facing the target, to the nearest point on the target's edge.
-fn connector(
+pub(crate) fn connector(
     bubble: (f64, f64, f64, f64),
     anchor: (f64, f64, f64, f64),
 ) -> ((f64, f64), (f64, f64)) {
@@ -380,7 +443,7 @@ fn connector(
     }
 }
 
-fn rounded_rect(cr: &gtk4::cairo::Context, x: f64, y: f64, w: f64, h: f64, r: f64) {
+pub(crate) fn rounded_rect(cr: &gtk4::cairo::Context, x: f64, y: f64, w: f64, h: f64, r: f64) {
     let r = r.min(w / 2.0).min(h / 2.0).max(0.0);
     cr.new_sub_path();
     cr.arc(x + w - r, y + r, r, -std::f64::consts::FRAC_PI_2, 0.0);
@@ -600,5 +663,27 @@ mod tests {
     fn overlap_detection_ignores_rectangles_that_merely_touch() {
         assert!(!overlaps((0.0, 0.0, 10.0, 10.0), (10.0, 0.0, 10.0, 10.0)));
         assert!(overlaps((0.0, 0.0, 10.0, 10.0), (9.0, 0.0, 10.0, 10.0)));
+    }
+
+    #[test]
+    fn placed_bubbles_never_end_up_touching() {
+        // A dozen small controls packed into one narrow header strip, the
+        // shape of the real bug: several anchors only a few pixels apart
+        // fighting for the same crowded band of the window. Zero gap between
+        // bubbles used to be accepted as "not overlapping" — this pins that
+        // every pair keeps real breathing room, not just non-zero overlap.
+        let mut placed: Vec<(f64, f64, f64, f64)> = Vec::new();
+        for i in 0..12 {
+            let anchor = (20.0 + i as f64 * 30.0, 10.0, 24.0, 24.0);
+            let spot = place_bubble(anchor, 232.0, 70.0, 1400.0, 900.0, &placed);
+            let candidate = (spot.0, spot.1, 232.0, 70.0);
+            for p in &placed {
+                assert!(
+                    !overlaps_with_gap(*p, candidate, BUBBLE_GAP - 0.01),
+                    "bubble {candidate:?} sits closer than the minimum gap to {p:?}"
+                );
+            }
+            placed.push(candidate);
+        }
     }
 }

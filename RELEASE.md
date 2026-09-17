@@ -1,4 +1,4 @@
-# Zerkalo v0.29.4 "Steady Hand"
+# Zerkalo v0.30.0 "Clear Reflection"
 
 Install via Flatpak:
 
@@ -18,11 +18,15 @@ flatpak update io.github.calstfrancis.Zerkalo
 
 ### What's new
 
-A simplification and a data-safety fix.
+A guided tour for new users, and a more legible help overlay.
 
-**The compile trigger is now a plain Auto / Manual choice.** The old three-way "Auto / On Save / Manual" pill in Settings, and the matching status-bar toggle, are down to two options — "On Save" behaved exactly like Manual in practice, since Save already recompiled either way, so it was one option too many. The status-bar button now reads "auto compile" or "manual compile" depending on which is active, and **Manual is the new default** for anyone starting fresh.
+**A guided first-run tour** walks through the essentials — the editor, the preview, template setup, the library, compile mode, and backup — in seven short steps, shown automatically the first time Zerkalo runs and replayable anytime from ☰ → Help & About → Take the Tour.
 
-**Applying a template to a document that was never templated no longer throws away what you wrote.** If you started typing before ever running "New from Template" or "Change Document Style…", applying one used to replace the whole file with the fresh template's placeholder text — your own writing survived only in a `.typ.bak` backup. Now it's kept: your existing text becomes the new document's body, under the template's regenerated preamble, the same way an already-templated document's body is preserved when you change its settings.
+**The F1 "What Things Do" overlay is now reachable from the menu**, not just the F1 shortcut, and now also works inside New from Template / Change Document Style, labelling that dialog's own controls the same way it already covered the main window. That dialog also opens with a short banner explaining what it's about to do.
+
+**The F1 overlay's bubbles no longer crowd or overlap each other in busy areas like the header.** Two bugs caused it: bubbles could land edge-to-edge with no visible gap, reading as one unreadable block; and a last-resort fallback in the placement search skipped its own overlap check, which a crowded header reliably hit and pinned two bubbles to the same spot. Both are fixed.
+
+**Change Document Style no longer shows a dead "Create Document" button** alongside "Apply to Current" — clicking it used to do nothing.
 
 ---
 

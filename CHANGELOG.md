@@ -5,6 +5,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.30.0] "Clear Reflection" — 2026-09-17 — A guided tour, and a legible F1 overlay
+
+### Added
+
+- **A guided first-run tour** — shown automatically the first time Zerkalo runs (right alongside the first document's New from Template dialog), and replayable anytime from ☰ → Help & About → Take the Tour. Walks through the editor, preview, template setup, library, compile mode, and backup in seven short steps, using the same bubble-and-connector visual language as the F1 overlay, one step at a time with Next/Back/Skip.
+- **"What Things Do" (the F1 overlay) is now reachable from the menu**, not just the F1 shortcut — ☰ → Help & About → What Things Do. It previously had no menu entry at all, so a new user had no way to discover it existed.
+- **The F1 overlay now also works inside New from Template / Change Document Style**, labelling the dialog's own controls (its tabs, CV toggle, Preview Code, Cancel, and Create/Apply) the same way it already covered the main window.
+- **New from Template / Change Document Style now opens with a short explanation banner** stating what the dialog is about to do — and, in Change Document Style specifically, that applying only replaces the setup above the cursor and never touches text already written.
+
+### Fixed
+
+- **Change Document Style no longer shows both "Create Document" and "Apply to Current" at once.** The dialog is shared between "New from Template" and "Change Document Style," and the Create button was never hidden in the latter case — a live-looking button that silently did nothing if clicked, since nothing was listening for it in that mode.
+- **F1 overlay bubbles no longer overlap or crowd each other in busy areas, like the header.** Two bugs caused it: collision avoidance only rejected exact rectangle overlap, so two bubbles could land edge-to-edge with no visible gap between them; and the placement search's last-resort fallback skipped its own overlap check entirely, which a crowded header reliably hit, pinning two bubbles to the identical spot. Bubbles now always keep a minimum gap from each other, and the fallback is checked like everywhere else. Also closed a re-entrancy gap where moving a bubble could synchronously trigger another layout pass mid-loop and interleave two inconsistent placements.
+
+---
+
 ## [0.29.4] "Steady Hand" — 2026-09-15 — Simpler compile mode, no more lost drafts on first template
 
 ### Changed
