@@ -92,6 +92,20 @@ if [[ ! -f "$FLATPAK_REPO/objects/${COMMIT:0:2}/${COMMIT:2}.commitmeta" ]]; then
 fi
 echo "==> Signature verified for $APP_ID"
 
+# `git add -A` below stages ANY difference on disk, including a file that went
+# missing for reasons unrelated to this publish (an interrupted checkout, the
+# shared /tmp/flatpak-checkout getting cleared, etc.) — it would otherwise get
+# silently committed as if the deletion were intentional. This is exactly how
+# this app's own `.Debug` extension ref ended up with a missing object for
+# months before anyone noticed (found 2026-09-17). Refuse to publish if the
+# repo isn't fully intact.
+echo "==> Verifying repo integrity..."
+if ! ostree --repo="$FLATPAK_REPO" fsck; then
+  echo "ERROR: ostree fsck found a problem in $FLATPAK_REPO — refusing to publish."
+  echo "Investigate and repair the repo before committing; do not just re-run this script."
+  exit 1
+fi
+
 # ── 6. commit and push flatpak repo ──────────────────────────────────────────
 echo "==> Pushing flatpak repo..."
 cd "$FLATPAK_REPO"
