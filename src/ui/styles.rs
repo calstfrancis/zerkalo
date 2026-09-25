@@ -15,13 +15,19 @@ const FOND_CSS: &str = include_str!("../../style/fond.css");
 const GLOBAL_CSS: &str = "\
     /* The F1 \"what things do\" overlay. Solid backgrounds, because these sit \
        directly on top of the running window — a translucent bubble over an \
-       editor full of text is unreadable. Themed rather than literal colours \
-       so they follow light/dark like everything else. */ \
-    .help-bubble { background: @card_bg_color; border: 1px solid alpha(@accent_color, 0.55); \
+       editor full of text is unreadable. Deliberately literal (not @card_bg_color) \
+       and the one exception to \"never hardcode colours\" in this file: the \
+       overlay draws every bubble over arbitrary window content — the editor, \
+       the preview, dark panels — in both themes at once, not just the app's \
+       current scheme, so a themed background that goes dark in dark mode reads \
+       fine on its own but loses contrast against whatever's directly behind it. \
+       A fixed near-white card with fixed dark text is legible over anything, \
+       the same reasoning a paper sticky-note annotation would use. */ \
+    .help-bubble { background: #fafafa; border: 1px solid alpha(@accent_color, 0.55); \
                    border-radius: 10px; padding: 8px 10px; \
-                   box-shadow: 0 2px 8px alpha(@window_fg_color, 0.28); } \
-    .help-bubble-title { font-weight: bold; } \
-    .help-bubble-body { font-size: 0.9em; color: alpha(@window_fg_color, 0.8); } \
+                   box-shadow: 0 2px 8px alpha(black, 0.35); } \
+    .help-bubble-title { font-weight: bold; color: #1a1a1a; } \
+    .help-bubble-body { font-size: 0.9em; color: alpha(#1a1a1a, 0.8); } \
     .help-hint { background: @accent_color; color: @accent_fg_color; \
                  border-radius: 999px; padding: 6px 14px; font-size: 0.9em; } \
     .fond-accent-outline { color: #1F5E75; } \

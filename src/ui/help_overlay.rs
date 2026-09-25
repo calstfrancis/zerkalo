@@ -219,13 +219,15 @@ impl HelpOverlay {
             target.bubble.set_visible(true);
         }
 
-        let mut placed: Vec<(f64, f64, f64, f64)> = vec![(
-            (width - hint_w as f64) / 2.0,
-            height - hint_h as f64 - MARGIN * 2.0,
-            hint_w as f64,
-            hint_h as f64,
-        )];
-
+        // Two passes. The first just resolves every target's own highlighted
+        // rectangle; the second places bubbles knowing all of them up front.
+        // A single combined pass — placing each bubble as its anchor was
+        // found, the same way `placed` already accumulates bubbles — let an
+        // early bubble land squarely on a *later* target's anchor, since that
+        // anchor didn't exist yet as far as the placer knew. With a toolbar's
+        // worth of adjacent controls (the common case this overlay exists
+        // for), that reliably put a bubble on top of the very control next to
+        // the one it was labelling.
         for target in self.targets.borrow().iter() {
             let bounds = if target.widget.is_visible() && target.widget.is_mapped() {
                 target.widget.compute_bounds(&self.area)
@@ -253,12 +255,41 @@ impl HelpOverlay {
                 continue;
             }
             target.anchor.set(Some((rx, ry, rw, rh)));
+        }
+
+        // Every anchor is an obstacle from the start, alongside the hint pill —
+        // a bubble beside/above/below its own anchor never touches that anchor
+        // (the candidate positions in `place_bubble` are constructed strictly
+        // outside it), so including it here is a no-op for that one case and
+        // the fix for every other target's anchor.
+        let mut placed: Vec<(f64, f64, f64, f64)> = vec![(
+            (width - hint_w as f64) / 2.0,
+            height - hint_h as f64 - MARGIN * 2.0,
+            hint_w as f64,
+            hint_h as f64,
+        )];
+        placed.extend(self.targets.borrow().iter().filter_map(|t| t.anchor.get()));
+
+        for target in self.targets.borrow().iter() {
+            let Some(anchor) = target.anchor.get() else {
+                continue;
+            };
 
             let (_, bh, _, _) = target.bubble.measure(Orientation::Vertical, BUBBLE_W);
             let bw = BUBBLE_W as f64;
             let bh = bh as f64;
 
-            let spot = place_bubble((rx, ry, rw, rh), bw, bh, width, height, &placed);
+            let Some(spot) = place_bubble(anchor, bw, bh, width, height, &placed) else {
+                // Genuinely no room left anywhere — leave this target
+                // unlabelled this time rather than force an overlapping spot.
+                // The highlighted-anchor outline (drawn in `draw`) still
+                // needs a `placed` bubble rect to skip cleanly, so this
+                // target's `anchor`/`placed` are both cleared together.
+                target.anchor.set(None);
+                target.placed.set(None);
+                target.bubble.set_visible(false);
+                continue;
+            };
             placed.push((spot.0, spot.1, bw, bh));
             target.placed.set(Some((spot.0, spot.1, bw, bh)));
             target.bubble.set_visible(true);
@@ -304,7 +335,15 @@ impl HelpOverlay {
 
 /// Chooses where a bubble goes for a target rectangle: beside it if there's
 /// room, otherwise above or below, then nudged clear of bubbles already
-/// placed. Returns the bubble's top-left corner.
+/// placed. Returns the bubble's top-left corner, or `None` when the window
+/// is genuinely too crowded to fit it anywhere without overlapping something
+/// — real documents commonly give the editor and preview panels each a
+/// giant anchor rectangle covering most of the window, which can leave a
+/// dozen header-button targets competing for a header strip only tall enough
+/// for one row of bubbles; once that row is full there is nowhere left. A
+/// bubble that isn't shown at all reads better than one silently pinned on
+/// top of another — see `HelpOverlay::relayout_inner`, which hides that
+/// target's bubble on `None` rather than force a spot.
 pub(crate) fn place_bubble(
     anchor: (f64, f64, f64, f64),
     bw: f64,
@@ -312,7 +351,7 @@ pub(crate) fn place_bubble(
     width: f64,
     height: f64,
     placed: &[(f64, f64, f64, f64)],
-) -> (f64, f64) {
+) -> Option<(f64, f64)> {
     let (ax, ay, aw, ah) = anchor;
     let centre_y = (ay + ah / 2.0 - bh / 2.0).clamp(MARGIN, (height - bh - MARGIN).max(MARGIN));
     let centre_x = (ax + aw / 2.0 - bw / 2.0).clamp(MARGIN, (width - bw - MARGIN).max(MARGIN));
@@ -334,7 +373,7 @@ pub(crate) fn place_bubble(
         {
             continue;
         }
-        return (cx, cy);
+        return Some((cx, cy));
     }
 
     // Nothing fitted beside the target — which is the normal case for a row of
@@ -347,15 +386,19 @@ pub(crate) fn place_bubble(
     // window still never pins two bubbles to the same spot even though it
     // gives up the gap between them.
     if let Some(spot) = sweep(anchor, bw, bh, width, height, placed, BUBBLE_GAP) {
-        return spot;
+        return Some(spot);
     }
     if let Some(spot) = sweep(anchor, bw, bh, width, height, placed, 0.0) {
-        return spot;
+        return Some(spot);
     }
-    // The window is genuinely full — no gap-free rectangle exists anywhere.
-    // Better a legible bubble in a known place than one silently guaranteed
-    // to sit on top of another.
-    (centre_x, centre_y)
+    // The window is genuinely full — no gap-free rectangle exists anywhere,
+    // not even touching. `centre_x, centre_y` used to be returned here
+    // unconditionally: a bubble placed there ignores every obstacle, so it
+    // reliably landed on top of whatever was already occupying that exact
+    // spot — usually the previous target's own bubble, since both compete
+    // for the same crowded area. Leaving the target unlabelled this time is
+    // the honest outcome, not a bug to route around.
+    None
 }
 
 /// Scans the whole layer on a coarse grid for the free `bw`×`bh` spot nearest
@@ -601,7 +644,8 @@ mod tests {
 
     #[test]
     fn a_bubble_goes_beside_its_target_when_there_is_room() {
-        let placed = place_bubble((300.0, 300.0, 40.0, 20.0), 200.0, 60.0, 1000.0, 800.0, &[]);
+        let placed = place_bubble((300.0, 300.0, 40.0, 20.0), 200.0, 60.0, 1000.0, 800.0, &[])
+            .expect("plenty of room");
         assert_eq!(placed.0, 300.0 + 40.0 + GAP, "should sit to the right");
     }
 
@@ -609,7 +653,8 @@ mod tests {
     fn a_bubble_never_leaves_the_window() {
         // A control hard against the right edge: the bubble must come inside,
         // not hang off where it can't be read.
-        let (x, y) = place_bubble((960.0, 10.0, 30.0, 20.0), 200.0, 60.0, 1000.0, 800.0, &[]);
+        let (x, y) = place_bubble((960.0, 10.0, 30.0, 20.0), 200.0, 60.0, 1000.0, 800.0, &[])
+            .expect("plenty of room");
         assert!(x >= MARGIN, "x={x} is off the left edge");
         assert!(
             x + 200.0 <= 1000.0 - MARGIN + 0.01,
@@ -624,7 +669,8 @@ mod tests {
 
     #[test]
     fn two_targets_in_the_same_place_do_not_stack_their_bubbles() {
-        let first = place_bubble((300.0, 300.0, 40.0, 20.0), 200.0, 60.0, 1000.0, 800.0, &[]);
+        let first = place_bubble((300.0, 300.0, 40.0, 20.0), 200.0, 60.0, 1000.0, 800.0, &[])
+            .expect("plenty of room");
         let occupied = [(first.0, first.1, 200.0, 60.0)];
         let second = place_bubble(
             (300.0, 300.0, 40.0, 20.0),
@@ -633,7 +679,8 @@ mod tests {
             1000.0,
             800.0,
             &occupied,
-        );
+        )
+        .expect("plenty of room");
         assert!(
             !overlaps(
                 (first.0, first.1, 200.0, 60.0),
@@ -641,6 +688,36 @@ mod tests {
             ),
             "bubbles overlap: {first:?} and {second:?}"
         );
+    }
+
+    #[test]
+    fn a_bubble_never_lands_on_a_different_targets_anchor() {
+        // A toolbar's worth of adjacent controls — the case that actually
+        // matters here (a row of header buttons), reproduced with anchors
+        // pre-seeded into `placed` the way relayout_inner's first pass now
+        // does, before any bubble in the row was placed.
+        let anchors: Vec<(f64, f64, f64, f64)> = (0..6)
+            .map(|i| (20.0 + i as f64 * 40.0, 10.0, 30.0, 24.0))
+            .collect();
+
+        let mut placed = anchors.clone();
+        let mut bubbles = Vec::new();
+        for anchor in &anchors {
+            let spot = place_bubble(*anchor, 200.0, 60.0, 1000.0, 800.0, &placed)
+                .expect("six small anchors in a 1000-wide window leave plenty of room");
+            placed.push((spot.0, spot.1, 200.0, 60.0));
+            bubbles.push(spot);
+        }
+
+        for (bx, by) in &bubbles {
+            let bubble = (*bx, *by, 200.0, 60.0);
+            for anchor in &anchors {
+                assert!(
+                    !overlaps(bubble, *anchor),
+                    "bubble {bubble:?} overlaps a neighbouring anchor {anchor:?}"
+                );
+            }
+        }
     }
 
     #[test]
@@ -666,6 +743,52 @@ mod tests {
     }
 
     #[test]
+    fn a_window_with_no_room_left_reports_none_instead_of_forcing_an_overlap() {
+        // The actual bug, reproduced at the scale that triggered it: two big
+        // content-panel anchors (editor, preview) tile almost the entire
+        // window, and a run of small header-button anchors and their own
+        // already-placed bubbles fill the one strip of room that's left —
+        // matching a real project window (long title, sidebar, several
+        // header controls) captured live via HelpOverlay's own debug output.
+        // `place_bubble` used to fall back to an unchecked centre position
+        // once both `sweep` passes failed here, silently landing squarely on
+        // top of a bubble placed one target earlier — this pins that it
+        // reports no room instead.
+        let editor = (362.0, 92.0, 796.0, 953.0);
+        let preview = (1159.0, 47.0, 831.0, 954.0);
+        let status_bar = (0.0, 1046.0, 1990.0, 24.0);
+        let mut placed: Vec<(f64, f64, f64, f64)> = vec![editor, preview, status_bar];
+        // A tightly packed header row of small anchors, each already given a
+        // bubble — the exact shape that left no free spot for the next one.
+        for i in 0..8 {
+            let anchor = (
+                1600.0 + i as f64 * 40.0,
+                6.0 + (i % 2) as f64 * 3.0,
+                36.0,
+                30.0,
+            );
+            placed.push(anchor);
+            placed.push((1600.0 + i as f64 * 232.0, 8.0, 232.0, 90.0));
+        }
+
+        let crowded_anchor = (1759.0, 9.0, 71.0, 27.0);
+        let result = place_bubble(crowded_anchor, 232.0, 89.0, 1990.0, 1090.0, &placed);
+
+        match result {
+            None => {} // No room — the correct outcome; nothing left to check.
+            Some(spot) => {
+                let candidate = (spot.0, spot.1, 232.0, 89.0);
+                for p in &placed {
+                    assert!(
+                        !overlaps(*p, candidate),
+                        "bubble {candidate:?} overlaps {p:?} instead of reporting no room"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn placed_bubbles_never_end_up_touching() {
         // A dozen small controls packed into one narrow header strip, the
         // shape of the real bug: several anchors only a few pixels apart
@@ -675,7 +798,8 @@ mod tests {
         let mut placed: Vec<(f64, f64, f64, f64)> = Vec::new();
         for i in 0..12 {
             let anchor = (20.0 + i as f64 * 30.0, 10.0, 24.0, 24.0);
-            let spot = place_bubble(anchor, 232.0, 70.0, 1400.0, 900.0, &placed);
+            let spot = place_bubble(anchor, 232.0, 70.0, 1400.0, 900.0, &placed)
+                .expect("a 1400-wide window fits twelve small bubbles");
             let candidate = (spot.0, spot.1, 232.0, 70.0);
             for p in &placed {
                 assert!(

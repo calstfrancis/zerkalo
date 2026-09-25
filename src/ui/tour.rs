@@ -290,7 +290,16 @@ impl Tour {
         let (_, bh, _, _) = self.bubble.measure(Orientation::Vertical, BUBBLE_W);
         let bw = BUBBLE_W as f64;
         let bh = bh as f64;
-        let (x, y) = place_bubble((rx, ry, rw, rh), bw, bh, width, height, &[]);
+        // The tour only ever shows one bubble against an empty obstacle list,
+        // so `None` here means the target's own anchor is too large to fit a
+        // bubble beside anywhere — a full-bleed step like "Your document"
+        // pointing at the whole editor pane. Center it the same way the
+        // "target not on screen" branch above already does; there's no other
+        // bubble here for it to collide with, just its own oversized target.
+        let (x, y) = place_bubble((rx, ry, rw, rh), bw, bh, width, height, &[]).unwrap_or((
+            ((width - bw) / 2.0).max(MARGIN),
+            ((height - bh) / 2.0).max(MARGIN),
+        ));
         self.placed.set(Some((x, y, bw, bh)));
         self.fixed.move_(&self.bubble, x, y);
         self.area.queue_draw();
