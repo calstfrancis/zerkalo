@@ -7,7 +7,7 @@ use gtk4::{Align, Box as GtkBox, Button, Label, Orientation, ScrolledWindow, Sep
 use libadwaita as adw;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const RELEASE_NAME: &str = "Homeward Glass";
+pub const RELEASE_NAME: &str = "Polished Glass";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -160,10 +160,10 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
-                "New documents just ask for a name. They're saved in your Zerkalo folder and listed in the Library automatically, so fonts and citations always work.",
-                "Export asks where to save, and can open the result when it's done — PDFs and EPUBs in Pereplyot if you have it, everything else in your default app.",
-                "Export can also write a .bib or .yaml file with only the references your document actually cites.",
-                "The Library button is back at the top left, next to the sidebar toggle — and the document title's dropdown has a Show All in Library row.",
+                "Move into Zerkalo Folder… in the Library's document menu — for a document saved outside it, moves the file and its sidecars in one step.",
+                "Ctrl+Shift+E now follows the Export dialog's remembered folder and \"Open when finished\" setting, instead of always writing beside the source with no further action.",
+                "New Document now suggests a name that's actually free (\"Untitled 2\" when \"Untitled\" is taken).",
+                "The Library and Template buttons in the header now match, both with an icon beside their label.",
             ] {
                 body.append(&bullet_row(item));
             }

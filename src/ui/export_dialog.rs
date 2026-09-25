@@ -36,12 +36,12 @@ enum ExportMsg {
 const PEREPLYOT_APP_ID: &str = "io.github.calstfrancis.Pereplyot";
 
 #[derive(Clone, Copy)]
-enum Pereplyot {
+pub(crate) enum Pereplyot {
     Flatpak,
     Binary,
 }
 
-fn detect_pereplyot() -> Option<Pereplyot> {
+pub(crate) fn detect_pereplyot() -> Option<Pereplyot> {
     let quiet = |mut c: std::process::Command| {
         c.stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -263,7 +263,11 @@ impl ExportDialog {
             );
         }
 
-        content.append(&Separator::new(Orientation::Horizontal));
+        // Hidden until the first export starts — an empty log box just
+        // added dead space above "Select formats and click Export."
+        let log_separator = Separator::new(Orientation::Horizontal);
+        log_separator.set_visible(false);
+        content.append(&log_separator);
 
         // ── Progress log area ─────────────────────────────────────────────────
         let log_view = TextView::new();
@@ -272,6 +276,7 @@ impl ExportDialog {
         log_view.add_css_class("monospace");
         let log_scroll = ScrolledWindow::new();
         log_scroll.set_child(Some(&log_view));
+        log_scroll.set_visible(false);
         log_scroll.set_vexpand(true);
         log_scroll.set_min_content_height(100);
         log_scroll.set_margin_start(8);
@@ -370,6 +375,8 @@ impl ExportDialog {
             let checks = check_boxes.clone();
             let status_c = status_lbl.clone();
             let log_buf = log_view.buffer();
+            let log_scroll_c = log_scroll.clone();
+            let log_separator_c = log_separator.clone();
             let window_c = window.clone();
 
             export_btn.connect_clicked(move |btn| {
@@ -406,6 +413,8 @@ impl ExportDialog {
 
                 // Clear log
                 log_buf.set_text("");
+                log_scroll_c.set_visible(true);
+                log_separator_c.set_visible(true);
                 let total = selected.len() + usize::from(refs_format.is_some());
                 status_c.set_text(&format!("Exporting {total} file(s)…"));
                 btn.set_sensitive(false);
@@ -655,7 +664,11 @@ fn display_dir(dir: &std::path::Path) -> String {
 /// Opens an exported file: PDFs and EPUBs in Pereplyot when it's installed
 /// and preferred, everything else (and the fallback) in the desktop's
 /// default app via the OpenURI portal.
-fn open_exported(window: &adw::Window, path: &std::path::Path, pereplyot: Option<Pereplyot>) {
+pub(crate) fn open_exported(
+    window: &impl IsA<gtk4::Window>,
+    path: &std::path::Path,
+    pereplyot: Option<Pereplyot>,
+) {
     let readable = path
         .extension()
         .and_then(|e| e.to_str())

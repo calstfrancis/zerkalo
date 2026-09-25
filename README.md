@@ -34,7 +34,7 @@ raw markup dead-end: a live preview pane always shows the real formatting next t
 | **Word-count goal** | Add `// @goal: 3000` in your file; a progress ring tracks it in the status bar |
 | **Session delta** | Status bar shows `↑ N` words added since the file was opened |
 | **Cursor position** | Line and column in the editor status bar |
-| **Template toggle** | Off by default — the TEMPLATE button in the header shows or hides the document's technical setup lines above the body, so you can focus on writing prose; change them from the Update Template button instead |
+| **Template toggle** | Off by default — the "show template"/"hide template" status-bar button shows or hides the document's technical setup lines above the body, so you can focus on writing prose; change them from the Template button instead |
 | **Focus Mode** | Hides the sidebar and secondary panels for distraction-free writing |
 | **What things do (F1)** | Labels every panel and control on screen with a bubble explaining it, drawn over the running window so the program stays visible underneath; Escape or a click dismisses. Covers the main editor window, the Library window, and the New from Template / Change Document Style dialog. Also reachable from ☰ → Help & About → What Things Do, not just the F1 shortcut |
 | **Guided tour** | A short, step-by-step walkthrough of the essentials — editor, preview, template, library, sync, compile mode — shown automatically the first time Zerkalo runs, and replayable anytime from ☰ → Help & About → Take the Tour |
@@ -76,6 +76,7 @@ raw markup dead-end: a live preview pane always shows the real formatting next t
 | **Bulk operations** | Multi-select for archive, tag, categorize, add-to-project, and remove |
 | **Import** | New Document and Import… are both reachable directly from the Library header |
 | **Auto-registration** | Any `.typ` file opened in the editor is added automatically |
+| **Move into Zerkalo Folder…** | For a document saved outside your Zerkalo folder (dragged in from elsewhere, or from before name-only New Document existed), moves the `.typ` file and its comment/template sidecars in, picking a free name on a collision. Only offered when the document isn't currently open |
 
 ### Document workflow
 | Feature | Detail |
@@ -212,7 +213,7 @@ All settings are also editable via **☰ → Settings** inside the app.
 |---|---|
 | `Ctrl+S` | Save current file |
 | `Ctrl+Shift+P` | Compile and refresh preview |
-| `Ctrl+Shift+E` | Export PDF to document folder (no dialog) |
+| `Ctrl+Shift+E` | Export PDF to the Export dialog's remembered folder (no dialog) |
 | `Ctrl+P` | Print |
 | `Ctrl+F` | Find & Replace |
 | `Ctrl+Shift+F` | Find in Files (project-wide) |

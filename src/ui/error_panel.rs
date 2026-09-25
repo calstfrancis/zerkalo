@@ -773,6 +773,7 @@ impl ErrorPanel {
     }
 
     fn show_errors_inner(&self, errors: Vec<CompileError>, section: &str) {
+        let was_revealed = self.revealer.reveals_child();
         self.clear_rows();
 
         if errors.is_empty() {
@@ -880,12 +881,27 @@ impl ErrorPanel {
         }
         self.round_card_runs();
 
-        if self.collapsed.get() {
-            self.collapsed.set(false);
-            self.list_revealer.set_reveal_child(true);
-            self.chevron_btn.set_icon_name("pan-down-symbolic");
-            self.chevron_btn
-                .set_tooltip_text(Some("Collapse error list"));
+        if err_count > 0 {
+            // Real errors always get shown, even if the list was collapsed
+            // (manually, or by the warnings-only default just below) before
+            // this compile.
+            if self.collapsed.get() {
+                self.collapsed.set(false);
+                self.list_revealer.set_reveal_child(true);
+                self.chevron_btn.set_icon_name("pan-down-symbolic");
+                self.chevron_btn
+                    .set_tooltip_text(Some("Collapse error list"));
+            }
+        } else if !was_revealed && !self.collapsed.get() {
+            // Warnings only, and the panel wasn't already showing something —
+            // default to collapsed (just the "N warnings" header) rather than
+            // opening full-height for messages that don't block compiling.
+            // Left alone once the user's expanded or collapsed it themselves,
+            // so this only fires on the transition from clean/hidden.
+            self.collapsed.set(true);
+            self.list_revealer.set_reveal_child(false);
+            self.chevron_btn.set_icon_name("pan-end-symbolic");
+            self.chevron_btn.set_tooltip_text(Some("Expand error list"));
         }
 
         self.last_clean_label.set_visible(false);

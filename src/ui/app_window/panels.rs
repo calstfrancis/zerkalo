@@ -75,6 +75,10 @@ pub(super) fn build_panels(
         });
     }
     {
+        let ep = editor_pane.clone();
+        library_window.set_is_open(move |path| ep.is_file_open(&path.to_path_buf()));
+    }
+    {
         let lw = library_window.clone();
         library_btn.connect_clicked(move |_| lw.toggle());
     }

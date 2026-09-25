@@ -5,6 +5,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.33.0] "Polished Glass" — 2026-09-25 — Move stray documents in; Ctrl+Shift+E follows your export settings
+
+### Added
+
+- **"Move into Zerkalo Folder…"** in the Library's document menu, shown only for documents saved outside it — the leftover case from before 0.32.0's name-only New Document, or a document dragged in from elsewhere. Moves the `.typ` file and its comment/template sidecars in one step, picking a free name on a collision; refuses (with an explanation) on a document that's currently open, rather than leaving its editor tab pointing at a file that no longer exists.
+- **Export cited references now indents its BibTeX output** two spaces per field, matching every hand-written `.bib` file and the Reference Manager's own Hayagriva-to-BibTeX writer, instead of writing every field flush-left.
+
+### Changed
+
+- **Ctrl+Shift+E now follows the Export dialog's remembered folder and "Open when finished" setting** (including Pereplyot), instead of always writing a PDF next to the source file with no further action.
+- **The Reference Manager's "Export Cited-Only Bibliography" now supports `.yaml`, not just `.bib`**, and reads from a Kartoteka vault too — it's the same code introduced for the Export dialog's cited-references option in 0.32.0, rather than a separate, `.bib`-only implementation.
+- **The Library button is more prominent, and so is the Template button beside it** — both got a matching icon, closing the gap between them and the icon+label buttons everywhere else in the header.
+- **New Document, from any of the four places that offer it, now suggests a name that's actually free** ("Untitled 2" when "Untitled" is taken) instead of opening pre-filled with a name that's immediately rejected.
+- The Compile Errors panel now defaults to collapsed — just the "N warnings" header — the first time it appears showing only warnings, rather than opening full height for messages that don't block compiling. Real errors, and a warning list you've deliberately expanded, are unaffected.
+- Shortened the "plain text with light markup" first-open banner to fit on one line at typical window widths.
+- The status bar's "show template"/"hide template" toggle is now lowercase, matching the other words in that row (format bar, focus, search) — it was the one all-caps label there.
+- The Citations panel's "Open Kartoteka" button had no accessible label and a bare "K" for its whole visible content; it now reads the same way its circular siblings do.
+
+---
+
 ## [0.32.0] "Homeward Glass" — 2026-09-25 — Documents live in the Library; export where you choose
 
 ### Added

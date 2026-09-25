@@ -2503,6 +2503,7 @@ fn wire_action_buttons(
                 .replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], " ")
         };
         let sidecar = build_sidecar(&settings);
+        let suggested = super::name_prompt::suggest_free_name(&work_dir_for_create, &suggested);
 
         let win_c = win_for_create.clone();
         let cb = on_create_c.clone();

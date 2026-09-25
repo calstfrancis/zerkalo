@@ -1,4 +1,4 @@
-# Zerkalo v0.32.0 "Homeward Glass"
+# Zerkalo v0.33.0 "Polished Glass"
 
 Install via Flatpak:
 
@@ -18,15 +18,13 @@ flatpak update io.github.calstfrancis.Zerkalo
 
 ### What's new
 
-Your documents now have one home, and exports go wherever you want them.
+A follow-up polish release to 0.32.0's document-library and export changes.
 
-**New documents just ask for a name.** Creating a document — blank, from a template, from the Library, or with Save As — no longer opens a file-save dialog. You type a name and Zerkalo does the rest: it adds the `.typ`, saves the file in your Zerkalo folder, and lists it in the Library. Documents saved in other folders couldn't see the project's fonts and bibliography, which broke citations and fonts in confusing ways; that can't happen by accident any more.
+**Move stray documents in.** If a document is saved outside your Zerkalo folder — from before name-only New Document existed, or dragged in from elsewhere — the Library's document menu now has "Move into Zerkalo Folder…". It moves the file and its comment/template sidecars in one step, picking a free name if there's a collision. It won't move a document that's currently open, so it can't leave an editor tab pointing at a file that no longer exists.
 
-**Export where you choose.** The Export dialog now asks where to save (and remembers), and can open the file when it's done — PDFs and EPUBs in Pereplyot if you have it installed, everything else in your default app.
+**Ctrl+Shift+E follows your Export settings.** The quick-export shortcut used to always write a PDF next to the source file with no further action. It now writes to wherever the Export dialog remembers, and opens the result if "Open when finished" is on — including in Pereplyot.
 
-**Export just the references you cite.** Export can also write a `.bib` or `.yaml` file containing only the bibliography entries your document actually cites — handy for sending a paper to a co-author or journal without your whole library attached. It works from a `.bib` file, a `.yaml` file, or a Kartoteka vault.
-
-**The Library is easier to find.** Its button is back at the top left of the window, next to the sidebar toggle, and the document title's dropdown has a *Show All in Library* row.
+**Smaller things:** New Document now suggests a name that's actually free ("Untitled 2" when "Untitled" is taken). The Library and Template buttons in the header now match, both with an icon. The Compile Errors panel starts collapsed the first time it's showing only warnings, rather than opening full height. Cited-references BibTeX export is properly indented. The Reference Manager's own cited-only export now also supports `.yaml` and Kartoteka vaults, not just `.bib`.
 
 ---
 

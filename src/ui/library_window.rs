@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -69,6 +69,10 @@ pub struct LibraryWindow {
     selected_count_label: Label,
     toast_overlay: adw::ToastOverlay,
     on_open: Rc<RefCell<Option<Box<dyn Fn(PathBuf)>>>>,
+    /// Whether a path is currently open in the editor — used to refuse
+    /// "Move into Zerkalo Folder…" on a document with an open tab, since
+    /// nothing here retargets that tab's in-memory path.
+    is_open: Rc<RefCell<Option<Box<dyn Fn(&Path) -> bool>>>>,
     work_dir: PathBuf,
     config: Rc<RefCell<Config>>,
     view_mode: Rc<RefCell<ViewMode>>,
@@ -369,6 +373,7 @@ impl LibraryWindow {
             selected_count_label,
             toast_overlay,
             on_open: Rc::new(RefCell::new(None)),
+            is_open: Rc::new(RefCell::new(None)),
             work_dir,
             config,
             view_mode: Rc::new(RefCell::new(ViewMode::List)),
@@ -1377,6 +1382,22 @@ impl LibraryWindow {
         }
         vbox.append(&rename_b);
 
+        // Only offered for documents saved outside the Zerkalo folder — the
+        // common case is a document dragged in from elsewhere, or saved
+        // before name-only New Document existed. Those don't reliably see
+        // the project's fonts and bibliography.
+        if !doc.path.starts_with(&self.work_dir) {
+            let move_b = mk("Move into Zerkalo Folder…");
+            let this = self.clone();
+            let doc = doc.clone();
+            let pop = popover.clone();
+            move_b.connect_clicked(move |_| {
+                pop.popdown();
+                this.move_into_work_dir(&doc);
+            });
+            vbox.append(&move_b);
+        }
+
         let cat_b = mk("Edit Categories…");
         {
             let this = self.clone();
@@ -2129,6 +2150,61 @@ impl LibraryWindow {
             }
         });
         dlg.present();
+    }
+
+    /// Moves a document saved outside the Zerkalo folder (and its comment/
+    /// template sidecars, if present) into it, picking a free name with
+    /// `name_prompt::suggest_free_name` on a collision. Refuses when the
+    /// document is currently open — nothing here retargets an open editor
+    /// tab's in-memory path, so moving out from under it would leave that
+    /// tab pointing at a file that no longer exists.
+    fn move_into_work_dir(&self, doc: &crate::library::Document) {
+        if self.is_open.borrow().as_ref().is_some_and(|f| f(&doc.path)) {
+            let dlg = adw::MessageDialog::new(
+                Some(&self.window),
+                Some("Close the document first"),
+                Some("This document is open in the editor. Close its tab, then move it."),
+            );
+            dlg.add_response("ok", "OK");
+            dlg.present();
+            return;
+        }
+
+        let new_path = match super::name_prompt::move_into_dir(
+            &doc.path,
+            &self.work_dir,
+            &[
+                crate::comments::sidecar_path as fn(&Path) -> PathBuf,
+                crate::ui::template_dialog::sidecar_path as fn(&Path) -> PathBuf,
+            ],
+        ) {
+            Ok(p) => p,
+            Err(e) => {
+                let dlg = adw::MessageDialog::new(
+                    Some(&self.window),
+                    Some("Couldn't move the document"),
+                    Some(&format!("{e}")),
+                );
+                dlg.add_response("ok", "OK");
+                dlg.present();
+                return;
+            }
+        };
+
+        self.library
+            .borrow_mut()
+            .update_path(doc.id, &new_path)
+            .ok();
+        self.refresh();
+        let t = adw::Toast::new(&format!(
+            "Moved into {}",
+            self.work_dir
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "your Zerkalo folder".to_string())
+        ));
+        t.set_timeout(4);
+        self.toast_overlay.add_toast(t);
     }
 
     /// Builds the shared part of the category-checkbox dialogs (single-doc
@@ -3059,12 +3135,13 @@ impl LibraryWindow {
             .and_then(|t| std::fs::read(t).ok())
             .unwrap_or_default();
         let this = self.clone();
+        let suggested = super::name_prompt::suggest_free_name(&self.work_dir, "Untitled");
         super::name_prompt::ask_document_name(
             &self.window,
             &self.work_dir,
             "New Document",
             "Create",
-            "Untitled",
+            &suggested,
             move |path| {
                 if std::fs::write(&path, &content).is_err() {
                     tracing::warn!("Failed to create document at {}", path.display());
@@ -3210,6 +3287,10 @@ impl LibraryWindow {
 
     pub fn set_on_open<F: Fn(PathBuf) + 'static>(&self, f: F) {
         *self.on_open.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn set_is_open<F: Fn(&Path) -> bool + 'static>(&self, f: F) {
+        *self.is_open.borrow_mut() = Some(Box::new(f));
     }
 
     pub fn refresh(&self) {

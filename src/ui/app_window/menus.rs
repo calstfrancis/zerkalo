@@ -581,12 +581,13 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
     menus.menu_new_item.connect_clicked(move |_| {
         menu_popover_for_new.popdown();
         let ep_c = editor_for_new.clone();
+        let suggested = super::super::name_prompt::suggest_free_name(&work_dir_for_new, "Untitled");
         super::super::name_prompt::ask_document_name(
             &window_for_new,
             &work_dir_for_new,
             "New Document",
             "Create",
-            "Untitled",
+            &suggested,
             move |path| {
                 let title = path
                     .file_stem()
@@ -685,11 +686,12 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
             .filter(|d| d.starts_with(&work_dir_for_save_as))
             .map(|d| d.to_path_buf())
             .unwrap_or_else(|| work_dir_for_save_as.clone());
-        let suggested = active
+        let base = active
             .as_ref()
             .and_then(|p| p.file_stem())
             .map(|s| format!("{} copy", s.to_string_lossy()))
             .unwrap_or_else(|| "Untitled".to_string());
+        let suggested = super::super::name_prompt::suggest_free_name(&dir, &base);
         let ep_c = editor_for_save_as.clone();
         let pv_c = preview_for_save_as.clone();
         super::super::name_prompt::ask_document_name(

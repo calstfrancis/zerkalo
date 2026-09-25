@@ -194,8 +194,16 @@ pub(super) fn wire_sidebar_toolbar(ctx: &SidebarToolbarCtx) -> (GtkBox, Button) 
     }
 
     // ── Sidebar toolbar: Update Template button ───────────────────────────
+    // Icon matches the Library button beside it in the header — the two
+    // used to be the only text-only buttons on that side, one with an icon
+    // and one without.
     let update_template_btn = Button::new();
-    update_template_btn.set_label("Template");
+    update_template_btn.set_child(Some(
+        &adw::ButtonContent::builder()
+            .icon_name("document-edit-symbolic")
+            .label("Template")
+            .build(),
+    ));
     update_template_btn.add_css_class("flat");
     update_template_btn.set_tooltip_text(Some(
         "Change formatting style, margins, fonts for this document",

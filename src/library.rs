@@ -456,6 +456,19 @@ impl Library {
         Ok(())
     }
 
+    /// Points an existing document at a new on-disk path — used when a
+    /// document is moved into the Zerkalo folder (see the Library's "Move
+    /// into Zerkalo Folder…" action). Callers are responsible for actually
+    /// moving the file (and any sidecars) first; this only updates the row.
+    pub fn update_path(&mut self, doc_id: i64, new_path: &Path) -> SqlResult<()> {
+        let path_str = new_path.to_string_lossy().to_string();
+        self.conn.execute(
+            "UPDATE documents SET path = ?1 WHERE id = ?2",
+            params![path_str, doc_id],
+        )?;
+        Ok(())
+    }
+
     /// Correct created_at for existing documents using filesystem creation time.
     /// Runs once at startup in the background thread after initial scan.
     pub fn fix_created_dates_from_fs(&mut self) {

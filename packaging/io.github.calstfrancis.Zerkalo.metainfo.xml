@@ -66,7 +66,7 @@
       <li>Card view with prose word count; compact single-line view for dense lists</li>
       <li>Pinned documents, trash (soft delete with restore), archive, and bulk operations</li>
       <li>Create new documents from templates; import BibTeX author names as tags</li>
-      <li>Auto-registers any .typ file opened in the editor</li>
+      <li>Auto-registers any .typ file opened in the editor; "Move into Zerkalo Folder…" relocates a document saved elsewhere, sidecars included</li>
     </ul>
   </description>
   <launchable type="desktop-id">io.github.calstfrancis.Zerkalo.desktop</launchable>
@@ -83,6 +83,17 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.33.0" date="2026-09-25">
+      <description>
+        <p>0.33.0 "Polished Glass" — a document saved outside the Zerkalo
+        folder can now be moved in from the Library's document menu, sidecars
+        included. Ctrl+Shift+E follows the Export dialog's remembered folder
+        and open-when-finished setting instead of always writing beside the
+        source. New Document suggests a name that's actually free, the
+        Library and Template buttons in the header now match, and the
+        Compile Errors panel starts collapsed when it's only warnings.</p>
+      </description>
+    </release>
     <release version="0.32.0" date="2026-09-25">
       <description>
         <p>0.32.0 "Homeward Glass" — new documents just ask for a name and are

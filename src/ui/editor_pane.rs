@@ -2097,13 +2097,15 @@ impl EditorPane {
     }
 
     /// Apply simple mode to the current active buffer and update button label.
-    /// The button reads "SHOW TEMPLATE" or "HIDE TEMPLATE" — the action the
+    /// The button reads "show template" or "hide template" — the action the
     /// next click performs — rather than a name-as-label bold/plain toggle,
-    /// since new users found "SIMPLE" ambiguous about what it did.
+    /// since new users found "SIMPLE" ambiguous about what it did. Lowercase
+    /// to match the other status-bar words (format bar, focus, search)
+    /// beside it — it used to be the one all-caps label in that row.
     pub fn apply_simple_mode(&self, on: bool) {
         *self.simple_mode.borrow_mut() = on;
         self.simple_mode_label
-            .set_text(if on { "SHOW TEMPLATE" } else { "HIDE TEMPLATE" });
+            .set_text(if on { "show template" } else { "hide template" });
         self.apply_simple_mode_to_buffer(on);
         if on && !self.format_bar_visible() && !*self.user_dismissed_format_bar.borrow() {
             self.set_format_bar_visible(true);

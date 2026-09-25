@@ -2263,9 +2263,11 @@ impl AppWindow {
         editor_outer.set_hexpand(true);
         editor_outer.set_vexpand(true);
         if !config.shown_editor_orientation {
+            // Kept to one line at typical window widths — the original two-line
+            // wording (a full sentence plus a clause) made the banner about
+            // 100px tall, more than the one-time tip warranted.
             let banner = adw::Banner::new(
-                "You're writing plain text with light markup — the preview on the \
-                 right shows the real formatting.",
+                "This is plain text — the preview on the right shows real formatting.",
             );
             banner.set_button_label(Some("Got it"));
             banner.set_revealed(true);
@@ -2517,6 +2519,7 @@ impl AppWindow {
         let snapshot_root = self.project_root.clone();
         let toast_for_key = self.toast_overlay.clone();
         let config_for_print_key = self.config.clone();
+        let config_for_quick_export = self.config.clone();
         let compile_btn_for_key = self.compile_btn.clone();
         let library_window_for_key = self.library_window.clone();
         let library_for_key = self.library.clone();
@@ -2857,7 +2860,9 @@ impl AppWindow {
                 }
             }
 
-            // Ctrl+Shift+E — export PDF to document directory (no dialog)
+            // Ctrl+Shift+E — export PDF, following the Export dialog's
+            // remembered destination folder and open-after preference,
+            // instead of always writing beside the source with no dialog.
             {
                 use gtk4::gdk::Key;
                 if ctrl && shift && key == Key::e {
@@ -2883,12 +2888,39 @@ impl AppWindow {
                     if let Some((root_path, overrides, sys_inputs, bib_path)) =
                         preview.compile_inputs()
                     {
-                        let dest = root_path.with_extension("pdf");
+                        let (dest_dir, open_after, open_in_pereplyot) = {
+                            let cfg = config_for_quick_export.borrow();
+                            (
+                                cfg.last_export_dir
+                                    .clone()
+                                    .filter(|d| d.is_dir())
+                                    .unwrap_or_else(|| {
+                                        root_path
+                                            .parent()
+                                            .map(Path::to_path_buf)
+                                            .unwrap_or_else(|| root_path.clone())
+                                    }),
+                                cfg.export_open_after,
+                                cfg.export_open_in_pereplyot,
+                            )
+                        };
+                        let dest = dest_dir.join(
+                            root_path
+                                .file_stem()
+                                .map(|s| format!("{}.pdf", s.to_string_lossy()))
+                                .unwrap_or_else(|| "output.pdf".to_string()),
+                        );
                         let t = adw::Toast::new("Exporting PDF…");
                         t.set_timeout(2);
                         toast_for_key.add_toast(t);
-                        let (tx, rx) = std::sync::mpsc::sync_channel::<Result<Vec<u8>, String>>(1);
+                        // Pereplyot detection (flatpak-spawn) shells out, so it
+                        // rides along in the same background thread as the
+                        // compile+write rather than blocking the main thread.
+                        let (tx, rx) = std::sync::mpsc::sync_channel::<
+                            Result<Option<super::export_dialog::Pereplyot>, String>,
+                        >(1);
                         let root_for_thread = root_path.clone();
+                        let dest_for_thread = dest.clone();
                         std::thread::spawn(move || {
                             let result = crate::compiler::compile_to_pdf_bytes(
                                 &root_for_thread,
@@ -2896,25 +2928,39 @@ impl AppWindow {
                                 &sys_inputs,
                                 bib_path.as_deref(),
                             )
-                            .map_err(|e| e.to_string());
+                            .map_err(|e| e.to_string())
+                            .and_then(|bytes| {
+                                std::fs::create_dir_all(&dest_dir)
+                                    .and_then(|()| std::fs::write(&dest_for_thread, &bytes))
+                                    .map_err(|e| format!("Write failed: {e}"))
+                            })
+                            .map(|()| {
+                                (open_after && open_in_pereplyot)
+                                    .then(super::export_dialog::detect_pereplyot)
+                                    .flatten()
+                            });
                             let _ = tx.send(result);
                         });
                         let toast_ref = toast_for_key.clone();
                         let toast_ref_err = toast_for_key.clone();
+                        let window_ref = window.clone();
                         crate::ui::async_poll::poll_result(
                             rx,
                             Duration::from_millis(100),
-                            move |bytes| {
-                                let msg = match std::fs::write(&dest, &bytes) {
-                                    Ok(_) => format!(
-                                        "Exported {}",
-                                        dest.file_name().and_then(|n| n.to_str()).unwrap_or("PDF")
-                                    ),
-                                    Err(e) => format!("Write failed: {e}"),
-                                };
-                                let t = adw::Toast::new(&msg);
+                            move |pereplyot| {
+                                let t = adw::Toast::new(&format!(
+                                    "Exported {}",
+                                    dest.file_name().and_then(|n| n.to_str()).unwrap_or("PDF")
+                                ));
                                 t.set_timeout(4);
                                 toast_ref.add_toast(t);
+                                if open_after {
+                                    super::export_dialog::open_exported(
+                                        &window_ref,
+                                        &dest,
+                                        pereplyot,
+                                    );
+                                }
                             },
                             move |e| {
                                 let t = adw::Toast::new(&format!("Export failed: {e}"));

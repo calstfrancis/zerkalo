@@ -160,12 +160,36 @@ fn filter_bib_text(raw: &str, keys: &BTreeSet<String>) -> Result<CitedExport, St
     let entries: Vec<String> = bib
         .iter()
         .filter(|e| keys.contains(&e.key))
-        .map(|e| e.to_biblatex_string())
+        .map(|e| indent_bibtex_entry(&e.to_biblatex_string()))
         .collect();
     Ok(CitedExport {
         count: entries.len(),
         text: entries.join("\n\n") + "\n",
     })
+}
+
+/// `biblatex::Entry::to_biblatex_string` writes every `key = {value},` line
+/// flush-left against the `@type{key,` line above it — indents the field
+/// lines two spaces to match `hayagriva_to_bibtex`'s output below and every
+/// hand-written `.bib` file elsewhere in the codebase (e.g. the test fixture
+/// in this file), so a cited-references export always reads the same way
+/// regardless of which source format it came from.
+fn indent_bibtex_entry(entry: &str) -> String {
+    let mut lines = entry.lines();
+    let Some(first) = lines.next() else {
+        return String::new();
+    };
+    let mut out = String::from(first);
+    for line in lines {
+        out.push('\n');
+        if line == "}" || line.is_empty() {
+            out.push_str(line);
+        } else {
+            out.push_str("  ");
+            out.push_str(line);
+        }
+    }
+    out
 }
 
 /// A small, lossy Hayagriva → BibTeX writer covering the fields that matter
@@ -312,7 +336,21 @@ mod tests {
         assert_eq!(out.count, 2);
         assert!(out.text.contains("smith2020"));
         assert!(!out.text.contains("unused"));
+        assert!(
+            out.text.contains("\n  author = "),
+            "fields should be indented two spaces, got:\n{}",
+            out.text
+        );
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn indent_bibtex_entry_indents_fields_but_not_the_closing_brace() {
+        let raw = "@book{smith2020,\nauthor = {Smith, Jane},\ntitle = {A Book},\n}";
+        assert_eq!(
+            indent_bibtex_entry(raw),
+            "@book{smith2020,\n  author = {Smith, Jane},\n  title = {A Book},\n}"
+        );
     }
 
     #[test]

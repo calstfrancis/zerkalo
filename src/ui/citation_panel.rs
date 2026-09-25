@@ -98,11 +98,14 @@ impl CitationPanel {
         header_box.append(&vault_btn);
 
         // Bib mode only — launches (or focuses, if already running) the actual Kartoteka
-        // app, same idea as skrizhal_btn does for CV elements.
-        let kartoteka_btn = Button::with_label("K");
+        // app, same idea as skrizhal_btn does for CV elements. A bare "K" used to be the
+        // whole label, with no accessible name either — this reads the same way its
+        // circular siblings (vault_btn, choose_btn, new_bib_btn) do.
+        let kartoteka_btn = Button::from_icon_name("send-to-symbolic");
         kartoteka_btn.add_css_class("flat");
         kartoteka_btn.add_css_class("circular");
         kartoteka_btn.set_tooltip_text(Some("Open Kartoteka"));
+        kartoteka_btn.update_property(&[gtk4::accessible::Property::Label("Open Kartoteka")]);
         header_box.append(&kartoteka_btn);
 
         let choose_btn = Button::from_icon_name("document-open-symbolic");
