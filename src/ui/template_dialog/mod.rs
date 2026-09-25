@@ -2455,8 +2455,8 @@ struct ActionButtons {
     apply_btn: Button,
 }
 
-/// Cancel, Create Document and Apply to Current. Create writes a new file via a
-/// save dialog; Apply hands the settings back to the caller for splicing into
+/// Cancel, Create Document and Apply to Current. Create asks for a name and
+/// writes the new file into the Zerkalo folder; Apply hands the settings back to the caller for splicing into
 /// the open document.
 fn wire_action_buttons(
     window: &adw::Window,
@@ -2486,37 +2486,36 @@ fn wire_action_buttons(
         let settings = cf.collect();
 
         let content = generate_typst_template(&settings);
-        // Title is hidden (and unused) in CV mode, so default the filename to
-        // the person's name instead of an empty/generic slug.
-        let title_slug = if matches!(settings.body_kind, BodyKind::Cv) {
-            if settings.author.is_empty() {
-                slug("cv")
+        // Title is hidden (and unused) in CV mode, so default the name to the
+        // person's name instead of an empty/generic one.
+        let suggested = if matches!(settings.body_kind, BodyKind::Cv) {
+            if settings.author.trim().is_empty() {
+                "CV".to_string()
             } else {
-                slug(&format!("{} cv", settings.author))
+                format!("{} CV", settings.author.trim())
             }
+        } else if settings.title.trim().is_empty() {
+            "Untitled".to_string()
         } else {
-            slug(&settings.title)
+            settings
+                .title
+                .trim()
+                .replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], " ")
         };
         let sidecar = build_sidecar(&settings);
 
-        let dialog = gtk4::FileDialog::new();
-        dialog.set_title("Save New Document");
-        dialog.set_initial_name(Some(&format!("{}.typ", title_slug)));
-        dialog.set_initial_folder(Some(&gtk4::gio::File::for_path(&work_dir_for_create)));
-
         let win_c = win_for_create.clone();
         let cb = on_create_c.clone();
-        dialog.save(
-            Some(&win_for_create),
-            None::<&gtk4::gio::Cancellable>,
-            move |result| {
-                let Ok(file) = result else { return }; // user cancelled the save dialog
-                let Some(path) = file.path() else { return };
-
+        super::name_prompt::ask_document_name(
+            &win_for_create,
+            &work_dir_for_create,
+            "Name Your Document",
+            "Create",
+            &suggested,
+            move |path| {
                 // A failed write used to be discarded, and the dialog closed
-                // as if the document had been created — leaving the user
-                // looking for a file that was never written. Keep the dialog
-                // open instead, so they can pick somewhere writable.
+                // as if the document had been created. Keep the template
+                // dialog open instead.
                 if let Err(e) = write_atomically(&path, &content) {
                     let alert = adw::MessageDialog::new(
                         Some(&win_c),

@@ -350,8 +350,8 @@ pub fn tour_steps(t: &AnnotationTargets) -> Vec<TourStep> {
         ),
         step(
             t.library_btn,
-            "Every document you've opened",
-            "Ctrl+L. The newest first, with search — this is how you get back to something without hunting through folders.",
+            "All your documents",
+            "Ctrl+L. Every document you make is kept here, newest first, with search — this is how you get back to something without hunting through folders.",
         ),
         step(
             t.compile_mode_slot,

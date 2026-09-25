@@ -7,7 +7,7 @@ use gtk4::{Align, Box as GtkBox, Button, Label, Orientation, ScrolledWindow, Sep
 use libadwaita as adw;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const RELEASE_NAME: &str = "Linked Glass";
+pub const RELEASE_NAME: &str = "Homeward Glass";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -152,25 +152,21 @@ impl WelcomeWindow {
                 "Type @ to insert a citation, once you've added a bibliography from the Citations panel",
                 "Type # to see suggestions for tables, figures, and other building blocks",
                 "Zerkalo hides the technical setup lines at the top of the file — change them from Change Document Style (≡ → Document Tools), not by scrolling up",
-                "Click the TEMPLATE button in the header, beside Library, if you ever want to see that setup section directly",
+                "Click the Template button in the header, beside Library, if you ever want to see that setup section directly",
                 "Forgot what a button does? Press F1 to label everything on screen, or replay this walkthrough anytime from ≡ → Help & About → Take the Tour",
             ] {
                 body.append(&bullet_row(item));
             }
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
-            body.append(&bullet_row(
-                "Click anything in the preview and the editor jumps to that exact spot in the source. Ctrl+click in the text (or \"Show Cursor in Preview\" in Ctrl+K) to go the other way — the preview scrolls there and highlights the line.",
-            ));
-            body.append(&bullet_row(
-                "The editor no longer jumps to the top when you right-click or come back to it after scrolling elsewhere.",
-            ));
-            body.append(&bullet_row(
-                "Jump to error now always scrolls to the error line, including errors inside the hidden template setup.",
-            ));
-            body.append(&bullet_row(
-                "Typewriter scrolling works again, including at the end of the document.",
-            ));
+            for item in [
+                "New documents just ask for a name. They're saved in your Zerkalo folder and listed in the Library automatically, so fonts and citations always work.",
+                "Export asks where to save, and can open the result when it's done — PDFs and EPUBs in Pereplyot if you have it, everything else in your default app.",
+                "Export can also write a .bib or .yaml file with only the references your document actually cites.",
+                "The Library button is back at the top left, next to the sidebar toggle — and the document title's dropdown has a Show All in Library row.",
+            ] {
+                body.append(&bullet_row(item));
+            }
         }
 
         body.append(&Separator::new(Orientation::Horizontal));

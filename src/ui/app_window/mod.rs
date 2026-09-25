@@ -561,26 +561,16 @@ impl AppWindow {
         editor_pane.set_completion_picks(proj_cfg.completion_picks.clone());
 
         // The header held twelve controls, mixing six text buttons with six
-        // icons. What reports a mode — Simple, focus, Library, notes — moves to
+        // icons. What reports a mode — Simple, focus, notes — moves to
         // the status bar, which is a line of plain words and already carries the
         // other mode toggles. What acts occasionally goes to the menu, and
         // compiling moves next to the editor it compiles. The header keeps the
-        // sidebar toggle, the title, Save, Preview and the menu.
+        // sidebar toggle, Library, the title, Save, Preview and the menu.
         //
         // status_bar_append_left inserts directly after the first toggle, so the
         // last one added ends up leftmost: add them in reverse reading order.
         gost_menu_slot.append(&editor_pane.gost_button_for_menu());
         gost_menu_slot.append(&editor_pane.autocorrect_button_for_menu());
-
-        header.remove(&library_btn);
-        library_btn.add_css_class("status-toggle");
-        // The other status words are caption-sized; a default label beside them
-        // reads as a heading rather than as one of the row.
-        if let Some(l) = library_btn.child().and_downcast::<Label>() {
-            l.add_css_class("caption");
-            l.add_css_class("dim-label");
-        }
-        editor_pane.status_bar_append_left(&library_btn);
 
         editor_pane.status_bar_append_left(&editor_pane.focus_button_for_header());
         editor_pane.status_bar_append_left(&editor_pane.simple_mode_button_for_header());

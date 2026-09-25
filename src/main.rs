@@ -7,6 +7,7 @@
 mod auto_save;
 mod bib_sanitize;
 mod bibliography;
+mod cited_refs;
 mod comments;
 mod compile_stats;
 mod compiler;

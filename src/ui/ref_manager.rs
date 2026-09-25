@@ -125,20 +125,11 @@ impl RefManager {
             export_btn.connect_clicked(move |btn| {
                 let root = btn.root().and_then(|r| r.downcast::<gtk4::Window>().ok());
                 let bib = p.bib_path.borrow().clone();
-                let is_bibtex = bib.as_ref().is_some_and(|path| {
-                    path.extension()
-                        .and_then(|e| e.to_str())
-                        .is_some_and(|ext| ext.eq_ignore_ascii_case("bib"))
-                });
-                let (title, body): (&str, &str) = if bib.is_none() {
+                let source = bib.as_deref().map(crate::bibliography::bib_target_path);
+                let (title, body): (&str, &str) = if source.is_none() {
                     (
                         "No bibliography configured",
-                        "Set a .bib file in Settings before exporting.",
-                    )
-                } else if !is_bibtex {
-                    (
-                        "Only BibTeX export is supported",
-                        "Export is only available for .bib bibliographies.",
+                        "Set a bibliography in Settings before exporting.",
                     )
                 } else if p.used_keys.borrow().is_empty() {
                     (
@@ -154,36 +145,43 @@ impl RefManager {
                     dlg.present();
                     return;
                 }
-
-                let bib_path = bib.unwrap();
-                let used_keys = p.used_keys.borrow().clone();
-                let content = match std::fs::read_to_string(&bib_path) {
-                    Ok(c) => c,
-                    Err(_) => return,
-                };
-                let full = match biblatex::Bibliography::parse(&content) {
-                    Ok(b) => b,
-                    Err(_) => return,
-                };
-                let mut subset = biblatex::Bibliography::new();
-                for key in &used_keys {
-                    if let Some(entry) = full.get(key) {
-                        subset.insert(entry.clone());
-                    }
-                }
-                let out = subset.to_bibtex_string();
+                let Some(source) = source else { return };
+                let used_keys: std::collections::BTreeSet<String> =
+                    p.used_keys.borrow().iter().cloned().collect();
 
                 let dialog = gtk4::FileDialog::new();
-                dialog.set_title("Export Cited-Only Bibliography");
+                dialog.set_title("Export Cited-Only Bibliography (.bib or .yaml)");
                 dialog.set_initial_name(Some("cited.bib"));
+                let root_c = root.clone();
                 dialog.save(
                     root.as_ref(),
                     None::<&gtk4::gio::Cancellable>,
                     move |result| {
-                        if let Ok(file) = result {
-                            if let Some(path) = file.path() {
-                                let _ = std::fs::write(&path, &out);
+                        let Some(path) = result.ok().and_then(|f| f.path()) else {
+                            return;
+                        };
+                        let format = match path.extension().and_then(|e| e.to_str()) {
+                            Some(e)
+                                if e.eq_ignore_ascii_case("yaml")
+                                    || e.eq_ignore_ascii_case("yml") =>
+                            {
+                                crate::cited_refs::RefFormat::Yaml
                             }
+                            _ => crate::cited_refs::RefFormat::Bib,
+                        };
+                        let result = crate::cited_refs::export_cited(&source, &used_keys, format)
+                            .and_then(|r| {
+                                std::fs::write(&path, r.text)
+                                    .map_err(|e| format!("Write error: {e}"))
+                            });
+                        if let Err(e) = result {
+                            let dlg = adw::MessageDialog::new(
+                                root_c.as_ref(),
+                                Some("Export failed"),
+                                Some(&e),
+                            );
+                            dlg.add_response("ok", "OK");
+                            dlg.present();
                         }
                     },
                 );

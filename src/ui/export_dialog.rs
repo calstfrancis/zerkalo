@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -28,8 +29,44 @@ const FORMATS: &[(&str, &str)] = &[
 
 enum ExportMsg {
     Log(String),
-    Done(String), // format label
+    Done(String, PathBuf), // format label, written file
     Err(String),
+}
+
+const PEREPLYOT_APP_ID: &str = "io.github.calstfrancis.Pereplyot";
+
+#[derive(Clone, Copy)]
+enum Pereplyot {
+    Flatpak,
+    Binary,
+}
+
+fn detect_pereplyot() -> Option<Pereplyot> {
+    let quiet = |mut c: std::process::Command| {
+        c.stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success())
+    };
+    let mut flatpak = crate::git_sync::host_command("flatpak");
+    flatpak.args(["info", "--show-ref", PEREPLYOT_APP_ID]);
+    if quiet(flatpak) {
+        return Some(Pereplyot::Flatpak);
+    }
+    let mut which = crate::git_sync::host_command("sh");
+    which.args(["-c", "command -v pereplyot"]);
+    quiet(which).then_some(Pereplyot::Binary)
+}
+
+/// What the Export dialog remembers between runs (persisted by the caller).
+#[derive(Clone, Debug)]
+pub struct ExportPrefs {
+    pub format: u32,
+    pub dir: Option<PathBuf>,
+    pub open_after: bool,
+    pub open_in_pereplyot: bool,
+    /// 0 = don't export, 1 = `.bib`, 2 = `.yaml`.
+    pub cited_refs: u32,
 }
 
 // ── Dialog ────────────────────────────────────────────────────────────────────
@@ -47,13 +84,13 @@ impl ExportDialog {
         project_root: PathBuf,
         cv_elements_path: Option<PathBuf>,
         bib_path: Option<PathBuf>,
-        initial_format: u32,
-        on_save_format: impl Fn(u32) + 'static,
+        prefs: ExportPrefs,
+        on_save_prefs: impl Fn(ExportPrefs) + 'static,
     ) -> Self {
         let window = adw::Window::new();
         window.set_title(Some("Export"));
-        window.set_default_width(420);
-        window.set_default_height(460);
+        window.set_default_width(460);
+        window.set_default_height(640);
         window.set_transient_for(Some(parent));
         window.set_modal(true);
         window.set_resizable(true);
@@ -82,7 +119,7 @@ impl ExportDialog {
             .output()
             .is_ok();
 
-        // One CheckButton per format; the "initial_format" is pre-checked
+        // One CheckButton per format; the remembered format is pre-checked
         let check_boxes: Vec<CheckButton> = FORMATS
             .iter()
             .enumerate()
@@ -96,7 +133,7 @@ impl ExportDialog {
                         "Needs pandoc, which isn't installed — click Install Dependencies below",
                     ));
                 } else {
-                    cb.set_active(i == initial_format as usize);
+                    cb.set_active(i == prefs.format as usize);
                 }
                 cb
             })
@@ -127,6 +164,105 @@ impl ExportDialog {
             content.append(&note);
         }
 
+        // ── Destination and after-export options ──────────────────────────────
+        let source_dir = root_file
+            .as_ref()
+            .and_then(|p| p.parent())
+            .map(|p| p.to_path_buf())
+            .unwrap_or(output_dir);
+        let export_dir = Rc::new(RefCell::new(
+            prefs
+                .dir
+                .clone()
+                .filter(|d| d.is_dir())
+                .unwrap_or(source_dir.clone()),
+        ));
+
+        let options_group = adw::PreferencesGroup::new();
+        options_group.set_title("Options");
+        options_group.set_margin_start(16);
+        options_group.set_margin_end(16);
+        options_group.set_margin_top(8);
+        options_group.set_margin_bottom(8);
+
+        let dest_row = adw::ActionRow::builder()
+            .title("Save to")
+            .subtitle(display_dir(&export_dir.borrow()))
+            .build();
+        dest_row.set_subtitle_lines(2);
+        let choose_btn = Button::with_label("Choose…");
+        choose_btn.set_valign(Align::Center);
+        dest_row.add_suffix(&choose_btn);
+        options_group.add(&dest_row);
+
+        let open_row = adw::SwitchRow::builder()
+            .title("Open when finished")
+            .active(prefs.open_after)
+            .build();
+        options_group.add(&open_row);
+
+        let viewer_row = adw::ComboRow::builder()
+            .title("Open PDFs and EPUBs in")
+            .model(&gtk4::StringList::new(&["Pereplyot", "Default app"]))
+            .selected(if prefs.open_in_pereplyot { 0 } else { 1 })
+            .visible(false)
+            .build();
+        viewer_row.set_sensitive(prefs.open_after);
+        options_group.add(&viewer_row);
+        {
+            let vr = viewer_row.clone();
+            open_row.connect_active_notify(move |r| vr.set_sensitive(r.is_active()));
+        }
+
+        let refs_source = root_file
+            .as_deref()
+            .and_then(|r| crate::cited_refs::resolve_source(r, bib_path.as_deref()));
+        let refs_row = adw::ComboRow::builder()
+            .title("Cited references")
+            .model(&gtk4::StringList::new(&[
+                "Don't export",
+                "BibTeX (.bib)",
+                "Hayagriva (.yaml)",
+            ]))
+            .selected(prefs.cited_refs.min(2))
+            .build();
+        match &refs_source {
+            Some(src) => refs_row.set_subtitle(&format!(
+                "Only the entries this document cites, from {}",
+                src.file_name()
+                    .map(|n| n.to_string_lossy())
+                    .unwrap_or_default()
+            )),
+            None => {
+                refs_row.set_subtitle("This document has no bibliography to export from");
+                refs_row.set_selected(0);
+                refs_row.set_sensitive(false);
+            }
+        }
+        options_group.add(&refs_row);
+        content.append(&options_group);
+
+        // Detected off the main thread — `flatpak info` through
+        // flatpak-spawn can take a noticeable moment.
+        let pereplyot: Rc<RefCell<Option<Pereplyot>>> = Rc::new(RefCell::new(None));
+        {
+            let (tx, rx) = mpsc::sync_channel::<Result<Option<Pereplyot>, String>>(1);
+            std::thread::spawn(move || {
+                tx.send(Ok(detect_pereplyot())).ok();
+            });
+            let vr = viewer_row.clone();
+            let slot = pereplyot.clone();
+            super::async_poll::poll_result(
+                rx,
+                Duration::from_millis(100),
+                move |found| {
+                    vr.set_visible(found.is_some());
+                    *slot.borrow_mut() = found;
+                },
+                |_| {},
+            );
+        }
+
         content.append(&Separator::new(Orientation::Horizontal));
 
         // ── Progress log area ─────────────────────────────────────────────────
@@ -137,7 +273,7 @@ impl ExportDialog {
         let log_scroll = ScrolledWindow::new();
         log_scroll.set_child(Some(&log_view));
         log_scroll.set_vexpand(true);
-        log_scroll.set_min_content_height(120);
+        log_scroll.set_min_content_height(100);
         log_scroll.set_margin_start(8);
         log_scroll.set_margin_end(8);
         log_scroll.set_margin_top(8);
@@ -169,11 +305,15 @@ impl ExportDialog {
             "Open Tools to see what's missing and how to install it",
         ));
 
+        let folder_btn = Button::with_label("Show in Folder");
+        folder_btn.set_visible(false);
+
         let export_btn = Button::with_label("Export");
         export_btn.add_css_class("suggested-action");
         export_btn.set_width_request(100);
 
         btn_row.append(&install_btn);
+        btn_row.append(&folder_btn);
         btn_row.append(&export_btn);
         content.append(&btn_row);
 
@@ -193,21 +333,44 @@ impl ExportDialog {
             super::tools_window::ToolsWindow::new(&parent_clone).present();
         });
 
+        {
+            let dir = export_dir.clone();
+            let row = dest_row.clone();
+            let win = window.clone();
+            choose_btn.connect_clicked(move |_| {
+                let fd = gtk4::FileDialog::new();
+                fd.set_title("Export To");
+                fd.set_initial_folder(Some(&gtk4::gio::File::for_path(&*dir.borrow())));
+                let dir = dir.clone();
+                let row = row.clone();
+                fd.select_folder(Some(&win), None::<&gtk4::gio::Cancellable>, move |res| {
+                    if let Some(path) = res.ok().and_then(|f| f.path()) {
+                        row.set_subtitle(&display_dir(&path));
+                        *dir.borrow_mut() = path;
+                    }
+                });
+            });
+        }
+
+        {
+            let dir = export_dir.clone();
+            let win = window.clone();
+            folder_btn.connect_clicked(move |_| {
+                gtk4::FileLauncher::new(Some(&gtk4::gio::File::for_path(&*dir.borrow()))).launch(
+                    Some(&win),
+                    None::<&gtk4::gio::Cancellable>,
+                    |_| {},
+                );
+            });
+        }
+
         // Wire export button
         {
-            let on_save_format = Rc::new(on_save_format);
+            let on_save_prefs = Rc::new(on_save_prefs);
             let checks = check_boxes.clone();
             let status_c = status_lbl.clone();
             let log_buf = log_view.buffer();
-
-            // Derive the folder where output files land.  External tools run on
-            // the host via flatpak-spawn, so they cannot see sandbox-private /tmp
-            // paths.  Writing next to the source file is always host-accessible.
-            let export_dir = root_file
-                .as_ref()
-                .and_then(|p| p.parent())
-                .map(|p| p.to_path_buf())
-                .unwrap_or(output_dir);
+            let window_c = window.clone();
 
             export_btn.connect_clicked(move |btn| {
                 let Some(ref input) = root_file else {
@@ -220,25 +383,41 @@ impl ExportDialog {
                     .filter(|(_, cb)| cb.is_active())
                     .map(|(i, _)| i)
                     .collect();
+                let refs_format = match refs_row.selected() {
+                    1 => Some(crate::cited_refs::RefFormat::Bib),
+                    2 => Some(crate::cited_refs::RefFormat::Yaml),
+                    _ => None,
+                }
+                .filter(|_| refs_source.is_some());
 
-                if selected.is_empty() {
+                if selected.is_empty() && refs_format.is_none() {
                     status_c.set_text("No formats selected.");
                     return;
                 }
 
-                // Remember the last selected format (first checked one)
-                let first_fmt = selected[0] as u32;
+                let out_dir = export_dir.borrow().clone();
+                let prefs_now = ExportPrefs {
+                    format: selected.first().copied().unwrap_or(0) as u32,
+                    dir: (out_dir != source_dir).then(|| out_dir.clone()),
+                    open_after: open_row.is_active(),
+                    open_in_pereplyot: viewer_row.selected() == 0,
+                    cited_refs: refs_row.selected(),
+                };
 
                 // Clear log
                 log_buf.set_text("");
-                status_c.set_text(&format!("Exporting {} format(s)…", selected.len()));
+                let total = selected.len() + usize::from(refs_format.is_some());
+                status_c.set_text(&format!("Exporting {total} file(s)…"));
                 btn.set_sensitive(false);
+                folder_btn.set_visible(false);
 
                 let (tx, rx) = mpsc::sync_channel::<ExportMsg>(64);
 
                 let input_owned = input.clone();
-                let export_dir_owned = export_dir.clone();
+                let export_dir_owned = out_dir.clone();
+                let source_dir_owned = source_dir.clone();
                 let selected_owned = selected.clone();
+                let refs_source_owned = refs_source.clone();
                 let (cv_overrides_owned, cv_sys_inputs_owned) = crate::cv_mode::cv_mode_compile_extras(
                     &project_root_for_cv,
                     cv_elements_path.as_deref(),
@@ -251,14 +430,14 @@ impl ExportDialog {
                         tx.send(ExportMsg::Err(format!("Cannot create output directory: {e}"))).ok();
                         return;
                     }
+                    let stem = input_owned
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("output")
+                        .to_string();
 
                     for fmt_idx in &selected_owned {
                         let (label, ext) = FORMATS[*fmt_idx];
-                        let stem = input_owned
-                            .file_stem()
-                            .and_then(|s| s.to_str())
-                            .unwrap_or("output")
-                            .to_string();
                         let out_path = export_dir_owned.join(format!("{stem}.{ext}"));
 
                         tx.send(ExportMsg::Log(format!("── Exporting {label}…"))).ok();
@@ -311,12 +490,22 @@ impl ExportDialog {
                                 let tmp_path = migrate_for_pandoc(&input_owned);
                                 let actual_input = tmp_path.as_ref().unwrap_or(&input_owned);
 
+                                // pandoc runs on the host (flatpak-spawn), which
+                                // can't see a portal-granted folder outside home.
+                                // Have it write next to the source, then move.
+                                let staged = export_dir_owned.starts_with("/run/user");
+                                let pandoc_out = if staged {
+                                    source_dir_owned.join(format!(".zerkalo-export-{stem}.{ext}"))
+                                } else {
+                                    out_path.clone()
+                                };
+
                                 let result = run_command_logged(
                                     crate::git_sync::host_command("pandoc"),
                                     &[
                                         "-f", "typst",
                                         actual_input.to_str().unwrap_or(""),
-                                        "-o", out_path.to_str().unwrap_or(""),
+                                        "-o", pandoc_out.to_str().unwrap_or(""),
                                         "--standalone",
                                         "--to", pandoc_fmt,
                                     ],
@@ -326,16 +515,59 @@ impl ExportDialog {
                                 if let Some(tmp) = tmp_path {
                                     let _ = std::fs::remove_file(tmp);
                                 }
+                                let result = if staged {
+                                    let moved = result.and_then(|()| {
+                                        std::fs::copy(&pandoc_out, &out_path)
+                                            .map(|_| ())
+                                            .map_err(|e| format!("Write error: {e}"))
+                                    });
+                                    let _ = std::fs::remove_file(&pandoc_out);
+                                    moved
+                                } else {
+                                    result
+                                };
                                 result
                             }
                         };
 
                         match result {
                             Ok(()) => {
-                                tx.send(ExportMsg::Done(label.to_string())).ok();
+                                tx.send(ExportMsg::Done(label.to_string(), out_path)).ok();
                             }
                             Err(e) => {
                                 tx.send(ExportMsg::Err(format!("[{label}] {e}"))).ok();
+                            }
+                        }
+                    }
+
+                    if let (Some(fmt), Some(src)) = (refs_format, refs_source_owned) {
+                        tx.send(ExportMsg::Log("── Exporting cited references…".into())).ok();
+                        let keys = crate::cited_refs::collect_cited_keys(&input_owned);
+                        let out_path = export_dir_owned
+                            .join(format!("{stem}-references.{}", fmt.extension()));
+                        let result = crate::cited_refs::export_cited(&src, &keys, fmt).and_then(|r| {
+                            std::fs::write(&out_path, r.text)
+                                .map(|()| r.count)
+                                .map_err(|e| format!("Write error: {e}"))
+                        });
+                        match result {
+                            Ok(0) => {
+                                let _ = std::fs::remove_file(&out_path);
+                                tx.send(ExportMsg::Err(
+                                    "[References] This document doesn't cite anything from its bibliography yet.".into(),
+                                ))
+                                .ok();
+                            }
+                            Ok(n) => {
+                                tx.send(ExportMsg::Log(format!(
+                                    "{n} cited entr{} written.",
+                                    if n == 1 { "y" } else { "ies" }
+                                )))
+                                .ok();
+                                tx.send(ExportMsg::Done("References".into(), out_path)).ok();
+                            }
+                            Err(e) => {
+                                tx.send(ExportMsg::Err(format!("[References] {e}"))).ok();
                             }
                         }
                     }
@@ -343,12 +575,15 @@ impl ExportDialog {
 
                 let rx = Rc::new(rx);
                 let btn_p = btn.clone();
+                let folder_btn_p = folder_btn.clone();
                 let status_p = status_c.clone();
                 let log_buf_p = log_buf.clone();
-                let export_dir_for_open = export_dir.clone();
-                let on_save_fmt_inner = on_save_format.clone();
+                let on_save_prefs_inner = on_save_prefs.clone();
+                let pereplyot_p = pereplyot.clone();
+                let win_p = window_c.clone();
                 let mut done_count = 0usize;
-                let total = selected.len();
+                let mut had_error = false;
+                let mut written: Vec<PathBuf> = Vec::new();
 
                 glib::timeout_add_local(Duration::from_millis(50), move || {
                     use std::sync::mpsc::TryRecvError;
@@ -357,33 +592,42 @@ impl ExportDialog {
                             Ok(ExportMsg::Log(line)) => {
                                 append_log(&log_buf_p, &line);
                             }
-                            Ok(ExportMsg::Done(label)) => {
+                            Ok(ExportMsg::Done(label, path)) => {
                                 done_count += 1;
                                 append_log(&log_buf_p, &format!("✓ {label} done."));
-                                if done_count >= total {
-                                    status_p.set_text("All exports complete. Opening output folder…");
-                                    btn_p.set_sensitive(true);
-                                    on_save_fmt_inner(first_fmt);
-                                    crate::git_sync::host_command("xdg-open")
-                                        .arg(&export_dir_for_open)
-                                        .spawn().ok();
-                                    return glib::ControlFlow::Break;
-                                }
+                                written.push(path);
                             }
                             Ok(ExportMsg::Err(e)) => {
                                 append_log(&log_buf_p, &format!("✗ {e}"));
                                 done_count += 1;
-                                if done_count >= total {
-                                    status_p.set_text("Export finished with errors. See log above.");
-                                    btn_p.set_sensitive(true);
-                                    return glib::ControlFlow::Break;
-                                }
+                                had_error = true;
                             }
                             Err(TryRecvError::Empty) => break,
                             Err(TryRecvError::Disconnected) => {
                                 btn_p.set_sensitive(true);
                                 return glib::ControlFlow::Break;
                             }
+                        }
+                        if done_count >= total {
+                            btn_p.set_sensitive(true);
+                            on_save_prefs_inner(prefs_now.clone());
+                            let where_ = display_dir(&out_dir);
+                            status_p.set_text(&if had_error {
+                                format!("Finished with errors (see log above). Saved files are in {where_}.")
+                            } else {
+                                format!("Saved to {where_}.")
+                            });
+                            folder_btn_p.set_visible(!written.is_empty());
+                            if prefs_now.open_after {
+                                if let Some(first) = written.first() {
+                                    open_exported(
+                                        &win_p,
+                                        first,
+                                        prefs_now.open_in_pereplyot.then(|| *pereplyot_p.borrow()).flatten(),
+                                    );
+                                }
+                            }
+                            return glib::ControlFlow::Break;
                         }
                     }
                     glib::ControlFlow::Continue
@@ -397,6 +641,49 @@ impl ExportDialog {
     pub fn present(&self) {
         self.window.present();
     }
+}
+
+fn display_dir(dir: &std::path::Path) -> String {
+    let home = glib::home_dir();
+    match dir.strip_prefix(&home) {
+        Ok(rest) if rest.as_os_str().is_empty() => "~".to_string(),
+        Ok(rest) => format!("~/{}", rest.display()),
+        Err(_) => dir.display().to_string(),
+    }
+}
+
+/// Opens an exported file: PDFs and EPUBs in Pereplyot when it's installed
+/// and preferred, everything else (and the fallback) in the desktop's
+/// default app via the OpenURI portal.
+fn open_exported(window: &adw::Window, path: &std::path::Path, pereplyot: Option<Pereplyot>) {
+    let readable = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("pdf") || e.eq_ignore_ascii_case("epub"));
+    if let (true, Some(how)) = (readable, pereplyot) {
+        let mut cmd = match how {
+            Pereplyot::Flatpak => {
+                let mut c = crate::git_sync::host_command("flatpak");
+                c.args(["run", PEREPLYOT_APP_ID]);
+                c
+            }
+            Pereplyot::Binary => crate::git_sync::host_command("pereplyot"),
+        };
+        if let Ok(mut child) = cmd
+            .arg(path)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+        {
+            std::thread::spawn(move || child.wait());
+            return;
+        }
+    }
+    gtk4::FileLauncher::new(Some(&gtk4::gio::File::for_path(path))).launch(
+        Some(window),
+        None::<&gtk4::gio::Cancellable>,
+        |_| {},
+    );
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

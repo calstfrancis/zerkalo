@@ -854,6 +854,10 @@ impl SettingsDialog {
             // duplicate control for one setting.
             let spell_autocorrect_cur = current.spell_autocorrect;
             let last_export_format_cur = current.last_export_format;
+            let last_export_dir_cur = current.last_export_dir.clone();
+            let export_open_after_cur = current.export_open_after;
+            let export_open_in_pereplyot_cur = current.export_open_in_pereplyot;
+            let export_cited_refs_cur = current.export_cited_refs;
             let auto_save_idle_ms_cur = current.auto_save_idle_ms;
             let active_profile_cur = current.active_profile.clone();
             let locked_author_cur = current.locked_author.clone();
@@ -967,6 +971,10 @@ impl SettingsDialog {
                     sidebar_comments_collapsed: sidebar_comments_collapsed_cur,
                     batch_import_concurrency: batch_concurrency_row.value() as u32,
                     last_export_format: last_export_format_cur,
+                    last_export_dir: last_export_dir_cur.clone(),
+                    export_open_after: export_open_after_cur,
+                    export_open_in_pereplyot: export_open_in_pereplyot_cur,
+                    export_cited_refs: export_cited_refs_cur,
                     recent_searches: recent_searches_cur.clone(),
                     active_profile: active_profile_cur.clone(),
                     auto_save_idle_ms: auto_save_idle_ms_cur,

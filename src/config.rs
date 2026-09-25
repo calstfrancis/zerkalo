@@ -183,6 +183,20 @@ pub struct Config {
     pub batch_import_concurrency: u32,
     #[serde(default)]
     pub last_export_format: u32,
+    /// Folder the Export dialog last wrote to. `None` → the source file's
+    /// own folder, the pre-0.32 behaviour.
+    #[serde(default)]
+    pub last_export_dir: Option<PathBuf>,
+    /// Export dialog's "Open when finished" switch.
+    #[serde(default = "default_true")]
+    pub export_open_after: bool,
+    /// Open exported PDFs/EPUBs in Pereplyot (when installed) rather than
+    /// the desktop's default app.
+    #[serde(default = "default_true")]
+    pub export_open_in_pereplyot: bool,
+    /// Export dialog's "Cited references" choice: 0 = none, 1 = .bib, 2 = .yaml.
+    #[serde(default)]
+    pub export_cited_refs: u32,
     #[serde(default)]
     pub recent_searches: Vec<String>,
     #[serde(default)]
@@ -347,6 +361,10 @@ impl Default for Config {
             sidebar_comments_collapsed: false,
             batch_import_concurrency: default_batch_import_concurrency(),
             last_export_format: 0,
+            last_export_dir: None,
+            export_open_after: true,
+            export_open_in_pereplyot: true,
+            export_cited_refs: 0,
             recent_searches: Vec::new(),
             active_profile: CompileProfile::default(),
             auto_save_idle_ms: default_auto_save_idle_ms(),

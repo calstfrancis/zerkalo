@@ -43,18 +43,6 @@ pub(crate) fn tab_label(text: &str) -> Label {
     Label::new(Some(text))
 }
 
-pub(crate) fn slug(s: &str) -> String {
-    let s = s.trim().to_lowercase();
-    if s.is_empty() {
-        return "untitled".to_string();
-    }
-    s.chars()
-        .map(|c| if c.is_alphanumeric() { c } else { '_' })
-        .collect::<String>()
-        .trim_matches('_')
-        .to_string()
-}
-
 // ── Typst escaping helpers ────────────────────────────────────────────────────
 
 /// Escape a value for use inside a Typst string literal `"..."`.

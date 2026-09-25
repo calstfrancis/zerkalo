@@ -66,7 +66,7 @@ raw markup dead-end: a live preview pane always shows the real formatting next t
 | **#include / #import helper** | Right-click a file in the tree → Insert `#include` or Insert `#import`; path is automatically relative to the root's directory |
 | **Project config** | `.zerkalo/config.toml` inside the project folder — overrides `root_file`, `bib_path`, `file_order` for that project |
 
-### Document Library (`Ctrl+L`)
+### Document Library (`Ctrl+L`, or the Library button at the top left)
 | Feature | Detail |
 |---|---|
 | **SQLite-backed library** | Every `.typ` document Zerkalo knows about, with search, sort, and filter |
@@ -83,6 +83,7 @@ raw markup dead-end: a live preview pane always shows the real formatting next t
 | **Live preview** | Auto or manual compile (status-bar toggle; manual is the default) — Auto recompiles on every edit, debounced with a configurable delay; all pages rendered; embedded Typst engine — no binary required; click anything in the preview to jump to its exact spot in the source, or Ctrl+click in the text to show that spot in the preview |
 | **Cheatsheet & Help panel** | Toggle (`?` button) in preview toolbar shows a reference panel (Overview, Cheatsheet, Projects, Shortcuts, FAQ, About) in place of the preview |
 | **Style switcher** | Header-bar dropdown applies a citation style to the open document; button label shows the detected style name ("GOST 7.32") |
+| **New documents** | New Document, New from Template, the Library's New Document, and Save As only ask for a name — Zerkalo adds `.typ` and saves the file in your Zerkalo folder, where the Library lists it, so fonts and bibliographies always resolve. No save-anywhere file dialog |
 | **New from Template** | Dialog with tabs for Document, Layout, Sections, Languages, and Packages — generates a complete `.typ` preamble; package descriptions lead with plain language, with the underlying Typst syntax in a tooltip |
 | **Saved templates** | The template dialog's gallery keeps your own templates under the built-in presets — set the form up, name it, and start future documents the same way. Stored one file per template in `~/.local/share/zerkalo/templates/` |
 | **Change Document Style** | ☰ → Document Tools → Change Document Style — re-applies preamble settings from a per-document `.zerkalo.toml` sidecar; splices at the `// ── Document body` marker so body content is never touched. Applying a template to a document that never had one adopts its existing text as the body instead of discarding it |
@@ -90,7 +91,8 @@ raw markup dead-end: a live preview pane always shows the real formatting next t
 | **Citations & Bibliography** | ☰ → Document Tools → Citations & Bibliography — a fuller view of the loaded bibliography than the sidebar Citations panel, including project-wide citation key rename |
 | **Project File Map** | ☰ → Document Tools → Project File Map — visualises which files `#include`/`#import` which, opened as its own window |
 | **Document import** | Ctrl+Shift+I, or Import… in the Library window — converts to Typst, with a preview before anything is written. Word (`.docx`), OpenDocument (`.odt`) and Markdown are read by Zerkalo itself, so they need nothing installed; LaTeX, HTML, EPUB and RTF use `pandoc`, and PDF uses `pdftotext` |
-| **Export** | PDF and HTML compile in-process (both via the embedded Typst compiler — no `pandoc`); DOCX, ODT, LaTeX and EPUB go through `pandoc` — the export dialog checks upfront whether it's available and disables the formats that need it if not, instead of only failing after you've clicked Export |
+| **Export** | PDF and HTML compile in-process (both via the embedded Typst compiler — no `pandoc`); DOCX, ODT, LaTeX and EPUB go through `pandoc` — the export dialog checks upfront whether it's available and disables the formats that need it if not, instead of only failing after you've clicked Export. Choose the destination folder (remembered), and optionally open the result when done — PDFs and EPUBs in [Pereplyot](https://github.com/calstfrancis/pereplyot) when it's installed, anything else in your default app |
+| **Cited references export** | The Export dialog (and the Citations & Bibliography window) can write a `.bib` or Hayagriva `.yaml` holding only the entries a document — including everything it `#include`s — actually cites. Reads from a `.bib`, a `.yaml`, or a Kartoteka vault |
 | **Print** | `Ctrl+P` opens the print sheet — page ranges in the document's own numbering, one/two/four pages a sheet or a fold-and-staple booklet, with a preview of the first sheet; hands off to the system print dialog with the paper size, copies, two-sided and colour already set. Text prints as vector at the printer's own resolution |
 | **Font management** | Settings → Editor → Document Fonts → Manage available fonts… — searchable list of system fonts; enable/disable; set default sans/serif fonts used for new documents and template previews |
 | **GOST Type B font** | Bundled and installed automatically on first launch |

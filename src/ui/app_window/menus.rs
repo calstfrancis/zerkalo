@@ -362,7 +362,16 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
     let bib_for_export = ctx.effective_bib.clone();
     menus.menu_export_item.connect_clicked(move |_| {
         menu_popover_for_export.popdown();
-        let initial_fmt = current_config_for_export.borrow().last_export_format;
+        let prefs = {
+            let c = current_config_for_export.borrow();
+            super::super::export_dialog::ExportPrefs {
+                format: c.last_export_format,
+                dir: c.last_export_dir.clone(),
+                open_after: c.export_open_after,
+                open_in_pereplyot: c.export_open_in_pereplyot,
+                cited_refs: c.export_cited_refs,
+            }
+        };
         let cfg_for_save = current_config_for_export.clone();
         ExportDialog::new(
             &window_for_export,
@@ -371,10 +380,14 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
             project_root_for_export.clone(),
             cv_elements_for_export.clone(),
             bib_for_export.clone(),
-            initial_fmt,
-            move |fmt| {
+            prefs,
+            move |p| {
                 let mut cfg = cfg_for_save.borrow_mut();
-                cfg.last_export_format = fmt;
+                cfg.last_export_format = p.format;
+                cfg.last_export_dir = p.dir;
+                cfg.export_open_after = p.open_after;
+                cfg.export_open_in_pereplyot = p.open_in_pereplyot;
+                cfg.export_cited_refs = p.cited_refs;
                 let _ = cfg.save();
             },
         )
@@ -567,25 +580,21 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
     let menu_popover_for_new = ctx.menu_popover.clone();
     menus.menu_new_item.connect_clicked(move |_| {
         menu_popover_for_new.popdown();
-        let dialog = gtk4::FileDialog::new();
-        dialog.set_title("New Document");
-        dialog.set_initial_folder(Some(&gtk4::gio::File::for_path(&work_dir_for_new)));
-        dialog.set_initial_name(Some("untitled.typ"));
-        let win_c = window_for_new.clone();
         let ep_c = editor_for_new.clone();
-        dialog.save(
-            Some(&win_c),
-            None::<&gtk4::gio::Cancellable>,
-            move |result| {
-                if let Ok(file) = result {
-                    if let Some(path) = file.path() {
-                        if !path.exists() {
-                            let _ = std::fs::write(&path, "= Title\n\n");
-                        }
-                        if let Ok(content) = std::fs::read_to_string(&path) {
-                            ep_c.open_file(path, &content);
-                        }
-                    }
+        super::super::name_prompt::ask_document_name(
+            &window_for_new,
+            &work_dir_for_new,
+            "New Document",
+            "Create",
+            "Untitled",
+            move |path| {
+                let title = path
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                let content = format!("= {title}\n\n");
+                if std::fs::write(&path, &content).is_ok() {
+                    ep_c.open_file(path, &content);
                 }
             },
         );
@@ -660,38 +669,40 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
     let editor_for_save_as = ctx.editor_pane.clone();
     let preview_for_save_as = ctx.preview_pane.clone();
     let menu_popover_for_save_as = ctx.menu_popover.clone();
+    let work_dir_for_save_as = ctx.project_root.clone();
     menus.menu_save_as_item.connect_clicked(move |_| {
         menu_popover_for_save_as.popdown();
         let Some(content) = editor_for_save_as.get_active_content() else {
             return;
         };
-        let dialog = gtk4::FileDialog::new();
-        dialog.set_title("Save As");
-        let filter = gtk4::FileFilter::new();
-        filter.set_name(Some("Typst files (*.typ)"));
-        filter.add_pattern("*.typ");
-        let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
-        filters.append(&filter);
-        dialog.set_filters(Some(&filters));
-        dialog.set_initial_name(Some("untitled.typ"));
-        let win_c = window_for_save_as.clone();
+        // Stay inside the Zerkalo folder: next to the current file when it's
+        // already in there (so relative #include/#image paths keep working),
+        // otherwise at the folder's top level.
+        let active = editor_for_save_as.get_active_path();
+        let dir = active
+            .as_ref()
+            .and_then(|p| p.parent())
+            .filter(|d| d.starts_with(&work_dir_for_save_as))
+            .map(|d| d.to_path_buf())
+            .unwrap_or_else(|| work_dir_for_save_as.clone());
+        let suggested = active
+            .as_ref()
+            .and_then(|p| p.file_stem())
+            .map(|s| format!("{} copy", s.to_string_lossy()))
+            .unwrap_or_else(|| "Untitled".to_string());
         let ep_c = editor_for_save_as.clone();
         let pv_c = preview_for_save_as.clone();
-        dialog.save(
-            Some(&win_c),
-            None::<&gtk4::gio::Cancellable>,
-            move |result| {
-                if let Ok(file) = result {
-                    if let Some(mut path) = file.path() {
-                        if path.extension().is_none() {
-                            path.set_extension("typ");
-                        }
-                        if std::fs::write(&path, content.as_bytes()).is_ok() {
-                            ep_c.open_file(path.clone(), &content);
-                            pv_c.set_root_file(path);
-                            pv_c.trigger_compile();
-                        }
-                    }
+        super::super::name_prompt::ask_document_name(
+            &window_for_save_as,
+            &dir,
+            "Save As",
+            "Save",
+            &suggested,
+            move |path| {
+                if std::fs::write(&path, content.as_bytes()).is_ok() {
+                    ep_c.open_file(path.clone(), &content);
+                    pv_c.set_root_file(path);
+                    pv_c.trigger_compile();
                 }
             },
         );

@@ -3055,24 +3055,28 @@ impl LibraryWindow {
     }
 
     fn create_new_from_template(&self, template: Option<&std::path::Path>) {
-        let mut path = self.work_dir.join("Untitled.typ");
-        let mut n = 2;
-        while path.exists() {
-            path = self.work_dir.join(format!("Untitled {n}.typ"));
-            n += 1;
-        }
         let content = template
             .and_then(|t| std::fs::read(t).ok())
             .unwrap_or_default();
-        if std::fs::write(&path, &content).is_err() {
-            tracing::warn!("Failed to create document at {}", path.display());
-            return;
-        }
-        self.library.borrow_mut().upsert_document(&path).ok();
-        if let Some(cb) = self.on_open.borrow().as_ref() {
-            cb(path);
-        }
-        self.refresh();
+        let this = self.clone();
+        super::name_prompt::ask_document_name(
+            &self.window,
+            &self.work_dir,
+            "New Document",
+            "Create",
+            "Untitled",
+            move |path| {
+                if std::fs::write(&path, &content).is_err() {
+                    tracing::warn!("Failed to create document at {}", path.display());
+                    return;
+                }
+                this.library.borrow_mut().upsert_document(&path).ok();
+                if let Some(cb) = this.on_open.borrow().as_ref() {
+                    cb(path);
+                }
+                this.refresh();
+            },
+        );
     }
 
     fn import_document(&self) {

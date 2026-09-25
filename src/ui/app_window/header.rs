@@ -8,7 +8,7 @@ use gtk4::{
 };
 use libadwaita as adw;
 
-use super::{build_hamburger_menu_items, HamburgerItems};
+use super::{build_hamburger_menu_items, make_menu_item, HamburgerItems};
 
 /// The hamburger popover's rows, kept together so the menu-wiring helpers can
 /// take one value instead of 22 parameters.
@@ -83,9 +83,17 @@ pub(super) fn build_header() -> HeaderWidgets {
     sidebar_btn.update_property(&[gtk4::accessible::Property::Label("Toggle sidebar")]);
     header.pack_start(&sidebar_btn);
 
-    let library_btn = Button::with_label("Library");
+    // Every new document now lives in the Zerkalo folder, so the Library is
+    // the way back to your work — it sits at eye level, not in the status bar.
+    let library_btn = Button::new();
+    library_btn.set_child(Some(
+        &adw::ButtonContent::builder()
+            .icon_name("folder-documents-symbolic")
+            .label("Library")
+            .build(),
+    ));
     library_btn.add_css_class("flat");
-    library_btn.set_tooltip_text(Some("Open document library (Ctrl+L)"));
+    library_btn.set_tooltip_text(Some("All your documents (Ctrl+L)"));
     header.pack_start(&library_btn);
 
     // Style switcher dropdown — placed in header start, beside the title
@@ -374,6 +382,18 @@ pub(super) fn build_header() -> HeaderWidgets {
 
     let recent_popover = Popover::new();
     recent_popover.set_child(Some(&open_popover_box));
+
+    let all_docs_btn = make_menu_item("Show All in Library", Some("Ctrl+L"));
+    open_popover_box.append(&Separator::new(Orientation::Horizontal));
+    open_popover_box.append(&all_docs_btn);
+    {
+        let pop = recent_popover.clone();
+        let lib = library_btn.clone();
+        all_docs_btn.connect_clicked(move |_| {
+            pop.popdown();
+            lib.emit_clicked();
+        });
+    }
 
     let file_title_widget = adw::WindowTitle::new("untitled", "");
 

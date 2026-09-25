@@ -20,6 +20,7 @@ pub mod help_window;
 pub mod history_panel;
 pub mod library_window;
 pub mod lsp_popup;
+pub mod name_prompt;
 pub mod outline_panel;
 pub mod package_browser;
 pub mod preview_pane;

@@ -5,6 +5,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.32.0] "Homeward Glass" — 2026-09-25 — Documents live in the Library; export where you choose
+
+### Added
+
+- **Export asks where to save.** The Export dialog has a *Save to* row with a Choose… button; Zerkalo remembers the folder you picked for next time. Previously every export was written next to the source file, with no way to change it.
+- **Open when finished.** A switch in the Export dialog opens the exported file as soon as it's written. PDFs and EPUBs open in Pereplyot when it's installed (flatpak or native — pick *Default app* instead if you prefer); everything else opens in your desktop's default app. A *Show in Folder* button appears after every export. Replaces the old behaviour of always opening the output folder.
+- **Export only the references a document cites.** The Export dialog's *Cited references* choice writes `name-references.bib` (BibTeX) or `name-references.yaml` (Hayagriva) alongside the export, holding just the entries the document — and every file it `#include`s — actually cites. Works from a `.bib`, a `.yaml`, or a Kartoteka vault; a `.bib` → `.bib` export keeps each entry exactly as written.
+
+### Changed
+
+- **New documents just ask for a name.** New Document, New from Template, the Library's New Document, and Save As no longer open a file-save dialog: you type a name, Zerkalo adds `.typ` itself, and the file is saved in your Zerkalo folder, where the Library lists it. Documents saved to arbitrary folders lost access to the project's fonts and bibliography, which made citations and fonts break in ways that were hard to diagnose. The name box checks as you type (no duplicates, no `/` or other characters a filename can't hold), and Save As keeps a copy next to the original when it's already inside a project folder so relative `#include`s keep working.
+- **The Library button is back in the header**, with an icon, right of the sidebar toggle — it had been a small dim word in the status bar. The document title's dropdown also gained a *Show All in Library* row (Ctrl+L).
+
+---
+
 ## [0.31.0] "Linked Glass" — 2026-09-25 — Exact preview ↔ editor sync, steadier scrolling
 
 ### Added
