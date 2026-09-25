@@ -81,6 +81,15 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.30.1" date="2026-09-24">
+      <description>
+        <p>0.30.1 "Split Light" — back-to-back citations in a footnote
+        style (Chicago Notes, SBL, Turabian, or a custom footnote CSL) now
+        get one footnote each instead of a single footnote listing every
+        source. Author-date and numeric styles still group citations as
+        before.</p>
+      </description>
+    </release>
     <release version="0.30.0" date="2026-09-17">
       <description>
         <p>0.30.0 "Clear Reflection" — adds a guided first-run tour of the

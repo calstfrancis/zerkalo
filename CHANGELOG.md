@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.30.1] "Split Light" — 2026-09-24 — One footnote per citation
+
+### Changed
+
+- **Back-to-back citations in a footnote style now get one footnote each.** Writing `text @key1 @key2 @key3` with Chicago Notes, SBL, Turabian (or a custom `.csl` footnote style) used to produce a single footnote listing all three sources. It now renders as `text¹²³`, with three separate numbered notes at the bottom of the page — much easier to read. Author-date and numeric styles (APA, MLA, IEEE, …) are unchanged: `(Smith 2020; Jones 2021)` still groups as before. Applied automatically at compile time for preview, PDF, and every export; nothing is written into your document.
+
+---
+
 ## [0.30.0] "Clear Reflection" — 2026-09-17 — A guided tour, and a legible F1 overlay
 
 ### Added

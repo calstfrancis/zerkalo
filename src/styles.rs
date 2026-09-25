@@ -399,6 +399,20 @@ pub(crate) fn find_bibliography_path(content: &str) -> Option<&str> {
         .and_then(extract_bib_filename)
 }
 
+/// The `style: "..."` argument of a document's active `#bibliography(...)`
+/// call, if it has one. The compiler uses it to tell whether a custom `.csl`
+/// file is a footnote style (see `compiler::SPLIT_NOTE_CITES`).
+pub(crate) fn find_bibliography_style(content: &str) -> Option<&str> {
+    let line = content
+        .lines()
+        .map(|l| l.trim())
+        .find(|l| l.starts_with("#bibliography("))?;
+    let after = &line[line.find("style:")? + "style:".len()..];
+    let q1 = after.find('"')? + 1;
+    let q2 = after[q1..].find('"')?;
+    Some(&after[q1..q1 + q2])
+}
+
 /// Rewrites a document's `#bibliography(...)` call to point `new_path`,
 /// preserving `style:`/`title:` and everything else about the call — used
 /// when the citation panel's "choose a bibliography file/vault" dialogs set

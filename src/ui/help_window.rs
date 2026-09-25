@@ -173,7 +173,7 @@ fn cheatsheet_blocks() -> Vec<Block<'static>> {
         Block::Code("- Bullet item        Unordered list\n+ Numbered item      Ordered list\n/ Term: Definition   Description list"),
         Block::Gap,
         Block::H2("Citations & Bibliography"),
-        Block::Code("@authorYear                   In-text citation\n@authorYear[p.~5]             With page locator\n@[see @a, p.~1; @b, ch.~2]   Multiple sources\n\n#bibliography(\"refs.bib\", style: \"chicago-author-date\")\nStyles: \"apa\", \"mla\", \"chicago-author-date\",\n        \"chicago-notes\", \"ieee\", \"harvard-cite-them-right\",\n        \"gost-r-705-2008\""),
+        Block::Code("@authorYear                   In-text citation\n@authorYear[p.~5]             With page locator\n@a @b @c                      Multiple sources (footnote styles:\n                              one footnote each)\n\n#bibliography(\"refs.bib\", style: \"chicago-author-date\")\nStyles: \"apa\", \"mla\", \"chicago-author-date\",\n        \"chicago-notes\", \"ieee\", \"harvard-cite-them-right\",\n        \"gost-r-705-2008\""),
         Block::Gap,
         Block::H2("Figures & Cross-references"),
         Block::Code("#figure(\n  image(\"fig.png\", width: 80%),\n  caption: [Caption text.],\n) <fig-label>\n\nAs shown in @fig-label, the results indicate…"),

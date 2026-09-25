@@ -181,6 +181,61 @@ fn build_library(sys_inputs: &HashMap<String, String>) -> LazyHash<Library> {
     )
 }
 
+// ── Citation splitting ───────────────────────────────────────────────────────
+
+/// Name of the virtual file compiled as the World's main file. It holds
+/// `SPLIT_NOTE_CITES` and then `#include`s the real root file, so the rule
+/// applies to every document without ever being written into one. Lives next
+/// to the root file (served from `overrides`, never touches disk) so relative
+/// paths behave exactly as if the root file were compiled directly.
+const WRAPPER_NAME: &str = ".zerkalo-main.typ";
+
+/// Typst groups citations separated only by spaces (`@a @b @c`) into one
+/// citation group, and a footnote style renders a group as a *single*
+/// footnote listing every source. Zerkalo gives each citation its own
+/// footnote instead (`text¹²³`, one note per source), which reads far better.
+///
+/// A non-space element between two citations stops the grouping, so each
+/// citation is followed by `h(0pt)`; the weak `h` before it swallows the
+/// space typed between citations (and before the first one, matching how a
+/// plain `#footnote` already hugs the preceding word). Only footnote styles
+/// are touched — in author-date or numeric styles, grouping is what produces
+/// `(Smith 2020; Jones 2021)` / `[1–3]` and must stay. The style is read off
+/// the document's `bibliography` element: every built-in note style has
+/// "note" in its name (`chicago-notes` resolves to `chicago-fullnotes`); a
+/// custom `.csl` file's class is checked on the Rust side and passed in as
+/// `zk-force-split`.
+const SPLIT_NOTE_CITES: &str = r#"#show cite: it => context {
+  let bibs = query(bibliography)
+  let style = if bibs.len() > 0 { repr(bibs.first().style) } else { "" }
+  if zk-force-split or "note" in style { h(0pt, weak: true); it; h(0pt) } else { it }
+}
+"#;
+
+fn wrapper_source(root_file_name: &str, force_split: bool) -> String {
+    let escaped = root_file_name.replace('\\', "\\\\").replace('"', "\\\"");
+    format!("#let zk-force-split = {force_split}\n{SPLIT_NOTE_CITES}#include \"{escaped}\"\n")
+}
+
+/// Whether the document's bibliography uses a custom `.csl` file whose
+/// citation class is `note` (a footnote style whose name the Typst-side check
+/// in `SPLIT_NOTE_CITES` can't see).
+fn custom_csl_is_note_style(content: &str, project_root: &Path) -> bool {
+    let Some(style) = crate::styles::find_bibliography_style(content)
+        .filter(|s| s.to_ascii_lowercase().ends_with(".csl"))
+    else {
+        return false;
+    };
+    let path = if Path::new(style).is_absolute() {
+        PathBuf::from(style)
+    } else {
+        project_root.join(style)
+    };
+    std::fs::read_to_string(path)
+        .map(|csl| csl.contains(r#"class="note""#) || csl.contains("class='note'"))
+        .unwrap_or(false)
+}
+
 // ── World implementation ──────────────────────────────────────────────────────
 
 struct ZerkaloWorld {
@@ -271,6 +326,10 @@ impl ZerkaloWorld {
             }
         }
 
+        let force_split = content
+            .as_deref()
+            .is_some_and(|c| custom_csl_is_note_style(c, &project_root));
+
         let (root, abs_root_file) = if needs_widening {
             let canon =
                 std::fs::canonicalize(root_file).unwrap_or_else(|_| root_file.to_path_buf());
@@ -279,7 +338,17 @@ impl ZerkaloWorld {
             (project_root, root_file.to_path_buf())
         };
 
-        let vpath = VirtualPath::virtualize(&root, &abs_root_file).map_err(|e| {
+        let root_file_name = abs_root_file
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .ok_or_else(|| format!("no file name: {}", abs_root_file.display()))?;
+        let wrapper_path = abs_root_file.with_file_name(WRAPPER_NAME);
+        overrides.insert(
+            wrapper_path.clone(),
+            wrapper_source(&root_file_name, force_split),
+        );
+
+        let vpath = VirtualPath::virtualize(&root, &wrapper_path).map_err(|e| {
             format!(
                 "failed to resolve root file path {}: {e}",
                 abs_root_file.display()
@@ -1012,6 +1081,79 @@ mod tests {
             result.is_err(),
             "compiling a nonexistent root file should fail"
         );
+    }
+
+    /// A project dir with a three-entry `refs.bib` and a `main.typ` citing
+    /// `@a @b @c` back to back, ending with a `#context assert` on the final
+    /// footnote count — so the compile itself fails when the count is wrong.
+    fn serial_cite_project(tag: &str, bib_style: &str, expected_footnotes: usize) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("zerkalo_split_cites_{tag}_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("refs.bib"),
+            "@book{a, author={Alpha, Ann}, title={First}, year={2001}, publisher={P}}\n\
+             @book{b, author={Beta, Bob}, title={Second}, year={2002}, publisher={P}}\n\
+             @book{c, author={Gamma, Cy}, title={Third}, year={2003}, publisher={P}}\n",
+        )
+        .unwrap();
+        let doc = dir.join("main.typ");
+        std::fs::write(
+            &doc,
+            format!(
+                "Reference @a @b @c and more.\n\n\
+                 #context assert.eq(counter(footnote).final().first(), {expected_footnotes})\n\n\
+                 #bibliography(\"refs.bib\", style: \"{bib_style}\")\n"
+            ),
+        )
+        .unwrap();
+        doc
+    }
+
+    #[test]
+    fn serial_citations_in_a_note_style_become_separate_footnotes() {
+        let doc = serial_cite_project("notes", "chicago-notes", 3);
+        let result = compile_to_pdf_bytes(&doc, &HashMap::new(), &HashMap::new(), None);
+        assert!(result.is_ok(), "{:?}", result.err());
+        let _ = std::fs::remove_dir_all(doc.parent().unwrap());
+    }
+
+    #[test]
+    fn serial_citations_in_an_author_date_style_are_left_alone() {
+        let doc = serial_cite_project("apa", "apa", 0);
+        let result = compile_to_pdf_bytes(&doc, &HashMap::new(), &HashMap::new(), None);
+        assert!(result.is_ok(), "{:?}", result.err());
+        let _ = std::fs::remove_dir_all(doc.parent().unwrap());
+    }
+
+    #[test]
+    fn custom_csl_note_class_is_detected() {
+        let dir = std::env::temp_dir().join(format!("zerkalo_csl_class_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("n.csl"), r#"<style class="note" version="1.0">"#).unwrap();
+        std::fs::write(
+            dir.join("i.csl"),
+            r#"<style class="in-text" version="1.0">"#,
+        )
+        .unwrap();
+        let doc = |s: &str| format!("#bibliography(\"refs.bib\", style: \"{s}\")\n");
+        assert!(custom_csl_is_note_style(&doc("n.csl"), &dir));
+        assert!(!custom_csl_is_note_style(&doc("i.csl"), &dir));
+        assert!(!custom_csl_is_note_style(&doc("chicago-notes"), &dir));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Renders the split to a PNG for eyeballing (`cargo test -- --ignored`).
+    #[test]
+    #[ignore]
+    fn render_split_citations_for_inspection() {
+        for style in ["chicago-notes", "apa"] {
+            let n = if style == "apa" { 0 } else { 3 };
+            let doc = serial_cite_project(style, style, n);
+            let pages =
+                compile_to_png_bytes(&doc, 2.0, &HashMap::new(), &HashMap::new(), None).unwrap();
+            std::fs::write(format!("/tmp/zerkalo_split_{style}.png"), &pages[0]).unwrap();
+        }
     }
 
     #[test]

@@ -7,7 +7,7 @@ use gtk4::{Align, Box as GtkBox, Button, Label, Orientation, ScrolledWindow, Sep
 use libadwaita as adw;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const RELEASE_NAME: &str = "Clear Reflection";
+pub const RELEASE_NAME: &str = "Split Light";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -160,16 +160,10 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             body.append(&bullet_row(
-                "A guided first-run tour — shown automatically the first time Zerkalo runs, and replayable anytime from ≡ → Help & About → Take the Tour. Walks through the editor, preview, template setup, library, compile mode, and backup in seven short steps.",
+                "Back-to-back citations in a footnote style (Chicago Notes, SBL, Turabian) now get one footnote each: @a @b @c renders as text¹²³ with three separate notes, instead of one footnote listing every source.",
             ));
             body.append(&bullet_row(
-                "What Things Do (the F1 overlay) is now reachable from the menu too — ≡ → Help & About — and its bubbles no longer crowd or overlap each other in busy areas like the header.",
-            ));
-            body.append(&bullet_row(
-                "What Things Do now also works inside New from Template / Change Document Style, and that dialog opens with a short banner explaining what it's about to do.",
-            ));
-            body.append(&bullet_row(
-                "Fixed Change Document Style showing both \"Create Document\" and \"Apply to Current\" at once — the second button did nothing when clicked.",
+                "Author-date and numeric styles (APA, MLA, IEEE, …) still group citations as before, e.g. (Smith 2020; Jones 2021).",
             ));
         }
 
