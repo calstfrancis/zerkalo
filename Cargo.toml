@@ -1,6 +1,6 @@
 [package]
 name = "zerkalo"
-version = "0.30.1"
+version = "0.31.0"
 edition = "2021"
 license = "MIT"
 description = "Contemplative Typst editor with live preview, LSP completions, and git sync"
@@ -49,6 +49,7 @@ typst-layout = "0.15"
 typst-render = "0.15"
 typst-pdf = "0.15"
 typst-html = "0.15"
+typst-ide = "0.15"
 typst-kit = { version = "0.15", features = ["embedded-fonts", "scan-fonts", "system-packages", "universe-packages", "system-downloader"] }
 url = "2"
 ashpd = { version = "0.13.13", default-features = false, features = ["print", "tokio"] }

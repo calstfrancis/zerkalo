@@ -5,6 +5,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.31.0] "Linked Glass" — 2026-09-25 — Exact preview ↔ editor sync, steadier scrolling
+
+### Added
+
+- **Exact preview ↔ editor sync.** Click anything in the preview and the editor jumps to that exact spot in the source — the right character, not just the nearby paragraph. Ctrl+click in the text (or run "Show Cursor in Preview" from the Ctrl+K palette) to go the other way: the preview scrolls there and briefly highlights the line. Works on code too — Ctrl+clicking a `#lorem(50)` or a function call finds the text it produced. Both directions use the positions Typst itself records while compiling, replacing the old approach of matching text pulled back out of the PDF, which often landed somewhere nearby rather than on the spot. It also fixes a coordinate bug in the old click handler that shifted every preview click further down the page the further you had scrolled.
+
+### Fixed
+
+- **The editor no longer jumps to the top (or some earlier spot) when you right-click or come back to it.** The editor remembered its scroll position only while it had keyboard focus, so scrolling it with the mouse wheel while focus was elsewhere — the sidebar, a search box, another window — went unrecorded, and the next right-click or return of focus "restored" the stale position. Scrolling is now tracked wherever focus is, except while one of the editor's own menus is open.
+- **Jump to error (and jumps from the outline and comments) now reliably scroll the editor.** The jump moved the cursor but the editor's focus-return handling could immediately scroll the view back to where it was, so the error line was selected but off screen — hit or miss depending on timing, which is why it seemed to work only for some errors. A jump to an error inside the hidden template setup (a `#set` rule, for example) now shows the template first instead of landing on invisible text.
+- **Typewriter scrolling works again.** It re-used a text position captured before the next keystrokes, which stopped being valid as soon as you typed, so the recentre did nothing and text ran off the bottom of the editor. It also couldn't centre the last lines of a document at all — which is where new text usually goes — because there was no room below them to scroll into; the editor now adds blank space after the last line while typewriter scrolling is on.
+- Updated `rustls` to 0.23.45 for RUSTSEC-2026-0285, a low-severity TLS 1.3 handshake validation advisory flagged by the security audit.
+
+---
+
 ## [0.30.1] "Split Light" — 2026-09-24 — One footnote per citation
 
 ### Changed

@@ -1876,6 +1876,28 @@ impl AppWindow {
             });
         }
 
+        // ── Exact preview ↔ editor sync ──────────────────────────────────────
+        {
+            let editor_for_source = editor_pane.clone();
+            preview_pane.set_on_source_jump(move |path, offset| {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    editor_for_source.open_file(path.clone(), &content);
+                }
+                editor_for_source.jump_to_offset(&path, offset);
+            });
+            let preview_for_show = preview_pane.clone();
+            let toast_for_show = toast_overlay.clone();
+            editor_pane.set_on_show_in_preview(move |path, offset| {
+                if !preview_for_show.show_source(&path, offset) {
+                    let t = adw::Toast::new(
+                        "That spot isn't in the preview — compile first, or pick text that appears on the page",
+                    );
+                    t.set_timeout(3);
+                    toast_for_show.add_toast(t);
+                }
+            });
+        }
+
         // ── Preview double-click-word-to-jump wiring ─────────────────────────
         {
             let editor_for_word_jump = editor_pane.clone();
@@ -2557,6 +2579,7 @@ impl AppWindow {
                         "toggle_preview" => compile_btn_for_pal.emit_clicked(),
                         "git_sync" => sync_btn_for_pal.emit_clicked(),
                         "focus_mode" => editor_for_pal.focus_button_for_header().emit_clicked(),
+                        "show_in_preview" => editor_for_pal.show_cursor_in_preview(),
                         "help" => {
                             HelpWindow::new(&w, editor_for_pal.is_cv_mode()).present();
                         }

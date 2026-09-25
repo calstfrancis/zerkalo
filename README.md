@@ -80,7 +80,7 @@ raw markup dead-end: a live preview pane always shows the real formatting next t
 ### Document workflow
 | Feature | Detail |
 |---|---|
-| **Live preview** | Auto or manual compile (status-bar toggle; manual is the default) — Auto recompiles on every edit, debounced with a configurable delay; all pages rendered; embedded Typst engine — no binary required |
+| **Live preview** | Auto or manual compile (status-bar toggle; manual is the default) — Auto recompiles on every edit, debounced with a configurable delay; all pages rendered; embedded Typst engine — no binary required; click anything in the preview to jump to its exact spot in the source, or Ctrl+click in the text to show that spot in the preview |
 | **Cheatsheet & Help panel** | Toggle (`?` button) in preview toolbar shows a reference panel (Overview, Cheatsheet, Projects, Shortcuts, FAQ, About) in place of the preview |
 | **Style switcher** | Header-bar dropdown applies a citation style to the open document; button label shows the detected style name ("GOST 7.32") |
 | **New from Template** | Dialog with tabs for Document, Layout, Sections, Languages, and Packages — generates a complete `.typ` preamble; package descriptions lead with plain language, with the underlying Typst syntax in a tooltip |
@@ -217,6 +217,7 @@ All settings are also editable via **☰ → Settings** inside the app.
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | Next / previous tab |
 | `Ctrl+Left/Right` | Word jump (Typst-aware: `#keyword` and `@cite` count as one unit) |
 | `Ctrl+Shift+Up/Down` | Jump to previous / next heading |
+| `Ctrl+click` (in the text) | Show that spot in the preview |
 | `Ctrl+D` | Duplicate line or selection |
 | `Ctrl+/` | Toggle line comment |
 | `F1` | Label every panel and button on screen; Esc or a click closes |

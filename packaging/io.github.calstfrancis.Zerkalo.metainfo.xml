@@ -37,6 +37,7 @@
       <li>Citation style switcher — APA, Chicago, GOST 7.32, and more, plus custom CSL styles</li>
       <li>BibTeX and Hayagriva YAML bibliography support, with cited-only bibliography export and project-wide citation key rename — a Kartoteka vault folder works as a live bibliography source too</li>
       <li>Auto or manual compile with live preview (status-bar toggle, manual by default); scroll position preserved across recompiles</li>
+      <li>Exact preview ↔ editor sync — click anything in the preview to jump to that spot in the source, or Ctrl+click in the text to show it in the preview</li>
       <li>Auto-save to recovery file on idle; periodic save every 30 seconds</li>
       <li>Git sync — commit and push to all remotes in one click, with git bundled so there's nothing to install; three-screen setup signs in with GitHub (which supplies your name and email automatically), creates and links a new repository, or backs up to a plain folder or drive with no account at all; once set up, backups also happen automatically in the background and once more on quit, with no button to remember — a colour badge on the Sync button shows whether anything's waiting to be backed up, or if the last attempt failed</li>
     </ul>
@@ -81,6 +82,16 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.31.0" date="2026-09-25">
+      <description>
+        <p>0.31.0 "Linked Glass" — exact preview ↔ editor sync: click in
+        the preview to jump to that exact spot in the source, or Ctrl+click
+        in the text to show it in the preview. Fixes the editor jumping to
+        the top on right-click or when coming back to it, error-panel jumps
+        that selected the line without scrolling to it, and typewriter
+        scrolling letting text run off the bottom of the editor.</p>
+      </description>
+    </release>
     <release version="0.30.1" date="2026-09-24">
       <description>
         <p>0.30.1 "Split Light" — back-to-back citations in a footnote

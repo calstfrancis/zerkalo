@@ -365,6 +365,11 @@ pub fn default_commands() -> Vec<PaletteItem> {
             subtitle: "Show or hide the live preview pane".into(),
         },
         PaletteItem {
+            id: "show_in_preview".into(),
+            label: "Show Cursor in Preview".into(),
+            subtitle: "Scroll the preview to the cursor's spot (or Ctrl+click in the text)".into(),
+        },
+        PaletteItem {
             id: "toggle_sidebar".into(),
             label: "Toggle Sidebar".into(),
             subtitle: "Show or hide the sidebar".into(),

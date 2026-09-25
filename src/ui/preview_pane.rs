@@ -1,6 +1,6 @@
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::mpsc::{self, TryRecvError};
 use std::time::Duration;
@@ -28,6 +28,7 @@ enum CompileResult {
         Vec<crate::compiler::RenderedPage>,
         String,
         std::time::Duration,
+        Box<crate::compiler::SyncMap>,
     ),
     Error(String, std::time::Duration),
 }
@@ -58,6 +59,13 @@ pub struct PreviewPane {
     on_page_changed: Rc<RefCell<Option<Box<dyn Fn(usize, usize)>>>>,
     on_click_jump: Rc<RefCell<Option<Box<dyn Fn(usize, f64)>>>>,
     on_word_click_jump: Rc<RefCell<Option<Box<dyn Fn(usize, f64, f64)>>>>,
+    on_source_jump: Rc<RefCell<Option<Box<dyn Fn(PathBuf, usize)>>>>,
+    /// The last successful compile's document, for exact click ↔ source
+    /// mapping, and the pixels-per-pt its pages were rendered at.
+    sync: Rc<RefCell<Option<(crate::compiler::SyncMap, f64)>>>,
+    /// A spot briefly highlighted after `show_source`: page and y in pt.
+    flash: Rc<RefCell<Option<(usize, f64)>>>,
+    flash_timer: Rc<RefCell<Option<glib::SourceId>>>,
     page_pixbufs: Rc<RefCell<Vec<Pixbuf>>>,
     // Backs the watch-mode methods below (start_watch/stop_watch/is_watching) — see their
     // comment for why this is kept despite no caller.
@@ -180,8 +188,14 @@ impl PreviewPane {
 
         let page_pixbufs: Rc<RefCell<Vec<Pixbuf>>> = Rc::new(RefCell::new(Vec::new()));
 
+        let sync: Rc<RefCell<Option<(crate::compiler::SyncMap, f64)>>> =
+            Rc::new(RefCell::new(None));
+        let flash: Rc<RefCell<Option<(usize, f64)>>> = Rc::new(RefCell::new(None));
+
         // Wire up draw function
         let pixbufs_draw = page_pixbufs.clone();
+        let sync_draw = sync.clone();
+        let flash_draw = flash.clone();
         let zoom_draw: Rc<RefCell<f64>> = Rc::new(RefCell::new(1.0));
         let zoom_draw2 = zoom_draw.clone();
 
@@ -242,6 +256,26 @@ impl PreviewPane {
                 ctx.restore().ok();
                 y += ph + PAGE_GAP;
             }
+
+            // Highlight band behind the line `show_source` jumped to — the
+            // accent colour, faint, so the text stays readable through it.
+            let flash_at = *flash_draw.borrow();
+            let ppp = sync_draw.borrow().as_ref().map(|(_, ppp)| *ppp);
+            if let (Some((page, y_pt)), Some(ppp)) = (flash_at, ppp) {
+                let top: f64 = pbs
+                    .iter()
+                    .take(page)
+                    .map(|pb| pb.height() as f64 * z + PAGE_GAP)
+                    .sum();
+                let s = ppp * z;
+                let baseline = top + y_pt * s;
+                let width = pbs.get(page).map_or(0.0, |pb| pb.width() as f64 * z);
+                let (r, g, b) =
+                    crate::ui::theme::rgb(_area, "accent_bg_color").unwrap_or((0.21, 0.52, 0.89));
+                ctx.set_source_rgba(r, g, b, 0.28);
+                ctx.rectangle(0.0, baseline - 12.0 * s, width, 16.0 * s);
+                ctx.fill().ok();
+            }
         });
 
         let on_click_jump: Rc<RefCell<Option<Box<dyn Fn(usize, f64)>>>> =
@@ -249,33 +283,44 @@ impl PreviewPane {
         let on_word_click_jump: Rc<RefCell<Option<Box<dyn Fn(usize, f64, f64)>>>> =
             Rc::new(RefCell::new(None));
 
-        // Click → jump to the nearby line; Double-click → jump to the exact word.
-        // The preview has no other use for a plain click (it's rendered pixbufs,
+        let on_source_jump: Rc<RefCell<Option<Box<dyn Fn(PathBuf, usize)>>>> =
+            Rc::new(RefCell::new(None));
+
+        // Click → jump the editor to the source of what was clicked. The
+        // preview has no other use for a plain click (it's rendered pixbufs,
         // not selectable/interactive content), so no modifier is needed — a
         // click needing Ctrl held first made this undiscoverable in practice.
+        //
+        // Resolved through the compiled document's own spans (`SyncMap`), so
+        // it lands on the exact character. Only when nothing there maps back
+        // to source (a margin, the gap between paragraphs, generated text like
+        // a page number) does it fall back to the older text-matching jumps:
+        // nearby line on a click, the word on a double-click.
         {
             let on_click_jump_c = on_click_jump.clone();
             let on_word_click_jump_c = on_word_click_jump.clone();
+            let on_source_jump_c = on_source_jump.clone();
+            let sync_c = sync.clone();
             let page_pixbufs_c = page_pixbufs.clone();
             let zoom_c = zoom_draw2.clone();
-            let scroll_c = img_scroll.clone();
             let gesture = GestureClick::new();
             gesture.set_button(1);
             gesture.connect_pressed(move |_g, n_press, x, y| {
                 let is_double = n_press == 2;
                 let zoom = *zoom_c.borrow();
-                let adj_val = scroll_c.vadjustment().value();
-                let doc_y = y + adj_val;
+                // The drawing area is the scrolled child, so (x, y) is already
+                // in document space — no scroll offset to add.
                 let pbs = page_pixbufs_c.borrow();
                 let mut cum_y = 0.0f64;
                 let mut clicked_page = pbs.len().saturating_sub(1);
                 let mut clicked_rel_x = 0.5f64;
                 let mut clicked_rel_y = 1.0f64;
+                let mut page_px = (0.0f64, 0.0f64);
                 for (i, pb) in pbs.iter().enumerate() {
                     let raw_w = pb.width() as f64 * zoom;
                     let raw_h = pb.height() as f64 * zoom;
                     let page_h = raw_h + 20.0;
-                    if doc_y < cum_y + page_h {
+                    if y < cum_y + page_h {
                         clicked_page = i;
                         clicked_rel_x = if raw_w > 0.0 {
                             (x / raw_w).clamp(0.0, 1.0)
@@ -283,15 +328,26 @@ impl PreviewPane {
                             0.5
                         };
                         clicked_rel_y = if raw_h > 0.0 {
-                            ((doc_y - cum_y) / raw_h).clamp(0.0, 1.0)
+                            ((y - cum_y) / raw_h).clamp(0.0, 1.0)
                         } else {
                             0.0
                         };
+                        page_px = (x, y - cum_y);
                         break;
                     }
                     cum_y += page_h;
                 }
                 drop(pbs);
+                let exact = sync_c.borrow().as_ref().and_then(|(map, ppp)| {
+                    let scale = ppp * zoom;
+                    map.source_at(clicked_page, page_px.0 / scale, page_px.1 / scale)
+                });
+                if let Some((path, offset)) = exact {
+                    if let Some(f) = on_source_jump_c.borrow().as_ref() {
+                        f(path, offset);
+                        return;
+                    }
+                }
                 if is_double {
                     if let Some(f) = on_word_click_jump_c.borrow().as_ref() {
                         f(clicked_page, clicked_rel_x, clicked_rel_y);
@@ -328,6 +384,10 @@ impl PreviewPane {
             on_page_changed: Rc::new(RefCell::new(None)),
             on_click_jump,
             on_word_click_jump,
+            on_source_jump,
+            sync,
+            flash,
+            flash_timer: Rc::new(RefCell::new(None)),
             page_pixbufs,
             watch_active: Rc::new(RefCell::new(false)),
             compile_gen: Rc::new(RefCell::new(0)),
@@ -655,6 +715,55 @@ impl PreviewPane {
         *self.on_click_jump.borrow_mut() = Some(Box::new(f));
     }
 
+    pub fn set_on_source_jump(&self, f: impl Fn(PathBuf, usize) + 'static) {
+        *self.on_source_jump.borrow_mut() = Some(Box::new(f));
+    }
+
+    /// Scrolls to where the source at `char_offset` in `path` appears in the
+    /// last compiled document and briefly highlights that line. False when it
+    /// can't be placed — nothing compiled yet, or that source produced no
+    /// visible output.
+    pub fn show_source(&self, path: &Path, char_offset: usize) -> bool {
+        let found = self
+            .sync
+            .borrow()
+            .as_ref()
+            .and_then(|(map, ppp)| map.page_point_for(path, char_offset).map(|p| (p, *ppp)));
+        let Some(((page, _x, y_pt), ppp)) = found else {
+            return false;
+        };
+        let z = *self.zoom.borrow();
+        let top: f64 = self
+            .page_pixbufs
+            .borrow()
+            .iter()
+            .take(page)
+            .map(|pb| pb.height() as f64 * z + 20.0)
+            .sum();
+        let adj = self.img_scroll.vadjustment();
+        let target = top + y_pt * ppp * z - adj.page_size() / 3.0;
+        adj.set_value(target.clamp(adj.lower(), (adj.upper() - adj.page_size()).max(0.0)));
+        self.fire_page_changed();
+
+        *self.flash.borrow_mut() = Some((page, y_pt));
+        self.drawing_area.queue_draw();
+        if let Some(id) = self.flash_timer.borrow_mut().take() {
+            id.remove();
+        }
+        let flash = self.flash.clone();
+        let timer = self.flash_timer.clone();
+        let area = self.drawing_area.clone();
+        *self.flash_timer.borrow_mut() = Some(glib::timeout_add_local_once(
+            Duration::from_millis(1200),
+            move || {
+                *timer.borrow_mut() = None;
+                *flash.borrow_mut() = None;
+                area.queue_draw();
+            },
+        ));
+        true
+    }
+
     pub fn set_on_word_click_jump(&self, f: impl Fn(usize, f64, f64) + 'static) {
         *self.on_word_click_jump.borrow_mut() = Some(Box::new(f));
     }
@@ -831,6 +940,7 @@ impl PreviewPane {
         let snapshots = self.buffer_snapshot.borrow().clone();
         let draft = *self.draft_mode.borrow();
         let pixel_per_pt = if draft { 1.0f32 } else { 2.0f32 };
+        let ppp_for_sync = pixel_per_pt as f64;
         let mut sys_inputs = std::collections::HashMap::new();
         if draft {
             sys_inputs.insert("draft".to_string(), "true".to_string());
@@ -849,7 +959,9 @@ impl PreviewPane {
             );
             let elapsed = t0.elapsed();
             tx.send(match result {
-                Ok((pages, warnings)) => CompileResult::Success(pages, warnings, elapsed),
+                Ok((pages, warnings, sync)) => {
+                    CompileResult::Success(pages, warnings, elapsed, Box::new(sync))
+                }
                 Err(msg) => CompileResult::Error(msg, elapsed),
             })
             .ok();
@@ -873,7 +985,9 @@ impl PreviewPane {
                     pane.spinner.set_spinning(false);
                     pane.cancel_btn.set_visible(false);
                     match result {
-                        CompileResult::Success(pages, warnings, elapsed) => {
+                        CompileResult::Success(pages, warnings, elapsed, sync) => {
+                            *pane.sync.borrow_mut() = Some((*sync, ppp_for_sync));
+                            *pane.flash.borrow_mut() = None;
                             pane.load_pixbufs_from_pages(pages);
                             pane.stack.set_visible_child_name("ready");
                             let page_count = pane.page_count();

@@ -229,6 +229,10 @@ pub struct EditorPane {
     spell_checker: Rc<RefCell<crate::spellcheck::SpellChecker>>,
     line_spacing: Rc<RefCell<u32>>,
     typewriter_scroll: Rc<RefCell<bool>>,
+    /// Set around a jump's own `grab_focus`, so the focus-enter restore doesn't
+    /// throw the view back to where it was before the jump.
+    jumping: Rc<Cell<bool>>,
+    on_show_in_preview: Rc<RefCell<Option<Box<dyn Fn(PathBuf, usize)>>>>,
     word_count_goal: Rc<RefCell<u32>>,
     /// The Settings → Editor goal, applied to any document that doesn't carry
     /// its own `// @zerkalo-goal:` comment. Kept separate from
@@ -1546,6 +1550,8 @@ impl EditorPane {
             ]))),
             line_spacing,
             typewriter_scroll,
+            jumping: Rc::new(Cell::new(false)),
+            on_show_in_preview: Rc::new(RefCell::new(None)),
             word_count_goal,
             default_word_count_goal,
             last_wc_text,
@@ -2208,6 +2214,10 @@ impl EditorPane {
 
     pub fn apply_typewriter_scroll(&self, enabled: bool) {
         *self.typewriter_scroll.borrow_mut() = enabled;
+        for tab in self.state.borrow().tabs.values() {
+            let pad = if enabled { tab.view.height() / 2 } else { 0 };
+            tab.view.set_bottom_margin(pad);
+        }
     }
 
     /// Constrain editor to a comfortable reading width when zen/focus mode is on.
@@ -3721,7 +3731,11 @@ impl EditorPane {
                 let sv_enter = saved_scroll.clone();
                 let sh_enter = saved_hscroll.clone();
                 let pause = pause_tracking.clone();
+                let jumping = self.jumping.clone();
                 focus_ctrl.connect_enter(move |_| {
+                    if jumping.get() {
+                        return;
+                    }
                     // Use the tracked position rather than the current scroll. GTK can
                     // snap the view to the cursor synchronously before this signal fires
                     // (e.g. on context-menu dismiss), so reading the adjustment here
@@ -4210,12 +4224,13 @@ impl EditorPane {
         if let Some((s, e)) = start_iter.forward_search(text, flags, None) {
             buffer.select_range(&s, &e);
             view.scroll_to_iter(&mut s.clone(), 0.0, true, 0.0, 0.5);
-            view.grab_focus();
+            self.focus_after_jump(&view);
         }
     }
 
     pub fn jump_to_line(&self, path: &PathBuf, line: u32) {
         self.switch_to_file(path);
+        self.reveal_template_if_hidden(path, line.saturating_sub(1) as i32);
         let state = self.state.borrow();
         if let Some(tab) = state.tabs.get(path) {
             let line_idx = line.saturating_sub(1) as i32;
@@ -4243,8 +4258,83 @@ impl EditorPane {
                 None => tab.buffer.create_mark(Some(JUMP_MARK), &line_start, false),
             };
             tab.view.scroll_to_mark(&mark, 0.0, true, 0.0, 0.5);
-            tab.view.grab_focus();
+            self.focus_after_jump(&tab.view);
         }
+    }
+
+    /// A jump to a line inside the hidden template setup (an error in a
+    /// `#set` rule, most often) would land on invisible text, so show the
+    /// template first, the same as clicking SHOW TEMPLATE.
+    fn reveal_template_if_hidden(&self, path: &PathBuf, line_idx: i32) {
+        if !*self.simple_mode.borrow() {
+            return;
+        }
+        let hidden = self.state.borrow().tabs.get(path).is_some_and(|tab| {
+            let tag = tab.buffer.tag_table().lookup(SIMPLE_TAG);
+            let it = tab.buffer.iter_at_line(line_idx);
+            matches!((tag, it), (Some(tag), Some(it)) if it.has_tag(&tag))
+        });
+        if hidden {
+            self.apply_simple_mode(false);
+            if let Some(f) = self.on_simple_mode_toggle.borrow().as_ref() {
+                f(false);
+            }
+        }
+    }
+
+    /// Puts the cursor at `char_offset` in `path` and scrolls it into view —
+    /// the landing spot for a click in the preview.
+    pub fn jump_to_offset(&self, path: &PathBuf, char_offset: usize) {
+        self.switch_to_file(path);
+        let line = self
+            .state
+            .borrow()
+            .tabs
+            .get(path)
+            .map(|tab| tab.buffer.iter_at_offset(char_offset as i32).line());
+        let Some(line) = line else { return };
+        self.reveal_template_if_hidden(path, line);
+        let state = self.state.borrow();
+        let Some(tab) = state.tabs.get(path) else {
+            return;
+        };
+        let at = tab.buffer.iter_at_offset(char_offset as i32);
+        tab.buffer.place_cursor(&at);
+        // A mark, for the same reason as in `jump_to_line`.
+        let mark = match tab.buffer.mark(JUMP_MARK) {
+            Some(mark) => {
+                tab.buffer.move_mark(&mark, &at);
+                mark
+            }
+            None => tab.buffer.create_mark(Some(JUMP_MARK), &at, false),
+        };
+        tab.view.scroll_to_mark(&mark, 0.1, false, 0.0, 0.0);
+        self.focus_after_jump(&tab.view);
+    }
+
+    /// Ctrl+click in the editor (or the "Show in preview" command) asks for
+    /// the preview to scroll to that spot; this is where it's delivered.
+    pub fn set_on_show_in_preview(&self, f: impl Fn(PathBuf, usize) + 'static) {
+        *self.on_show_in_preview.borrow_mut() = Some(Box::new(f));
+    }
+
+    /// Shows the cursor's position in the preview.
+    pub fn show_cursor_in_preview(&self) {
+        let Some(path) = self.get_active_path() else {
+            return;
+        };
+        let Some((_, buffer)) = self.active_view_buffer() else {
+            return;
+        };
+        if let Some(f) = self.on_show_in_preview.borrow().as_ref() {
+            f(path, buffer.cursor_position().max(0) as usize);
+        }
+    }
+
+    fn focus_after_jump(&self, view: &View) {
+        self.jumping.set(true);
+        view.grab_focus();
+        self.jumping.set(false);
     }
 
     pub fn active_text(&self) -> Option<String> {
@@ -6991,13 +7081,62 @@ impl EditorPane {
             let until = track_paused_until.clone();
             move || until.set(Instant::now() + Duration::from_millis(150))
         };
+        // Whether a scroll that just happened is the user's position and not
+        // GTK's snap. The snap only happens to a focused view, so anything
+        // while focus is elsewhere in the window (the sidebar, the search box,
+        // the error panel's Jump button) is real: a wheel scroll there, or a
+        // jump from the outline or error panel. Recording only while focused
+        // left those out, and the next time focus came back (a right-click, a
+        // return from another window) the view was thrown back to the last
+        // position it had while focused, often the top of the file. Skipped:
+        // the pause windows around clicks and focus changes, and any time one
+        // of the view's own menus or popovers has focus, since that is when GTK
+        // can snap and a menu can stay open indefinitely. A wheel or touchpad
+        // scroll is always the user's, whatever has focus.
+        let user_scroll_until: Rc<Cell<Instant>> = Rc::new(Cell::new(Instant::now()));
+        {
+            let wheel = gtk4::EventControllerScroll::new(
+                gtk4::EventControllerScrollFlags::BOTH_AXES
+                    | gtk4::EventControllerScrollFlags::KINETIC,
+            );
+            wheel.set_propagation_phase(PropagationPhase::Capture);
+            let mark = user_scroll_until.clone();
+            wheel.connect_scroll(move |_, _, _| {
+                mark.set(Instant::now() + Duration::from_millis(300));
+                glib::Propagation::Proceed
+            });
+            let mark = user_scroll_until.clone();
+            wheel.connect_decelerate(move |_, _, _| {
+                mark.set(Instant::now() + Duration::from_millis(2000));
+            });
+            scroll.add_controller(wheel);
+        }
+        let is_users_scroll = {
+            let view = view.clone();
+            let until = track_paused_until.clone();
+            let user_until = user_scroll_until.clone();
+            move || {
+                let now = Instant::now();
+                if now < user_until.get() {
+                    return true;
+                }
+                if now < until.get() {
+                    return false;
+                }
+                let focus = view.root().and_then(|r| r.focus());
+                match focus {
+                    Some(w) if w == *view.upcast_ref::<gtk4::Widget>() => view.has_focus(),
+                    Some(w) => !w.is_ancestor(&view),
+                    None => true,
+                }
+            }
+        };
         {
             let sv = saved_scroll.clone();
-            let until = track_paused_until.clone();
             let held = hold_position.clone();
             let held_until = hold_until.clone();
             let reasserting: Rc<Cell<bool>> = Rc::new(Cell::new(false));
-            let view_v = view.clone();
+            let record_v = is_users_scroll.clone();
             scroll.vadjustment().connect_value_changed(move |adj| {
                 if let Some((v, _)) = held.get() {
                     if Instant::now() < held_until.get() {
@@ -7011,27 +7150,15 @@ impl EditorPane {
                     }
                     held.set(None);
                 }
-                // Only record while the view actually has keyboard focus. A
-                // right-click context menu (native or the spell popover) takes
-                // focus away from the view for as long as it stays open, and
-                // GTK can snap the viewport to the cursor at some point during
-                // that window — with no fixed bound on when, since the menu
-                // may stay open however long the user takes to read it. If
-                // that snap got recorded as the "real" position, restoring it
-                // on focus return threw the view to wherever the cursor was
-                // (usually the top of the file) and left it stuck there. The
-                // time-based pause below still covers same-focus snaps (a
-                // plain click, which never fires a focus event at all).
-                if view_v.has_focus() && Instant::now() >= until.get() {
+                if record_v() {
                     sv.set(adj.value());
                 }
             });
             let sh = saved_hscroll.clone();
-            let until = track_paused_until.clone();
             let held_h = hold_position.clone();
             let held_until_h = hold_until.clone();
             let reasserting_h: Rc<Cell<bool>> = Rc::new(Cell::new(false));
-            let view_h = view.clone();
+            let record_h = is_users_scroll.clone();
             scroll.hadjustment().connect_value_changed(move |adj| {
                 if let Some((_, h)) = held_h.get() {
                     if Instant::now() < held_until_h.get() {
@@ -7043,7 +7170,7 @@ impl EditorPane {
                         return;
                     }
                 }
-                if view_h.has_focus() && Instant::now() >= until.get() {
+                if record_h() {
                     sh.set(adj.value());
                 }
             });
@@ -7552,6 +7679,35 @@ impl EditorPane {
         tab.buffer.connect_changed(move |_| {
             typing_flag_set.set(true);
         });
+
+        // Ctrl+click → show that spot in the preview. A modifier, not a plain
+        // click: following every click used to yank the preview around while
+        // simply placing the cursor (see `set_on_cursor_moved`'s call site).
+        {
+            let ctrl_click = GestureClick::new();
+            ctrl_click.set_button(1);
+            let view_cc = tab.view.clone();
+            let path_cc = tab.path.clone();
+            let cb = self.on_show_in_preview.clone();
+            ctrl_click.connect_pressed(move |g, n_press, x, y| {
+                if n_press != 1
+                    || !g
+                        .current_event_state()
+                        .contains(gtk4::gdk::ModifierType::CONTROL_MASK)
+                {
+                    return;
+                }
+                let (bx, by) =
+                    view_cc.window_to_buffer_coords(TextWindowType::Widget, x as i32, y as i32);
+                let Some(iter) = view_cc.iter_at_location(bx, by) else {
+                    return;
+                };
+                if let Some(f) = cb.borrow().as_ref() {
+                    f(path_cc.clone(), iter.offset().max(0) as usize);
+                }
+            });
+            tab.view.add_controller(ctrl_click);
+        }
         tab.buffer.connect_mark_set(move |buf, _iter, mark| {
             if mark.name().as_deref() == Some("insert") {
                 let cursor = buf.iter_at_mark(mark);
@@ -7653,7 +7809,7 @@ impl EditorPane {
                     tw_y.filter(|&y| was_typing && !buf.has_selection() && y != last_tw_y.get())
                 {
                     last_tw_y.set(y);
-                    let mut c = cursor;
+                    let insert_mark = buf.get_insert();
                     let vt = view_for_typewriter.clone();
                     let sc_tw = scroll_for_typewriter.clone();
                     let gen = typewriter_gen.get().wrapping_add(1);
@@ -7667,6 +7823,15 @@ impl EditorPane {
                         }
                         // Preserve horizontal tab.scroll — scroll_to_iter with xalign=0.0 would
                         // snap the tab.view left, hiding text behind the left margin/line numbers.
+                        // Blank space past the last line, or the end of the document — where
+                        // new text usually goes — can never scroll up to the anchor.
+                        let pad = vt.height() / 2;
+                        if vt.bottom_margin() != pad {
+                            vt.set_bottom_margin(pad);
+                        }
+                        // Re-read from the mark: an iter captured when the timer was queued
+                        // is invalidated by any typing in the 80 ms window.
+                        let mut c = vt.buffer().iter_at_mark(&insert_mark);
                         let h = sc_tw.hadjustment().value();
                         vt.scroll_to_iter(&mut c, 0.0, true, 0.0, 0.45);
                         sc_tw.hadjustment().set_value(h);

@@ -7,7 +7,7 @@ use gtk4::{Align, Box as GtkBox, Button, Label, Orientation, ScrolledWindow, Sep
 use libadwaita as adw;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const RELEASE_NAME: &str = "Split Light";
+pub const RELEASE_NAME: &str = "Linked Glass";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -160,10 +160,16 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             body.append(&bullet_row(
-                "Back-to-back citations in a footnote style (Chicago Notes, SBL, Turabian) now get one footnote each: @a @b @c renders as text¹²³ with three separate notes, instead of one footnote listing every source.",
+                "Click anything in the preview and the editor jumps to that exact spot in the source. Ctrl+click in the text (or \"Show Cursor in Preview\" in Ctrl+K) to go the other way — the preview scrolls there and highlights the line.",
             ));
             body.append(&bullet_row(
-                "Author-date and numeric styles (APA, MLA, IEEE, …) still group citations as before, e.g. (Smith 2020; Jones 2021).",
+                "The editor no longer jumps to the top when you right-click or come back to it after scrolling elsewhere.",
+            ));
+            body.append(&bullet_row(
+                "Jump to error now always scrolls to the error line, including errors inside the hidden template setup.",
+            ));
+            body.append(&bullet_row(
+                "Typewriter scrolling works again, including at the end of the document.",
             ));
         }
 

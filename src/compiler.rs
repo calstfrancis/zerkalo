@@ -5,7 +5,8 @@ use std::sync::{Mutex, OnceLock};
 use chrono::Datelike;
 use typst::diag::{FileError, FileResult, Severity, SourceDiagnostic, Warned};
 use typst::foundations::{Bytes, Datetime, Dict, Duration, IntoValue, Str};
-use typst::syntax::{FileId, RootedPath, Source, VirtualPath, VirtualRoot};
+use typst::layout::{Abs, Frame, FrameItem, Point};
+use typst::syntax::{FileId, LinkedNode, RootedPath, Side, Source, Span, VirtualPath, VirtualRoot};
 use typst::text::{Font, FontBook};
 use typst::utils::{LazyHash, Scalar};
 use typst::{Feature, Features, Library, LibraryExt, World as TypstWorld, WorldExt};
@@ -632,7 +633,7 @@ pub fn compile_to_rgba_pages(
     overrides: &HashMap<PathBuf, String>,
     sys_inputs: &HashMap<String, String>,
     extra_root: Option<&Path>,
-) -> Result<(Vec<RenderedPage>, String), String> {
+) -> Result<(Vec<RenderedPage>, String, SyncMap), String> {
     let world = ZerkaloWorld::new(root_file, overrides.clone(), sys_inputs, extra_root)?;
     let (doc, warnings) = finish::<PagedDocument>(&world, typst::compile(&world))?;
     // tiny-skia stores premultiplied RGBA; GdkPixbuf wants straight.
@@ -643,7 +644,154 @@ pub fn compile_to_rgba_pages(
         .iter()
         .map(|p| render_page_rgba(p, pixel_per_pt))
         .collect();
-    Ok((pages, warnings))
+    Ok((pages, warnings, SyncMap { world, doc }))
+}
+
+// ── Preview ↔ source sync ────────────────────────────────────────────────────
+
+impl typst_ide::IdeWorld for ZerkaloWorld {
+    fn upcast(&self) -> &dyn TypstWorld {
+        self
+    }
+}
+
+/// A compiled document together with the World it was compiled from, kept by
+/// the preview so a click on a page can be traced to the exact source position
+/// and a source position to the exact spot on a page — through the spans Typst
+/// itself records, rather than by matching text extracted from the PDF. The
+/// World holds the very text that was compiled, so offsets agree with the
+/// document even if the editor has changed since.
+pub struct SyncMap {
+    world: ZerkaloWorld,
+    doc: PagedDocument,
+}
+
+impl SyncMap {
+    /// The source file and character offset behind the point `(x_pt, y_pt)`
+    /// on page `page` (0-based), if something there came from source.
+    ///
+    /// A click only registers on a glyph's own box, so one landing in the
+    /// gap between two words or two lines would find nothing; nearby points
+    /// are tried too, nearest first.
+    pub fn source_at(&self, page: usize, x_pt: f64, y_pt: f64) -> Option<(PathBuf, usize)> {
+        const NUDGES: [(f64, f64); 9] = [
+            (0.0, 0.0),
+            (0.0, -3.0),
+            (0.0, 3.0),
+            (-3.0, 0.0),
+            (3.0, 0.0),
+            (0.0, -6.0),
+            (0.0, 6.0),
+            (-6.0, -3.0),
+            (6.0, -3.0),
+        ];
+        let page = std::num::NonZeroUsize::new(page + 1)?;
+        NUDGES
+            .iter()
+            .find_map(|(dx, dy)| self.source_exactly_at(page, x_pt + dx, y_pt + dy))
+    }
+
+    fn source_exactly_at(
+        &self,
+        page: std::num::NonZeroUsize,
+        x_pt: f64,
+        y_pt: f64,
+    ) -> Option<(PathBuf, usize)> {
+        let position = typst::introspection::PagedPosition {
+            page,
+            point: Point::new(Abs::pt(x_pt), Abs::pt(y_pt)),
+        };
+        let typst_ide::Jump::File(id, byte) =
+            typst_ide::jump_from_click(&self.world, &self.doc, &position)?
+        else {
+            return None;
+        };
+        // Text a package or the citation wrapper produced isn't the user's to
+        // edit; opening those files in the editor would just be confusing.
+        let is_wrapper = id.vpath().get_without_slash().ends_with(WRAPPER_NAME);
+        if matches!(id.root(), VirtualRoot::Package(_)) || is_wrapper {
+            return None;
+        }
+        let source = TypstWorld::source(&self.world, id).ok()?;
+        let char_offset = source.text().get(..byte)?.chars().count();
+        Some((self.world.resolve(id).ok()?, char_offset))
+    }
+
+    /// Where the source at `char_offset` in `path` ended up: page (0-based)
+    /// and point on it, in pt.
+    ///
+    /// Typst's own `jump_from_cursor` only resolves a cursor sitting on plain
+    /// text; on markup or code (`#lorem(30)`, `*bold*`, a heading marker) it
+    /// finds nothing. This also tries each enclosing syntax node — a function
+    /// call's output carries the call's span — and, for a cursor between
+    /// paragraphs, the next few leaves after it.
+    pub fn page_point_for(&self, path: &Path, char_offset: usize) -> Option<(usize, f64, f64)> {
+        let source = self.source_for_path(path)?;
+        let text = source.text();
+        let byte = text
+            .char_indices()
+            .nth(char_offset)
+            .map_or(text.len(), |(b, _)| b);
+        let root = LinkedNode::new(source.root());
+        let mut leaf = root
+            .leaf_at(byte, Side::Before)
+            .or_else(|| root.leaf_at(byte, Side::After));
+        for _ in 0..50 {
+            let current = leaf?;
+            let mut node = Some(current.clone());
+            while let Some(n) = node.filter(|n| n.parent().is_some()) {
+                if let Some(found) = self.find_span(n.span()) {
+                    return Some(found);
+                }
+                node = n.parent().cloned();
+            }
+            leaf = current.next_leaf();
+        }
+        None
+    }
+
+    fn find_span(&self, span: Span) -> Option<(usize, f64, f64)> {
+        if span.is_detached() {
+            return None;
+        }
+        self.doc.pages().iter().enumerate().find_map(|(i, page)| {
+            find_in_frame(&page.frame, span).map(|p| (i, p.x.to_pt(), p.y.to_pt()))
+        })
+    }
+
+    fn source_for_path(&self, path: &Path) -> Option<Source> {
+        let canon = |p: PathBuf| std::fs::canonicalize(&p).unwrap_or(p);
+        let want = canon(path.to_path_buf());
+        let ids: Vec<FileId> = poisoned_lock(&self.world.source_cache)
+            .keys()
+            .copied()
+            .collect();
+        let id = ids
+            .into_iter()
+            .find(|id| self.world.resolve(*id).ok().map(canon).as_ref() == Some(&want))?;
+        TypstWorld::source(&self.world, id).ok()
+    }
+}
+
+/// Same search as `typst_ide`'s private `find_in_frame`: the first glyph
+/// produced by `span`, with group transforms applied.
+fn find_in_frame(frame: &Frame, span: Span) -> Option<Point> {
+    for &(mut pos, ref item) in frame.items() {
+        if let FrameItem::Group(group) = item {
+            if let Some(point) = find_in_frame(&group.frame, span) {
+                return Some(pos + point.transform(group.transform));
+            }
+        }
+        if let FrameItem::Text(text) = item {
+            for glyph in &text.glyphs {
+                if glyph.span.0 == span {
+                    return Some(pos);
+                }
+                pos.x += glyph.x_advance.at(text.size);
+            }
+        }
+    }
+    None
 }
 
 /// Compile `root_file` in-process and return PNG bytes for each page.
@@ -1143,6 +1291,41 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    #[test]
+    fn sync_map_round_trips_between_source_and_page() {
+        let text = "= Title\n\nFirst paragraph of plain words.\n\n#pagebreak()\n\nSecond page text here.\n\n#lorem(12)\n";
+        let path = write_temp_typ(text);
+        let (_, _, map) =
+            compile_to_rgba_pages(&path, 1.0, &HashMap::new(), &HashMap::new(), None).unwrap();
+
+        let offset_of = |needle: &str| text[..text.find(needle).unwrap()].chars().count();
+
+        // Plain text → the page it's on, and back to (about) the same spot.
+        let second = offset_of("Second page") + 3;
+        let (page, x, y) = map
+            .page_point_for(&path, second)
+            .expect("plain text placed");
+        assert_eq!(page, 1);
+        let (back_path, back) = map
+            .source_at(page, x + 1.0, y - 2.0)
+            .expect("click resolves");
+        assert_eq!(
+            back_path.canonicalize().unwrap(),
+            path.canonicalize().unwrap()
+        );
+        assert!(back >= offset_of("Second page") && back < offset_of("#lorem"));
+
+        // Code with no text of its own resolves through the enclosing call.
+        let (lorem_page, _, _) = map
+            .page_point_for(&path, offset_of("#lorem") + 2)
+            .expect("#lorem call placed");
+        assert_eq!(lorem_page, 1);
+
+        // A click in the empty bottom margin maps to nothing.
+        assert!(map.source_at(0, 5.0, 830.0).is_none());
+        let _ = std::fs::remove_file(&path);
+    }
+
     /// Renders the split to a PNG for eyeballing (`cargo test -- --ignored`).
     #[test]
     #[ignore]
@@ -1178,7 +1361,7 @@ mod tests {
             "doc should render to RGBA: {:?}",
             result.err()
         );
-        let (pages, _warnings) = result.unwrap();
+        let (pages, _warnings, _) = result.unwrap();
         assert!(!pages.is_empty(), "should produce at least one page");
         let p = &pages[0];
         assert!(
@@ -1197,7 +1380,7 @@ mod tests {
     #[test]
     fn compile_to_rgba_renders_page_content_opaque() {
         let path = write_temp_typ("= Heading\n\nSome content here.");
-        let (pages, _) =
+        let (pages, _, _) =
             compile_to_rgba_pages(&path, 1.0, &HashMap::new(), &HashMap::new(), None).unwrap();
         let p = &pages[0];
         assert!(
@@ -1219,7 +1402,7 @@ mod tests {
         let path = write_temp_typ(
             "#let x = 1\n#x\n#show heading: it => it\n= H\n#[#set par(justify: true)]\n",
         );
-        let (_pages, warnings) =
+        let (_pages, warnings, _) =
             compile_to_rgba_pages(&path, 1.0, &HashMap::new(), &HashMap::new(), None)
                 .expect("document should still compile");
         // Not asserting on a specific warning text — Typst's own set changes
