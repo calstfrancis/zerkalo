@@ -83,6 +83,18 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.33.1" date="2026-09-25">
+      <description>
+        <p>0.33.1 "Warm Glass" — the F1 "what things do" overlay no longer
+        overlaps itself in a busy window, and its bubbles are legible in
+        dark mode. Bubbles now lead with a small icon, size themselves to
+        their text, and connect to their target with a gentle curve instead
+        of a straight line, fading in with a brief stagger when the overlay
+        opens. The preview page has a very faint paper-like gradient, and
+        status-bar toggles get a soft highlight on hover and keyboard
+        focus.</p>
+      </description>
+    </release>
     <release version="0.33.0" date="2026-09-25">
       <description>
         <p>0.33.0 "Polished Glass" — a document saved outside the Zerkalo

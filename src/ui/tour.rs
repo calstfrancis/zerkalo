@@ -14,7 +14,9 @@ use std::rc::Rc;
 use gtk4::prelude::*;
 use gtk4::{Align, Box as GtkBox, Button, DrawingArea, Fixed, Label, Orientation};
 
-use super::help_overlay::{connector, place_bubble, rounded_rect, AnnotationTargets};
+use super::help_overlay::{
+    connector, draw_connector, place_bubble, rounded_rect, AnnotationTargets,
+};
 
 const BUBBLE_W: i32 = 260;
 const MARGIN: f64 = 8.0;
@@ -320,16 +322,8 @@ impl Tour {
         cr.set_line_width(2.0);
         let _ = cr.stroke();
 
-        let (from, to) = connector(bubble, anchor);
-        cr.set_source_rgba(accent.0, accent.1, accent.2, 0.75);
-        cr.set_line_width(2.0);
-        cr.move_to(from.0, from.1);
-        cr.line_to(to.0, to.1);
-        let _ = cr.stroke();
-
-        cr.set_source_rgba(accent.0, accent.1, accent.2, 0.95);
-        cr.arc(to.0, to.1, 3.0, 0.0, std::f64::consts::TAU);
-        let _ = cr.fill();
+        let (from, to, is_horizontal) = connector(bubble, anchor);
+        draw_connector(cr, from, to, is_horizontal, accent);
     }
 }
 

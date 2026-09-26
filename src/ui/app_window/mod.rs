@@ -638,8 +638,28 @@ impl AppWindow {
             window.add_css_class("high-contrast");
         }
         let editor_for_dark = editor_pane.clone();
+        let window_for_dark = window.clone();
+        // Zerkalo's own fixed teal/amber identity colors (fond-accent-*,
+        // compile-mode-*) are literal hex, deliberately not @accent_color —
+        // but a single fixed value still can't be both dark enough to read
+        // on a light background and light enough to read on a dark one. This
+        // toggles which of the two variants styles.rs's CSS uses for them;
+        // set once for the window's starting scheme, then again on every
+        // later change.
+        let apply_dark_accents = {
+            let window = window_for_dark.clone();
+            move |dark: bool| {
+                if dark {
+                    window.add_css_class("fond-dark-accents");
+                } else {
+                    window.remove_css_class("fond-dark-accents");
+                }
+            }
+        };
+        apply_dark_accents(adw::StyleManager::default().is_dark());
         adw::StyleManager::default().connect_dark_notify(move |mgr| {
             editor_for_dark.apply_style_scheme(mgr.is_dark());
+            apply_dark_accents(mgr.is_dark());
         });
 
         let auto_detected_bib = wire_citations(&CitationCtx {
@@ -2394,7 +2414,7 @@ impl AppWindow {
                 library_btn: &library_btn,
                 preview_label: &preview_label,
                 menu_btn: &menu_btn,
-                compile_btn: &compile_btn,
+                compile_btn: &recompile_header_btn,
                 compile_mode_slot: &compile_mode_slot,
                 outline: outline_panel.widget(),
                 citations: citation_panel.widget(),
@@ -2432,7 +2452,7 @@ impl AppWindow {
                 library_btn: &library_btn,
                 preview_label: &preview_label,
                 menu_btn: &menu_btn,
-                compile_btn: &compile_btn,
+                compile_btn: &recompile_header_btn,
                 compile_mode_slot: &compile_mode_slot,
                 outline: outline_panel.widget(),
                 citations: citation_panel.widget(),

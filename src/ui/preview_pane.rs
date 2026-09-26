@@ -243,11 +243,24 @@ impl PreviewPane {
                 ctx.set_source_rgba(0.0, 0.0, 0.0, 0.03);
                 ctx.rectangle(5.0, y + 7.0, pw + 2.0, ph + 2.0);
                 ctx.fill().ok();
-                // White page background fills the full viewport width so the
-                // gray canvas is visible only in the gutter around pages.
-                ctx.set_source_rgb(1.0, 1.0, 1.0);
-                ctx.rectangle(0.0, y, pw.max(w as f64), ph);
-                ctx.fill().ok();
+                // Page background fills the full viewport width so the gray
+                // canvas is visible only in the gutter around pages. A very
+                // faint top-to-bottom gradient (warm paper-white easing to a
+                // hair cooler and darker) reads as paper rather than a flat
+                // digital white — subtle enough not to fight the page
+                // content or make white space in the document look tinted.
+                let page_w = pw.max(w as f64);
+                let paper = gtk4::cairo::LinearGradient::new(0.0, y, 0.0, y + ph);
+                paper.add_color_stop_rgb(0.0, 0.996, 0.995, 0.990);
+                paper.add_color_stop_rgb(1.0, 0.978, 0.976, 0.970);
+                if ctx.set_source(&paper).is_ok() {
+                    ctx.rectangle(0.0, y, page_w, ph);
+                    ctx.fill().ok();
+                } else {
+                    ctx.set_source_rgb(1.0, 1.0, 1.0);
+                    ctx.rectangle(0.0, y, page_w, ph);
+                    ctx.fill().ok();
+                }
                 // Page content
                 ctx.save().ok();
                 ctx.scale(z, z);

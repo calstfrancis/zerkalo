@@ -1,4 +1,4 @@
-# Zerkalo v0.33.0 "Polished Glass"
+# Zerkalo v0.33.1 "Warm Glass"
 
 Install via Flatpak:
 
@@ -18,13 +18,13 @@ flatpak update io.github.calstfrancis.Zerkalo
 
 ### What's new
 
-A follow-up polish release to 0.32.0's document-library and export changes.
+A fix-and-polish release for the F1 "what things do" overlay, plus a handful of small visual touches elsewhere.
 
-**Move stray documents in.** If a document is saved outside your Zerkalo folder — from before name-only New Document existed, or dragged in from elsewhere — the Library's document menu now has "Move into Zerkalo Folder…". It moves the file and its comment/template sidecars in one step, picking a free name if there's a collision. It won't move a document that's currently open, so it can't leave an editor tab pointing at a file that no longer exists.
+**The overlay no longer overlaps itself.** In a busy window — a long document title, a multi-file project, several header buttons — its bubbles could land on top of each other, or on top of a neighbouring control's own highlight. Both are fixed: a bubble that genuinely has no free space is left unlabelled that pass instead of forced into a collision.
 
-**Ctrl+Shift+E follows your Export settings.** The quick-export shortcut used to always write a PDF next to the source file with no further action. It now writes to wherever the Export dialog remembers, and opens the result if "Open when finished" is on — including in Pereplyot.
+**The overlay is legible in dark mode.** Its bubbles used the app's own background, which goes dark in dark mode — but a bubble sits over arbitrary window content, not just the app's own, so it lost contrast there. Now a fixed near-white card with fixed dark text, always.
 
-**Smaller things:** New Document now suggests a name that's actually free ("Untitled 2" when "Untitled" is taken). The Library and Template buttons in the header now match, both with an icon. The Compile Errors panel starts collapsed the first time it's showing only warnings, rather than opening full height. Cited-references BibTeX export is properly indented. The Reference Manager's own cited-only export now also supports `.yaml` and Kartoteka vaults, not just `.bib`.
+**A few visual touches:** overlay bubbles lead with a small icon and size themselves to their text, the connector to each bubble's target is a gentle curve instead of a straight line, and bubbles fade in with a brief stagger when the overlay opens. The preview page has a very faint paper-like gradient instead of flat white, and status-bar toggles get a soft highlight on hover and keyboard focus.
 
 ---
 

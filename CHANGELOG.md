@@ -5,6 +5,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.33.1] "Warm Glass" — 2026-09-25 — The F1 overlay is legible in dark mode and doesn't overlap; visual polish pass
+
+### Fixed
+
+- **The F1 "what things do" overlay's bubbles no longer overlap each other**, in a real busy window (a long title, a multi-file project, several header buttons). Two real bugs, found by instrumenting the layout code against a live window: its last-resort fallback returned a position with no overlap check at all once the layer got too crowded, landing one bubble squarely on the last one; and bubbles avoided other bubbles but never another target's own highlighted control, so a bubble could land on a neighbouring button's highlight. A target with genuinely no free space is now left unlabelled that time rather than forced into a collision — in a very crowded window that can mean a few header buttons go unbubbled at once, an honest tradeoff over a garbled overlapping cluster.
+- **The overlay's bubbles are legible in dark mode.** They used the app's own card background, which goes dark in dark mode — but a bubble sits over arbitrary window content (the editor, dark panels), not just the app's own background, so it lost contrast there. Now a fixed near-white card with fixed dark text always, the same reasoning a paper sticky-note uses.
+- **The "Re-draw the page" bubble now points at the actual recompile button.** It was pointing at the Toggle Preview button instead (a leftover mismatch between two annotations added at different times) — that button already had its own correctly-worded bubble, so the real "compile now" icon button had never been labelled at all.
+
+### Changed
+
+- **The F1 overlay's bubbles now lead with a small icon** matching the control's own (the sidebar toggle, Library, the outline's list icon, …), and size themselves to their text — a short one like "Menu" no longer sits in the same width as a full paragraph. The connector line to each bubble's target is now a gentle curve instead of a ruled straight line, and bubbles fade in with a brief stagger when the overlay opens rather than all snapping into view at once.
+- **The preview page background has a very faint paper-like gradient** instead of flat white — subtle enough not to compete with the page content.
+- **Zerkalo's own teal/amber identity colors** (the sidebar section dots, and the Manual/Auto compile-mode indicator, which borrowed GTK's warning/success colors despite not really being a warning or a success) are brighter in dark mode, where the original fixed dark hex read at very low contrast against a dark background — the same class of bug the overlay's bubble background had.
+- **Status-bar toggles (focus mode, format bar, …) get a soft rounded highlight on hover and keyboard focus**, not just a change in text weight.
+
+---
+
 ## [0.33.0] "Polished Glass" — 2026-09-25 — Move stray documents in; Ctrl+Shift+E follows your export settings
 
 ### Added

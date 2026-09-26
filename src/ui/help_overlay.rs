@@ -8,13 +8,22 @@
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+use std::time::Duration;
 
 use gtk4::prelude::*;
 use gtk4::{Align, Box as GtkBox, DrawingArea, Fixed, Label, Orientation};
+use libadwaita as adw;
+use libadwaita::prelude::AnimationExt;
 
-/// Bubble width. Wide enough for a sentence at a comfortable measure, narrow
-/// enough that several fit beside each other on a laptop screen.
-const BUBBLE_W: i32 = 232;
+/// Bubble width tiers. A short annotation ("Menu") in a full-width 232px
+/// bubble read as mostly empty card around two words; picking a width from
+/// the annotation's own length keeps the shortest ones compact, which also
+/// helps a crowded header fit more bubbles before any run out of room (see
+/// `place_bubble`'s `None` case). Wide is still the width most annotations
+/// (a full sentence or two) actually need.
+const BUBBLE_W_NARROW: i32 = 160;
+const BUBBLE_W_MEDIUM: i32 = 196;
+const BUBBLE_W_WIDE: i32 = 232;
 /// Gap between a bubble and the thing it points at.
 const GAP: f64 = 14.0;
 /// Minimum breathing room kept between two different bubbles. Plain overlap
@@ -28,6 +37,8 @@ const MARGIN: f64 = 8.0;
 struct Target {
     widget: gtk4::Widget,
     bubble: GtkBox,
+    /// This target's own bubble width — see the `BUBBLE_W_*` tiers.
+    bw: f64,
     /// Where the bubble ended up, in layer coordinates — the draw function
     /// needs it to run the connector to the right edge.
     placed: Cell<Option<(f64, f64, f64, f64)>>,
@@ -51,6 +62,11 @@ pub struct HelpOverlay {
     /// same spot. A reentrant call is deferred instead of run inline.
     laying_out: Cell<bool>,
     relayout_pending: Cell<bool>,
+    /// Kept alive for their duration — an `adw::TimedAnimation` with nothing
+    /// else holding it is dropped (and its animation stopped dead) as soon as
+    /// the function that created it returns. Replaced wholesale on every
+    /// `show()`, since a fresh entrance is the only time these run.
+    entrance_animations: RefCell<Vec<adw::TimedAnimation>>,
 }
 
 impl HelpOverlay {
@@ -87,6 +103,7 @@ impl HelpOverlay {
             hint,
             laying_out: Cell::new(false),
             relayout_pending: Cell::new(false),
+            entrance_animations: RefCell::new(Vec::new()),
         });
 
         {
@@ -129,13 +146,39 @@ impl HelpOverlay {
 
     /// Labels `widget` with a short name and a sentence about what it does.
     pub fn annotate(&self, widget: &impl IsA<gtk4::Widget>, title: &str, body: &str) {
-        let bubble = bubble_widget(title, body);
-        bubble.set_size_request(BUBBLE_W, -1);
+        self.annotate_inner(widget, None, title, body);
+    }
+
+    /// `annotate`, with a symbolic icon shown beside the title — for a target
+    /// that already has one of its own (a header button's icon, a panel's own
+    /// view-mode icon, …), so the bubble echoes the control rather than
+    /// naming it in text alone.
+    pub fn annotate_with_icon(
+        &self,
+        widget: &impl IsA<gtk4::Widget>,
+        icon: &str,
+        title: &str,
+        body: &str,
+    ) {
+        self.annotate_inner(widget, Some(icon), title, body);
+    }
+
+    fn annotate_inner(
+        &self,
+        widget: &impl IsA<gtk4::Widget>,
+        icon: Option<&str>,
+        title: &str,
+        body: &str,
+    ) {
+        let bw = bubble_width_for(title, body);
+        let bubble = bubble_widget(icon, title, body);
+        bubble.set_size_request(bw, -1);
         bubble.set_visible(false);
         self.fixed.put(&bubble, 0.0, 0.0);
         self.targets.borrow_mut().push(Rc::new(Target {
             widget: widget.clone().upcast(),
             bubble,
+            bw: bw as f64,
             placed: Cell::new(None),
             anchor: Cell::new(None),
         }));
@@ -152,7 +195,59 @@ impl HelpOverlay {
         // invisible. The idle callback runs after the layout pass, when the
         // widgets it has to point at actually have positions.
         let this = self.clone();
-        glib::idle_add_local_once(move || this.relayout());
+        glib::idle_add_local_once(move || {
+            this.relayout();
+            this.animate_entrance();
+        });
+    }
+
+    /// Fades each placed bubble in with a short stagger, so a busy window's
+    /// worth of them arrives as a wave rather than all snapping into view at
+    /// once. Runs once per `show()`, not on every later `relayout()` (a
+    /// resize while the overlay is already open should just move bubbles,
+    /// not replay their entrance).
+    fn animate_entrance(&self) {
+        let mut animations = self.entrance_animations.borrow_mut();
+        animations.clear();
+
+        let mut visible = self
+            .targets
+            .borrow()
+            .iter()
+            .filter(|t| t.placed.get().is_some())
+            .cloned()
+            .collect::<Vec<_>>();
+        // Left-to-right, top-to-bottom reads as one wave rather than the
+        // arbitrary order targets were annotated in.
+        visible.sort_by(|a, b| {
+            let pa = a.placed.get().unwrap_or_default();
+            let pb = b.placed.get().unwrap_or_default();
+            (pa.1, pa.0)
+                .partial_cmp(&(pb.1, pb.0))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        const STEP_MS: u32 = 28;
+        const FADE_MS: u32 = 160;
+        for (i, target) in visible.iter().enumerate() {
+            let bubble = target.bubble.clone();
+            bubble.set_opacity(0.0);
+            let target_prop = adw::PropertyAnimationTarget::new(&bubble, "opacity");
+            let anim = adw::TimedAnimation::new(&bubble, 0.0, 1.0, FADE_MS, target_prop);
+            anim.set_easing(adw::Easing::EaseOutCubic);
+            let anim_c = anim.clone();
+            glib::timeout_add_local_once(Duration::from_millis((i as u32 * STEP_MS) as u64), {
+                move || anim_c.play()
+            });
+            animations.push(anim);
+        }
+
+        self.hint.set_opacity(0.0);
+        let target_prop = adw::PropertyAnimationTarget::new(&self.hint, "opacity");
+        let anim = adw::TimedAnimation::new(&self.hint, 0.0, 1.0, FADE_MS, target_prop);
+        anim.set_easing(adw::Easing::EaseOutCubic);
+        anim.play();
+        animations.push(anim);
     }
 
     pub fn hide(&self) {
@@ -275,8 +370,9 @@ impl HelpOverlay {
                 continue;
             };
 
-            let (_, bh, _, _) = target.bubble.measure(Orientation::Vertical, BUBBLE_W);
-            let bw = BUBBLE_W as f64;
+            let bw_i32 = target.bw as i32;
+            let (_, bh, _, _) = target.bubble.measure(Orientation::Vertical, bw_i32);
+            let bw = target.bw;
             let bh = bh as f64;
 
             let Some(spot) = place_bubble(anchor, bw, bh, width, height, &placed) else {
@@ -319,16 +415,8 @@ impl HelpOverlay {
             cr.set_line_width(2.0);
             let _ = cr.stroke();
 
-            let (from, to) = connector(bubble, anchor);
-            cr.set_source_rgba(accent.0, accent.1, accent.2, 0.75);
-            cr.set_line_width(2.0);
-            cr.move_to(from.0, from.1);
-            cr.line_to(to.0, to.1);
-            let _ = cr.stroke();
-
-            cr.set_source_rgba(accent.0, accent.1, accent.2, 0.95);
-            cr.arc(to.0, to.1, 3.0, 0.0, std::f64::consts::TAU);
-            let _ = cr.fill();
+            let (from, to, is_horizontal) = connector(bubble, anchor);
+            draw_connector(cr, from, to, is_horizontal, accent);
         }
     }
 }
@@ -447,12 +535,14 @@ fn overlaps_with_gap(a: (f64, f64, f64, f64), b: (f64, f64, f64, f64), gap: f64)
     overlaps(a, (b.0 - gap, b.1 - gap, b.2 + gap * 2.0, b.3 + gap * 2.0))
 }
 
-/// The two ends of the line joining a bubble to its target: from the bubble
-/// edge facing the target, to the nearest point on the target's edge.
+/// The two ends of the line joining a bubble to its target — from the bubble
+/// edge facing the target, to the nearest point on the target's edge — plus
+/// whether that's a left/right exit (`true`) or an above/below one (`false`).
+/// The third value tells `draw_connector` which axis to bow the curve along.
 pub(crate) fn connector(
     bubble: (f64, f64, f64, f64),
     anchor: (f64, f64, f64, f64),
-) -> ((f64, f64), (f64, f64)) {
+) -> ((f64, f64), (f64, f64), bool) {
     let (bx, by, bw, bh) = bubble;
     let (ax, ay, aw, ah) = anchor;
     let (bcx, bcy) = (bx + bw / 2.0, by + bh / 2.0);
@@ -479,11 +569,39 @@ pub(crate) fn connector(
     };
 
     match side {
-        Side::Right => ((bx + bw, bcy), (ax, acy.clamp(ay, ay + ah))),
-        Side::Left => ((bx, bcy), (ax + aw, acy.clamp(ay, ay + ah))),
-        Side::Below => ((bcx, by + bh), (acx.clamp(ax, ax + aw), ay)),
-        Side::Above => ((bcx, by), (acx.clamp(ax, ax + aw), ay + ah)),
+        Side::Right => ((bx + bw, bcy), (ax, acy.clamp(ay, ay + ah)), true),
+        Side::Left => ((bx, bcy), (ax + aw, acy.clamp(ay, ay + ah)), true),
+        Side::Below => ((bcx, by + bh), (acx.clamp(ax, ax + aw), ay), false),
+        Side::Above => ((bcx, by), (acx.clamp(ax, ax + aw), ay + ah), false),
     }
+}
+
+/// Draws the curved line from a bubble to its target, plus the small dot at
+/// the target end. A gentle S-curve (a cubic Bezier bowed along whichever
+/// axis the connector primarily travels) reads as considered where the
+/// straight ruled line it replaces read as a technical diagram callout.
+pub(crate) fn draw_connector(
+    cr: &gtk4::cairo::Context,
+    from: (f64, f64),
+    to: (f64, f64),
+    is_horizontal: bool,
+    color: (f64, f64, f64),
+) {
+    cr.set_source_rgba(color.0, color.1, color.2, 0.75);
+    cr.set_line_width(2.0);
+    cr.move_to(from.0, from.1);
+    if is_horizontal {
+        let midx = from.0 + (to.0 - from.0) / 2.0;
+        cr.curve_to(midx, from.1, midx, to.1, to.0, to.1);
+    } else {
+        let midy = from.1 + (to.1 - from.1) / 2.0;
+        cr.curve_to(from.0, midy, to.0, midy, to.0, to.1);
+    }
+    let _ = cr.stroke();
+
+    cr.set_source_rgba(color.0, color.1, color.2, 0.95);
+    cr.arc(to.0, to.1, 3.0, 0.0, std::f64::consts::TAU);
+    let _ = cr.fill();
 }
 
 pub(crate) fn rounded_rect(cr: &gtk4::cairo::Context, x: f64, y: f64, w: f64, h: f64, r: f64) {
@@ -508,17 +626,43 @@ pub(crate) fn rounded_rect(cr: &gtk4::cairo::Context, x: f64, y: f64, w: f64, h:
     cr.close_path();
 }
 
-fn bubble_widget(title: &str, body: &str) -> GtkBox {
+/// Picks a bubble width from the annotation's own length — see the
+/// `BUBBLE_W_*` constants' doc comment.
+fn bubble_width_for(title: &str, body: &str) -> i32 {
+    let len = title.chars().count() + body.chars().count();
+    if len <= 50 {
+        BUBBLE_W_NARROW
+    } else if len <= 90 {
+        BUBBLE_W_MEDIUM
+    } else {
+        BUBBLE_W_WIDE
+    }
+}
+
+fn bubble_widget(icon: Option<&str>, title: &str, body: &str) -> GtkBox {
     let b = GtkBox::new(Orientation::Vertical, 2);
     b.add_css_class("help-bubble");
     b.set_halign(Align::Start);
     b.set_valign(Align::Start);
 
+    let title_row = GtkBox::new(Orientation::Horizontal, 6);
+    if let Some(name) = icon {
+        let img = gtk4::Image::from_icon_name(name);
+        img.add_css_class("help-bubble-icon");
+        img.set_pixel_size(15);
+        img.set_valign(Align::Start);
+        // A hair of top margin lines the icon's optical centre up with the
+        // title's cap-height rather than its full line box.
+        img.set_margin_top(1);
+        title_row.append(&img);
+    }
     let title_lbl = Label::new(Some(title));
     title_lbl.set_xalign(0.0);
     title_lbl.set_wrap(true);
+    title_lbl.set_hexpand(true);
     title_lbl.add_css_class("help-bubble-title");
-    b.append(&title_lbl);
+    title_row.append(&title_lbl);
+    b.append(&title_row);
 
     let body_lbl = Label::new(Some(body));
     body_lbl.set_xalign(0.0);
@@ -576,33 +720,48 @@ pub fn annotate_window(overlay: &HelpOverlay, t: &AnnotationTargets) {
         "The finished page",
         "How your document will look when printed or shared. It re-draws itself as you type.",
     );
-    overlay.annotate(
+    overlay.annotate_with_icon(
         t.outline,
+        "view-list-symbolic",
         "Outline",
         "Every heading in the document. Click one to jump straight to it.",
     );
-    overlay.annotate(
+    overlay.annotate_with_icon(
         t.citations,
+        "user-bookmarks-symbolic",
         "Citations",
         "Sources from your bibliography file. Double-click one to cite it where the cursor is.",
     );
-    overlay.annotate(
+    overlay.annotate_with_icon(
         t.file_title_widget,
+        "text-x-generic-symbolic",
         "The open document",
         "The name of what you're editing. Click it to open something else or start a new one.",
     );
-    overlay.annotate(
+    overlay.annotate_with_icon(
         t.style_btn,
+        "document-edit-symbolic",
         "Template",
         "Title, author, margins, fonts and citation style — everything about how the document is set out.",
     );
-    overlay.annotate(
+    overlay.annotate_with_icon(
         t.sync_btn,
+        "mail-send-receive-symbolic",
         "Save & Back Up",
         "Saves everything and sends it to your backup, so it survives losing this computer. Ctrl+Shift+S — plain Ctrl+S saves to disk without backing up.",
     );
-    overlay.annotate(
+    overlay.annotate_with_icon(
+        // The actual "Compile now" icon button — not the local `compile_btn`
+        // passed here, which is really the Toggle Preview button and is
+        // already covered by `t.preview_label` below (its own child, so its
+        // bounds sit inside the same clickable area). That mismatch meant
+        // this bubble's "Re-draw the page" text — clearly recompile, not
+        // toggle-preview, wording — sat on a redundant target while the real
+        // recompile button went unlabelled. See the caller: it now passes
+        // `recompile_header_btn` for this field, whose own icon
+        // ("view-refresh-symbolic") this bubble reuses.
         t.compile_btn,
+        "view-refresh-symbolic",
         "Re-draw the page",
         "Builds the preview again. Normally it happens on its own; this is for when you want it now.",
     );
@@ -611,23 +770,27 @@ pub fn annotate_window(overlay: &HelpOverlay, t: &AnnotationTargets) {
         "When to re-draw",
         "Whether the page rebuilds as you type, only when you save, or only when you ask.",
     );
-    overlay.annotate(
+    overlay.annotate_with_icon(
         t.preview_label,
+        "view-reveal-symbolic",
         "Preview",
         "Hides or shows the finished page, giving the whole window to your writing.",
     );
-    overlay.annotate(
+    overlay.annotate_with_icon(
         t.library_btn,
+        "folder-documents-symbolic",
         "Library",
         "Every document Zerkalo knows about, with the newest first. Ctrl+L.",
     );
-    overlay.annotate(
+    overlay.annotate_with_icon(
         t.sidebar_btn,
+        "sidebar-show-symbolic",
         "Side panels",
         "Hides or shows the outline and citations panels.",
     );
-    overlay.annotate(
+    overlay.annotate_with_icon(
         t.menu_btn,
+        "open-menu-symbolic",
         "Menu",
         "Everything else: new documents, import, export, print, settings and help.",
     );
@@ -641,6 +804,28 @@ pub fn annotate_window(overlay: &HelpOverlay, t: &AnnotationTargets) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bubble_width_for_shrinks_for_short_annotations() {
+        assert_eq!(
+            bubble_width_for("Menu", "Everything else."),
+            BUBBLE_W_NARROW
+        );
+        assert_eq!(
+            bubble_width_for(
+                "Library",
+                "Every document Zerkalo knows about, with the newest first. Ctrl+L."
+            ),
+            BUBBLE_W_MEDIUM
+        );
+        assert_eq!(
+            bubble_width_for(
+                "Save & Back Up",
+                "Saves everything and sends it to your backup, so it survives losing this computer. Ctrl+Shift+S — plain Ctrl+S saves to disk without backing up.",
+            ),
+            BUBBLE_W_WIDE
+        );
+    }
 
     #[test]
     fn a_bubble_goes_beside_its_target_when_there_is_room() {
@@ -724,16 +909,23 @@ mod tests {
     fn the_connector_leaves_the_bubble_on_the_side_facing_its_target() {
         // Bubble to the left of the target: the line must start on the
         // bubble's right edge, or it crosses the bubble to get out.
-        let (from, to) = connector((100.0, 100.0, 200.0, 60.0), (400.0, 110.0, 40.0, 20.0));
+        let (from, to, is_horizontal) =
+            connector((100.0, 100.0, 200.0, 60.0), (400.0, 110.0, 40.0, 20.0));
         assert_eq!(from.0, 300.0, "should leave from the right edge");
         assert_eq!(to.0, 400.0, "should stop at the target's near edge");
+        assert!(
+            is_horizontal,
+            "a right-side exit bows the curve horizontally"
+        );
     }
 
     #[test]
     fn the_connector_stops_at_the_targets_edge_from_below() {
-        let (from, to) = connector((100.0, 300.0, 200.0, 60.0), (150.0, 100.0, 40.0, 20.0));
+        let (from, to, is_horizontal) =
+            connector((100.0, 300.0, 200.0, 60.0), (150.0, 100.0, 40.0, 20.0));
         assert_eq!(from.1, 300.0, "should leave from the bubble's top edge");
         assert_eq!(to.1, 120.0, "should stop at the target's bottom edge");
+        assert!(!is_horizontal, "an above exit bows the curve vertically");
     }
 
     #[test]

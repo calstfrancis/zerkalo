@@ -13,6 +13,15 @@
 const FOND_CSS: &str = include_str!("../../style/fond.css");
 
 const GLOBAL_CSS: &str = "\
+    /* Zerkalo's own two-colour identity, used for anything that wants a fixed \
+       brand colour rather than the user's chosen accent — a section marker \
+       that should read the same regardless of accent, or (below) a state \
+       that isn't really \"warning\"/\"success\" and was only ever borrowing \
+       those tokens for a colour. Defined once so the four-plus places that \
+       use them can't drift out of sync the way the same two literal hex \
+       values, copy-pasted four times, already had started to. */ \
+    @define-color fond_teal #1F5E75; \
+    @define-color fond_amber #8A6A24; \
     /* The F1 \"what things do\" overlay. Solid backgrounds, because these sit \
        directly on top of the running window — a translucent bubble over an \
        editor full of text is unreadable. Deliberately literal (not @card_bg_color) \
@@ -28,12 +37,19 @@ const GLOBAL_CSS: &str = "\
                    box-shadow: 0 2px 8px alpha(black, 0.35); } \
     .help-bubble-title { font-weight: bold; color: #1a1a1a; } \
     .help-bubble-body { font-size: 0.9em; color: alpha(#1a1a1a, 0.8); } \
+    /* Symbolic icons render in the current foreground colour by default, \
+       which without this would follow the *app's* theme rather than the \
+       bubble's own fixed-light card — invisible in dark mode, the same \
+       problem the card background above exists to avoid. @accent_color is \
+       deliberately not used here either: it's tuned for contrast against \
+       the app's own background, not this bubble's forced-white one, and in \
+       dark mode can be a light blue with no more contrast on #fafafa than \
+       the app's foreground colour had. */ \
+    .help-bubble-icon { color: alpha(#1a1a1a, 0.85); } \
     .help-hint { background: @accent_color; color: @accent_fg_color; \
                  border-radius: 999px; padding: 6px 14px; font-size: 0.9em; } \
-    .fond-accent-outline { color: #1F5E75; } \
-    .fond-accent-citations { color: #8A6A24; } \
-    .fond-accent-library { color: #1F5E75; } \
-    .fond-accent-pinned { color: #8A6A24; } \
+    .fond-accent-outline, .fond-accent-library { color: @fond_teal; } \
+    .fond-accent-citations, .fond-accent-pinned { color: @fond_amber; } \
     /* A cue for a row that has no colour of its own — themed, so it stays \
        legible in both schemes, unlike a literal hex. */ \
     .fond-cue-neutral { background: alpha(@window_fg_color, 0.22); } \
@@ -116,11 +132,29 @@ const GLOBAL_CSS: &str = "\
     } \
     .status-toggle label { \
         opacity: 0.7; \
+        transition: opacity 120ms ease; \
     } \
     .status-toggle:focus label, \
     .status-toggle:hover label { \
         opacity: 1.0; \
     } \
+    /* The dim-until-active row otherwise snapped straight from quiet to full \
+       opacity with a hover background from nowhere; a soft rounded highlight \
+       (same idiom as .navigation-sidebar row hover above) and a matching \
+       transition give the row a little life without it stopping being quiet \
+       until something in it is actually active. */ \
+    .status-toggle { \
+        border-radius: 6px; \
+        transition: background-color 120ms ease; \
+    } \
+    .status-toggle:hover, \
+    .status-toggle:focus:focus-visible { \
+        background-color: alpha(@window_fg_color, 0.06); \
+    } \
+    /* libadwaita's own button.flat:focus-visible rule already draws an \
+       accent outline here — this just extends the row's own hover \
+       highlight (above) to keyboard focus too, so Tabbing to a status-bar \
+       toggle looks like landing somewhere, not just gaining a thin ring. */ \
     .compile-progress { \
         min-height: 3px; \
         padding: 0; \
@@ -163,11 +197,32 @@ const GLOBAL_CSS: &str = "\
     .compiling-pulse { \
         animation: pulse-opacity 1.2s ease-in-out infinite; \
     } \
+    /* Manual/Auto isn't a warning or a success — it's a plain mode choice — \
+       so it borrows Zerkalo's own two-colour identity (see fond_teal/ \
+       fond_amber above) rather than GTK's semantic warning/success tokens, \
+       which read as \"something's wrong\"/\"something's good\" and didn't \
+       actually apply here. */ \
     .compile-mode-manual { \
-        color: @warning_color; \
+        color: @fond_amber; \
     } \
     .compile-mode-auto { \
-        color: @success_color; \
+        color: @fond_teal; \
+    } \
+    /* fond_teal/fond_amber are dark, deliberately fixed colours — they read \
+       fine on a light background but, unmodified, read at very low contrast \
+       on a dark one, same problem the F1 overlay's bubble background had. \
+       Brighter variants swapped in via this one class — toggled on the \
+       window by the `connect_dark_notify` handler in app_window/mod.rs — \
+       rather than a media query GTK's CSS engine has no equivalent for. */ \
+    window.fond-dark-accents .fond-accent-outline, \
+    window.fond-dark-accents .fond-accent-library, \
+    window.fond-dark-accents .compile-mode-auto { \
+        color: #6FC2E0; \
+    } \
+    window.fond-dark-accents .fond-accent-citations, \
+    window.fond-dark-accents .fond-accent-pinned, \
+    window.fond-dark-accents .compile-mode-manual { \
+        color: #E0B84A; \
     } \
     .session-delta-positive { \
         color: @success_color; \
