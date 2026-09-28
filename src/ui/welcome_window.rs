@@ -7,7 +7,7 @@ use gtk4::{Align, Box as GtkBox, Button, Label, Orientation, ScrolledWindow, Sep
 use libadwaita as adw;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const RELEASE_NAME: &str = "Warm Glass";
+pub const RELEASE_NAME: &str = "Marked Glass";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -160,10 +160,9 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
-                "The F1 \"what things do\" overlay no longer overlaps itself in a busy window, and its bubbles are legible in dark mode.",
-                "Overlay bubbles now lead with a small icon, size themselves to their text, and fade in with a gentle curve to their target instead of a straight line.",
-                "The preview page has a very faint paper-like gradient instead of flat white.",
-                "Status-bar toggles get a soft highlight on hover and keyboard focus.",
+                "Press F1 and every control is labelled again — 0.33.1 left most header buttons without a bubble.",
+                "Each panel now labels itself in its own corner, so the buttons' bubbles sit right beside them instead of piling up in the sidebar.",
+                "The status bar's bubble no longer runs off the bottom of the window.",
             ] {
                 body.append(&bullet_row(item));
             }

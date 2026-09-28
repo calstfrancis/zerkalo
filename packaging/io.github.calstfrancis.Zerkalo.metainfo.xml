@@ -83,6 +83,16 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.33.2" date="2026-09-28">
+      <description>
+        <p>0.33.2 "Marked Glass" — pressing F1 labels every control again:
+        in 0.33.1 the big panels took up all the free window space, leaving
+        most header buttons without a bubble. Panels now label themselves in
+        their own corner, the buttons' bubbles sit right beside them, and
+        the status bar's bubble no longer runs off the bottom of the
+        window.</p>
+      </description>
+    </release>
     <release version="0.33.1" date="2026-09-25">
       <description>
         <p>0.33.1 "Warm Glass" — the F1 "what things do" overlay no longer

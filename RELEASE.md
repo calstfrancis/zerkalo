@@ -1,4 +1,4 @@
-# Zerkalo v0.33.1 "Warm Glass"
+# Zerkalo v0.33.2 "Marked Glass"
 
 Install via Flatpak:
 
@@ -18,13 +18,11 @@ flatpak update io.github.calstfrancis.Zerkalo
 
 ### What's new
 
-A fix-and-polish release for the F1 "what things do" overlay, plus a handful of small visual touches elsewhere.
+A quick fix for the F1 "what things do" overlay.
 
-**The overlay no longer overlaps itself.** In a busy window — a long document title, a multi-file project, several header buttons — its bubbles could land on top of each other, or on top of a neighbouring control's own highlight. Both are fixed: a bubble that genuinely has no free space is left unlabelled that pass instead of forced into a collision.
+**Every control is labelled again.** In 0.33.1, the big panels — the editor, the preview, the outline, citations — took up all the free space in the window for their own bubbles, so most header buttons had nowhere left and showed no bubble at all. Panels now label themselves with a small caption in their own corner, which leaves room for every button's bubble right beside the button it describes, joined by a short line instead of a long one across the editor.
 
-**The overlay is legible in dark mode.** Its bubbles used the app's own background, which goes dark in dark mode — but a bubble sits over arbitrary window content, not just the app's own, so it lost contrast there. Now a fixed near-white card with fixed dark text, always.
-
-**A few visual touches:** overlay bubbles lead with a small icon and size themselves to their text, the connector to each bubble's target is a gentle curve instead of a straight line, and bubbles fade in with a brief stagger when the overlay opens. The preview page has a very faint paper-like gradient instead of flat white, and status-bar toggles get a soft highlight on hover and keyboard focus.
+**The status bar's bubble stays on screen.** It used to run off the bottom of the window; it now sits just above the bar.
 
 ---
 

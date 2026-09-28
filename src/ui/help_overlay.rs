@@ -33,6 +33,11 @@ const GAP: f64 = 14.0;
 const BUBBLE_GAP: f64 = 10.0;
 /// Space kept clear at the window edges.
 const MARGIN: f64 = 8.0;
+/// An anchor at or above this area (width × height, in px²) is a whole panel
+/// (editor, preview, outline, …) rather than a small control — shared with
+/// `draw`'s existing wash-vs-outline distinction below, and now also with
+/// `relayout_inner`'s placement: see `PANEL_SELF_CAPTIONS` there for why.
+const PANEL_AREA: f64 = 30_000.0;
 
 struct Target {
     widget: gtk4::Widget,
@@ -44,6 +49,12 @@ struct Target {
     placed: Cell<Option<(f64, f64, f64, f64)>>,
     /// The widget's own rectangle, or None when it isn't on screen.
     anchor: Cell<Option<(f64, f64, f64, f64)>>,
+    /// Whether this bubble is placed inside its own anchor (a whole panel
+    /// captioning itself — see `relayout_inner`) rather than beside it.
+    /// `draw` skips the connector line/dot for these: a line from a caption
+    /// to the panel it's already sitting inside just cuts across the panel's
+    /// own content for no reason.
+    self_captioned: Cell<bool>,
 }
 
 pub struct HelpOverlay {
@@ -181,6 +192,7 @@ impl HelpOverlay {
             bw: bw as f64,
             placed: Cell::new(None),
             anchor: Cell::new(None),
+            self_captioned: Cell::new(false),
         }));
     }
 
@@ -363,9 +375,26 @@ impl HelpOverlay {
             hint_w as f64,
             hint_h as f64,
         )];
-        placed.extend(self.targets.borrow().iter().filter_map(|t| t.anchor.get()));
+        // Only small controls are obstacles. Whole panels caption themselves
+        // in their own corner (below), so the rest of a panel's area is free
+        // for other bubbles: blocking it too left nothing but the sidebar's
+        // scraps, and every header button's bubble got stacked there with a
+        // long line snaking across the editor back to its button.
+        placed.extend(
+            self.targets
+                .borrow()
+                .iter()
+                .filter_map(|t| t.anchor.get())
+                .filter(|a| a.2 * a.3 < PANEL_AREA),
+        );
 
-        for target in self.targets.borrow().iter() {
+        // Panels first, so their in-corner captions are already obstacles by
+        // the time small controls go looking for free space over them.
+        let targets = self.targets.borrow();
+        let mut order: Vec<&Rc<Target>> = targets.iter().collect();
+        order.sort_by_key(|t| !t.anchor.get().is_some_and(|a| a.2 * a.3 >= PANEL_AREA));
+
+        for target in order {
             let Some(anchor) = target.anchor.get() else {
                 continue;
             };
@@ -375,7 +404,28 @@ impl HelpOverlay {
             let bw = target.bw;
             let bh = bh as f64;
 
-            let Some(spot) = place_bubble(anchor, bw, bh, width, height, &placed) else {
+            // Whole panels (editor, preview, outline, citations, …) caption
+            // themselves in their own top-left corner instead of competing
+            // with small header controls for external space via the same
+            // `place_bubble`/`sweep` pass. Found live on a real document:
+            // half a dozen panels and header buttons all reach for the
+            // *same* scraps of free window space, and since panels are
+            // annotated first, they greedily claimed literally all of it —
+            // every header button then reported no room and went unbubbled,
+            // which is a far worse outcome than a panel's caption sitting a
+            // few pixels inside its own edge. A panel is also the one target
+            // that least needs a connector line: it's already obvious which
+            // control a caption inside its own border is about.
+            // Only when the caption actually fits inside, though: the status bar
+            // is wide enough to count as a panel but far too short to hold
+            // one, and self-captioning it pushed its bubble off the window.
+            let fits_inside = anchor.2 >= bw + MARGIN * 2.0 && anchor.3 >= bh + MARGIN * 2.0;
+            let (spot, is_self_captioned) = if anchor.2 * anchor.3 >= PANEL_AREA && fits_inside {
+                (Some((anchor.0 + MARGIN, anchor.1 + MARGIN)), true)
+            } else {
+                (place_bubble(anchor, bw, bh, width, height, &placed), false)
+            };
+            let Some(spot) = spot else {
                 // Genuinely no room left anywhere — leave this target
                 // unlabelled this time rather than force an overlapping spot.
                 // The highlighted-anchor outline (drawn in `draw`) still
@@ -388,6 +438,7 @@ impl HelpOverlay {
             };
             placed.push((spot.0, spot.1, bw, bh));
             target.placed.set(Some((spot.0, spot.1, bw, bh)));
+            target.self_captioned.set(is_self_captioned);
             target.bubble.set_visible(true);
             self.fixed.move_(&target.bubble, spot.0, spot.1);
         }
@@ -407,7 +458,7 @@ impl HelpOverlay {
             // panels get an outline only. Tinting those washed the entire
             // window blue and buried the thing the overlay exists to explain.
             rounded_rect(cr, anchor.0, anchor.1, anchor.2, anchor.3, 6.0);
-            if anchor.2 * anchor.3 < 30_000.0 {
+            if anchor.2 * anchor.3 < PANEL_AREA {
                 cr.set_source_rgba(accent.0, accent.1, accent.2, 0.14);
                 let _ = cr.fill_preserve();
             }
@@ -415,6 +466,9 @@ impl HelpOverlay {
             cr.set_line_width(2.0);
             let _ = cr.stroke();
 
+            if target.self_captioned.get() {
+                continue;
+            }
             let (from, to, is_horizontal) = connector(bubble, anchor);
             draw_connector(cr, from, to, is_horizontal, accent);
         }

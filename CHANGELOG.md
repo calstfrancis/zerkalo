@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.33.2] "Marked Glass" — 2026-09-28 — F1 overlay bubbles are back
+
+### Fixed
+
+- **The F1 overlay labels every control again.** In 0.33.1, the big panels (editor, preview, outline, citations) took up all the free window space for their own bubbles, so none of the header buttons fit and the overlay showed almost nothing. Panels now label themselves with a caption in their own top-left corner (no connector line needed), and the rest of each panel's area is free for the header buttons' bubbles, which now sit right next to their buttons instead of piling up in the sidebar with long lines across the editor. The status bar is too short to hold its own caption, so its bubble sits just above it instead of running off the bottom of the window.
+
 ## [0.33.1] "Warm Glass" — 2026-09-25 — The F1 overlay is legible in dark mode and doesn't overlap; visual polish pass
 
 ### Fixed
