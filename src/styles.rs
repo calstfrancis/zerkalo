@@ -413,6 +413,44 @@ pub(crate) fn find_bibliography_style(content: &str) -> Option<&str> {
     Some(&after[q1..q1 + q2])
 }
 
+const COMBINE_MARKER: &str = "// zerkalo-citations: combined";
+
+/// Whether the document asks for serial citations (`@a @b @c`) to follow its
+/// citation style — for Chicago notes, one footnote listing every source,
+/// separated by semicolons — instead of Zerkalo's one-footnote-per-source
+/// default. Stored in the document itself so every compile path (preview,
+/// export, print, the Library window) honours it.
+pub fn combines_serial_citations(content: &str) -> bool {
+    content.lines().any(|l| l.trim() == COMBINE_MARKER)
+}
+
+/// Adds or removes the marker `combines_serial_citations` looks for, placed
+/// just above the `#bibliography(...)` line (or at the top without one).
+pub fn set_combine_serial_citations(content: &str, combine: bool) -> String {
+    let trailing_nl = content.ends_with('\n');
+    let mut lines: Vec<&str> = content
+        .lines()
+        .filter(|l| l.trim() != COMBINE_MARKER)
+        .collect();
+    if combine {
+        let at = lines
+            .iter()
+            .position(|l| {
+                l.trim()
+                    .trim_start_matches('/')
+                    .trim()
+                    .starts_with("#bibliography(")
+            })
+            .unwrap_or(0);
+        lines.insert(at, COMBINE_MARKER);
+    }
+    let mut out = lines.join("\n");
+    if trailing_nl {
+        out.push('\n');
+    }
+    out
+}
+
 /// Rewrites a document's `#bibliography(...)` call to point `new_path`,
 /// preserving `style:`/`title:` and everything else about the call — used
 /// when the citation panel's "choose a bibliography file/vault" dialogs set
@@ -523,5 +561,24 @@ mod bib_path_tests {
         let doc = "#bibliography(\"old.bib\")\n";
         let out = set_bibliography_path(doc, "C:\\refs\\a\"b.bib");
         assert!(out.contains("C:\\\\refs\\\\a\\\"b.bib"), "got: {out}");
+    }
+}
+
+#[cfg(test)]
+mod combine_marker_tests {
+    use super::*;
+
+    #[test]
+    fn combine_marker_round_trips_beside_the_bibliography() {
+        let doc = "= Title\n#bibliography(\"refs.bib\")\nText @a @b.\n";
+        assert!(!combines_serial_citations(doc));
+        let on = set_combine_serial_citations(doc, true);
+        assert!(combines_serial_citations(&on));
+        assert_eq!(
+            on,
+            "= Title\n// zerkalo-citations: combined\n#bibliography(\"refs.bib\")\nText @a @b.\n"
+        );
+        assert_eq!(set_combine_serial_citations(&on, true), on);
+        assert_eq!(set_combine_serial_citations(&on, false), doc);
     }
 }

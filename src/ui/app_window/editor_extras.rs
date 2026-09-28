@@ -69,23 +69,23 @@ pub(super) fn wire_editor_extras(ctx: &EditorExtrasCtx) {
         let root = ctx.project_root.clone();
         let ep = ctx.editor_pane.clone();
         let ft = ctx.file_tree.clone();
+        let toast = ctx.toast_overlay.clone();
         ctx.editor_pane.set_on_image_drop(move |src_path| {
-            let fname = src_path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("image.png")
-                .to_string();
-            let dest = root.join(&fname);
-            if dest != src_path {
-                if let Err(e) = std::fs::copy(&src_path, &dest) {
-                    tracing::warn!("Failed to copy image: {e}");
-                    return;
+            // Typst resolves image paths relative to the file they're in.
+            let doc_dir = ep
+                .get_active_path()
+                .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+                .unwrap_or_else(|| root.clone());
+            match crate::assets::import_image(&src_path, &doc_dir) {
+                Ok(rel) => {
+                    ft.refresh();
+                    ep.insert_at_cursor(&crate::assets::figure_snippet(&rel));
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to copy image into assets: {e}");
+                    toast.add_toast(adw::Toast::new(&format!("Couldn't add the image: {e}")));
                 }
             }
-            ft.refresh();
-            ep.insert_at_cursor(&format!(
-                "\n#figure(\n  image(\"{fname}\"),\n  caption: [],\n)\n"
-            ));
         });
     }
 

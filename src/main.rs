@@ -4,6 +4,7 @@
 // anything clearer, and the shape is uniform enough to read at a glance.
 #![allow(clippy::type_complexity)]
 
+mod assets;
 mod auto_save;
 mod bib_sanitize;
 mod bibliography;

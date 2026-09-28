@@ -5,6 +5,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.34.0-dev1] — 2026-09-28 — Clearer citation marks, a choice of how they combine, images kept with the document
+
+### Added
+
+- **Choose how several citations in a row are footnoted.** The Style menu has a new "Several citations in a row" choice. "One note each (¹,²,³)" is Zerkalo's default, and gives every source its own footnote. "As the style specifies" follows your citation style's own rule instead; for Chicago notes, that's a single footnote listing every source, separated by semicolons. The choice is saved in the document itself (a `// zerkalo-citations: combined` line beside `#bibliography`), so it applies to the preview, exports and printing alike.
+- **A horizontal-rule button (―) on the format bar**, next to the page break (¶). It inserts `#line(length: 100%)`, a line across the full width of the page. Also available from the `#` suggestions as "Horizontal rule".
+
+### Changed
+
+- **Inserted images are copied into an `assets/` folder beside your document.** The image button used to write only the picture's file name, which only worked if the picture already sat next to the document. Now the picture is copied in first (drag-and-drop too), so the document keeps working if the original is moved or deleted, and the image is included in your backups. Adding the same picture twice reuses the copy; a different picture with the same name gets a numbered name instead of overwriting. A picture that's already inside the document's folder is used where it is.
+
+### Fixed
+
+- **Several citations in a row no longer run together into one long number.** In footnote styles, back-to-back citation marks now get a small superscript comma between them (¹,²,³ instead of ¹²³), which matters most once the numbers reach two digits.
+- **A citation in a heading gets the same size of footnote mark as everywhere else.** It used to take on the heading's larger size and bold weight; it now matches the marks in body text, raised to the top of the heading's letters.
+
 ## [0.33.2] "Marked Glass" — 2026-09-28 — F1 overlay bubbles are back
 
 ### Fixed

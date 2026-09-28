@@ -145,6 +145,51 @@ pub(super) fn build_panels(
         }
     }
 
+    // Serial citations: Zerkalo's one-note-each, or the style's own rule.
+    {
+        let sep = gtk4::Separator::new(gtk4::Orientation::Horizontal);
+        sep.set_margin_top(4);
+        sep.set_margin_bottom(4);
+        style_box.append(&sep);
+        let heading = gtk4::Label::new(Some("Several citations in a row"));
+        heading.add_css_class("caption");
+        heading.add_css_class("dim-label");
+        heading.set_halign(gtk4::Align::Start);
+        heading.set_margin_start(8);
+        style_box.append(&heading);
+        let separate = gtk4::CheckButton::with_label("One note each (¹,²,³)");
+        separate.set_tooltip_text(Some(
+            "Footnote styles: every source gets its own footnote, marked ¹,²,³",
+        ));
+        let combined = gtk4::CheckButton::with_label("As the style specifies");
+        combined.set_tooltip_text(Some(
+            "Follow the citation style's own rule — Chicago notes, for example, \
+             puts every source in one footnote, separated by semicolons",
+        ));
+        combined.set_group(Some(&separate));
+        for b in [&separate, &combined] {
+            b.set_margin_start(8);
+            b.set_margin_end(8);
+            style_box.append(b);
+        }
+        separate.set_active(true);
+        {
+            let ep = editor_pane.clone();
+            combined.connect_toggled(move |b| ep.set_combine_serial_citations(b.is_active()));
+        }
+        let ep = editor_pane.clone();
+        style_popover.connect_show(move |_| {
+            let combine = ep
+                .get_active_content()
+                .is_some_and(|c| crate::styles::combines_serial_citations(&c));
+            if combine {
+                combined.set_active(true);
+            } else {
+                separate.set_active(true);
+            }
+        });
+    }
+
     // Wire outline symbol insert → editor
     {
         let ep = editor_pane.clone();

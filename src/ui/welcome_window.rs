@@ -160,9 +160,10 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
-                "Press F1 and every control is labelled again — 0.33.1 left most header buttons without a bubble.",
-                "Each panel now labels itself in its own corner, so the buttons' bubbles sit right beside them instead of piling up in the sidebar.",
-                "The status bar's bubble no longer runs off the bottom of the window.",
+                "Several citations in a row now read clearly — marked ¹,²,³ instead of running together — or, from the Style menu, combined into one note the way your citation style specifies.",
+                "A citation in a heading gets the same size of footnote mark as everywhere else.",
+                "Pictures you insert are copied into an assets folder beside your document, so they keep working if the original moves.",
+                "A horizontal-rule button (―) on the format bar, next to the page break.",
             ] {
                 body.append(&bullet_row(item));
             }

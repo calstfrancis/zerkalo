@@ -113,6 +113,9 @@ const ACADEMIC_SNIPPETS: &[(&str, &str, &str, &str)] = &[
     ("pagebreak", "Page break",
      "Force content to start on a new page",
      "#pagebreak()"),
+    ("line", "Horizontal rule",
+     "A line across the full width of the page",
+     "#line(length: 100%)"),
     ("outline", "Table of Contents",
      "Auto-generated table of contents (headings up to depth 3)",
      "#outline(title: [Contents], depth: 3)"),
@@ -810,6 +813,13 @@ impl EditorPane {
         pb_btn.update_property(&[gtk4::accessible::Property::Label("Insert page break")]);
         format_bar.append(&pb_btn);
 
+        let hr_btn = Button::with_label("―");
+        hr_btn.add_css_class("flat");
+        hr_btn.add_css_class("caption");
+        hr_btn.set_tooltip_text(Some("Insert horizontal rule  (#line(length: 100%))"));
+        hr_btn.update_property(&[gtk4::accessible::Property::Label("Insert horizontal rule")]);
+        format_bar.append(&hr_btn);
+
         let fb_sep3 = Separator::new(Orientation::Vertical);
         fb_sep3.set_margin_top(6);
         fb_sep3.set_margin_bottom(6);
@@ -1252,7 +1262,7 @@ impl EditorPane {
             },
             OverflowGroup {
                 lead_separator: Some(fb_sep2.clone().upcast()),
-                controls: vec![pb_btn.clone().upcast()],
+                controls: vec![pb_btn.clone().upcast(), hr_btn.clone().upcast()],
                 zone_b: false,
             },
             OverflowGroup {
@@ -1277,7 +1287,7 @@ impl EditorPane {
         let zone_a_anchor_stack: Rc<RefCell<Vec<gtk4::Widget>>> = Rc::new(RefCell::new(vec![
             italic_btn.clone().upcast(),
             h3_btn.clone().upcast(),
-            pb_btn.clone().upcast(),
+            hr_btn.clone().upcast(),
             line_numbers_btn.clone().upcast(),
             table_btn.clone().upcast(),
             figure_btn.clone().upcast(),
@@ -1861,22 +1871,18 @@ impl EditorPane {
                 let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
                 filters.append(&filter);
                 dialog.set_filters(Some(&filters));
-                let ep2 = ep_img.clone();
-                dialog.open(gtk4::Window::NONE, gtk4::gio::Cancellable::NONE, move |result| {
-                    if let Ok(file) = result {
-                        if let Some(path) = file.path() {
-                            if let Some((_, buf)) = ep2.active_view_buffer() {
-                                let name = path.file_name()
-                                    .and_then(|n| n.to_str())
-                                    .unwrap_or("image.png");
-                                let snippet = format!(
-                                    "#figure(\n  image(\"{name}\", width: 80%),\n  caption: [Caption],\n) <fig:label>\n"
-                                );
-                                buf.insert_at_cursor(&snippet);
+                let on_image = ep_img.on_image_drop.clone();
+                dialog.open(
+                    gtk4::Window::NONE,
+                    gtk4::gio::Cancellable::NONE,
+                    move |result| {
+                        if let Some(path) = result.ok().and_then(|f| f.path()) {
+                            if let Some(f) = on_image.borrow().as_ref() {
+                                f(path);
                             }
                         }
-                    }
-                });
+                    },
+                );
             });
         }
         {
@@ -1928,6 +1934,14 @@ impl EditorPane {
             pb_btn.connect_clicked(move |_| {
                 if let Some((_v, buf)) = ep_pb.active_view_buffer() {
                     buf.insert_at_cursor("\n#pagebreak()\n");
+                }
+            });
+        }
+        {
+            let ep_hr = ep.clone();
+            hr_btn.connect_clicked(move |_| {
+                if let Some((_v, buf)) = ep_hr.active_view_buffer() {
+                    buf.insert_at_cursor("\n#line(length: 100%)\n");
                 }
             });
         }
@@ -2789,6 +2803,38 @@ impl EditorPane {
         *self.on_cursor_moved.borrow_mut() = Some(Box::new(f));
     }
 
+    /// Replaces a tab's whole text as one undoable step.
+    fn replace_buffer_content(&self, path: &PathBuf, new_content: &str) {
+        // Clone the buffer before dropping the borrow; set_text fires
+        // connect_changed which calls borrow_mut — holding the borrow here
+        // causes a RefCell double-borrow panic.
+        let buffer_opt = {
+            let state = self.state.borrow();
+            state.tabs.get(path).map(|tab| tab.buffer.clone())
+        };
+        if let Some(buffer) = buffer_opt {
+            buffer.begin_user_action();
+            let (start, end) = buffer.bounds();
+            buffer.delete(&mut start.clone(), &mut end.clone());
+            buffer.insert(&mut buffer.end_iter(), new_content);
+            buffer.end_user_action();
+            let sm = *self.simple_mode.borrow();
+            apply_simple_mode_tag(&buffer, sm);
+        }
+    }
+
+    /// See `styles::combines_serial_citations`.
+    pub fn set_combine_serial_citations(&self, combine: bool) {
+        let (Some(path), Some(content)) = (self.get_active_path(), self.get_active_content())
+        else {
+            return;
+        };
+        let new_content = crate::styles::set_combine_serial_citations(&content, combine);
+        if new_content != content {
+            self.replace_buffer_content(&path, &new_content);
+        }
+    }
+
     pub fn apply_style(&self, style_code: &str, bib_style: &str, bib_title: &str, style_key: &str) {
         let Some(path) = self.get_active_path() else {
             return;
@@ -2810,24 +2856,7 @@ impl EditorPane {
         };
 
         if new_content != content {
-            // Clone the buffer before dropping the borrow; set_text fires
-            // connect_changed which calls borrow_mut — holding the borrow here
-            // causes a RefCell double-borrow panic.
-            let buffer_opt = {
-                let state = self.state.borrow();
-                state.tabs.get(&path).map(|tab| tab.buffer.clone())
-            };
-            if let Some(buffer) = buffer_opt {
-                buffer.begin_user_action();
-                let (start, end) = buffer.bounds();
-                buffer.delete(&mut start.clone(), &mut end.clone());
-                buffer.insert(&mut buffer.end_iter(), &new_content);
-                buffer.end_user_action();
-                {
-                    let sm = *self.simple_mode.borrow();
-                    apply_simple_mode_tag(&buffer, sm);
-                }
-            }
+            self.replace_buffer_content(&path, &new_content);
         }
 
         // Keep the sidecar's `style` in step with the document, same as

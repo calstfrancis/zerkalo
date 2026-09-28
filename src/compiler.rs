@@ -205,17 +205,53 @@ const WRAPPER_NAME: &str = ".zerkalo-main.typ";
 /// the document's `bibliography` element: every built-in note style has
 /// "note" in its name (`chicago-notes` resolves to `chicago-fullnotes`); a
 /// custom `.csl` file's class is checked on the Rust side and passed in as
-/// `zk-force-split`.
-const SPLIT_NOTE_CITES: &str = r#"#show cite: it => context {
+/// `zk-force-split`. A document can opt out entirely (`zk-split` false, see
+/// `styles::combines_serial_citations`) to get its style's own handling back.
+///
+/// Split markers sitting right next to each other get a superscript comma
+/// between them (`text¹,²,³`); without it `¹¹¹²` reads as one long number.
+/// "Right next to" is judged from laid-out positions (same line, the
+/// previous citation starting within a marker's width), since a show rule
+/// can't see its siblings.
+///
+/// A footnote in a heading otherwise takes the heading's size and weight,
+/// so its marker comes out bigger and bolder than every other one. Inside
+/// headings, footnotes use the body size (read where `#bibliography` sits,
+/// which is body text in practice), raised to the heading's cap height.
+const SPLIT_NOTE_CITES: &str = r#"#let zk-note-style() = {
   let bibs = query(bibliography)
   let style = if bibs.len() > 0 { repr(bibs.first().style) } else { "" }
-  if zk-force-split or "note" in style { h(0pt, weak: true); it; h(0pt) } else { it }
+  zk-force-split or "note" in style
+}
+#let zk-body-size = state("zk-body-size", none)
+#show bibliography: it => { context zk-body-size.update(text.size); it }
+#show heading: it => context {
+  let size = zk-body-size.final()
+  if size == none { return it }
+  let raise = 0.68 * (text.size - size)
+  show footnote: set text(size: size, weight: "regular", baseline: -raise)
+  it
+}
+#show cite: it => context {
+  if not zk-split or not zk-note-style() { return it }
+  let prev = query(selector(cite).before(it.location(), inclusive: false))
+  let serial = if prev.len() > 0 {
+    let p = prev.last().location().position()
+    let q = it.location().position()
+    p.page == q.page and calc.abs((p.y - q.y) / 1pt) < 2 and q.x > p.x and q.x - p.x < 1.8em.to-absolute()
+  } else { false }
+  h(0pt, weak: true)
+  if serial { super[,] }
+  it
+  h(0pt)
 }
 "#;
 
-fn wrapper_source(root_file_name: &str, force_split: bool) -> String {
+fn wrapper_source(root_file_name: &str, split: bool, force_split: bool) -> String {
     let escaped = root_file_name.replace('\\', "\\\\").replace('"', "\\\"");
-    format!("#let zk-force-split = {force_split}\n{SPLIT_NOTE_CITES}#include \"{escaped}\"\n")
+    format!(
+        "#let zk-split = {split}\n#let zk-force-split = {force_split}\n{SPLIT_NOTE_CITES}#include \"{escaped}\"\n"
+    )
 }
 
 /// Whether the document's bibliography uses a custom `.csl` file whose
@@ -330,6 +366,9 @@ impl ZerkaloWorld {
         let force_split = content
             .as_deref()
             .is_some_and(|c| custom_csl_is_note_style(c, &project_root));
+        let split = !content
+            .as_deref()
+            .is_some_and(crate::styles::combines_serial_citations);
 
         let (root, abs_root_file) = if needs_widening {
             let canon =
@@ -346,7 +385,7 @@ impl ZerkaloWorld {
         let wrapper_path = abs_root_file.with_file_name(WRAPPER_NAME);
         overrides.insert(
             wrapper_path.clone(),
-            wrapper_source(&root_file_name, force_split),
+            wrapper_source(&root_file_name, split, force_split),
         );
 
         let vpath = VirtualPath::virtualize(&root, &wrapper_path).map_err(|e| {
@@ -1267,6 +1306,20 @@ mod tests {
     }
 
     #[test]
+    fn serial_citations_follow_the_style_when_the_document_asks() {
+        let doc = serial_cite_project("combined", "chicago-notes", 1);
+        let content = std::fs::read_to_string(&doc).unwrap();
+        std::fs::write(
+            &doc,
+            crate::styles::set_combine_serial_citations(&content, true),
+        )
+        .unwrap();
+        let result = compile_to_pdf_bytes(&doc, &HashMap::new(), &HashMap::new(), None);
+        assert!(result.is_ok(), "{:?}", result.err());
+        let _ = std::fs::remove_dir_all(doc.parent().unwrap());
+    }
+
+    #[test]
     fn serial_citations_in_an_author_date_style_are_left_alone() {
         let doc = serial_cite_project("apa", "apa", 0);
         let result = compile_to_pdf_bytes(&doc, &HashMap::new(), &HashMap::new(), None);
@@ -1327,6 +1380,31 @@ mod tests {
     }
 
     /// Renders the split to a PNG for eyeballing (`cargo test -- --ignored`).
+    #[test]
+    fn serial_note_citations_and_heading_citations_converge() {
+        let dir = std::env::temp_dir().join(format!("zerkalo_cite_marks_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let bib: String = (1..=12)
+            .map(|i| {
+                format!("@book{{k{i}, author={{A{i}, B}}, title={{T{i}}}, year={{20{i:02}}}}}\n")
+            })
+            .collect();
+        std::fs::write(dir.join("refs.bib"), bib).unwrap();
+        let doc = dir.join("main.typ");
+        std::fs::write(
+            &doc,
+            "#bibliography(\"refs.bib\", style: \"chicago-notes\")\n\
+             == A heading@k1\n\n\
+             Text@k2 @k3 @k4 and@k5. More@k6 @k7 @k8 @k9 @k10, then@k11 @k12.\n\n\
+             #context assert.eq(counter(footnote).final().first(), 12)\n",
+        )
+        .unwrap();
+        let (_, warnings, _) =
+            compile_to_rgba_pages(&doc, 1.0, &HashMap::new(), &HashMap::new(), None).unwrap();
+        assert!(!warnings.to_lowercase().contains("converge"), "{warnings}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     #[ignore]
     fn render_split_citations_for_inspection() {

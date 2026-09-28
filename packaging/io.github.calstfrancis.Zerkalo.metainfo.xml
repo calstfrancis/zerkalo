@@ -33,9 +33,10 @@
       <li>New documents just ask for a name — Zerkalo saves them in your Zerkalo folder and lists them in the Library, so fonts and citations always resolve</li>
       <li>New from Template — dialog generates a complete Typst preamble; save your own customised templates alongside the built-in gallery</li>
       <li>Import from Word, ODT, Markdown, LaTeX, HTML, EPUB, RTF, or PDF, previewed before anything is written — Word, ODT and Markdown are converted by Zerkalo itself with nothing to install; drag-and-drop, batch/folder import, Paste as Document, and an Import History with retry, undo, and search; a .docx with Word's track changes turns them into reviewable suggested edits instead of silently accepting or dropping them</li>
+      <li>Insert images from anywhere — the picture is copied into an assets folder beside the document, so it keeps working if the original moves</li>
       <li>Insert Table — set row/column count, per-cell text, per-column alignment, an optional header row, and per-cell colspan/rowspan, then generate a complete Typst table block at the cursor</li>
       <li>Export to PDF, HTML, DOCX, ODT, LaTeX, or EPUB into any folder you choose, optionally opening the result when done (PDF and EPUB in Pereplyot when installed); Ctrl+Shift+E for instant PDF export</li>
-      <li>Citation style switcher — APA, Chicago, GOST 7.32, and more, plus custom CSL styles</li>
+      <li>Citation style switcher — APA, Chicago, GOST 7.32, and more, plus custom CSL styles; in footnote styles, several citations in a row get one note each (marked ¹,²,³) or one combined note as the style specifies</li>
       <li>BibTeX and Hayagriva YAML bibliography support, with project-wide citation key rename — a Kartoteka vault folder works as a live bibliography source too; export a .bib or .yaml holding only the references a document cites</li>
       <li>Auto or manual compile with live preview (status-bar toggle, manual by default); scroll position preserved across recompiles</li>
       <li>Exact preview ↔ editor sync — click anything in the preview to jump to that spot in the source, or Ctrl+click in the text to show it in the preview</li>
