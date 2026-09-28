@@ -84,6 +84,18 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.34.0" date="2026-09-28">
+      <description>
+        <p>0.34.0 "Gathered Glass" — several footnote citations in a row are
+        now marked with superscript commas between them instead of running
+        together into one long number, or, from the Style menu, combined into
+        one note the way the citation style specifies (for Chicago, sources
+        separated by semicolons). Footnote marks are readable in every font
+        and the same size throughout, including in headings. Inserted
+        pictures are copied into an assets folder beside the document, and a
+        horizontal-rule button joins the format bar.</p>
+      </description>
+    </release>
     <release version="0.33.2" date="2026-09-28">
       <description>
         <p>0.33.2 "Marked Glass" — pressing F1 labels every control again:

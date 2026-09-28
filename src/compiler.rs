@@ -208,6 +208,14 @@ const WRAPPER_NAME: &str = ".zerkalo-main.typ";
 /// `zk-force-split`. A document can opt out entirely (`zk-split` false, see
 /// `styles::combines_serial_citations`) to get its style's own handling back.
 ///
+/// Footnote marks are checked against plain digits at 60% size. Typst sizes
+/// and places superscripts from the font's own metrics, which some fonts get
+/// badly wrong (GOST type B's come out as specks), so those get an explicit
+/// 0.6em size and raise instead. And the font's own superscript digits are
+/// used only when they're a sensible size and genuinely present: a font
+/// missing any of them makes Typst silently synthesize that whole mark, so
+/// marks came out in two different sizes.
+///
 /// Split markers sitting right next to each other get a superscript comma
 /// between them (`text¹,²,³`); without it `¹¹¹²` reads as one long number.
 /// "Right next to" is judged from laid-out positions (same line, the
@@ -223,6 +231,21 @@ const SPLIT_NOTE_CITES: &str = r#"#let zk-note-style() = {
   let style = if bibs.len() > 0 { repr(bibs.first().style) } else { "" }
   zk-force-split or "note" in style
 }
+#let zk-fix-super(it) = {
+  let digits = [0123456789,]
+  let w = measure(text(size: 0.6em, digits)).width
+  let t = measure(super(typographic: true, digits)).width
+  let s = measure(super(typographic: false, digits)).width
+  if s < 0.75 * w or s > 1.4 * w {
+    set super(typographic: false, size: 0.6em, baseline: -0.5em)
+    it
+  } else if calc.abs(t / s - 1) <= 0.02 or t < 0.75 * w or t > 1.4 * w {
+    set super(typographic: false)
+    it
+  } else { it }
+}
+#show footnote: it => context zk-fix-super(it)
+#show footnote.entry: it => context zk-fix-super(it)
 #let zk-body-size = state("zk-body-size", none)
 #show bibliography: it => { context zk-body-size.update(text.size); it }
 #show heading: it => context {
@@ -241,7 +264,7 @@ const SPLIT_NOTE_CITES: &str = r#"#let zk-note-style() = {
     p.page == q.page and calc.abs((p.y - q.y) / 1pt) < 2 and q.x > p.x and q.x - p.x < 1.8em.to-absolute()
   } else { false }
   h(0pt, weak: true)
-  if serial { super[,] }
+  if serial { zk-fix-super(super[,]) }
   it
   h(0pt)
 }

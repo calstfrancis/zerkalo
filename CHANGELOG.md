@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.34.0-dev1] — 2026-09-28 — Clearer citation marks, a choice of how they combine, images kept with the document
+## [0.34.0] "Gathered Glass" — 2026-09-28 — Clearer citation marks, a choice of how they combine, images kept with the document
 
 ### Added
 
@@ -19,6 +19,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 
 - **Several citations in a row no longer run together into one long number.** In footnote styles, back-to-back citation marks now get a small superscript comma between them (¹,²,³ instead of ¹²³), which matters most once the numbers reach two digits.
+- **Footnote marks are readable in every font.** Some fonts carry broken superscript measurements that made footnote marks (and the new commas between them) print as tiny specks — GOST type B is one. Zerkalo now checks each font's superscripts against ordinary digits and sizes them itself when the font gets it wrong. It also stops mixing a font's own superscript digits with synthesized ones, which could make marks in the same document come out in two sizes.
 - **A citation in a heading gets the same size of footnote mark as everywhere else.** It used to take on the heading's larger size and bold weight; it now matches the marks in body text, raised to the top of the heading's letters.
 
 ## [0.33.2] "Marked Glass" — 2026-09-28 — F1 overlay bubbles are back
