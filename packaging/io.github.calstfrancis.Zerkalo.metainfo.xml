@@ -35,7 +35,7 @@
       <li>Import from Word, ODT, Markdown, LaTeX, HTML, EPUB, RTF, or PDF, previewed before anything is written — Word, ODT and Markdown are converted by Zerkalo itself with nothing to install; drag-and-drop, batch/folder import, Paste as Document, and an Import History with retry, undo, and search; a .docx with Word's track changes turns them into reviewable suggested edits instead of silently accepting or dropping them</li>
       <li>Insert images from anywhere — the picture is copied into an assets folder beside the document, so it keeps working if the original moves</li>
       <li>Insert Table — set row/column count, per-cell text, per-column alignment, an optional header row, and per-cell colspan/rowspan, then generate a complete Typst table block at the cursor</li>
-      <li>Export to PDF, HTML, DOCX, ODT, LaTeX, or EPUB into any folder you choose, optionally opening the result when done (PDF and EPUB in Pereplyot when installed); Ctrl+Shift+E for instant PDF export</li>
+      <li>Export to PDF, HTML, Word (a version for InDesign with real footnotes and named styles, and one for Canva with endnotes), LaTeX, or EPUB into any folder you choose, optionally opening the result when done (PDF and EPUB in Pereplyot when installed); Ctrl+Shift+E for instant PDF export</li>
       <li>Citation style switcher — APA, Chicago, GOST 7.32, and more, plus custom CSL styles; in footnote styles, several citations in a row get one note each (marked ¹,²,³) or one combined note as the style specifies</li>
       <li>BibTeX and Hayagriva YAML bibliography support, with project-wide citation key rename — a Kartoteka vault folder works as a live bibliography source too; export a .bib or .yaml holding only the references a document cites</li>
       <li>Auto or manual compile with live preview (status-bar toggle, manual by default); scroll position preserved across recompiles</li>
@@ -84,6 +84,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.35.0" date="2026-09-29">
+      <description>
+        <p>0.35.0 "Leaded Glass" — Word export built for designers: a version for InDesign, with every paragraph in a named style and notes as real footnotes, and one for Canva, with notes as endnotes. Footnotes, citations and margin notes are numbered together, with commas between marks that touch. Undo and Redo no longer grey out after a compile, and the Packages and Comments panels start collapsed.</p>
+      </description>
+    </release>
     <release version="0.34.0" date="2026-09-28">
       <description>
         <p>0.34.0 "Gathered Glass" — several footnote citations in a row are

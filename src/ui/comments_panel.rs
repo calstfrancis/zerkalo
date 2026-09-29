@@ -179,6 +179,12 @@ impl CommentsPanel {
         }));
     }
 
+    /// Fires once the collapse/expand slide animation has finished — the section's
+    /// final size isn't measurable until then.
+    pub fn connect_collapse_settled(&self, f: impl Fn() + 'static) {
+        self.revealer.connect_child_revealed_notify(move |_| f());
+    }
+
     pub fn is_collapsed(&self) -> bool {
         !self.revealer.reveals_child()
     }

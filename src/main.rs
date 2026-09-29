@@ -16,6 +16,7 @@ mod config;
 mod crash_flush;
 mod cv_mode;
 mod doc_import;
+mod docx_export;
 mod error;
 mod error_patterns;
 mod file_watcher;

@@ -5,6 +5,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.35.0] "Leaded Glass" — 2026-09-29 — Word export for InDesign and Canva, notes numbered together, undo stays available
+
+### Added
+
+- **Word export built for designers, in two versions.** The Export dialog's DOCX and ODT are replaced by **Word for InDesign** and **Word for Canva**, both built into Zerkalo, so pandoc is no longer needed for them. Every paragraph uses a named style (Heading 1–6, Body Text, First Paragraph, Block Quote, Bibliography, footnote text, and character styles like Emphasis and Strong) with no one-off formatting, so InDesign can keep the styles or remap them to its own in one step. The styles carry your document's own look: its font, size, line spacing, first-line indent and justification, and each heading level's alignment, bold, italics and capitals from your template. Citations come out formatted exactly as in the PDF.
+  - **Word for InDesign:** citations, footnotes and margin notes all become real Word footnotes, numbered as one sequence, which InDesign places as live, reflowing footnotes.
+  - **Word for Canva:** Canva has no footnotes, so notes are numbered in the text and listed as endnotes under "Notes" at the end.
+  - Page layout that belongs to the design tool (columns, margins, drop caps, running headers) is left out. Centred and right-aligned text, bold and italic set with `#text(...)`, images, lists and tables are kept. Math and drawings come through as high-resolution pictures.
+  - The two files are saved as `<name>-indesign.docx` and `<name>-canva.docx`. ODT export is gone; LibreOffice opens the Word files fine.
+
+### Changed
+
+- **Packages and Comments start collapsed every time you open Zerkalo**, leaving the room to the outline and citations. Open either one when you need it; it collapses again on the next launch.
+- **Margin notes from the Marginalia template option are numbered along with footnotes and citations.** They used to have their own separate counter (and small blue markers), so a document mixing them read ¹ ● ² ○. New documents get this automatically. For an existing document, reopen Template… and apply it once to refresh the Marginalia setup; margin notes will then share the footnote numbering too. In a Word export, margin notes become ordinary footnotes.
+
+### Fixed
+
+- **Undo and Redo no longer grey out after every change.** The buttons only ever updated when you switched tabs, so after typing, a compile, or an error they showed "nothing to undo" even though Ctrl+Z still worked. They now track every edit.
+- **Commas between note marks now appear for every kind of mark.** Two footnotes side by side, a footnote beside a citation, and margin notes all get the small superscript comma (¹,²), not only runs of citations. A note mark also can no longer be separated from the word before it by a line break.
+- **Opening one sidebar section while the other stays collapsed no longer leaves an empty gap.** Collapsing Packages and Comments together also closes the gap under their headers.
+
 ## [0.34.0] "Gathered Glass" — 2026-09-28 — Clearer citation marks, a choice of how they combine, images kept with the document
 
 ### Added

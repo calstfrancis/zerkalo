@@ -216,11 +216,13 @@ const WRAPPER_NAME: &str = ".zerkalo-main.typ";
 /// missing any of them makes Typst silently synthesize that whole mark, so
 /// marks came out in two different sizes.
 ///
-/// Split markers sitting right next to each other get a superscript comma
+/// Footnote marks sitting right next to each other get a superscript comma
 /// between them (`text¹,²,³`); without it `¹¹¹²` reads as one long number.
-/// "Right next to" is judged from laid-out positions (same line, the
-/// previous citation starting within a marker's width), since a show rule
-/// can't see its siblings.
+/// This is checked on `footnote`, not `cite`: in a note style a citation *is*
+/// a footnote, so one rule covers citations, plain `#footnote`s, and the two
+/// side by side. "Right next to" is judged from laid-out positions (same
+/// line, the previous mark starting within a marker's width), since a show
+/// rule can't see its siblings.
 ///
 /// A footnote in a heading otherwise takes the heading's size and weight,
 /// so its marker comes out bigger and bolder than every other one. Inside
@@ -244,8 +246,21 @@ const SPLIT_NOTE_CITES: &str = r#"#let zk-note-style() = {
     it
   } else { it }
 }
-#show footnote: it => context zk-fix-super(it)
-#show footnote.entry: it => context zk-fix-super(it)
+#let zk-note-mark(it) = {
+  if zk-export or target() == "html" { return it }
+  let prev = query(selector(footnote).or(<zk-note-mark>).before(it.location(), inclusive: false))
+  let serial = if prev.len() > 0 {
+    let p = prev.last().location().position()
+    let q = it.location().position()
+    p.page == q.page and calc.abs(p.y - q.y) < 1em.to-absolute() and q.x > p.x and q.x - p.x < 1.8em.to-absolute()
+  } else { false }
+  sym.wj
+  if serial { zk-fix-super(super[,]) + sym.wj }
+  zk-fix-super(it)
+}
+#show footnote: it => context zk-note-mark(it)
+#show footnote.entry: it => context if zk-export or target() == "html" { it } else { zk-fix-super(it) }
+#show <zk-note-mark>: it => context zk-note-mark(it)
 #let zk-body-size = state("zk-body-size", none)
 #show bibliography: it => { context zk-body-size.update(text.size); it }
 #show heading: it => context {
@@ -257,24 +272,71 @@ const SPLIT_NOTE_CITES: &str = r#"#let zk-note-style() = {
 }
 #show cite: it => context {
   if not zk-split or not zk-note-style() { return it }
-  let prev = query(selector(cite).before(it.location(), inclusive: false))
-  let serial = if prev.len() > 0 {
-    let p = prev.last().location().position()
-    let q = it.location().position()
-    p.page == q.page and calc.abs((p.y - q.y) / 1pt) < 2 and q.x > p.x and q.x - p.x < 1.8em.to-absolute()
-  } else { false }
   h(0pt, weak: true)
-  if serial { zk-fix-super(super[,]) }
   it
   h(0pt)
 }
 "#;
 
-fn wrapper_source(root_file_name: &str, split: bool, force_split: bool) -> String {
+/// Extra rules for a Word export compile (`ZerkaloWorld::export`). Page-layout
+/// constructs HTML output drops wholesale are unwrapped to their content (`columns`
+/// otherwise takes everything inside it along). HTML output also keeps only semantic
+/// markup, so bold/italic set through `text(weight:/style:)` and paragraph alignment
+/// (`align(...)` or `set align(...)`) are turned into markup Word can carry. Headings
+/// drop Typst's default bold, whose look belongs to the Word heading styles instead
+/// (bold is a toggle in Word: a bold run in a bold heading style reads as not bold).
+const EXPORT_RULES: &str = r#"#show columns: it => it.body
+#show place: it => it.body
+#show heading: set text(weight: "regular")
+#let zk-aligned(a, body) = {
+  let a = repr(a)
+  if "center" in a { html.elem("div", attrs: (class: "zk-center"), body) }
+  else if "right" in a or "end" in a { html.elem("div", attrs: (class: "zk-right"), body) }
+  else { body }
+}
+#show align: it => zk-aligned(it.alignment, it.body)
+#show par: it => context zk-aligned(align.alignment, it)
+#show text: it => context {
+  let w = text.weight
+  let bold = if type(w) == int { w >= 600 } else { w in ("semibold", "bold", "extrabold", "black") }
+  let out = it
+  if bold { out = html.elem("strong", out) }
+  if text.style != "normal" { out = html.elem("em", out) }
+  out
+}
+"#;
+
+fn wrapper_source(root_file_name: &str, split: bool, force_split: bool, export: bool) -> String {
     let escaped = root_file_name.replace('\\', "\\\\").replace('"', "\\\"");
+    let export_rules = if export { EXPORT_RULES } else { "" };
     format!(
-        "#let zk-split = {split}\n#let zk-force-split = {force_split}\n{SPLIT_NOTE_CITES}#include \"{escaped}\"\n"
+        "#let zk-split = {split}\n#let zk-force-split = {force_split}\n#let zk-export = {export}\n{SPLIT_NOTE_CITES}{export_rules}#include \"{escaped}\"\n"
     )
+}
+
+/// Stand-ins for packages whose output only exists as page layout, which a Word
+/// export's HTML compile would otherwise drop (margin notes vanish entirely). Served
+/// in place of every `.typ` file of the package, so its entrypoint resolves to it.
+fn export_package_shim(name: &str) -> Option<&'static str> {
+    match name {
+        "marginalia" => Some(
+            "#let notecounter = counter(\"marginalia-note\")\n\
+             #let note-markers = ()\n\
+             #let note-markers-alternating = ()\n\
+             #let note-numbering(..args) = none\n\
+             #let setup(..args) = { let p = args.pos(); if p.len() > 0 { p.last() } }\n\
+             #let show-frame(..args) = { let p = args.pos(); if p.len() > 0 { p.last() } }\n\
+             #let get-left() = (far: 0pt, width: 0pt, sep: 0pt)\n\
+             #let get-right() = get-left()\n\
+             #let note(..args) = { let p = args.pos(); if p.len() > 0 { footnote(p.last()) } }\n\
+             #let notefigure(..args) = { let p = args.pos(); let c = args.named().at(\"caption\", default: none); if p.len() > 0 { footnote(if c == none { p.last() } else [#p.last() #c]) } }\n\
+             #let wideblock(..args) = { let p = args.pos(); if p.len() > 0 { p.last() } }\n\
+             #let ref(..args) = none\n\
+             #let header(..args) = none\n",
+        ),
+        "droplet" => Some("#let dropcap(..args) = { let p = args.pos(); if p.len() > 0 { p.last() } }\n"),
+        _ => None,
+    }
 }
 
 /// Whether the document's bibliography uses a custom `.csl` file whose
@@ -305,6 +367,7 @@ struct ZerkaloWorld {
     file_cache: Mutex<HashMap<FileId, FileResult<Bytes>>>,
     overrides: HashMap<PathBuf, String>,
     library: LazyHash<Library>,
+    export: bool,
 }
 
 impl ZerkaloWorld {
@@ -330,9 +393,21 @@ impl ZerkaloWorld {
     /// argument and widens for that too, independent of `extra_root`.
     fn new(
         root_file: &Path,
+        overrides: HashMap<PathBuf, String>,
+        sys_inputs: &HashMap<String, String>,
+        extra_root: Option<&Path>,
+    ) -> Result<Self, String> {
+        Self::with_mode(root_file, overrides, sys_inputs, extra_root, false)
+    }
+
+    /// `export` compiles for a Word export: see `EXPORT_RULES` and
+    /// `export_package_shim`.
+    fn with_mode(
+        root_file: &Path,
         mut overrides: HashMap<PathBuf, String>,
         sys_inputs: &HashMap<String, String>,
         extra_root: Option<&Path>,
+        export: bool,
     ) -> Result<Self, String> {
         let project_root = root_file
             .parent()
@@ -408,7 +483,7 @@ impl ZerkaloWorld {
         let wrapper_path = abs_root_file.with_file_name(WRAPPER_NAME);
         overrides.insert(
             wrapper_path.clone(),
-            wrapper_source(&root_file_name, split, force_split),
+            wrapper_source(&root_file_name, split, force_split, export),
         );
 
         let vpath = VirtualPath::virtualize(&root, &wrapper_path).map_err(|e| {
@@ -426,6 +501,7 @@ impl ZerkaloWorld {
             file_cache: Mutex::new(HashMap::new()),
             overrides,
             library,
+            export,
         })
     }
 
@@ -464,6 +540,13 @@ impl typst::World for ZerkaloWorld {
             let cache = poisoned_lock(&self.source_cache);
             if let Some(result) = cache.get(&id) {
                 return result.clone();
+            }
+        }
+        if self.export {
+            if let VirtualRoot::Package(spec) = id.root() {
+                if let Some(shim) = export_package_shim(spec.name.as_str()) {
+                    return Ok(Source::new(id, shim.to_string()));
+                }
             }
         }
         let result = self.resolve(id).and_then(|path| {
@@ -614,6 +697,22 @@ pub fn compile_to_html(
     let world = ZerkaloWorld::new(root_file, overrides.clone(), sys_inputs, extra_root)?;
     let (doc, _warnings) = finish::<typst_html::HtmlDocument>(&world, typst::compile(&world))?;
     typst_html::html(&doc, &typst_html::HtmlOptions { pretty: true })
+        .map_err(|errors| format_diagnostics(&world, &errors))
+}
+
+/// The HTML compile behind the Word export (`docx_export`): export mode on (see
+/// `EXPORT_RULES`, `export_package_shim`) and no pretty-printing, so no whitespace is
+/// added between inline elements.
+pub fn compile_to_html_for_export(
+    root_file: &Path,
+    overrides: &HashMap<PathBuf, String>,
+    sys_inputs: &HashMap<String, String>,
+    extra_root: Option<&Path>,
+) -> Result<String, String> {
+    let world =
+        ZerkaloWorld::with_mode(root_file, overrides.clone(), sys_inputs, extra_root, true)?;
+    let (doc, _warnings) = finish::<typst_html::HtmlDocument>(&world, typst::compile(&world))?;
+    typst_html::html(&doc, &typst_html::HtmlOptions { pretty: false })
         .map_err(|errors| format_diagnostics(&world, &errors))
 }
 
@@ -1425,6 +1524,56 @@ mod tests {
         let (_, warnings, _) =
             compile_to_rgba_pages(&doc, 1.0, &HashMap::new(), &HashMap::new(), None).unwrap();
         assert!(!warnings.to_lowercase().contains("converge"), "{warnings}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Citations and plain footnotes share one sequence of note numbers, and a
+    /// comma goes between any two marks that touch, whichever kind they are.
+    #[test]
+    fn citations_and_footnotes_number_together_and_take_commas() {
+        let dir = std::env::temp_dir().join(format!("zerkalo_mixed_notes_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("refs.bib"),
+            "@book{a, author={Alpha, Ann}, title={First}, year={2001}, publisher={P}}\n\
+             @book{b, author={Beta, Bob}, title={Second}, year={2002}, publisher={P}}\n",
+        )
+        .unwrap();
+        let doc = dir.join("main.typ");
+        std::fs::write(
+            &doc,
+            "#bibliography(\"refs.bib\", style: \"chicago-notes\")\n\
+             One@a#footnote[Plain.] two#footnote[x]#footnote[y] three@b @a, apart@a word#footnote[z].\n\n\
+             #context assert.eq(counter(footnote).final().first(), 8)\n\
+             #context assert.eq(query(footnote).len(), 8)\n",
+        )
+        .unwrap();
+        let (_, warnings, _) =
+            compile_to_rgba_pages(&doc, 1.0, &HashMap::new(), &HashMap::new(), None).unwrap();
+        assert!(!warnings.to_lowercase().contains("converge"), "{warnings}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The plain HTML export skips the page-position logic behind footnote marks,
+    /// and keeps one clean marker per note.
+    #[test]
+    fn html_export_keeps_plain_footnote_markers() {
+        let dir = std::env::temp_dir().join(format!("zerkalo_html_marks_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("refs.bib"),
+            "@book{a, author={Alpha, Ann}, title={First}, year={2001}, publisher={P}}\n",
+        )
+        .unwrap();
+        let doc = dir.join("main.typ");
+        std::fs::write(
+            &doc,
+            "Text@a#footnote[Note.] end.\n\n#bibliography(\"refs.bib\", style: \"chicago-notes\")\n",
+        )
+        .unwrap();
+        let html = compile_to_html(&doc, &HashMap::new(), &HashMap::new(), None).unwrap();
+        assert_eq!(html.matches("doc-noteref").count(), 2, "{html}");
+        assert!(!html.contains('\u{2060}'));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

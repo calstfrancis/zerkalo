@@ -412,20 +412,48 @@ pub(super) fn wire_sidebar_toolbar(ctx: &SidebarToolbarCtx) -> (GtkBox, Button) 
         citations_packages_pane.connect_realize(move |_| reflow());
     }
 
+    // Packages and Comments always start collapsed, whatever state they were left in:
+    // they're occasional tools, and the outline and citations need the room. Only
+    // Citations remembers being collapsed.
     let initial_citations_collapsed = ctx.current_config.borrow().sidebar_citations_collapsed;
-    let initial_packages_collapsed = ctx.current_config.borrow().sidebar_packages_collapsed;
-    let initial_comments_collapsed = ctx.current_config.borrow().sidebar_comments_collapsed;
     ctx.citation_panel
         .set_collapsed(initial_citations_collapsed);
-    ctx.package_browser
-        .set_collapsed(initial_packages_collapsed);
-    ctx.comments_panel.set_collapsed(initial_comments_collapsed);
-    if initial_packages_collapsed {
-        packages_reclaim(true);
-    } else if initial_comments_collapsed {
-        comments_reclaim(true);
-    }
+    ctx.package_browser.set_collapsed(true);
+    ctx.comments_panel.set_collapsed(true);
+    // Packages and Comments share one divider, so where it goes depends on both:
+    // expanding one while the other stays collapsed must give it all the room,
+    // not restore the saved split and leave the collapsed one holding space.
+    let place_packages_comments_divider: Rc<dyn Fn()> = Rc::new({
+        let package_browser = ctx.package_browser.clone();
+        let comments_panel = ctx.comments_panel.clone();
+        move || match (
+            package_browser.is_collapsed(),
+            comments_panel.is_collapsed(),
+        ) {
+            (false, true) => comments_reclaim(true),
+            (false, false) => packages_reclaim(false),
+            (true, _) => packages_reclaim(true),
+        }
+    });
+    place_packages_comments_divider();
     reflow_outer_sections();
+    // Sizes read at click time are mid-animation; lay out again once each section
+    // has finished sliding, or collapsing both leaves a gap under their headers.
+    {
+        let place = place_packages_comments_divider.clone();
+        let reflow = reflow_outer_sections.clone();
+        let settle = Rc::new(move || {
+            place();
+            reflow();
+        });
+        let s = settle.clone();
+        ctx.package_browser.connect_collapse_settled(move || s());
+        let s = settle.clone();
+        ctx.comments_panel.connect_collapse_settled(move || s());
+        let reflow = reflow_outer_sections.clone();
+        ctx.citation_panel
+            .connect_collapse_settled(move || reflow());
+    }
     {
         let cfg = ctx.current_config.clone();
         let reflow = reflow_outer_sections.clone();
@@ -438,27 +466,18 @@ pub(super) fn wire_sidebar_toolbar(ctx: &SidebarToolbarCtx) -> (GtkBox, Button) 
         });
     }
     {
-        let cfg = ctx.current_config.clone();
         let reflow = reflow_outer_sections.clone();
-        ctx.package_browser
-            .set_on_collapse_toggle(move |collapsed| {
-                let mut c = cfg.borrow_mut();
-                c.sidebar_packages_collapsed = collapsed;
-                let _ = c.save();
-                drop(c);
-                packages_reclaim(collapsed);
-                reflow();
-            });
+        let place = place_packages_comments_divider.clone();
+        ctx.package_browser.set_on_collapse_toggle(move |_| {
+            place();
+            reflow();
+        });
     }
     {
-        let cfg = ctx.current_config.clone();
         let reflow = reflow_outer_sections;
-        ctx.comments_panel.set_on_collapse_toggle(move |collapsed| {
-            let mut c = cfg.borrow_mut();
-            c.sidebar_comments_collapsed = collapsed;
-            let _ = c.save();
-            drop(c);
-            comments_reclaim(collapsed);
+        let place = place_packages_comments_divider;
+        ctx.comments_panel.set_on_collapse_toggle(move |_| {
+            place();
             reflow();
         });
     }

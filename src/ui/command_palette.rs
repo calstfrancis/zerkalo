@@ -312,7 +312,7 @@ pub fn default_commands() -> Vec<PaletteItem> {
         PaletteItem {
             id: "export".into(),
             label: "Export…".into(),
-            subtitle: "Export to PDF, HTML, DOCX, ODT, LaTeX or EPUB".into(),
+            subtitle: "Export to PDF, HTML, Word (for InDesign or Canva), LaTeX or EPUB".into(),
         },
         PaletteItem {
             id: "print".into(),

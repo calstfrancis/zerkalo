@@ -7,7 +7,7 @@ use gtk4::{Align, Box as GtkBox, Button, Label, Orientation, ScrolledWindow, Sep
 use libadwaita as adw;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const RELEASE_NAME: &str = "Gathered Glass";
+pub const RELEASE_NAME: &str = "Leaded Glass";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -160,10 +160,10 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
-                "Several citations in a row now read clearly — marked ¹,²,³ instead of running together — or, from the Style menu, combined into one note the way your citation style specifies.",
-                "Footnote marks are readable in every font, and the same size throughout — including a citation in a heading.",
-                "Pictures you insert are copied into an assets folder beside your document, so they keep working if the original moves.",
-                "A horizontal-rule button (―) on the format bar, next to the page break.",
+                "Export to Word for InDesign or for Canva: every paragraph uses a named style in your document's own fonts, citations match the PDF, and notes become real footnotes (InDesign) or endnotes (Canva) — no pandoc needed.",
+                "Footnotes, citations and margin notes are numbered as one sequence, with a comma between any two marks that touch.",
+                "Undo and Redo stay available after a compile or an error instead of greying out.",
+                "Packages and Comments start collapsed, leaving the room to the outline and citations.",
             ] {
                 body.append(&bullet_row(item));
             }

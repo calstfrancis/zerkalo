@@ -1,6 +1,6 @@
 [package]
 name = "zerkalo"
-version = "0.34.0"
+version = "0.35.0"
 edition = "2021"
 license = "MIT"
 description = "Contemplative Typst editor with live preview, LSP completions, and git sync"
@@ -59,6 +59,12 @@ lopdf = { version = "0.44.0", default-features = false }
 # working with nothing installed outside Zerkalo.
 zip = { version = "2", default-features = false, features = ["deflate"] }
 roxmltree = "0.21"
+# Word export (src/docx_export.rs): decoding the images Typst embeds as data URIs,
+# reading their size, and rasterising SVG content (math, drawings) for Word. All
+# three were already in the build via typst; declared directly at the same versions.
+base64 = "0.22"
+imagesize = "0.14"
+resvg = { version = "0.47", default-features = false }
 pulldown-cmark = { version = "0.13", default-features = false }
 fluent-templates = "0.15.1"
 unic-langid = { version = "0.9.6", features = ["macros"] }

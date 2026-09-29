@@ -16,14 +16,30 @@ use libadwaita as adw;
 
 // ── Export formats ────────────────────────────────────────────────────────────
 
+// The two Word targets share an extension, so each writes its own file name (see
+// `output_name`); ODT's old slot went to the Canva target, so a saved choice of 3 lands
+// on another Word export rather than on nothing.
 const FORMATS: &[(&str, &str)] = &[
     ("PDF", "pdf"),
     ("HTML", "html"),
-    ("DOCX", "docx"),
-    ("ODT", "odt"),
+    ("Word for InDesign", "docx"),
+    ("Word for Canva", "docx"),
     ("LaTeX", "tex"),
     ("EPUB", "epub"),
 ];
+
+fn output_name(stem: &str, fmt_idx: usize) -> String {
+    let (_, ext) = FORMATS[fmt_idx];
+    match fmt_idx {
+        2 => format!("{stem}-indesign.{ext}"),
+        3 => format!("{stem}-canva.{ext}"),
+        _ => format!("{stem}.{ext}"),
+    }
+}
+
+fn needs_pandoc(fmt_idx: usize) -> bool {
+    fmt_idx >= 4
+}
 
 // ── Message type for the worker thread ───────────────────────────────────────
 
@@ -109,11 +125,10 @@ impl ExportDialog {
         prefs_group.set_margin_bottom(8);
 
         // Checked once up front rather than only discovered at export time —
-        // PDF (index 0) and HTML (index 1) both compile in-process (the
-        // embedded Typst compiler, and Typst's own HTML exporter — see
-        // compiler::compile_to_html) and never need this; DOCX/ODT/LaTeX/EPUB
-        // still shell out to the host's pandoc, which a flatpak install may
-        // not have.
+        // PDF, HTML and both Word targets compile in-process (the embedded Typst
+        // compiler; see compiler::compile_to_html and docx_export) and never need
+        // this; LaTeX/EPUB still shell out to the host's pandoc, which a flatpak
+        // install may not have.
         let pandoc_available = crate::git_sync::host_command("pandoc")
             .arg("--version")
             .output()
@@ -125,8 +140,18 @@ impl ExportDialog {
             .enumerate()
             .map(|(i, (label, _))| {
                 let cb = CheckButton::with_label(label);
-                let needs_pandoc = i != 0 && i != 1;
-                if needs_pandoc && !pandoc_available {
+                if i == 2 {
+                    cb.set_tooltip_text(Some(
+                        "A Word file for placing in InDesign: every paragraph uses a named \
+                         style, and notes and citations are real footnotes",
+                    ));
+                } else if i == 3 {
+                    cb.set_tooltip_text(Some(
+                        "A Word file for importing into Canva, which has no footnotes: notes \
+                         and citations are numbered in the text and listed at the end",
+                    ));
+                }
+                if needs_pandoc(i) && !pandoc_available {
                     cb.set_active(false);
                     cb.set_sensitive(false);
                     cb.set_tooltip_text(Some(
@@ -151,8 +176,8 @@ impl ExportDialog {
 
         if !pandoc_available {
             let note = Label::new(Some(
-                "Only PDF and HTML are available until pandoc is installed — it's \
-                 needed for DOCX, ODT, LaTeX, and EPUB export.",
+                "LaTeX and EPUB are available once pandoc is installed — everything \
+                 else, Word included, is built in.",
             ));
             note.add_css_class("caption");
             note.add_css_class("dim-label");
@@ -447,7 +472,7 @@ impl ExportDialog {
 
                     for fmt_idx in &selected_owned {
                         let (label, ext) = FORMATS[*fmt_idx];
-                        let out_path = export_dir_owned.join(format!("{stem}.{ext}"));
+                        let out_path = export_dir_owned.join(output_name(&stem, *fmt_idx));
 
                         tx.send(ExportMsg::Log(format!("── Exporting {label}…"))).ok();
 
@@ -481,15 +506,33 @@ impl ExportDialog {
                                     Err(e) => Err(e),
                                 }
                             }
+                            2 | 3 => {
+                                let target = if *fmt_idx == 2 {
+                                    crate::docx_export::Target::InDesign
+                                } else {
+                                    crate::docx_export::Target::Canva
+                                };
+                                crate::docx_export::export(
+                                    &input_owned,
+                                    &cv_overrides_owned,
+                                    &cv_sys_inputs_owned,
+                                    bib_path_owned.as_deref(),
+                                    target,
+                                )
+                                .and_then(|out| {
+                                    for note in &out.notes {
+                                        tx.send(ExportMsg::Log(format!("   {note}"))).ok();
+                                    }
+                                    std::fs::write(&out_path, &out.bytes)
+                                        .map_err(|e| format!("Write error: {e}"))
+                                })
+                            }
                             _ => {
-                                // DOCX, ODT, LaTeX, EPUB — pandoc reads typst
-                                // natively; no Typst-native writer for these.
+                                // LaTeX, EPUB — pandoc reads typst natively; no
+                                // Typst-native writer for these.
                                 let pandoc_fmt = match fmt_idx {
-                                    2 => "docx",
-                                    3 => "odt",
                                     4 => "latex",
-                                    5 => "epub",
-                                    _ => "docx",
+                                    _ => "epub",
                                 };
 
                                 // Migrate legacy `it.numbering` pattern: Typst's non-PDF export

@@ -169,16 +169,12 @@ pub struct Config {
     pub sidebar_citations_split: i32,
     #[serde(default = "default_sidebar_packages_split")]
     pub sidebar_packages_split: i32,
-    /// Whether the Citations/Packages/Comments sidebar sections are collapsed
-    /// to just their header row. Independent of the split positions above —
-    /// a collapsed section keeps its last split position for when it
-    /// reopens.
+    /// Whether the Citations sidebar section is collapsed to just its header
+    /// row. Independent of the split positions above — a collapsed section
+    /// keeps its last split position for when it reopens. (Packages and
+    /// Comments always start collapsed, so they have no saved state.)
     #[serde(default)]
     pub sidebar_citations_collapsed: bool,
-    #[serde(default)]
-    pub sidebar_packages_collapsed: bool,
-    #[serde(default)]
-    pub sidebar_comments_collapsed: bool,
     #[serde(default = "default_batch_import_concurrency")]
     pub batch_import_concurrency: u32,
     #[serde(default)]
@@ -357,8 +353,6 @@ impl Default for Config {
             sidebar_citations_split: default_sidebar_citations_split(),
             sidebar_packages_split: default_sidebar_packages_split(),
             sidebar_citations_collapsed: false,
-            sidebar_packages_collapsed: false,
-            sidebar_comments_collapsed: false,
             batch_import_concurrency: default_batch_import_concurrency(),
             last_export_format: 0,
             last_export_dir: None,

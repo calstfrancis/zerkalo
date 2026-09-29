@@ -108,7 +108,7 @@ pub fn tools_group() -> (adw::PreferencesGroup, bool, Vec<Rc<dyn Fn()>>) {
         // `ok = true` regardless of whether the command is found, so this row
         // silently showed a green checkmark even when export_dialog.rs's own
         // independent pandoc check had just disabled every non-PDF format.
-        ("pandoc", "pandoc", "LaTeX, HTML, EPUB and RTF import; DOCX, ODT, LaTeX and EPUB export", ToolKind::Package {
+        ("pandoc", "pandoc", "LaTeX, HTML, EPUB and RTF import; LaTeX and EPUB export", ToolKind::Package {
             apt: "pandoc", dnf: "pandoc", pacman: "pandoc", zypper: "pandoc",
         }, false),
         // Checked as dictionary files, not a `hunspell` command — see

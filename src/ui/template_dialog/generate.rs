@@ -1167,9 +1167,23 @@ pub(crate) fn package_import(key: &str) -> Option<&'static str> {
         "pkg_showybox" => Some("#import \"@preview/showybox:2.0.4\": showybox"),
         "pkg_gentle" => Some("#import \"@preview/gentle-clues:1.2.0\": *"),
         "pkg_tablex" => Some("#import \"@preview/tablex:0.0.9\": tablex, cellx"),
+        // Margin notes number in the same sequence as footnotes and citations: `note`
+        // steps the footnote counter itself and both of marginalia's marks show that
+        // counter. (Handing marginalia `counter(footnote)` directly instead misplaces the
+        // notes down the page.) Word export compiles to HTML, where a margin note becomes
+        // an ordinary footnote instead. `<zk-note-mark>` lets Zerkalo put commas between
+        // adjacent marks of any kind; the word joiner keeps the mark on the same line as
+        // the word before it.
         "pkg_marginalia" => Some(
-            "#import \"@preview/marginalia:0.3.1\" as marginalia: note, notefigure, wideblock\n\
-             #show: marginalia.setup.with()",
+            "#import \"@preview/marginalia:0.3.1\" as marginalia: notefigure, wideblock\n\
+             #show: marginalia.setup.with()\n\
+             #let note(..args) = context {\n  \
+             if target() == \"html\" { return footnote(args.pos().last()) }\n  \
+             sym.wj\n  \
+             counter(footnote).step()\n  \
+             let mark = (..n) => context super(numbering(\"1\", ..counter(footnote).get()))\n  \
+             marginalia.note.with(numbering: mark, anchor-numbering: (..n) => [#mark()<zk-note-mark>])(..args)\n\
+             }",
         ),
         "pkg_drafting" => Some("#import \"@preview/drafting:0.2.2\": *"),
         _ => None,

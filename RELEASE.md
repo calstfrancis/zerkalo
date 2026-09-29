@@ -1,4 +1,4 @@
-# Zerkalo v0.34.0 "Gathered Glass"
+# Zerkalo v0.35.0 "Leaded Glass"
 
 Install via Flatpak:
 
@@ -18,17 +18,15 @@ flatpak update io.github.calstfrancis.Zerkalo
 
 ### What's new
 
-Clearer footnote citations, and images that stay with your document.
+Word files a designer can drop straight into InDesign or Canva, and notes that count together.
 
-**Several citations in a row read clearly.** In footnote styles, back-to-back citations used to run together — marks 11 and 12 printed side by side looked like one long number. There's now a small superscript comma between them.
+**Export to Word for InDesign or for Canva.** The Export dialog has two new Word formats, built into Zerkalo, so nothing extra needs installing. Every paragraph uses a named style (Heading 1, Body Text, First Paragraph, Block Quote, Bibliography and so on), set in your document's own fonts, sizes and spacing. InDesign can keep those styles or remap them to its own in one step. Citations come out exactly as in your PDF. In the InDesign file, citations, footnotes and margin notes are real footnotes that reflow with the text. Canva has no footnotes, so the Canva file numbers them in the text and lists them as endnotes at the end. Page layout such as columns and drop caps is left for the layout program.
 
-**Or combine them, if your style calls for it.** Some citation styles want several sources cited at one point to share a single footnote — Chicago notes, for example, lists them all in one note separated by semicolons. The Style menu (the citation-style button above the editor) now has a "Several citations in a row" choice: keep Zerkalo's one note each, or follow what your style specifies. The choice is saved in the document, so exports and printing follow it too.
+**One numbering for every kind of note.** Footnotes, citations and margin notes now count as one sequence, and any two marks that touch get a small comma between them (¹,²). Margin notes used to keep their own separate count. New documents get this automatically; for an existing one, reopen Template… and apply it once.
 
-**Footnote marks are readable in every font.** Some fonts carry broken superscript measurements that shrank footnote marks to tiny specks — GOST type B is one. Zerkalo now notices and sizes them properly, keeps every mark the same size, and a citation in a heading no longer gets a bigger, bolder mark than everywhere else.
+**Undo stays available.** The Undo and Redo buttons used to grey out after every compile or error, even though Ctrl+Z still worked. They now stay in step with your edits.
 
-**Pictures are kept with your document.** Inserting an image used to assume the picture was already next to your document. Now Zerkalo copies it into an assets folder beside the document first, so it keeps working if the original is moved or deleted, and it's included in your backups.
-
-**A horizontal-rule button** (―) joins the format bar, next to the page break.
+**More room for your outline.** The Packages and Comments panels start collapsed, leaving the sidebar to the outline and citations.
 
 ---
 

@@ -236,9 +236,9 @@ const EXTRA_PACKAGES: &[(&str, &str, &str, &str)] = &[
         "pkg_marginalia",
         "Marginalia",
         "Configurable margin notes with smart positioning, plus matching wide-blocks.",
-        "After #show: marginalia.setup.with(...), use #note[...] for an annotation placed in \
-         the margin, #wideblock[...] to let content spill into the margin, and \
-         #notefigure(...) for a captioned figure positioned there.",
+        "Use #note[...] for an annotation placed in the margin — numbered in the same \
+         sequence as footnotes and citations — #wideblock[...] to let content spill into \
+         the margin, and #notefigure(...) for a captioned figure positioned there.",
     ),
 ];
 

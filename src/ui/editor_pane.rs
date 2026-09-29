@@ -8002,6 +8002,13 @@ impl EditorPane {
     }
 
     fn wire_undo_redo_sensitivity(&self, tab: &TabContext) {
+        // `tab.scroll` sits inside the Overlay that is the actual notebook page, so
+        // `page_num(&tab.scroll)` is always None — comparing it to the current page left
+        // these buttons updating only on a tab switch, stuck greyed out while typing.
+        fn is_current_page(nb: &Notebook, scroll: &ScrolledWindow) -> bool {
+            nb.nth_page(nb.current_page())
+                .is_some_and(|page| scroll.is_ancestor(&page))
+        }
         // ── Undo / Redo sensitivity ───────────────────────────────────────────
         // Guard against background-tab interference: only update the shared
         // undo/redo buttons when the notification comes from the active tab's
@@ -8012,7 +8019,7 @@ impl EditorPane {
             let nb_u = self.notebook.clone();
             let sc_u = tab.scroll.clone();
             tab.buffer.connect_can_undo_notify(move |buf| {
-                if nb_u.page_num(&sc_u) == nb_u.current_page() {
+                if is_current_page(&nb_u, &sc_u) {
                     ub.set_sensitive(buf.can_undo());
                 }
             });
@@ -8020,7 +8027,7 @@ impl EditorPane {
             let nb_r = self.notebook.clone();
             let sc_r = tab.scroll.clone();
             tab.buffer.connect_can_redo_notify(move |buf| {
-                if nb_r.page_num(&sc_r) == nb_r.current_page() {
+                if is_current_page(&nb_r, &sc_r) {
                     rb.set_sensitive(buf.can_redo());
                 }
             });

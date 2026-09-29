@@ -34,6 +34,8 @@ fn overview_blocks() -> Vec<Block<'static>> {
         Block::Gap,
         Block::Body("≡ → Export… asks where to save and can open the result for you when it's done — PDFs and EPUBs in Pereplyot if it's installed, anything else in your default app. It can also write a .bib or .yaml file holding only the references your document actually cites."),
         Block::Gap,
+        Block::Body("For a designer, export Word for InDesign or Word for Canva. Both use a named style for every paragraph (Heading 1, Body Text, First Paragraph, Block Quote, Bibliography…) set in your document's fonts, so the layout program can keep or remap them in one step. In the InDesign file, citations, footnotes and margin notes are real footnotes, numbered together. Canva has no footnotes, so its file numbers them in the text and lists them under Notes at the end. Page layout (columns, margins, drop caps) is left for the layout program."),
+        Block::Gap,
         Block::Body("Once a template's settings are how you want them, press the save button beside \"Your Templates\" in that dialog to keep them under a name. Saved templates sit under the built-in presets and start a document exactly the way the last one started — the title, date, abstract and keywords are left out, since those belong to a single document rather than to a template."),
         Block::Gap,
         Block::H2("Layout"),
