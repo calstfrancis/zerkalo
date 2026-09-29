@@ -187,43 +187,50 @@ jobs:
           flatpak-builder --force-clean --user --install build-flatpak \
             packaging/io.github.calstfrancis.Zerkalo.yml
 
-      - name: Clone public flatpak repo
-        run: |
-          git clone "https://x-access-token:${{ secrets.FLATPAK_REPO_TOKEN }}@github.com/calstfrancis/flatpak" /tmp/flatpak-checkout
-
-      - name: Export build into the repo
-        run: |
-          flatpak build-export \
-            --gpg-sign=A2918A9B43B199ADF9879F934AC9D5173DE4BC41 \
-            /tmp/flatpak-checkout \
-            build-flatpak \
-            master
-
-      - name: Regenerate OSTree summary
-        run: |
-          flatpak build-update-repo \
-            --gpg-sign=A2918A9B43B199ADF9879F934AC9D5173DE4BC41 \
-            /tmp/flatpak-checkout
-
-      # Same check publish-flatpak.sh runs: build-export silently produces an unsigned
-      # commit if --gpg-sign is missing or the key is unavailable — catch that here rather
-      # than let it surface later as a GPG failure on someone else's install.
-      - name: Verify the commit actually got signed
+      # The flatpak repo is shared by every app's release, so two releases finishing at once
+      # race to push it (Kartoteka and Sputnik 0.18.2, 2026-09-29). `git pull --rebase` can't
+      # resolve that: `summary`/`summary.sig` and the shared appstream branch are regenerated
+      # and signed on every export, so a rebase either conflicts or silently drops the other
+      # app's appstream data. Instead, a rejected push resets to the repo's new state and redoes
+      # the export, summary, and signature check on top of it.
+      - name: Export into the flatpak repo and push
+        env:
+          REPO_TOKEN: ${{ secrets.FLATPAK_REPO_TOKEN }}
         run: |
           set -euo pipefail
           APP_ID="io.github.calstfrancis.Zerkalo"
-          COMMIT="$(cat "/tmp/flatpak-checkout/refs/heads/app/$APP_ID/x86_64/master")"
-          if [[ ! -f "/tmp/flatpak-checkout/objects/${COMMIT:0:2}/${COMMIT:2}.commitmeta" ]]; then
-            echo "ERROR: commit $COMMIT for $APP_ID carries no GPG signature."
-            exit 1
-          fi
-          echo "Signature verified for $APP_ID"
+          KEY=A2918A9B43B199ADF9879F934AC9D5173DE4BC41
+          REPO=/tmp/flatpak-checkout
+          git clone "https://x-access-token:${REPO_TOKEN}@github.com/calstfrancis/flatpak" "$REPO"
+          git -C "$REPO" config user.name "github-actions[bot]"
+          git -C "$REPO" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Push flatpak repo
-        run: |
-          cd /tmp/flatpak-checkout
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "Zerkalo $VERSION"
-          git push origin main
+          for attempt in 1 2 3 4 5; do
+            echo "::group::Export and sign (attempt $attempt)"
+            flatpak build-export --gpg-sign="$KEY" "$REPO" build-flatpak master
+            flatpak build-update-repo --gpg-sign="$KEY" "$REPO"
+            echo "::endgroup::"
+
+            # build-export silently produces an unsigned commit if --gpg-sign is missing or the
+            # key is unavailable — catch that here rather than on someone else's install.
+            COMMIT="$(cat "$REPO/refs/heads/app/$APP_ID/x86_64/master")"
+            if [[ ! -f "$REPO/objects/${COMMIT:0:2}/${COMMIT:2}.commitmeta" ]]; then
+              echo "ERROR: commit $COMMIT for $APP_ID carries no GPG signature."
+              exit 1
+            fi
+            echo "Signature verified for $APP_ID"
+
+            git -C "$REPO" add -A
+            git -C "$REPO" commit -q -m "Zerkalo $VERSION"
+            if git -C "$REPO" push origin main; then
+              exit 0
+            fi
+
+            echo "Push rejected — another release published first. Retrying on top of it."
+            sleep $((attempt * 20))
+            git -C "$REPO" fetch origin main
+            git -C "$REPO" reset --hard origin/main
+            git -C "$REPO" clean -fdxq
+          done
+          echo "ERROR: still rejected after 5 attempts."
+          exit 1
