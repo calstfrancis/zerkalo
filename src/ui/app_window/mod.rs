@@ -39,7 +39,7 @@ use file_tree_wiring::{wire_file_tree, FileTreeCtx};
 mod header;
 mod lifecycle;
 mod menus;
-use lifecycle::{wire_startup, LifecycleCtx};
+use lifecycle::{autosave_now, wire_startup, LifecycleCtx};
 use menus::{wire_app_menus, wire_document_menus, MenuCtx};
 mod panels;
 use header::{build_header, HeaderWidgets};
@@ -466,6 +466,19 @@ impl AppWindow {
             });
         }
         editor_pane.set_format_bar_visible(config.format_bar_visible);
+        editor_pane.set_autosave(config.autosave_document);
+        {
+            let cfg = current_config.clone();
+            let ep = editor_pane.clone();
+            let toasts = toast_overlay.clone();
+            editor_pane.set_on_autosave_toggle(move |enabled| {
+                cfg.borrow_mut().autosave_document = enabled;
+                let _ = cfg.borrow().save();
+                if enabled {
+                    autosave_now(&ep, &toasts);
+                }
+            });
+        }
         {
             let cfg = current_config.clone();
             editor_pane.set_on_format_bar_toggle(move |visible| {
@@ -1135,6 +1148,7 @@ impl AppWindow {
         let preview_for_switch = preview_pane.clone();
         let style_btn_for_switch = style_btn.clone();
         let editor_pane_for_switch_delta = editor_pane.clone();
+        let toast_for_switch_autosave = toast_overlay.clone();
         let cs_stack = gtk4::Stack::new();
         cs_stack.set_transition_type(gtk4::StackTransitionType::Crossfade);
         let cs_stack_for_switch = cs_stack.clone();
@@ -1151,6 +1165,7 @@ impl AppWindow {
         let switch_hash_map: Rc<RefCell<std::collections::HashMap<std::path::PathBuf, u64>>> =
             Rc::new(RefCell::new(std::collections::HashMap::new()));
         editor_pane.set_on_page_switch(move |content, path| {
+            autosave_now(&editor_pane_for_switch_delta, &toast_for_switch_autosave);
             let delta = editor_pane_for_switch_delta.get_active_session_delta();
             editor_pane_for_switch_delta.set_session_delta(delta);
             // Whole-project outline mode already covers every file; a tab switch
@@ -2091,7 +2106,9 @@ impl AppWindow {
         {
             let pv = preview_pane.clone();
             let editor_for_compile = editor_pane.clone();
+            let toasts_for_compile = toast_overlay.clone();
             recompile_header_btn.connect_clicked(move |_| {
+                autosave_now(&editor_for_compile, &toasts_for_compile);
                 if let Some(path) = editor_for_compile.get_active_path() {
                     if let Some(content) = editor_for_compile.get_active_content() {
                         pv.set_buffer_snapshot(path.clone(), content);
@@ -3108,6 +3125,11 @@ impl AppWindow {
             // Stage 1: an unsaved-buffer dialog resolves into a second call
             // with force_close set — skip straight past it here.
             if !*force_close.borrow() {
+                // With autosave on, quitting just saves; the dialog below then
+                // only appears for a file that couldn't be written.
+                if ep.autosave_enabled() {
+                    ep.save_all_modified();
+                }
                 let unsaved = ep.modified_buffers();
                 if unsaved.is_empty() {
                     *force_close.borrow_mut() = true;

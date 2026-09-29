@@ -857,6 +857,8 @@ impl SettingsDialog {
             let export_open_in_pereplyot_cur = current.export_open_in_pereplyot;
             let export_cited_refs_cur = current.export_cited_refs;
             let auto_save_idle_ms_cur = current.auto_save_idle_ms;
+            // Owned by the status bar's "autosave" toggle, like Autocorrect above.
+            let autosave_document_cur = current.autosave_document;
             let active_profile_cur = current.active_profile.clone();
             let locked_author_cur = current.locked_author.clone();
             let locked_affiliation_cur = current.locked_affiliation.clone();
@@ -974,6 +976,7 @@ impl SettingsDialog {
                     recent_searches: recent_searches_cur.clone(),
                     active_profile: active_profile_cur.clone(),
                     auto_save_idle_ms: auto_save_idle_ms_cur,
+                    autosave_document: autosave_document_cur,
                     github_token: None,
                     locked_author: locked_author_cur.clone(),
                     locked_affiliation: locked_affiliation_cur.clone(),

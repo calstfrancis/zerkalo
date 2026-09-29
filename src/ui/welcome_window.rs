@@ -7,7 +7,7 @@ use gtk4::{Align, Box as GtkBox, Button, Label, Orientation, ScrolledWindow, Sep
 use libadwaita as adw;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const RELEASE_NAME: &str = "Leaded Glass";
+pub const RELEASE_NAME: &str = "Tempered Glass";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -160,10 +160,9 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
-                "Export to Word for InDesign or for Canva: every paragraph uses a named style in your document's own fonts, citations match the PDF, and notes become real footnotes (InDesign) or endnotes (Canva) — no pandoc needed.",
-                "Footnotes, citations and margin notes are numbered as one sequence, with a comma between any two marks that touch.",
-                "Undo and Redo stay available after a compile or an error instead of greying out.",
-                "Packages and Comments start collapsed, leaving the room to the outline and citations.",
+                "Autosave: your document is saved a few seconds after you stop typing, and whenever you switch away, compile, export or quit. Turn it off with \"autosave\" in the status bar.",
+                "Importing a PDF no longer gives a blank document — email addresses, prices, symbols and web addresses in the text come through as plain text.",
+                "Scanned PDFs get an explanation instead of an empty document, and two-column PDFs come out in reading order.",
             ] {
                 body.append(&bullet_row(item));
             }

@@ -2539,44 +2539,128 @@ fn post_process_latex_import(content: &str, bib_path: Option<&std::path::Path>) 
     out
 }
 
-/// Wrap plain text extracted from a PDF into a Typst document managed by Zerkalo's template system.
 /// A line extracted from a PDF is treated as a probable section heading (and
-/// promoted to `== Heading`) when it's short, isn't sentence-ending
-/// punctuation, and sits alone between blank lines — the closest signal
-/// `pdftotext`'s plain-text output gives us to the source PDF's actual
-/// heading styling, which is lost entirely once text is extracted.
-fn is_probable_pdf_heading(line: &str, prev_blank: bool, next_blank: bool) -> bool {
+/// promoted to `== Heading`) when it's short, starts with a capital or a digit, doesn't
+/// end in sentence punctuation, follows a blank line, and is followed by a blank line
+/// or a new sentence — the closest signal `pdftotext`'s plain-text output gives us to
+/// the source PDF's actual heading styling, which is lost entirely once text is
+/// extracted. Requiring the capital keeps fragments of a widely-spaced line ("or",
+/// a URL) from being promoted.
+fn is_probable_pdf_heading(line: &str, prev_blank: bool, next: Option<&str>) -> bool {
     let t = line.trim();
-    if t.is_empty() || !prev_blank || !next_blank {
+    if t.is_empty() || !prev_blank || t.chars().count() > 60 || bullet_text(t).is_some() {
         return false;
     }
-    if t.chars().count() > 60 {
+    if matches!(t.chars().last(), Some('.' | ',' | ';' | ':')) {
         return false;
     }
-    !matches!(t.chars().last(), Some('.' | ',' | ';' | ':'))
+    if !t
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_uppercase() || c.is_ascii_digit())
+    {
+        return false;
+    }
+    match next.map(str::trim) {
+        None | Some("") => true,
+        Some(n) => n.chars().next().is_some_and(char::is_uppercase),
+    }
+}
+
+/// The text of a bulleted line, without its bullet.
+fn bullet_text(line: &str) -> Option<&str> {
+    ["• ", "◦ ", "▪ ", "‣ ", "– ", "·  "]
+        .iter()
+        .find_map(|b| line.strip_prefix(b))
+        .map(str::trim_start)
+}
+
+/// Escapes a line of extracted PDF text so Typst reads it as plain text. Real PDF
+/// text is full of characters that are Typst markup — `@` in an email is a citation,
+/// `$` opens math, `*`/`_` open bold/italic, `//` in a URL starts a comment — and one
+/// unbalanced delimiter made the whole imported document fail to compile, leaving a
+/// blank preview. A marker Typst would read as a list, heading or numbered item at
+/// the start of a line is escaped too.
+fn escape_pdf_text(line: &str) -> String {
+    let mut out = String::with_capacity(line.len() + 8);
+    let mut chars = line.chars().peekable();
+    let mut at_start = true;
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' | '#' | '$' | '*' | '_' | '@' | '<' | '>' | '[' | ']' | '`' | '~' => {
+                out.push('\\');
+                out.push(c);
+            }
+            '/' if matches!(chars.peek(), Some('/') | Some('*')) => out.push_str("\\/"),
+            '=' | '-' | '+' | '/' if at_start => {
+                out.push('\\');
+                out.push(c);
+            }
+            d if at_start && d.is_ascii_digit() => {
+                out.push(d);
+                while let Some(&n) = chars.peek() {
+                    if !n.is_ascii_digit() {
+                        break;
+                    }
+                    out.push(n);
+                    chars.next();
+                }
+                if chars.peek() == Some(&'.') {
+                    chars.next();
+                    out.push_str("\\.");
+                }
+            }
+            c => out.push(c),
+        }
+        at_start = false;
+    }
+    out
 }
 
 /// Reflow pdftotext output, promoting probable headings (see
-/// `is_probable_pdf_heading`) to `== Heading` lines.
+/// `is_probable_pdf_heading`) to `== Heading` lines. Runs of spaces are collapsed and
+/// page breaks (form feeds) dropped.
 fn format_pdf_body(text: &str) -> String {
-    let lines: Vec<&str> = text.lines().collect();
+    let text = text.replace('\u{c}', "\n");
+    let lines: Vec<String> = text
+        .lines()
+        .map(|l| l.split_whitespace().collect::<Vec<_>>().join(" "))
+        .collect();
     let mut out = String::new();
     let mut prev_blank = true;
+    let mut in_list = false;
     for (i, line) in lines.iter().enumerate() {
         let trimmed = line.trim();
         if trimmed.is_empty() {
             out.push('\n');
             prev_blank = true;
+            in_list = false;
             continue;
         }
-        let next_blank = lines
-            .get(i + 1)
-            .map(|l| l.trim().is_empty())
-            .unwrap_or(true);
-        if is_probable_pdf_heading(trimmed, prev_blank, next_blank) {
+        if let Some(item) = bullet_text(trimmed) {
+            if !in_list && !prev_blank {
+                out.push('\n');
+            }
+            out.push_str("- ");
+            out.push_str(&escape_pdf_text(item));
+            out.push('\n');
+            in_list = true;
+            prev_blank = false;
+            continue;
+        }
+        let next = lines.get(i + 1).map(String::as_str);
+        if in_list {
+            // A wrapped list item continues indented; a new sentence ends the list.
+            if trimmed.chars().next().is_some_and(char::is_uppercase) {
+                out.push('\n');
+                in_list = false;
+            } else {
+                out.push_str("  ");
+            }
+        } else if is_probable_pdf_heading(trimmed, prev_blank, next) {
             out.push_str("== ");
         }
-        out.push_str(trimmed);
+        out.push_str(&escape_pdf_text(trimmed));
         out.push('\n');
         prev_blank = false;
     }
@@ -2596,13 +2680,30 @@ pub(super) fn run_pdf_import(
         .unwrap_or("output")
         .to_string();
     let out_path = unique_typ_path(input_path.with_file_name(format!("{stem}.typ")));
+    // Plain reading-order extraction, not `-layout`: that pads lines out to their
+    // page positions and prints a two-column page's columns side by side.
     let output = crate::git_sync::host_command("pdftotext")
-        .arg("-layout")
         .arg(&input_path)
         .arg("-")
         .output();
     let mut log = crate::import_log::ImportLog::load();
     match output {
+        Ok(o) if o.status.success() && String::from_utf8_lossy(&o.stdout).trim().is_empty() => {
+            show_alert(
+                window,
+                "No Text in This PDF",
+                "This PDF has no text to import — it's most likely a scan, stored as \
+                 pictures of pages. Run it through a text-recognition (OCR) tool first, \
+                 then import the result.",
+            );
+            log.record(
+                input_path,
+                "PDF (.pdf)",
+                None,
+                false,
+                "No text layer (scanned PDF?)",
+            );
+        }
         Ok(o) if o.status.success() => {
             let extracted = String::from_utf8_lossy(&o.stdout).to_string();
             let typst_doc = post_process_pdf_import(&extracted, stem.as_str());
@@ -2819,6 +2920,73 @@ mod tests {
         let input = "Some heading\nfollowed immediately by body text.\n";
         let result = format_pdf_body(input);
         assert!(!result.contains("== Some heading"), "got: {result}");
+    }
+
+    #[test]
+    fn format_pdf_body_skips_lowercase_fragments_and_accepts_heading_before_new_sentence() {
+        let input = "\nor\n\nhttps://example.org/x\n\nFaith and Practice\nThe study begins.\n";
+        let result = format_pdf_body(input);
+        assert!(!result.contains("== or"), "got: {result}");
+        assert!(!result.contains("== https"), "got: {result}");
+        assert!(result.contains("== Faith and Practice"), "got: {result}");
+    }
+
+    #[test]
+    fn format_pdf_body_escapes_typst_markup_in_the_text() {
+        let input = "Mail jane@example.org, pay $25 for *this* and_that <tag> #1 at http://x.org\n";
+        let result = format_pdf_body(input);
+        assert!(result.contains(r"jane\@example.org"), "got: {result}");
+        assert!(
+            result.contains(r"\$25") && result.contains(r"\*this\*"),
+            "got: {result}"
+        );
+        assert!(
+            result.contains(r"and\_that") && result.contains(r"\<tag\>"),
+            "got: {result}"
+        );
+        assert!(
+            result.contains(r"\#1") && result.contains(r"http:\//x.org"),
+            "got: {result}"
+        );
+    }
+
+    #[test]
+    fn format_pdf_body_escapes_markers_at_the_start_of_a_line() {
+        let result = format_pdf_body("- not a list\n= not a heading\n12. not numbered\n");
+        assert!(result.contains(r"\- not a list"), "got: {result}");
+        assert!(result.contains(r"\= not a heading"), "got: {result}");
+        assert!(result.contains(r"12\. not numbered"), "got: {result}");
+    }
+
+    #[test]
+    fn format_pdf_body_turns_bullets_into_a_list() {
+        let result =
+            format_pdf_body("Points:\n• first point\nwraps here\n• second\nNext sentence.\n");
+        assert!(
+            result.contains("\n- first point\n  wraps here\n- second\n\nNext sentence."),
+            "got: {result}"
+        );
+    }
+
+    /// The whole imported document compiles, whatever the PDF text contained — an
+    /// unescaped `@` or `$` used to make it fail, leaving a blank preview.
+    #[test]
+    fn imported_pdf_text_compiles() {
+        let text = "Heading\n\nContact jane@example.org; costs $5 *or* _more_ <x> [1] `c` ~ #2.\n\
+                    https://example.org/a_b // not a comment\n- dash line\n= equals\n";
+        let doc = super::post_process_pdf_import(text, "Title");
+        let dir = std::env::temp_dir().join(format!("zerkalo_pdf_import_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("imported.typ");
+        std::fs::write(&path, &doc).unwrap();
+        let result = crate::compiler::compile_to_pdf_bytes(
+            &path,
+            &Default::default(),
+            &Default::default(),
+            None,
+        );
+        assert!(result.is_ok(), "{:?}\n{doc}", result.err());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // ── scan_files_recursive ──────────────────────────────────────────────────

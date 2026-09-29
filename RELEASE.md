@@ -1,4 +1,4 @@
-# Zerkalo v0.35.0 "Leaded Glass"
+# Zerkalo v0.36.0 "Tempered Glass"
 
 Install via Flatpak:
 
@@ -18,15 +18,11 @@ flatpak update io.github.calstfrancis.Zerkalo
 
 ### What's new
 
-Word files a designer can drop straight into InDesign or Canva, and notes that count together.
+Your work is saved as you go, and PDF import works again.
 
-**Export to Word for InDesign or for Canva.** The Export dialog has two new Word formats, built into Zerkalo, so nothing extra needs installing. Every paragraph uses a named style (Heading 1, Body Text, First Paragraph, Block Quote, Bibliography and so on), set in your document's own fonts, sizes and spacing. InDesign can keep those styles or remap them to its own in one step. Citations come out exactly as in your PDF. In the InDesign file, citations, footnotes and margin notes are real footnotes that reflow with the text. Canva has no footnotes, so the Canva file numbers them in the text and lists them as endnotes at the end. Page layout such as columns and drop caps is left for the layout program.
+**Autosave.** Zerkalo now saves your document about three seconds after you stop typing, and whenever you move away from it — switching to another window or tab, compiling, opening Export, or quitting. What's on disk is never more than a few seconds behind, and your backups pick up your writing without you having to save first. It's on by default; the "autosave" word in the bottom status bar turns it off and on (bold means on). Autosave doesn't add entries to Version History — pressing Ctrl+S still does that — and with it off, Zerkalo behaves exactly as before.
 
-**One numbering for every kind of note.** Footnotes, citations and margin notes now count as one sequence, and any two marks that touch get a small comma between them (¹,²). Margin notes used to keep their own separate count. New documents get this automatically; for an existing one, reopen Template… and apply it once.
-
-**Undo stays available.** The Undo and Redo buttons used to grey out after every compile or error, even though Ctrl+Z still worked. They now stay in step with your edits.
-
-**More room for your outline.** The Packages and Comments panels start collapsed, leaving the sidebar to the outline and citations.
+**Importing a PDF no longer gives a blank document.** Ordinary text is full of characters that mean something to Typst — the @ in an email address, a $ price, asterisks, underscores, the // in a web address — and one of them could stop the imported document from compiling, leaving the preview empty. They now come through as plain text. Two-column PDFs come out in reading order instead of with their columns interleaved, headings are guessed more carefully, bulleted lines become real lists, and a scanned PDF (pictures of pages, with no text in it) gets an explanation instead of an empty document.
 
 ---
 

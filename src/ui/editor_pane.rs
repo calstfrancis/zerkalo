@@ -276,6 +276,10 @@ pub struct EditorPane {
     format_bar_label: Label,
     format_bar_toggle_btn: Button,
     on_format_bar_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
+    autosave_label: Label,
+    autosave_toggle_btn: Button,
+    autosave_on: Rc<Cell<bool>>,
+    on_autosave_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
     user_dismissed_format_bar: Rc<RefCell<bool>>,
     focus_label: Label,
     on_focus_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
@@ -462,6 +466,24 @@ impl EditorPane {
         focus_toggle_btn.set_tooltip_text(Some("Focus mode — hide sidebar and preview"));
         focus_toggle_btn.set_margin_end(4);
         focus_toggle_btn.update_property(&[gtk4::accessible::Property::Label("Toggle focus mode")]);
+
+        let autosave_label = Label::new(Some("autosave"));
+        autosave_label.add_css_class("dim-label");
+        autosave_label.add_css_class("caption");
+        autosave_label.set_use_markup(true);
+        autosave_label.set_margin_top(3);
+        autosave_label.set_margin_bottom(3);
+        let autosave_toggle_btn = Button::new();
+        autosave_toggle_btn.set_child(Some(&autosave_label));
+        autosave_toggle_btn.add_css_class("flat");
+        autosave_toggle_btn.add_css_class("status-toggle");
+        autosave_toggle_btn.set_tooltip_text(Some(
+            "Autosave — save the document a few seconds after you stop typing, and \
+             whenever you switch away, compile, export or quit",
+        ));
+        autosave_toggle_btn.set_margin_end(4);
+        autosave_toggle_btn
+            .update_property(&[gtk4::accessible::Property::Label("Toggle autosave")]);
 
         let format_bar_label = Label::new(Some("format bar"));
         format_bar_label.add_css_class("dim-label");
@@ -676,6 +698,7 @@ impl EditorPane {
         // queue up out of its way.
         status_bar.append(&lsp_status_label);
         status_bar.append(&left_spacer);
+        status_bar.append(&autosave_toggle_btn);
         status_bar.append(&format_bar_toggle_btn);
         status_bar.append(&search_btn);
         status_bar.append(&sb_sep1);
@@ -1588,6 +1611,10 @@ impl EditorPane {
             format_bar_label,
             format_bar_toggle_btn: format_bar_toggle_btn.clone(),
             on_format_bar_toggle: Rc::new(RefCell::new(None)),
+            autosave_label,
+            autosave_toggle_btn: autosave_toggle_btn.clone(),
+            autosave_on: Rc::new(Cell::new(false)),
+            on_autosave_toggle: Rc::new(RefCell::new(None)),
             user_dismissed_format_bar: Rc::new(RefCell::new(false)),
             focus_label,
             on_focus_toggle: Rc::new(RefCell::new(None)),
@@ -1681,6 +1708,16 @@ impl EditorPane {
                 *gost_on.borrow_mut() = new_val;
                 set_toggle_label(&lbl_g, "GOST Type B font", new_val);
                 if let Some(f) = cb_g.borrow().as_ref() {
+                    f(new_val);
+                }
+            });
+        }
+        {
+            let ep_as = ep.clone();
+            autosave_toggle_btn.connect_clicked(move |_| {
+                let new_val = !ep_as.autosave_enabled();
+                ep_as.set_autosave(new_val);
+                if let Some(f) = ep_as.on_autosave_toggle.borrow().as_ref() {
                     f(new_val);
                 }
             });
@@ -3027,6 +3064,24 @@ impl EditorPane {
             .any(|f| f.name().eq_ignore_ascii_case("GOST type B"))
     }
 
+    pub fn set_on_autosave_toggle(&self, f: impl Fn(bool) + 'static) {
+        *self.on_autosave_toggle.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn set_autosave(&self, enabled: bool) {
+        self.autosave_on.set(enabled);
+        set_status_toggle(
+            &self.autosave_toggle_btn,
+            &self.autosave_label,
+            "autosave",
+            enabled,
+        );
+    }
+
+    pub fn autosave_enabled(&self) -> bool {
+        self.autosave_on.get()
+    }
+
     pub fn set_on_format_bar_toggle(&self, f: impl Fn(bool) + 'static) {
         *self.on_format_bar_toggle.borrow_mut() = Some(Box::new(f));
     }
@@ -4199,10 +4254,21 @@ impl EditorPane {
             }
             (saved, failed)
         };
+        let any_saved = !saved.is_empty();
         for (dot_label, tab_box, display_name, path) in saved {
             dot_label.set_visible(false);
             tab_box.update_property(&[gtk4::accessible::Property::Label(&display_name)]);
             crate::auto_save::clear(&path);
+            // Same notifications a manual save sends, so the window's unsaved
+            // state and the backup badge follow a save made from here too.
+            if let Some(f) = self.on_file_dirty.borrow().as_ref() {
+                f(path.clone(), false);
+            }
+        }
+        if any_saved && self.get_active_path().is_none_or(|p| !self.is_modified(&p)) {
+            if let Some(f) = self.on_modified_changed.borrow().as_ref() {
+                f(false);
+            }
         }
         failed
     }

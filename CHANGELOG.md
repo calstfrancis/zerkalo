@@ -5,6 +5,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.36.0] "Tempered Glass" — 2026-09-29 — Autosave, PDF import that works
+
+### Added
+
+- **Autosave for the document itself.** Zerkalo now saves your document about three seconds after you stop typing, and whenever you move away from it — switching to another window or tab, compiling, opening Export, or quitting — so what's on disk is never more than a few seconds behind. It's on by default; the "autosave" word in the bottom status bar turns it off and on (bold means on). Autosave only writes the file: it doesn't add an entry to Version History, which still happens when you press Ctrl+S. With autosave on, quitting simply saves instead of asking; you're only asked if a file couldn't be written. With it off, nothing changes from before: the file is written only when you save, and recovery copies still protect unsaved work. If a save ever fails, a message says which file, and your changes stay in the editor.
+
+### Fixed
+
+- **Saving from the backup button now updates the window straight away.** The unsaved-changes marker and the backup badge used to lag behind a save made by the sync button.
+
+- **Importing a PDF no longer gives a blank document.** The text taken from a PDF was dropped into the document as-is, but ordinary text is full of characters that mean something to Typst — the `@` in an email address, a `$` price, `*` and `_`, `<` and `>`, the `//` in a web address — and a single one of them could stop the whole document from compiling, leaving the preview empty. They are now all kept as plain text.
+- **Text from two-column PDFs comes out in reading order**, one column after the other, instead of the two columns interleaved line by line, and without the long runs of spaces that padded lines out to their position on the page.
+- **Section headings are guessed more carefully.** A heading now has to start with a capital letter or a number, so stray fragments (a lone "or", a web address) are no longer turned into headings, and a heading directly followed by its first paragraph is recognised. Bulleted lines become a real list.
+- **A scanned PDF gets an explanation instead of an empty document.** A PDF that is only pictures of pages has no text to import; Zerkalo now says so and suggests running it through text recognition (OCR) first.
+
 ## [0.35.0] "Leaded Glass" — 2026-09-29 — Word export for InDesign and Canva, notes numbered together, undo stays available
 
 ### Added

@@ -45,6 +45,49 @@ pub(super) struct LifecycleCtx {
     pub(super) start_tour_after_welcome: Rc<RefCell<Option<Box<dyn FnOnce()>>>>,
 }
 
+/// How long after the last keystroke autosave writes the document: long enough
+/// not to save mid-word, short enough that little is ever at risk.
+const AUTOSAVE_DELAY: Duration = Duration::from_secs(3);
+
+/// Saves every modified document, when the status bar's autosave is on. Called
+/// after a pause in typing and whenever the user moves away from what they were
+/// writing. A failure is reported at most once a minute, since the idle check
+/// retries every second until the save goes through.
+pub(super) fn autosave_now(editor: &EditorPane, toasts: &adw::ToastOverlay) {
+    if !editor.autosave_enabled() {
+        return;
+    }
+    let failed = editor.save_all_modified();
+    if failed.is_empty() {
+        return;
+    }
+    thread_local! {
+        static LAST_WARNED: std::cell::Cell<Option<std::time::Instant>> =
+            const { std::cell::Cell::new(None) };
+    }
+    let due = LAST_WARNED.with(|c| {
+        c.get()
+            .is_none_or(|t| t.elapsed() >= Duration::from_secs(60))
+    });
+    if due {
+        LAST_WARNED.with(|c| c.set(Some(std::time::Instant::now())));
+        let names = failed
+            .iter()
+            .map(|p| {
+                p.file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default()
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let t = adw::Toast::new(&format!(
+            "Autosave couldn't save {names} — your changes are still here. Try Save (Ctrl+S)."
+        ));
+        t.set_timeout(8);
+        toasts.add_toast(t);
+    }
+}
+
 pub(super) fn wire_startup(ctx: &LifecycleCtx) {
     // ── Startup: warn if required tools are missing ──────────────────────
 
@@ -201,6 +244,31 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
         }
         glib::ControlFlow::Continue
     });
+
+    // ── Autosave the document itself (status bar toggle) ─────────────────
+    {
+        let editor = ctx.editor_pane.clone();
+        let toasts = ctx.toast_overlay.clone();
+        let last_edit = ctx.last_edit_instant.clone();
+        glib::timeout_add_local(Duration::from_secs(1), move || {
+            let idle = last_edit
+                .borrow()
+                .is_some_and(|t| t.elapsed() >= AUTOSAVE_DELAY);
+            if idle {
+                autosave_now(&editor, &toasts);
+            }
+            glib::ControlFlow::Continue
+        });
+    }
+    {
+        let editor = ctx.editor_pane.clone();
+        let toasts = ctx.toast_overlay.clone();
+        ctx.window.connect_is_active_notify(move |w| {
+            if !w.is_active() {
+                autosave_now(&editor, &toasts);
+            }
+        });
+    }
 
     // ── Backup: sync periodically, so non-technical users never have to find
     // the Sync button themselves ─────────────────────────────────────────
@@ -407,11 +475,14 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
         glib::ControlFlow::Continue
     });
 
-    // There is deliberately no periodic write-to-disk timer here. One used
-    // to call `save_all_modified()` every 30 s, which wrote every modified
+    // There is deliberately no *unconditional* write-to-disk timer here. One
+    // used to call `save_all_modified()` every 30 s, which wrote every modified
     // buffer to its real path, cleared the modified flag, and deleted the
     // recovery copy — so the idle autosave above could never find anything
     // to save and `find_recovery` could never see an autosave newer than
-    // the file, making the whole crash-recovery path unreachable. The file
-    // on disk now changes only when the user saves.
+    // the file, making the whole crash-recovery path unreachable. Writing the
+    // document is now the user's choice (the status bar's "autosave", see
+    // `autosave_now`): when it's on, the file itself is never more than a few
+    // seconds behind, so it is its own recovery; when it's off, the file
+    // changes only when the user saves and recovery copies work as before.
 }

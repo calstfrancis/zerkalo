@@ -199,6 +199,12 @@ pub struct Config {
     pub active_profile: CompileProfile,
     #[serde(default = "default_auto_save_idle_ms")]
     pub auto_save_idle_ms: u64,
+    /// Autosave the document itself — a few seconds after typing stops, and on
+    /// switching away (another window or tab), compiling, exporting and quitting.
+    /// Separate from the recovery copies `auto_save_idle_ms` governs, which stay
+    /// the safety net whenever this is off.
+    #[serde(default = "default_true")]
+    pub autosave_document: bool,
     /// Legacy plaintext PAT field, kept only so old config files still
     /// deserialize. Migrated into the system keyring on load and never
     /// written back out — see `Config::load` and `crate::secret_store`.
@@ -362,6 +368,7 @@ impl Default for Config {
             recent_searches: Vec::new(),
             active_profile: CompileProfile::default(),
             auto_save_idle_ms: default_auto_save_idle_ms(),
+            autosave_document: true,
             github_token: None,
             locked_author: String::new(),
             locked_affiliation: String::new(),

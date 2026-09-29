@@ -360,8 +360,11 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
     let project_root_for_export = ctx.project_root.clone();
     let cv_elements_for_export = ctx.effective_cv_elements.clone();
     let bib_for_export = ctx.effective_bib.clone();
+    let editor_for_export = ctx.editor_pane.clone();
+    let toasts_for_export = ctx.toast_overlay.clone();
     menus.menu_export_item.connect_clicked(move |_| {
         menu_popover_for_export.popdown();
+        super::autosave_now(&editor_for_export, &toasts_for_export);
         let prefs = {
             let c = current_config_for_export.borrow();
             super::super::export_dialog::ExportPrefs {

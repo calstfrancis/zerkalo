@@ -42,6 +42,8 @@ fn overview_blocks() -> Vec<Block<'static>> {
         Block::Code("Left sidebar   Document outline, symbols, files, refs, history\nEditor         Tabbed, syntax-highlighted Typst editor\nFind bar       Persistent search/replace at editor bottom\nPreview        Live rendered output — use +/− to zoom\nError panel    Compile errors and LSP diagnostics"),
         Block::Gap,
         Block::H2("Git sync"),
+        Block::Body("Autosave (the \"autosave\" word in the status bar, bold when on) saves your document a few seconds after you stop typing, and whenever you switch to another window or tab, compile, export or quit. Ctrl+S still saves too, and is what adds an entry to Version History."),
+        Block::Gap,
         Block::Body("Click the sync button (⟳) or press `Ctrl+Shift+G` to save a version of everything and send it up. If nothing is set up yet, ☰ → Set Up Zerkalo walks you through it: sign in with GitHub and press Finish, and the rest — the repository, who the versions are recorded as, and the first upload — is done for you. Nothing to install, and a folder or drive works instead of an account."),
         Block::Gap,
         Block::H2("Multi-file projects"),
