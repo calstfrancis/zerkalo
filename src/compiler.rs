@@ -2125,4 +2125,79 @@ _profiles:
             }
         }
     }
+
+    #[test]
+    fn common_mistakes_each_reach_a_plain_language_entry() {
+        use crate::diagnostic_catalog::Kind::*;
+        let cases = [
+            ("#foo", UnknownVariable),
+            ("#image(\"nope.png\")", FileNotFound),
+            ("#include \"nope.typ\"", FileNotFound),
+            ("#import \"nope.typ\": a", FileNotFound),
+            ("#bibliography(\"nope.bib\")", FileNotFound),
+            (
+                "#import \"@preview/zzzz-none:0.0.1\": x",
+                PackageUnavailable,
+            ),
+            ("#let x = (1, 2", UnclosedDelimiter),
+            ("#{ let x = 1", UnclosedDelimiter),
+            ("#[text", UnclosedDelimiter),
+            ("#table(columns: 2, [a], [b]", UnclosedDelimiter),
+            ("#set text(size: 12pt", UnclosedDelimiter),
+            ("#\"abc", UnclosedString),
+            ("]", StrayClosing),
+            ("#set text(colour: red)", UnexpectedArgument),
+            ("#image()", MissingArgument),
+            ("#let f(x) = x\n#f()", MissingArgument),
+            ("@nope", MissingLabel),
+            ("#set text(size: \"big\")", WrongType),
+            ("#show heading: 5", WrongType),
+            ("#lorem(\"a\")", WrongType),
+            ("#let x = 1\n#x()", WrongType),
+            ("#(1/0)", DivideByZero),
+            ("#(1 + )", ExpectedExpression),
+            ("$ x^ $", ExpectedExpression),
+            ("#let = 5", ExpectedName),
+            ("== \n#set", ExpectedName),
+            ("#f(1,,2)", StrayPunctuation),
+            ("#let x = 1 2", MissingSeparator),
+            ("#(1 + \"a\")", MixedTypes),
+            ("#let x = 5\n#x.foo", NoSuchField),
+            ("#let d = (a: 1)\n#d.b", NoSuchField),
+            ("#(1, 2).at(5)", OutOfRange),
+            ("#for x in 5 [a]", CannotLoop),
+            ("#panic(\"oops\")", Panic),
+        ];
+        for (src, want) in cases {
+            let path = write_temp_typ(src);
+            let err =
+                compile_to_pdf_bytes(&path, &HashMap::new(), &HashMap::new(), None).expect_err(src);
+            let first =
+                &crate::ui::error_panel::parse_typst_errors(&err, path.parent().unwrap())[0];
+            assert_eq!(first.kind, want, "{src:?} -> {err}");
+            assert!(!first.message.trim().is_empty(), "{src:?}: empty headline");
+            assert!(
+                [
+                    "unknown ",
+                    "expected ",
+                    "unexpected ",
+                    "cannot ",
+                    "file not found",
+                    "missing argument"
+                ]
+                .iter()
+                .all(|p| !first.message.to_lowercase().starts_with(p)),
+                "{src:?}: headline reads like engine output: {}",
+                first.message
+            );
+            assert!(
+                !first.advice.trim().is_empty(),
+                "{src:?}: no advice for {want:?}"
+            );
+            assert!(
+                !first.message.contains("error:") && !first.advice.contains("error:"),
+                "{src:?}: raw engine text leaked"
+            );
+        }
+    }
 }

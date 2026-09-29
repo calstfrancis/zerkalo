@@ -2,15 +2,18 @@ use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::OnceLock;
+use std::time::Duration;
 
 use gtk4::prelude::*;
 use gtk4::{
-    Align, Box as GtkBox, Button, Image, Label, ListBox, ListBoxRow, MenuButton, Orientation,
+    glib, Align, Box as GtkBox, Button, Image, Label, ListBox, ListBoxRow, MenuButton, Orientation,
     Popover, Revealer, RevealerTransitionType, ScrolledWindow, SelectionMode, Separator,
+    TextBuffer, TextTag, TextView, WrapMode,
 };
 use regex::Regex;
 
 use super::diagnostics_model::DiagMark;
+use super::last_working::{self, Change, LastWorking};
 use crate::diagnostic_catalog::{self, Kind};
 
 // ── Error parsing ─────────────────────────────────────────────────────────────
@@ -299,6 +302,23 @@ fn current_time_hhmm() -> String {
     format!("{hours:02}:{mins:02}")
 }
 
+/// A read-only buffer holding `+ `/`- ` diff text, coloured with the theme's
+/// diff colours as they are right now.
+fn diff_buffer(text: &str) -> TextBuffer {
+    let buf = TextBuffer::new(None);
+    let colors = super::theme::diff_colors();
+    let removed = TextTag::new(Some("removed"));
+    removed.set_property("background", colors.removed_bg);
+    removed.set_property("foreground", colors.removed_fg);
+    let added = TextTag::new(Some("added"));
+    added.set_property("background", colors.added_bg);
+    added.set_property("foreground", colors.added_fg);
+    buf.tag_table().add(&removed);
+    buf.tag_table().add(&added);
+    super::diff_render::render_clean_diff(&buf, text);
+    buf
+}
+
 fn set_toggle_label(label: &Label, text: &str, on: bool) {
     if on {
         label.set_markup(&format!("<b>{text}</b>"));
@@ -322,6 +342,15 @@ fn apply_technical_state(btn: &Button, label: &Label, widgets: &[gtk4::Widget], 
 
 // ── Widget ───────────────────────────────────────────────────────────────────
 
+/// How long a problem can stay unsolved before the panel offers more help.
+const STUCK_AFTER: Duration = Duration::from_secs(120);
+/// How many compiles in a row can report the same problems before it does.
+const STUCK_REPEATS: u32 = 2;
+const COPY_LABEL: &str = "Copy a help request";
+
+type TextsFn = Box<dyn Fn() -> Vec<(PathBuf, String)>>;
+type GoBackFn = Box<dyn Fn(Vec<(PathBuf, String)>, String)>;
+
 #[derive(Clone)]
 pub struct ErrorPanel {
     root_widget: GtkBox,
@@ -330,7 +359,21 @@ pub struct ErrorPanel {
     list_box: ListBox,
     header_label: Label,
     chevron_btn: Button,
-    stuck_label: Label,
+    stuck_revealer: Revealer,
+    stuck_summary: Label,
+    stuck_diff_view: TextView,
+    stuck_diff_scroll: ScrolledWindow,
+    go_back_btn: Button,
+    stuck_triggered: Rc<Cell<bool>>,
+    stuck_shown: Rc<Cell<bool>>,
+    episode: Rc<Cell<u64>>,
+    episode_active: Rc<Cell<bool>>,
+    current_errors: Rc<RefCell<Vec<CompileError>>>,
+    shown_changes: Rc<RefCell<Vec<Change>>>,
+    shown_age: Rc<Cell<Option<Duration>>>,
+    last_working: Rc<RefCell<Option<LastWorking>>>,
+    current_texts: Rc<RefCell<Option<TextsFn>>>,
+    on_go_back: Rc<RefCell<Option<GoBackFn>>>,
     last_clean_label: Label,
     live_label: Label,
     collapsed: Rc<Cell<bool>>,
@@ -384,18 +427,6 @@ impl ErrorPanel {
         header_label.set_hexpand(true);
         header_label.add_css_class("heading");
         header.append(&header_label);
-
-        // "Stuck?" badge — shown after 3 consecutive identical error sets
-        let stuck_label = Label::new(Some("Stuck?"));
-        stuck_label.add_css_class("dim-label");
-        stuck_label.add_css_class("caption");
-        stuck_label.set_tooltip_text(Some(
-            "Same error for 3+ compiles in a row.\n\
-             Tip: check for a missing closing bracket, parenthesis, or quote.\n\
-             Or open 'Change Document Style' to reset the template.",
-        ));
-        stuck_label.set_visible(false);
-        header.append(&stuck_label);
 
         let technical_label = Label::new(None);
         set_toggle_label(&technical_label, "Show technical details", false);
@@ -471,6 +502,67 @@ impl ErrorPanel {
 
         inner.append(&list_revealer);
 
+        // ── Still stuck? ─────────────────────────────────────────────────────
+        let stuck_revealer = Revealer::new();
+        stuck_revealer.set_transition_type(RevealerTransitionType::SlideDown);
+        stuck_revealer.set_transition_duration(150);
+        stuck_revealer.set_reveal_child(false);
+        let stuck_outer = GtkBox::new(Orientation::Vertical, 0);
+        stuck_outer.append(&Separator::new(Orientation::Horizontal));
+        let stuck_box = GtkBox::new(Orientation::Vertical, 6);
+        stuck_box.set_margin_start(10);
+        stuck_box.set_margin_end(10);
+        stuck_box.set_margin_top(8);
+        stuck_box.set_margin_bottom(8);
+
+        let stuck_title = Label::new(Some("Still stuck?"));
+        stuck_title.set_halign(Align::Start);
+        stuck_title.add_css_class("heading");
+        stuck_box.append(&stuck_title);
+
+        let stuck_summary = Label::new(None);
+        stuck_summary.set_halign(Align::Start);
+        stuck_summary.set_xalign(0.0);
+        stuck_summary.set_wrap(true);
+        stuck_box.append(&stuck_summary);
+
+        let stuck_diff_view = TextView::new();
+        stuck_diff_view.set_editable(false);
+        stuck_diff_view.set_cursor_visible(false);
+        stuck_diff_view.set_monospace(true);
+        stuck_diff_view.set_wrap_mode(WrapMode::None);
+        stuck_diff_view.set_left_margin(6);
+        stuck_diff_view.set_right_margin(6);
+        stuck_diff_view.set_top_margin(4);
+        stuck_diff_view.set_bottom_margin(4);
+        stuck_diff_view.update_property(&[gtk4::accessible::Property::Label(
+            "What changed since the document last worked",
+        )]);
+        let stuck_diff_scroll = ScrolledWindow::new();
+        stuck_diff_scroll.set_max_content_height(150);
+        stuck_diff_scroll.set_propagate_natural_height(true);
+        stuck_diff_scroll.add_css_class("card");
+        stuck_diff_scroll.set_child(Some(&stuck_diff_view));
+        stuck_box.append(&stuck_diff_scroll);
+
+        let stuck_buttons = GtkBox::new(Orientation::Horizontal, 6);
+        stuck_buttons.set_halign(Align::Start);
+        let go_back_btn = Button::with_label("Go back to the last working version");
+        go_back_btn.set_tooltip_text(Some(
+            "Puts the changed files back the way they were. You can undo it with Ctrl+Z.",
+        ));
+        stuck_buttons.append(&go_back_btn);
+        let copy_btn = Button::with_label(COPY_LABEL);
+        copy_btn.set_tooltip_text(Some(
+            "Copies a summary to paste into an email or the Typst forum: the problems, \
+             the lines they are on, and what changed. Not your whole document.",
+        ));
+        stuck_buttons.append(&copy_btn);
+        stuck_box.append(&stuck_buttons);
+        stuck_outer.append(&stuck_box);
+        stuck_revealer.set_child(Some(&stuck_outer));
+        inner.append(&stuck_revealer);
+
         // ── Last-clean footer ─────────────────────────────────────────────────
         let last_clean_label = Label::new(None);
         last_clean_label.add_css_class("dim-label");
@@ -519,14 +611,18 @@ impl ErrorPanel {
         }
 
         // Wire chevron click to collapse/expand list
+        let stuck_shown: Rc<Cell<bool>> = Rc::new(Cell::new(false));
         {
             let list_rev_c = list_revealer.clone();
             let chevron_c = chevron_btn.clone();
             let collapsed_c = collapsed.clone();
+            let stuck_rev_c = stuck_revealer.clone();
+            let stuck_shown_c = stuck_shown.clone();
             chevron_btn.connect_clicked(move |_| {
                 let now_collapsed = !collapsed_c.get();
                 collapsed_c.set(now_collapsed);
                 list_rev_c.set_reveal_child(!now_collapsed);
+                stuck_rev_c.set_reveal_child(!now_collapsed && stuck_shown_c.get());
                 if now_collapsed {
                     chevron_c.set_icon_name("pan-end-symbolic");
                     chevron_c.set_tooltip_text(Some("Expand list"));
@@ -649,6 +745,55 @@ impl ErrorPanel {
             });
         }
 
+        let current_errors: Rc<RefCell<Vec<CompileError>>> = Rc::new(RefCell::new(Vec::new()));
+        let shown_changes: Rc<RefCell<Vec<Change>>> = Rc::new(RefCell::new(Vec::new()));
+        let shown_age: Rc<Cell<Option<Duration>>> = Rc::new(Cell::new(None));
+        let on_go_back: Rc<RefCell<Option<GoBackFn>>> = Rc::new(RefCell::new(None));
+        #[allow(clippy::type_complexity)]
+        let source_line: Rc<RefCell<Option<Box<dyn Fn(&Path, u32) -> Option<String>>>>> =
+            Rc::new(RefCell::new(None));
+
+        {
+            let changes = shown_changes.clone();
+            let age = shown_age.clone();
+            let cb = on_go_back.clone();
+            go_back_btn.connect_clicked(move |_| {
+                let texts: Vec<(PathBuf, String)> = changes
+                    .borrow()
+                    .iter()
+                    .map(|c| (c.file.clone(), c.old.clone()))
+                    .collect();
+                if texts.is_empty() {
+                    return;
+                }
+                let when = age.get().map(last_working::age_text).unwrap_or_default();
+                if let Some(f) = cb.borrow().as_ref() {
+                    f(texts, when);
+                }
+            });
+        }
+        {
+            let errors = current_errors.clone();
+            let changes = shown_changes.clone();
+            let age = shown_age.clone();
+            let lines = source_line.clone();
+            copy_btn.connect_clicked(move |btn| {
+                let text = last_working::help_request(
+                    env!("CARGO_PKG_VERSION"),
+                    &errors.borrow(),
+                    &|path, line| lines.borrow().as_ref().and_then(|f| f(path, line)),
+                    &changes.borrow(),
+                    age.get(),
+                );
+                btn.clipboard().set_text(&text);
+                btn.set_label("Copied");
+                let btn = btn.clone();
+                glib::timeout_add_local_once(Duration::from_secs(2), move || {
+                    btn.set_label(COPY_LABEL);
+                });
+            });
+        }
+
         Self {
             root_widget,
             revealer,
@@ -656,13 +801,27 @@ impl ErrorPanel {
             list_box,
             header_label,
             chevron_btn,
-            stuck_label,
+            stuck_revealer,
+            stuck_summary,
+            stuck_diff_view,
+            stuck_diff_scroll,
+            go_back_btn,
+            stuck_triggered: Rc::new(Cell::new(false)),
+            stuck_shown,
+            episode: Rc::new(Cell::new(0)),
+            episode_active: Rc::new(Cell::new(false)),
+            current_errors,
+            shown_changes,
+            shown_age,
+            last_working: Rc::new(RefCell::new(None)),
+            current_texts: Rc::new(RefCell::new(None)),
+            on_go_back,
             last_clean_label,
             live_label,
             collapsed,
             on_jump: Rc::new(RefCell::new(None)),
             on_try_fix: Rc::new(RefCell::new(None)),
-            source_line: Rc::new(RefCell::new(None)),
+            source_line,
             on_export_done,
             last_errors_key: Rc::new(RefCell::new(String::new())),
             repeat_count: Rc::new(Cell::new(0)),
@@ -848,13 +1007,16 @@ impl ErrorPanel {
             if *prev == key {
                 let n = self.repeat_count.get().saturating_add(1);
                 self.repeat_count.set(n);
-                self.stuck_label.set_visible(n >= 2);
+                if n >= STUCK_REPEATS && err_count > 0 {
+                    self.stuck_triggered.set(true);
+                }
             } else {
                 self.repeat_count.set(0);
-                self.stuck_label.set_visible(false);
                 *prev = key;
             }
         }
+        *self.current_errors.borrow_mut() = errors.clone();
+        self.note_episode(err_count);
 
         // Screen reader announcement
         let first_msg = errors
@@ -927,6 +1089,109 @@ impl ErrorPanel {
 
         self.last_clean_label.set_visible(false);
         self.revealer.set_reveal_child(true);
+        self.refresh_stuck();
+    }
+
+    /// Tracks how long the current run of problems has lasted, and arms the
+    /// timer that offers more help once it has gone on for a while.
+    fn note_episode(&self, err_count: usize) {
+        if err_count == 0 {
+            self.episode_active.set(false);
+            self.stuck_triggered.set(false);
+            return;
+        }
+        if self.episode_active.replace(true) {
+            return;
+        }
+        let id = self.episode.get() + 1;
+        self.episode.set(id);
+        let panel = self.clone();
+        glib::timeout_add_local_once(STUCK_AFTER, move || {
+            if panel.episode.get() == id && panel.episode_active.get() {
+                panel.stuck_triggered.set(true);
+                panel.refresh_stuck();
+            }
+        });
+    }
+
+    fn refresh_stuck(&self) {
+        let errors: Vec<CompileError> = self
+            .current_errors
+            .borrow()
+            .iter()
+            .filter(|e| e.severity == Severity::Error)
+            .cloned()
+            .collect();
+        if !self.stuck_triggered.get() || errors.is_empty() {
+            self.stuck_shown.set(false);
+            self.stuck_revealer.set_reveal_child(false);
+            return;
+        }
+
+        let snapshot = self.last_working.borrow().as_ref().and_then(|lw| lw.get());
+        let current = self
+            .current_texts
+            .borrow()
+            .as_ref()
+            .map(|f| f())
+            .unwrap_or_default();
+        let problem_files: Vec<PathBuf> = errors.iter().map(|e| e.file.clone()).collect();
+        let (changes, age) = match &snapshot {
+            Some(s) => (
+                last_working::changes(s, &current, &problem_files),
+                Some(s.taken.elapsed()),
+            ),
+            None => (Vec::new(), None),
+        };
+
+        let summary = match age {
+            Some(age) if !changes.is_empty() => format!(
+                "Zerkalo last compiled this document without problems {}. \
+                 Here is what is different since then:",
+                last_working::age_text(age)
+            ),
+            Some(age) => format!(
+                "Nothing in the document has changed since it last worked ({}), so the \
+                 cause may be outside it: a missing file, a font, or a package that needs \
+                 the internet.",
+                last_working::age_text(age)
+            ),
+            None => "Zerkalo hasn't seen this document compile without problems yet, so it \
+                     can't show what changed. The most common cause is a missing closing \
+                     bracket, parenthesis or quote just before the first problem."
+                .to_string(),
+        };
+        self.stuck_summary.set_text(&summary);
+
+        let has_changes = !changes.is_empty();
+        if has_changes {
+            let text = last_working::cap_lines(&last_working::combined_diff(&changes), 60);
+            self.stuck_diff_view.set_buffer(Some(&diff_buffer(&text)));
+        }
+        self.stuck_diff_scroll.set_visible(has_changes);
+        self.go_back_btn.set_visible(has_changes);
+
+        *self.shown_changes.borrow_mut() = changes;
+        self.shown_age.set(age);
+        self.stuck_shown.set(true);
+        self.stuck_revealer.set_reveal_child(!self.collapsed.get());
+    }
+
+    /// Where "what changed since it last worked" comes from: the remembered
+    /// clean-compile snapshot, and a way to read the files as they are now.
+    pub fn set_stuck_source(
+        &self,
+        last_working: LastWorking,
+        current_texts: impl Fn() -> Vec<(PathBuf, String)> + 'static,
+    ) {
+        *self.last_working.borrow_mut() = Some(last_working);
+        *self.current_texts.borrow_mut() = Some(Box::new(current_texts));
+    }
+
+    /// Called with each changed file's old text, and how long ago that was
+    /// ("12 minutes ago"), when "Go back to the last working version" is pressed.
+    pub fn set_on_go_back(&self, f: impl Fn(Vec<(PathBuf, String)>, String) + 'static) {
+        *self.on_go_back.borrow_mut() = Some(Box::new(f));
     }
 
     pub fn clear(&self) {
@@ -934,7 +1199,11 @@ impl ErrorPanel {
         self.clear_rows();
         self.revealer.set_reveal_child(false);
         self.live_label.set_text("");
-        self.stuck_label.set_visible(false);
+        self.episode_active.set(false);
+        self.stuck_triggered.set(false);
+        self.stuck_shown.set(false);
+        self.stuck_revealer.set_reveal_child(false);
+        self.current_errors.borrow_mut().clear();
         self.first_hint_label.set_visible(false);
         self.current.set(None);
         self.repeat_count.set(0);

@@ -17,6 +17,7 @@ use super::editor_pane::{EditorPane, FixOutcome};
 use super::error_panel::{parse_typst_errors, ErrorPanel, Severity};
 use super::file_tree::FileTree;
 use super::help_window::HelpWindow;
+use super::last_working::LastWorking;
 use super::library_window::LibraryWindow;
 use super::outline_panel::OutlinePanel;
 use super::preview_pane::PreviewPane;
@@ -489,12 +490,11 @@ impl AppWindow {
         {
             let cfg = current_config.clone();
             let ep = editor_pane.clone();
-            let toasts = toast_overlay.clone();
             editor_pane.set_on_autosave_toggle(move |enabled| {
                 cfg.borrow_mut().autosave_document = enabled;
                 let _ = cfg.borrow().save();
                 if enabled {
-                    autosave_now(&ep, &toasts);
+                    autosave_now(&ep);
                 }
             });
         }
@@ -1167,7 +1167,6 @@ impl AppWindow {
         let preview_for_switch = preview_pane.clone();
         let style_btn_for_switch = style_btn.clone();
         let editor_pane_for_switch_delta = editor_pane.clone();
-        let toast_for_switch_autosave = toast_overlay.clone();
         let cs_stack = gtk4::Stack::new();
         cs_stack.set_transition_type(gtk4::StackTransitionType::Crossfade);
         let cs_stack_for_switch = cs_stack.clone();
@@ -1184,7 +1183,7 @@ impl AppWindow {
         let switch_hash_map: Rc<RefCell<std::collections::HashMap<std::path::PathBuf, u64>>> =
             Rc::new(RefCell::new(std::collections::HashMap::new()));
         editor_pane.set_on_page_switch(move |content, path| {
-            autosave_now(&editor_pane_for_switch_delta, &toast_for_switch_autosave);
+            autosave_now(&editor_pane_for_switch_delta);
             let delta = editor_pane_for_switch_delta.get_active_session_delta();
             editor_pane_for_switch_delta.set_session_delta(delta);
             // Whole-project outline mode already covers every file; a tab switch
@@ -1450,6 +1449,8 @@ impl AppWindow {
         let popout_pane_for_compile = popout_pane.clone();
         let dep_graph_for_compile = dep_graph.clone();
         let problems_for_compile = problems.clone();
+        let last_working = LastWorking::default();
+        let last_working_for_compile = last_working.clone();
         let error_banner_lbl_for_compile = error_banner.clone();
         let preview_for_compile = preview_pane.clone();
         let problem_gen_for_compile: Rc<Cell<u64>> = Rc::new(Cell::new(0));
@@ -1503,6 +1504,7 @@ impl AppWindow {
                     *has_errors_for_compile.borrow_mut() = false;
                     error_banner_lbl_for_compile.set_visible(false);
                     preview_for_compile.set_stale(false);
+                    last_working_for_compile.record(preview_for_compile.compiled_texts());
                     // A clean compile can still have warnings — deprecations,
                     // unused imports. They are quiet notes: counted in the status
                     // bar and listed in the panel on request, never opened by
@@ -1585,6 +1587,36 @@ impl AppWindow {
                 let t = adw::Toast::new(&format!("Error log saved to {path}"));
                 t.set_timeout(4);
                 toast_for_export.add_toast(t);
+            });
+        }
+
+        // "Still stuck?": what changed since the document last compiled cleanly,
+        // and a way back to it that Ctrl+Z can undo.
+        {
+            let editor_now = editor_pane.clone();
+            error_panel.set_stuck_source(last_working.clone(), move || editor_now.all_tab_texts());
+            let editor = editor_pane.clone();
+            let toasts = toast_overlay.clone();
+            error_panel.set_on_go_back(move |texts, when| {
+                let mut restored = Vec::new();
+                for (path, text) in texts {
+                    if editor.state_has_file(&path) {
+                        editor.set_content(&path, &text);
+                        restored.push(path);
+                    }
+                }
+                if restored.is_empty() {
+                    return;
+                }
+                let toast = adw::Toast::new(&format!("Went back to the version from {when}."));
+                toast.set_button_label(Some("Undo"));
+                let editor = editor.clone();
+                toast.connect_button_clicked(move |_| {
+                    for path in &restored {
+                        editor.undo_in(path);
+                    }
+                });
+                toasts.add_toast(toast);
             });
         }
 
@@ -2095,9 +2127,8 @@ impl AppWindow {
         {
             let pv = preview_pane.clone();
             let editor_for_compile = editor_pane.clone();
-            let toasts_for_compile = toast_overlay.clone();
             recompile_header_btn.connect_clicked(move |_| {
-                autosave_now(&editor_for_compile, &toasts_for_compile);
+                autosave_now(&editor_for_compile);
                 if let Some(path) = editor_for_compile.get_active_path() {
                     if let Some(content) = editor_for_compile.get_active_content() {
                         pv.set_buffer_snapshot(path.clone(), content);
@@ -2304,6 +2335,86 @@ impl AppWindow {
                 let _ = cfg_for_banner.borrow().save();
             });
             editor_outer.append(&banner);
+        }
+        {
+            let bar = super::save_problem_bar::SaveProblemBar::new();
+            let bar_for_change = bar.clone();
+            editor_pane.set_on_save_problems(move |problems| bar_for_change.show(problems));
+
+            let ep = editor_pane.clone();
+            let toasts = toast_overlay.clone();
+            bar.set_on_retry(move || {
+                ep.save_all_modified();
+                if let Some((path, reason)) = ep.save_problems().first() {
+                    let name = path
+                        .file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_default();
+                    let t = adw::Toast::new(&format!("Still couldn't save {name} — {reason}."));
+                    t.set_timeout(5);
+                    toasts.add_toast(t);
+                } else {
+                    toasts.add_toast(adw::Toast::new("Saved."));
+                }
+            });
+
+            let ep = editor_pane.clone();
+            let toasts = toast_overlay.clone();
+            let win = window.clone();
+            bar.set_on_copy(move || {
+                let problems = ep.save_problems();
+                if problems.is_empty() {
+                    return;
+                }
+                let dialog = gtk4::FileDialog::builder()
+                    .title("Save a copy in…")
+                    .accept_label("Save here")
+                    .build();
+                let ep = ep.clone();
+                let toasts = toasts.clone();
+                dialog.select_folder(Some(&win), None::<&gtk4::gio::Cancellable>, move |result| {
+                    let Ok(folder) = result else { return };
+                    let Some(dir) = folder.path() else { return };
+                    let mut saved = 0;
+                    let mut failure: Option<String> = None;
+                    for (path, _) in &problems {
+                        let Some(content) = ep.content_of(path) else {
+                            continue;
+                        };
+                        let name = path
+                            .file_name()
+                            .map(|n| n.to_string_lossy().into_owned())
+                            .unwrap_or_else(|| "Untitled.typ".into());
+                        let dest = super::save_problem_bar::free_copy_path(&dir, &name);
+                        match crate::error::atomic_write(&dest, content.as_bytes()) {
+                            Ok(()) => saved += 1,
+                            Err(e) => failure = Some(crate::error::io_reason(&e)),
+                        }
+                    }
+                    let text = match (saved, failure) {
+                        (0, Some(reason)) => format!("Couldn't save a copy there — {reason}."),
+                        (0, None) => return,
+                        (n, None) => format!(
+                            "Saved {} in {}. The originals are still open here.",
+                            if n == 1 {
+                                "a copy".to_string()
+                            } else {
+                                format!("{n} copies")
+                            },
+                            dir.display()
+                        ),
+                        (n, Some(reason)) => format!(
+                            "Saved {n} of {} copies — the rest failed: {reason}.",
+                            problems.len()
+                        ),
+                    };
+                    let t = adw::Toast::new(&text);
+                    t.set_timeout(8);
+                    toasts.add_toast(t);
+                });
+            });
+
+            editor_outer.append(bar.widget());
         }
         editor_outer.append(editor_pane.widget());
 
@@ -2965,11 +3076,21 @@ impl AppWindow {
                                 &sys_inputs,
                                 bib_path.as_deref(),
                             )
-                            .map_err(|e| e.to_string())
+                            .map_err(|e| {
+                                tracing::warn!("PDF export didn't compile: {e}");
+                                "Couldn't export — Zerkalo couldn't finish building the \
+                                 document. If Problems lists anything, fix that first."
+                                    .to_string()
+                            })
                             .and_then(|bytes| {
                                 std::fs::create_dir_all(&dest_dir)
                                     .and_then(|()| std::fs::write(&dest_for_thread, &bytes))
-                                    .map_err(|e| format!("Write failed: {e}"))
+                                    .map_err(|e| {
+                                        format!(
+                                            "Couldn't save the PDF — {}.",
+                                            crate::error::io_reason(&e)
+                                        )
+                                    })
                             })
                             .map(|()| {
                                 (open_after && open_in_pereplyot)
@@ -3000,8 +3121,8 @@ impl AppWindow {
                                 }
                             },
                             move |e| {
-                                let t = adw::Toast::new(&format!("Export failed: {e}"));
-                                t.set_timeout(4);
+                                let t = adw::Toast::new(&e);
+                                t.set_timeout(6);
                                 toast_ref_err.add_toast(t);
                             },
                         );
@@ -4113,7 +4234,10 @@ fn apply_doc_font_edit(
 
     if let Err(e) = super::template_dialog::write_atomically(&path, &updated) {
         tracing::error!("Failed to write document font change: {e}");
-        toast_overlay.add_toast(adw::Toast::new(&format!("Couldn't save the change: {e}")));
+        toast_overlay.add_toast(adw::Toast::new(&format!(
+            "Couldn't save the change — {}.",
+            crate::error::io_reason(&e)
+        )));
         return false;
     }
     if let Some(mut sc) = super::template_dialog::load_sidecar(&path) {

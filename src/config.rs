@@ -513,7 +513,7 @@ impl Config {
                             );
                             LOAD_PROBLEM.with(|c| {
                                 *c.borrow_mut() = Some(LoadProblem {
-                                    error: e.to_string(),
+                                    error: e.user_message(),
                                     backup,
                                 });
                             });

@@ -79,6 +79,9 @@ pub struct PreviewPane {
     compile_in_flight: Rc<Cell<bool>>,
     compile_pending: Rc<Cell<bool>>,
     buffer_snapshot: Rc<RefCell<HashMap<PathBuf, String>>>,
+    /// The texts the most recent compile actually ran on, which can differ
+    /// from `buffer_snapshot` if the user typed while it was running.
+    compiled_texts: Rc<RefCell<HashMap<PathBuf, String>>>,
     /// CV mode's Skrizhal `cv-elements.yaml` path, if any — re-read fresh on
     /// every compile (see `set_cv_elements_path`) rather than cached, so
     /// edits made in Skrizhal while Zerkalo is open show up without a
@@ -406,6 +409,7 @@ impl PreviewPane {
             compile_in_flight: Rc::new(Cell::new(false)),
             compile_pending: Rc::new(Cell::new(false)),
             buffer_snapshot: Rc::new(RefCell::new(HashMap::new())),
+            compiled_texts: Rc::new(RefCell::new(HashMap::new())),
             cv_elements_path: Rc::new(RefCell::new(None)),
             bib_path: Rc::new(RefCell::new(None)),
             draft_mode: Rc::new(RefCell::new(false)),
@@ -583,6 +587,15 @@ impl PreviewPane {
             sys_inputs,
             self.bib_path.borrow().clone(),
         ))
+    }
+
+    /// The open files' text as the latest compile saw it.
+    pub fn compiled_texts(&self) -> Vec<(PathBuf, String)> {
+        self.compiled_texts
+            .borrow()
+            .iter()
+            .map(|(p, t)| (p.clone(), t.clone()))
+            .collect()
     }
 
     pub fn set_buffer_snapshot(&self, path: PathBuf, text: String) {
@@ -961,6 +974,7 @@ impl PreviewPane {
 
         let bib_path = self.bib_path.borrow().clone();
         let snapshots = self.buffer_snapshot.borrow().clone();
+        *self.compiled_texts.borrow_mut() = snapshots.clone();
         let draft = *self.draft_mode.borrow();
         let pixel_per_pt = if draft { 1.0f32 } else { 2.0f32 };
         let ppp_for_sync = pixel_per_pt as f64;

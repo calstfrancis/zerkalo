@@ -7,7 +7,7 @@ use gtk4::{Align, Box as GtkBox, Button, Label, Orientation, ScrolledWindow, Sep
 use libadwaita as adw;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const RELEASE_NAME: &str = "Clear Glass";
+pub const RELEASE_NAME: &str = "Kind Glass";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -160,9 +160,9 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
-                "Calmer problems: a mistake no longer turns the preview into a wall of red text. The last good preview stays, and the problem is explained in plain words in the new Problems panel.",
-                "One-click fixes are small and exact — a stray $, *, _, @ or # can be shown as ordinary text — and if a fix doesn't help, you can undo it right away.",
-                "Press F8 to jump to the next problem. Turn on \"Show technical details\" in the Problems panel when you want Typst's exact wording.",
+                "A failed save never goes unnoticed: a bar above the editor says which file and why, in plain words, and stays until the save works — with Try again and Save a copy elsewhere.",
+                "Stuck on a problem? The Problems panel can show what changed since it last worked, put your files back to that version in one step, or copy a short help request to send to someone.",
+                "More mistakes are explained in plain language, and errors elsewhere — exporting, importing, trashing — now say what happened instead of what the computer said.",
             ] {
                 body.append(&bullet_row(item));
             }

@@ -83,7 +83,10 @@ pub(super) fn wire_editor_extras(ctx: &EditorExtrasCtx) {
                 }
                 Err(e) => {
                     tracing::warn!("Failed to copy image into assets: {e}");
-                    toast.add_toast(adw::Toast::new(&format!("Couldn't add the image: {e}")));
+                    toast.add_toast(adw::Toast::new(&format!(
+                        "Couldn't add the image — {}.",
+                        crate::error::io_reason(&e)
+                    )));
                 }
             }
         });

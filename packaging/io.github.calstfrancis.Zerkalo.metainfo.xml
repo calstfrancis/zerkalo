@@ -85,6 +85,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.38.0" date="2026-09-29">
+      <description>
+        <p>0.38.0 "Kind Glass" — getting unstuck, and saves you can trust. A save that fails now stays on screen as a bar saying which file and why in plain words, with Try again and Save a copy elsewhere. When a problem keeps coming back, the Problems panel shows what changed since the document last worked, can put your files back to that version in one step, and can copy a short help request. Ten more kinds of mistake get plain-language explanations, and errors while exporting, importing, trashing or changing a font say what happened instead of showing raw error text.</p>
+      </description>
+    </release>
     <release version="0.37.0" date="2026-09-29">
       <description>
         <p>0.37.0 "Clear Glass" — problems are explained in plain words instead of compiler messages. A mistake no longer replaces the preview with a red error page: the last good preview stays, dimmed, with a small note. The new Problems panel shows one simple card per problem with the exact spot underlined, a Fix button when Zerkalo can fix it, and Typst's own wording tucked behind "Show technical details". Common slips such as a stray $, *, _, @ or # are recognised and fixed with one small edit that undoes in one step. F8 jumps to the next problem.</p>

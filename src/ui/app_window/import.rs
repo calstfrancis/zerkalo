@@ -1059,7 +1059,10 @@ fn show_import_preview_dialog(
             if staged_media.is_dir() {
                 let dst_media = final_dir.join(&media_name_c);
                 if let Err(e) = copy_dir_recursive(&staged_media, &dst_media) {
-                    let t = adw::Toast::new(&format!("Images couldn't be saved: {e}"));
+                    let t = adw::Toast::new(&format!(
+                        "The document was saved, but its images weren't — {}.",
+                        crate::error::io_reason(&e)
+                    ));
                     t.set_timeout(6);
                     toast_overlay_c.add_toast(t);
                 }

@@ -51,40 +51,11 @@ const AUTOSAVE_DELAY: Duration = Duration::from_secs(3);
 
 /// Saves every modified document, when the status bar's autosave is on. Called
 /// after a pause in typing and whenever the user moves away from what they were
-/// writing. A failure is reported at most once a minute, since the idle check
-/// retries every second until the save goes through.
-pub(super) fn autosave_now(editor: &EditorPane, toasts: &adw::ToastOverlay) {
-    if !editor.autosave_enabled() {
-        return;
-    }
-    let failed = editor.save_all_modified();
-    if failed.is_empty() {
-        return;
-    }
-    thread_local! {
-        static LAST_WARNED: std::cell::Cell<Option<std::time::Instant>> =
-            const { std::cell::Cell::new(None) };
-    }
-    let due = LAST_WARNED.with(|c| {
-        c.get()
-            .is_none_or(|t| t.elapsed() >= Duration::from_secs(60))
-    });
-    if due {
-        LAST_WARNED.with(|c| c.set(Some(std::time::Instant::now())));
-        let names = failed
-            .iter()
-            .map(|p| {
-                p.file_name()
-                    .map(|n| n.to_string_lossy().into_owned())
-                    .unwrap_or_default()
-            })
-            .collect::<Vec<_>>()
-            .join(", ");
-        let t = adw::Toast::new(&format!(
-            "Autosave couldn't save {names} — your changes are still here. Try Save (Ctrl+S)."
-        ));
-        t.set_timeout(8);
-        toasts.add_toast(t);
+/// writing. A failure shows in the editor's save-problem bar, which stays until
+/// the save goes through — the idle check retries every second.
+pub(super) fn autosave_now(editor: &EditorPane) {
+    if editor.autosave_enabled() {
+        editor.save_all_modified();
     }
 }
 
@@ -101,7 +72,8 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| problem.backup.display().to_string());
         let msg = format!(
-            "Settings could not be read ({}). Backed up as {backup}; defaults are in use.",
+            "Your settings couldn't be read — {}. The old file was kept as {backup}, and Zerkalo \
+             is using its default settings for now.",
             problem.error
         );
         glib::timeout_add_local_once(Duration::from_millis(700), move || {
@@ -248,24 +220,22 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
     // ── Autosave the document itself (status bar toggle) ─────────────────
     {
         let editor = ctx.editor_pane.clone();
-        let toasts = ctx.toast_overlay.clone();
         let last_edit = ctx.last_edit_instant.clone();
         glib::timeout_add_local(Duration::from_secs(1), move || {
             let idle = last_edit
                 .borrow()
                 .is_some_and(|t| t.elapsed() >= AUTOSAVE_DELAY);
             if idle {
-                autosave_now(&editor, &toasts);
+                autosave_now(&editor);
             }
             glib::ControlFlow::Continue
         });
     }
     {
         let editor = ctx.editor_pane.clone();
-        let toasts = ctx.toast_overlay.clone();
         ctx.window.connect_is_active_notify(move |w| {
             if !w.is_active() {
-                autosave_now(&editor, &toasts);
+                autosave_now(&editor);
             }
         });
     }

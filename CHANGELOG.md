@@ -5,6 +5,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.38.0] "Kind Glass" — 2026-09-29 — Getting unstuck, and saves you can trust
+
+### Changed
+
+- **A failed save stays on screen.** If a document can't be saved — the disk is full, the folder is read-only or gone, a network drive dropped out — a bar above the editor says which file and why, in plain words, and that your changes are still in the window. It stays until the save goes through, with "Try again" and "Save a copy elsewhere…" buttons. Autosave, Save, Export, Print and Sync all feed the same bar, replacing the once-a-minute pop-up.
+- **Other failures say what happened, not what the computer said.** Save As, exporting a PDF or web page, adding an image, importing a Word document's images, changing a document's font, moving to the trash, deleting, and an unreadable settings file now give a short plain reason ("the disk is full", "Zerkalo isn't allowed to write there") instead of the raw error text. The technical detail still goes to the log.
+- **Save As no longer fails silently.** If the copy couldn't be written, you're told.
+- **Plain wording for ten more kinds of mistake.** A closing bracket with nothing to close, an unclosed quotation mark, a stray comma or colon, a missing separator, adding text to a number, asking for something a value doesn't have, going past the end of a list, looping over something that isn't a list, and a script that gave up now each get a short headline and a sentence of advice, instead of the engine's own phrasing. A test runs 34 typical mistakes through the real compiler to check each one is recognised.
+
+### Added
+
+- **"Still stuck?" in the Problems panel.** If the same problems come back on three compiles in a row, or a problem is still there after about two minutes, the panel adds a section that shows what changed since the document last compiled without problems, as a short before/after with the removed and added lines coloured. If nothing you can see has changed, it says so and points at the usual outside causes: a missing file, a font, or a package that needs the internet. The old "Stuck?" badge and its tooltip are gone; this replaces them.
+- **Go back to the last working version.** One button puts the changed files back the way they were at the last clean compile, as a single undoable edit per file, with an Undo button on the confirmation. It only touches files that are still open.
+- **Copy a help request.** One button copies a short summary to paste into an email or the Typst forum: the Zerkalo version, the problems (up to five) with their files and lines, the text of each line, the engine's own wording, and what changed since it last worked. It never includes the rest of your document.
+
 ## [0.37.0] "Clear Glass" — 2026-09-29 — Calmer problems, fixes you can trust
 
 ### Changed

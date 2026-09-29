@@ -20,6 +20,57 @@ pub enum ZerkaloError {
 
 pub type Result<T> = std::result::Result<T, ZerkaloError>;
 
+impl ZerkaloError {
+    /// A short reason in plain words, for a toast or banner — the `Display`
+    /// text ("IO: …", "Config parse: …") is for the log, not the person.
+    pub fn user_message(&self) -> String {
+        match self {
+            ZerkaloError::Io(e) => io_reason(e),
+            ZerkaloError::Git(e) => git_reason(e),
+            ZerkaloError::ConfigParse(_) => {
+                "the settings file isn't in a form Zerkalo can read".into()
+            }
+            ZerkaloError::ConfigSerialize(_) => {
+                "your settings couldn't be prepared for saving".into()
+            }
+            ZerkaloError::Other(msg) => msg.clone(),
+        }
+    }
+}
+
+/// Why a file operation failed, as a fragment that follows "Couldn't save X —".
+pub fn io_reason(e: &std::io::Error) -> String {
+    use std::io::ErrorKind as K;
+    match e.kind() {
+        K::PermissionDenied => "Zerkalo isn't allowed to write there",
+        K::NotFound => "the file or folder is no longer there",
+        K::StorageFull => "the disk is full",
+        K::QuotaExceeded => "your storage allowance is used up",
+        K::ReadOnlyFilesystem => "that location is read-only",
+        K::AlreadyExists => "something with that name already exists",
+        K::IsADirectory => "a folder is in the way",
+        K::NotADirectory => "part of the path isn't a folder",
+        K::TimedOut
+        | K::HostUnreachable
+        | K::NetworkUnreachable
+        | K::NetworkDown
+        | K::StaleNetworkFileHandle => "the network location can't be reached",
+        _ => "the disk reported a problem",
+    }
+    .into()
+}
+
+fn git_reason(e: &git2::Error) -> String {
+    use git2::ErrorClass as C;
+    match e.class() {
+        C::Net | C::Http | C::Ssh | C::Ssl => {
+            "the online copy can't be reached — check your internet connection".into()
+        }
+        C::Os | C::Filesystem => "a file in the backup folder couldn't be read or written".into(),
+        _ => "the backup history couldn't be updated".into(),
+    }
+}
+
 /// Writes `contents` to `path` via a temp-file-then-rename so a crash or
 /// power loss mid-write leaves the previous good file intact rather than
 /// truncating it (rename is atomic on Linux).
@@ -76,6 +127,62 @@ pub fn atomic_write(path: &std::path::Path, contents: &[u8]) -> std::io::Result<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn common_disk_problems_read_as_plain_sentences() {
+        use std::io::{Error, ErrorKind};
+        let reason = |k| io_reason(&Error::from(k));
+        assert_eq!(
+            reason(ErrorKind::PermissionDenied),
+            "Zerkalo isn't allowed to write there"
+        );
+        assert_eq!(
+            reason(ErrorKind::NotFound),
+            "the file or folder is no longer there"
+        );
+        assert_eq!(reason(ErrorKind::StorageFull), "the disk is full");
+        assert_eq!(
+            reason(ErrorKind::ReadOnlyFilesystem),
+            "that location is read-only"
+        );
+        assert_eq!(
+            reason(ErrorKind::HostUnreachable),
+            "the network location can't be reached"
+        );
+        assert_eq!(reason(ErrorKind::Other), "the disk reported a problem");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn raw_os_codes_are_recognised() {
+        assert_eq!(
+            io_reason(&std::io::Error::from_raw_os_error(28)),
+            "the disk is full"
+        );
+        assert_eq!(
+            io_reason(&std::io::Error::from_raw_os_error(30)),
+            "that location is read-only"
+        );
+        assert_eq!(
+            io_reason(&std::io::Error::from_raw_os_error(13)),
+            "Zerkalo isn't allowed to write there"
+        );
+    }
+
+    #[test]
+    fn user_messages_never_leak_the_technical_prefixes() {
+        let io = ZerkaloError::Io(std::io::Error::from(std::io::ErrorKind::PermissionDenied));
+        assert!(!io.user_message().contains("IO:"));
+        let bad: std::result::Result<toml::Value, _> = toml::from_str("= nope");
+        let parse = ZerkaloError::ConfigParse(bad.unwrap_err());
+        assert!(!parse.user_message().contains("Config parse"));
+        assert_eq!(
+            ZerkaloError::Other("Nothing to do".into()).user_message(),
+            "Nothing to do"
+        );
+        let git = ZerkaloError::Git(git2::Error::from_str("boom"));
+        assert!(!git.user_message().contains("boom"));
+    }
 
     #[test]
     fn atomic_write_replaces_content_and_leaves_no_temp_file() {

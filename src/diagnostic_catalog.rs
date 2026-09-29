@@ -37,6 +37,16 @@ pub enum Kind {
     DivideByZero,
     IncompleteRule,
     FileAccess,
+    UnclosedString,
+    StrayClosing,
+    StrayPunctuation,
+    MissingSeparator,
+    ExpectedName,
+    MixedTypes,
+    NoSuchField,
+    OutOfRange,
+    CannotLoop,
+    Panic,
     Other,
 }
 
@@ -212,6 +222,8 @@ fn classify(raw: &str, at: Option<&str>) -> Kind {
         Kind::BibliographyUnreadable
     } else if lower.contains("package not found") || lower.contains("failed to download package") {
         Kind::PackageUnavailable
+    } else if lower.starts_with("unexpected closing") {
+        Kind::StrayClosing
     } else if lower.contains("expected closing brace") {
         Kind::MissingBrace
     } else if lower.contains("expected closing bracket") {
@@ -248,6 +260,33 @@ fn classify(raw: &str, at: Option<&str>) -> Kind {
         Kind::IncompleteRule
     } else if lower.contains("cannot access file system") {
         Kind::FileAccess
+    } else if lower == "unclosed string" {
+        Kind::UnclosedString
+    } else if lower.starts_with("cannot ")
+        && lower.contains(" and ")
+        && ["add", "subtract", "multiply", "divide", "compare", "apply"]
+            .iter()
+            .any(|v| lower.starts_with(&format!("cannot {v} ")))
+    {
+        Kind::MixedTypes
+    } else if lower.contains("does not contain key")
+        || lower.contains("cannot access fields")
+        || lower.contains(" has no method")
+        || lower.contains(" has no field")
+    {
+        Kind::NoSuchField
+    } else if lower.contains("index out of bounds") {
+        Kind::OutOfRange
+    } else if lower.starts_with("cannot loop over") {
+        Kind::CannotLoop
+    } else if lower.starts_with("panicked with") {
+        Kind::Panic
+    } else if lower.starts_with("expected semicolon") {
+        Kind::MissingSeparator
+    } else if lower == "expected pattern" || lower == "expected identifier" {
+        Kind::ExpectedName
+    } else if lower.starts_with("unexpected ") && lower.split_whitespace().count() <= 3 {
+        Kind::StrayPunctuation
     } else if lower == "expected expression" {
         if at.map(str::trim) == Some("#") {
             Kind::StrayHash
@@ -358,6 +397,44 @@ fn wording(kind: Kind, raw: &str, at: Option<&str>) -> (String, String) {
         Kind::DivideByZero => both("diag-divide-by-zero"),
         Kind::IncompleteRule => both("diag-incomplete-rule"),
         Kind::FileAccess => both("diag-file-access"),
+        Kind::UnclosedString => both("diag-unclosed-string"),
+        Kind::StrayClosing => {
+            let closer = match raw.to_lowercase().split_whitespace().last() {
+                Some("bracket") => "]",
+                Some("brace") => "}",
+                _ => ")",
+            };
+            (
+                tr_args("diag-stray-closing", &[("thing", closer)]),
+                tr("diag-stray-closing-advice"),
+            )
+        }
+        Kind::StrayPunctuation => (
+            named(
+                "diag-stray-punctuation-named",
+                "diag-stray-punctuation",
+                "thing",
+                raw.trim().strip_prefix("unexpected ").map(str::to_string),
+            ),
+            tr("diag-stray-punctuation-advice"),
+        ),
+        Kind::MissingSeparator => both("diag-missing-separator"),
+        Kind::ExpectedName => both("diag-expected-name"),
+        Kind::MixedTypes => both("diag-mixed-types"),
+        Kind::NoSuchField => both("diag-no-such-field"),
+        Kind::OutOfRange => both("diag-out-of-range"),
+        Kind::CannotLoop => both("diag-cannot-loop"),
+        Kind::Panic => (
+            tr("diag-panic"),
+            named(
+                "diag-panic-advice-named",
+                "diag-panic-advice",
+                "message",
+                raw.split_once("panicked with:")
+                    .map(|(_, m)| m.trim().to_string())
+                    .filter(|m| !m.is_empty()),
+            ),
+        ),
         Kind::Other => {
             let first = raw.lines().next().unwrap_or("").trim();
             if first.is_empty() {

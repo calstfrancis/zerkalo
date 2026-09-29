@@ -1,4 +1,4 @@
-# Zerkalo v0.37.0 "Clear Glass"
+# Zerkalo v0.38.0 "Kind Glass"
 
 Install via Flatpak:
 
@@ -18,15 +18,15 @@ flatpak update io.github.calstfrancis.Zerkalo
 
 ### What's new
 
-Mistakes are explained, not shouted.
+When something goes wrong, Zerkalo now tells you what happened and what to do next.
 
-**A problem no longer takes over the screen.** When something in your document can't be understood, the preview keeps showing your last good version, dimmed, with a small "Preview paused" note, instead of turning into a wall of red text. New problems are shown a moment after you stop typing, so half-typed code isn't flagged while you're still writing it, and warnings become quiet "notes" that never pop up.
+**A failed save never slips by.** If a document can't be saved — the disk is full, the folder is read-only or gone, a network drive dropped out — a bar above the editor names the file and the reason in plain words, and reassures you that your changes are still in the window. It stays until the save goes through, with Try again and Save a copy elsewhere. Autosave, Save, Export, Print and Sync all report to the same bar. Save As used to fail silently; now it tells you.
 
-**The Problems panel.** Each problem is a simple card: a plain-language headline, the line it happened on with the exact spot underlined, a sentence of advice, and one main button — Fix when Zerkalo can fix it, otherwise Show me. Typst's own wording is still there, behind "Show technical details" in the panel header, for when you want to search the forum. F8 and Shift+F8 step through the problems.
+**Stuck? Zerkalo helps you back out.** If the same problems keep coming back, or one lasts a couple of minutes, the Problems panel offers a "Still stuck?" section: a short before-and-after of what changed since the document last worked, a button that puts your files back to that version as one undoable step, and a button that copies a tidy help request — version, problems, and the lines involved, never the rest of your document — ready to paste into an email or the Typst forum.
 
-**Common slips are recognised.** A price like $5, an asterisk or underscore with no partner, an email address, a stray # and an unclosed <label each get their own explanation, including how to write the character literally.
+**More mistakes in plain words.** A stray closing bracket, an unclosed quotation mark, a missing comma, mixing text with numbers, asking for something that isn't there, going past the end of a list and more now get a short headline and a sentence of advice instead of the engine's phrasing.
 
-**Fixes you can trust.** A fix changes only the characters it needs to, at the spot reported, and undoes in one step. A stray $, *, _, <, @ or # can be shown as ordinary text, brackets are closed where they were opened, and if a fix doesn't help you're offered Undo straight away. Fix used to patch the wrong file when the problem was in a file you didn't have open, and hover "Fix It" never appeared at all; both are fixed.
+**Everything else says what happened, too.** Exporting, importing a Word document's images, adding an image, changing a font, moving to the trash and reading your settings now give a plain reason such as "the disk is full" or "Zerkalo isn't allowed to write there", rather than raw error text.
 
 ---
 

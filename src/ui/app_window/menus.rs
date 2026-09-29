@@ -361,10 +361,9 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
     let cv_elements_for_export = ctx.effective_cv_elements.clone();
     let bib_for_export = ctx.effective_bib.clone();
     let editor_for_export = ctx.editor_pane.clone();
-    let toasts_for_export = ctx.toast_overlay.clone();
     menus.menu_export_item.connect_clicked(move |_| {
         menu_popover_for_export.popdown();
-        super::autosave_now(&editor_for_export, &toasts_for_export);
+        super::autosave_now(&editor_for_export);
         let prefs = {
             let c = current_config_for_export.borrow();
             super::super::export_dialog::ExportPrefs {
@@ -642,7 +641,6 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
     let preview_for_menu_save = ctx.preview_pane.clone();
     let menu_popover_for_save = ctx.menu_popover.clone();
     let root_for_menu_save = ctx.project_root.clone();
-    let toast_for_menu_save = ctx.toast_overlay.clone();
     menus.menu_save_item.connect_clicked(move |_| {
         menu_popover_for_save.popdown();
         match editor_for_menu_save.save_current() {
@@ -660,9 +658,7 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
             }
             Ok(None) => {}
             Err(e) => {
-                let t = adw::Toast::new(&format!("Save failed: {e}"));
-                t.set_timeout(6);
-                toast_for_menu_save.add_toast(t);
+                tracing::warn!("Save failed: {e}");
             }
         }
     });
@@ -674,6 +670,7 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
     let preview_for_save_as = ctx.preview_pane.clone();
     let menu_popover_for_save_as = ctx.menu_popover.clone();
     let work_dir_for_save_as = ctx.project_root.clone();
+    let toast_for_save_as = ctx.toast_overlay.clone();
     menus.menu_save_as_item.connect_clicked(move |_| {
         menu_popover_for_save_as.popdown();
         let Some(content) = editor_for_save_as.get_active_content() else {
@@ -697,17 +694,26 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
         let suggested = super::super::name_prompt::suggest_free_name(&dir, &base);
         let ep_c = editor_for_save_as.clone();
         let pv_c = preview_for_save_as.clone();
+        let toast_c = toast_for_save_as.clone();
         super::super::name_prompt::ask_document_name(
             &window_for_save_as,
             &dir,
             "Save As",
             "Save",
             &suggested,
-            move |path| {
-                if std::fs::write(&path, content.as_bytes()).is_ok() {
+            move |path| match crate::error::atomic_write(&path, content.as_bytes()) {
+                Ok(()) => {
                     ep_c.open_file(path.clone(), &content);
                     pv_c.set_root_file(path);
                     pv_c.trigger_compile();
+                }
+                Err(e) => {
+                    let t = adw::Toast::new(&format!(
+                        "Couldn't save the copy — {}.",
+                        crate::error::io_reason(&e)
+                    ));
+                    t.set_timeout(6);
+                    toast_c.add_toast(t);
                 }
             },
         );
@@ -840,7 +846,11 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
                             toast_c.add_toast(t);
                         }
                         Err(e) => {
-                            let t = adw::Toast::new(&format!("Export failed: {e}"));
+                            tracing::warn!("Web export failed: {e}");
+                            let t = adw::Toast::new(
+                                "Couldn't export for the web — check that you can write to \
+                                 that folder and that pandoc is installed.",
+                            );
                             t.set_timeout(6);
                             toast_c.add_toast(t);
                         }

@@ -130,6 +130,11 @@ const GLOBAL_CSS: &str = "\
     .statusbar-sep { \
         opacity: 0.25; \
     } \
+    .save-problem { \
+        background-color: alpha(@warning_bg_color, 0.25); \
+        border-bottom: 1px solid @borders; \
+        padding: 6px 12px; \
+    } \
     .status-toggle label { \
         opacity: 0.7; \
         transition: opacity 120ms ease; \

@@ -28,6 +28,15 @@ pub enum TrashError {
     Db(#[from] rusqlite::Error),
 }
 
+impl TrashError {
+    pub fn user_message(&self) -> String {
+        match self {
+            TrashError::Io(e) => crate::error::io_reason(e),
+            TrashError::Db(_) => "the library's list of documents couldn't be updated".into(),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 #[allow(dead_code)] // mirrors the documents table; not every column is read yet
 pub struct Document {

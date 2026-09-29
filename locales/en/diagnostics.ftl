@@ -92,3 +92,35 @@ fix-escape-label = Show the < as an ordinary less-than sign
 fix-escape-at = Show the @ as an ordinary @ sign
 fix-escape-hash = Show the # as an ordinary # sign
 fix-close-all = Add the missing closing brackets at the end of the document
+
+diag-unclosed-string = A closing quotation mark is missing
+diag-unclosed-string-advice = A piece of text in quotes was opened but never closed. Add the closing " at the end of it.
+
+diag-stray-closing = There's a “{ $thing }” with nothing to close
+diag-stray-closing-advice = Delete this one, or add the matching opening symbol earlier in the text.
+
+diag-stray-punctuation-named = Zerkalo didn't expect this { $thing }
+diag-stray-punctuation = Zerkalo didn't expect this
+diag-stray-punctuation-advice = It's probably left over or in the wrong place. Try deleting it, and check the commas and brackets around it.
+
+diag-missing-separator = Two things need to be on separate lines
+diag-missing-separator-advice = Zerkalo can't tell where the first one ends. Put a line break between them.
+
+diag-expected-name = A name is missing here
+diag-expected-name-advice = A command such as #let or #set needs a name right after it, and there isn't one at this spot.
+
+diag-mixed-types = A calculation here mixes different kinds of values
+diag-mixed-types-advice = For example a number and some text, which can't be added or compared. Check both sides of the sign.
+
+diag-no-such-field = Something here asks for a part that isn't there
+diag-no-such-field-advice = Check the spelling of the word after the dot, and that the value it belongs to is the kind you expect.
+
+diag-out-of-range = The document asks for an item beyond the end of a list
+diag-out-of-range-advice = The number after "at" is bigger than the list is long. Lists start counting at 0.
+
+diag-cannot-loop = This can't be repeated over
+diag-cannot-loop-advice = A "for" needs a list, a range, some text or a set of named values to go through, and got something else.
+
+diag-panic = The document stopped itself on purpose
+diag-panic-advice-named = The document or its template reports: “{ $message }”
+diag-panic-advice = A template or the document has a check that failed. Its own message should explain what to change.

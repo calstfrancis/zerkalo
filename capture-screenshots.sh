@@ -61,8 +61,17 @@ if [[ ! -x "$BINARY" ]]; then
 fi
 
 DEMO_HOME=$(mktemp -d /tmp/zerkalo-demo-home.XXXXXX)
-OUT="screenshots/zerkalo-main.png"
-OUT_DARK="screenshots/zerkalo-main-dark.png"
+# SCENE=main (default) is the release screenshot. SCENE=problems-one and
+# SCENE=problems-many seed an obviously fictional broken document instead, to
+# check how the Problems panel looks with one mistake and with several. They
+# write screenshots/zerkalo-<scene>{,-dark}.png and never touch the website.
+SCENE="${SCENE:-main}"
+case "$SCENE" in
+  main|problems-one|problems-many) ;;
+  *) echo "ERROR: unknown SCENE '$SCENE' (main, problems-one, problems-many)" >&2; exit 1 ;;
+esac
+OUT="screenshots/zerkalo-$SCENE.png"
+OUT_DARK="screenshots/zerkalo-$SCENE-dark.png"
 WINDOW_W=1600
 WINDOW_H=1000
 # The title-page block in example_template_one.typ: from the
@@ -135,6 +144,35 @@ sed -i "${TITLE_PAGE_START},${TITLE_PAGE_END}d" "$WORK_DIR/main.typ"
 # the whole preview.
 sed -i '/@sennProtestantSpiritualTraditions1986/d' "$WORK_DIR/main.typ"
 
+# Fictional broken documents for the Problems-panel scenes. Each line is an
+# everyday mistake a new user makes (a bare $, a lone * or _, an unclosed <label,
+# a stray closing bracket, an unclosed quote). Typst only reports syntax errors
+# while any exist, so every mistake here is a syntax one, each in its own
+# paragraph — an unclosed $ or bracket would swallow everything after it, which
+# is why the one-problem scene has just the $.
+if [[ "$SCENE" == problems-one ]]; then
+  cat > "$WORK_DIR/main.typ" <<'TYP'
+= Notes on the Garden Club
+
+The club met on Tuesday and agreed the plant sale will raise about $40 for the
+new greenhouse. Everyone was pleased with the turnout.
+TYP
+elif [[ "$SCENE" == problems-many ]]; then
+  cat > "$WORK_DIR/main.typ" <<'TYP'
+= Notes on the Garden Club
+
+The club agreed that the plant sale was *a great success, and thanked everyone.
+
+Next time the _garden club will meet in the greenhouse.
+
+See the plan <greenhouse for the full list of seedlings.
+
+Please note the extra bracket ] here.
+
+#let name = "Sam
+TYP
+fi
+
 git -C "$WORK_DIR" init -q
 git -C "$WORK_DIR" add -A
 git -C "$WORK_DIR" -c user.name="Demo User" -c user.email="demo@example.com" commit -q -m "Initial commit"
@@ -149,6 +187,7 @@ echo -n "$VERSION" > "$XDG_DATA_HOME/zerkalo/.welcome_version"
 # time (it just errors).
 echo "==> Fetching required Typst packages"
 for pkg in droplet:0.3.1 marginalia:0.3.1; do
+  [[ "$SCENE" == main ]] || break
   name="${pkg%%:*}"; ver="${pkg##*:}"
   dest="$XDG_CACHE_HOME/typst/packages/preview/$name/$ver"
   mkdir -p "$dest"
@@ -233,6 +272,10 @@ echo "Done. Wrote $OUT and $OUT_DARK"
 # skipped with a note rather than failing. The website is a separate repo —
 # commit and push it there yourself after reviewing the refreshed images.
 SLUG="zerkalo"
+if [[ "$SCENE" != main ]]; then
+  echo "NOTE: SCENE=$SCENE is a check, not a release image — skipping web export."
+  exit 0
+fi
 WEBSITE_DIR="${WEBSITE_DIR:-$(dirname "$SCRIPT_DIR")/calstfrancis.github.io}"
 if [[ -d "$WEBSITE_DIR" ]]; then
   echo "==> Publishing web images to $WEBSITE_DIR"

@@ -204,6 +204,8 @@ pub struct EditorPane {
     on_change: Rc<RefCell<Option<Box<dyn Fn()>>>>,
     on_modified_changed: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
     on_file_dirty: Rc<RefCell<Option<Box<dyn Fn(PathBuf, bool)>>>>,
+    save_problems: Rc<RefCell<Vec<(PathBuf, String)>>>,
+    on_save_problems: Rc<RefCell<Option<Box<dyn Fn(&[(PathBuf, String)])>>>>,
     on_image_drop: Rc<RefCell<Option<Box<dyn Fn(PathBuf)>>>>,
     on_document_drop: Rc<RefCell<Option<Box<dyn Fn(PathBuf)>>>>,
     on_delete_file: Rc<RefCell<Option<Box<dyn Fn(PathBuf)>>>>,
@@ -1571,6 +1573,8 @@ impl EditorPane {
             on_change,
             on_modified_changed,
             on_file_dirty,
+            save_problems: Rc::new(RefCell::new(Vec::new())),
+            on_save_problems: Rc::new(RefCell::new(None)),
             on_image_drop,
             on_document_drop,
             on_delete_file,
@@ -4195,6 +4199,7 @@ impl EditorPane {
         if let Some(f) = self.on_file_dirty.borrow().as_ref() {
             f(path.clone(), false);
         }
+        self.note_save_result(path.clone(), None);
     }
 
     pub fn set_on_file_dirty(&self, f: impl Fn(PathBuf, bool) + 'static) {
@@ -4301,6 +4306,7 @@ impl EditorPane {
     /// between "everything saved" and "some writes failed" instead of
     /// proceeding as if the save silently succeeded.
     pub fn save_all_modified(&self) -> Vec<PathBuf> {
+        let mut outcomes: Vec<(PathBuf, Option<String>)> = Vec::new();
         let (saved, failed): (Vec<(Label, GtkBox, String, PathBuf)>, Vec<PathBuf>) = {
             let mut state = self.state.borrow_mut();
             let mut saved = Vec::new();
@@ -4311,7 +4317,12 @@ impl EditorPane {
                 }
                 let (start, end) = tab.buffer.bounds();
                 let content = tab.buffer.text(&start, &end, true);
-                if crate::error::atomic_write(path, content.as_bytes()).is_ok() {
+                let write = crate::error::atomic_write(path, content.as_bytes());
+                outcomes.push((
+                    path.clone(),
+                    write.as_ref().err().map(crate::error::io_reason),
+                ));
+                if write.is_ok() {
                     tab.modified = false;
                     saved.push((
                         tab.dot_label.clone(),
@@ -4325,6 +4336,10 @@ impl EditorPane {
             }
             (saved, failed)
         };
+        self.prune_save_problems();
+        for (path, reason) in outcomes {
+            self.note_save_result(path, reason);
+        }
         let any_saved = !saved.is_empty();
         for (dot_label, tab_box, display_name, path) in saved {
             dot_label.set_visible(false);
@@ -4355,10 +4370,66 @@ impl EditorPane {
         let Some(content) = self.get_active_content() else {
             return Ok(None);
         };
-        crate::error::atomic_write(&path, content.as_bytes())?;
+        if let Err(e) = crate::error::atomic_write(&path, content.as_bytes()) {
+            self.note_save_result(path, Some(crate::error::io_reason(&e)));
+            return Err(e);
+        }
         crate::auto_save::clear(&path);
         self.mark_saved(&path);
         Ok(Some(path))
+    }
+
+    /// Records that saving `path` failed (`Some(reason)`) or worked (`None`),
+    /// and tells the listener only when the set of problems actually changed.
+    fn note_save_result(&self, path: PathBuf, reason: Option<String>) {
+        let changed = {
+            let mut problems = self.save_problems.borrow_mut();
+            let before = problems.clone();
+            problems.retain(|(p, _)| *p != path);
+            if let Some(reason) = reason {
+                problems.push((path, reason));
+            }
+            *problems != before
+        };
+        if changed {
+            self.announce_save_problems();
+        }
+    }
+
+    fn prune_save_problems(&self) {
+        let changed = {
+            let state = self.state.borrow();
+            let mut problems = self.save_problems.borrow_mut();
+            let before = problems.len();
+            problems.retain(|(p, _)| state.tabs.contains_key(p));
+            problems.len() != before
+        };
+        if changed {
+            self.announce_save_problems();
+        }
+    }
+
+    fn announce_save_problems(&self) {
+        let problems = self.save_problems.borrow().clone();
+        if let Some(f) = self.on_save_problems.borrow().as_ref() {
+            f(&problems);
+        }
+    }
+
+    pub fn set_on_save_problems(&self, f: impl Fn(&[(PathBuf, String)]) + 'static) {
+        *self.on_save_problems.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn save_problems(&self) -> Vec<(PathBuf, String)> {
+        self.prune_save_problems();
+        self.save_problems.borrow().clone()
+    }
+
+    pub fn content_of(&self, path: &std::path::Path) -> Option<String> {
+        let state = self.state.borrow();
+        let tab = state.tabs.get(path)?;
+        let (start, end) = tab.buffer.bounds();
+        Some(tab.buffer.text(&start, &end, true).to_string())
     }
 
     pub fn next_tab(&self) {

@@ -1532,7 +1532,10 @@ impl LibraryWindow {
                 pop.popdown();
                 if let Err(e) = this.library.borrow_mut().move_to_trash(id) {
                     tracing::error!("move_to_trash failed: {e}");
-                    let toast = adw::Toast::new(&format!("Couldn't move to trash: {e}"));
+                    let toast = adw::Toast::new(&format!(
+                        "Couldn't move to the trash — {}.",
+                        e.user_message()
+                    ));
                     this.toast_overlay.add_toast(toast);
                 }
                 this.refresh();
@@ -2775,7 +2778,8 @@ impl LibraryWindow {
             if resp == "delete" {
                 if let Err(e) = this.library.borrow_mut().permanently_delete(id) {
                     tracing::error!("permanently_delete failed: {e}");
-                    let toast = adw::Toast::new(&format!("Couldn't delete: {e}"));
+                    let toast =
+                        adw::Toast::new(&format!("Couldn't delete it — {}.", e.user_message()));
                     this.toast_overlay.add_toast(toast);
                 }
                 this.refresh();
