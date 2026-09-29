@@ -17,8 +17,19 @@ pub struct LspDiagnostic {
     pub file: PathBuf,
     pub line: u32,
     pub col: u32,
+    pub end_line: u32,
+    pub end_col: u32,
     pub message: String,
     pub severity: DiagSeverity,
+}
+
+/// Everything the server currently believes is wrong with one file. The
+/// protocol's `publishDiagnostics` replaces a file's previous list wholesale,
+/// so an empty batch is meaningful ("this file is now clean") and must keep
+/// its file identity.
+pub struct DiagBatch {
+    pub file: PathBuf,
+    pub diags: Vec<LspDiagnostic>,
 }
 
 #[derive(Clone)]
@@ -34,7 +45,7 @@ pub struct CompletionItem {
 pub struct LspClient {
     child: Option<Child>,
     stdin: ChildStdin,
-    diag_rx: Receiver<Vec<LspDiagnostic>>,
+    diag_rx: Receiver<DiagBatch>,
     comp_rx: Receiver<(u64, Vec<CompletionItem>)>,
     next_id: u64,
     pub root: PathBuf,
@@ -65,7 +76,7 @@ impl LspClient {
         let stdin = child.stdin.take()?;
         let stdout = child.stdout.take()?;
 
-        let (diag_tx, diag_rx) = mpsc::channel::<Vec<LspDiagnostic>>();
+        let (diag_tx, diag_rx) = mpsc::channel::<DiagBatch>();
         let (comp_tx, comp_rx) = mpsc::channel::<(u64, Vec<CompletionItem>)>();
         std::thread::spawn(move || reader_thread(BufReader::new(stdout), diag_tx, comp_tx));
 
@@ -170,11 +181,11 @@ impl LspClient {
         id
     }
 
-    /// Drain pending diagnostic notifications.
-    pub fn poll(&self) -> Vec<LspDiagnostic> {
+    /// Drain pending diagnostic notifications, oldest first.
+    pub fn poll(&self) -> Vec<DiagBatch> {
         let mut out = Vec::new();
         while let Ok(d) = self.diag_rx.try_recv() {
-            out.extend(d);
+            out.push(d);
         }
         out
     }
@@ -241,7 +252,7 @@ impl Drop for LspClient {
 
 fn reader_thread(
     mut reader: BufReader<std::process::ChildStdout>,
-    diag_tx: Sender<Vec<LspDiagnostic>>,
+    diag_tx: Sender<DiagBatch>,
     comp_tx: Sender<(u64, Vec<CompletionItem>)>,
 ) {
     'msg: loop {
@@ -309,34 +320,42 @@ fn reader_thread(
 
 // ── Parsers ───────────────────────────────────────────────────────────────────
 
-fn parse_diags(json: &Value) -> Option<Vec<LspDiagnostic>> {
+fn parse_diags(json: &Value) -> Option<DiagBatch> {
     let params = json.get("params")?;
     let uri = params.get("uri")?.as_str()?;
     let file = uri_to_path(uri);
     let raw = params.get("diagnostics")?.as_array()?;
 
-    Some(
-        raw.iter()
-            .filter_map(|d| {
-                let message = d.get("message")?.as_str()?.to_string();
-                let start = d.get("range")?.get("start")?;
-                let line = start.get("line")?.as_u64().unwrap_or(0) as u32 + 1;
-                let col = start.get("character")?.as_u64().unwrap_or(0) as u32 + 1;
-                let severity = match d.get("severity").and_then(|s| s.as_u64()).unwrap_or(1) {
-                    2 => DiagSeverity::Warning,
-                    3 | 4 => DiagSeverity::Info,
-                    _ => DiagSeverity::Error,
-                };
-                Some(LspDiagnostic {
-                    file: file.clone(),
-                    line,
-                    col,
-                    message,
-                    severity,
-                })
+    let diags = raw
+        .iter()
+        .filter_map(|d| {
+            let message = d.get("message")?.as_str()?.to_string();
+            let range = d.get("range")?;
+            let pos = |p: &Value| -> Option<(u32, u32)> {
+                Some((
+                    p.get("line")?.as_u64().unwrap_or(0) as u32 + 1,
+                    p.get("character")?.as_u64().unwrap_or(0) as u32 + 1,
+                ))
+            };
+            let (line, col) = pos(range.get("start")?)?;
+            let (end_line, end_col) = range.get("end").and_then(pos).unwrap_or((line, col));
+            let severity = match d.get("severity").and_then(|s| s.as_u64()).unwrap_or(1) {
+                2 => DiagSeverity::Warning,
+                3 | 4 => DiagSeverity::Info,
+                _ => DiagSeverity::Error,
+            };
+            Some(LspDiagnostic {
+                file: file.clone(),
+                line,
+                col,
+                end_line,
+                end_col,
+                message,
+                severity,
             })
-            .collect(),
-    )
+        })
+        .collect();
+    Some(DiagBatch { file, diags })
 }
 
 fn parse_completion_result(json: &Value) -> Option<Vec<CompletionItem>> {

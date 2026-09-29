@@ -7,7 +7,7 @@ use gtk4::{Align, Box as GtkBox, Button, Label, Orientation, ScrolledWindow, Sep
 use libadwaita as adw;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const RELEASE_NAME: &str = "Tempered Glass";
+pub const RELEASE_NAME: &str = "Clear Glass";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -160,9 +160,9 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
-                "Autosave: your document is saved a few seconds after you stop typing, and whenever you switch away, compile, export or quit. Turn it off with \"autosave\" in the status bar.",
-                "Importing a PDF no longer gives a blank document — email addresses, prices, symbols and web addresses in the text come through as plain text.",
-                "Scanned PDFs get an explanation instead of an empty document, and two-column PDFs come out in reading order.",
+                "Calmer problems: a mistake no longer turns the preview into a wall of red text. The last good preview stays, and the problem is explained in plain words in the new Problems panel.",
+                "One-click fixes are small and exact — a stray $, *, _, @ or # can be shown as ordinary text — and if a fix doesn't help, you can undo it right away.",
+                "Press F8 to jump to the next problem. Turn on \"Show technical details\" in the Problems panel when you want Typst's exact wording.",
             ] {
                 body.append(&bullet_row(item));
             }

@@ -595,6 +595,8 @@ impl typst::World for ZerkaloWorld {
 // ── Error formatting ──────────────────────────────────────────────────────────
 
 /// Convert a byte offset in `text` to a (line, column) pair (both 1-based).
+/// The column counts characters, not bytes, because that is what the editor's
+/// buffer indexes by.
 fn offset_to_line_col(text: &str, offset: usize) -> (usize, usize) {
     let safe = offset.min(text.len());
     // Walk back to a char boundary so we never panic on a multibyte codepoint.
@@ -604,7 +606,8 @@ fn offset_to_line_col(text: &str, offset: usize) -> (usize, usize) {
         .unwrap_or(0);
     let before = &text[..safe];
     let line = before.bytes().filter(|&b| b == b'\n').count() + 1;
-    let col = safe - before.rfind('\n').map(|p| p + 1).unwrap_or(0) + 1;
+    let line_start = before.rfind('\n').map(|p| p + 1).unwrap_or(0);
+    let col = text[line_start..safe].chars().count() + 1;
     (line, col)
 }
 
@@ -637,30 +640,112 @@ fn format_one(world: &ZerkaloWorld, d: &SourceDiagnostic) -> String {
     // pinned every error in the app to line 1. `WorldExt::range` tries the raw
     // range first and then looks the number up in the source, which is what
     // actually covers diagnostics from user documents.
-    let location: Option<String> = d.span.id().and_then(|fid| {
-        let src = TypstWorld::source(world, fid).ok()?;
-        let range = WorldExt::range(world, d.span)?;
-        let (line, col) = offset_to_line_col(src.text(), range.start);
-        // Absolute where it can be resolved. The rootless vpath is relative to
-        // the *compile* root (the root file's own folder), which is not always
-        // the project root the panel joins against — when a root file sits in a
-        // subfolder, that join produced a path to a file that doesn't exist, so
-        // clicking the error jumped nowhere.
-        let path = world
-            .resolve(fid)
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|_| src.id().vpath().get_without_slash().to_string());
-        Some(format!("{path}:{line}:{col}"))
-    });
+    let own = locate(world, d.span);
+
+    // An error raised inside a package or template points at code the user
+    // never wrote and can't sensibly edit. The trace lists the calls that led
+    // there, innermost first; the first one that lands in the user's own files
+    // is the line they actually typed.
+    let inside_package = d
+        .span
+        .id()
+        .is_some_and(|fid| matches!(fid.root(), VirtualRoot::Package(_)));
+    let (shown, origin) = match (&own, inside_package) {
+        (Some((fid, _)), true) => {
+            let user_call = d.trace.iter().find_map(|t| {
+                let (id, loc) = locate(world, t.span)?;
+                (!matches!(id.root(), VirtualRoot::Package(_))).then_some(loc)
+            });
+            match user_call {
+                Some(loc) => (Some(loc), Some(origin_label(fid))),
+                None => (own.map(|(_, l)| l), None),
+            }
+        }
+        _ => (own.map(|(_, l)| l), None),
+    };
 
     let mut out = format!("{sev}: {}", d.message);
-    if let Some(loc) = location {
-        out.push_str(&format!("\n --> {loc}"));
+    if let Some(loc) = shown {
+        out.push_str(&format!(
+            "\n --> {}:{}:{}\n   = range: {}:{}",
+            loc.path, loc.line, loc.col, loc.end_line, loc.end_col
+        ));
+        if origin.is_none() && !loc.at.is_empty() {
+            out.push_str(&format!("\n   = at: {}", loc.at));
+        }
+    }
+    if let Some(origin) = origin {
+        out.push_str(&format!("\n   = origin: {origin}"));
     }
     for hint in &d.hints {
         out.push_str(&format!("\n   = hint: {}", hint.v));
     }
     out
+}
+
+struct Located {
+    path: String,
+    line: usize,
+    col: usize,
+    end_line: usize,
+    end_col: usize,
+    /// The source text at the fault — or, for an empty range, the character
+    /// just before it. Several different mistakes share one engine message
+    /// ("unclosed delimiter" is `$`, `*`, `_`, `(` …) and only differ here.
+    at: String,
+}
+
+fn text_at(text: &str, range: &std::ops::Range<usize>) -> String {
+    const MAX: usize = 40;
+    let covered = text.get(range.clone()).unwrap_or("");
+    let first_line = covered.lines().next().unwrap_or("");
+    if !first_line.is_empty() {
+        return first_line.chars().take(MAX).collect();
+    }
+    text.get(..range.start)
+        .and_then(|before| before.chars().next_back())
+        .filter(|c| *c != '\n')
+        .map(String::from)
+        .unwrap_or_default()
+}
+
+fn locate(
+    world: &ZerkaloWorld,
+    span: impl Into<typst::syntax::DiagSpan>,
+) -> Option<(FileId, Located)> {
+    let span = span.into();
+    let fid = span.id()?;
+    let src = TypstWorld::source(world, fid).ok()?;
+    let range = WorldExt::range(world, span)?;
+    let (line, col) = offset_to_line_col(src.text(), range.start);
+    let (end_line, end_col) = offset_to_line_col(src.text(), range.end);
+    // Absolute where it can be resolved. The rootless vpath is relative to
+    // the *compile* root (the root file's own folder), which is not always
+    // the project root the panel joins against — when a root file sits in a
+    // subfolder, that join produced a path to a file that doesn't exist, so
+    // clicking the error jumped nowhere.
+    let path = world
+        .resolve(fid)
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| src.id().vpath().get_without_slash().to_string());
+    Some((
+        fid,
+        Located {
+            path,
+            line,
+            col,
+            end_line,
+            end_col,
+            at: text_at(src.text(), &range),
+        },
+    ))
+}
+
+fn origin_label(fid: &FileId) -> String {
+    match fid.root() {
+        VirtualRoot::Package(spec) => spec.to_string(),
+        VirtualRoot::Project => fid.vpath().get_without_slash().to_string(),
+    }
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -1347,6 +1432,49 @@ mod tests {
     }
 
     #[test]
+    fn an_error_inside_a_package_points_at_the_users_own_call() {
+        if !package_cache_root().join("preview/showybox/2.0.4").exists() {
+            return; // needs the package already cached; never hit the network from a test
+        }
+        let path = write_temp_typ(
+            "#import \"@preview/showybox:2.0.4\": showybox\n\n= Hi\n\n#showybox(frame: 5, [x])\n",
+        );
+        let err = compile_to_pdf_bytes(&path, &HashMap::new(), &HashMap::new(), None).unwrap_err();
+        let parsed = crate::ui::error_panel::parse_typst_errors(&err, path.parent().unwrap());
+        assert_eq!(parsed.len(), 1, "got {parsed:?}");
+        assert_eq!(parsed[0].file, path, "the user's file, not the package's");
+        assert_eq!(parsed[0].line, 5);
+        assert_eq!(parsed[0].origin.as_deref(), Some("@preview/showybox:2.0.4"));
+    }
+
+    #[test]
+    fn a_diagnostic_carries_the_exact_range_it_covers() {
+        let path = write_temp_typ("= Title\n\n#no-such-thing()\n");
+        let err = compile_to_pdf_bytes(&path, &HashMap::new(), &HashMap::new(), None).unwrap_err();
+        let parsed = crate::ui::error_panel::parse_typst_errors(&err, path.parent().unwrap());
+        assert_eq!(parsed.len(), 1, "got {parsed:?}");
+        let e = &parsed[0];
+        assert_eq!((e.line, e.col), (3, 2), "starts at the name, not the #");
+        assert_eq!(
+            (e.end_line, e.end_col),
+            (3, 15),
+            "ends after `no-such-thing`"
+        );
+        assert!(e.origin.is_none());
+    }
+
+    #[test]
+    fn diagnostic_columns_count_characters_not_bytes() {
+        let path = write_temp_typ("é é #no-such-thing()\n");
+        let err = compile_to_pdf_bytes(&path, &HashMap::new(), &HashMap::new(), None).unwrap_err();
+        let parsed = crate::ui::error_panel::parse_typst_errors(&err, path.parent().unwrap());
+        assert_eq!(
+            parsed[0].col, 6,
+            "\"é é #\" is five characters, seven bytes"
+        );
+    }
+
+    #[test]
     fn a_real_diagnostic_survives_the_whole_pipeline_to_the_panel() {
         // End-to-end: compile a document with a known error and push the real
         // compiler output through the panel's parser, which is where the
@@ -1928,5 +2056,73 @@ _profiles:
             result.err()
         );
         assert!(result.unwrap().starts_with(b"%PDF-"));
+    }
+    #[test]
+    fn beginner_mistakes_are_recognised_from_the_real_compiler_output() {
+        use crate::diagnostic_catalog::Kind;
+        let cases = [
+            ("Costs $5 today", Kind::UnclosedDollar),
+            ("Price 5$ only", Kind::UnclosedDollar),
+            ("Some *bold text", Kind::UnclosedStar),
+            ("Some _italic text", Kind::UnclosedUnderscore),
+            ("mail me@example.com now", Kind::AtSign),
+            ("see @smith2020 here", Kind::MissingLabel),
+            ("a # b", Kind::StrayHash),
+            ("text #", Kind::StrayHash),
+            ("#let x = 5 +", Kind::ExpectedExpression),
+            (
+                "= Heading\n\nText with a <label and more",
+                Kind::UnclosedLabel,
+            ),
+            ("call #f(", Kind::UnclosedDelimiter),
+            ("#let x = [unclosed", Kind::UnclosedDelimiter),
+        ];
+        for (src, want) in cases {
+            let path = write_temp_typ(src);
+            let err =
+                compile_to_pdf_bytes(&path, &HashMap::new(), &HashMap::new(), None).expect_err(src);
+            let parsed = crate::ui::error_panel::parse_typst_errors(&err, path.parent().unwrap());
+            assert_eq!(parsed[0].kind, want, "{src:?} -> {err}");
+        }
+    }
+
+    #[test]
+    fn one_click_fixes_clear_the_problem_they_were_offered_for() {
+        use crate::diagnostic_catalog::{fix_for, Kind, Site};
+        let cases = [
+            "Costs $5 today",
+            "Price 5$ only",
+            "Some *bold text",
+            "Some _italic text",
+            "mail me@example.com now",
+            "a # b",
+            "text #",
+            "= Heading\n\nText with a <label and more",
+            "call #f(",
+            "#let x = [unclosed",
+            "Call #foo now",
+            "Line one\nCall #foo now",
+        ];
+        for src in cases {
+            let path = write_temp_typ(src);
+            let err =
+                compile_to_pdf_bytes(&path, &HashMap::new(), &HashMap::new(), None).expect_err(src);
+            let first =
+                &crate::ui::error_panel::parse_typst_errors(&err, path.parent().unwrap())[0];
+            let kind: Kind = first.kind;
+            let fix = fix_for(kind).unwrap_or_else(|| panic!("{src:?}: no fix for {kind:?}"));
+            let site = Site::new(src, first.line, first.col);
+            let edit = (fix.apply)(&site).unwrap_or_else(|| panic!("{src:?}: fix did nothing"));
+            let fixed = edit.apply_to(src);
+            let path = write_temp_typ(&fixed);
+            match compile_to_pdf_bytes(&path, &HashMap::new(), &HashMap::new(), None) {
+                Ok(_) => {}
+                Err(e) => {
+                    let after =
+                        &crate::ui::error_panel::parse_typst_errors(&e, path.parent().unwrap())[0];
+                    assert_ne!(after.kind, kind, "{src:?} -> {fixed:?} still fails: {e}");
+                }
+            }
+        }
     }
 }

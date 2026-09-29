@@ -152,13 +152,12 @@ impl PreviewPane {
         err_scroll.set_vexpand(true);
         let error_label = Label::new(None);
         error_label.set_wrap(true);
-        error_label.set_selectable(true);
-        error_label.set_halign(Align::Start);
-        error_label.set_valign(Align::Start);
-        error_label.set_margin_top(12);
-        error_label.set_margin_start(12);
-        error_label.set_margin_end(12);
-        error_label.add_css_class("error");
+        error_label.set_halign(Align::Center);
+        error_label.set_valign(Align::Center);
+        error_label.set_justify(gtk4::Justification::Center);
+        error_label.set_margin_start(24);
+        error_label.set_margin_end(24);
+        error_label.add_css_class("dim-label");
         err_scroll.set_child(Some(&error_label));
         stack.add_named(&err_scroll, Some("error"));
 
@@ -892,12 +891,21 @@ impl PreviewPane {
 
     // ── Compile ───────────────────────────────────────────────────────────────
 
+    /// Dims the last good render while the document has problems.
+    pub fn set_stale(&self, stale: bool) {
+        if stale {
+            self.img_scroll.add_css_class("preview-stale");
+        } else {
+            self.img_scroll.remove_css_class("preview-stale");
+        }
+    }
+
     pub fn trigger_compile(&self) {
         let root = match self.root_file.borrow().clone() {
             Some(f) => f,
             None => {
                 self.error_label
-                    .set_label("No root file detected.\nCreate a main.typ file.");
+                    .set_label("Zerkalo can't tell which file is your document.\nCreate a file called main.typ to get started.");
                 self.stack.set_visible_child_name("error");
                 return;
             }
@@ -918,7 +926,9 @@ impl PreviewPane {
         }
         self.spinner.set_spinning(true);
         self.cancel_btn.set_visible(false);
-        self.stack.set_visible_child_name("compiling");
+        if self.page_pixbufs.borrow().is_empty() {
+            self.stack.set_visible_child_name("compiling");
+        }
         self.spin_lbl.set_text("Compiling\u{2026}");
         *self.compile_start_instant.borrow_mut() = Some(Instant::now());
         {
@@ -1012,8 +1022,14 @@ impl PreviewPane {
                             }
                         }
                         CompileResult::Error(msg, elapsed) => {
-                            pane.error_label.set_label(&msg);
-                            pane.stack.set_visible_child_name("error");
+                            if pane.page_pixbufs.borrow().is_empty() {
+                                pane.error_label.set_label(
+                                    "Your preview will appear here once the problems are fixed.",
+                                );
+                                pane.stack.set_visible_child_name("error");
+                            } else {
+                                pane.stack.set_visible_child_name("ready");
+                            }
                             if let Some(f) = pane.on_compile_done.borrow().as_ref() {
                                 f(Some(msg), String::new());
                             }

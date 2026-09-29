@@ -5,10 +5,13 @@ use std::sync::OnceLock;
 
 use gtk4::prelude::*;
 use gtk4::{
-    Align, Box as GtkBox, Button, Label, ListBox, ListBoxRow, Orientation, Revealer,
-    RevealerTransitionType, ScrolledWindow, SelectionMode, Separator,
+    Align, Box as GtkBox, Button, Image, Label, ListBox, ListBoxRow, MenuButton, Orientation,
+    Popover, Revealer, RevealerTransitionType, ScrolledWindow, SelectionMode, Separator,
 };
 use regex::Regex;
+
+use super::diagnostics_model::DiagMark;
+use crate::diagnostic_catalog::{self, Kind};
 
 // ── Error parsing ─────────────────────────────────────────────────────────────
 
@@ -20,23 +23,33 @@ fn loc_re() -> &'static Regex {
     LOC_RE.get_or_init(|| Regex::new(r"-->\s+(.+):(\d+):(\d+)\s*$").unwrap())
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Severity {
     Error,
     Warning,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CompileError {
     pub file: PathBuf,
     pub line: u32,
     pub col: u32,
+    /// Exclusive end of the offending text (1-based line, character column).
+    /// Equal to the start when the source gave no extent.
+    pub end_line: u32,
+    pub end_col: u32,
+    /// Set when the problem is really inside a package or template: the
+    /// package's name/version. `file`/`line` then point at the user's own line
+    /// that led there.
+    pub origin: Option<String>,
     /// A plain-language headline: what went wrong, in a sentence, with no
     /// compiler jargon. This is what the panel shows first.
     pub message: String,
     /// What to do about it, in plain language. Empty when we have nothing
     /// better to say than the headline already does.
     pub advice: String,
+    /// What sort of problem this is. Fixes are keyed on it, not on the wording.
+    pub kind: Kind,
     /// Typst's own hints. These are frequently the single most useful part of a
     /// diagnostic ("if you meant subtraction, try adding spaces…") and were
     /// being dropped on the floor by the parser.
@@ -55,6 +68,9 @@ pub fn parse_typst_errors(stderr: &str, project_root: &Path) -> Vec<CompileError
     // follow the `error:` line rather than preceding it.
     let mut pending: Option<(String, Severity)> = None;
     let mut loc: Option<(PathBuf, u32, u32)> = None;
+    let mut end: Option<(u32, u32)> = None;
+    let mut origin: Option<String> = None;
+    let mut at: Option<String> = None;
     let mut hints: Vec<String> = Vec::new();
 
     macro_rules! flush {
@@ -63,18 +79,28 @@ pub fn parse_typst_errors(stderr: &str, project_root: &Path) -> Vec<CompileError
                 let (file, line, col) = loc
                     .take()
                     .unwrap_or_else(|| (project_root.to_path_buf(), 1, 1));
-                errors.push(build_error(
+                let mut e = build_error(
                     file,
                     line,
                     col,
                     raw,
+                    at.take().as_deref(),
                     std::mem::take(&mut hints),
                     sev,
-                ));
+                );
+                if let Some((el, ec)) = end.take() {
+                    e.end_line = el;
+                    e.end_col = ec;
+                }
+                e.origin = origin.take();
+                errors.push(e);
             }
             #[allow(unused_assignments)]
             {
                 loc = None;
+                end = None;
+                origin = None;
+                at = None;
             }
             hints.clear();
         };
@@ -83,7 +109,9 @@ pub fn parse_typst_errors(stderr: &str, project_root: &Path) -> Vec<CompileError
     for line in stderr.lines() {
         let trimmed = line.trim();
 
-        if let Some(caps) = loc_re().captures(trimmed) {
+        if let Some(a) = trimmed.strip_prefix("= at:") {
+            at = Some(a.trim().to_string()).filter(|a| !a.is_empty());
+        } else if let Some(caps) = loc_re().captures(trimmed) {
             let rel: &str = caps.get(1).map_or("", |m| m.as_str()).trim();
             let lineno: u32 = caps
                 .get(2)
@@ -99,6 +127,13 @@ pub fn parse_typst_errors(stderr: &str, project_root: &Path) -> Vec<CompileError
                 project_root.join(rel)
             };
             loc = Some((file, lineno, col));
+        } else if let Some(r) = trimmed.strip_prefix("= range:") {
+            end = r
+                .trim()
+                .split_once(':')
+                .and_then(|(l, c)| Some((l.trim().parse().ok()?, c.trim().parse().ok()?)));
+        } else if let Some(o) = trimmed.strip_prefix("= origin:") {
+            origin = Some(o.trim().to_string()).filter(|o| !o.is_empty());
         } else if let Some(hint) = trimmed.strip_prefix("= hint:") {
             // Typst's own suggestion. Previously matched none of the arms here
             // and was silently discarded along with the rest of the diagnostic.
@@ -134,6 +169,7 @@ pub fn parse_typst_errors(stderr: &str, project_root: &Path) -> Vec<CompileError
             1,
             1,
             raw,
+            None,
             Vec::new(),
             severity,
         ));
@@ -164,256 +200,92 @@ fn build_error(
     line: u32,
     col: u32,
     raw: String,
+    at: Option<&str>,
     hints: Vec<String>,
     severity: Severity,
 ) -> CompileError {
-    let (message, advice) = humanize(&raw);
+    let diagnosis = diagnostic_catalog::diagnose(&raw, at);
     CompileError {
         file,
         line,
         col,
-        message,
-        advice,
+        end_line: line,
+        end_col: col,
+        origin: None,
+        message: diagnosis.headline,
+        advice: diagnosis.advice,
+        kind: diagnosis.kind,
         hints,
         technical: raw,
         severity,
     }
 }
 
-/// Extracts the value after the first `:` in a Typst message, e.g.
-/// `unknown variable: foo` -> `foo`.
-fn subject(raw: &str) -> Option<String> {
-    let v = raw.split_once(':')?.1.trim();
-    if v.is_empty() {
-        None
+/// Fixes are keyed on the kind of problem, decided from the engine's own
+/// wording — matching the plain-language headline would silently retire every
+/// Fix button.
+fn is_quick_fixable(err: &CompileError, line_text: Option<&str>) -> bool {
+    // A problem raised inside a package is reported at the user's own call, but
+    // the wording describes the package's code: a fix aimed at this line would
+    // change the wrong thing.
+    err.origin.is_none() && diagnostic_catalog::fix_applies(err.kind, line_text, err.col)
+}
+
+/// `@preview/cetz:0.3.0` -> `cetz`.
+fn package_short_name(origin: &str) -> &str {
+    let name = origin.rsplit('/').next().unwrap_or(origin);
+    name.split(':').next().unwrap_or(name)
+}
+
+fn origin_note(origin: &str) -> String {
+    format!(
+        "The problem is inside the \u{201c}{}\u{201d} package. Check how it is used on this line.",
+        package_short_name(origin)
+    )
+}
+
+/// The offending line as Pango markup, with the exact characters at fault
+/// underlined. Leading whitespace is dropped and a very long line is cut
+/// around the fault so it stays visible. Columns are 1-based characters.
+fn snippet_markup(line: &str, col: u32, end_col: u32, same_line: bool) -> Option<String> {
+    const CONTEXT_BEFORE: usize = 24;
+    const MAX_AFTER: usize = 70;
+    let chars: Vec<char> = line.chars().collect();
+    let indent = chars.iter().take_while(|c| c.is_whitespace()).count();
+    if indent == chars.len() {
+        return None;
+    }
+    let start = (col as usize).saturating_sub(1).max(indent);
+    let end = if same_line && end_col > col {
+        ((end_col as usize).saturating_sub(1)).min(chars.len())
     } else {
-        Some(v.trim_matches('`').to_string())
-    }
-}
-
-/// Turns a Typst diagnostic into (headline, advice) in plain language.
-///
-/// The old version prepended an arrow-bulleted explanation to the compiler's
-/// own wording, so the jargon still came first and the reader had to get past
-/// "unknown variable: foo" before reaching anything they could act on. Here the
-/// plain sentence *is* the message; Typst's exact text stays available under
-/// "Technical detail" for searching and reporting.
-///
-/// Wording rules: name the thing that's wrong, in the second person, and say
-/// what to do. No "invalid", no "malformed", no "expected token".
-pub fn humanize(raw: &str) -> (String, String) {
-    let lower = raw.to_lowercase();
-
-    if lower.starts_with("unknown variable") {
-        let name = subject(raw).unwrap_or_else(|| "that name".into());
-        return (
-            format!("Zerkalo doesn't know what \u{201c}{name}\u{201d} means"),
-            "It's used here but never defined. Check the spelling, or add a \
-             definition (#let, which creates a named value) or an import above \
-             this point. If you meant to write it as ordinary text rather than \
-             a command, remove the # in front of it."
-                .into(),
-        );
-    }
-
-    if lower.starts_with("unknown font family")
-        || (lower.contains("font") && lower.contains("not found"))
-    {
-        let name = subject(raw).unwrap_or_else(|| "that font".into());
-        return (
-            format!("The font \u{201c}{name}\u{201d} isn't installed"),
-            "The document will use a substitute, so the layout may look wrong. \
-             Either install the font, or pick another in Template \u{2192} Body Font."
-                .into(),
-        );
-    }
-
-    if lower.contains("file not found") {
-        // Typst's real wording is `file not found (searched at /abs/path)`, so
-        // the name lives inside the parentheses rather than after a colon.
-        // Show the bare filename — the absolute path it searched is noise to
-        // someone who just wants to know which picture is missing.
-        let name = raw
-            .split_once("searched at ")
-            .map(|(_, rest)| rest.trim_end_matches(')').trim())
-            .map(|p| {
-                Path::new(p)
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_else(|| p.to_string())
-            })
-            .or_else(|| {
-                raw.split_once("file not found")
-                    .and_then(|(_, rest)| rest.split('(').next())
-                    .map(|s| {
-                        s.trim_matches(|c: char| c == ':' || c.is_whitespace())
-                            .to_string()
-                    })
-            })
-            .filter(|s| !s.is_empty());
-        return (
-            match name {
-                Some(n) => format!("Zerkalo can't find the file \u{201c}{n}\u{201d}"),
-                None => "Zerkalo can't find a file this document uses".into(),
-            },
-            "Check the name is spelled the same as the real file, and that it \
-             sits in the same folder as your document (or that the path in the \
-             #include or #image line matches where it actually is)."
-                .into(),
-        );
-    }
-
-    if lower.contains("failed to parse biblatex") || lower.contains("failed to parse hayagriva") {
-        return (
-            "Your bibliography file has an entry Zerkalo's compiler can't read".into(),
-            "One malformed entry breaks the whole file, not just that entry \u{2014} \
-             which is also why every citation in the document may be showing as \
-             \u{201c}not found\u{201d} right now; they'll resolve again once this is \
-             fixed. A common cause from Zotero/BetterBibTeX exports: a non-numeric \
-             year like \u{201c}Winter 2001\u{201d} instead of a plain \u{201c}2001\u{201d}. \
-             The line below points at the exact entry."
-                .into(),
-        );
-    }
-
-    if lower.contains("package not found") || lower.contains("failed to download package") {
-        return (
-            "A Typst package this document uses couldn't be fetched".into(),
-            "Packages download the first time they're used, so this usually means \
-             there was no internet connection. Reconnect and compile again."
-                .into(),
-        );
-    }
-
-    // Every unclosed-delimiter phrasing Typst uses, collapsed into one message.
-    for (needle, thing) in [
-        ("expected closing brace", "}"),
-        ("expected closing bracket", "]"),
-        ("expected closing paren", ")"),
-        ("unclosed delimiter", ""),
-    ] {
-        if lower.contains(needle) {
-            return (
-                if thing.is_empty() {
-                    "Something opened here was never closed".into()
-                } else {
-                    format!("A \u{201c}{thing}\u{201d} is missing")
-                },
-                "Every ( [ { and \" you open has to be closed again. The place \
-                 marked here is where Zerkalo ran out of document still looking \
-                 for the closing one."
-                    .into(),
-            );
-        }
-    }
-
-    if lower.contains("unexpected end of file") {
-        return (
-            "The document ends in the middle of something".into(),
-            "A bracket, parenthesis, brace or quotation mark was opened and never \
-             closed, so Zerkalo reached the end still waiting for it."
-                .into(),
-        );
-    }
-
-    if lower.starts_with("missing argument") {
-        return (
-            match subject(raw) {
-                Some(what) => format!("This command still needs \u{201c}{what}\u{201d}"),
-                None => "This command is missing something it needs".into(),
-            },
-            "A command was used without one of the things it needs \u{2014} for \
-             example #image() needs the name of a picture inside the brackets."
-                .into(),
-        );
-    }
-
-    if lower.starts_with("unexpected argument") {
-        return (
-            match subject(raw) {
-                Some(name) => {
-                    format!("\u{201c}{name}\u{201d} isn't something this command accepts")
-                }
-                None => "A command was given something it doesn't take".into(),
-            },
-            "This is usually a misspelled option name (fill: rather than colour:), \
-             a missing comma between two values, or one value too many."
-                .into(),
-        );
-    }
-
-    if lower.contains("does not exist in the document") {
-        let key = raw
-            .split_once("label ")
-            .and_then(|(_, rest)| rest.split_whitespace().next())
-            .map(|s| {
-                s.trim_matches(|c| c == '`' || c == '<' || c == '>')
-                    .to_string()
-            })
-            .filter(|s| !s.is_empty());
-        return (
-            match key {
-                Some(k) => format!("Nothing in the document is labelled \u{201c}{k}\u{201d}"),
-                None => "A reference points at something that isn't in the document".into(),
-            },
-            "If this is a citation, check the key matches an entry in your .bib \
-             file (your list of citation sources) exactly, and that the file is \
-             attached in Settings \u{2192} Bibliography. If it's a cross-reference, \
-             check the <label> it points at is really there and spelled the same."
-                .into(),
-        );
-    }
-
-    if lower.starts_with("expected") && lower.contains(", found ") {
-        return (
-            "A value here isn't the kind that was needed".into(),
-            "Words meant as text usually need to be in \"quotes\", and passages of \
-             document content need to be in [square brackets]. A number shouldn't \
-             be in quotes."
-                .into(),
-        );
-    }
-
-    if lower.contains("cannot divide by zero") {
-        return (
-            "Something here divides by zero".into(),
-            "Check the value being divided by \u{2014} it works out to zero.".into(),
-        );
-    }
-
-    if lower.contains("expected string or function") {
-        return (
-            "A styling rule here is incomplete".into(),
-            "Re-apply your style from Template to rewrite these rules, or delete \
-             any half-finished #show line (a formatting rule) at this spot."
-                .into(),
-        );
-    }
-
-    if lower.contains("cannot access file system") {
-        return (
-            "This document isn't allowed to read that file".into(),
-            "Typst can only read files inside your project folder. Move the file \
-             in beside your document."
-                .into(),
-        );
-    }
-
-    // Nothing matched: keep Typst's wording as the headline rather than
-    // inventing a vague one, but capitalise it so it reads as a sentence.
-    let mut chars = raw.chars();
-    let headline = match chars.next() {
-        Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
-        None => "Something went wrong while compiling".to_string(),
+        start
     };
-    (headline, String::new())
-}
-
-/// Quick-fix patterns are written against Typst's own phrasing, so they must be
-/// matched on the untranslated text — matching the plain-language headline
-/// would silently retire every Fix button.
-fn is_quick_fixable(err: &CompileError) -> bool {
-    crate::error_patterns::match_fix(&err.technical).is_some_and(|fix| fix.fix_fn.is_some())
+    let end = end.max(start).min(chars.len());
+    let show_from = if start > indent + CONTEXT_BEFORE {
+        start - CONTEXT_BEFORE
+    } else {
+        indent
+    };
+    let show_to = chars.len().min(end.max(start) + MAX_AFTER);
+    let piece = |a: usize, b: usize| -> String {
+        gtk4::glib::markup_escape_text(&chars[a.min(b)..b].iter().collect::<String>()).to_string()
+    };
+    let mut out = String::new();
+    if show_from > indent {
+        out.push('\u{2026}');
+    }
+    out.push_str(&piece(show_from, start.min(chars.len())));
+    if end > start {
+        out.push_str("<span weight=\"bold\" underline=\"error\">");
+        out.push_str(&piece(start, end));
+        out.push_str("</span>");
+    }
+    out.push_str(&piece(end.max(start).min(chars.len()), show_to));
+    if show_to < chars.len() {
+        out.push('\u{2026}');
+    }
+    Some(out)
 }
 
 fn current_time_hhmm() -> String {
@@ -425,6 +297,27 @@ fn current_time_hhmm() -> String {
     let mins = (secs / 60) % 60;
     let hours = (secs / 3600) % 24;
     format!("{hours:02}:{mins:02}")
+}
+
+fn set_toggle_label(label: &Label, text: &str, on: bool) {
+    if on {
+        label.set_markup(&format!("<b>{text}</b>"));
+    } else {
+        label.set_text(text);
+    }
+}
+
+fn apply_technical_state(btn: &Button, label: &Label, widgets: &[gtk4::Widget], on: bool) {
+    set_toggle_label(label, "Show technical details", on);
+    let pressed = if on {
+        gtk4::AccessibleTristate::True
+    } else {
+        gtk4::AccessibleTristate::False
+    };
+    btn.update_state(&[gtk4::accessible::State::Pressed(pressed)]);
+    for w in widgets {
+        w.set_visible(on);
+    }
 }
 
 // ── Widget ───────────────────────────────────────────────────────────────────
@@ -442,7 +335,7 @@ pub struct ErrorPanel {
     live_label: Label,
     collapsed: Rc<Cell<bool>>,
     on_jump: Rc<RefCell<Option<Box<dyn Fn(PathBuf, u32)>>>>,
-    on_try_fix: Rc<RefCell<Option<Box<dyn Fn(PathBuf, u32, String)>>>>,
+    on_try_fix: Rc<RefCell<Option<Box<dyn Fn(DiagMark)>>>>,
     /// Supplies the live text of a line from the editor's buffers.
     #[allow(clippy::type_complexity)]
     source_line: Rc<RefCell<Option<Box<dyn Fn(&Path, u32) -> Option<String>>>>>,
@@ -452,6 +345,16 @@ pub struct ErrorPanel {
     log_lines: Rc<RefCell<Vec<String>>>,
     build_log_revealer: Revealer,
     build_log_label: Label,
+    search_entry: gtk4::SearchEntry,
+    technical_btn: Button,
+    technical_label: Label,
+    show_technical: Rc<Cell<bool>>,
+    technical_widgets: Rc<RefCell<Vec<gtk4::Widget>>>,
+    on_technical_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
+    first_hint_label: Label,
+    rows: Rc<RefCell<Vec<ListBoxRow>>>,
+    targets: Rc<RefCell<Vec<(PathBuf, u32)>>>,
+    current: Rc<Cell<Option<usize>>>,
 }
 
 impl ErrorPanel {
@@ -476,7 +379,7 @@ impl ErrorPanel {
         header.set_margin_start(10);
         header.set_margin_end(10);
 
-        let header_label = Label::new(Some("Errors"));
+        let header_label = Label::new(Some("Problems"));
         header_label.set_halign(Align::Start);
         header_label.set_hexpand(true);
         header_label.add_css_class("heading");
@@ -494,6 +397,18 @@ impl ErrorPanel {
         stuck_label.set_visible(false);
         header.append(&stuck_label);
 
+        let technical_label = Label::new(None);
+        set_toggle_label(&technical_label, "Show technical details", false);
+        let technical_btn = Button::new();
+        technical_btn.set_child(Some(&technical_label));
+        technical_btn.add_css_class("flat");
+        technical_btn.add_css_class("status-toggle");
+        technical_btn.set_tooltip_text(Some(
+            "Show the exact wording Zerkalo's engine used for each problem.\n\
+             Handy when searching the Typst forum; safe to leave off.",
+        ));
+        header.append(&technical_btn);
+
         // Export log button
         let export_btn = Button::from_icon_name("document-save-symbolic");
         export_btn.add_css_class("flat");
@@ -506,12 +421,23 @@ impl ErrorPanel {
         let chevron_btn = Button::from_icon_name("pan-down-symbolic");
         chevron_btn.add_css_class("flat");
         chevron_btn.add_css_class("circular");
-        chevron_btn.set_tooltip_text(Some("Collapse error list"));
-        chevron_btn.update_property(&[gtk4::accessible::Property::Label("Toggle error list")]);
+        chevron_btn.set_tooltip_text(Some("Collapse list"));
+        chevron_btn.update_property(&[gtk4::accessible::Property::Label("Toggle list")]);
         header.append(&chevron_btn);
 
         inner.append(&header);
         inner.append(&Separator::new(Orientation::Horizontal));
+
+        let first_hint_label = Label::new(Some(
+            "Start with the first one \u{2014} fixing it often clears the rest.",
+        ));
+        first_hint_label.add_css_class("dim-label");
+        first_hint_label.add_css_class("caption");
+        first_hint_label.set_halign(Align::Start);
+        first_hint_label.set_margin_start(10);
+        first_hint_label.set_margin_top(4);
+        first_hint_label.set_visible(false);
+        inner.append(&first_hint_label);
 
         // ── Search bar ───────────────────────────────────────────────────────
         let search_entry = gtk4::SearchEntry::new();
@@ -519,7 +445,8 @@ impl ErrorPanel {
         search_entry.set_margin_end(8);
         search_entry.set_margin_top(4);
         search_entry.set_margin_bottom(4);
-        search_entry.set_placeholder_text(Some("Filter errors…"));
+        search_entry.set_placeholder_text(Some("Filter problems…"));
+        search_entry.set_visible(false);
         inner.append(&search_entry);
 
         // ── Error list ───────────────────────────────────────────────────────
@@ -602,10 +529,10 @@ impl ErrorPanel {
                 list_rev_c.set_reveal_child(!now_collapsed);
                 if now_collapsed {
                     chevron_c.set_icon_name("pan-end-symbolic");
-                    chevron_c.set_tooltip_text(Some("Expand error list"));
+                    chevron_c.set_tooltip_text(Some("Expand list"));
                 } else {
                     chevron_c.set_icon_name("pan-down-symbolic");
-                    chevron_c.set_tooltip_text(Some("Collapse error list"));
+                    chevron_c.set_tooltip_text(Some("Collapse list"));
                 }
             });
         }
@@ -699,6 +626,29 @@ impl ErrorPanel {
         build_log_revealer_outer.set_child(Some(&build_log_outer));
         root_widget.append(&build_log_revealer_outer);
 
+        let show_technical = Rc::new(Cell::new(false));
+        let technical_widgets: Rc<RefCell<Vec<gtk4::Widget>>> = Rc::new(RefCell::new(Vec::new()));
+        let on_technical_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>> =
+            Rc::new(RefCell::new(None));
+        {
+            let flag = show_technical.clone();
+            let widgets = technical_widgets.clone();
+            let cb = on_technical_toggle.clone();
+            let btn = technical_btn.clone();
+            let lbl = technical_label.clone();
+            let log_rev = build_log_revealer_outer.clone();
+            let log_lbl = build_log_label.clone();
+            technical_btn.connect_clicked(move |_| {
+                let on = !flag.get();
+                flag.set(on);
+                apply_technical_state(&btn, &lbl, &widgets.borrow(), on);
+                log_rev.set_reveal_child(on && !log_lbl.text().is_empty());
+                if let Some(f) = cb.borrow().as_ref() {
+                    f(on);
+                }
+            });
+        }
+
         Self {
             root_widget,
             revealer,
@@ -719,7 +669,69 @@ impl ErrorPanel {
             log_lines,
             build_log_revealer: build_log_revealer_outer,
             build_log_label,
+            search_entry,
+            technical_btn,
+            technical_label,
+            show_technical,
+            technical_widgets,
+            on_technical_toggle,
+            first_hint_label,
+            rows: Rc::new(RefCell::new(Vec::new())),
+            targets: Rc::new(RefCell::new(Vec::new())),
+            current: Rc::new(Cell::new(None)),
         }
+    }
+
+    /// Step to the next (`1`) or previous (`-1`) problem, wrapping round, and
+    /// take the editor there. Works whether or not the panel is open.
+    pub fn go_to_problem(&self, delta: i32) -> bool {
+        let n = self.targets.borrow().len();
+        if n == 0 {
+            return false;
+        }
+        let next = match self.current.get() {
+            Some(i) if i < n => (i as i32 + delta).rem_euclid(n as i32) as usize,
+            _ if delta >= 0 => 0,
+            _ => n - 1,
+        };
+        self.current.set(Some(next));
+        if let Some(row) = self.rows.borrow().get(next) {
+            self.list_box.select_row(Some(row));
+        }
+        let (file, line) = self.targets.borrow()[next].clone();
+        if let Some(f) = self.on_jump.borrow().as_ref() {
+            f(file, line);
+        }
+        true
+    }
+
+    pub fn set_show_technical(&self, on: bool) {
+        self.show_technical.set(on);
+        apply_technical_state(
+            &self.technical_btn,
+            &self.technical_label,
+            &self.technical_widgets.borrow(),
+            on,
+        );
+        self.sync_build_log();
+    }
+
+    fn sync_build_log(&self) {
+        self.build_log_revealer
+            .set_reveal_child(self.show_technical.get() && !self.build_log_label.text().is_empty());
+    }
+
+    /// Open the list if it was collapsed, e.g. when the user asks to see the notes.
+    pub fn expand(&self) {
+        self.collapsed.set(false);
+        self.list_revealer.set_reveal_child(true);
+        self.chevron_btn.set_icon_name("pan-down-symbolic");
+        self.chevron_btn.set_tooltip_text(Some("Collapse list"));
+        self.revealer.set_reveal_child(true);
+    }
+
+    pub fn set_on_technical_toggle(&self, f: impl Fn(bool) + 'static) {
+        *self.on_technical_toggle.borrow_mut() = Some(Box::new(f));
     }
 
     pub fn widget(&self) -> &GtkBox {
@@ -728,14 +740,14 @@ impl ErrorPanel {
 
     pub fn set_build_log(&self, raw: &str) {
         self.build_log_label.set_text(raw);
-        self.build_log_revealer.set_reveal_child(true);
+        self.sync_build_log();
     }
 
     pub fn set_on_jump(&self, f: impl Fn(PathBuf, u32) + 'static) {
         *self.on_jump.borrow_mut() = Some(Box::new(f));
     }
 
-    pub fn set_on_try_fix(&self, f: impl Fn(PathBuf, u32, String) + 'static) {
+    pub fn set_on_try_fix(&self, f: impl Fn(DiagMark) + 'static) {
         *self.on_try_fix.borrow_mut() = Some(Box::new(f));
     }
 
@@ -765,11 +777,11 @@ impl ErrorPanel {
     }
 
     pub fn show_compile_errors(&self, errors: Vec<CompileError>) {
-        self.show_errors_inner(errors, "Compile Errors");
+        self.show_errors_inner(errors, "Problems");
     }
 
     pub fn show_errors(&self, errors: Vec<CompileError>) {
-        self.show_errors_inner(errors, "Diagnostics");
+        self.show_errors_inner(errors, "Problems");
     }
 
     fn show_errors_inner(&self, errors: Vec<CompileError>, section: &str) {
@@ -779,6 +791,7 @@ impl ErrorPanel {
         if errors.is_empty() {
             self.revealer.set_reveal_child(false);
             self.live_label.set_text("");
+            self.first_hint_label.set_visible(false);
             return;
         }
 
@@ -804,16 +817,25 @@ impl ErrorPanel {
         let warn_count = count - err_count;
 
         let breakdown = match (err_count, warn_count) {
-            (e, 0) => format!("{e} error{}", if e == 1 { "" } else { "s" }),
-            (0, w) => format!("{w} warning{}", if w == 1 { "" } else { "s" }),
+            (e, 0) => format!("{e} problem{}", if e == 1 { "" } else { "s" }),
+            (0, w) => format!("{w} note{}", if w == 1 { "" } else { "s" }),
             (e, w) => format!(
-                "{e} error{}, {w} warning{}",
+                "{e} problem{}, {w} note{}",
                 if e == 1 { "" } else { "s" },
                 if w == 1 { "" } else { "s" }
             ),
         };
-        self.header_label
-            .set_label(&format!("{section} — {breakdown}"));
+        self.header_label.set_label(match (err_count, warn_count) {
+            (_, 0) => section,
+            (0, _) => "Notes",
+            _ => "Problems and notes",
+        });
+        self.first_hint_label.set_visible(err_count > 1);
+        let many = count > 8;
+        self.search_entry.set_visible(many);
+        if !many {
+            self.search_entry.set_text("");
+        }
 
         // Trend: detect when the same errors repeat 3+ times
         let key: String = errors
@@ -889,8 +911,7 @@ impl ErrorPanel {
                 self.collapsed.set(false);
                 self.list_revealer.set_reveal_child(true);
                 self.chevron_btn.set_icon_name("pan-down-symbolic");
-                self.chevron_btn
-                    .set_tooltip_text(Some("Collapse error list"));
+                self.chevron_btn.set_tooltip_text(Some("Collapse list"));
             }
         } else if !was_revealed && !self.collapsed.get() {
             // Warnings only, and the panel wasn't already showing something —
@@ -901,7 +922,7 @@ impl ErrorPanel {
             self.collapsed.set(true);
             self.list_revealer.set_reveal_child(false);
             self.chevron_btn.set_icon_name("pan-end-symbolic");
-            self.chevron_btn.set_tooltip_text(Some("Expand error list"));
+            self.chevron_btn.set_tooltip_text(Some("Expand list"));
         }
 
         self.last_clean_label.set_visible(false);
@@ -914,10 +935,13 @@ impl ErrorPanel {
         self.revealer.set_reveal_child(false);
         self.live_label.set_text("");
         self.stuck_label.set_visible(false);
+        self.first_hint_label.set_visible(false);
+        self.current.set(None);
         self.repeat_count.set(0);
         *self.last_errors_key.borrow_mut() = String::new();
         self.log_lines.borrow_mut().clear();
-        self.build_log_revealer.set_reveal_child(false);
+        self.build_log_label.set_text("");
+        self.sync_build_log();
         // Show last-clean timestamp only when recovering from real errors
         if had_errors {
             self.last_clean_label
@@ -927,6 +951,10 @@ impl ErrorPanel {
     }
 
     fn clear_rows(&self) {
+        self.technical_widgets.borrow_mut().clear();
+        self.rows.borrow_mut().clear();
+        self.targets.borrow_mut().clear();
+
         while let Some(row) = self.list_box.row_at_index(0) {
             self.list_box.remove(&row);
         }
@@ -997,22 +1025,15 @@ impl ErrorPanel {
         row_box.set_margin_start(10);
         row_box.set_margin_end(10);
 
-        // Severity icon
-        let icon_lbl = match err.severity {
-            Severity::Error => {
-                let l = Label::new(Some("✗"));
-                l.add_css_class("error");
-                l.update_property(&[gtk4::accessible::Property::Label("Compile error")]);
-                l
-            }
-            Severity::Warning => {
-                let l = Label::new(Some("⚠"));
-                l.update_property(&[gtk4::accessible::Property::Label("Compile warning")]);
-                l.add_css_class("warning");
-                l
-            }
+        let (icon_name, icon_class, icon_desc) = match err.severity {
+            Severity::Error => ("dialog-error-symbolic", "error", "Problem"),
+            Severity::Warning => ("dialog-warning-symbolic", "warning", "Note"),
         };
+        let icon_lbl = Image::from_icon_name(icon_name);
+        icon_lbl.add_css_class(icon_class);
+        icon_lbl.update_property(&[gtk4::accessible::Property::Label(icon_desc)]);
         icon_lbl.set_valign(Align::Start);
+        icon_lbl.set_margin_top(2);
         row_box.append(&icon_lbl);
 
         // Message text column
@@ -1036,22 +1057,39 @@ impl ErrorPanel {
             text_box.append(&advice_lbl);
         }
 
+        if let Some(origin) = &err.origin {
+            let origin_lbl = Label::new(Some(&origin_note(origin)));
+            origin_lbl.set_halign(Align::Start);
+            origin_lbl.set_xalign(0.0);
+            origin_lbl.set_wrap(true);
+            text_box.append(&origin_lbl);
+        }
+
         // Typst's own hints, which the parser used to discard. They are often
         // the most specific thing anyone can say about the problem.
         for hint in &err.hints {
-            let hint_lbl = Label::new(Some(&format!("\u{1f4a1} {hint}")));
+            let hint_box = GtkBox::new(Orientation::Horizontal, 6);
+            hint_box.set_halign(Align::Start);
+            let hint_icon = Image::from_icon_name("dialog-information-symbolic");
+            hint_icon.set_pixel_size(12);
+            hint_icon.set_valign(Align::Start);
+            hint_icon.set_margin_top(2);
+            hint_icon.add_css_class("dim-label");
+            hint_box.append(&hint_icon);
+            let hint_lbl = Label::new(Some(hint));
             hint_lbl.set_halign(Align::Start);
             hint_lbl.set_xalign(0.0);
             hint_lbl.set_wrap(true);
             hint_lbl.add_css_class("caption");
-            text_box.append(&hint_lbl);
+            hint_box.append(&hint_lbl);
+            text_box.append(&hint_box);
         }
 
         // Source context: the offending line, taken from the open buffer when
         // there is one. Compiles run against the unsaved buffer, so reading
         // from disk quoted a line the compiler never saw whenever the document
         // had unsaved edits.
-        let source_line = self
+        let raw_line = self
             .source_line
             .borrow()
             .as_ref()
@@ -1061,17 +1099,19 @@ impl ErrorPanel {
                     content
                         .lines()
                         .nth((err.line as usize).saturating_sub(1))
-                        .map(|l| l.trim().to_string())
+                        .map(str::to_string)
                 })
-            })
-            .filter(|l| !l.is_empty());
-        if let Some(src) = source_line {
-            let src_lbl = Label::new(Some(&format!("  {src}")));
+            });
+        let source_line = raw_line
+            .as_deref()
+            .and_then(|l| snippet_markup(l, err.col, err.end_col, err.end_line == err.line));
+        if let Some(markup) = source_line {
+            let src_lbl = Label::new(None);
+            src_lbl.set_markup(&markup);
             src_lbl.set_halign(Align::Start);
             src_lbl.set_xalign(0.0);
             src_lbl.set_ellipsize(gtk4::pango::EllipsizeMode::End);
             src_lbl.add_css_class("monospace");
-            src_lbl.add_css_class("dim-label");
             src_lbl.add_css_class("caption");
             text_box.append(&src_lbl);
         }
@@ -1082,6 +1122,11 @@ impl ErrorPanel {
         if err.technical != err.message {
             let expander = gtk4::Expander::new(Some("Technical detail"));
             expander.add_css_class("caption");
+            expander.set_expanded(true);
+            expander.set_visible(self.show_technical.get());
+            self.technical_widgets
+                .borrow_mut()
+                .push(expander.clone().upcast());
             let tech_lbl = Label::new(Some(&err.technical));
             tech_lbl.set_halign(Align::Start);
             tech_lbl.set_xalign(0.0);
@@ -1097,7 +1142,7 @@ impl ErrorPanel {
         }
 
         let filename = err.file.file_name().and_then(|n| n.to_str()).unwrap_or("?");
-        let loc_text = format!("Line {} · {}:{}", err.line, filename, err.col);
+        let loc_text = format!("Line {} of {}", err.line, filename);
         let loc_lbl = Label::new(Some(&loc_text));
         loc_lbl.set_halign(Align::Start);
         loc_lbl.add_css_class("dim-label");
@@ -1106,84 +1151,110 @@ impl ErrorPanel {
 
         row_box.append(&text_box);
 
-        // Action buttons
         let btn_box = GtkBox::new(Orientation::Horizontal, 4);
         btn_box.set_valign(Align::Center);
 
-        // Copy button
-        let copy_btn = Button::from_icon_name("edit-copy-symbolic");
-        copy_btn.add_css_class("flat");
-        copy_btn.add_css_class("circular");
-        copy_btn.set_tooltip_text(Some("Copy error message"));
-        copy_btn.update_property(&[gtk4::accessible::Property::Label("Copy error message")]);
+        let jump = {
+            let on_jump = self.on_jump.clone();
+            let file = err.file.clone();
+            let line = err.line;
+            Rc::new(move || {
+                if let Some(f) = on_jump.borrow().as_ref() {
+                    f(file.clone(), line);
+                }
+            })
+        };
+
+        let fixable = is_quick_fixable(&err, raw_line.as_deref());
+        if fixable {
+            let fix_btn = Button::with_label("Fix");
+            fix_btn.add_css_class("suggested-action");
+            fix_btn.set_tooltip_text(Some("Fix this automatically (undo with Ctrl+Z)"));
+            fix_btn.update_property(&[gtk4::accessible::Property::Label("Fix this automatically")]);
+            let on_fix = self.on_try_fix.clone();
+            let mark = DiagMark::from(&err);
+            fix_btn.connect_clicked(move |_| {
+                if let Some(f) = on_fix.borrow().as_ref() {
+                    f(mark.clone());
+                }
+            });
+            btn_box.append(&fix_btn);
+        } else {
+            let show_btn = Button::with_label("Show me");
+            show_btn.set_tooltip_text(Some("Go to this place in the document"));
+            let jump = jump.clone();
+            show_btn.connect_clicked(move |_| jump());
+            btn_box.append(&show_btn);
+        }
+
+        let more_btn = MenuButton::new();
+        more_btn.set_icon_name("view-more-symbolic");
+        more_btn.add_css_class("flat");
+        more_btn.add_css_class("circular");
+        more_btn.set_tooltip_text(Some("More options"));
+        more_btn.update_property(&[gtk4::accessible::Property::Label("More options")]);
+        let popover = Popover::new();
+        let menu = GtkBox::new(Orientation::Vertical, 0);
+        let add_item = |label: &str, action: Box<dyn Fn(&Button)>| {
+            let item = Button::new();
+            let lbl = Label::new(Some(label));
+            lbl.set_halign(Align::Start);
+            item.set_child(Some(&lbl));
+            item.add_css_class("flat");
+            let pop = popover.clone();
+            item.connect_clicked(move |b| {
+                pop.popdown();
+                action(b);
+            });
+            menu.append(&item);
+        };
+        if fixable {
+            let jump = jump.clone();
+            add_item("Show me", Box::new(move |_| jump()));
+        }
         {
-            // Copies the compiler's exact wording alongside the plain one —
-            // the technical text is what's worth pasting into a search.
             let msg_c = err.message.clone();
             let tech_c = err.technical.clone();
             let hints_c = err.hints.clone();
             let loc_c = loc_text.clone();
-            copy_btn.connect_clicked(move |btn| {
-                let mut out = format!("{msg_c}\n{loc_c}\n\n{tech_c}");
-                for h in &hints_c {
-                    out.push_str(&format!("\nhint: {h}"));
-                }
-                btn.clipboard().set_text(&out);
-            });
+            add_item(
+                "Copy details",
+                Box::new(move |btn| {
+                    let mut out = format!("{msg_c}\n{loc_c}\n\n{tech_c}");
+                    for h in &hints_c {
+                        out.push_str(&format!("\nhint: {h}"));
+                    }
+                    btn.clipboard().set_text(&out);
+                }),
+            );
         }
-        btn_box.append(&copy_btn);
-
-        // Jump button
-        let jump_btn = Button::from_icon_name("go-jump-symbolic");
-        jump_btn.add_css_class("flat");
-        jump_btn.add_css_class("circular");
-        jump_btn.set_tooltip_text(Some("Jump to error in editor"));
-        jump_btn.update_property(&[gtk4::accessible::Property::Label("Jump to error in editor")]);
         {
-            let on_jump_j = self.on_jump.clone();
-            let file_j = err.file.clone();
-            let line_j = err.line;
-            jump_btn.connect_clicked(move |_| {
-                if let Some(f) = on_jump_j.borrow().as_ref() {
-                    f(file_j.clone(), line_j);
-                }
-            });
+            let query = err.technical.lines().next().unwrap_or("").to_string();
+            add_item(
+                "Search the Typst forum",
+                Box::new(move |_| {
+                    let q = gtk4::glib::Uri::escape_string(&query, None, false);
+                    let _ = gtk4::gio::AppInfo::launch_default_for_uri(
+                        &format!("https://forum.typst.app/search?q={q}"),
+                        None::<&gtk4::gio::AppLaunchContext>,
+                    );
+                }),
+            );
         }
-        btn_box.append(&jump_btn);
-
-        // Try-Fix button
-        if is_quick_fixable(&err) {
-            let fix_btn = Button::with_label("Fix");
-            fix_btn.add_css_class("flat");
-            fix_btn.set_tooltip_text(Some("Attempt automatic fix (undoable with Ctrl+Z)"));
-            fix_btn.update_property(&[gtk4::accessible::Property::Label("Attempt automatic fix")]);
-            let on_fix = self.on_try_fix.clone();
-            let file_f = err.file.clone();
-            let line_f = err.line;
-            let msg_f = err.technical.clone();
-            fix_btn.connect_clicked(move |_| {
-                if let Some(f) = on_fix.borrow().as_ref() {
-                    f(file_f.clone(), line_f, msg_f.clone());
-                }
-            });
-            btn_box.append(&fix_btn);
-        }
+        popover.set_child(Some(&menu));
+        more_btn.set_popover(Some(&popover));
+        btn_box.append(&more_btn);
 
         row_box.append(&btn_box);
         row.set_child(Some(&row_box));
 
-        // Row activation (Enter key) → jump to error
         {
-            let on_jump = self.on_jump.clone();
-            let file = err.file.clone();
-            let line = err.line;
-            row.connect_activate(move |_| {
-                if let Some(f) = on_jump.borrow().as_ref() {
-                    f(file.clone(), line);
-                }
-            });
+            let jump = jump.clone();
+            row.connect_activate(move |_| jump());
         }
 
+        self.rows.borrow_mut().push(row.clone());
+        self.targets.borrow_mut().push((err.file.clone(), err.line));
         self.list_box.append(&row);
     }
 }
@@ -1194,6 +1265,76 @@ mod tests {
 
     fn parse(text: &str) -> Vec<CompileError> {
         parse_typst_errors(text, Path::new("/project"))
+    }
+
+    #[test]
+    fn the_snippet_underlines_exactly_the_characters_at_fault() {
+        let m = snippet_markup("  #no-such-thing() end", 3, 19, true).unwrap();
+        assert_eq!(
+            m,
+            "<span weight=\"bold\" underline=\"error\">#no-such-thing()</span> end"
+        );
+    }
+
+    #[test]
+    fn the_snippet_counts_characters_and_escapes_markup() {
+        let m = snippet_markup("é <b> #oops", 7, 12, true).unwrap();
+        assert_eq!(
+            m,
+            "é &lt;b&gt; <span weight=\"bold\" underline=\"error\">#oops</span>"
+        );
+    }
+
+    #[test]
+    fn a_snippet_with_no_extent_shows_the_whole_line_plain() {
+        assert_eq!(snippet_markup("  hello", 1, 1, true).unwrap(), "hello");
+        assert_eq!(snippet_markup("  hello", 3, 5, false).unwrap(), "hello");
+    }
+
+    #[test]
+    fn a_blank_line_has_no_snippet() {
+        assert!(snippet_markup("   ", 1, 2, true).is_none());
+    }
+
+    #[test]
+    fn a_long_line_is_cut_around_the_fault() {
+        let line = format!("{}#bad(){}", "a".repeat(100), "b".repeat(200));
+        let m = snippet_markup(&line, 101, 107, true).unwrap();
+        assert!(m.starts_with('\u{2026}'));
+        assert!(m.ends_with('\u{2026}'));
+        assert!(m.contains("underline=\"error\">#bad()</span>"));
+        assert!(m.chars().count() < 200);
+    }
+
+    #[test]
+    fn a_package_error_is_never_offered_a_quick_fix() {
+        let mut errs = parse("error: unknown variable: foo\n --> /p/a.typ:1:1");
+        assert!(is_quick_fixable(&errs[0], Some("#foo")));
+        errs[0].origin = Some("@preview/x:1.0.0".into());
+        assert!(!is_quick_fixable(&errs[0], Some("#foo")));
+        assert!(origin_note("@preview/x:1.0.0").contains("\u{201c}x\u{201d}"));
+    }
+
+    #[test]
+    fn range_and_origin_lines_reach_the_error() {
+        let errs = parse(
+            "error: boom\n --> /project/a.typ:3:2\n   = range: 3:15\n   = origin: @preview/cetz:0.3.0\n   = hint: try again",
+        );
+        assert_eq!(errs.len(), 1);
+        assert_eq!((errs[0].line, errs[0].col), (3, 2));
+        assert_eq!((errs[0].end_line, errs[0].end_col), (3, 15));
+        assert_eq!(errs[0].origin.as_deref(), Some("@preview/cetz:0.3.0"));
+        assert_eq!(errs[0].hints, vec!["try again".to_string()]);
+    }
+
+    #[test]
+    fn range_and_origin_do_not_leak_into_the_next_error() {
+        let errs = parse(
+            "error: one\n --> /p/a.typ:1:1\n   = range: 1:4\n   = origin: @preview/x:1.0.0\nerror: two\n --> /p/a.typ:2:1",
+        );
+        assert_eq!(errs.len(), 2);
+        assert!(errs[1].origin.is_none());
+        assert_eq!((errs[1].end_line, errs[1].end_col), (2, 1));
     }
 
     #[test]
@@ -1261,83 +1402,6 @@ mod tests {
         assert_eq!(errs[0].file, PathBuf::from("/project/chapters/one.typ"));
     }
 
-    // ── Plain language ───────────────────────────────────────────────────────
-
-    #[test]
-    fn an_undefined_name_is_explained_without_jargon() {
-        let (headline, advice) = humanize("unknown variable: foo");
-        assert!(headline.contains("foo"), "should name it: {headline}");
-        assert!(
-            !headline.to_lowercase().contains("variable"),
-            "headline should not use compiler jargon: {headline}"
-        );
-        assert!(
-            advice.contains('#'),
-            "advice should say what to do: {advice}"
-        );
-    }
-
-    #[test]
-    fn a_missing_file_names_the_file() {
-        // Typst's actual phrasing puts the path in parentheses after
-        // "searched at", and gives it absolute. The reader wants the filename.
-        let (headline, _) =
-            humanize("file not found (searched at /home/me/docs/missing-picture.png)");
-        assert!(headline.contains("missing-picture.png"), "got: {headline}");
-        assert!(
-            !headline.contains("/home/me"),
-            "path noise leaked in: {headline}"
-        );
-
-        let (headline, _) = humanize("file not found: figures/plot.png");
-        assert!(headline.contains("plot.png"), "got: {headline}");
-    }
-
-    #[test]
-    fn a_wrong_option_name_is_quoted_in_the_headline() {
-        let (headline, advice) = humanize("unexpected argument: colour");
-        assert!(headline.contains("colour"), "should name it: {headline}");
-        assert!(
-            advice.contains("fill:"),
-            "should suggest the real one: {advice}"
-        );
-    }
-
-    #[test]
-    fn a_missing_argument_is_named() {
-        let (headline, _) = humanize("missing argument: body");
-        assert!(headline.contains("body"), "got: {headline}");
-    }
-
-    #[test]
-    fn every_unclosed_delimiter_phrasing_gets_the_same_explanation() {
-        for raw in [
-            "expected closing brace",
-            "expected closing bracket",
-            "expected closing paren",
-        ] {
-            let (headline, advice) = humanize(raw);
-            assert!(!advice.is_empty(), "{raw} should carry advice");
-            assert!(
-                !headline.to_lowercase().contains("expected"),
-                "{raw} still reads like a parser message: {headline}"
-            );
-        }
-    }
-
-    #[test]
-    fn a_malformed_bibliography_entry_gets_a_plain_language_explanation() {
-        let (headline, advice) = humanize("failed to parse BibLaTeX (wrong number of digits)");
-        assert!(
-            headline.to_lowercase().contains("bibliography"),
-            "got: {headline}"
-        );
-        assert!(
-            advice.contains("year"),
-            "should mention the common Zotero cause: {advice}"
-        );
-    }
-
     #[test]
     fn a_malformed_bibliography_entry_suppresses_the_resulting_label_error_flood() {
         // One bad .bib entry fails the whole file's parse, so every @citation
@@ -1370,15 +1434,6 @@ mod tests {
     }
 
     #[test]
-    fn an_unrecognised_message_is_kept_verbatim_but_capitalised() {
-        // Better to show Typst's exact words than to invent a vague headline
-        // that tells the reader nothing.
-        let (headline, advice) = humanize("some completely novel error text");
-        assert_eq!(headline, "Some completely novel error text");
-        assert!(advice.is_empty());
-    }
-
-    #[test]
     fn a_path_containing_a_colon_is_not_truncated() {
         let errs = parse("error: boom\n --> /project/odd:name/one.typ:7:2");
         assert_eq!(errs[0].file, PathBuf::from("/project/odd:name/one.typ"));
@@ -1387,15 +1442,24 @@ mod tests {
 
     #[test]
     fn quick_fixes_still_match_after_the_message_is_rewritten() {
-        // error_patterns matches Typst's phrasing ("expected closing brace").
+        // The kind is decided from Typst's phrasing ("expected closing brace").
         // Once the headline became plain language it no longer contained those
         // words, so matching on it would have quietly removed every Fix button.
         let errs = parse("error: expected closing brace\n --> /project/main.typ:4:1");
         assert!(
-            is_quick_fixable(&errs[0]),
+            is_quick_fixable(&errs[0], None),
             "should still offer a fix; headline is now {:?}",
             errs[0].message
         );
+    }
+
+    #[test]
+    fn the_text_at_the_fault_decides_which_mistake_it_was() {
+        let errs = parse(
+            "error: unclosed delimiter\n --> /project/main.typ:1:7\n   = range: 1:8\n   = at: $",
+        );
+        assert_eq!(errs[0].kind, Kind::UnclosedDollar);
+        assert!(errs[0].advice.contains("\\$"), "got: {}", errs[0].advice);
     }
 
     #[test]

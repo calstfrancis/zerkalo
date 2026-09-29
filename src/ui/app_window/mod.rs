@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, SystemTime};
@@ -12,7 +12,8 @@ use gtk4::{
 use libadwaita as adw;
 
 use super::command_palette::{default_commands, heading_items, CommandPalette};
-use super::editor_pane::EditorPane;
+use super::diagnostics_model::DiagMark;
+use super::editor_pane::{EditorPane, FixOutcome};
 use super::error_panel::{parse_typst_errors, ErrorPanel, Severity};
 use super::file_tree::FileTree;
 use super::help_window::HelpWindow;
@@ -54,6 +55,9 @@ use import::{
     IMPORT_FORMATS,
 };
 use startup::{wire_file_watcher, wire_pane_persistence, PanePersistCtx, WatcherCtx};
+
+/// A new problem waits this long after the last keystroke before it is shown, so half-typed code isn't flagged mid-thought.
+const ERROR_GRACE: Duration = Duration::from_millis(1500);
 
 /// Menu buttons the command palette forwards to, so every palette entry runs
 /// exactly the handler its hamburger row runs.
@@ -433,6 +437,21 @@ impl AppWindow {
         preview_pane.set_cv_elements_path(effective_cv_elements.clone());
         preview_pane.set_bib_path(effective_bib.clone());
         let error_panel = ErrorPanel::new();
+        {
+            let panel = error_panel.clone();
+            editor_pane.set_on_diag_click(move || {
+                panel.widget().set_visible(true);
+                panel.expand();
+            });
+        }
+        error_panel.set_show_technical(config.show_technical_details);
+        {
+            let cfg = current_config.clone();
+            error_panel.set_on_technical_toggle(move |on| {
+                cfg.borrow_mut().show_technical_details = on;
+                let _ = cfg.borrow().save();
+            });
+        }
         error_panel.widget().set_visible(false);
 
         // ── LSP client ──────────────────────────────────────────────────────
@@ -1403,27 +1422,18 @@ impl AppWindow {
 
         // ── Compile done callback ────────────────────────────────────────────
 
-        // Inline compile-error banner widgets created here so the compile callback can capture them
+        // Quiet pill over the dimmed last-good preview while the document has problems
         let error_banner = Label::new(None);
-        error_banner.add_css_class("error");
-        error_banner.set_wrap(true);
-        error_banner.set_xalign(0.0);
-        error_banner.set_margin_start(8);
-        error_banner.set_margin_end(8);
-        error_banner.set_margin_top(4);
-        error_banner.set_margin_bottom(4);
+        error_banner.add_css_class("preview-paused");
+        error_banner.set_halign(gtk4::Align::Center);
+        error_banner.set_margin_top(6);
+        error_banner.set_margin_bottom(2);
         error_banner.set_visible(false);
-        let error_banner_scroll = gtk4::ScrolledWindow::new();
-        error_banner_scroll.set_child(Some(&error_banner));
-        error_banner_scroll.set_max_content_height(72);
-        error_banner_scroll.set_propagate_natural_height(true);
-        error_banner_scroll.set_visible(false);
         // file_tree holder: filled after FileTree is constructed below
         let file_tree_holder: Rc<RefCell<Option<super::file_tree::FileTree>>> =
             Rc::new(RefCell::new(None));
 
-        // LSP dedup: when LSP has live diagnostics, suppress compile-stderr errors
-        let lsp_has_diags: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
+        let problems = super::problems::Problems::new(error_panel.clone(), editor_pane.clone());
 
         let compile_progress = gtk4::ProgressBar::new();
         compile_progress.add_css_class("compile-progress");
@@ -1439,13 +1449,13 @@ impl AppWindow {
         let root_for_compile = project_root.clone();
         let popout_pane_for_compile = popout_pane.clone();
         let dep_graph_for_compile = dep_graph.clone();
-        let lsp_diags_for_compile = lsp_has_diags.clone();
-        let error_banner_for_compile = error_banner_scroll.clone();
+        let problems_for_compile = problems.clone();
         let error_banner_lbl_for_compile = error_banner.clone();
+        let preview_for_compile = preview_pane.clone();
+        let problem_gen_for_compile: Rc<Cell<u64>> = Rc::new(Cell::new(0));
         let _file_tree_holder_for_compile = file_tree_holder.clone();
         let toast_for_compile = toast_overlay.clone();
         let has_errors_for_compile = has_compile_errors.clone();
-        let window_for_compile = window.clone();
 
         let compile_rev_for_start = compile_rev.clone();
         let compile_bar_for_start = compile_progress.clone();
@@ -1486,44 +1496,24 @@ impl AppWindow {
         preview_pane.set_on_compile_done(move |result, warnings| {
             compile_btn_for_done.remove_css_class("compiling-pulse");
             compile_rev_for_done.set_reveal_child(false);
+            problem_gen_for_compile.set(problem_gen_for_compile.get() + 1);
             match &result {
                 None => {
                     let had_errors = *has_errors_for_compile.borrow();
                     *has_errors_for_compile.borrow_mut() = false;
-                    error_panel_for_compile.clear();
-                    editor_for_diag.clear_diagnostic_marks();
-                    editor_for_diag.clear_error_marks();
-                    error_banner_for_compile.set_visible(false);
                     error_banner_lbl_for_compile.set_visible(false);
+                    preview_for_compile.set_stale(false);
                     // A clean compile can still have warnings — deprecations,
-                    // unused imports. They go through the same panel as errors
-                    // rather than being dropped, but never raise a banner or a
-                    // toast, since nothing is broken.
+                    // unused imports. They are quiet notes: counted in the status
+                    // bar and listed in the panel on request, never opened by
+                    // themselves, and never a banner, toast or title change.
                     let warns = if warnings.is_empty() {
                         Vec::new()
                     } else {
                         parse_typst_errors(&warnings, &root_for_compile)
                     };
-                    if warns.is_empty() {
-                        error_panel_for_compile.widget().set_visible(false);
-                        editor_for_diag.set_diag_summary(0, 0);
-                        window_for_compile.set_title(Some("Zerkalo"));
-                    } else {
-                        let diags: Vec<(std::path::PathBuf, u32, bool, String)> = warns
-                            .iter()
-                            .map(|w| (w.file.clone(), w.line, false, w.message.clone()))
-                            .collect();
-                        editor_for_diag.mark_diagnostics(&diags);
-                        editor_for_diag.set_diag_summary(0, warns.len() as u32);
-                        window_for_compile.set_title(Some(&format!(
-                            "Zerkalo ({} warning{})",
-                            warns.len(),
-                            if warns.len() == 1 { "" } else { "s" }
-                        )));
-                        error_panel_for_compile.show_compile_errors(warns);
-                        error_panel_for_compile.set_build_log(&warnings);
-                        error_panel_for_compile.widget().set_visible(true);
-                    }
+                    problems_for_compile.set_compile(warns);
+                    error_panel_for_compile.set_build_log(&warnings);
                     // Only show success toast when recovering from errors
                     if had_errors {
                         let t = adw::Toast::new("Compiled successfully");
@@ -1532,69 +1522,46 @@ impl AppWindow {
                     }
                 }
                 Some(stderr) => {
-                    *has_errors_for_compile.borrow_mut() = true;
-                    let already_visible = error_banner_for_compile.is_visible();
-                    let first_line = stderr.lines().next().unwrap_or("Compile error").to_string();
-                    error_banner_lbl_for_compile.set_text(&first_line);
-                    error_banner_lbl_for_compile.set_visible(true);
-                    error_banner_for_compile.set_visible(true);
-                    if already_visible {
-                        error_banner_lbl_for_compile.add_css_class("shake-banner");
-                        let lbl_shake = error_banner_lbl_for_compile.clone();
-                        glib::timeout_add_local_once(Duration::from_millis(600), move || {
-                            lbl_shake.remove_css_class("shake-banner");
+                    let errors = parse_typst_errors(stderr, &root_for_compile);
+                    let stderr = stderr.clone();
+                    let show = {
+                        let problems = problems_for_compile.clone();
+                        let error_panel = error_panel_for_compile.clone();
+                        let pill = error_banner_lbl_for_compile.clone();
+                        let preview = preview_for_compile.clone();
+                        let has_errors = has_errors_for_compile.clone();
+                        move || {
+                            *has_errors.borrow_mut() = true;
+                            let err_count = errors
+                                .iter()
+                                .filter(|e| matches!(e.severity, Severity::Error))
+                                .count();
+                            let paused = err_count.max(1);
+                            pill.set_text(&format!(
+                                "Preview paused \u{2014} {paused} problem{}",
+                                if paused == 1 { "" } else { "s" }
+                            ));
+                            pill.set_visible(true);
+                            preview.set_stale(true);
+                            problems.set_compile(errors);
+                            error_panel.set_build_log(&stderr);
+                        }
+                    };
+                    let wait = editor_for_diag
+                        .since_last_edit()
+                        .map(|d| ERROR_GRACE.saturating_sub(d))
+                        .unwrap_or_default();
+                    if wait.is_zero() {
+                        show();
+                    } else {
+                        let gen = problem_gen_for_compile.clone();
+                        let my_gen = gen.get();
+                        glib::timeout_add_local_once(wait, move || {
+                            if gen.get() == my_gen {
+                                show();
+                            }
                         });
                     }
-                    let t = adw::Toast::new("Compile error — see panel");
-                    t.set_timeout(3);
-                    toast_for_compile.add_toast(t);
-                    // If LSP is providing diagnostics, skip showing compile stderr
-                    if *lsp_diags_for_compile.borrow() {
-                        dep_graph_for_compile.refresh(None);
-                        if let Some(pane) = popout_pane_for_compile.borrow().as_ref() {
-                            pane.refresh_display();
-                        }
-                        return;
-                    }
-                    let errors = parse_typst_errors(stderr, &root_for_compile);
-                    let err_count = errors
-                        .iter()
-                        .filter(|e| matches!(e.severity, Severity::Error))
-                        .count();
-                    let warn_count = errors.len() - err_count;
-                    let diags: Vec<(std::path::PathBuf, u32, bool, String)> = errors
-                        .iter()
-                        .map(|e| {
-                            (
-                                e.file.clone(),
-                                e.line,
-                                matches!(e.severity, Severity::Error),
-                                e.message.clone(),
-                            )
-                        })
-                        .collect();
-                    editor_for_diag.mark_diagnostics(&diags);
-                    let error_lines: Vec<(std::path::PathBuf, u32)> = errors
-                        .iter()
-                        .filter(|e| matches!(e.severity, Severity::Error))
-                        .map(|e| (e.file.clone(), e.line))
-                        .collect();
-                    editor_for_diag.mark_error_lines(&error_lines);
-                    editor_for_diag.set_diag_summary(err_count as u32, warn_count as u32);
-                    // Update window title with error count
-                    let title = match (err_count, warn_count) {
-                        (e, 0) => format!("Zerkalo ({e} error{})", if e == 1 { "" } else { "s" }),
-                        (0, w) => format!("Zerkalo ({w} warning{})", if w == 1 { "" } else { "s" }),
-                        (e, w) => format!(
-                            "Zerkalo ({e} error{}, {w} warning{})",
-                            if e == 1 { "" } else { "s" },
-                            if w == 1 { "" } else { "s" }
-                        ),
-                    };
-                    window_for_compile.set_title(Some(&title));
-                    error_panel_for_compile.show_compile_errors(errors);
-                    error_panel_for_compile.set_build_log(stderr);
-                    error_panel_for_compile.widget().set_visible(true);
                 }
             }
             dep_graph_for_compile.refresh(None);
@@ -1631,20 +1598,43 @@ impl AppWindow {
                     editor_for_src.line_text(path, line)
                 });
             }
-            error_panel.set_on_try_fix(move |path, line, message| {
-                let Some(content) = editor_for_fix.get_active_content() else {
-                    return;
-                };
-                let Some(fix) = crate::error_patterns::match_fix(&message) else {
-                    return;
-                };
-                let Some(fix_fn) = fix.fix_fn else { return };
-                let line_idx = (line as usize).saturating_sub(1);
-                if let Some(patched) = fix_fn(&content, line_idx) {
-                    editor_for_fix.set_active_content_undoable(&patched);
-                }
-                let _ = path;
-            });
+            let fix_handler: Rc<dyn Fn(DiagMark)> = {
+                let editor = editor_for_fix.clone();
+                let toasts = toast_overlay.clone();
+                Rc::new(move |mark: DiagMark| {
+                    // The problem may be in a file that isn't the active tab, or
+                    // isn't open at all: fix that file, not whatever is in front.
+                    if !editor.state_has_file(&mark.file) {
+                        if let Ok(content) = std::fs::read_to_string(&mark.file) {
+                            editor.open_file(mark.file.clone(), &content);
+                        }
+                    }
+                    match editor.apply_fix(&mark) {
+                        FixOutcome::Fixed => {}
+                        FixOutcome::NotApplicable => {
+                            toasts.add_toast(adw::Toast::new(
+                                "That part of the document has changed, so the fix no longer fits.",
+                            ));
+                        }
+                        FixOutcome::DidNotHelp => {
+                            let toast = adw::Toast::new("That didn't fix it.");
+                            toast.set_button_label(Some("Undo"));
+                            let editor = editor.clone();
+                            let file = mark.file.clone();
+                            toast.connect_button_clicked(move |_| editor.undo_in(&file));
+                            toasts.add_toast(toast);
+                        }
+                    }
+                })
+            };
+            {
+                let handler = fix_handler.clone();
+                error_panel.set_on_try_fix(move |mark| handler(mark));
+            }
+            {
+                let handler = fix_handler.clone();
+                editor_pane.set_on_fix_request(move |mark| handler(mark));
+            }
         }
 
         let start_tour_after_welcome: Rc<RefCell<Option<Box<dyn FnOnce()>>>> =
@@ -1652,7 +1642,6 @@ impl AppWindow {
         wire_startup(&LifecycleCtx {
             window: window.clone(),
             editor_pane: editor_pane.clone(),
-            error_panel: error_panel.clone(),
             toast_overlay: toast_overlay.clone(),
             current_config: current_config.clone(),
             project_root: project_root.clone(),
@@ -1661,7 +1650,7 @@ impl AppWindow {
             sync_badge: sync_badge.clone(),
             menu_new_template_item: menus.menu_new_template_item.clone(),
             lsp_client: lsp_client.clone(),
-            lsp_has_diags: lsp_has_diags.clone(),
+            problems: problems.clone(),
             last_completion_request: last_completion_request.clone(),
             last_edit_instant: last_edit_instant.clone(),
             shown_simple_intro: config.shown_simple_intro,
@@ -1945,7 +1934,7 @@ impl AppWindow {
         preview_container.set_vexpand(true);
         preview_container.append(&Separator::new(Orientation::Horizontal));
         preview_container.append(preview_pane.widget());
-        preview_container.append(&error_banner_scroll);
+        preview_container.append(&error_banner);
         preview_container.append(&Separator::new(Orientation::Horizontal));
         preview_container.append(&preview_toolbar);
 
@@ -2765,6 +2754,17 @@ impl AppWindow {
                     if error_panel_for_key.grab_first_focus() {
                         return glib::Propagation::Stop;
                     }
+                }
+            }
+            // F8 / Shift+F8 — next / previous problem
+            {
+                use gtk4::gdk::Key;
+                if !ctrl
+                    && !alt
+                    && key == Key::F8
+                    && error_panel_for_key.go_to_problem(if shift { -1 } else { 1 })
+                {
+                    return glib::Propagation::Stop;
                 }
             }
             // Ctrl+, — Settings, the desktop-wide convention.

@@ -12,7 +12,8 @@ use gtk4::prelude::*;
 use libadwaita as adw;
 
 use super::super::editor_pane::EditorPane;
-use super::super::error_panel::{humanize, CompileError, ErrorPanel, Severity};
+use super::super::error_panel::{CompileError, Severity};
+use super::ERROR_GRACE;
 use crate::config::Config;
 use crate::lsp::{DiagSeverity, LspClient};
 
@@ -20,7 +21,6 @@ use crate::lsp::{DiagSeverity, LspClient};
 pub(super) struct LifecycleCtx {
     pub(super) window: adw::ApplicationWindow,
     pub(super) editor_pane: EditorPane,
-    pub(super) error_panel: ErrorPanel,
     pub(super) toast_overlay: adw::ToastOverlay,
     pub(super) current_config: Rc<RefCell<Config>>,
     pub(super) project_root: PathBuf,
@@ -32,7 +32,7 @@ pub(super) struct LifecycleCtx {
     /// lands in document creation instead of a blank window.
     pub(super) menu_new_template_item: gtk4::Button,
     pub(super) lsp_client: Rc<RefCell<Option<LspClient>>>,
-    pub(super) lsp_has_diags: Rc<RefCell<bool>>,
+    pub(super) problems: super::super::problems::Problems,
     pub(super) last_completion_request: Rc<RefCell<Option<u64>>>,
     pub(super) last_edit_instant: Rc<RefCell<Option<std::time::Instant>>>,
     /// The config as loaded at startup, for the one-shot intro check.
@@ -360,18 +360,14 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
     // ── LSP: poll for diagnostics + completions + auto-restart ──────────
 
     let lsp_poll = ctx.lsp_client.clone();
-    let error_panel_for_lsp = ctx.error_panel.clone();
     let editor_for_comp_poll = ctx.editor_pane.clone();
     let editor_for_lsp_diag = ctx.editor_pane.clone();
     let editor_for_lsp_status = ctx.editor_pane.clone();
     let last_req_poll = ctx.last_completion_request.clone();
-    let lsp_diags_for_poll = ctx.lsp_has_diags.clone();
-    // Grace-period counter: only clear ctx.lsp_has_diags after 3 consecutive
-    // empty polls (~1.2 s), preventing flicker between a did_change and the
-    // LSP's next diagnostic response.
-    let lsp_empty_polls: Rc<RefCell<u8>> = Rc::new(RefCell::new(0));
+    let problems_for_lsp = ctx.problems.clone();
     glib::timeout_add_local(Duration::from_millis(400), move || {
         // Auto-restart if tinymist crashed
+        let mut restarted = false;
         {
             let mut slot = lsp_poll.borrow_mut();
             if let Some(client) = slot.as_mut() {
@@ -379,6 +375,7 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
                     tracing::warn!("tinymist crashed — restarting");
                     editor_for_lsp_status.set_lsp_status("LSP ↻");
                     let root = client.root.clone();
+                    restarted = true;
                     *slot = LspClient::new(&root);
                     if slot.is_some() {
                         editor_for_lsp_status.set_lsp_status("LSP ●");
@@ -388,6 +385,9 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
                 }
             }
         }
+        if restarted {
+            problems_for_lsp.clear_lsp();
+        }
         // Collect all LSP data in a scoped borrow, then release it before
         // any GTK ops. mark_diagnostics / show_lsp_completions call
         // buffer.create_source_mark / popover.popup, which cascade through
@@ -396,76 +396,50 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
         // panic if the borrow is still held.
         let lsp_data: Option<(Vec<_>, Option<_>)> = {
             let slot = lsp_poll.borrow();
-            slot.as_ref()
-                .map(|client| (client.poll(), client.poll_completion()))
+            slot.as_ref().map(|client| {
+                let typing = editor_for_lsp_diag
+                    .since_last_edit()
+                    .is_some_and(|d| d < ERROR_GRACE);
+                let batches = if typing { Vec::new() } else { client.poll() };
+                (batches, client.poll_completion())
+            })
         };
-        if let Some((raw_diags, completion_result)) = lsp_data {
-            if !raw_diags.is_empty() {
-                *lsp_empty_polls.borrow_mut() = 0;
-                *lsp_diags_for_poll.borrow_mut() = true;
-                let errors: Vec<CompileError> = raw_diags
-                    .into_iter()
-                    .map(|d| {
-                        let severity = match d.severity {
-                            DiagSeverity::Error => Severity::Error,
-                            _ => Severity::Warning,
-                        };
-                        // The language server's diagnostics go through the
-                        // same plain-language pass as the compiler's, so the
-                        // wording doesn't change depending on which one
-                        // happened to report the problem.
-                        let (message, advice) = humanize(&d.message);
-                        CompileError {
-                            file: d.file,
-                            line: d.line,
-                            col: d.col,
-                            message,
-                            advice,
-                            hints: Vec::new(),
-                            technical: d.message,
-                            severity,
-                        }
-                    })
-                    .collect();
-                let diag_marks: Vec<(std::path::PathBuf, u32, bool, String)> = errors
-                    .iter()
-                    .map(|e| {
-                        (
-                            e.file.clone(),
-                            e.line,
-                            matches!(e.severity, Severity::Error),
-                            e.message.clone(),
-                        )
-                    })
-                    .collect();
-                let err_count = diag_marks
-                    .iter()
-                    .filter(|(_, _, is_err, _)| *is_err)
-                    .count() as u32;
-                let warn_count = diag_marks
-                    .iter()
-                    .filter(|(_, _, is_err, _)| !*is_err)
-                    .count() as u32;
-                editor_for_lsp_diag.mark_diagnostics(&diag_marks);
-                let error_lines: Vec<(std::path::PathBuf, u32)> = errors
-                    .iter()
-                    .filter(|e| matches!(e.severity, Severity::Error))
-                    .map(|e| (e.file.clone(), e.line))
-                    .collect();
-                editor_for_lsp_diag.mark_error_lines(&error_lines);
-                error_panel_for_lsp.show_errors(errors);
-                error_panel_for_lsp.widget().set_visible(true);
-                editor_for_lsp_diag.set_diag_summary(err_count, warn_count);
-            } else {
-                let count = {
-                    let mut c = lsp_empty_polls.borrow_mut();
-                    *c = c.saturating_add(1);
-                    *c
-                };
-                if count >= 3 {
-                    *lsp_diags_for_poll.borrow_mut() = false;
-                }
-            }
+        if let Some((batches, completion_result)) = lsp_data {
+            // The language server's diagnostics go through the same
+            // plain-language pass as the compiler's, so the wording doesn't
+            // change depending on which one happened to report the problem.
+            let reports = batches
+                .into_iter()
+                .map(|batch| {
+                    let errors = batch
+                        .diags
+                        .into_iter()
+                        .map(|d| {
+                            let severity = match d.severity {
+                                DiagSeverity::Error => Severity::Error,
+                                _ => Severity::Warning,
+                            };
+                            let diagnosis = crate::diagnostic_catalog::diagnose(&d.message, None);
+                            CompileError {
+                                file: d.file,
+                                line: d.line,
+                                col: d.col,
+                                end_line: d.end_line,
+                                end_col: d.end_col,
+                                origin: None,
+                                message: diagnosis.headline,
+                                advice: diagnosis.advice,
+                                kind: diagnosis.kind,
+                                hints: Vec::new(),
+                                technical: d.message,
+                                severity,
+                            }
+                        })
+                        .collect();
+                    (batch.file, errors)
+                })
+                .collect();
+            problems_for_lsp.set_lsp(reports);
             if let Some((id, items)) = completion_result {
                 if *last_req_poll.borrow() == Some(id) {
                     editor_for_comp_poll.show_lsp_completions(items);

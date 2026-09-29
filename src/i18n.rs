@@ -5,10 +5,10 @@
 //! none is set or parseable — see [`current_locale`].
 //!
 //! Only `locales/en/` exists today, and — as of this writing — only
-//! `settings_dialog.rs` has been migrated to call through [`tr`]/[`tr_args`];
-//! every other UI module still uses literal strings. Adding a second locale
-//! is a `locales/<lang>/` directory plus translating `settings_dialog.ftl`'s
-//! keys; a locale the system reports but Zerkalo has no directory for just
+//! `settings_dialog.rs` and `diagnostic_catalog.rs` have been migrated to call
+//! through [`tr`]/[`tr_args`]; every other UI module still uses literal
+//! strings. Adding a second locale is a `locales/<lang>/` directory plus
+//! translating each `.ftl` file's keys; a locale the system reports but Zerkalo has no directory for just
 //! falls back to `en` via `fallback_language` below, so nothing breaks in
 //! the meantime. Migrating the rest of the UI to [`tr`]/[`tr_args`] is
 //! separate, much larger work not started yet.

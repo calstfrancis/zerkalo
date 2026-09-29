@@ -39,7 +39,7 @@ fn overview_blocks() -> Vec<Block<'static>> {
         Block::Body("Once a template's settings are how you want them, press the save button beside \"Your Templates\" in that dialog to keep them under a name. Saved templates sit under the built-in presets and start a document exactly the way the last one started — the title, date, abstract and keywords are left out, since those belong to a single document rather than to a template."),
         Block::Gap,
         Block::H2("Layout"),
-        Block::Code("Left sidebar   Document outline, symbols, files, refs, history\nEditor         Tabbed, syntax-highlighted Typst editor\nFind bar       Persistent search/replace at editor bottom\nPreview        Live rendered output — use +/− to zoom\nError panel    Compile errors and LSP diagnostics"),
+        Block::Code("Left sidebar   Document outline, symbols, files, refs, history\nEditor         Tabbed, syntax-highlighted Typst editor\nFind bar       Persistent search/replace at editor bottom\nPreview        Live rendered output — use +/− to zoom\nProblems       What went wrong, in plain language"),
         Block::Gap,
         Block::H2("Git sync"),
         Block::Body("Autosave (the \"autosave\" word in the status bar, bold when on) saves your document a few seconds after you stop typing, and whenever you switch to another window or tab, compile, export or quit. Ctrl+S still saves too, and is what adds an entry to Version History."),
@@ -238,7 +238,7 @@ fn shortcuts_blocks() -> Vec<Block<'static>> {
         Block::Gap,
         Block::H2("Editing"),
         Block::CodeOwned(format!(
-            "{save:<20}Save current file\n{find:<20}Find & Replace\n{next_tab:<20}Next tab\n{prev_tab:<20}Previous tab\nCtrl+Left/Right     Word jump (Typst-aware: treats #keyword and @cite as units)\nCtrl+Shift+Up/Down  Jump to previous / next heading in the document\nCtrl+D              Duplicate line or selection\nCtrl+/              Toggle line comment\nCtrl+Enter          Insert page break\nMiddle-click tab    Close tab"
+            "{save:<20}Save current file\n{find:<20}Find & Replace\n{next_tab:<20}Next tab\n{prev_tab:<20}Previous tab\nCtrl+Left/Right     Word jump (Typst-aware: treats #keyword and @cite as units)\nCtrl+Shift+Up/Down  Jump to previous / next heading in the document\nF8 / Shift+F8       Go to the next / previous problem\nCtrl+D              Duplicate line or selection\nCtrl+/              Toggle line comment\nCtrl+Enter          Insert page break\nMiddle-click tab    Close tab"
         )),
         Block::Gap,
         Block::H2("Compiling & Preview"),
@@ -289,13 +289,13 @@ fn faq_blocks() -> Vec<Block<'static>> {
         Block::Body("They only appear while the \"project\" toggle beside the document title is on — and stay hidden if you dismissed them for this project with the ✕. Click \"project\" to bring them back. For a single-file document in the flat work folder there is no root to choose, which is why they start closed."),
         Block::Gap,
         Block::H2("Why is the preview blank?"),
-        Block::Body("Zerkalo has a built-in Typst compiler — no external binary is needed. If the preview is blank, check the error panel at the bottom. The panel shows the file, line number, and a plain-English explanation of the problem."),
+        Block::Body("Zerkalo has a built-in Typst compiler — no external binary is needed. If the preview looks dimmed with a \"Preview paused\" note, the document has a problem: click the problem count at the bottom to open the Problems panel, which shows the file, line number, and a plain-English explanation, with the exact spot underlined in the quoted line. Press F8 (Shift+F8 for back) to step through problems without opening the panel; the ⋯ menu on each problem can copy the details or search the Typst forum. Switch on \"Show technical details\" in that panel to see Typst's exact wording."),
         Block::Gap,
         Block::H2("Changing the style gives a compile error"),
         Block::Body("If you see 'expected string or function' after changing a style, your document may have a conflicting `#show heading` rule outside the template block. Fix it by opening 'Change Document Style' (sidebar button or ≡ → Document Tools) and re-applying your style. That rewrites the formatting section cleanly."),
         Block::Gap,
         Block::H2("The style dropdown doesn't seem to do anything"),
-        Block::Body("For template documents (created with 'New from Template' or imported via File → Import), styles are applied inside the template block. If the heading appearance doesn't change, open the error panel — a compile error is likely preventing the preview from updating. The button label always shows just the style name; it no longer includes the filename."),
+        Block::Body("For template documents (created with 'New from Template' or imported via File → Import), styles are applied inside the template block. If the heading appearance doesn't change, open the Problems panel — a problem is likely preventing the preview from updating. The button label always shows just the style name; it no longer includes the filename."),
         Block::Gap,
         Block::H2("Table of Contents / abstract / keywords not appearing"),
         Block::Body("Use 'Change Document Style' (sidebar button or ≡ → Document Tools → Change Document Style…). Switch to the Sections tab and toggle Table of Contents, Abstract, or Keywords on. Click 'Apply to Current' — Zerkalo will insert or remove those sections in the document body."),
@@ -344,7 +344,7 @@ fn faq_blocks() -> Vec<Block<'static>> {
         Block::Body("Right-click a misspelled word and choose 'Add to Project Dictionary' to save it in `<work_dir>/.zerkalo/dictionary.dic`. This dictionary is project-specific and can be committed to git. 'Add to Dictionary' saves to the global user dictionary at `~/.config/zerkalo/user.dic`."),
         Block::Gap,
         Block::H2("What is the inline error assistant?"),
-        Block::Body("Hover over red-underlined text in the editor to see the error message. For known patterns (missing brace, unknown variable, etc.) a 'Fix It' button applies the correction automatically. The fix patterns live in `src/error_patterns.rs`."),
+        Block::Body("Hover over red-underlined text in the editor to see the error message. For known patterns (missing brace, unknown variable, etc.) a 'Fix It' button applies a small, exact correction — for example putting a backslash in front of a stray $ or @ so it's shown as ordinary text. Fixes undo with Ctrl+Z, and if one doesn't help you're offered Undo. Problem wording and fixes live in `src/diagnostic_catalog.rs` and `locales/en/diagnostics.ftl`."),
     ]
 }
 

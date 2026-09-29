@@ -243,16 +243,12 @@ const GLOBAL_CSS: &str = "\
         opacity: 0.7; \
         background-color: alpha(@accent_color, 0.15); \
     } \
-    @keyframes shake { \
-        0%   { margin-left: 0px; } \
-        20%  { margin-left: -6px; } \
-        40%  { margin-left: 5px; } \
-        60%  { margin-left: -4px; } \
-        80%  { margin-left: 3px; } \
-        100% { margin-left: 0px; } \
+    .preview-stale { \
+        opacity: 0.55; \
     } \
-    .shake-banner { \
-        animation: shake 0.5s ease-in-out; \
+    .preview-paused { \
+        background: alpha(@window_fg_color, 0.08); \
+        border-radius: 999px; padding: 3px 14px; \
     } \
     .doc-title { \
         font-weight: 600; \

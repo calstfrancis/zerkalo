@@ -851,6 +851,7 @@ impl SettingsDialog {
             // for the same config field, which read back correctly but was a
             // duplicate control for one setting.
             let spell_autocorrect_cur = current.spell_autocorrect;
+            let show_technical_details_cur = current.show_technical_details;
             let last_export_format_cur = current.last_export_format;
             let last_export_dir_cur = current.last_export_dir.clone();
             let export_open_after_cur = current.export_open_after;
@@ -955,6 +956,7 @@ impl SettingsDialog {
                     preview_zoom: preview_zoom_cur,
                     spell_enabled: spell_enabled_row.is_active(),
                     spell_autocorrect: spell_autocorrect_cur,
+                    show_technical_details: show_technical_details_cur,
                     spell_languages,
                     editor_line_spacing,
                     typewriter_scrolling: typewriter_row.is_active(),

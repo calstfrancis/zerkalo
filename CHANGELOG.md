@@ -5,6 +5,41 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.37.0] "Clear Glass" — 2026-09-29 — Calmer problems, fixes you can trust
+
+### Changed
+
+- **A problem no longer takes over the screen.** When the document has a problem, the preview keeps showing your last good version, dimmed, with a small "Preview paused — 1 problem" note above it, instead of turning into a red wall of text. The "Compile error — see panel" pop-up, the shaking banner, the red line background and the error count in the window title are gone. What's left is the underline in the text, the count at the bottom, and the note over the preview.
+- **Zerkalo waits for you to finish the thought.** A new problem is only shown about a second and a half after you stop typing, so half-typed code isn't flagged while you're still writing it.
+- **Warnings are quiet "notes".** They're counted at the bottom ("2 notes") and never open the panel, pop up a message or change the window title. Click the count to see them.
+- **The panel is called "Problems" everywhere**, and says "problems" and "notes" instead of "errors" and "warnings". The filter box only appears when there are more than eight items. The Build Log no longer opens by itself.
+
+- **Underlines cover exactly what's wrong**, not the whole line. Columns are counted in characters, so lines with accents or non-Latin text are underlined in the right place.
+- **A problem inside a template or package points at your own line.** If the trouble is in code that came from a package, Zerkalo shows the line where you used it, with a note saying the problem is inside that package, and doesn't offer an automatic fix.
+- **One list of problems.** Zerkalo's own checks and the language server's are merged into a single list, so they no longer overwrite each other, a note can't hide a real problem, and the same mistake isn't listed twice. The panel only re-opens when the set of problems actually changes.
+
+- **Each problem is a simpler card.** A plain headline, the line it happened on with the exact spot underlined, any advice, and one main button — "Fix" when Zerkalo can fix it, otherwise "Show me". Copy, "Search the Typst forum" and (when there's a fix) "Show me" moved into a ⋯ menu. With more than one problem, the panel suggests starting with the first. Icons are now the system's symbolic icons instead of ✗ ⚠ 💡.
+
+- **Common slips are explained as what they are.** A price like "$5" (a lone $ opens a formula), a "*" or "_" with no partner, an email address like name@example.com (an @ starts a reference), a "#" with nothing after it, and an unclosed "<label" each get their own plain explanation, including how to write the character literally with a backslash. An unclosed bracket now names the one it's waiting for.
+- **Better wording when Zerkalo has nothing specific to say.** Instead of echoing the raw message as the headline, it says it can't make sense of that part, and quotes the exact words in the advice. Headlines say "Zerkalo", never "the compiler" or "Typst", and all problem wording now lives in one file, `locales/en/diagnostics.ftl`, ready for translation.
+
+- **Fixes are small, exact edits you can trust.** A fix now changes only the characters it needs, at the spot Zerkalo reported, and undoes in one step. New fixes: a stray `$`, `*`, `_`, `<`, `@` or `#` can be shown as ordinary text (Zerkalo puts the backslash in for you), and a "#name" Zerkalo doesn't know can be shown as ordinary text instead of being replaced with an invented `#let name = ""`. Closing a bracket goes at the end of the line where it was opened, and "the document ends in the middle of something" asks Typst's own parser which brackets are still open, so brackets inside quotes and comments aren't miscounted. If a fix doesn't help, a "That didn't fix it" message offers Undo.
+
+### Added
+
+- **F8 / Shift+F8** go to the next / previous problem (wrapping round), with or without the panel open.
+- **"Show technical details"** in the Problems panel header. Off by default; turn it on to see the exact wording Typst used (handy when searching the Typst forum) and the full build log. Your choice is remembered.
+
+### Fixed
+
+- **"Fix" in the Problems panel patched the wrong file** when the problem was in a file other than the one you had open. It now opens the right file and fixes it there.
+- **"Fix It" on hover never appeared**, because it looked for the fix using the plain-language wording. It also no longer rewrites the whole document (which lost your cursor position and scroll); it changes only the characters it needs to, and undoes in one step.
+- **Hovering a problem in a multi-file project could show another file's problem** when both were on the same line number.
+- **Underline colours follow the theme** instead of being fixed red and amber.
+- The location now reads "Line 12 of chapter-two.typ" — the column number used to follow the file name and look like a second line number.
+
+---
+
 ## [0.36.0] "Tempered Glass" — 2026-09-29 — Autosave, PDF import that works
 
 ### Added

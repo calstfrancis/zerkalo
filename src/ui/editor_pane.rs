@@ -17,6 +17,7 @@ use sourceview5::prelude::*;
 use sourceview5::{Buffer, LanguageManager, MarkAttributes, StyleSchemeManager, View};
 
 use super::bib_popup::{BibPopup, PopupEntry, PopupSource};
+use super::diagnostics_model::DiagMark;
 use super::find_bar::FindBar;
 use super::font_manager::FontManager;
 use super::lsp_popup::LspPopup;
@@ -183,6 +184,16 @@ struct EditorState {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
+/// What happened when a one-click fix was applied.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FixOutcome {
+    Fixed,
+    /// The edit went in, but the file still has as many syntax problems as before.
+    DidNotHelp,
+    /// The fix had nothing to do at that spot (the text has moved on).
+    NotApplicable,
+}
+
 #[derive(Clone)]
 pub struct EditorPane {
     outer: GtkBox,
@@ -220,7 +231,11 @@ pub struct EditorPane {
     goal_celebrating: Rc<Cell<bool>>,
     lsp_status_label: Label,
     diag_label: Label,
-    last_diagnostics: Rc<RefCell<Vec<(PathBuf, u32, bool, String)>>>,
+    diag_btn: Button,
+    on_diag_click: Rc<RefCell<Option<Box<dyn Fn()>>>>,
+    on_fix_request: Rc<RefCell<Option<Box<dyn Fn(DiagMark)>>>>,
+    last_edit: Rc<Cell<Option<std::time::Instant>>>,
+    last_diagnostics: Rc<RefCell<Vec<DiagMark>>>,
     cursor_label: Label,
     section_wc_label: Label,
     breadcrumb_label: Label,
@@ -545,9 +560,22 @@ impl EditorPane {
         let diag_label = Label::new(None);
         diag_label.add_css_class("dim-label");
         diag_label.add_css_class("caption");
-        diag_label.set_margin_start(8);
-        diag_label.set_margin_top(3);
-        diag_label.set_margin_bottom(3);
+        let diag_btn = Button::new();
+        diag_btn.set_child(Some(&diag_label));
+        diag_btn.add_css_class("flat");
+        diag_btn.add_css_class("status-toggle");
+        diag_btn.set_margin_start(8);
+        diag_btn.set_tooltip_text(Some("Show what Zerkalo found"));
+        diag_btn.set_visible(false);
+        let on_diag_click: Rc<RefCell<Option<Box<dyn Fn()>>>> = Rc::new(RefCell::new(None));
+        {
+            let cb = on_diag_click.clone();
+            diag_btn.connect_clicked(move |_| {
+                if let Some(f) = cb.borrow().as_ref() {
+                    f();
+                }
+            });
+        }
 
         let left_spacer = GtkBox::new(Orientation::Horizontal, 0);
         left_spacer.set_hexpand(true);
@@ -703,7 +731,7 @@ impl EditorPane {
         status_bar.append(&search_btn);
         status_bar.append(&sb_sep1);
         status_bar.append(&cursor_label);
-        status_bar.append(&diag_label);
+        status_bar.append(&diag_btn);
         status_bar.append(&sep1);
         status_bar.append(&wc_btn);
         status_bar.append(&sep2);
@@ -1569,6 +1597,10 @@ impl EditorPane {
             goal_celebrating,
             lsp_status_label,
             diag_label,
+            diag_btn,
+            on_diag_click,
+            on_fix_request: Rc::new(RefCell::new(None)),
+            last_edit: Rc::new(Cell::new(None)),
             last_diagnostics: Rc::new(RefCell::new(Vec::new())),
             cursor_label,
             section_wc_label,
@@ -2673,9 +2705,9 @@ impl EditorPane {
 
     // ── Inline diagnostic marks ───────────────────────────────────────────────
 
-    /// Apply underline squiggles for the given diagnostics. Each entry is
-    /// (file, 1-based line, is_error, message). Call after compile or LSP diagnostics.
-    pub fn mark_diagnostics(&self, diagnostics: &[(PathBuf, u32, bool, String)]) {
+    /// Underline the exact text at fault for each diagnostic, with a gutter
+    /// mark on its first line. Call after compile or LSP diagnostics.
+    pub fn mark_diagnostics(&self, diagnostics: &[DiagMark]) {
         *self.last_diagnostics.borrow_mut() = diagnostics.to_vec();
         // Collect buffer/widget refs while holding borrow, then drop it before GTK ops.
         // GTK buffer ops (apply_tag, create_source_mark) fire synchronous signals that
@@ -2712,48 +2744,6 @@ impl EditorPane {
             buffer.remove_source_marks(&start, &end, Some("zerkalo-error"));
             buffer.remove_source_marks(&start, &end, Some("zerkalo-warning"));
             diag_dot.set_visible(false);
-        }
-    }
-
-    /// Highlight each (file, 1-based line) with a subtle red paragraph background.
-    /// Applied to every open tab whose file matches, not just the active one, so
-    /// switching to a background tab shows the same highlight the gutter dot promised.
-    pub fn mark_error_lines(&self, lines: &[(PathBuf, u32)]) {
-        let tabs: Vec<(PathBuf, Buffer)> = {
-            let state = self.state.borrow();
-            state
-                .tabs
-                .iter()
-                .map(|(p, t)| (p.clone(), t.buffer.clone()))
-                .collect()
-        };
-        for (path, buffer) in &tabs {
-            let (start, end) = buffer.bounds();
-            ensure_error_line_tag(buffer);
-            buffer.remove_tag_by_name("zerkalo-error-line", &start, &end);
-            for (err_file, line) in lines {
-                if err_file != path {
-                    continue;
-                }
-                let line_idx = (*line as i32).saturating_sub(1);
-                if let Some(line_start) = buffer.iter_at_line(line_idx) {
-                    let mut line_end = line_start;
-                    line_end.forward_to_line_end();
-                    buffer.apply_tag_by_name("zerkalo-error-line", &line_start, &line_end);
-                }
-            }
-        }
-    }
-
-    pub fn clear_error_marks(&self) {
-        let tabs: Vec<Buffer> = {
-            let state = self.state.borrow();
-            state.tabs.values().map(|t| t.buffer.clone()).collect()
-        };
-        for buffer in &tabs {
-            let (start, end) = buffer.bounds();
-            ensure_error_line_tag(buffer);
-            buffer.remove_tag_by_name("zerkalo-error-line", &start, &end);
         }
     }
 
@@ -2993,18 +2983,26 @@ impl EditorPane {
         self.lsp_status_label.set_markup(&markup);
     }
 
-    pub fn set_diag_summary(&self, errors: u32, warnings: u32) {
-        let text = match (errors, warnings) {
+    pub fn set_diag_summary(&self, errors: u32, notes: u32) {
+        let problems = |n: u32| format!("{n} problem{}", if n == 1 { "" } else { "s" });
+        let note = |n: u32| format!("{n} note{}", if n == 1 { "" } else { "s" });
+        let text = match (errors, notes) {
             (0, 0) => String::new(),
-            (e, 0) => format!("{e} error{}", if e == 1 { "" } else { "s" }),
-            (0, w) => format!("{w} warning{}", if w == 1 { "" } else { "s" }),
-            (e, w) => format!(
-                "{e} error{} · {w} warning{}",
-                if e == 1 { "" } else { "s" },
-                if w == 1 { "" } else { "s" },
-            ),
+            (e, 0) => problems(e),
+            (0, n) => note(n),
+            (e, n) => format!("{} · {}", problems(e), note(n)),
         };
         self.diag_label.set_text(&text);
+        self.diag_btn.set_visible(!text.is_empty());
+    }
+
+    pub fn set_on_diag_click(&self, f: impl Fn() + 'static) {
+        *self.on_diag_click.borrow_mut() = Some(Box::new(f));
+    }
+
+    /// Time since the last keystroke in any tab, or None if nothing was typed yet.
+    pub fn since_last_edit(&self) -> Option<Duration> {
+        self.last_edit.get().map(|t| t.elapsed())
     }
 
     pub fn set_spell_enabled(&self, enabled: bool) {
@@ -3577,8 +3575,10 @@ impl EditorPane {
         let active_error_popup: Rc<RefCell<Option<Popover>>> = Rc::new(RefCell::new(None));
         {
             let last_diags = self.last_diagnostics.clone();
+            let on_fix_request = self.on_fix_request.clone();
             let view_hover = view.clone();
             let buf_hover = buffer.clone();
+            let path_hover = path.clone();
             let active_popup = active_error_popup.clone();
 
             let motion = EventControllerMotion::new();
@@ -3623,21 +3623,43 @@ impl EditorPane {
                     return;
                 }
 
-                let full_msg: Option<String> = diags
+                let col_1based = iter.line_offset() as u32 + 1;
+                let on_line = |m: &&DiagMark| m.line == line_1based && m.file == path_hover;
+                let mark: Option<DiagMark> = diags
                     .iter()
-                    .find(|(_, ln, _, _)| *ln == line_1based)
-                    .map(|(_, _, _, msg)| msg.clone());
-                let Some(full_msg) = full_msg else { return };
-                // Show only the headline (first line); the fix description below
-                // already carries the actionable part of any enrichment text.
-                let msg = full_msg.lines().next().unwrap_or(&full_msg).to_string();
+                    .filter(on_line)
+                    .find(|m| {
+                        col_1based >= m.col
+                            && (m.end_line != m.line || col_1based < m.end_col.max(m.col + 1))
+                    })
+                    .or_else(|| diags.iter().find(on_line))
+                    .cloned();
+                let Some(mark) = mark else { return };
+                let msg = mark.headline.clone();
 
                 // Only create a new popup if none is showing (avoid flicker)
                 if active_popup_c.borrow().is_some() {
                     return;
                 }
 
-                let fix = crate::error_patterns::match_fix(&full_msg);
+                let (line_start, line_end) = {
+                    let mut a = buf_hover.iter_at_line(mark.line as i32 - 1).unwrap_or(iter);
+                    let mut b = a;
+                    if !b.ends_line() {
+                        b.forward_to_line_end();
+                    }
+                    a.set_line_offset(0);
+                    (a, b)
+                };
+                let line_text = buf_hover.text(&line_start, &line_end, true).to_string();
+                let fix = crate::diagnostic_catalog::fix_for(mark.kind).filter(|_| {
+                    !mark.in_package
+                        && crate::diagnostic_catalog::fix_applies(
+                            mark.kind,
+                            Some(&line_text),
+                            mark.col,
+                        )
+                });
 
                 let popover = Popover::new();
                 popover.set_parent(&view_hover);
@@ -3666,10 +3688,14 @@ impl EditorPane {
                 msg_lbl.set_max_width_chars(50);
                 vbox.append(&msg_lbl);
 
-                if let Some(fx) = fix {
+                let explanation = match &fix {
+                    Some(fx) => Some(fx.description.clone()),
+                    None => Some(mark.advice.clone()).filter(|a| !a.is_empty()),
+                };
+                if let Some(text) = explanation {
                     vbox.append(&Separator::new(Orientation::Horizontal));
                     let fix_row = GtkBox::new(Orientation::Horizontal, 8);
-                    let fix_desc = Label::new(Some(fx.description));
+                    let fix_desc = Label::new(Some(&text));
                     fix_desc.add_css_class("dim-label");
                     fix_desc.set_xalign(0.0);
                     fix_desc.set_wrap(true);
@@ -3677,24 +3703,17 @@ impl EditorPane {
                     fix_desc.set_hexpand(true);
                     fix_row.append(&fix_desc);
 
-                    if let Some(fix_fn) = fx.fix_fn {
+                    if fix.is_some() {
                         let fix_btn = Button::with_label("Fix It");
                         fix_btn.add_css_class("suggested-action");
-                        let buf_fix = buf_hover.clone();
-                        let line_fix = iter.line() as usize;
+                        let request = on_fix_request.clone();
+                        let mark_fix = mark.clone();
                         let pop_fix = popover.clone();
                         fix_btn.connect_clicked(move |_| {
-                            let (s, e) = buf_fix.bounds();
-                            let text = buf_fix.text(&s, &e, true).to_string();
-                            if let Some(patched) = fix_fn(&text, line_fix) {
-                                buf_fix.begin_user_action();
-                                let mut start = buf_fix.start_iter();
-                                let mut end = buf_fix.end_iter();
-                                buf_fix.delete(&mut start, &mut end);
-                                buf_fix.insert(&mut start, &patched);
-                                buf_fix.end_user_action();
-                            }
                             pop_fix.popdown();
+                            if let Some(f) = request.borrow().as_ref() {
+                                f(mark_fix.clone());
+                            }
                         });
                         fix_row.append(&fix_btn);
                     }
@@ -4074,6 +4093,58 @@ impl EditorPane {
         }
     }
 
+    /// Applies the one-click fix for `mark` to the buffer open for its file
+    /// (not whichever tab is active) as one undoable edit that touches only the
+    /// characters that change, so the cursor, scroll position and marks
+    /// elsewhere survive.
+    pub fn apply_fix(&self, mark: &DiagMark) -> FixOutcome {
+        use crate::diagnostic_catalog::{fix_for, fix_helped, Site};
+        let buffer = {
+            let state = self.state.borrow();
+            match state.tabs.get(&mark.file) {
+                Some(t) => t.buffer.clone(),
+                None => return FixOutcome::NotApplicable,
+            }
+        };
+        let Some(fix) = fix_for(mark.kind) else {
+            return FixOutcome::NotApplicable;
+        };
+        let (s, e) = buffer.bounds();
+        let before = buffer.text(&s, &e, true).to_string();
+        let site = Site::new(&before, mark.line, mark.col);
+        let Some(edit) = (fix.apply)(&site) else {
+            return FixOutcome::NotApplicable;
+        };
+        let after = edit.apply_to(&before);
+        if after == before {
+            return FixOutcome::NotApplicable;
+        }
+        apply_edit(&buffer, &edit);
+        let sm = *self.simple_mode.borrow();
+        apply_simple_mode_tag(&buffer, sm);
+        if fix_helped(mark.kind, &before, &after) {
+            FixOutcome::Fixed
+        } else {
+            FixOutcome::DidNotHelp
+        }
+    }
+
+    /// Undoes the last edit in the buffer open for `path`.
+    pub fn undo_in(&self, path: &std::path::Path) {
+        let buffer = self.state.borrow().tabs.get(path).map(|t| t.buffer.clone());
+        if let Some(buffer) = buffer {
+            if buffer.can_undo() {
+                buffer.undo();
+            }
+        }
+    }
+
+    /// Wired by the window: what to do when the hover popup's Fix It is pressed,
+    /// so it goes through exactly the same path as the Problems panel's Fix.
+    pub fn set_on_fix_request(&self, f: impl Fn(DiagMark) + 'static) {
+        *self.on_fix_request.borrow_mut() = Some(Box::new(f));
+    }
+
     pub fn state_has_file(&self, path: &std::path::Path) -> bool {
         self.state.borrow().tabs.contains_key(path)
     }
@@ -4198,7 +4269,7 @@ impl EditorPane {
         let text = tab.buffer.text(&s, &e, true);
         text.lines()
             .nth((line as usize).checked_sub(1)?)
-            .map(|l| l.trim().to_string())
+            .map(str::to_string)
     }
 
     /// Whether the tab for `path` has unsaved modifications.
@@ -4701,38 +4772,101 @@ fn mark_diagnostics_for_tab(
     path: &Path,
     buffer: &Buffer,
     diag_dot: &Label,
-    diagnostics: &[(PathBuf, u32, bool, String)],
+    diagnostics: &[DiagMark],
 ) {
     let (buf_start, buf_end) = buffer.bounds();
     ensure_diag_tags(buffer);
+    refresh_diag_colors(buffer, diag_dot);
     buffer.remove_tag_by_name("zerkalo-diag-error", &buf_start, &buf_end);
     buffer.remove_tag_by_name("zerkalo-diag-warning", &buf_start, &buf_end);
     buffer.remove_source_marks(&buf_start, &buf_end, Some("zerkalo-error"));
     buffer.remove_source_marks(&buf_start, &buf_end, Some("zerkalo-warning"));
-    let has_errors = diagnostics
-        .iter()
-        .any(|(f, _, is_err, _)| f == path && *is_err);
+    let has_errors = diagnostics.iter().any(|m| m.file == path && m.is_error);
     diag_dot.set_visible(has_errors);
-    for (err_file, err_line, is_error, _msg) in diagnostics {
-        if err_file != path {
+    for m in diagnostics.iter().filter(|m| m.file == path) {
+        let line_idx = m.line.saturating_sub(1) as i32;
+        let Some(line_start) = buffer.iter_at_line(line_idx) else {
             continue;
-        }
-        let line_idx = err_line.saturating_sub(1) as i32;
-        if let Some(line_start) = buffer.iter_at_line(line_idx) {
-            let mut line_end = line_start;
+        };
+        let mut line_end = line_start;
+        if !line_end.ends_line() {
             line_end.forward_to_line_end();
-            let tag = if *is_error {
-                "zerkalo-diag-error"
-            } else {
-                "zerkalo-diag-warning"
-            };
-            buffer.apply_tag_by_name(tag, &line_start, &line_end);
-            let category = if *is_error {
-                "zerkalo-error"
-            } else {
-                "zerkalo-warning"
-            };
-            buffer.create_source_mark(None, category, &line_start);
+        }
+        let (from, to) = diag_span(&line_start, &line_end, m);
+        let tag = if m.is_error {
+            "zerkalo-diag-error"
+        } else {
+            "zerkalo-diag-warning"
+        };
+        buffer.apply_tag_by_name(tag, &from, &to);
+        let category = if m.is_error {
+            "zerkalo-error"
+        } else {
+            "zerkalo-warning"
+        };
+        buffer.create_source_mark(None, category, &line_start);
+    }
+}
+
+/// The characters to underline: the reported range, cut off at the end of its
+/// first line so a diagnostic on a whole multi-line block doesn't underline the
+/// block. A report with no extent (or none we could place) falls back to the
+/// whole line, as every diagnostic used to.
+fn diag_span(
+    line_start: &gtk4::TextIter,
+    line_end: &gtk4::TextIter,
+    m: &DiagMark,
+) -> (gtk4::TextIter, gtk4::TextIter) {
+    let line_len = line_end.line_offset();
+    let start = m.col.saturating_sub(1) as i32;
+    let end = if m.end_line == m.line {
+        m.end_col.saturating_sub(1) as i32
+    } else {
+        line_len
+    }
+    .min(line_len);
+    if end <= start || start >= line_len {
+        return (*line_start, *line_end);
+    }
+    let mut from = *line_start;
+    from.set_line_offset(start);
+    let mut to = *line_start;
+    to.set_line_offset(end);
+    (from, to)
+}
+
+/// Applies one edit to `buffer` as a single undo step. Offsets are characters,
+/// which is what `GtkTextBuffer` counts in.
+fn apply_edit(buffer: &Buffer, edit: &crate::diagnostic_catalog::Edit) {
+    buffer.begin_user_action();
+    if edit.end > edit.start {
+        let mut start = buffer.iter_at_offset(edit.start as i32);
+        let mut end = buffer.iter_at_offset(edit.end as i32);
+        buffer.delete(&mut start, &mut end);
+    }
+    if !edit.text.is_empty() {
+        let mut at = buffer.iter_at_offset(edit.start as i32);
+        buffer.insert(&mut at, &edit.text);
+    }
+    buffer.end_user_action();
+}
+
+/// Underline colours come from the theme's named error/warning colours, looked
+/// up each time the marks are re-applied so a light/dark or accent change is
+/// picked up on the next diagnostics pass instead of being frozen at creation.
+fn refresh_diag_colors(buffer: &Buffer, widget: &Label) {
+    let table = buffer.tag_table();
+    for (tag_name, color_name) in [
+        ("zerkalo-diag-error", "error_color"),
+        ("zerkalo-diag-warning", "warning_color"),
+    ] {
+        if let (Some(tag), Some((r, g, b))) = (
+            table.lookup(tag_name),
+            crate::ui::theme::rgb(widget, color_name),
+        ) {
+            tag.set_underline_rgba(Some(&gtk4::gdk::RGBA::new(
+                r as f32, g as f32, b as f32, 1.0,
+            )));
         }
     }
 }
@@ -4763,15 +4897,6 @@ fn ensure_search_tag(buffer: &Buffer) {
         // Newly-added tags already get top priority, but make it explicit so
         // it stays visible even if another tag is added after this one later.
         tag.set_priority(table.size() - 1);
-    }
-}
-
-fn ensure_error_line_tag(buffer: &Buffer) {
-    let table = buffer.tag_table();
-    if table.lookup("zerkalo-error-line").is_none() {
-        let tag = TextTag::new(Some("zerkalo-error-line"));
-        tag.set_paragraph_background_rgba(Some(&gtk4::gdk::RGBA::new(0.86, 0.15, 0.15, 0.10)));
-        table.add(&tag);
     }
 }
 
@@ -7607,11 +7732,13 @@ impl EditorPane {
         // SourceId-based debounce timers. Each keystroke cancels the previous
         // pending timer before scheduling a new one, so timers never accumulate
         // in the event loop regardless of typing speed.
+        let last_edit_for_change = self.last_edit.clone();
         let wc_timer: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
         let comment_timer: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
         let comment_spans: Rc<RefCell<Vec<(i32, i32)>>> = Rc::new(RefCell::new(Vec::new()));
         let proj_wc_timer: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
         tab.buffer.connect_changed(move |buf| {
+            last_edit_for_change.set(Some(std::time::Instant::now()));
             let newly_modified = {
                 let mut state = state_for_change.borrow_mut();
                 if let Some(tab) = state.tabs.get_mut(&path_for_change) {

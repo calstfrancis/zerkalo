@@ -142,6 +142,8 @@ pub struct Config {
     pub spell_enabled: bool,
     #[serde(default)]
     pub spell_autocorrect: bool,
+    #[serde(default)]
+    pub show_technical_details: bool,
     #[serde(default = "default_spell_languages")]
     pub spell_languages: Vec<String>,
     #[serde(default = "default_line_spacing")]
@@ -347,6 +349,7 @@ impl Default for Config {
             preview_zoom: 1.0,
             spell_enabled: true,
             spell_autocorrect: false,
+            show_technical_details: false,
             spell_languages: default_spell_languages(),
             editor_line_spacing: default_line_spacing(),
             typewriter_scrolling: false,
