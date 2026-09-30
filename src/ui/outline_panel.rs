@@ -19,18 +19,10 @@ pub struct OutlinePanel {
     on_jump: JumpCb,
     on_symbol_insert: InsertCb,
     on_project_mode: ProjectModeCb,
-    // `stack`/`outline_btn`/`symbols_btn` back an outline-vs-symbols mode toggle (`set_mode`
-    // below) that's fully implemented but never called from anywhere in the UI — no button or
-    // shortcut currently switches modes. Kept rather than deleted since it's a coherent, working
-    // feature one call site away from being live, not abandoned scaffolding.
-    #[allow(dead_code)]
     stack: Stack,
-    // See `stack`'s comment above.
-    #[allow(dead_code)]
     outline_btn: ToggleButton,
-    // See `stack`'s comment above.
-    #[allow(dead_code)]
     symbols_btn: ToggleButton,
+    files_btn: ToggleButton,
     /// (file_path, line_number) for each outline row — supports single and multi-file.
     row_positions: Rc<RefCell<Vec<(PathBuf, u32)>>>,
     max_depth: Rc<Cell<u32>>,
@@ -78,7 +70,18 @@ impl OutlinePanel {
         symbols_btn.set_hexpand(true);
         symbols_btn.set_group(Some(&outline_btn));
 
+        let files_btn = ToggleButton::new();
+        {
+            let img = Image::from_icon_name("folder-documents-symbolic");
+            img.set_pixel_size(20);
+            files_btn.set_child(Some(&img));
+        }
+        files_btn.set_tooltip_text(Some("Project files"));
+        files_btn.set_hexpand(true);
+        files_btn.set_group(Some(&outline_btn));
+
         seg_box.append(&outline_btn);
+        seg_box.append(&files_btn);
         seg_box.append(&symbols_btn);
 
         let outline_hdr = crate::ui::styles::fond_section_header("Outline", "fond-accent-outline");
@@ -242,23 +245,51 @@ impl OutlinePanel {
         stack.add_named(&sym_notebook, Some("symbols"));
         stack.set_visible_child_name("outline");
 
-        // Wire segmented control → stack
-        {
+        // Wire segmented control → stack. Count, project-mode and depth only
+        // mean something for the outline, so the header sheds them elsewhere
+        // and its title says which page is showing.
+        let outline_only: Vec<gtk4::Widget> = vec![
+            outline_count.clone().upcast(),
+            project_btn.clone().upcast(),
+            depth_btn.clone().upcast(),
+        ];
+        let title_lbl = outline_hdr
+            .first_child()
+            .and_then(|dot| dot.next_sibling())
+            .and_downcast::<Label>();
+        let show_page = {
             let stack_c = stack.clone();
+            move |name: &str, title: &str, outline: bool| {
+                stack_c.set_visible_child_name(name);
+                if let Some(l) = &title_lbl {
+                    l.set_text(title);
+                }
+                for w in &outline_only {
+                    w.set_visible(outline);
+                }
+            }
+        };
+        {
+            let show = show_page.clone();
+            files_btn.connect_toggled(move |btn| {
+                if btn.is_active() {
+                    show("files", "Files", false);
+                }
+            });
+        }
+        {
+            let show = show_page.clone();
             outline_btn.connect_toggled(move |btn| {
                 if btn.is_active() {
-                    stack_c.set_visible_child_name("outline");
+                    show("outline", "Outline", true);
                 }
             });
         }
-        {
-            let stack_c = stack.clone();
-            symbols_btn.connect_toggled(move |btn| {
-                if btn.is_active() {
-                    stack_c.set_visible_child_name("symbols");
-                }
-            });
-        }
+        symbols_btn.connect_toggled(move |btn| {
+            if btn.is_active() {
+                show_page("symbols", "Symbols", false);
+            }
+        });
 
         widget.append(&stack);
 
@@ -316,6 +347,7 @@ impl OutlinePanel {
             stack,
             outline_btn,
             symbols_btn,
+            files_btn,
             row_positions,
             max_depth,
             cached_files: Rc::new(RefCell::new(Vec::new())),
@@ -356,15 +388,22 @@ impl OutlinePanel {
         panel
     }
 
-    // See the `stack` field's comment above — the mode toggle this drives has no caller yet.
-    #[allow(dead_code)]
     pub fn set_mode(&self, mode: &str) {
         self.stack.set_visible_child_name(mode);
         match mode {
             "outline" => self.outline_btn.set_active(true),
             "symbols" => self.symbols_btn.set_active(true),
+            "files" => self.files_btn.set_active(true),
             _ => {}
         }
+    }
+
+    /// Mounts the project's file tree as the third sidebar page.
+    pub fn set_files_page(&self, tree: &impl IsA<gtk4::Widget>) {
+        if let Some(old) = self.stack.child_by_name("files") {
+            self.stack.remove(&old);
+        }
+        self.stack.add_named(tree, Some("files"));
     }
 
     /// Update outline from a single file (single-document mode).

@@ -13,7 +13,7 @@ raw markup dead-end: a live preview pane always shows the real formatting next t
 ### Editor
 | Feature | Detail |
 |---|---|
-| **Multi-file tabs** | Open multiple `.typ` files; modified-indicator dot; red error dot on compile failure; close button |
+| **Multi-file tabs** | A tab bar of equal-width tabs above the editor: drag to reorder, close button on each, right-click for Duplicate / Close / Close Others / Close to the Right / Delete; unsaved dot; error icon on compile failure; project file tree as a sidebar page |
 | **Syntax highlighting** | Full Typst grammar via GtkSourceView 5 |
 | **Inline completions** | `#` shows the best match dim after the cursor, previewing what will be inserted; Tab accepts, and a compact ranked list joins in after two characters. Backed by [tinymist](https://github.com/Myriad-Dreamin/tinymist) where available |
 | **Built-in snippets** | Academic snippets (figure, table, footnote, bibliography, …) prepended to the LSP popup |

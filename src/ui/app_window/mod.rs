@@ -78,11 +78,6 @@ pub struct AppWindow {
     editor_pane: EditorPane,
     preview_pane: PreviewPane,
     error_panel: ErrorPanel,
-    // Held on the window but never read back via `self.outline_panel` — every interaction with
-    // it happens through the `outline_panel` local variable captured directly into closures during
-    // construction. This struct copy looks redundant but wasn't independently verified safe to
-    // remove; left in place rather than risk it.
-    #[allow(dead_code)]
     outline_panel: OutlinePanel,
     help_overlay: Rc<super::help_overlay::HelpOverlay>,
     tour: Rc<super::tour::Tour>,
@@ -2280,6 +2275,7 @@ impl AppWindow {
             proj_mode_active: proj_mode_active.clone(),
             root_banner: root_banner.clone(),
         });
+        outline_panel.set_files_page(file_tree.widget());
         wire_editor_extras(&EditorExtrasCtx {
             window: window.clone(),
             editor_pane: editor_pane.clone(),
@@ -2652,6 +2648,7 @@ impl AppWindow {
         let sync = self.sync_btn.clone();
         let search = self.search_panel.clone();
         let file_tree = self.file_tree.clone();
+        let outline_panel_f6 = self.outline_panel.clone();
         let kb_auto_compile = self.auto_compile.clone();
         let snapshot_root = self.project_root.clone();
         let toast_for_key = self.toast_overlay.clone();
@@ -2942,6 +2939,7 @@ impl AppWindow {
                     if shift {
                         editor.grab_focus();
                     } else {
+                        outline_panel_f6.set_mode("files");
                         file_tree.grab_focus();
                     }
                     return glib::Propagation::Stop;

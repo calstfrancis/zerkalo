@@ -8,7 +8,7 @@ use adw::prelude::*;
 use gtk4::prelude::*;
 use gtk4::{
     Box as GtkBox, Button, CssProvider, DrawingArea, DropTarget, Entry, EventControllerFocus,
-    EventControllerKey, EventControllerMotion, GestureClick, Label, Notebook, Orientation, Popover,
+    EventControllerKey, EventControllerMotion, GestureClick, Label, Orientation, Popover,
     PropagationPhase, ScrolledWindow, Separator, TextSearchFlags, TextTag, TextWindowType,
     ToggleButton,
 };
@@ -21,6 +21,7 @@ use super::diagnostics_model::DiagMark;
 use super::find_bar::FindBar;
 use super::font_manager::FontManager;
 use super::lsp_popup::LspPopup;
+use super::tab_host::{TabHost, TabMark};
 use crate::bibliography::BibEntry;
 use crate::lsp::CompletionItem;
 
@@ -168,9 +169,8 @@ struct EditorTab {
     // remove_page/etc. need whatever was actually passed to append_page.
     notebook_page: gtk4::Overlay,
     modified: bool,
-    diag_dot: Label,
-    dot_label: Label,
-    tab_box: GtkBox,
+    diag_dot: TabMark,
+    dot_label: TabMark,
     display_name: String,
     lsp_popup: LspPopup,
     ghost_label: Label,
@@ -197,7 +197,7 @@ pub enum FixOutcome {
 #[derive(Clone)]
 pub struct EditorPane {
     outer: GtkBox,
-    notebook: Notebook,
+    notebook: TabHost,
     typewriter_crosshair: DrawingArea,
     typewriter_crosshair_timer: Rc<RefCell<Option<glib::SourceId>>>,
     state: Rc<RefCell<EditorState>>,
@@ -341,12 +341,10 @@ fn set_status_toggle(btn: &Button, label: &Label, text: &str, active: bool) {
 /// with a dozen captures.
 struct TabContext {
     path: PathBuf,
-    display_name: String,
     buffer: Buffer,
     view: View,
     scroll: ScrolledWindow,
-    tab_box: GtkBox,
-    dot_label: Label,
+    dot_label: TabMark,
 }
 
 /// State the `@`/`!`-trigger citation autocomplete produces in `open_file`,
@@ -372,11 +370,7 @@ struct LspAutocomplete {
 
 impl EditorPane {
     pub fn new() -> Self {
-        let notebook = Notebook::new();
-        notebook.set_scrollable(true);
-        notebook.set_hexpand(true);
-        notebook.set_vexpand(true);
-        notebook.set_show_tabs(false);
+        let notebook = TabHost::new();
 
         let state = Rc::new(RefCell::new(EditorState {
             tabs: HashMap::new(),
@@ -751,12 +745,6 @@ impl EditorPane {
         breadcrumb_label.set_xalign(0.0);
         breadcrumb_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
 
-        let tab_dropdown_btn = Button::from_icon_name("pan-down-symbolic");
-        tab_dropdown_btn.add_css_class("flat");
-        tab_dropdown_btn.set_tooltip_text(Some("Open tabs"));
-        tab_dropdown_btn.set_margin_end(4);
-        tab_dropdown_btn.set_valign(gtk4::Align::Center);
-
         let word_wrap_btn = ToggleButton::new();
         word_wrap_btn.set_icon_name("format-justify-left-symbolic");
         word_wrap_btn.add_css_class("flat");
@@ -777,13 +765,12 @@ impl EditorPane {
         breadcrumb_bar.append(&sep);
         breadcrumb_bar.append(&breadcrumb_label);
         breadcrumb_bar.append(&section_wc_label);
-        breadcrumb_bar.append(&tab_dropdown_btn);
         let _ = &word_wrap_btn; // kept for settings sync; not shown in toolbar
 
         let editor_row = GtkBox::new(Orientation::Horizontal, 0);
         editor_row.set_hexpand(true);
         editor_row.set_vexpand(true);
-        editor_row.append(&notebook);
+        editor_row.append(&notebook.view);
 
         let typewriter_crosshair = DrawingArea::new();
         typewriter_crosshair.set_can_target(false);
@@ -1483,6 +1470,7 @@ impl EditorPane {
         outer.append(&Separator::new(Orientation::Horizontal));
         outer.append(&format_bar_container);
         outer.append(&frontmatter_banner);
+        outer.append(&notebook.bar);
         outer.append(&editor_overlay);
         outer.append(find_bar.widget());
         // Note: status_bar is intentionally NOT appended here.
@@ -1533,7 +1521,11 @@ impl EditorPane {
             let ps = on_page_switch.clone();
             let ub = undo_btn.clone();
             let rb = redo_btn.clone();
-            notebook.connect_switch_page(move |nb, _, page_num| {
+            let nb = notebook.clone();
+            notebook.view.connect_selected_page_notify(move |_| {
+                let Some(page_num) = nb.current_page() else {
+                    return;
+                };
                 // Extract content/path and release the state borrow before calling the
                 // page-switch callback, which may call all_tab_texts() → double-borrow panic.
                 let page_data = {
@@ -1770,69 +1762,6 @@ impl EditorPane {
             });
         }
         {
-            // Tab switcher dropdown — shows all open tabs as clickable rows.
-            let ep_tabs = ep.clone();
-            tab_dropdown_btn.connect_clicked(move |btn| {
-                let popover = Popover::new();
-                popover.set_parent(btn);
-                popover.set_has_arrow(true);
-
-                let vbox = GtkBox::new(Orientation::Vertical, 0);
-                vbox.set_margin_top(4);
-                vbox.set_margin_bottom(4);
-
-                let state = ep_tabs.state.borrow();
-                let current = ep_tabs.notebook.current_page();
-
-                // Build ordered list: current tab first, then rest in notebook order.
-                let mut entries: Vec<(u32, String, PathBuf)> = state
-                    .tabs
-                    .iter()
-                    .filter_map(|(path, tab)| {
-                        let page = ep_tabs.notebook.page_num(&tab.notebook_page)?;
-                        let name = path
-                            .file_name()
-                            .and_then(|n| n.to_str())
-                            .unwrap_or("untitled")
-                            .to_string();
-                        Some((page, name, path.clone()))
-                    })
-                    .collect();
-                entries.sort_by_key(|(page, _, _)| *page);
-                drop(state);
-
-                if entries.is_empty() {
-                    let lbl = Label::new(Some("No open files"));
-                    lbl.add_css_class("dim-label");
-                    lbl.set_margin_top(4);
-                    lbl.set_margin_bottom(4);
-                    lbl.set_margin_start(8);
-                    lbl.set_margin_end(8);
-                    vbox.append(&lbl);
-                } else {
-                    for (page, name, _path) in entries {
-                        let row = Button::with_label(&name);
-                        row.add_css_class("flat");
-                        if Some(page) == current {
-                            row.add_css_class("accent");
-                        }
-                        let nb = ep_tabs.notebook.clone();
-                        let pop = popover.clone();
-                        row.connect_clicked(move |_| {
-                            nb.set_current_page(Some(page));
-                            pop.popdown();
-                        });
-                        vbox.append(&row);
-                    }
-                }
-
-                popover.set_child(Some(&vbox));
-                let pop_close = popover.clone();
-                popover.connect_closed(move |_| pop_close.unparent());
-                popover.popup();
-            });
-        }
-        {
             let ep_focus = ep.clone();
             let focus_active: Rc<std::cell::Cell<bool>> = Rc::new(std::cell::Cell::new(false));
             let ftb = focus_toggle_btn.clone();
@@ -1845,6 +1774,8 @@ impl EditorPane {
                 }
             });
         }
+
+        ep.wire_tab_view();
 
         // Restore focus to editor when format bar popovers close (item 2)
         for pop in [&table_popover, &font_popover, &size_popover] {
@@ -2717,7 +2648,7 @@ impl EditorPane {
         // GTK buffer ops (apply_tag, create_source_mark) fire synchronous signals that
         // can cascade back into Zerkalo callbacks that try borrow_mut — holding borrow
         // across them causes a BorrowError → SIGABRT.
-        let tabs: Vec<(PathBuf, Buffer, Label)> = {
+        let tabs: Vec<(PathBuf, Buffer, TabMark)> = {
             let state = self.state.borrow();
             state
                 .tabs
@@ -2732,7 +2663,7 @@ impl EditorPane {
 
     pub fn clear_diagnostic_marks(&self) {
         self.last_diagnostics.borrow_mut().clear();
-        let tabs: Vec<(Buffer, Label)> = {
+        let tabs: Vec<(Buffer, TabMark)> = {
             let state = self.state.borrow();
             state
                 .tabs
@@ -3357,14 +3288,19 @@ impl EditorPane {
     }
 
     pub fn open_file(&self, path: PathBuf, content: &str) {
-        {
-            let state = self.state.borrow();
-            if let Some(tab) = state.tabs.get(&path) {
-                if let Some(n) = self.notebook.page_num(&tab.notebook_page) {
-                    self.notebook.set_current_page(Some(n));
-                }
-                return;
+        // Release the borrow before set_current_page: the switch-page callback
+        // autosaves, which needs state.borrow_mut().
+        let existing = self
+            .state
+            .borrow()
+            .tabs
+            .get(&path)
+            .map(|tab| tab.notebook_page.clone());
+        if let Some(page) = existing {
+            if let Some(n) = self.notebook.page_num(&page) {
+                self.notebook.set_current_page(Some(n));
             }
+            return;
         }
 
         let display_name = path
@@ -3512,16 +3448,13 @@ impl EditorPane {
             ph_lbl_for_buf.set_visible(buf.char_count() == 0);
         });
 
-        let (tab_box, dot_label, diag_dot) =
-            self.build_tab_label(&path, &display_name, &editor_overlay);
+        let (dot_label, diag_dot) = self.attach_tab_page(&path, &display_name, &editor_overlay);
 
         let tab = TabContext {
             path: path.clone(),
-            display_name: display_name.clone(),
             buffer: buffer.clone(),
             view: view.clone(),
             scroll: scroll.clone(),
-            tab_box: tab_box.clone(),
             dot_label: dot_label.clone(),
         };
 
@@ -3968,10 +3901,9 @@ impl EditorPane {
             });
         }
 
-        // ── Insert into notebook ──────────────────────────────────────────────
+        // ── Select the new tab ──────────────────────────────────────────────
 
-        let page_index = self.notebook.append_page(&editor_overlay, Some(&tab_box));
-        self.notebook.set_tab_reorderable(&editor_overlay, true);
+        let page_index = self.notebook.page_num(&editor_overlay);
 
         let path_for_callback = tab.path.clone();
         let content_for_callback = content.to_string();
@@ -3987,7 +3919,6 @@ impl EditorPane {
                 modified: false,
                 dot_label,
                 diag_dot,
-                tab_box,
                 display_name: display_name.clone(),
                 lsp_popup,
                 ghost_label,
@@ -3996,7 +3927,7 @@ impl EditorPane {
             },
         );
 
-        self.notebook.set_current_page(Some(page_index));
+        self.notebook.set_current_page(page_index);
         set_wc_text_with_session(&self.word_count_label, content, session_start_words);
 
         // Per-document `// @zerkalo-goal: N` wins; otherwise the Settings goal.
@@ -4169,11 +4100,14 @@ impl EditorPane {
     }
 
     pub fn switch_to_file(&self, path: &PathBuf) {
-        let state = self.state.borrow();
-        if let Some(tab) = state.tabs.get(path) {
-            if let Some(n) = self.notebook.page_num(&tab.notebook_page) {
-                self.notebook.set_current_page(Some(n));
-            }
+        let page = self
+            .state
+            .borrow()
+            .tabs
+            .get(path)
+            .map(|tab| tab.notebook_page.clone());
+        if let Some(n) = page.and_then(|p| self.notebook.page_num(&p)) {
+            self.notebook.set_current_page(Some(n));
         }
     }
 
@@ -4182,16 +4116,11 @@ impl EditorPane {
             let mut state = self.state.borrow_mut();
             state.tabs.get_mut(path).map(|tab| {
                 tab.modified = false;
-                (
-                    tab.dot_label.clone(),
-                    tab.tab_box.clone(),
-                    tab.display_name.clone(),
-                )
+                tab.dot_label.clone()
             })
         };
-        if let Some((dot_label, tab_box, display_name)) = widgets {
+        if let Some(dot_label) = widgets {
             dot_label.set_visible(false);
-            tab_box.update_property(&[gtk4::accessible::Property::Label(&display_name)]);
         }
         if let Some(f) = self.on_modified_changed.borrow().as_ref() {
             f(false);
@@ -4307,7 +4236,7 @@ impl EditorPane {
     /// proceeding as if the save silently succeeded.
     pub fn save_all_modified(&self) -> Vec<PathBuf> {
         let mut outcomes: Vec<(PathBuf, Option<String>)> = Vec::new();
-        let (saved, failed): (Vec<(Label, GtkBox, String, PathBuf)>, Vec<PathBuf>) = {
+        let (saved, failed): (Vec<(TabMark, PathBuf)>, Vec<PathBuf>) = {
             let mut state = self.state.borrow_mut();
             let mut saved = Vec::new();
             let mut failed = Vec::new();
@@ -4324,12 +4253,7 @@ impl EditorPane {
                 ));
                 if write.is_ok() {
                     tab.modified = false;
-                    saved.push((
-                        tab.dot_label.clone(),
-                        tab.tab_box.clone(),
-                        tab.display_name.clone(),
-                        path.clone(),
-                    ));
+                    saved.push((tab.dot_label.clone(), path.clone()));
                 } else {
                     failed.push(path.clone());
                 }
@@ -4341,9 +4265,8 @@ impl EditorPane {
             self.note_save_result(path, reason);
         }
         let any_saved = !saved.is_empty();
-        for (dot_label, tab_box, display_name, path) in saved {
+        for (dot_label, path) in saved {
             dot_label.set_visible(false);
-            tab_box.update_property(&[gtk4::accessible::Property::Label(&display_name)]);
             crate::auto_save::clear(&path);
             // Same notifications a manual save sends, so the window's unsaved
             // state and the backup badge follow a save made from here too.
@@ -4842,7 +4765,7 @@ fn apply_comment_highlights(buffer: &Buffer, cache: Option<&RefCell<Vec<(i32, i3
 fn mark_diagnostics_for_tab(
     path: &Path,
     buffer: &Buffer,
-    diag_dot: &Label,
+    diag_dot: &TabMark,
     diagnostics: &[DiagMark],
 ) {
     let (buf_start, buf_end) = buffer.bounds();
@@ -4925,7 +4848,7 @@ fn apply_edit(buffer: &Buffer, edit: &crate::diagnostic_catalog::Edit) {
 /// Underline colours come from the theme's named error/warning colours, looked
 /// up each time the marks are re-applied so a light/dark or accent change is
 /// picked up on the next diagnostics pass instead of being frozen at creation.
-fn refresh_diag_colors(buffer: &Buffer, widget: &Label) {
+fn refresh_diag_colors(buffer: &Buffer, mark: &TabMark) {
     let table = buffer.tag_table();
     for (tag_name, color_name) in [
         ("zerkalo-diag-error", "error_color"),
@@ -4933,7 +4856,7 @@ fn refresh_diag_colors(buffer: &Buffer, widget: &Label) {
     ] {
         if let (Some(tag), Some((r, g, b))) = (
             table.lookup(tag_name),
-            crate::ui::theme::rgb(widget, color_name),
+            crate::ui::theme::rgb(mark.widget(), color_name),
         ) {
             tag.set_underline_rgba(Some(&gtk4::gdk::RGBA::new(
                 r as f32, g as f32, b as f32, 1.0,
@@ -5396,74 +5319,6 @@ fn count_project_words(root: &std::path::Path) -> u32 {
         .filter_map(|p| std::fs::read_to_string(p).ok())
         .map(|c| count_content_words(&c) as u32)
         .sum()
-}
-
-/// Show a Save / Discard / Cancel dialog if the tab has unsaved changes,
-/// then close the tab (or not) based on the user's response.
-fn close_tab_with_dirty_check(
-    ep: EditorPane,
-    state: Rc<RefCell<EditorState>>,
-    notebook: Notebook,
-    scroll: gtk4::Overlay,
-    path: PathBuf,
-    display_name: String,
-) {
-    let is_modified = state
-        .borrow()
-        .tabs
-        .get(&path)
-        .map(|t| t.modified)
-        .unwrap_or(false);
-    if is_modified {
-        // Three responses, so this one builds its own dialog rather than using
-        // the two-button helper in ui::confirm — same AdwMessageDialog either
-        // way, so it still matches every other confirmation in the app.
-        let alert = adw::MessageDialog::new(
-            None::<&gtk4::Window>,
-            Some(&format!("Save changes to '{display_name}'?")),
-            Some("Your changes will be lost if you close without saving."),
-        );
-        alert.add_response("cancel", "Cancel");
-        alert.add_response("discard", "Discard");
-        alert.add_response("save", "Save");
-        alert.set_response_appearance("discard", adw::ResponseAppearance::Destructive);
-        alert.set_response_appearance("save", adw::ResponseAppearance::Suggested);
-        alert.set_default_response(Some("save"));
-        alert.set_close_response("cancel");
-        alert.connect_response(None, move |_, response| match response {
-            "discard" => {
-                if let Some(n) = notebook.page_num(&scroll) {
-                    notebook.remove_page(Some(n));
-                }
-                state.borrow_mut().tabs.remove(&path);
-            }
-            "save" => {
-                let content = {
-                    let st = state.borrow();
-                    st.tabs.get(&path).map(|t| {
-                        let (s, e) = t.buffer.bounds();
-                        t.buffer.text(&s, &e, true).to_string()
-                    })
-                };
-                if let Some(content) = content {
-                    let _ = crate::error::atomic_write(&path, content.as_bytes());
-                    crate::auto_save::clear(&path);
-                    ep.mark_saved(&path);
-                }
-                if let Some(n) = notebook.page_num(&scroll) {
-                    notebook.remove_page(Some(n));
-                }
-                state.borrow_mut().tabs.remove(&path);
-            }
-            _ => {}
-        });
-        alert.present();
-    } else {
-        if let Some(n) = notebook.page_num(&scroll) {
-            notebook.remove_page(Some(n));
-        }
-        state.borrow_mut().tabs.remove(&path);
-    }
 }
 
 fn wc_str_with_delta(text: &str, session_start: u32) -> String {
@@ -6066,178 +5921,257 @@ impl EditorPane {
         view.add_controller(drop);
     }
 
-    fn build_tab_label(
+    fn attach_tab_page(
         &self,
         path: &Path,
         display_name: &str,
         page_widget: &gtk4::Overlay,
-    ) -> (GtkBox, Label, Label) {
-        let tab_box = GtkBox::new(Orientation::Horizontal, 4);
-        tab_box.set_margin_start(2);
-        tab_box.set_margin_end(2);
-        let name_label = Label::new(Some(display_name));
-        name_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-        name_label.set_max_width_chars(24);
-        let diag_dot = Label::new(Some("⬤"));
-        diag_dot.add_css_class("error");
-        diag_dot.set_visible(false);
-        let dot_label = Label::new(Some("●"));
-        dot_label.add_css_class("modified-dot");
-        dot_label.set_visible(false);
-        let close_btn = Button::from_icon_name("window-close-symbolic");
-        close_btn.add_css_class("flat");
-        close_btn.add_css_class("circular");
-        close_btn.set_valign(gtk4::Align::Center);
-        close_btn.set_tooltip_text(Some("Close tab"));
+    ) -> (TabMark, TabMark) {
+        let view = &self.notebook.view;
+        let page = view.append(page_widget);
+        page.set_title(display_name);
+        page.set_tooltip(&path.display().to_string());
+        (TabMark::unsaved(view, &page), TabMark::error(view, &page))
+    }
 
-        tab_box.append(&name_label);
-        tab_box.append(&diag_dot);
-        tab_box.append(&dot_label);
-        tab_box.append(&close_btn);
+    /// Tab-bar behaviour: a page's state entry goes when the page does, unsaved
+    /// changes are confirmed before a user-initiated close, and the right-click
+    /// menu (Duplicate / Close / Close Others / Close to the Right / Delete).
+    fn wire_tab_view(&self) {
+        let view = self.notebook.view.clone();
 
-        let state_for_close = self.state.clone();
-        let notebook_for_close = self.notebook.clone();
-        let path_for_close = path.to_path_buf();
-        let scroll_for_close = page_widget.clone();
-        let ep_for_close = self.clone();
-        let dn_for_close = display_name.to_string();
-        close_btn.connect_clicked(move |_| {
-            close_tab_with_dirty_check(
-                ep_for_close.clone(),
-                state_for_close.clone(),
-                notebook_for_close.clone(),
-                scroll_for_close.clone(),
-                path_for_close.clone(),
-                dn_for_close.clone(),
-            );
+        {
+            let state = self.state.clone();
+            view.connect_page_detached(move |_, page, _| {
+                let child = page.child();
+                // Dropped after the borrow ends: destroying a tab's widgets can
+                // signal back into code that borrows the state.
+                let removed: Vec<EditorTab> = match state.try_borrow_mut() {
+                    Ok(mut st) => {
+                        let keys: Vec<PathBuf> = st
+                            .tabs
+                            .iter()
+                            .filter(|(_, t)| t.notebook_page.upcast_ref::<gtk4::Widget>() == &child)
+                            .map(|(k, _)| k.clone())
+                            .collect();
+                        keys.iter().filter_map(|k| st.tabs.remove(k)).collect()
+                    }
+                    Err(_) => Vec::new(),
+                };
+                drop(removed);
+            });
+        }
+
+        {
+            let ep = self.clone();
+            view.connect_close_page(move |_, page| {
+                if ep.notebook.bypassing_close() {
+                    return glib::Propagation::Proceed;
+                }
+                let child = page.child();
+                let dirty = {
+                    let st = ep.state.borrow();
+                    st.tabs
+                        .iter()
+                        .find(|(_, t)| t.notebook_page.upcast_ref::<gtk4::Widget>() == &child)
+                        .filter(|(_, t)| t.modified)
+                        .map(|(p, t)| (p.clone(), t.display_name.clone()))
+                };
+                match dirty {
+                    Some((path, name)) => {
+                        ep.confirm_close_unsaved(page.clone(), path, name);
+                        glib::Propagation::Stop
+                    }
+                    None => glib::Propagation::Proceed,
+                }
+            });
+        }
+
+        let menu = gtk4::gio::Menu::new();
+        let dup_section = gtk4::gio::Menu::new();
+        dup_section.append(Some("Duplicate"), Some("tab.duplicate"));
+        let close_section = gtk4::gio::Menu::new();
+        close_section.append(Some("Close"), Some("tab.close"));
+        close_section.append(Some("Close Others"), Some("tab.close-others"));
+        close_section.append(Some("Close to the Right"), Some("tab.close-right"));
+        let delete_section = gtk4::gio::Menu::new();
+        delete_section.append(Some("Delete File…"), Some("tab.delete"));
+        menu.append_section(None, &dup_section);
+        menu.append_section(None, &close_section);
+        menu.append_section(None, &delete_section);
+        view.set_menu_model(Some(&menu));
+
+        let target: Rc<RefCell<Option<adw::TabPage>>> = Rc::new(RefCell::new(None));
+        let group = gtk4::gio::SimpleActionGroup::new();
+        let add = |name: &str, f: Box<dyn Fn(&EditorPane, adw::TabPage)>| {
+            let action = gtk4::gio::SimpleAction::new(name, None);
+            let ep = self.clone();
+            let target = target.clone();
+            action.connect_activate(move |_, _| {
+                let page = target.borrow().clone();
+                if let Some(page) = page {
+                    f(&ep, page);
+                }
+            });
+            group.add_action(&action);
+            action
+        };
+        add(
+            "duplicate",
+            Box::new(|ep, page| {
+                if let Some(path) = ep.path_for_page(&page) {
+                    ep.duplicate_file(&path);
+                }
+            }),
+        );
+        add(
+            "close",
+            Box::new(|ep, page| ep.notebook.view.close_page(&page)),
+        );
+        let close_others = add(
+            "close-others",
+            Box::new(|ep, page| ep.notebook.view.close_other_pages(&page)),
+        );
+        let close_right = add(
+            "close-right",
+            Box::new(|ep, page| ep.notebook.view.close_pages_after(&page)),
+        );
+        add(
+            "delete",
+            Box::new(|ep, page| {
+                if let Some(path) = ep.path_for_page(&page) {
+                    ep.confirm_delete_file(path);
+                }
+            }),
+        );
+        self.notebook.bar.insert_action_group("tab", Some(&group));
+
+        view.connect_setup_menu(move |v, page| {
+            *target.borrow_mut() = page.cloned();
+            let n = v.n_pages();
+            let pos = page.map(|p| v.page_position(p)).unwrap_or(0);
+            close_others.set_enabled(n > 1);
+            close_right.set_enabled(pos + 1 < n);
         });
+    }
 
-        // Middle-click anywhere on the tab label also closes the tab
-        {
-            let nb_mc = self.notebook.clone();
-            let sc_mc = page_widget.clone();
-            let st_mc = self.state.clone();
-            let p_mc = path.to_path_buf();
-            let ep_mc = self.clone();
-            let dn_mc = display_name.to_string();
-            let mc = gtk4::GestureClick::new();
-            mc.set_button(2); // middle button
-            mc.connect_pressed(move |_, _, _, _| {
-                close_tab_with_dirty_check(
-                    ep_mc.clone(),
-                    st_mc.clone(),
-                    nb_mc.clone(),
-                    sc_mc.clone(),
-                    p_mc.clone(),
-                    dn_mc.clone(),
-                );
-            });
-            tab_box.add_controller(mc);
+    fn path_for_page(&self, page: &adw::TabPage) -> Option<PathBuf> {
+        let child = page.child();
+        self.state
+            .borrow()
+            .tabs
+            .iter()
+            .find(|(_, t)| t.notebook_page.upcast_ref::<gtk4::Widget>() == &child)
+            .map(|(p, _)| p.clone())
+    }
+
+    /// Writes a copy beside the original ("name copy.typ", "name copy 2.typ", …)
+    /// from what the tab currently shows, unsaved edits included, and opens it.
+    fn duplicate_file(&self, path: &Path) {
+        let content = {
+            let st = self.state.borrow();
+            st.tabs.get(path).map(|t| {
+                let (s, e) = t.buffer.bounds();
+                t.buffer.text(&s, &e, true).to_string()
+            })
+        };
+        let Some(content) = content else { return };
+        let stem = path
+            .file_stem()
+            .and_then(|n| n.to_str())
+            .unwrap_or("untitled");
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| format!(".{e}"))
+            .unwrap_or_default();
+        let dir = path.parent().unwrap_or_else(|| Path::new("."));
+        let mut copy = dir.join(format!("{stem} copy{ext}"));
+        let mut n = 2;
+        while copy.exists() {
+            copy = dir.join(format!("{stem} copy {n}{ext}"));
+            n += 1;
         }
-
-        // Right-click context menu on tab: close tab, delete file
-        {
-            let nb_rc = self.notebook.clone();
-            let sc_rc = page_widget.clone();
-            let st_rc = self.state.clone();
-            let path_rc = path.to_path_buf();
-            let del_cb = self.on_delete_file.clone();
-            let filename_rc = display_name.to_string();
-
-            let popover = Popover::new();
-            popover.set_has_arrow(false);
-            let menu_box = GtkBox::new(Orientation::Vertical, 2);
-            menu_box.set_margin_top(4);
-            menu_box.set_margin_bottom(4);
-            menu_box.set_margin_start(4);
-            menu_box.set_margin_end(4);
-
-            let close_item = Button::with_label("Close tab");
-            close_item.add_css_class("flat");
-            let del_item = Button::with_label("Delete file…");
-            del_item.add_css_class("flat");
-            del_item.add_css_class("destructive-action");
-            menu_box.append(&close_item);
-            menu_box.append(&del_item);
-            popover.set_child(Some(&menu_box));
-            popover.set_parent(&tab_box);
-
-            // Close tab
-            let nb_ci = nb_rc.clone();
-            let sc_ci = sc_rc.clone();
-            let st_ci = st_rc.clone();
-            let path_ci = path_rc.clone();
-            let pop_ci = popover.clone();
-            let ep_ci = self.clone();
-            let dn_ci = display_name.to_string();
-            close_item.connect_clicked(move |_| {
-                pop_ci.popdown();
-                close_tab_with_dirty_check(
-                    ep_ci.clone(),
-                    st_ci.clone(),
-                    nb_ci.clone(),
-                    sc_ci.clone(),
-                    path_ci.clone(),
-                    dn_ci.clone(),
-                );
-            });
-
-            // Delete file
-            let nb_di = nb_rc.clone();
-            let sc_di = sc_rc.clone();
-            let st_di = st_rc.clone();
-            let path_di = path_rc.clone();
-            let name_di = filename_rc.clone();
-            let pop_di = popover.clone();
-            del_item.connect_clicked(move |_| {
-                pop_di.popdown();
-                let path_confirm = path_di.clone();
-                let nb_confirm = nb_di.clone();
-                let sc_confirm = sc_di.clone();
-                let st_confirm = st_di.clone();
-                let cb_confirm = del_cb.clone();
-                super::confirm::confirm_destructive(
-                    None,
-                    "Delete this file?",
-                    &format!("'{name_di}' will be permanently deleted."),
-                    "Delete",
-                    move || {
-                        let _ = std::fs::remove_file(&path_confirm);
-                        if let Some(n) = nb_confirm.page_num(&sc_confirm) {
-                            nb_confirm.remove_page(Some(n));
-                        }
-                        st_confirm.borrow_mut().tabs.remove(&path_confirm);
-                        if let Some(f) = cb_confirm.borrow().as_ref() {
-                            f(path_confirm.clone());
-                        }
-                    },
-                );
-            });
-
-            let rc_for_gesture = GestureClick::new();
-            rc_for_gesture.set_button(3);
-            let pop_for_rc = popover.clone();
-            rc_for_gesture.connect_pressed(move |_, _, x, y| {
-                pop_for_rc
-                    .set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
-                // Same fix, same reason, as the spell-suggestions popover
-                // below (search this file for "feels instant" for the full
-                // writeup): calling popup() synchronously here starts the
-                // autohide grab while this right-click's button-release
-                // hasn't landed yet, and that release then dismisses the
-                // popover the instant it arrives. A real short delay survives
-                // that regardless of how the backend batches input events;
-                // an idle-priority deferral (tried first for the spell
-                // popover) does not.
-                let pop_delayed = pop_for_rc.clone();
-                glib::timeout_add_local_once(Duration::from_millis(40), move || {
-                    pop_delayed.popup();
-                });
-            });
-            tab_box.add_controller(rc_for_gesture);
+        match crate::error::atomic_write(&copy, content.as_bytes()) {
+            Ok(()) => self.open_file(copy, &content),
+            Err(e) => self.note_save_result(copy, Some(crate::error::io_reason(&e))),
         }
+    }
 
-        (tab_box, dot_label, diag_dot)
+    fn confirm_delete_file(&self, path: PathBuf) {
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("this file")
+            .to_string();
+        let ep = self.clone();
+        let cb = self.on_delete_file.clone();
+        super::confirm::confirm_destructive(
+            None,
+            "Delete this file?",
+            &format!("'{name}' will be permanently deleted."),
+            "Delete",
+            move || {
+                let _ = std::fs::remove_file(&path);
+                ep.close_file(&path);
+                if let Some(f) = cb.borrow().as_ref() {
+                    f(path.clone());
+                }
+            },
+        );
+    }
+
+    /// Three-way Save / Discard / Cancel for closing a tab with unsaved edits.
+    /// The page stays open until `close_page_finish` says otherwise.
+    fn confirm_close_unsaved(&self, page: adw::TabPage, path: PathBuf, display_name: String) {
+        let parent = self.outer.root().and_downcast::<gtk4::Window>();
+        // Three responses, so this one builds its own dialog rather than using
+        // the two-button helper in ui::confirm — same AdwMessageDialog either
+        // way, so it still matches every other confirmation in the app.
+        let alert = adw::MessageDialog::new(
+            parent.as_ref(),
+            Some(&format!("Save changes to '{display_name}'?")),
+            Some("Your changes will be lost if you close without saving."),
+        );
+        alert.add_response("cancel", "Cancel");
+        alert.add_response("discard", "Discard");
+        alert.add_response("save", "Save");
+        alert.set_response_appearance("discard", adw::ResponseAppearance::Destructive);
+        alert.set_response_appearance("save", adw::ResponseAppearance::Suggested);
+        alert.set_default_response(Some("save"));
+        alert.set_close_response("cancel");
+        let ep = self.clone();
+        alert.connect_response(None, move |_, response| {
+            let view = &ep.notebook.view;
+            match response {
+                "discard" => view.close_page_finish(&page, true),
+                "save" => {
+                    let content = {
+                        let st = ep.state.borrow();
+                        st.tabs.get(&path).map(|t| {
+                            let (s, e) = t.buffer.bounds();
+                            t.buffer.text(&s, &e, true).to_string()
+                        })
+                    };
+                    let write = content
+                        .map(|c| crate::error::atomic_write(&path, c.as_bytes()))
+                        .unwrap_or(Ok(()));
+                    match write {
+                        Ok(()) => {
+                            crate::auto_save::clear(&path);
+                            ep.mark_saved(&path);
+                            view.close_page_finish(&page, true);
+                        }
+                        Err(e) => {
+                            ep.note_save_result(path.clone(), Some(crate::error::io_reason(&e)));
+                            view.close_page_finish(&page, false);
+                        }
+                    }
+                }
+                _ => view.close_page_finish(&page, false),
+            }
+        });
+        alert.present();
     }
 
     fn wire_citation_autocomplete(&self, view: &View, buffer: &Buffer) -> CitationAutocomplete {
@@ -7785,8 +7719,6 @@ impl EditorPane {
         let state_for_change = self.state.clone();
         let path_for_change = tab.path.clone();
         let dot_for_change = tab.dot_label.clone();
-        let tab_box_for_change = tab.tab_box.clone();
-        let tab_name_for_change = tab.display_name.clone();
         let on_change_cb = self.on_change.clone();
         let on_modified_cb = self.on_modified_changed.clone();
         let on_file_dirty_cb = self.on_file_dirty.clone();
@@ -7828,10 +7760,6 @@ impl EditorPane {
                 // them inside the borrow can cause reentrant signal dispatch that
                 // tries to borrow state again, triggering a BorrowMutError panic.
                 dot_for_change.set_visible(true);
-                tab_box_for_change.update_property(&[gtk4::accessible::Property::Label(&format!(
-                    "{} — unsaved",
-                    tab_name_for_change
-                ))]);
                 if let Some(f) = on_modified_cb.borrow().as_ref() {
                     f(true);
                 }
@@ -8269,7 +8197,7 @@ impl EditorPane {
         // `tab.scroll` sits inside the Overlay that is the actual notebook page, so
         // `page_num(&tab.scroll)` is always None — comparing it to the current page left
         // these buttons updating only on a tab switch, stuck greyed out while typing.
-        fn is_current_page(nb: &Notebook, scroll: &ScrolledWindow) -> bool {
+        fn is_current_page(nb: &TabHost, scroll: &ScrolledWindow) -> bool {
             nb.nth_page(nb.current_page())
                 .is_some_and(|page| scroll.is_ancestor(&page))
         }

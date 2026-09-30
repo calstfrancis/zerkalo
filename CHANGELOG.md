@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.39.0] "Framed Glass" — 2026-09-30 — A real tab bar
+
+### Changed
+
+- **Open documents are a proper tab bar** above the editor: equal-width tabs that share the space, drag to reorder, a close button on each, and a dot on a tab with unsaved changes. Closing a tab with unsaved changes asks to Save, Discard or Cancel.
+- **Right-click a tab** for Duplicate, Close, Close Others, Close to the Right and Delete File…. Duplicate copies what the tab currently shows, unsaved edits included, beside the original and opens it.
+- **Project files live in the sidebar.** The Outline | Symbols switch gains a folder segment, "Project files", showing the file tree that was previously built but never on screen. F6 jumps to it. The outline's count, project and depth controls hide on the other two pages.
+- **Fixed a crash** when switching to another document from the header's recent-documents dropdown.
+- **Fixed "can't find library.yml" for a bibliography in an included file.** A `#bibliography("/full/path/…")` line in a chapter that the main file `#include`s was never seen, so the path was treated as inside the project folder and the file "wasn't found". Zerkalo now looks through included files too.
+
 ## [0.38.0] "Kind Glass" — 2026-09-29 — Getting unstuck, and saves you can trust
 
 ### Changed

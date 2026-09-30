@@ -111,22 +111,6 @@ const GLOBAL_CSS: &str = "\
     textview text .current-line { \
         background-color: alpha(@accent_color, 0.10); \
     } \
-    notebook tab button.circular { \
-        min-width: 20px; \
-        min-height: 20px; \
-        padding: 2px; \
-        transition: background-color 120ms ease; \
-    } \
-    notebook tab button.circular:hover { \
-        background-color: alpha(@window_fg_color, 0.08); \
-    } \
-    notebook tab button.circular:active { \
-        background-color: alpha(@window_fg_color, 0.16); \
-    } \
-    .modified-dot { \
-        color: @accent_color; \
-        font-size: 8px; \
-    } \
     .statusbar-sep { \
         opacity: 0.25; \
     } \
@@ -183,6 +167,9 @@ const GLOBAL_CSS: &str = "\
     } \
     notebook stack { transition: opacity 120ms ease; } \
     notebook > stack { transition: all 150ms ease; } \
+    tabbar tabbox > tab { \
+        transition: background-color 120ms ease; \
+    } \
     revealer > * { transition: opacity 200ms ease; } \
     notebook > header > tabs > tab { \
         transition: background-color 120ms ease; \
@@ -240,13 +227,6 @@ const GLOBAL_CSS: &str = "\
     } \
     .breadcrumb-scroll-fade { \
         box-shadow: inset 16px 0 12px -8px alpha(@window_bg_color, 0.7); \
-    } \
-    notebook > header > tabs > tab.reorderable-page:hover { \
-        background-color: alpha(@accent_color, 0.08); \
-    } \
-    notebook > header > tabs > tab.dragged-tab { \
-        opacity: 0.7; \
-        background-color: alpha(@accent_color, 0.15); \
     } \
     .preview-stale { \
         opacity: 0.55; \

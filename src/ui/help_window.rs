@@ -26,11 +26,11 @@ fn overview_blocks() -> Vec<Block<'static>> {
         Block::Body("Zerkalo is a contemplative Typst editor with live preview, multi-file support, LSP completions, and git sync. No external Typst binary required — compilation is built in."),
         Block::Gap,
         Block::H2("Getting started"),
-        Block::Body("Zerkalo keeps your documents in your work folder (~/Documents/Zerkalo by default). The header dropdown shows your recent documents; the Library button beside the sidebar toggle (or Ctrl+L) shows all of them."),
+        Block::Body("Zerkalo keeps your documents in your work folder (~/Documents/Zerkalo by default). The header dropdown shows your recent documents, open ones sit in the tab bar above the editor, and the Library button beside the sidebar toggle (or Ctrl+L) shows all of them."),
         Block::Gap,
         Block::Body("New here? ☰ → Help & About → Take the Tour walks through the essentials again, and What Things Do (or F1) labels any button or panel on screen with what it does — both run inside the editor and inside New from Template."),
         Block::Gap,
-        Block::Body("Create a new document from the hamburger menu (≡) or use New from Template… for a complete preamble. You only choose a name: the document is saved in your work folder and listed in the Library, so its fonts and bibliography always resolve. The left sidebar shows the document outline and a symbol insert panel."),
+        Block::Body("Create a new document from the hamburger menu (≡) or use New from Template… for a complete preamble. You only choose a name: the document is saved in your work folder and listed in the Library, so its fonts and bibliography always resolve. The left sidebar switches between the document outline, your project's files, and a symbol insert panel."),
         Block::Gap,
         Block::Body("≡ → Export… asks where to save and can open the result for you when it's done — PDFs and EPUBs in Pereplyot if it's installed, anything else in your default app. It can also write a .bib or .yaml file holding only the references your document actually cites."),
         Block::Gap,
@@ -39,7 +39,7 @@ fn overview_blocks() -> Vec<Block<'static>> {
         Block::Body("Once a template's settings are how you want them, press the save button beside \"Your Templates\" in that dialog to keep them under a name. Saved templates sit under the built-in presets and start a document exactly the way the last one started — the title, date, abstract and keywords are left out, since those belong to a single document rather than to a template."),
         Block::Gap,
         Block::H2("Layout"),
-        Block::Code("Left sidebar   Document outline, symbols, files, refs, history\nEditor         Tabbed, syntax-highlighted Typst editor\nFind bar       Persistent search/replace at editor bottom\nPreview        Live rendered output — use +/− to zoom\nProblems       What went wrong, in plain language"),
+        Block::Code("Left sidebar   Document outline, symbols, files, refs, history\nEditor         Tab bar (drag to reorder, right-click for more), syntax-highlighted Typst editor\nFind bar       Persistent search/replace at editor bottom\nPreview        Live rendered output — use +/− to zoom\nProblems       What went wrong, in plain language"),
         Block::Gap,
         Block::H2("Git sync"),
         Block::Body("Autosave (the \"autosave\" word in the status bar, bold when on) saves your document a few seconds after you stop typing, and whenever you switch to another window or tab, compile, export or quit. Ctrl+S still saves too, and is what adds an entry to Version History."),
@@ -238,7 +238,7 @@ fn shortcuts_blocks() -> Vec<Block<'static>> {
         Block::Gap,
         Block::H2("Editing"),
         Block::CodeOwned(format!(
-            "{save:<20}Save current file\n{find:<20}Find & Replace\n{next_tab:<20}Next tab\n{prev_tab:<20}Previous tab\nCtrl+Left/Right     Word jump (Typst-aware: treats #keyword and @cite as units)\nCtrl+Shift+Up/Down  Jump to previous / next heading in the document\nF8 / Shift+F8       Go to the next / previous problem\nCtrl+D              Duplicate line or selection\nCtrl+/              Toggle line comment\nCtrl+Enter          Insert page break\nMiddle-click tab    Close tab"
+            "{save:<20}Save current file\n{find:<20}Find & Replace\n{next_tab:<20}Next tab\n{prev_tab:<20}Previous tab\nCtrl+Left/Right     Word jump (Typst-aware: treats #keyword and @cite as units)\nCtrl+Shift+Up/Down  Jump to previous / next heading in the document\nF8 / Shift+F8       Go to the next / previous problem\nCtrl+D              Duplicate line or selection\nCtrl+/              Toggle line comment\nCtrl+Enter          Insert page break\nMiddle-click tab    Close tab\nRight-click tab     Duplicate, close others, delete"
         )),
         Block::Gap,
         Block::H2("Compiling & Preview"),
@@ -264,7 +264,7 @@ fn shortcuts_blocks() -> Vec<Block<'static>> {
         Block::Gap,
         Block::H2("Git & Window"),
         Block::CodeOwned(format!(
-            "{git_sync:<20}Commit & push (git sync)\n{shortcuts_help:<20}Show keyboard shortcuts\nCtrl+R              Refresh file tree\n{quit:<20}Quit\nCtrl+?              Open this help window\nSidebar button      Toggle left sidebar\nInsert button       Toggle insert snippets panel\nPop-out button      Open preview in a separate window"
+            "{git_sync:<20}Commit & push (git sync)\n{shortcuts_help:<20}Show keyboard shortcuts\nCtrl+R              Refresh file tree\nF6                  Jump to the project files\n{quit:<20}Quit\nCtrl+?              Open this help window\nSidebar button      Toggle left sidebar\nInsert button       Toggle insert snippets panel\nPop-out button      Open preview in a separate window"
         )),
     ]
 }

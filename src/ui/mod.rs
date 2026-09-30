@@ -36,6 +36,7 @@ pub mod settings_dialog;
 pub mod setup_wizard;
 pub mod snapshot_dialog;
 pub mod styles;
+pub mod tab_host;
 pub mod table_dialog;
 pub mod template_dialog;
 pub mod theme;

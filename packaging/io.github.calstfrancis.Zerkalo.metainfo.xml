@@ -85,6 +85,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.39.0" date="2026-09-30">
+      <description>
+        <p>0.39.0 "Framed Glass" — open documents are a proper tab bar above the editor, with equal-width tabs, drag to reorder, a close button on each, and a right-click menu with Duplicate, Close, Close Others, Close to the Right and Delete File. The sidebar's Outline | Symbols switch gains a Project files segment showing your files as a tree, and F6 jumps to it. Fixed a crash when switching to a document that was already open, and a "file not found" error for a bibliography whose full path is written in an included chapter.</p>
+      </description>
+    </release>
     <release version="0.38.0" date="2026-09-29">
       <description>
         <p>0.38.0 "Kind Glass" — getting unstuck, and saves you can trust. A save that fails now stays on screen as a bar saying which file and why in plain words, with Try again and Save a copy elsewhere. When a problem keeps coming back, the Problems panel shows what changed since the document last worked, can put your files back to that version in one step, and can copy a short help request. Ten more kinds of mistake get plain-language explanations, and errors while exporting, importing, trashing or changing a font say what happened instead of showing raw error text.</p>

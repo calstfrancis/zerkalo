@@ -7,7 +7,7 @@ use gtk4::{Align, Box as GtkBox, Button, Label, Orientation, ScrolledWindow, Sep
 use libadwaita as adw;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const RELEASE_NAME: &str = "Kind Glass";
+pub const RELEASE_NAME: &str = "Framed Glass";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -160,9 +160,9 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
-                "A failed save never goes unnoticed: a bar above the editor says which file and why, in plain words, and stays until the save works — with Try again and Save a copy elsewhere.",
-                "Stuck on a problem? The Problems panel can show what changed since it last worked, put your files back to that version in one step, or copy a short help request to send to someone.",
-                "More mistakes are explained in plain language, and errors elsewhere — exporting, importing, trashing — now say what happened instead of what the computer said.",
+                "Open documents are now a proper tab bar above the editor: equal-width tabs, drag to reorder, a close button on each, and a right-click menu with Duplicate, Close Others and more.",
+                "The sidebar's Outline | Symbols switch gains a third segment, Project files, showing every file in your project as a tree.",
+                "Fixed a crash when switching to a document that was already open, and a bibliography in an included chapter not being found.",
             ] {
                 body.append(&bullet_row(item));
             }

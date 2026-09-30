@@ -430,10 +430,26 @@ impl ZerkaloWorld {
             .as_deref()
             .and_then(crate::styles::find_bibliography_path)
             .map(str::to_string);
+        // The `#bibliography(...)` call often lives in an included chapter
+        // rather than the compile root, so look through everything the root
+        // includes too — otherwise an absolute path there is never seen, the
+        // root isn't widened, and Typst reports the doubled
+        // `<project>/<absolute path>` "file not found".
         let doc_bib_abs_path = doc_bib_path_raw
             .as_deref()
             .filter(|p| Path::new(p).is_absolute())
-            .map(PathBuf::from);
+            .map(PathBuf::from)
+            .or_else(|| {
+                crate::project::manuscript_files(root_file, &project_root)
+                    .into_iter()
+                    .skip(1)
+                    .find_map(|(path, disk)| {
+                        let text = overrides.get(&path).unwrap_or(&disk);
+                        crate::styles::find_bibliography_path(text)
+                            .filter(|p| Path::new(p).is_absolute())
+                            .map(PathBuf::from)
+                    })
+            });
 
         let needs_widening = extra_root.is_some_and(is_outside_project)
             || doc_bib_abs_path.as_deref().is_some_and(is_outside_project);
@@ -1188,6 +1204,35 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&doc_dir);
         let _ = std::fs::remove_dir_all(&vault_dir);
+    }
+
+    #[test]
+    fn an_external_bib_path_in_an_included_file_resolves() {
+        // The reported case: the #bibliography line (absolute path, with a
+        // space in it) lives in an included chapter, not the compile root.
+        let base = std::env::temp_dir().join(format!("zk_incl_bib_{}", std::process::id()));
+        let doc_dir = base.join("work");
+        let vault_dir = base.join("kartoteka").join("My Library");
+        std::fs::create_dir_all(&doc_dir).unwrap();
+        std::fs::create_dir_all(&vault_dir).unwrap();
+        std::fs::write(
+            vault_dir.join("library.yml"),
+            "smith2020:\n  type: article\n  title: T\n  author: J\n  date: 2020\n",
+        )
+        .unwrap();
+        let main = doc_dir.join("main.typ");
+        std::fs::write(&main, "See @smith2020.\n#include \"ch.typ\"\n").unwrap();
+        std::fs::write(
+            doc_dir.join("ch.typ"),
+            format!(
+                "#bibliography(\"{}\", style: \"chicago-author-date\", title: \"References\")\n",
+                vault_dir.join("library.yml").display()
+            ),
+        )
+        .unwrap();
+        let result = compile_to_pdf_bytes(&main, &HashMap::new(), &HashMap::new(), None);
+        let _ = std::fs::remove_dir_all(&base);
+        assert!(result.is_ok(), "{:?}", result.err());
     }
 
     #[test]
