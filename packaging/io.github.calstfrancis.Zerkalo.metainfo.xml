@@ -85,6 +85,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.39.1" date="2026-09-30">
+      <description>
+        <p>0.39.1 "Clear Glass" — a quieter header. The recent-documents dropdown is gone, since open documents are in the tab bar and everything else is in the Library and the sidebar's Project files.</p>
+      </description>
+    </release>
     <release version="0.39.0" date="2026-09-30">
       <description>
         <p>0.39.0 "Framed Glass" — open documents are a proper tab bar above the editor, with equal-width tabs, drag to reorder, a close button on each, and a right-click menu with Duplicate, Close, Close Others, Close to the Right and Delete File. The sidebar's Outline | Symbols switch gains a Project files segment showing your files as a tree, and F6 jumps to it. Fixed a crash when switching to a document that was already open, and a "file not found" error for a bibliography whose full path is written in an included chapter.</p>

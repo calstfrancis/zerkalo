@@ -7,7 +7,7 @@ use gtk4::{Align, Box as GtkBox, Button, Label, Orientation, ScrolledWindow, Sep
 use libadwaita as adw;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const RELEASE_NAME: &str = "Framed Glass";
+pub const RELEASE_NAME: &str = "Clear Glass";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -160,9 +160,7 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             for item in [
-                "Open documents are now a proper tab bar above the editor: equal-width tabs, drag to reorder, a close button on each, and a right-click menu with Duplicate, Close Others and more.",
-                "The sidebar's Outline | Symbols switch gains a third segment, Project files, showing every file in your project as a tree.",
-                "Fixed a crash when switching to a document that was already open, and a bibliography in an included chapter not being found.",
+                "The header no longer has a recent-documents dropdown: open documents are in the tab bar, and the Library (Ctrl+L) and the sidebar's Project files cover the rest.",
             ] {
                 body.append(&bullet_row(item));
             }
