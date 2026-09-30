@@ -3,6 +3,12 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+
+- **The tab bar takes the Fond palette.** The selected tab is a warm ochre wash with an ochre rule beneath it, and a hovered tab takes dusty blue — the same muted hues Pereplyot uses for highlights, now shared suite-wide through `fond.css`.
+
 ---
 
 ## [0.39.1] "Clear Glass" — 2026-09-30 — A quieter header

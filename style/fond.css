@@ -187,3 +187,35 @@ headerbar .fond-title-btn:hover label { opacity: 0.75; }
 /* An unframed search field reads as part of the list rather than as chrome. */
 .fond-search { background: transparent; box-shadow: none; border: none; }
 .fond-search:focus-within { background: alpha(@window_fg_color, 0.05); }
+
+/* ── Highlight palette ──────────────────────────────────────────────────────
+ * The four reading-highlight colours, first defined in Pereplyot's palette
+ * (fond-read-gtk/src/palette.rs) and shared here so the suite has one set of
+ * muted, paper-friendly hues rather than each app inventing its own. They are
+ * deliberately not theme colours: a highlight keeps its hue in light and dark,
+ * so use them as washes (alpha) over a surface, never as text colour.
+ *
+ *   ochre      key idea / thesis
+ *   blue       evidence / support
+ *   sage       connection / implication
+ *   terracotta problem / question
+ */
+@define-color fond_hl_ochre #D6B86A;
+@define-color fond_hl_blue #91A9B8;
+@define-color fond_hl_sage #9CAF88;
+@define-color fond_hl_terracotta #C98F78;
+
+.fond-hl-ochre { background-color: alpha(@fond_hl_ochre, 0.35); }
+.fond-hl-blue { background-color: alpha(@fond_hl_blue, 0.35); }
+.fond-hl-sage { background-color: alpha(@fond_hl_sage, 0.35); }
+.fond-hl-terracotta { background-color: alpha(@fond_hl_terracotta, 0.35); }
+
+/* ── Tabs ───────────────────────────────────────────────────────────────────
+ * On an AdwTabBar (give it .fond-tabs): the selected tab is a warm ochre wash
+ * with an ochre rule beneath it, and a hovered one takes the dusty blue, so the
+ * bar reads as part of the same palette as the highlights. */
+tabbar.fond-tabs tab:hover { background-color: alpha(@fond_hl_blue, 0.22); }
+tabbar.fond-tabs tab:selected {
+  background-color: alpha(@fond_hl_ochre, 0.28);
+  box-shadow: inset 0 -2px @fond_hl_ochre;
+}

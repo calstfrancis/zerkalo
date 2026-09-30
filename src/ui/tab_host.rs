@@ -24,6 +24,7 @@ impl TabHost {
         view.set_hexpand(true);
         view.set_vexpand(true);
         let bar = adw::TabBar::new();
+        bar.add_css_class("fond-tabs");
         bar.set_view(Some(&view));
         bar.set_autohide(false);
         bar.set_expand_tabs(true);
