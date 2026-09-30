@@ -85,6 +85,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.39.2" date="2026-09-30">
+      <description>
+        <p>0.39.2 "Amber Glass" — colour for the tab bar. The selected tab is a warm ochre wash with an ochre rule beneath it, and a hovered tab takes dusty blue, using the same muted highlight palette as Pereplyot, now shared across the Fond suite.</p>
+      </description>
+    </release>
     <release version="0.39.1" date="2026-09-30">
       <description>
         <p>0.39.1 "Clear Glass" — a quieter header. The recent-documents dropdown is gone, since open documents are in the tab bar and everything else is in the Library and the sidebar's Project files.</p>

@@ -3,7 +3,7 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.39.2] "Amber Glass" — 2026-09-30 — Colour for the tabs
 
 ### Changed
 

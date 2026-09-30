@@ -7,7 +7,7 @@ use gtk4::{Align, Box as GtkBox, Button, Label, Orientation, ScrolledWindow, Sep
 use libadwaita as adw;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const RELEASE_NAME: &str = "Clear Glass";
+pub const RELEASE_NAME: &str = "Amber Glass";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -160,7 +160,7 @@ impl WelcomeWindow {
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
             body.append(&bullet_row(
-                "The header no longer has a recent-documents dropdown: open documents are in the tab bar, and the Library (Ctrl+L) and the sidebar's Project files cover the rest.",
+                "The tab bar takes the Fond palette: the selected tab is a warm ochre wash with an ochre rule beneath it, and a hovered tab takes dusty blue.",
             ));
         }
 

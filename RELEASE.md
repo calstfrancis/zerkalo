@@ -1,8 +1,8 @@
 ### What's new
 
-A quieter header.
+Colour for the tabs.
 
-**One less dropdown.** The recent-documents dropdown beside the document title is gone: it duplicated the tab bar, the Library (Ctrl+L) and the sidebar's Project files. The title is now just a label.
+**A tab bar in the Fond palette.** The selected tab is a warm ochre wash with an ochre rule beneath it, and a hovered tab takes dusty blue. They are the same muted hues Pereplyot uses for highlights, now shared across the suite through `fond.css`.
 
 ---
 
