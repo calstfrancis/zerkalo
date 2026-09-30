@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- **The recent-documents dropdown in the header is gone.** The title is now just a label; open documents live in the tab bar, and everything else is in the Library (Ctrl+L) or the sidebar's Project files.
+
+---
+
 ## [0.39.0] "Framed Glass" — 2026-09-30 — A real tab bar
 
 ### Changed

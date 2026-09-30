@@ -3,12 +3,11 @@
 
 use gtk4::prelude::*;
 use gtk4::{
-    Align, Box as GtkBox, Button, Entry, Label, MenuButton, Orientation, Popover, ScrolledWindow,
-    Separator, ToggleButton,
+    Align, Box as GtkBox, Button, Label, MenuButton, Orientation, Popover, Separator, ToggleButton,
 };
 use libadwaita as adw;
 
-use super::{build_hamburger_menu_items, make_menu_item, HamburgerItems};
+use super::{build_hamburger_menu_items, HamburgerItems};
 
 /// The hamburger popover's rows, kept together so the menu-wiring helpers can
 /// take one value instead of 22 parameters.
@@ -54,11 +53,8 @@ pub(super) struct HeaderWidgets {
     pub(super) library_btn: Button,
     pub(super) menu_btn: MenuButton,
     pub(super) menu_popover: Popover,
-    pub(super) open_list_box: GtkBox,
-    pub(super) open_search: Entry,
     pub(super) preview_label: Label,
     pub(super) print_header_btn: Button,
-    pub(super) recent_popover: Popover,
     pub(super) recompile_header_btn: Button,
     pub(super) sidebar_btn: Button,
     pub(super) style_box: GtkBox,
@@ -355,58 +351,13 @@ pub(super) fn build_header() -> HeaderWidgets {
     header.pack_end(&print_header_btn);
     header.pack_end(&sync_btn);
 
-    // ── Setzer-style open dropdown ───────────────────────────────────────
-    let open_search = Entry::new();
-    open_search.set_placeholder_text(Some("Search documents…"));
-    open_search.set_hexpand(true);
-    open_search.set_margin_start(8);
-    open_search.set_margin_end(8);
-    open_search.set_margin_top(8);
-    open_search.set_margin_bottom(4);
-
-    let open_list_box = GtkBox::new(Orientation::Vertical, 0);
-
-    let open_scroll = ScrolledWindow::new();
-    open_scroll.set_child(Some(&open_list_box));
-    open_scroll.set_min_content_height(80);
-    open_scroll.set_max_content_height(360);
-    open_scroll.set_propagate_natural_height(true);
-    open_scroll.set_margin_start(4);
-    open_scroll.set_margin_end(4);
-    open_scroll.set_margin_bottom(4);
-
-    let open_popover_box = GtkBox::new(Orientation::Vertical, 0);
-    open_popover_box.set_width_request(280);
-    open_popover_box.append(&open_search);
-    open_popover_box.append(&open_scroll);
-
-    let recent_popover = Popover::new();
-    recent_popover.set_child(Some(&open_popover_box));
-
-    let all_docs_btn = make_menu_item("Show All in Library", Some("Ctrl+L"));
-    open_popover_box.append(&Separator::new(Orientation::Horizontal));
-    open_popover_box.append(&all_docs_btn);
-    {
-        let pop = recent_popover.clone();
-        let lib = library_btn.clone();
-        all_docs_btn.connect_clicked(move |_| {
-            pop.popdown();
-            lib.emit_clicked();
-        });
-    }
-
     let file_title_widget = adw::WindowTitle::new("untitled", "");
-
-    let file_selector = MenuButton::new();
-    file_selector.add_css_class("flat");
-    file_selector.set_child(Some(&file_title_widget));
-    file_selector.set_popover(Some(&recent_popover));
 
     // Root-file controls sit immediately right of the document title, where
     // they read as being about *this* document. Filled in further down.
     let title_extras = GtkBox::new(Orientation::Horizontal, 4);
     let title_box = GtkBox::new(Orientation::Horizontal, 6);
-    title_box.append(&file_selector);
+    title_box.append(&file_title_widget);
     title_box.append(&title_extras);
     header.set_title_widget(Some(&title_box));
 
@@ -447,11 +398,8 @@ pub(super) fn build_header() -> HeaderWidgets {
         library_btn,
         menu_btn,
         menu_popover,
-        open_list_box,
-        open_search,
         preview_label,
         print_header_btn,
-        recent_popover,
         recompile_header_btn,
         sidebar_btn,
         style_box,

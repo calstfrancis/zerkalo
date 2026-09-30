@@ -211,11 +211,8 @@ impl AppWindow {
             library_btn,
             menu_btn,
             menu_popover,
-            open_list_box,
-            open_search,
             preview_label,
             print_header_btn,
-            recent_popover,
             recompile_header_btn,
             sidebar_btn,
             style_box,
@@ -251,172 +248,6 @@ impl AppWindow {
             &style_box,
             &style_popover,
         );
-        // ── Open dropdown wiring ─────────────────────────────────────────────
-        {
-            let open_list_rc = open_list_box.clone();
-            let work_dir_open = project_root.clone();
-            let editor_for_open = editor_pane.clone();
-            let pop_for_open = recent_popover.clone();
-            let config_for_open = current_config.clone();
-            let library_for_open = library.clone();
-
-            let rebuild: Rc<dyn Fn(&str)> = Rc::new(move |query: &str| {
-                while let Some(child) = open_list_rc.first_child() {
-                    open_list_rc.remove(&child);
-                }
-                // Recent files first, then scanned files (deduplicated)
-                let mut files: Vec<(std::path::PathBuf, std::time::SystemTime)> = {
-                    let cfg = config_for_open.borrow();
-                    cfg.recent_files
-                        .iter()
-                        .filter(|p| p.exists())
-                        .map(|p| {
-                            let mtime = std::fs::metadata(p)
-                                .and_then(|m| m.modified())
-                                .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-                            (p.clone(), mtime)
-                        })
-                        .collect()
-                };
-                for (path, mtime) in super::docs_browser::scan_typ_files(&work_dir_open, 2) {
-                    if !files.iter().any(|(p, _)| p == &path) {
-                        files.push((path, mtime));
-                    }
-                }
-                let q = query.to_lowercase();
-                let filtered: Vec<_> = files
-                    .into_iter()
-                    .filter(|(path, _)| {
-                        if q.is_empty() {
-                            return true;
-                        }
-                        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                        name.to_lowercase().contains(&q)
-                    })
-                    .take(30)
-                    .collect();
-
-                // Group by date bucket: Today / This week / Older
-                let now = std::time::SystemTime::now();
-                let day_secs = 86_400u64;
-                let week_secs = 7 * day_secs;
-                let mut last_group = "";
-                let add_group_header = |list: &GtkBox, title: &str| {
-                    let lbl = Label::new(Some(title));
-                    lbl.set_halign(Align::Start);
-                    lbl.set_margin_start(10);
-                    lbl.set_margin_top(8);
-                    lbl.set_margin_bottom(2);
-                    lbl.add_css_class("dim-label");
-                    lbl.add_css_class("caption");
-                    list.append(&lbl);
-                };
-
-                for (path, mtime) in filtered {
-                    let name = path
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or("")
-                        .to_string();
-                    let age = now
-                        .duration_since(mtime)
-                        .map(|d| d.as_secs())
-                        .unwrap_or(u64::MAX);
-                    let group = if age < day_secs {
-                        "Today"
-                    } else if age < week_secs {
-                        "This week"
-                    } else {
-                        "Older"
-                    };
-                    if group != last_group {
-                        add_group_header(&open_list_rc, group);
-                        last_group = group;
-                    }
-                    let date_str = format_file_mtime(mtime);
-
-                    // Row: open button (left, expands) + trash button (right)
-                    let outer_row = GtkBox::new(Orientation::Horizontal, 0);
-                    outer_row.set_hexpand(true);
-
-                    let btn = Button::new();
-                    btn.add_css_class("flat");
-                    btn.set_hexpand(true);
-                    let row_box = GtkBox::new(Orientation::Vertical, 2);
-                    row_box.set_margin_start(10);
-                    row_box.set_margin_end(4);
-                    row_box.set_margin_top(5);
-                    row_box.set_margin_bottom(5);
-                    let name_lbl = Label::new(Some(&name));
-                    name_lbl.set_xalign(0.0);
-                    name_lbl.set_halign(Align::Start);
-                    name_lbl.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-                    let date_lbl = Label::new(Some(&date_str));
-                    date_lbl.set_xalign(0.0);
-                    date_lbl.set_halign(Align::Start);
-                    date_lbl.add_css_class("caption");
-                    date_lbl.add_css_class("dim-label");
-                    row_box.append(&name_lbl);
-                    row_box.append(&date_lbl);
-                    btn.set_child(Some(&row_box));
-                    let ep = editor_for_open.clone();
-                    let pop = pop_for_open.clone();
-                    let p = path.clone();
-                    let lib = library_for_open.clone();
-                    btn.connect_clicked(move |_| {
-                        if let Ok(content) = std::fs::read_to_string(&p) {
-                            ep.open_file(p.clone(), &content);
-                        }
-                        lib.borrow_mut().touch_opened(&p).ok();
-                        pop.popdown();
-                    });
-
-                    let del_btn = Button::from_icon_name("user-trash-symbolic");
-                    del_btn.add_css_class("flat");
-                    del_btn.set_valign(gtk4::Align::Center);
-                    del_btn.set_margin_end(4);
-                    del_btn.set_tooltip_text(Some("Delete file"));
-
-                    let path_del = path.clone();
-                    let outer_for_del = outer_row.clone();
-                    let cfg_del = config_for_open.clone();
-                    let ep_del = editor_for_open.clone();
-                    del_btn.connect_clicked(move |_| {
-                        let outer_c = outer_for_del.clone();
-                        let cfg_c = cfg_del.clone();
-                        let ep_c = ep_del.clone();
-                        super::confirm::confirm_trash(None, path_del.clone(), move |path_c| {
-                            cfg_c.borrow_mut().recent_files.retain(|p| p != path_c);
-                            let _ = cfg_c.borrow().save();
-                            ep_c.close_file_if_open(&path_c.to_path_buf());
-                            if let Some(parent) = outer_c.parent() {
-                                if let Ok(p) = parent.downcast::<GtkBox>() {
-                                    p.remove(&outer_c);
-                                }
-                            }
-                        });
-                    });
-
-                    outer_row.append(&btn);
-                    outer_row.append(&del_btn);
-                    open_list_rc.append(&outer_row);
-                }
-            });
-
-            let rbl_show = rebuild.clone();
-            let search_for_show = open_search.clone();
-            recent_popover.connect_show(move |_| {
-                search_for_show.set_text("");
-                rbl_show("");
-            });
-
-            let rbl_search = rebuild.clone();
-            open_search.connect_changed(move |entry| {
-                let q = entry.text().to_string();
-                rbl_search(&q);
-            });
-        }
-
         let preview_pane = PreviewPane::new(None, effective_output_dir, extra_compiler_args);
         // CV mode: make #cv-entry/#cv-section available at compile time.
         // cv-helpers.typ's content is static (embedded), so a one-time
@@ -3578,24 +3409,6 @@ fn handle_preview_word_jump(
             }
         },
     );
-}
-
-fn format_file_mtime(mtime: std::time::SystemTime) -> String {
-    let Ok(dur) = std::time::SystemTime::now().duration_since(mtime) else {
-        return "unknown".to_string();
-    };
-    let secs = dur.as_secs();
-    if secs < 60 {
-        "just now".to_string()
-    } else if secs < 3600 {
-        format!("{} min ago", secs / 60)
-    } else if secs < 86400 {
-        format!("{} h ago", secs / 3600)
-    } else if secs < 86400 * 30 {
-        format!("{} days ago", secs / 86400)
-    } else {
-        format!("{} months ago", secs / (86400 * 30))
-    }
 }
 
 /// Compute a path string for `#include`/`#import` relative to the compilation root's directory.

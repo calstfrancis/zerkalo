@@ -8,7 +8,6 @@ pub mod confirm;
 pub mod dep_graph;
 pub mod diagnostics_model;
 pub mod diff_render;
-pub mod docs_browser;
 pub mod editor_pane;
 pub mod error_panel;
 pub mod export_dialog;

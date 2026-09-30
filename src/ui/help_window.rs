@@ -26,7 +26,7 @@ fn overview_blocks() -> Vec<Block<'static>> {
         Block::Body("Zerkalo is a contemplative Typst editor with live preview, multi-file support, LSP completions, and git sync. No external Typst binary required — compilation is built in."),
         Block::Gap,
         Block::H2("Getting started"),
-        Block::Body("Zerkalo keeps your documents in your work folder (~/Documents/Zerkalo by default). The header dropdown shows your recent documents, open ones sit in the tab bar above the editor, and the Library button beside the sidebar toggle (or Ctrl+L) shows all of them."),
+        Block::Body("Zerkalo keeps your documents in your work folder (~/Documents/Zerkalo by default). Open ones sit in the tab bar above the editor, and the Library button beside the sidebar toggle (or Ctrl+L) shows all of them."),
         Block::Gap,
         Block::Body("New here? ☰ → Help & About → Take the Tour walks through the essentials again, and What Things Do (or F1) labels any button or panel on screen with what it does — both run inside the editor and inside New from Template."),
         Block::Gap,
