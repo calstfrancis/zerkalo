@@ -159,11 +159,9 @@ impl WelcomeWindow {
             }
         } else {
             body.append(&section_label(&format!("What's New in {VERSION}")));
-            for item in [
+            body.append(&bullet_row(
                 "The header no longer has a recent-documents dropdown: open documents are in the tab bar, and the Library (Ctrl+L) and the sidebar's Project files cover the rest.",
-            ] {
-                body.append(&bullet_row(item));
-            }
+            ));
         }
 
         body.append(&Separator::new(Orientation::Horizontal));
