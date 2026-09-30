@@ -14,6 +14,9 @@ diag-unknown-font-named = The font “{ $name }” isn't installed
 diag-unknown-font = That font isn't installed
 diag-unknown-font-advice = The document will use a substitute, so the layout may look wrong. Either install the font, or pick another in Template → Body Font.
 
+diag-variable-font = This font is a “variable” font, which Zerkalo can't display reliably
+diag-variable-font-advice = The text may render with the wrong weight or spacing. Install a static version of the font (separate Regular, Bold and Italic files) or pick another in Template → Body Font. The font named in the hint below is the one to replace.
+
 diag-file-not-found-named = Zerkalo can't find the file “{ $name }”
 diag-file-not-found = Zerkalo can't find a file this document uses
 diag-file-not-found-advice = Check the name is spelled the same as the real file, and that it sits in the same folder as your document (or that the path in the #include or #image line matches where it actually is).

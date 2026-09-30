@@ -14,6 +14,7 @@ use crate::i18n::{tr, tr_args};
 pub enum Kind {
     UnknownVariable,
     UnknownFont,
+    VariableFont,
     FileNotFound,
     BibliographyUnreadable,
     PackageUnavailable,
@@ -214,6 +215,8 @@ fn classify(raw: &str, at: Option<&str>) -> Kind {
         || (lower.contains("font") && lower.contains("not found"))
     {
         Kind::UnknownFont
+    } else if lower.contains("variable fonts are not") {
+        Kind::VariableFont
     } else if lower.contains("file not found") {
         Kind::FileNotFound
     } else if lower.contains("failed to parse biblatex")
@@ -324,6 +327,7 @@ fn wording(kind: Kind, raw: &str, at: Option<&str>) -> (String, String) {
             ),
             tr("diag-unknown-font-advice"),
         ),
+        Kind::VariableFont => both("diag-variable-font"),
         Kind::FileNotFound => (
             named(
                 "diag-file-not-found-named",
@@ -735,6 +739,10 @@ mod tests {
         let cases: &[(&str, Option<&str>)] = &[
             ("unknown variable: foo", None),
             ("unknown font family: Foo", None),
+            (
+                "variable fonts are not currently supported and may render incorrectly",
+                None,
+            ),
             ("file not found", None),
             ("failed to parse BibLaTeX", None),
             ("package not found", None),

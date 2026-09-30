@@ -14,6 +14,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Project files live in the sidebar.** The Outline | Symbols switch gains a folder segment, "Project files", showing the file tree that was previously built but never on screen. F6 jumps to it. The outline's count, project and depth controls hide on the other two pages.
 - **Fixed a crash** when switching to another document from the header's recent-documents dropdown.
 - **Fixed "can't find library.yml" for a bibliography in an included file.** A `#bibliography("/full/path/…")` line in a chapter that the main file `#include`s was never seen, so the path was treated as inside the project folder and the file "wasn't found". Zerkalo now looks through included files too.
+- **A variable-font warning now explains itself.** "variable fonts are not currently supported and may render incorrectly" is shown in plain language with what to do (install a static version of the font, or pick another in Template → Body Font), instead of as an unexplained message.
 
 ## [0.38.0] "Kind Glass" — 2026-09-29 — Getting unstuck, and saves you can trust
 
