@@ -262,6 +262,11 @@ impl RefManager {
         *self.on_create_bib.borrow_mut() = Some(Box::new(f));
     }
 
+    /// The keys the open document cites.
+    pub fn used(&self) -> HashSet<String> {
+        self.used_keys.borrow().clone()
+    }
+
     /// Re-reads `path` and shows it.
     pub fn load_bib(&self, path: &Path) {
         self.set_source(path, crate::bibliography::try_load(path));
@@ -312,7 +317,6 @@ impl RefManager {
             self.list_box.remove(&child);
         }
 
-        let filter_lower = filter.to_lowercase();
         let entries = self.entries.borrow();
         let used = self.used_keys.borrow();
         let labels = self.labels.borrow();
@@ -390,18 +394,8 @@ impl RefManager {
         }
 
         let mut shown = 0usize;
-        for entry in entries.iter() {
-            if !filter_lower.is_empty() {
-                let haystack = format!(
-                    "{} {} {} {}",
-                    entry.key, entry.author, entry.title, entry.year
-                )
-                .to_lowercase();
-                if !haystack.contains(&filter_lower) {
-                    continue;
-                }
-            }
-
+        let order = crate::cite_search::search(&entries, filter, &used);
+        for entry in order.iter().map(|&i| &entries[i]) {
             let is_used = has_used_data && used.contains(&entry.key);
 
             let row = ListBoxRow::new();

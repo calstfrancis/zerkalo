@@ -41,6 +41,8 @@ pub struct CitationPanel {
     /// Why the current source couldn't be read, shown instead of the
     /// "No bibliography yet" invitation — a broken file is not an empty one.
     bib_problem: Rc<RefCell<Option<String>>>,
+    /// Keys the open document already cites; they are listed first.
+    cited: Rc<RefCell<std::collections::HashSet<String>>>,
     cv_filename: Rc<RefCell<Option<String>>>,
     collapse_btn: Button,
     revealer: Revealer,
@@ -313,6 +315,7 @@ impl CitationPanel {
             skrizhal_btn,
             bib_filename: Rc::new(RefCell::new(None)),
             bib_problem: Rc::new(RefCell::new(None)),
+            cited: Rc::new(RefCell::new(std::collections::HashSet::new())),
             cv_filename: Rc::new(RefCell::new(None)),
             collapse_btn,
             revealer,
@@ -471,6 +474,18 @@ impl CitationPanel {
         *self.bib_problem.borrow_mut() = problem;
     }
 
+    /// The keys the open document cites, so they sort to the top.
+    pub fn set_cited_keys(&self, keys: std::collections::HashSet<String>) {
+        if *self.cited.borrow() == keys {
+            return;
+        }
+        *self.cited.borrow_mut() = keys;
+        if !self.cv_mode.get() {
+            let query = self.search.text();
+            self.rebuild_list(query.as_str());
+        }
+    }
+
     pub fn set_bib_filename(&self, name: Option<&str>) {
         *self.bib_filename.borrow_mut() = name.map(str::to_string);
         if !self.cv_mode.get() {
@@ -511,7 +526,6 @@ impl CitationPanel {
     }
 
     fn rebuild_bib_list(&self, filter: &str) {
-        let filter_lower = filter.to_lowercase();
         let entries = self.bib_entries.borrow();
 
         if entries.is_empty() {
@@ -526,24 +540,14 @@ impl CitationPanel {
         }
 
         let mut shown = 0usize;
-        for entry in entries.iter() {
-            if !filter_lower.is_empty() {
-                let haystack =
-                    format!("{} {} {}", entry.key, entry.author, entry.title).to_lowercase();
-                if !haystack.contains(&filter_lower) {
-                    continue;
-                }
-            }
-
+        let order = crate::cite_search::search(&entries, filter, &self.cited.borrow());
+        for entry in order.iter().map(|&i| &entries[i]) {
             let row = ListBoxRow::new();
             row.set_activatable(true);
             row.add_css_class("fond-card");
             row.add_css_class("fond-row");
             row.set_widget_name(&entry.key);
-            row.set_tooltip_text(Some(&format!(
-                "Double-click or Enter to insert @{}",
-                entry.key
-            )));
+            row.set_tooltip_text(Some(&format!("Click to insert @{}", entry.key)));
 
             let box_ = GtkBox::new(Orientation::Vertical, 2);
             box_.set_margin_start(8);

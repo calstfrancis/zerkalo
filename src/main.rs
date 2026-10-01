@@ -11,6 +11,7 @@ mod bib_sanitize;
 mod bib_source;
 mod bibliography;
 mod citation_keys;
+mod cite_search;
 mod cited_refs;
 mod comments;
 mod compile_stats;

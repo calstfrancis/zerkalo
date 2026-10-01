@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::rc::Rc;
 
 use gtk4::gdk::Rectangle;
@@ -106,6 +107,9 @@ impl PopupEntry {
     }
 }
 
+/// The popup shows the best this many; more typing narrows the rest.
+const MAX_ROWS: usize = 60;
+
 type OnCompleteCb = Rc<RefCell<Option<Box<dyn Fn(PopupEntry)>>>>;
 
 #[derive(Clone)]
@@ -117,6 +121,8 @@ pub struct BibPopup {
     cv_entries: Rc<RefCell<Vec<skrizhal_core::CvEntry>>>,
     on_complete: OnCompleteCb,
     filtered_entries: Rc<RefCell<Vec<PopupEntry>>>,
+    /// Keys the open document already cites: listed first, and marked.
+    cited: Rc<RefCell<HashSet<String>>>,
 }
 
 impl BibPopup {
@@ -124,6 +130,7 @@ impl BibPopup {
         parent: &impl IsA<gtk4::Widget>,
         bib_entries: Rc<RefCell<Vec<BibEntry>>>,
         cv_entries: Rc<RefCell<Vec<skrizhal_core::CvEntry>>>,
+        cited: Rc<RefCell<HashSet<String>>>,
     ) -> Self {
         let popover = Popover::new();
         popover.set_has_arrow(false);
@@ -232,6 +239,34 @@ impl BibPopup {
             cv_entries,
             on_complete,
             filtered_entries,
+            cited,
+        }
+    }
+
+    /// Everything in `source` that answers `query`, best first. Citations
+    /// use the shared `cite_search`; CV entries keep their own simple match.
+    fn find(&self, query: &str, source: PopupSource) -> Vec<PopupEntry> {
+        match source {
+            PopupSource::Bib => {
+                let entries = self.bib_entries.borrow();
+                crate::cite_search::search(&entries, query, &self.cited.borrow())
+                    .into_iter()
+                    .map(|i| PopupEntry::Bib(entries[i].clone()))
+                    .collect()
+            }
+            PopupSource::Cv => {
+                let q = query.to_lowercase();
+                let mut matched: Vec<PopupEntry> = self
+                    .cv_entries
+                    .borrow()
+                    .iter()
+                    .cloned()
+                    .map(PopupEntry::Cv)
+                    .collect();
+                matched.retain(|e| q.is_empty() || e.search_haystack().to_lowercase().contains(&q));
+                matched.sort_by_key(|e| if e.is_prefix_match(&q) { 0u8 } else { 1u8 });
+                matched
+            }
         }
     }
 
@@ -247,28 +282,8 @@ impl BibPopup {
         // any GTK widget ops — popover.popup() / select_row / append_row can
         // cascade through signals back into Zerkalo code that tries to borrow
         // entries again, causing a BorrowError panic.
-        let q = query.to_lowercase();
-        let shown: Vec<PopupEntry> = {
-            let mut matched: Vec<PopupEntry> = match source {
-                PopupSource::Bib => self
-                    .bib_entries
-                    .borrow()
-                    .iter()
-                    .cloned()
-                    .map(PopupEntry::Bib)
-                    .collect(),
-                PopupSource::Cv => self
-                    .cv_entries
-                    .borrow()
-                    .iter()
-                    .cloned()
-                    .map(PopupEntry::Cv)
-                    .collect(),
-            };
-            matched.retain(|e| q.is_empty() || e.search_haystack().to_lowercase().contains(&q));
-            matched.sort_by_key(|e| if e.is_prefix_match(&q) { 0u8 } else { 1u8 });
-            matched
-        };
+        let mut shown = self.find(query, source);
+        shown.truncate(MAX_ROWS);
 
         if shown.is_empty() {
             if self.popover.is_visible() {
@@ -317,26 +332,7 @@ impl BibPopup {
     /// caller can decide whether it's worth showing a list at all, and what to
     /// offer as inline ghost text.
     pub fn matches_for(&self, query: &str, source: PopupSource) -> Vec<PopupEntry> {
-        let q = query.to_lowercase();
-        let mut matched: Vec<PopupEntry> = match source {
-            PopupSource::Bib => self
-                .bib_entries
-                .borrow()
-                .iter()
-                .cloned()
-                .map(PopupEntry::Bib)
-                .collect(),
-            PopupSource::Cv => self
-                .cv_entries
-                .borrow()
-                .iter()
-                .cloned()
-                .map(PopupEntry::Cv)
-                .collect(),
-        };
-        matched.retain(|e| q.is_empty() || e.search_haystack().to_lowercase().contains(&q));
-        matched.sort_by_key(|e| if e.is_prefix_match(&q) { 0u8 } else { 1u8 });
-        matched
+        self.find(query, source)
     }
 
     /// The entry whose *key* continues what's been typed — the only kind of
@@ -387,16 +383,30 @@ impl BibPopup {
             PopupEntry::Bib(e) => {
                 // Primary label: "Smith et al., 2019" — what academics search by
                 let citation_lbl = Label::new(None);
+                let cited = self.cited.borrow().contains(&e.key);
                 citation_lbl.set_markup(&format!(
-                    "<b>{}</b>",
-                    glib::markup_escape_text(&format_author_year(e))
+                    "<b>{}</b>{}",
+                    glib::markup_escape_text(&format_author_year(e)),
+                    if cited {
+                        "  <span alpha=\"60%\">●</span>"
+                    } else {
+                        ""
+                    }
                 ));
+                if cited {
+                    citation_lbl.set_tooltip_text(Some("Already cited in this document"));
+                }
                 citation_lbl.set_halign(Align::Start);
                 citation_lbl.set_xalign(0.0);
                 row_box.append(&citation_lbl);
 
                 if !e.title.is_empty() {
-                    let title_lbl = Label::new(Some(&truncate(&e.title, 50)));
+                    let shown = if e.venue.is_empty() {
+                        truncate(&e.title, 50)
+                    } else {
+                        truncate(&format!("{} — {}", e.title, e.venue), 60)
+                    };
+                    let title_lbl = Label::new(Some(&shown));
                     title_lbl.set_halign(Align::Start);
                     title_lbl.set_xalign(0.0);
                     title_lbl.set_ellipsize(gtk4::pango::EllipsizeMode::End);

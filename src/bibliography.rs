@@ -12,6 +12,14 @@ pub struct BibEntry {
     pub author: String,
     pub title: String,
     pub year: String,
+    /// Journal, book title or publisher — one more thing a search can find
+    /// and a row can show beneath the title.
+    pub venue: String,
+    /// Each author's surname (an institution's whole name), in order, so the
+    /// label is built from real names instead of re-splitting `author`.
+    pub families: Vec<String>,
+    /// Surnames of the editors, used when a work has no author of its own.
+    pub editors: Vec<String>,
 }
 
 /// Reads the entries of a bibliography source, or says why it couldn't. An
@@ -114,12 +122,45 @@ fn bib_entry_from_hayagriva(entry: &hayagriva::Entry) -> BibEntry {
         .unwrap_or_default();
     let year = entry.date().map(|d| d.year.to_string()).unwrap_or_default();
 
+    let families = entry
+        .authors()
+        .map(|people| {
+            people
+                .iter()
+                .map(|p| clean_name(&family_with_prefix(p)))
+                .collect()
+        })
+        .unwrap_or_default();
+    let editors = entry
+        .editors()
+        .map(|people| {
+            people
+                .iter()
+                .map(|p| clean_name(&family_with_prefix(p)))
+                .collect()
+        })
+        .unwrap_or_default();
+    let venue = entry
+        .parents()
+        .first()
+        .and_then(|parent| parent.title())
+        .map(|t| t.value.to_string())
+        .or_else(|| {
+            entry
+                .publisher()
+                .and_then(|p| p.name().map(|n| n.value.to_string()))
+        })
+        .unwrap_or_default();
+
     BibEntry {
         key: entry.key().to_string(),
         entry_type: format!("{:?}", entry.entry_type()).to_lowercase(),
         author,
         title,
         year,
+        venue,
+        families,
+        editors,
     }
 }
 
@@ -140,10 +181,78 @@ fn format_hayagriva_person(p: &hayagriva::types::Person) -> String {
     }
 }
 
-/// Returns "Last 2019" or "Last et al. 2019" — used as the primary label in the
+/// Returns "Last, 2019", "Last & Other, 2019" or "Last et al., 2019" — used as the primary label in the
 /// citation popup so authors can search by name rather than by key.
+fn family_with_prefix(p: &hayagriva::types::Person) -> String {
+    match p.prefix.as_deref() {
+        Some(prefix) if !prefix.is_empty() => format!("{prefix} {}", p.name),
+        _ if p.given_name.as_deref().is_none_or(str::is_empty) => family_of_unsplit(&p.name),
+        _ => p.name.clone(),
+    }
+}
+
+/// A name written in one piece ("Alice Brown", "Simone de Beauvoir",
+/// "World Council of Churches"): its surname, or the whole of it for an
+/// institution. Words like "of" and "for" mark an institution or a place-name;
+/// particles like "de" and "van" belong to the surname.
+fn family_of_unsplit(name: &str) -> String {
+    const INSTITUTION: [&str; 7] = ["of", "for", "the", "and", "&", "on", "in"];
+    const PARTICLE: [&str; 12] = [
+        "de", "van", "von", "der", "den", "la", "le", "du", "da", "di", "ibn", "al",
+    ];
+    let words: Vec<&str> = name.split_whitespace().collect();
+    if words.len() < 2 || words.iter().any(|w| INSTITUTION.contains(w)) {
+        return name.to_string();
+    }
+    if let Some(i) = words
+        .iter()
+        .skip(1)
+        .position(|w| PARTICLE.contains(w))
+        .map(|i| i + 1)
+    {
+        return words[i..].join(" ");
+    }
+    if words.len() <= 4 {
+        words[words.len() - 1].to_string()
+    } else {
+        name.to_string()
+    }
+}
+
+fn biblatex_family(p: &biblatex::Person) -> String {
+    if p.prefix.is_empty() {
+        p.name.clone()
+    } else {
+        format!("{} {}", p.prefix, p.name)
+    }
+}
+
+/// Drops BibTeX grouping braces and stray whitespace from a name.
+fn clean_name(name: &str) -> String {
+    name.replace(['{', '}'], "")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// How a work's authors read in a citation: "Smith", "Smith & Doe",
+/// "Smith et al.", "Cone (ed.)", an institution by its whole name.
+fn author_label(entry: &BibEntry) -> String {
+    let (names, suffix) = if !entry.families.is_empty() {
+        (&entry.families, "")
+    } else {
+        (&entry.editors, " (ed.)")
+    };
+    match names.as_slice() {
+        [] => first_last_name(&entry.author),
+        [one] => format!("{one}{suffix}"),
+        [a, b] => format!("{a} & {b}{suffix}"),
+        [a, ..] => format!("{a} et al.{suffix}"),
+    }
+}
+
 pub fn format_author_year(entry: &BibEntry) -> String {
-    let last = first_last_name(&entry.author);
+    let last = author_label(entry);
     match (last.is_empty(), entry.year.is_empty()) {
         (false, false) => format!("{last}, {}", entry.year),
         (false, true) => last,
@@ -219,12 +328,44 @@ fn entries_from_bibliography(bib: &Bibliography) -> Vec<BibEntry> {
                 Err(_) => String::new(),
             };
 
+            let families = entry
+                .author()
+                .map(|people| {
+                    people
+                        .iter()
+                        .map(|p| clean_name(&biblatex_family(p)))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let editors = entry
+                .editors()
+                .map(|groups| {
+                    groups
+                        .iter()
+                        .flat_map(|(people, _)| people.iter())
+                        .map(|p| clean_name(&biblatex_family(p)))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let venue = ["journaltitle", "journal", "booktitle", "publisher"]
+                .iter()
+                .find_map(|f| {
+                    entry
+                        .get(f)
+                        .map(|c| c.format_verbatim())
+                        .filter(|v| !v.trim().is_empty())
+                })
+                .unwrap_or_default();
+
             BibEntry {
                 key: entry.key.clone(),
                 entry_type: entry.entry_type.to_string(),
                 author,
                 title,
                 year,
+                venue,
+                families,
+                editors,
             }
         })
         .collect()
@@ -723,7 +864,22 @@ multi:
 "#;
         let entries = parse_yaml_bib(yaml);
         assert_eq!(entries[0].author, "Alice Brown and Bob Green");
-        assert_eq!(format_author_year(&entries[0]), "Brown et al., 2021");
+        assert_eq!(format_author_year(&entries[0]), "Brown & Green, 2021");
+    }
+
+    #[test]
+    fn unsplit_names_find_their_surname() {
+        assert_eq!(family_of_unsplit("Alice Brown"), "Brown");
+        assert_eq!(family_of_unsplit("Simone de Beauvoir"), "de Beauvoir");
+        assert_eq!(
+            family_of_unsplit("World Council of Churches"),
+            "World Council of Churches"
+        );
+        assert_eq!(
+            family_of_unsplit("Ignatius of Antioch"),
+            "Ignatius of Antioch"
+        );
+        assert_eq!(family_of_unsplit("Plato"), "Plato");
     }
 
     #[test]
@@ -740,6 +896,7 @@ multi:
             author: "John Smith".into(),
             title: "A Paper".into(),
             year: "2020".into(),
+            ..Default::default()
         };
         assert_eq!(format_author_year(&e), "Smith, 2020");
     }
@@ -752,6 +909,7 @@ multi:
             author: "Doe, Jane".into(),
             title: "A Book".into(),
             year: "2019".into(),
+            ..Default::default()
         };
         assert_eq!(format_author_year(&e), "Doe, 2019");
     }
@@ -764,6 +922,7 @@ multi:
             author: "Alice Brown and Bob Green and Carol White".into(),
             title: "Collaborative Work".into(),
             year: "2021".into(),
+            ..Default::default()
         };
         assert_eq!(format_author_year(&e), "Brown et al., 2021");
     }
@@ -776,6 +935,7 @@ multi:
             author: "Ivan Petrov".into(),
             title: String::new(),
             year: String::new(),
+            ..Default::default()
         };
         assert_eq!(format_author_year(&e), "Petrov");
     }
@@ -788,6 +948,7 @@ multi:
             author: String::new(),
             title: String::new(),
             year: String::new(),
+            ..Default::default()
         };
         assert_eq!(format_author_year(&e), "nodata");
     }
@@ -851,5 +1012,23 @@ multi:
         let key = &entries[0].key;
         let renamed = rename_key_in_bib_text(&original, key, "zz-renamed-key").unwrap();
         assert_eq!(renamed.replace("zz-renamed-key", key), original);
+    }
+
+    #[test]
+    fn labels_are_built_from_real_names() {
+        let bib = parse_bib(
+            "@book{wcc, author = {{World Council of Churches}}, title = {Baptism}, year = {1982}}\n\
+             @book{two, author = {Smith, John and Doe, Jane}, title = {T}, year = {2001}}\n\
+             @book{three, author = {A, Ann and B, Bo and C, Cy}, title = {T}, year = {2002}}\n\
+             @book{ed, editor = {Cone, James}, title = {Reader}, year = {1979}, publisher = {Orbis}}\n\
+             @book{part, author = {de Beauvoir, Simone}, title = {T}, year = {1949}}",
+        );
+        let label = |k: &str| format_author_year(bib.iter().find(|e| e.key == k).unwrap());
+        assert_eq!(label("wcc"), "World Council of Churches, 1982");
+        assert_eq!(label("two"), "Smith & Doe, 2001");
+        assert_eq!(label("three"), "A et al., 2002");
+        assert_eq!(label("ed"), "Cone (ed.), 1979");
+        assert_eq!(label("part"), "de Beauvoir, 1949");
+        assert_eq!(bib.iter().find(|e| e.key == "ed").unwrap().venue, "Orbis");
     }
 }

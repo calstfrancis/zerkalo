@@ -17,6 +17,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **One citation search everywhere.** The `@` popup, the Citations panel and the References window now find the same things: type words in any order ("butler gender 90"), ignoring case and accents ("zizek" finds Žižek), across author, title, year, key and journal/publisher. Works your document already cites come first, marked ●. The popup shows the best 60 and narrows as you type.
+- **Citation labels read properly:** "Smith & Doe", "Smith et al.", "Cone (ed.)" for an edited volume, and an institution by its whole name ("World Council of Churches") instead of "Churches".
+- **Typing `@fig-1` (a label your document defines) no longer pops up bibliography suggestions.**
 - **One place decides the citation source.** The document's own `#bibliography` line wins, then the project setting, then Settings, then a bibliography in the project folder. Settings, the Citations panel and the document all go through it, and the editor follows the open document. Your files are only read, except the path in the open document's `#bibliography` line when you choose a source (written relative when the file is inside the project).
 
 ---

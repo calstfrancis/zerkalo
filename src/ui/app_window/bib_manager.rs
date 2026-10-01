@@ -161,6 +161,12 @@ impl BibManager {
         }
     }
 
+    /// The keys the open document cites: every list puts them first.
+    pub(super) fn set_cited(&self, keys: std::collections::HashSet<String>) {
+        self.0.editor.set_cited_keys(keys.clone());
+        self.0.panel.set_cited_keys(keys);
+    }
+
     /// Re-reads the current source (after the app itself wrote to it).
     pub(super) fn reload(&self) {
         let res = self.0.current.borrow().clone();

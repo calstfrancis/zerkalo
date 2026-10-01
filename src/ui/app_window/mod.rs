@@ -918,6 +918,7 @@ impl AppWindow {
                             comments.update(&path, &content);
                             bib.refresh(Some((&path, &content)));
                             refs.update_used_keys(&content, &path);
+                            bib.set_cited(refs.used());
                         }
                     }
                     if let Some(client) = lsp.borrow_mut().as_mut() {
@@ -1052,6 +1053,7 @@ impl AppWindow {
             comments_for_switch.update(&path, &content);
             bib_for_switch.refresh(Some((&path, &content)));
             refs_for_switch.update_used_keys(&content, &path);
+            bib_for_switch.set_cited(refs_for_switch.used());
             dep_graph_for_switch.refresh(Some(&path));
             // Only recompile if the content has changed since the last compile for this file.
             let content_hash = {
