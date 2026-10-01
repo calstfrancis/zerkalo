@@ -4085,7 +4085,7 @@ mod tests {
     fn if_the_label_migration_cannot_run_the_library_still_opens_and_lists_everything() {
         // Make it fail: a table named `labels` of the wrong shape is in the way.
         let work = TempDir::new().unwrap();
-        let mut lib = legacy_library(&work);
+        let lib = legacy_library(&work);
         lib.conn
             .execute_batch(
                 "CREATE TABLE labels (unrelated INTEGER);
