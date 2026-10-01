@@ -82,6 +82,10 @@ pub struct LibraryWindow {
     empty_page: adw::StatusPage,
     empty_new_doc_btn: Button,
     empty_clear_search_btn: Button,
+    /// Held while the sidebar's own selection is being restored, so putting the
+    /// highlight back on the current view doesn't read as the user choosing it.
+    inhibit_select: Rc<RefCell<bool>>,
+    authors_expanded: Rc<RefCell<bool>>,
 }
 
 impl LibraryWindow {
@@ -178,6 +182,9 @@ impl LibraryWindow {
         let search_entry = SearchEntry::new();
         search_entry.set_placeholder_text(Some("Search documents…"));
         search_entry.set_width_request(240);
+        // One search per pause in typing, not one per keystroke — each search
+        // rebuilds the whole list.
+        search_entry.set_search_delay(150);
         let start_box = GtkBox::new(Orientation::Horizontal, 6);
         start_box.append(&search_entry);
         right_header.pack_start(&start_box);
@@ -191,7 +198,8 @@ impl LibraryWindow {
         let import_btn = Button::with_label("Import…");
         import_btn.add_css_class("flat");
         import_btn.add_css_class("fond-quiet");
-        let sort_dropdown = gtk4::DropDown::from_strings(&["Modified", "Created", "Opened", "A→Z"]);
+        let sort_dropdown =
+            gtk4::DropDown::from_strings(&["Last edited", "Date created", "Last opened", "Name"]);
         sort_dropdown.set_tooltip_text(Some("Sort order"));
         right_header.pack_end(&import_btn);
         right_header.pack_end(&new_doc_btn);
@@ -314,7 +322,7 @@ impl LibraryWindow {
         help_overlay.annotate(
             &filter_list,
             "Filters",
-            "All Documents, plus any Projects, Categories, and Tags you've made. Click one to show only those documents.",
+            "All Documents, plus any Projects, Categories, and Tags you've made, and the Authors your documents cite. Click one to show only those documents.",
         );
         help_overlay.annotate(
             &bottom_filter_list,
@@ -383,6 +391,8 @@ impl LibraryWindow {
             empty_page,
             empty_new_doc_btn,
             empty_clear_search_btn,
+            inhibit_select: Rc::new(RefCell::new(false)),
+            authors_expanded: Rc::new(RefCell::new(false)),
         };
 
         lw.populate_filter_list();
@@ -443,7 +453,7 @@ impl LibraryWindow {
                 this.populate_doc_list();
             });
         }
-        let inhibit: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
+        let inhibit = self.inhibit_select.clone();
         let inhibit_b = inhibit.clone();
         {
             let this = self.clone();
@@ -509,12 +519,24 @@ impl LibraryWindow {
             let this = self.clone();
             bulk_archive_btn.connect_clicked(move |_| {
                 let ids: Vec<i64> = this.selection.borrow().iter().cloned().collect();
-                for id in ids {
-                    this.library.borrow_mut().set_archived(id, true).ok();
+                for id in &ids {
+                    this.library.borrow_mut().set_archived(*id, true).ok();
                 }
                 this.selection.borrow_mut().clear();
                 this.update_action_bar();
                 this.refresh();
+                let undo = this.clone();
+                let message = if ids.len() == 1 {
+                    "Archived 1 document".to_string()
+                } else {
+                    format!("Archived {} documents", ids.len())
+                };
+                this.toast_with_undo(&message, move || {
+                    for id in &ids {
+                        undo.library.borrow_mut().set_archived(*id, false).ok();
+                    }
+                    undo.refresh();
+                });
             });
         }
         {
@@ -539,7 +561,7 @@ impl LibraryWindow {
                 };
                 super::confirm::confirm_destructive(
                     Some(win.upcast_ref()),
-                    "Remove from Library?",
+                    "Remove from list?",
                     &body,
                     "Remove",
                     move || {
@@ -642,7 +664,7 @@ impl LibraryWindow {
         self.filter_list.append(&make_filter_row(
             "recent",
             "document-open-recent-symbolic",
-            "Recently Opened",
+            "Recent",
             self.library.borrow().doc_count(&LibraryFilter::Recent).ok(),
         ));
         self.filter_list.append(&make_filter_row(
@@ -876,6 +898,23 @@ impl LibraryWindow {
             }
         }
 
+        let authors = self
+            .library
+            .borrow()
+            .all_authors_with_counts()
+            .unwrap_or_default();
+        if !authors.is_empty() {
+            let expanded = *self.authors_expanded.borrow();
+            self.filter_list
+                .append(&self.authors_header_row(authors.len(), expanded));
+            if expanded {
+                for (a, count) in &authors {
+                    self.filter_list
+                        .append(&make_author_filter_row(a.id, &a.name, Some(*count)));
+                }
+            }
+        }
+
         // Repopulate the fixed bottom list (Trash / Archive)
         while let Some(child) = self.bottom_filter_list.first_child() {
             self.bottom_filter_list.remove(&child);
@@ -896,22 +935,52 @@ impl LibraryWindow {
                 .ok(),
         ));
 
-        // Restore selection to match current_filter
+        // Put the highlight back on the view the user is in. This used to
+        // select the first row unconditionally, which the selection handler
+        // took as a click on "All Documents" — so archiving, deleting or
+        // dropping onto a category threw the user out of the view they were in.
         let current = self.current_filter.borrow().clone();
-        let is_bottom = matches!(current, LibraryFilter::Trash | LibraryFilter::Archive);
-        if is_bottom {
-            // Select the matching bottom row
-            let idx = if matches!(current, LibraryFilter::Trash) {
-                0
-            } else {
-                1
-            };
-            if let Some(row) = self.bottom_filter_list.row_at_index(idx) {
+        let wanted = filter_row_name(&current);
+        let find = |list: &ListBox| {
+            let mut i = 0;
+            while let Some(row) = list.row_at_index(i) {
+                if row.widget_name().as_str() == wanted {
+                    return Some(row);
+                }
+                i += 1;
+            }
+            None
+        };
+        let (top, bottom) = (find(&self.filter_list), find(&self.bottom_filter_list));
+        *self.inhibit_select.borrow_mut() = true;
+        match (top, bottom) {
+            (Some(row), _) => {
+                self.bottom_filter_list.unselect_all();
+                self.filter_list.select_row(Some(&row));
+            }
+            (None, Some(row)) => {
+                self.filter_list.unselect_all();
                 self.bottom_filter_list.select_row(Some(&row));
             }
-        } else if let Some(first) = self.filter_list.row_at_index(0) {
-            self.filter_list.select_row(Some(&first));
+            (None, None) => {
+                self.filter_list.unselect_all();
+                self.bottom_filter_list.unselect_all();
+                // The view's own row is missing. If that's only because the
+                // Authors section is folded, stay in the view; if what it
+                // showed has been deleted, go back to All Documents.
+                let author_folded = matches!(
+                    current,
+                    LibraryFilter::Author(id) if authors.iter().any(|(a, _)| a.id == id)
+                );
+                if !author_folded {
+                    *self.current_filter.borrow_mut() = LibraryFilter::All;
+                    if let Some(first) = self.filter_list.row_at_index(0) {
+                        self.filter_list.select_row(Some(&first));
+                    }
+                }
+            }
         }
+        *self.inhibit_select.borrow_mut() = false;
 
         let total = self
             .library
@@ -937,6 +1006,45 @@ impl LibraryWindow {
             "{} docs · {} projects · Last: {}",
             total, projects, last
         ));
+    }
+
+    /// The Authors section header: unlike the others it folds, because a
+    /// library that cites widely has hundreds of authors and they would bury
+    /// the projects and labels above them.
+    fn authors_header_row(&self, count: usize, expanded: bool) -> ListBoxRow {
+        let row = ListBoxRow::new();
+        row.set_selectable(false);
+        row.set_activatable(false);
+        row.set_tooltip_text(Some(
+            "Everyone your documents cite, as \"Surname, I.\" — made automatically from each \
+             document's citations. Click to show or hide.",
+        ));
+        let bx = crate::ui::styles::fond_section_header("Authors", "fond-accent-library");
+        let meta = crate::ui::styles::fond_section_meta();
+        meta.set_text(&format!("\u{b7} {count}"));
+        bx.append(&meta);
+        let spacer = GtkBox::new(Orientation::Horizontal, 0);
+        spacer.set_hexpand(true);
+        bx.append(&spacer);
+        let chevron = Image::from_icon_name(if expanded {
+            "pan-down-symbolic"
+        } else {
+            "pan-end-symbolic"
+        });
+        chevron.add_css_class("fond-row-meta");
+        bx.append(&chevron);
+        row.set_child(Some(&bx));
+        let click = gtk4::GestureClick::new();
+        click.set_button(1);
+        let this = self.clone();
+        click.connect_pressed(move |g, _, _, _| {
+            g.set_state(gtk4::EventSequenceState::Claimed);
+            let now = *this.authors_expanded.borrow();
+            *this.authors_expanded.borrow_mut() = !now;
+            this.populate_filter_list();
+        });
+        row.add_controller(click);
+        row
     }
 
     fn populate_doc_list(&self) {
@@ -981,6 +1089,7 @@ impl LibraryWindow {
                 (name, color)
             })
             .collect();
+        let authors_by_doc = self.library.borrow().authors_by_doc().unwrap_or_default();
         let mode = self.view_mode.borrow().clone();
 
         if mode == ViewMode::Compact {
@@ -1020,6 +1129,7 @@ impl LibraryWindow {
                     project_reorder,
                     mode.clone(),
                     &cat_colors,
+                    authors_by_doc.get(&doc.id).map_or(&[], |v| v.as_slice()),
                 );
                 if i == 0 {
                     row.add_css_class("fond-card-first");
@@ -1043,6 +1153,7 @@ impl LibraryWindow {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn make_doc_row(
         &self,
         doc: &crate::library::Document,
@@ -1051,6 +1162,7 @@ impl LibraryWindow {
         project_reorder: Option<i64>,
         mode: ViewMode,
         cat_colors: &HashMap<String, String>,
+        cites: &[String],
     ) -> ListBoxRow {
         let row = ListBoxRow::new();
         row.set_widget_name(&doc.id.to_string());
@@ -1166,10 +1278,24 @@ impl LibraryWindow {
             chip.add_controller(chip_click);
         }
 
-        if let Some(notes) = &doc.notes {
-            if !notes.trim().is_empty() {
-                hbox.set_tooltip_text(Some(notes.trim()));
+        let mut tip = doc
+            .notes
+            .as_deref()
+            .map(str::trim)
+            .unwrap_or_default()
+            .to_string();
+        if !cites.is_empty() {
+            if !tip.is_empty() {
+                tip.push_str("\n\n");
             }
+            tip.push_str("Cites: ");
+            tip.push_str(&cites.iter().take(8).cloned().collect::<Vec<_>>().join("; "));
+            if cites.len() > 8 {
+                tip.push_str(&format!(" and {} more", cites.len() - 8));
+            }
+        }
+        if !tip.is_empty() {
+            hbox.set_tooltip_text(Some(&tip));
         }
 
         let spacer = GtkBox::new(Orientation::Horizontal, 0);
@@ -1276,6 +1402,17 @@ impl LibraryWindow {
         row.add_controller(gesture);
 
         row
+    }
+
+    /// A toast with an Undo button — for actions that are easy to take back, in
+    /// place of a confirmation dialog asking first.
+    fn toast_with_undo(&self, message: &str, undo: impl Fn() + 'static) {
+        let toast = adw::Toast::new(message);
+        toast.set_use_markup(false);
+        toast.set_button_label(Some("Undo"));
+        toast.set_timeout(6);
+        toast.connect_button_clicked(move |_| undo());
+        self.toast_overlay.add_toast(toast);
     }
 
     fn open_doc_by_id(&self, doc_id: i64) {
@@ -1486,18 +1623,26 @@ impl LibraryWindow {
             let this = self.clone();
             let id = doc.id;
             let archived = doc.archived;
+            let title = doc.title.clone();
             let pop = popover.clone();
             arch_b.connect_clicked(move |_| {
                 pop.popdown();
                 this.library.borrow_mut().set_archived(id, !archived).ok();
                 this.refresh();
+                if !archived {
+                    let undo = this.clone();
+                    this.toast_with_undo(&format!("Archived \u{201c}{title}\u{201d}"), move || {
+                        undo.library.borrow_mut().set_archived(id, false).ok();
+                        undo.refresh();
+                    });
+                }
             });
         }
         vbox.append(&arch_b);
 
         vbox.append(&Separator::new(Orientation::Horizontal));
 
-        let remove_b = mk("Remove from Library");
+        let remove_b = mk("Remove from list");
         {
             let this = self.clone();
             let id = doc.id;
@@ -1508,7 +1653,7 @@ impl LibraryWindow {
                 let this2 = this.clone();
                 super::confirm::confirm_destructive(
                     Some(win.upcast_ref()),
-                    "Remove from Library?",
+                    "Remove from list?",
                     "The document's file on disk isn't touched — this only removes it from \
                      this list. Zerkalo will find it again if you open it or its folder is \
                      rescanned.",
@@ -1522,21 +1667,35 @@ impl LibraryWindow {
         }
         vbox.append(&remove_b);
 
-        let trash_b = mk("Move to Trash");
+        let trash_b = mk("Delete");
         trash_b.add_css_class("error");
         {
             let this = self.clone();
             let id = doc.id;
+            let title = doc.title.clone();
             let pop = popover.clone();
             trash_b.connect_clicked(move |_| {
                 pop.popdown();
-                if let Err(e) = this.library.borrow_mut().move_to_trash(id) {
-                    tracing::error!("move_to_trash failed: {e}");
-                    let toast = adw::Toast::new(&format!(
-                        "Couldn't move to the trash — {}.",
-                        e.user_message()
-                    ));
-                    this.toast_overlay.add_toast(toast);
+                let moved = this.library.borrow_mut().move_to_trash(id);
+                match moved {
+                    Err(e) => {
+                        tracing::error!("move_to_trash failed: {e}");
+                        let toast = adw::Toast::new(&format!(
+                            "Couldn't move to the trash — {}.",
+                            e.user_message()
+                        ));
+                        this.toast_overlay.add_toast(toast);
+                    }
+                    Ok(()) => {
+                        let undo = this.clone();
+                        this.toast_with_undo(
+                            &format!("Moved \u{201c}{title}\u{201d} to Trash"),
+                            move || {
+                                undo.library.borrow_mut().restore_from_trash(id).ok();
+                                undo.refresh();
+                            },
+                        );
+                    }
                 }
                 this.refresh();
             });
@@ -2491,46 +2650,6 @@ impl LibraryWindow {
         new_tag_box.append(&add_tag_btn);
         container.append(&new_tag_box);
 
-        {
-            let this = self.clone();
-            let checks_c = checks.clone();
-            let listbox_c = listbox.clone();
-            let bib_doc_btn = Button::with_label("Import cited authors from BibTeX…");
-            bib_doc_btn.add_css_class("flat");
-            container.append(&bib_doc_btn);
-            let rt_for_bib: Rc<dyn Fn()> = Rc::new(move || {
-                let all_tags = this.library.borrow().all_tags().unwrap_or_default();
-                let current_checks: Vec<i64> =
-                    checks_c.borrow().iter().map(|(id, _)| *id).collect();
-                for tag in &all_tags {
-                    if !current_checks.contains(&tag.id) {
-                        // any tag missing from current_checks was just created by the
-                        // BibTeX author import above, so it applies to this document
-                        let check = CheckButton::with_label(&tag.name);
-                        check.set_active(true);
-                        let r = ListBoxRow::new();
-                        r.set_selectable(false);
-                        r.set_child(Some(&check));
-                        listbox_c.append(&r);
-                        checks_c.borrow_mut().push((tag.id, check));
-                    }
-                }
-                this.populate_filter_list();
-            });
-            let this2 = self.clone();
-            bib_doc_btn.connect_clicked(move |_| {
-                let path = this2
-                    .library
-                    .borrow()
-                    .doc_by_id(doc_id)
-                    .ok()
-                    .flatten()
-                    .map(|d| d.path);
-                let paths = path.into_iter().collect();
-                this2.import_authors_from_bibtex(paths, rt_for_bib.clone());
-            });
-        }
-
         dlg.set_extra_child(Some(&container));
 
         // Wire inline create
@@ -2827,11 +2946,6 @@ impl LibraryWindow {
         new_row.append(&add_btn);
         vbox.append(&new_row);
 
-        let bib_btn = Button::with_label("Import authors from BibTeX…");
-        bib_btn.add_css_class("flat");
-        bib_btn.set_margin_top(0);
-        vbox.append(&bib_btn);
-
         let this = self.clone();
         let tag_list_c = tag_list.clone();
         let refresh_slot: Rc<RefCell<Option<Rc<dyn Fn()>>>> = Rc::new(RefCell::new(None));
@@ -2949,115 +3063,9 @@ impl LibraryWindow {
             });
         }
 
-        let doc_paths: Vec<PathBuf> = match *self.current_filter.borrow() {
-            LibraryFilter::Project(pid) => self
-                .library
-                .borrow()
-                .documents(LibraryFilter::Project(pid), "", SortOrder::Title)
-                .unwrap_or_default()
-                .into_iter()
-                .map(|d| d.path)
-                .collect(),
-            _ => vec![],
-        };
-
-        {
-            let this = self.clone();
-            let refresh_tags = refresh_tags.clone();
-            let doc_paths = doc_paths.clone();
-            bib_btn.connect_clicked(move |_| {
-                this.import_authors_from_bibtex(doc_paths.clone(), refresh_tags.clone());
-            });
-        }
-
         dlg.set_extra_child(Some(&vbox));
         let this = self.clone();
         dlg.connect_response(None, move |_, _| this.refresh());
-        dlg.present();
-    }
-
-    fn import_authors_from_bibtex(&self, doc_paths: Vec<PathBuf>, refresh_tags: Rc<dyn Fn()>) {
-        let dialog = gtk4::FileDialog::new();
-        dialog.set_title("Select BibTeX File");
-        let filter = gtk4::FileFilter::new();
-        filter.add_pattern("*.bib");
-        filter.set_name(Some("BibTeX files"));
-        let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
-        filters.append(&filter);
-        dialog.set_filters(Some(&filters));
-        dialog.set_initial_folder(Some(&gtk4::gio::File::for_path(&self.work_dir)));
-        let this = self.clone();
-        dialog.open(
-            Some(&self.window),
-            gtk4::gio::Cancellable::NONE,
-            move |res| {
-                if let Ok(file) = res {
-                    if let Some(path) = file.path() {
-                        let mut keys = std::collections::HashSet::new();
-                        for dp in &doc_paths {
-                            keys.extend(extract_cite_keys(dp));
-                        }
-                        let authors = if keys.is_empty() {
-                            parse_bibtex_authors_for_keys(&path, None)
-                        } else {
-                            parse_bibtex_authors_for_keys(&path, Some(&keys))
-                        };
-                        if !authors.is_empty() {
-                            this.show_author_selection_dialog(authors, refresh_tags.clone());
-                        }
-                    }
-                }
-            },
-        );
-    }
-
-    fn show_author_selection_dialog(&self, authors: Vec<String>, refresh_tags: Rc<dyn Fn()>) {
-        let dlg = adw::MessageDialog::new(
-            Some(&self.window),
-            Some("Import Author Tags"),
-            Some("Select authors to create as tags:"),
-        );
-        dlg.add_response("cancel", "Cancel");
-        dlg.add_response("ok", "Create Tags");
-        dlg.set_response_appearance("ok", adw::ResponseAppearance::Suggested);
-        dlg.set_default_response(Some("ok"));
-        dlg.set_close_response("cancel");
-
-        let scroll = ScrolledWindow::new();
-        scroll.set_min_content_height(180);
-        scroll.set_width_request(280);
-        let listbox = ListBox::new();
-        listbox.set_selection_mode(gtk4::SelectionMode::None);
-
-        let checks: Vec<(String, CheckButton)> = authors
-            .into_iter()
-            .map(|name| {
-                let check = CheckButton::with_label(&name);
-                check.set_active(true);
-                let r = ListBoxRow::new();
-                r.set_selectable(false);
-                r.set_child(Some(&check));
-                listbox.append(&r);
-                (name, check)
-            })
-            .collect();
-
-        scroll.set_child(Some(&listbox));
-        dlg.set_extra_child(Some(&scroll));
-
-        let this = self.clone();
-        dlg.connect_response(None, move |_, resp| {
-            if resp == "ok" {
-                for (name, check) in &checks {
-                    if check.is_active() {
-                        let color = TAG_COLORS[1].to_string(); // green for authors
-                        this.library.borrow_mut().create_tag(name, &color).ok();
-                    }
-                }
-                refresh_tags();
-                this.populate_filter_list();
-            }
-        });
         dlg.present();
     }
 
@@ -3298,12 +3306,38 @@ impl LibraryWindow {
     }
 
     pub fn refresh(&self) {
+        // The bibliography Settings points at decides which documents cite
+        // whom; if it has changed since the library last looked, re-derive.
+        let bib = crate::authors::configured_bibliography(
+            &self.work_dir,
+            self.config.borrow().bib_path.as_deref(),
+        );
+        let changed = self.library.borrow_mut().set_bibliography(bib);
+        if changed {
+            self.library.borrow_mut().resync_authors();
+        }
         self.populate_filter_list();
         self.populate_doc_list();
     }
 
     pub fn window(&self) -> &adw::Window {
         &self.window
+    }
+}
+
+/// The sidebar row name for a filter — the inverse of `parse_filter_name`.
+fn filter_row_name(filter: &LibraryFilter) -> String {
+    match filter {
+        LibraryFilter::All => "all".into(),
+        LibraryFilter::Recent => "recent".into(),
+        LibraryFilter::Archive => "archive".into(),
+        LibraryFilter::Untagged => "untagged".into(),
+        LibraryFilter::Trash => "trash".into(),
+        LibraryFilter::Project(id) => format!("project:{id}"),
+        LibraryFilter::Tag(id) => format!("tag:{id}"),
+        LibraryFilter::Author(id) => format!("author:{id}"),
+        LibraryFilter::CategoryGroup(name) => format!("category-group:{name}"),
+        LibraryFilter::Category(name) => format!("category:{name}"),
     }
 }
 
@@ -3321,6 +3355,10 @@ fn parse_filter_name(name: &str) -> LibraryFilter {
     } else if let Some(rest) = name.strip_prefix("project:") {
         rest.parse::<i64>()
             .map(LibraryFilter::Project)
+            .unwrap_or(LibraryFilter::All)
+    } else if let Some(rest) = name.strip_prefix("author:") {
+        rest.parse::<i64>()
+            .map(LibraryFilter::Author)
             .unwrap_or(LibraryFilter::All)
     } else if let Some(rest) = name.strip_prefix("tag:") {
         rest.parse::<i64>()
@@ -3400,6 +3438,12 @@ fn make_category_filter_row_indented(
 fn make_tag_filter_row(tag_id: i64, label: &str, color: &str, count: Option<i64>) -> ListBoxRow {
     let (row, hbox) = filter_row_shell(&format!("tag:{tag_id}"), label, count);
     hbox.prepend(&crate::ui::styles::fond_cue(Some(color)));
+    row
+}
+
+fn make_author_filter_row(author_id: i64, label: &str, count: Option<i64>) -> ListBoxRow {
+    let (row, hbox) = filter_row_shell(&format!("author:{author_id}"), label, count);
+    hbox.prepend(&crate::ui::styles::fond_cue(None));
     row
 }
 
@@ -3486,144 +3530,37 @@ fn apply_color_css(widget: &impl IsA<gtk4::Widget>, color: &str) {
         .add_provider(&provider, gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION);
 }
 
-fn extract_cite_keys(typ_path: &std::path::Path) -> std::collections::HashSet<String> {
-    // Compiled once, not three times per file — this runs for every document in
-    // the library on a scan.
-    static SHORTHAND: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    static CITE_LABEL: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    static CITE_STRING: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-
-    let content = match std::fs::read_to_string(typ_path) {
-        Ok(c) => c,
-        Err(_) => return std::collections::HashSet::new(),
-    };
-    let mut keys = std::collections::HashSet::new();
-    let patterns = [
-        SHORTHAND.get_or_init(|| regex::Regex::new(r"@([a-zA-Z][a-zA-Z0-9_:.-]*)").unwrap()),
-        CITE_LABEL.get_or_init(|| regex::Regex::new(r"#cite\(<([^>]+)>\)").unwrap()),
-        CITE_STRING.get_or_init(|| regex::Regex::new(r#"#cite\("([^"]+)"\)"#).unwrap()),
-    ];
-    for re in patterns {
-        for cap in re.captures_iter(&content) {
-            keys.insert(cap[1].to_string());
-        }
+/// `count_prose_words_uncached`, remembered per file until it changes — the
+/// list is rebuilt on every keystroke of a search and every click, and used to
+/// read every document in full each time.
+fn count_prose_words(path: &std::path::Path) -> usize {
+    use std::time::SystemTime;
+    thread_local! {
+        static CACHE: RefCell<HashMap<PathBuf, (SystemTime, u64, usize)>> =
+            RefCell::new(HashMap::new());
     }
-    keys
-}
-
-fn parse_bibtex_authors_for_keys(
-    bib_path: &std::path::Path,
-    filter_keys: Option<&std::collections::HashSet<String>>,
-) -> Vec<String> {
-    let content = match std::fs::read_to_string(bib_path) {
-        Ok(c) => c,
-        Err(_) => return vec![],
-    };
-    let mut seen = std::collections::HashSet::new();
-    let mut in_matching_entry = filter_keys.is_none();
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with('@')
-            && !trimmed.to_lowercase().starts_with("@string")
-            && trimmed.contains('{')
-        {
-            let after = &trimmed[trimmed.find('{').unwrap() + 1..];
-            let key = after.split(',').next().unwrap_or("").trim().to_string();
-            in_matching_entry = filter_keys.is_none_or(|keys| keys.contains(&key));
-        }
-        if !in_matching_entry {
-            continue;
-        }
-        let lower = trimmed.to_lowercase();
-        if lower.starts_with("author") && lower[6..].trim_start().starts_with('=') {
-            if let Some(eq) = trimmed.find('=') {
-                let raw = trimmed[eq + 1..].trim();
-                let value = raw
-                    .trim_start_matches(['{', '"'])
-                    .trim_end_matches([',', '}', '"'])
-                    .trim();
-                for part in value.split(" and ") {
-                    if let Some(tag) = extract_author_tag(part) {
-                        seen.insert(tag);
-                    }
-                }
+    let stamp = std::fs::metadata(path)
+        .ok()
+        .and_then(|m| m.modified().ok().map(|t| (t, m.len())));
+    if let Some((mtime, len)) = stamp {
+        let hit = CACHE.with(|c| c.borrow().get(path).copied());
+        if let Some((cached_mtime, cached_len, words)) = hit {
+            if cached_mtime == mtime && cached_len == len {
+                return words;
             }
         }
     }
-    let mut result: Vec<String> = seen.into_iter().collect();
-    result.sort();
-    result
+    let words = count_prose_words_uncached(path);
+    if let Some((mtime, len)) = stamp {
+        CACHE.with(|c| {
+            c.borrow_mut()
+                .insert(path.to_path_buf(), (mtime, len, words))
+        });
+    }
+    words
 }
 
-fn extract_author_tag(raw: &str) -> Option<String> {
-    let name = raw
-        .trim()
-        .trim_start_matches('{')
-        .trim_end_matches(['}', ','])
-        .trim();
-    if name.is_empty() {
-        return None;
-    }
-    let lower = name.to_lowercase();
-    // BibLaTeX extended format: "family=Doe, given=John, ..."
-    if lower.contains("family=") {
-        let family = name
-            .split(',')
-            .find(|p| p.trim().to_lowercase().starts_with("family="))
-            .map(|p| {
-                p.trim()[7..]
-                    .trim()
-                    .trim_matches(|c: char| c == '{' || c == '}')
-                    .trim()
-            })
-            .unwrap_or("");
-        let given = name
-            .split(',')
-            .find(|p| p.trim().to_lowercase().starts_with("given="))
-            .map(|p| {
-                p.trim()[6..]
-                    .trim()
-                    .trim_matches(|c: char| c == '{' || c == '}')
-                    .trim()
-            })
-            .unwrap_or("");
-        if !family.is_empty() {
-            return Some(if given.is_empty() {
-                family.to_string()
-            } else {
-                format!("{family}, {given}")
-            });
-        }
-    }
-    // BibTeX comma format: "Last, First [Middle]"
-    if let Some(comma) = name.find(',') {
-        let last = name[..comma]
-            .trim()
-            .trim_matches(|c: char| c == '{' || c == '}')
-            .trim();
-        let first = name[comma + 1..]
-            .trim()
-            .trim_matches(|c: char| c == '{' || c == '}')
-            .trim();
-        if !last.is_empty() {
-            return Some(if first.is_empty() {
-                last.to_string()
-            } else {
-                format!("{last}, {first}")
-            });
-        }
-    }
-    // "First [Middle] Last" — last word is surname
-    let parts: Vec<&str> = name.split_whitespace().collect();
-    if parts.len() >= 2 {
-        let last = *parts.last().unwrap();
-        let first = parts[..parts.len() - 1].join(" ");
-        return Some(format!("{last}, {first}"));
-    }
-    Some(name.to_string())
-}
-
-fn count_prose_words(path: &std::path::Path) -> usize {
+fn count_prose_words_uncached(path: &std::path::Path) -> usize {
     let content = match std::fs::read_to_string(path) {
         Ok(c) => c,
         Err(_) => return 0,
@@ -3652,4 +3589,27 @@ fn show_export_error(parent: &adw::Window, msg: &str) {
     let dlg = adw::MessageDialog::new(Some(parent), Some("Export Failed"), Some(msg));
     dlg.add_response("ok", "OK");
     dlg.present();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_filter_round_trips_through_its_row_name() {
+        for f in [
+            LibraryFilter::All,
+            LibraryFilter::Recent,
+            LibraryFilter::Archive,
+            LibraryFilter::Untagged,
+            LibraryFilter::Trash,
+            LibraryFilter::Project(7),
+            LibraryFilter::Tag(3),
+            LibraryFilter::Author(12),
+            LibraryFilter::Category("Sermons".into()),
+            LibraryFilter::CategoryGroup("Liturgy".into()),
+        ] {
+            assert_eq!(parse_filter_name(&filter_row_name(&f)), f);
+        }
+    }
 }

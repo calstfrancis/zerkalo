@@ -123,6 +123,7 @@ impl AppWindow {
         {
             let library_bg = library.clone();
             let work_dir_bg = config.work_dir.clone();
+            let global_bib_bg = config.bib_path.clone();
             // Plain mpsc polled from the main loop, matching every other
             // worker handoff in this file. `MainContext::channel` was
             // deprecated in favour of an async channel, and this codebase has
@@ -133,6 +134,10 @@ impl AppWindow {
                     tracing::warn!("Failed to open library DB: {e}");
                     Library::open_in_memory()
                 });
+                lib.set_bibliography(crate::authors::configured_bibliography(
+                    &work_dir_bg,
+                    global_bib_bg.as_deref(),
+                ));
                 lib.import_directory(&work_dir_bg).ok();
                 lib.fix_created_dates_from_fs();
                 match lib.reconcile_trash_state() {

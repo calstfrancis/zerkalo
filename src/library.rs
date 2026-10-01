@@ -9,6 +9,17 @@ pub struct Library {
     /// `glib::user_data_dir()` call so tests can point it at a temp dir instead
     /// of the real data dir.
     trash_dir: PathBuf,
+    /// Derives the author tags (see `authors.rs`) each time a document is
+    /// scanned, opened or saved.
+    authors: AuthorSync,
+}
+
+/// The bibliography fallback for documents that don't name one themselves,
+/// plus the parse cache that keeps a scan from re-reading it per document.
+#[derive(Default)]
+struct AuthorSync {
+    bib_source: Option<PathBuf>,
+    index: crate::authors::AuthorIndex,
 }
 
 fn default_trash_dir() -> PathBuf {
@@ -58,6 +69,13 @@ pub struct Tag {
     pub color_hex: String,
 }
 
+/// A cited author's tag, e.g. `Butler, J.` — derived, never typed in.
+#[derive(Clone, Debug)]
+pub struct Author {
+    pub id: i64,
+    pub name: String,
+}
+
 #[derive(Clone, Debug)]
 #[allow(dead_code)] // mirrors the projects table; not every column is read yet
 pub struct Project {
@@ -80,6 +98,8 @@ pub enum LibraryFilter {
     All,
     Project(i64),
     Tag(i64),
+    /// Everything citing one author — see `authors.rs`.
+    Author(i64),
     Category(String),
     CategoryGroup(String),
     Archive,
@@ -166,6 +186,14 @@ impl LibraryFilter {
                 order_override: Some("d.pinned DESC, pd.position, d.title"),
                 param: Some(pid.into()),
             },
+            LibraryFilter::Author(aid) => FilterSpec {
+                prefix: "d.",
+                select: doc_cols_prefixed("d"),
+                from: "documents d JOIN doc_authors da ON da.doc_id = d.id".to_string(),
+                conditions: "da.author_id = ?1 AND d.archived = 0 AND d.deleted = 0".to_string(),
+                order_override: None,
+                param: Some(aid.into()),
+            },
             LibraryFilter::Tag(tid) => FilterSpec {
                 prefix: "d.",
                 select: doc_cols_prefixed("d"),
@@ -229,6 +257,7 @@ impl Library {
         let lib = Self {
             conn,
             trash_dir: default_trash_dir(),
+            authors: AuthorSync::default(),
         };
         lib.migrate()?;
         Ok(lib)
@@ -241,7 +270,11 @@ impl Library {
     fn in_memory_with_trash_dir(trash_dir: PathBuf) -> Self {
         let conn = Connection::open_in_memory().expect("in-memory DB");
         conn.execute_batch("PRAGMA foreign_keys = ON;").ok();
-        let lib = Self { conn, trash_dir };
+        let lib = Self {
+            conn,
+            trash_dir,
+            authors: AuthorSync::default(),
+        };
         lib.migrate().ok();
         lib
     }
@@ -298,6 +331,27 @@ impl Library {
             .ok();
         self.conn
             .execute_batch("ALTER TABLE documents ADD COLUMN trash_path TEXT;")
+            .ok();
+        // 1 once the user has renamed the document in the Library: from then on
+        // a rescan must not overwrite the title with the one in the file.
+        self.conn
+            .execute_batch(
+                "ALTER TABLE documents ADD COLUMN title_custom INTEGER NOT NULL DEFAULT 0;",
+            )
+            .ok();
+        self.conn
+            .execute_batch(
+                "CREATE TABLE IF NOT EXISTS authors (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE COLLATE NOCASE
+                );
+                CREATE TABLE IF NOT EXISTS doc_authors (
+                    doc_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+                    author_id INTEGER NOT NULL REFERENCES authors(id) ON DELETE CASCADE,
+                    PRIMARY KEY (doc_id, author_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_doc_authors_author ON doc_authors(author_id);",
+            )
             .ok();
         self.conn
             .execute_batch(
@@ -427,20 +481,125 @@ impl Library {
             )
             .optional()?;
 
-        if let Some(id) = existing {
+        let id = if let Some(id) = existing {
             self.conn.execute(
-                "UPDATE documents SET modified_at = ?1, title = ?2 WHERE id = ?3",
+                "UPDATE documents SET modified_at = ?1,
+                     title = CASE WHEN title_custom = 1 THEN title ELSE ?2 END
+                 WHERE id = ?3",
                 params![fs_modified, title, id],
             )?;
-            Ok(id)
+            id
         } else {
             self.conn.execute(
                 "INSERT INTO documents (path, title, created_at, modified_at)
                  VALUES (?1, ?2, ?3, ?4)",
                 params![path_str, title, fs_created, fs_modified],
             )?;
-            Ok(self.conn.last_insert_rowid())
+            self.conn.last_insert_rowid()
+        };
+        // Best effort: a bibliography that won't parse must not stop the
+        // document being listed.
+        self.refresh_authors(id, path).ok();
+        Ok(id)
+    }
+
+    /// Sets the bibliography used for documents that don't name their own,
+    /// returning whether it changed (the caller then wants `resync_authors`).
+    pub fn set_bibliography(&mut self, source: Option<PathBuf>) -> bool {
+        if self.authors.bib_source == source {
+            return false;
         }
+        self.authors.bib_source = source;
+        true
+    }
+
+    /// Replaces the document's author tags with what it cites now, and drops
+    /// any author no document cites any more.
+    fn refresh_authors(&mut self, doc_id: i64, path: &Path) -> SqlResult<()> {
+        let tags = self
+            .authors
+            .index
+            .tags_for_document(path, self.authors.bib_source.as_deref());
+        self.set_doc_authors(doc_id, &tags)
+    }
+
+    /// Recomputes every document's authors — for when the bibliography itself
+    /// changed rather than any one document.
+    pub fn resync_authors(&mut self) {
+        let docs: Vec<(i64, String)> = {
+            let Ok(mut stmt) = self
+                .conn
+                .prepare("SELECT id, path FROM documents WHERE deleted = 0")
+            else {
+                return;
+            };
+            stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+                .into_iter()
+                .flatten()
+                .filter_map(|r| r.ok())
+                .collect()
+        };
+        for (id, path) in docs {
+            self.refresh_authors(id, Path::new(&path)).ok();
+        }
+    }
+
+    fn set_doc_authors(&mut self, doc_id: i64, names: &[String]) -> SqlResult<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute("DELETE FROM doc_authors WHERE doc_id = ?1", params![doc_id])?;
+        for name in names {
+            tx.execute(
+                "INSERT OR IGNORE INTO authors (name) VALUES (?1)",
+                params![name],
+            )?;
+            tx.execute(
+                "INSERT OR IGNORE INTO doc_authors (doc_id, author_id)
+                 SELECT ?1, id FROM authors WHERE name = ?2",
+                params![doc_id, name],
+            )?;
+        }
+        tx.execute(
+            "DELETE FROM authors WHERE id NOT IN (SELECT author_id FROM doc_authors)",
+            [],
+        )?;
+        tx.commit()
+    }
+
+    /// Authors cited by at least one live document, with how many, by name.
+    pub fn all_authors_with_counts(&self) -> SqlResult<Vec<(Author, i64)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT a.id, a.name, COUNT(*) FROM authors a
+             JOIN doc_authors da ON da.author_id = a.id
+             JOIN documents d ON d.id = da.doc_id
+             WHERE d.archived = 0 AND d.deleted = 0
+             GROUP BY a.id ORDER BY a.name COLLATE NOCASE",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok((
+                Author {
+                    id: r.get(0)?,
+                    name: r.get(1)?,
+                },
+                r.get(2)?,
+            ))
+        })?;
+        rows.collect()
+    }
+
+    /// Every document's authors in one query, for the list's tooltips.
+    pub fn authors_by_doc(&self) -> SqlResult<std::collections::HashMap<i64, Vec<String>>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT da.doc_id, a.name FROM doc_authors da
+             JOIN authors a ON a.id = da.author_id
+             ORDER BY a.name COLLATE NOCASE",
+        )?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?;
+        let mut map: std::collections::HashMap<i64, Vec<String>> = Default::default();
+        for r in rows {
+            let (doc, name) = r?;
+            map.entry(doc).or_default().push(name);
+        }
+        Ok(map)
     }
 
     pub fn touch_opened(&mut self, path: &Path) -> SqlResult<()> {
@@ -579,6 +738,11 @@ impl Library {
                 params![tid],
                 |r| r.get(0),
             ),
+            LibraryFilter::Author(aid) => self.conn.query_row(
+                "SELECT COUNT(*) FROM doc_authors JOIN documents d ON d.id=doc_id WHERE author_id=?1 AND d.archived=0 AND d.deleted=0",
+                params![aid],
+                |r| r.get(0),
+            ),
             LibraryFilter::Category(cat) => self.conn.query_row(
                 "SELECT COUNT(*) FROM documents WHERE archived=0 AND deleted=0
                  AND EXISTS (SELECT 1 FROM doc_categories dc WHERE dc.doc_id=documents.id AND dc.category=?1)",
@@ -634,7 +798,7 @@ impl Library {
 
     pub fn set_title(&mut self, doc_id: i64, title: &str) -> SqlResult<()> {
         self.conn.execute(
-            "UPDATE documents SET title = ?1 WHERE id = ?2",
+            "UPDATE documents SET title = ?1, title_custom = 1 WHERE id = ?2",
             params![title, doc_id],
         )?;
         Ok(())
@@ -1335,7 +1499,10 @@ fn search_clause(prefix: &str, param: usize) -> String {
                            WHERE category LIKE ?{param}) \
          OR {prefix}id IN (SELECT doc_id FROM doc_tags _dt \
                            JOIN tags _t ON _t.id = _dt.tag_id \
-                           WHERE _t.name LIKE ?{param}))"
+                           WHERE _t.name LIKE ?{param}) \
+         OR {prefix}id IN (SELECT doc_id FROM doc_authors _da \
+                           JOIN authors _a ON _a.id = _da.author_id \
+                           WHERE _a.name LIKE ?{param}))"
     )
 }
 
@@ -2568,6 +2735,7 @@ mod tests {
         let lib = Library {
             conn,
             trash_dir: PathBuf::from("/nonexistent"),
+            authors: AuthorSync::default(),
         };
         lib.migrate().expect("migrate");
         lib
@@ -2654,6 +2822,7 @@ mod tests {
         let lib = Library {
             conn,
             trash_dir: work.path().join("trash"),
+            authors: AuthorSync::default(),
         };
         lib.migrate().expect("migrate");
 
@@ -2728,6 +2897,7 @@ mod tests {
         let lib = Library {
             conn,
             trash_dir: PathBuf::from("/nonexistent"),
+            authors: AuthorSync::default(),
         };
         lib.migrate().expect("migrate");
 
@@ -2902,6 +3072,179 @@ mod tests {
             .map(|d| d.title)
             .collect();
         assert_eq!(found, vec!["deep", "top"]);
+    }
+
+    #[test]
+    fn a_title_chosen_in_the_library_survives_a_rescan() {
+        let (mut lib, work) = fixture();
+        let path = write_doc(&work, "essay.typ", "#let doc-title = \"From The File\"\n");
+        let id = lib.upsert_document(&path).expect("upsert");
+        lib.set_title(id, "My Name For It").unwrap();
+
+        lib.upsert_document(&path).expect("rescan");
+        lib.touch_saved(&path).expect("save");
+
+        assert_eq!(lib.doc_by_id(id).unwrap().unwrap().title, "My Name For It");
+    }
+
+    const BIB: &str = "@book{gender, author = {Butler, Judith}}\n\
+                       @book{black, author = {Cone, James H.}}\n";
+
+    fn lib_with_bib() -> (Library, TempDir, PathBuf) {
+        let (mut lib, work) = fixture();
+        let bib = write_doc(&work, "refs.bib", BIB);
+        lib.set_bibliography(Some(bib.clone()));
+        (lib, work, bib)
+    }
+
+    fn author_names(lib: &Library) -> Vec<String> {
+        lib.all_authors_with_counts()
+            .unwrap()
+            .into_iter()
+            .map(|(a, _)| a.name)
+            .collect()
+    }
+
+    #[test]
+    fn scanning_a_document_tags_it_with_the_authors_it_cites() {
+        let (mut lib, work, _) = lib_with_bib();
+        let path = write_doc(&work, "paper.typ", "See @gender and @black.\n");
+        let id = lib.upsert_document(&path).unwrap();
+
+        assert_eq!(author_names(&lib), vec!["Butler, J.", "Cone, J."]);
+        let butler = lib.all_authors_with_counts().unwrap()[0].0.id;
+        let docs = lib
+            .documents(LibraryFilter::Author(butler), "", SortOrder::Title)
+            .unwrap();
+        assert_eq!(ids(&docs), vec![id]);
+        assert_eq!(lib.doc_count(&LibraryFilter::Author(butler)).unwrap(), 1);
+    }
+
+    #[test]
+    fn the_author_filter_lists_every_document_citing_that_author() {
+        let (mut lib, work, _) = lib_with_bib();
+        let a = write_doc(&work, "a.typ", "@gender @black\n");
+        let b = write_doc(&work, "b.typ", "@black\n");
+        let c = write_doc(&work, "c.typ", "@gender\n");
+        let (ia, ib) = (
+            lib.upsert_document(&a).unwrap(),
+            lib.upsert_document(&b).unwrap(),
+        );
+        lib.upsert_document(&c).unwrap();
+
+        let cone = lib
+            .all_authors_with_counts()
+            .unwrap()
+            .into_iter()
+            .find(|(a, _)| a.name == "Cone, J.")
+            .unwrap();
+        assert_eq!(cone.1, 2);
+        let docs = lib
+            .documents(LibraryFilter::Author(cone.0.id), "", SortOrder::Title)
+            .unwrap();
+        let mut got = ids(&docs);
+        got.sort();
+        assert_eq!(got, vec![ia, ib]);
+    }
+
+    #[test]
+    fn searching_finds_a_document_by_a_cited_author() {
+        let (mut lib, work, _) = lib_with_bib();
+        let path = write_doc(&work, "paper.typ", "@gender\n");
+        let id = lib.upsert_document(&path).unwrap();
+        write_doc(&work, "other.typ", "No citations.\n");
+        lib.upsert_document(&work.path().join("other.typ")).unwrap();
+
+        for q in ["Butler", "butler, j", "Butler, J."] {
+            let found = lib
+                .documents(LibraryFilter::All, q, SortOrder::Title)
+                .unwrap();
+            assert_eq!(ids(&found), vec![id], "query {q:?}");
+        }
+    }
+
+    #[test]
+    fn dropping_a_citation_drops_the_author_tag_and_an_uncited_author_disappears() {
+        let (mut lib, work, _) = lib_with_bib();
+        let path = write_doc(&work, "paper.typ", "@gender @black\n");
+        lib.upsert_document(&path).unwrap();
+        assert_eq!(author_names(&lib), vec!["Butler, J.", "Cone, J."]);
+
+        std::fs::write(&path, "@gender\n").unwrap();
+        lib.touch_saved(&path).unwrap();
+        assert_eq!(author_names(&lib), vec!["Butler, J."]);
+
+        std::fs::write(&path, "no citations now\n").unwrap();
+        lib.touch_saved(&path).unwrap();
+        assert!(author_names(&lib).is_empty());
+    }
+
+    #[test]
+    fn archived_and_trashed_documents_do_not_count_toward_an_author() {
+        let (mut lib, work, _) = lib_with_bib();
+        let a = lib
+            .upsert_document(&write_doc(&work, "a.typ", "@gender\n"))
+            .unwrap();
+        let b = lib
+            .upsert_document(&write_doc(&work, "b.typ", "@gender\n"))
+            .unwrap();
+        assert_eq!(lib.all_authors_with_counts().unwrap()[0].1, 2);
+
+        lib.set_archived(a, true).unwrap();
+        assert_eq!(lib.all_authors_with_counts().unwrap()[0].1, 1);
+        lib.move_to_trash(b).unwrap();
+        assert!(author_names(&lib).is_empty());
+    }
+
+    #[test]
+    fn removing_a_document_clears_its_author_links() {
+        let (mut lib, work, _) = lib_with_bib();
+        let id = lib
+            .upsert_document(&write_doc(&work, "a.typ", "@gender\n"))
+            .unwrap();
+        lib.remove_document(id).unwrap();
+        // The link rows cascade; the author itself goes on the next sync.
+        assert!(author_names(&lib).is_empty());
+    }
+
+    #[test]
+    fn changing_the_bibliography_and_resyncing_updates_every_document() {
+        let (mut lib, work, bib) = lib_with_bib();
+        lib.upsert_document(&write_doc(&work, "a.typ", "@gender\n"))
+            .unwrap();
+        assert_eq!(author_names(&lib), vec!["Butler, J."]);
+
+        let other = write_doc(
+            &work,
+            "other.bib",
+            "@book{gender, author = {Arendt, Hannah}}",
+        );
+        assert!(lib.set_bibliography(Some(other.clone())));
+        assert!(
+            !lib.set_bibliography(Some(other)),
+            "unchanged is not a change"
+        );
+        lib.resync_authors();
+        assert_eq!(author_names(&lib), vec!["Arendt, H."]);
+        let _ = bib;
+    }
+
+    #[test]
+    fn a_document_with_no_bibliography_available_simply_has_no_authors() {
+        let (mut lib, work) = fixture();
+        lib.upsert_document(&write_doc(&work, "a.typ", "@gender\n"))
+            .unwrap();
+        assert!(author_names(&lib).is_empty());
+    }
+
+    #[test]
+    fn authors_by_doc_groups_names_per_document() {
+        let (mut lib, work, _) = lib_with_bib();
+        let id = lib
+            .upsert_document(&write_doc(&work, "a.typ", "@gender @black\n"))
+            .unwrap();
+        let map = lib.authors_by_doc().unwrap();
+        assert_eq!(map[&id], vec!["Butler, J.", "Cone, J."]);
     }
 }
 

@@ -72,8 +72,9 @@ raw markup dead-end: a live preview pane always shows the real formatting next t
 |---|---|
 | **SQLite-backed library** | Every `.typ` document Zerkalo knows about, with search, sort, and filter |
 | **Organisation** | Projects, coloured categories (a document can belong to more than one, including several under the same parent), and frequency-heat-coloured tags; sidebar filters for All Documents, Projects, Categories, Tags, Trash, and Archive |
+| **Authors** | A section of its own in the sidebar, separate from tags and made automatically: every author a document cites, as `Surname, I.` (first initial), read from the document's citations — including those in files it `#include`s — against the bibliography it names or the one in Settings. Click an author to see everything that cites them; search finds them too, and a document's tooltip lists who it cites. Kept up to date as documents are opened, saved and rescanned, so there is nothing to maintain |
 | **Views** | Card view with prose word count; compact single-line view for dense lists |
-| **Document management** | Pin, archive, trash (soft delete with restore), and remove from the library (delists without touching the file on disk) — each confirmed before it happens |
+| **Document management** | Pin, archive, delete (to the Trash, with restore), and remove from the list (delists without touching the file on disk). Archive and Delete show an Undo button for a few seconds; removing from the list asks first |
 | **Bulk operations** | Multi-select for archive, tag, categorize, add-to-project, and remove |
 | **Import** | New Document and Import… are both reachable directly from the Library header |
 | **Auto-registration** | Any `.typ` file opened in the editor is added automatically |

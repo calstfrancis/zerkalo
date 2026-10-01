@@ -5,6 +5,7 @@
 #![allow(clippy::type_complexity)]
 
 mod assets;
+mod authors;
 mod auto_save;
 mod bib_sanitize;
 mod bibliography;
