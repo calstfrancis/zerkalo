@@ -1,10 +1,29 @@
 use super::*;
 
+/// The parts of one list row that selection and hover act on.
+pub(super) struct RowParts {
+    pub row: ListBoxRow,
+    pub check: CheckButton,
+    pub more: gtk4::MenuButton,
+}
+
+/// Shows or hides a row's controls without moving anything: they are faded,
+/// and stop taking clicks while faded so the empty margin of a row still opens
+/// the document.
+fn reveal(parts: &RowParts, check: bool, more: bool) {
+    parts.check.set_opacity(if check { 1.0 } else { 0.0 });
+    parts.check.set_can_target(check);
+    parts.more.set_opacity(if more { 1.0 } else { 0.0 });
+    parts.more.set_can_target(more);
+}
+
 impl LibraryWindow {
     pub(super) fn populate_doc_list(&self) {
         while let Some(child) = self.doc_list.first_child() {
             self.doc_list.remove(&child);
         }
+        self.row_widgets.borrow_mut().clear();
+        self.list_order.borrow_mut().clear();
         let search = self.search_entry.text().to_string();
         let filter = self.current_filter.borrow().clone();
         let sort = self.current_sort.borrow().clone();
@@ -19,14 +38,13 @@ impl LibraryWindow {
             .unwrap_or_default();
 
         if docs.is_empty() {
-            let searching = !search.is_empty();
-            self.empty_page.set_description(Some(if searching {
-                "Try a different search"
-            } else {
-                "Nothing here yet"
-            }));
-            self.empty_new_doc_btn.set_visible(!searching);
-            self.empty_clear_search_btn.set_visible(searching);
+            let state = empty_state(&self.current_filter.borrow(), &search);
+            self.empty_page.set_icon_name(Some(state.icon));
+            self.empty_page.set_title(&state.title);
+            self.empty_page.set_description(Some(&state.description));
+            self.empty_new_doc_btn.set_visible(state.offer_new);
+            self.empty_import_btn.set_visible(state.offer_import);
+            self.empty_clear_search_btn.set_visible(state.offer_clear);
             self.doc_list_stack.set_visible_child_name("empty");
             return;
         }
@@ -91,9 +109,32 @@ impl LibraryWindow {
                 if i == last_idx {
                     row.add_css_class("fond-card-last");
                 }
+                self.list_order.borrow_mut().push(doc.id);
                 self.doc_list.append(&row);
             }
         }
+        // Rows are new; carry the current selection onto them.
+        self.sync_selection_ui();
+    }
+
+    /// A category or tag as it appears on a row: its colour as a dot, then its
+    /// name, and a click shows only the documents that carry it.
+    fn filter_chip(&self, name: &str, color: &str, target: LibraryFilter) -> GtkBox {
+        let chip = GtkBox::new(Orientation::Horizontal, 4);
+        chip.append(&crate::ui::styles::fond_cue(Some(color)));
+        let label = Label::new(Some(name));
+        label.add_css_class("fond-row-detail");
+        chip.append(&label);
+        chip.set_tooltip_text(Some(&format!("Show only {name}")));
+        let click = gtk4::GestureClick::new();
+        click.set_button(1);
+        let this = self.clone();
+        click.connect_pressed(move |g, _, _, _| {
+            g.set_state(gtk4::EventSequenceState::Claimed);
+            this.go_to_filter(target.clone());
+        });
+        chip.add_controller(click);
+        chip
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -114,16 +155,25 @@ impl LibraryWindow {
 
         // One line per document: a cue in the category's colour, the title, the
         // category and tags as dim reference text, and the date and length at
-        // the right edge. What was here before was a three-line card with a
-        // 32px file icon, four coloured chips and a line of notes — the titles
-        // are what a library is scanned for, and they were the smallest thing
-        // on the row. Notes are the tooltip now; the tags stay clickable.
+        // the right edge. A checkbox at the left and a ⋯ menu at the right
+        // appear when the row is hovered or focused — they are what make
+        // selecting and acting on documents discoverable without hiding it all
+        // behind Ctrl+click and a right-click.
         //
         // Compact mode is the same row under a `.compact-mode` list (fond.css
         // tightens the metrics), not a second row built by hand.
         let hbox = GtkBox::new(Orientation::Horizontal, 8);
         hbox.set_margin_start(10);
-        hbox.set_margin_end(10);
+        hbox.set_margin_end(6);
+
+        let check = CheckButton::new();
+        check.set_valign(Align::Center);
+        check.set_tooltip_text(Some("Select"));
+        check.update_property(&[gtk4::accessible::Property::Label(&format!(
+            "Select {}",
+            doc.title
+        ))]);
+        hbox.append(&check);
 
         if doc.pinned {
             let pin = Image::from_icon_name("view-pin-symbolic");
@@ -147,78 +197,18 @@ impl LibraryWindow {
         hbox.append(&title);
 
         for cat in categories {
-            let cat_lbl = Label::new(Some(&cat.name));
-            cat_lbl.add_css_class("fond-row-detail");
-            cat_lbl.set_tooltip_text(Some(&format!("Show only {}", cat.name)));
-            hbox.append(&cat_lbl);
-            let cat_click = gtk4::GestureClick::new();
-            cat_click.set_button(1);
-            let this_cat = self.clone();
-            let cat_name = cat.name.clone();
-            let cat_lbl_ref = cat_lbl.clone();
-            cat_click.connect_pressed(move |g, _, _, _| {
-                g.set_state(gtk4::EventSequenceState::Claimed);
-                cat_lbl_ref.add_css_class("chip-active");
-                let lbl_weak = cat_lbl_ref.downgrade();
-                glib::timeout_add_local_once(std::time::Duration::from_millis(200), move || {
-                    if let Some(l) = lbl_weak.upgrade() {
-                        l.remove_css_class("chip-active");
-                    }
-                });
-                *this_cat.current_filter.borrow_mut() = LibraryFilter::Category(cat_name.clone());
-                this_cat.populate_doc_list();
-                let row_name = format!("category:{}", cat_name);
-                let mut i = 0;
-                while let Some(row) = this_cat.filter_list.row_at_index(i) {
-                    if row.widget_name().as_str() == row_name {
-                        this_cat.filter_list.select_row(Some(&row));
-                        return;
-                    }
-                    i += 1;
-                }
-            });
-            cat_lbl.add_controller(cat_click);
+            let color = cat_colors
+                .get(&cat.name)
+                .cloned()
+                .unwrap_or_else(|| stable_palette_color(&cat.name).to_string());
+            hbox.append(&self.filter_chip(
+                &cat.name,
+                &color,
+                LibraryFilter::Category(cat.name.clone()),
+            ));
         }
         for tag in tags.iter().take(4) {
-            let chip = Label::new(Some(&tag.name));
-            chip.add_css_class("fond-row-detail");
-            chip.set_tooltip_text(Some(&format!("Show only {}", tag.name)));
-            hbox.append(&chip);
-            let chip_click = gtk4::GestureClick::new();
-            chip_click.set_button(1);
-            let this_chip = self.clone();
-            let tag_id = tag.id;
-            let chip_ref = chip.clone();
-            chip_click.connect_pressed(move |g, _, _, _| {
-                g.set_state(gtk4::EventSequenceState::Claimed);
-                chip_ref.add_css_class("chip-active");
-                let chip_weak = chip_ref.downgrade();
-                glib::timeout_add_local_once(std::time::Duration::from_millis(200), move || {
-                    if let Some(c) = chip_weak.upgrade() {
-                        c.remove_css_class("chip-active");
-                    }
-                });
-                *this_chip.current_filter.borrow_mut() = LibraryFilter::Tag(tag_id);
-                this_chip.populate_doc_list();
-                let tag_name = format!("tag:{}", tag_id);
-                let mut i = 0;
-                while let Some(row) = this_chip.filter_list.row_at_index(i) {
-                    if row.widget_name().as_str() == tag_name {
-                        this_chip.filter_list.select_row(Some(&row));
-                        return;
-                    }
-                    i += 1;
-                }
-                let mut j = 0;
-                while let Some(row) = this_chip.bottom_filter_list.row_at_index(j) {
-                    if row.widget_name().as_str() == tag_name {
-                        this_chip.bottom_filter_list.select_row(Some(&row));
-                        return;
-                    }
-                    j += 1;
-                }
-            });
-            chip.add_controller(chip_click);
+            hbox.append(&self.filter_chip(&tag.name, &tag.color_hex, LibraryFilter::Tag(tag.id)));
         }
 
         let mut tip = doc
@@ -251,6 +241,16 @@ impl LibraryWindow {
             hbox.append(&badge);
         }
 
+        // A document with notes says so, rather than hiding them in a tooltip
+        // nobody knows to look for.
+        if doc.notes.as_deref().is_some_and(|n| !n.trim().is_empty()) {
+            let note = Image::from_icon_name("document-edit-symbolic");
+            note.set_pixel_size(12);
+            note.add_css_class("fond-row-meta");
+            note.set_tooltip_text(Some("Has notes — hover the row to read them"));
+            hbox.append(&note);
+        }
+
         // The word count reads every file in the list, so it is worth having
         // only where there is room to read it.
         let mut meta_text = format_date(&doc.modified_at);
@@ -265,11 +265,82 @@ impl LibraryWindow {
         meta.set_halign(Align::End);
         hbox.append(&meta);
 
-        if self.selection.borrow().contains(&doc.id) {
-            row.add_css_class("doc-selected");
+        let more = gtk4::MenuButton::new();
+        more.set_icon_name("view-more-symbolic");
+        more.add_css_class("flat");
+        more.add_css_class("circular");
+        more.set_valign(Align::Center);
+        more.set_tooltip_text(Some("More actions"));
+        more.update_property(&[gtk4::accessible::Property::Label(&format!(
+            "Actions for {}",
+            doc.title
+        ))]);
+        {
+            let this = self.clone();
+            let id = doc.id;
+            more.set_create_popup_func(move |btn| {
+                btn.set_menu_model(this.doc_menu_model(id).as_ref());
+            });
         }
+        hbox.append(&more);
 
         row.set_child(Some(&hbox));
+
+        let parts = RowParts {
+            row: row.clone(),
+            check: check.clone(),
+            more: more.clone(),
+        };
+        reveal(&parts, false, false);
+        {
+            let this = self.clone();
+            let id = doc.id;
+            let syncing = self.syncing_checks.clone();
+            check.connect_toggled(move |c| {
+                if !syncing.get() {
+                    this.set_selected(id, c.is_active());
+                }
+            });
+        }
+        // Hover and keyboard focus both reveal the controls; a selection in
+        // progress keeps every row's checkbox showing.
+        let hover = gtk4::EventControllerMotion::new();
+        let focus = gtk4::EventControllerFocus::new();
+        {
+            let (c, m) = (check.clone(), more.clone());
+            hover.connect_enter(move |_, _, _| {
+                c.set_opacity(1.0);
+                c.set_can_target(true);
+                m.set_opacity(1.0);
+                m.set_can_target(true);
+            });
+            let (c, m, this) = (check.clone(), more.clone(), self.clone());
+            hover.connect_leave(move |_| {
+                let keep = !this.selection.borrow().is_empty();
+                c.set_opacity(if keep { 1.0 } else { 0.0 });
+                c.set_can_target(keep);
+                m.set_opacity(0.0);
+                m.set_can_target(false);
+            });
+            let (c, m) = (check.clone(), more.clone());
+            focus.connect_enter(move |_| {
+                c.set_opacity(1.0);
+                c.set_can_target(true);
+                m.set_opacity(1.0);
+                m.set_can_target(true);
+            });
+            let (c, m, this) = (check.clone(), more.clone(), self.clone());
+            focus.connect_leave(move |_| {
+                let keep = !this.selection.borrow().is_empty();
+                c.set_opacity(if keep { 1.0 } else { 0.0 });
+                c.set_can_target(keep);
+                m.set_opacity(0.0);
+                m.set_can_target(false);
+            });
+        }
+        row.add_controller(hover);
+        row.add_controller(focus);
+        self.row_widgets.borrow_mut().insert(doc.id, parts);
 
         // Drag source — carry doc ID as a string for drop-on-category
         let drag_source = DragSource::new();
@@ -307,44 +378,151 @@ impl LibraryWindow {
             row.add_controller(drop);
         }
 
-        // Ctrl+click multi-select
-        let ctrl_click = gtk4::GestureClick::new();
-        ctrl_click.set_button(1);
+        // Ctrl+click toggles, Shift+click extends from the last one clicked,
+        // and once anything is selected a plain click toggles too, so a run of
+        // checkbox clicks doesn't suddenly open a document.
+        let click = gtk4::GestureClick::new();
+        click.set_button(1);
         let this = self.clone();
         let doc_id = doc.id;
-        ctrl_click.connect_pressed(move |g, _, _, _| {
+        click.connect_pressed(move |g, _, _, _| {
             let mods = g.current_event_state();
-            if mods.contains(gtk4::gdk::ModifierType::CONTROL_MASK) {
+            if mods.contains(gtk4::gdk::ModifierType::SHIFT_MASK) {
                 g.set_state(gtk4::EventSequenceState::Claimed);
-                {
-                    let mut sel = this.selection.borrow_mut();
-                    if sel.contains(&doc_id) {
-                        sel.remove(&doc_id);
-                    } else {
-                        sel.insert(doc_id);
-                    }
-                }
-                this.update_action_bar();
-                this.populate_doc_list();
+                this.select_range_to(doc_id);
+            } else if mods.contains(gtk4::gdk::ModifierType::CONTROL_MASK)
+                || !this.selection.borrow().is_empty()
+            {
+                g.set_state(gtk4::EventSequenceState::Claimed);
+                this.toggle_selected(doc_id);
             }
         });
-        row.add_controller(ctrl_click);
+        row.add_controller(click);
 
-        // Right-click context menu
+        // Right-click context menu — the same menu as the ⋯ button.
         let gesture = gtk4::GestureClick::new();
         gesture.set_button(3);
         let this = self.clone();
-        let doc_clone = doc.clone();
         let row_weak = row.downgrade();
+        let doc_id = doc.id;
         gesture.connect_pressed(move |g, _, x, y| {
             g.set_state(gtk4::EventSequenceState::Claimed);
-            if let Some(row) = row_weak.upgrade() {
-                this.show_doc_menu(&row, &doc_clone, x, y);
-            }
+            let (Some(row), Some(model)) = (row_weak.upgrade(), this.doc_menu_model(doc_id)) else {
+                return;
+            };
+            let popover = gtk4::PopoverMenu::from_model(Some(&model));
+            popover.set_parent(&row);
+            popover.set_has_arrow(true);
+            popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+            popover.connect_closed(|p| {
+                let p = p.clone();
+                glib::idle_add_local_once(move || p.unparent());
+            });
+            popup_after_click(popover.upcast_ref());
         });
         row.add_controller(gesture);
 
         row
+    }
+
+    pub(super) fn set_selected(&self, id: i64, on: bool) {
+        {
+            let mut sel = self.selection.borrow_mut();
+            if on {
+                sel.insert(id);
+            } else {
+                sel.remove(&id);
+            }
+        }
+        *self.anchor.borrow_mut() = Some(id);
+        self.sync_selection_ui();
+    }
+
+    pub(super) fn toggle_selected(&self, id: i64) {
+        let on = !self.selection.borrow().contains(&id);
+        self.set_selected(id, on);
+    }
+
+    /// Selects everything between the last document clicked and `id`, in the
+    /// order the list shows them.
+    pub(super) fn select_range_to(&self, id: i64) {
+        let order = self.list_order.borrow().clone();
+        let anchor = self.anchor.borrow().unwrap_or(id);
+        let from = order.iter().position(|x| *x == anchor);
+        let to = order.iter().position(|x| *x == id);
+        match (from, to) {
+            (Some(a), Some(b)) => {
+                let mut sel = self.selection.borrow_mut();
+                for doc in &order[a.min(b)..=a.max(b)] {
+                    sel.insert(*doc);
+                }
+            }
+            _ => {
+                self.selection.borrow_mut().insert(id);
+                *self.anchor.borrow_mut() = Some(id);
+            }
+        }
+        self.sync_selection_ui();
+    }
+
+    pub(super) fn select_all_visible(&self) {
+        let order = self.list_order.borrow().clone();
+        self.selection.borrow_mut().extend(order);
+        self.sync_selection_ui();
+    }
+
+    pub(super) fn clear_selection(&self) {
+        self.selection.borrow_mut().clear();
+        *self.anchor.borrow_mut() = None;
+        self.sync_selection_ui();
+    }
+
+    /// Brings every row's checkbox, highlight and visible controls into line
+    /// with the selection — in place, without rebuilding the list.
+    pub(super) fn sync_selection_ui(&self) {
+        let selected = self.selection.borrow().clone();
+        let any = !selected.is_empty();
+        for (id, parts) in self.row_widgets.borrow().iter() {
+            let on = selected.contains(id);
+            if parts.check.is_active() != on {
+                self.syncing_checks.set(true);
+                parts.check.set_active(on);
+                self.syncing_checks.set(false);
+            }
+            if on {
+                parts.row.add_css_class("doc-selected");
+            } else {
+                parts.row.remove_css_class("doc-selected");
+            }
+            let hovered = parts.row.state_flags().contains(gtk4::StateFlags::PRELIGHT);
+            reveal(parts, any || hovered, hovered);
+        }
+        self.update_action_bar();
+    }
+
+    /// Ctrl+A selects every listed document and Escape lets go of the
+    /// selection — neither when typing in the search box, which wants both.
+    pub(super) fn install_selection_keys(&self) {
+        let key = gtk4::EventControllerKey::new();
+        let this = self.clone();
+        key.connect_key_pressed(move |_, key, _, mods| {
+            let typing = gtk4::prelude::GtkWindowExt::focus(&this.window)
+                .is_some_and(|w| w.is::<gtk4::Text>() || w.is::<TextView>());
+            if typing {
+                return glib::Propagation::Proceed;
+            }
+            let ctrl = mods.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
+            if ctrl && (key == gtk4::gdk::Key::a || key == gtk4::gdk::Key::A) {
+                this.select_all_visible();
+                return glib::Propagation::Stop;
+            }
+            if key == gtk4::gdk::Key::Escape && !this.selection.borrow().is_empty() {
+                this.clear_selection();
+                return glib::Propagation::Stop;
+            }
+            glib::Propagation::Proceed
+        });
+        self.window.add_controller(key);
     }
 
     pub(super) fn open_doc_by_id(&self, doc_id: i64) {
@@ -356,6 +534,91 @@ impl LibraryWindow {
                 cb(path);
             }
         }
+    }
+}
+
+/// What the list says when it has nothing to show — specific to where the user
+/// is, so an empty view explains itself and offers the one next step that
+/// fits, instead of a bare "Nothing here yet".
+pub(super) struct EmptyState {
+    pub icon: &'static str,
+    pub title: String,
+    pub description: String,
+    pub offer_new: bool,
+    pub offer_import: bool,
+    pub offer_clear: bool,
+}
+
+pub(super) fn empty_state(filter: &LibraryFilter, search: &str) -> EmptyState {
+    let plain = |icon, title: &str, description: &str| EmptyState {
+        icon,
+        title: title.to_string(),
+        description: description.to_string(),
+        offer_new: false,
+        offer_import: false,
+        offer_clear: false,
+    };
+    let search = search.trim();
+    if !search.is_empty() {
+        return EmptyState {
+            offer_clear: true,
+            ..plain(
+                "system-search-symbolic",
+                &format!("Nothing matches \u{201c}{search}\u{201d}"),
+                "Searched titles, categories, tags and the authors a document cites.",
+            )
+        };
+    }
+    match filter {
+        LibraryFilter::All => EmptyState {
+            offer_new: true,
+            offer_import: true,
+            ..plain(
+                "folder-open-symbolic",
+                "Your documents will appear here",
+                "Start a new one, or bring in something you've already written.",
+            )
+        },
+        LibraryFilter::Recent => plain(
+            "document-open-recent-symbolic",
+            "Nothing opened yet",
+            "Documents you open show up here, most recent first.",
+        ),
+        LibraryFilter::Untagged => plain(
+            "emblem-ok-symbolic",
+            "Every document has a tag",
+            "Documents without a tag would be listed here.",
+        ),
+        LibraryFilter::Project(_) => plain(
+            "folder-symbolic",
+            "This project is empty",
+            "Open a document's \u{22ef} menu and choose Organize \u{203a} Add to Project, or select several documents and use Add to Project.",
+        ),
+        LibraryFilter::Category(_) | LibraryFilter::CategoryGroup(_) => plain(
+            "folder-symbolic",
+            "Nothing in this category yet",
+            "Drag a document onto the category in the sidebar, or select documents and choose Categorize.",
+        ),
+        LibraryFilter::Tag(_) => plain(
+            "tag-symbolic",
+            "No documents have this tag",
+            "Select documents and choose Tag to add it.",
+        ),
+        LibraryFilter::Author(_) => plain(
+            "avatar-default-symbolic",
+            "No document cites this author",
+            "Authors come from the citations in your documents, so this list follows what you write.",
+        ),
+        LibraryFilter::Archive => plain(
+            "view-archive-symbolic",
+            "Nothing archived",
+            "Archive a document you're done with: it stays safe, but out of the way.",
+        ),
+        LibraryFilter::Trash => plain(
+            "user-trash-symbolic",
+            "The Trash is empty",
+            "Deleted documents wait here until you delete them for good.",
+        ),
     }
 }
 
@@ -446,4 +709,43 @@ pub(super) fn count_prose_words_uncached(path: &std::path::Path) -> usize {
         }
     }
     total
+}
+
+#[cfg(test)]
+mod empty_tests {
+    use super::*;
+
+    #[test]
+    fn a_search_with_no_results_offers_to_clear_it_and_names_it() {
+        let s = empty_state(&LibraryFilter::All, "magnificat");
+        assert!(s.title.contains("magnificat"));
+        assert!(s.offer_clear && !s.offer_new && !s.offer_import);
+    }
+
+    #[test]
+    fn a_blank_search_counts_as_no_search() {
+        let s = empty_state(&LibraryFilter::All, "   ");
+        assert!(!s.offer_clear && s.offer_new);
+    }
+
+    #[test]
+    fn an_empty_library_offers_new_and_import_and_nothing_else_does() {
+        let all = empty_state(&LibraryFilter::All, "");
+        assert!(all.offer_new && all.offer_import);
+        for f in [
+            LibraryFilter::Recent,
+            LibraryFilter::Untagged,
+            LibraryFilter::Project(1),
+            LibraryFilter::Category("x".into()),
+            LibraryFilter::CategoryGroup("x".into()),
+            LibraryFilter::Tag(1),
+            LibraryFilter::Author(1),
+            LibraryFilter::Archive,
+            LibraryFilter::Trash,
+        ] {
+            let s = empty_state(&f, "");
+            assert!(!s.offer_new && !s.offer_import && !s.offer_clear, "{f:?}");
+            assert!(!s.title.is_empty() && !s.description.is_empty(), "{f:?}");
+        }
+    }
 }

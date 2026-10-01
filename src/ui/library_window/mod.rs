@@ -23,6 +23,8 @@ mod menus;
 mod rows;
 mod sidebar;
 
+use menus::popup_after_click;
+use rows::RowParts;
 use sidebar::*;
 
 const TAG_COLORS: &[&str] = &[
@@ -66,16 +68,26 @@ pub struct LibraryWindow {
     work_dir: PathBuf,
     config: Rc<RefCell<Config>>,
     view_mode: Rc<RefCell<ViewMode>>,
-    stats_label: Label,
     bottom_filter_list: ListBox,
     doc_list_stack: Stack,
     empty_page: adw::StatusPage,
     empty_new_doc_btn: Button,
+    empty_import_btn: Button,
     empty_clear_search_btn: Button,
     /// Held while the sidebar's own selection is being restored, so putting the
     /// highlight back on the current view doesn't read as the user choosing it.
     inhibit_select: Rc<RefCell<bool>>,
     authors_expanded: Rc<RefCell<bool>>,
+    /// The controls of every row now listed, so selecting can update them in
+    /// place instead of rebuilding the list.
+    row_widgets: Rc<RefCell<HashMap<i64, RowParts>>>,
+    /// Document ids in the order the list shows them, for Shift+click ranges.
+    list_order: Rc<RefCell<Vec<i64>>>,
+    /// The document last clicked, where a Shift+click range starts.
+    anchor: Rc<RefCell<Option<i64>>>,
+    /// Held while a checkbox is being set from the selection, so that doesn't
+    /// read as the user ticking it.
+    syncing_checks: Rc<std::cell::Cell<bool>>,
 }
 
 impl LibraryWindow {
@@ -87,8 +99,9 @@ impl LibraryWindow {
     ) -> Self {
         let window = adw::Window::new();
         window.set_title(Some("Library — Zerkalo"));
-        window.set_default_width(900);
-        window.set_default_height(650);
+        let prefs = config.borrow().library.clone();
+        window.set_default_width(prefs.width.max(640));
+        window.set_default_height(prefs.height.max(420));
 
         let toast_overlay = adw::ToastOverlay::new();
 
@@ -122,9 +135,6 @@ impl LibraryWindow {
         filter_list.set_selection_mode(gtk4::SelectionMode::Single);
         sidebar_inner.append(&filter_list);
 
-        let stats_label = Label::new(None);
-        stats_label.add_css_class("fond-row-meta");
-
         sidebar_scroll.set_child(Some(&sidebar_inner));
         sidebar.append(&sidebar_scroll);
 
@@ -137,25 +147,6 @@ impl LibraryWindow {
         sidebar.append(&bottom_filter_list);
 
         sidebar.append(&Separator::new(Orientation::Horizontal));
-
-        let manage_box = GtkBox::new(Orientation::Vertical, 0);
-        manage_box.set_margin_top(4);
-        manage_box.set_margin_bottom(8);
-        manage_box.set_margin_start(8);
-        manage_box.set_margin_end(8);
-        let new_project_btn = Button::with_label("New Project");
-        new_project_btn.add_css_class("flat");
-        new_project_btn.add_css_class("fond-quiet");
-        manage_box.append(&new_project_btn);
-        let new_cat_btn = Button::with_label("New Category");
-        new_cat_btn.add_css_class("flat");
-        new_cat_btn.add_css_class("fond-quiet");
-        manage_box.append(&new_cat_btn);
-        let manage_tags_btn = Button::with_label("Manage Tags");
-        manage_tags_btn.add_css_class("flat");
-        manage_tags_btn.add_css_class("fond-quiet");
-        manage_box.append(&manage_tags_btn);
-        sidebar.append(&manage_box);
 
         root.append(&sidebar);
         root.append(&Separator::new(Orientation::Vertical));
@@ -191,6 +182,16 @@ impl LibraryWindow {
         let sort_dropdown =
             gtk4::DropDown::from_strings(&["Last edited", "Date created", "Last opened", "Name"]);
         sort_dropdown.set_tooltip_text(Some("Sort order"));
+        sort_dropdown.set_selected(sort_to_index(&sort_from_pref(&prefs.sort)));
+        let view_menu = gtk4::gio::Menu::new();
+        view_menu.append(Some("Compact list"), Some("view.compact"));
+        let view_btn = gtk4::MenuButton::new();
+        view_btn.set_icon_name("open-menu-symbolic");
+        view_btn.set_menu_model(Some(&view_menu));
+        view_btn.set_tooltip_text(Some("View"));
+        view_btn.add_css_class("flat");
+        view_btn.update_property(&[gtk4::accessible::Property::Label("View options")]);
+        right_header.pack_end(&view_btn);
         right_header.pack_end(&import_btn);
         right_header.pack_end(&new_doc_btn);
         right_header.pack_end(&sort_dropdown);
@@ -212,6 +213,7 @@ impl LibraryWindow {
         empty_page.set_icon_name(Some("folder-open-symbolic"));
         empty_page.set_title("No documents");
         empty_page.set_description(Some("Nothing here yet"));
+        empty_page.add_css_class("compact");
         empty_page.set_vexpand(true);
 
         // One of these two is shown at a time, matching whichever empty-state
@@ -226,7 +228,11 @@ impl LibraryWindow {
         empty_clear_search_btn.set_halign(Align::Center);
         empty_clear_search_btn.set_visible(false);
         let empty_actions = GtkBox::new(Orientation::Vertical, 0);
+        let empty_import_btn = Button::with_label("Import…");
+        empty_import_btn.add_css_class("flat");
+        empty_import_btn.set_halign(Align::Center);
         empty_actions.append(&empty_new_doc_btn);
+        empty_actions.append(&empty_import_btn);
         empty_actions.append(&empty_clear_search_btn);
         empty_page.set_child(Some(&empty_actions));
 
@@ -285,22 +291,6 @@ impl LibraryWindow {
         action_bar_revealer.set_child(Some(&action_bar));
         right.add_bottom_bar(&action_bar_revealer);
 
-        // ── Library status bar ─────────────────────────────────────────────
-        let lib_status_bar = GtkBox::new(Orientation::Horizontal, 8);
-        lib_status_bar.add_css_class("fond-chrome");
-        lib_status_bar.add_css_class("fond-statusbar");
-        lib_status_bar.set_margin_start(12);
-        lib_status_bar.set_margin_end(8);
-        lib_status_bar.append(&stats_label);
-        stats_label.set_hexpand(true);
-        stats_label.set_halign(Align::Start);
-        // A status-bar toggle whose label is its own name, bold when on —
-        // the same control the editor's status bar uses.
-        let compact_btn = Button::with_label("compact");
-        compact_btn.add_css_class("flat");
-        lib_status_bar.append(&compact_btn);
-        right.add_bottom_bar(&lib_status_bar);
-
         root.append(&right);
 
         toast_overlay.set_child(Some(&root));
@@ -318,11 +308,6 @@ impl LibraryWindow {
             &bottom_filter_list,
             "Trash & Archive",
             "Trash holds deleted documents until you empty it. Archive holds documents you're done with but want to keep.",
-        );
-        help_overlay.annotate(
-            &manage_box,
-            "Organize",
-            "Make a new Project or Category, or rename/recolor your Tags.",
         );
         help_overlay.annotate(
             &search_entry,
@@ -354,6 +339,14 @@ impl LibraryWindow {
         }
 
         window.connect_close_request(|win| {
+            let (w, h) = (win.width(), win.height());
+            if w > 0 && h > 0 {
+                crate::config::update(|c| {
+                    c.library.width = w;
+                    c.library.height = h;
+                })
+                .ok();
+            }
             win.set_visible(false);
             glib::Propagation::Stop
         });
@@ -365,7 +358,7 @@ impl LibraryWindow {
             filter_list,
             search_entry,
             current_filter: Rc::new(RefCell::new(LibraryFilter::All)),
-            current_sort: Rc::new(RefCell::new(SortOrder::Modified)),
+            current_sort: Rc::new(RefCell::new(sort_from_pref(&prefs.sort))),
             selection: Rc::new(RefCell::new(HashSet::new())),
             action_bar_revealer,
             selected_count_label,
@@ -374,15 +367,23 @@ impl LibraryWindow {
             is_open: Rc::new(RefCell::new(None)),
             work_dir,
             config,
-            view_mode: Rc::new(RefCell::new(ViewMode::List)),
-            stats_label,
+            view_mode: Rc::new(RefCell::new(if prefs.compact {
+                ViewMode::Compact
+            } else {
+                ViewMode::List
+            })),
             bottom_filter_list,
             doc_list_stack,
             empty_page,
             empty_new_doc_btn,
+            empty_import_btn,
             empty_clear_search_btn,
             inhibit_select: Rc::new(RefCell::new(false)),
-            authors_expanded: Rc::new(RefCell::new(false)),
+            authors_expanded: Rc::new(RefCell::new(prefs.authors_open)),
+            row_widgets: Rc::new(RefCell::new(HashMap::new())),
+            list_order: Rc::new(RefCell::new(Vec::new())),
+            anchor: Rc::new(RefCell::new(None)),
+            syncing_checks: Rc::new(std::cell::Cell::new(false)),
         };
 
         lw.populate_filter_list();
@@ -390,9 +391,6 @@ impl LibraryWindow {
         lw.wire_signals(
             &new_doc_btn,
             &import_btn,
-            &manage_tags_btn,
-            &new_project_btn,
-            &new_cat_btn,
             &sort_dropdown,
             &bulk_archive_btn,
             &bulk_tag_btn,
@@ -400,7 +398,6 @@ impl LibraryWindow {
             &bulk_project_btn,
             &bulk_remove_btn,
             &clear_btn,
-            &compact_btn,
         );
 
         lw
@@ -411,9 +408,6 @@ impl LibraryWindow {
         &self,
         new_doc_btn: &Button,
         import_btn: &Button,
-        manage_tags_btn: &Button,
-        new_project_btn: &Button,
-        new_cat_btn: &Button,
         sort_dropdown: &gtk4::DropDown,
         bulk_archive_btn: &Button,
         bulk_tag_btn: &Button,
@@ -421,28 +415,34 @@ impl LibraryWindow {
         bulk_project_btn: &Button,
         bulk_remove_btn: &Button,
         clear_btn: &Button,
-        compact_btn: &Button,
     ) {
         {
+            let group = gtk4::gio::SimpleActionGroup::new();
+            let compact = gtk4::gio::SimpleAction::new_stateful(
+                "compact",
+                None,
+                &(*self.view_mode.borrow() == ViewMode::Compact).to_variant(),
+            );
             let this = self.clone();
-            let compact_btn_c = compact_btn.clone();
-            compact_btn.connect_clicked(move |_| {
-                {
-                    let mut mode = this.view_mode.borrow_mut();
-                    *mode = if *mode == ViewMode::List {
-                        ViewMode::Compact
-                    } else {
-                        ViewMode::List
-                    };
-                }
-                if *this.view_mode.borrow() == ViewMode::Compact {
-                    compact_btn_c.add_css_class("fond-toggle-active");
+            compact.connect_activate(move |action, _| {
+                let on = !action
+                    .state()
+                    .and_then(|s| s.get::<bool>())
+                    .unwrap_or(false);
+                action.set_state(&on.to_variant());
+                *this.view_mode.borrow_mut() = if on {
+                    ViewMode::Compact
                 } else {
-                    compact_btn_c.remove_css_class("fond-toggle-active");
-                }
+                    ViewMode::List
+                };
+                crate::config::update(|c| c.library.compact = on).ok();
                 this.populate_doc_list();
             });
+            group.add_action(&compact);
+            self.window.insert_action_group("view", Some(&group));
         }
+        self.install_doc_actions();
+        self.install_selection_keys();
         let inhibit = self.inhibit_select.clone();
         let inhibit_b = inhibit.clone();
         {
@@ -493,6 +493,7 @@ impl LibraryWindow {
                     3 => SortOrder::Title,
                     _ => SortOrder::Modified,
                 };
+                crate::config::update(|c| c.library.sort = sort_to_pref(&sort).to_string()).ok();
                 *this.current_sort.borrow_mut() = sort;
                 this.populate_doc_list();
             });
@@ -618,6 +619,11 @@ impl LibraryWindow {
         }
         {
             let this = self.clone();
+            self.empty_import_btn
+                .connect_clicked(move |_| this.import_document());
+        }
+        {
+            let this = self.clone();
             self.empty_clear_search_btn.connect_clicked(move |_| {
                 this.search_entry.set_text("");
             });
@@ -625,18 +631,6 @@ impl LibraryWindow {
         {
             let this = self.clone();
             import_btn.connect_clicked(move |_| this.import_document());
-        }
-        {
-            let this = self.clone();
-            manage_tags_btn.connect_clicked(move |_| this.show_manage_tags());
-        }
-        {
-            let this = self.clone();
-            new_project_btn.connect_clicked(move |_| this.create_project_dialog());
-        }
-        {
-            let this = self.clone();
-            new_cat_btn.connect_clicked(move |_| this.create_category_dialog());
         }
     }
 
@@ -704,5 +698,64 @@ impl LibraryWindow {
 
     pub fn window(&self) -> &adw::Window {
         &self.window
+    }
+}
+
+fn sort_from_pref(pref: &str) -> SortOrder {
+    match pref {
+        "created" => SortOrder::Created,
+        "opened" => SortOrder::Opened,
+        "name" => SortOrder::Title,
+        _ => SortOrder::Modified,
+    }
+}
+
+fn sort_to_pref(sort: &SortOrder) -> &'static str {
+    match sort {
+        SortOrder::Modified => "modified",
+        SortOrder::Created => "created",
+        SortOrder::Opened => "opened",
+        SortOrder::Title => "name",
+    }
+}
+
+/// The sort dropdown's position for `sort` — the order of its entries.
+fn sort_to_index(sort: &SortOrder) -> u32 {
+    match sort {
+        SortOrder::Modified => 0,
+        SortOrder::Created => 1,
+        SortOrder::Opened => 2,
+        SortOrder::Title => 3,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_saved_sort_comes_back_as_the_same_sort() {
+        for sort in [
+            SortOrder::Modified,
+            SortOrder::Created,
+            SortOrder::Opened,
+            SortOrder::Title,
+        ] {
+            assert_eq!(sort_from_pref(sort_to_pref(&sort)), sort);
+        }
+    }
+
+    #[test]
+    fn an_unknown_or_missing_saved_sort_means_last_edited() {
+        assert_eq!(sort_from_pref(""), SortOrder::Modified);
+        assert_eq!(sort_from_pref("sideways"), SortOrder::Modified);
+    }
+
+    #[test]
+    fn the_dropdown_position_matches_the_handler_order() {
+        // `connect_selected_notify` maps 1 → Created, 2 → Opened, 3 → Title.
+        assert_eq!(sort_to_index(&SortOrder::Created), 1);
+        assert_eq!(sort_to_index(&SortOrder::Opened), 2);
+        assert_eq!(sort_to_index(&SortOrder::Title), 3);
     }
 }

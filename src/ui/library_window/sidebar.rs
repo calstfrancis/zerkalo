@@ -29,8 +29,19 @@ impl LibraryWindow {
         ));
 
         let projects = self.library.borrow().all_projects().unwrap_or_default();
-        if !projects.is_empty() {
-            self.filter_list.append(&header_row("PROJECTS"));
+        {
+            let this = self.clone();
+            self.filter_list.append(&self.add_header(
+                "Projects",
+                "fond-accent-library",
+                "New project",
+                move || this.create_project_dialog(),
+            ));
+        }
+        if projects.is_empty() {
+            self.filter_list
+                .append(&hint_row("Group documents that belong together"));
+        } else {
             for p in projects {
                 let count = self
                     .library
@@ -65,7 +76,19 @@ impl LibraryWindow {
             .borrow()
             .all_categories_structured()
             .unwrap_or_default();
-        if !all_cats.is_empty() {
+        {
+            let this = self.clone();
+            self.filter_list.append(&self.add_header(
+                "Categories",
+                "fond-accent-library",
+                "New category",
+                move || this.create_category_dialog(),
+            ));
+        }
+        if all_cats.is_empty() {
+            self.filter_list
+                .append(&hint_row("Sort documents into kinds"));
+        } else {
             // Partition into parents (have children), children (have parent), standalone
             let parent_names: std::collections::HashSet<String> =
                 all_cats.iter().filter_map(|c| c.parent.clone()).collect();
@@ -74,8 +97,6 @@ impl LibraryWindow {
                 .filter(|c| parent_names.contains(&c.name))
                 .map(|c| c.name.clone())
                 .collect();
-
-            self.filter_list.append(&header_row("CATEGORIES"));
 
             // Emit parent rows first, then their children, then standalones
             let mut emitted: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -236,8 +257,19 @@ impl LibraryWindow {
             .borrow()
             .all_tags_with_counts()
             .unwrap_or_default();
-        if !tags_with_counts.is_empty() {
-            self.filter_list.append(&header_row("TAGS"));
+        {
+            let this = self.clone();
+            self.filter_list.append(&self.add_header(
+                "Tags",
+                "fond-accent-pinned",
+                "Manage tags",
+                move || this.show_manage_tags(),
+            ));
+        }
+        if tags_with_counts.is_empty() {
+            self.filter_list
+                .append(&hint_row("Mark documents with your own words"));
+        } else {
             for (t, _) in tags_with_counts.iter() {
                 let count = self
                     .library
@@ -286,6 +318,11 @@ impl LibraryWindow {
                 .ok(),
         ));
 
+        self.restore_sidebar_selection();
+    }
+
+    /// Puts the sidebar's highlight back on the current view.
+    pub(super) fn restore_sidebar_selection(&self) {
         // Put the highlight back on the view the user is in. This used to
         // select the first row unconditionally, which the selection handler
         // took as a click on "All Documents" — so archiving, deleting or
@@ -302,6 +339,11 @@ impl LibraryWindow {
             }
             None
         };
+        let authors = self
+            .library
+            .borrow()
+            .all_authors_with_counts()
+            .unwrap_or_default();
         let (top, bottom) = (find(&self.filter_list), find(&self.bottom_filter_list));
         *self.inhibit_select.borrow_mut() = true;
         match (top, bottom) {
@@ -332,31 +374,41 @@ impl LibraryWindow {
             }
         }
         *self.inhibit_select.borrow_mut() = false;
+    }
 
-        let total = self
-            .library
-            .borrow()
-            .doc_count(&LibraryFilter::All)
-            .unwrap_or(0);
-        let projects = self
-            .library
-            .borrow()
-            .all_projects()
-            .unwrap_or_default()
-            .len();
-        let last = self
-            .library
-            .borrow()
-            .documents(LibraryFilter::Recent, "", SortOrder::Opened)
-            .unwrap_or_default()
-            .into_iter()
-            .next()
-            .map(|d| d.title)
-            .unwrap_or_else(|| "—".to_string());
-        self.stats_label.set_text(&format!(
-            "{} docs · {} projects · Last: {}",
-            total, projects, last
-        ));
+    /// Switches to a view the way clicking its sidebar row would — for the
+    /// chips on a document row.
+    pub(super) fn go_to_filter(&self, filter: LibraryFilter) {
+        *self.current_filter.borrow_mut() = filter;
+        self.selection.borrow_mut().clear();
+        self.restore_sidebar_selection();
+        self.populate_doc_list();
+    }
+
+    /// A section header with a `+` at its right edge for making a new one.
+    pub(super) fn add_header(
+        &self,
+        title: &str,
+        accent: &str,
+        tooltip: &str,
+        on_add: impl Fn() + 'static,
+    ) -> ListBoxRow {
+        let row = ListBoxRow::new();
+        row.set_selectable(false);
+        row.set_activatable(false);
+        let bx = crate::ui::styles::fond_section_header(title, accent);
+        let spacer = GtkBox::new(Orientation::Horizontal, 0);
+        spacer.set_hexpand(true);
+        bx.append(&spacer);
+        let add = Button::from_icon_name("list-add-symbolic");
+        add.add_css_class("flat");
+        add.add_css_class("circular");
+        add.set_tooltip_text(Some(tooltip));
+        add.update_property(&[gtk4::accessible::Property::Label(tooltip)]);
+        add.connect_clicked(move |_| on_add());
+        bx.append(&add);
+        row.set_child(Some(&bx));
+        row
     }
 
     /// The Authors section header: unlike the others it folds, because a
@@ -392,6 +444,7 @@ impl LibraryWindow {
             g.set_state(gtk4::EventSequenceState::Claimed);
             let now = *this.authors_expanded.borrow();
             *this.authors_expanded.borrow_mut() = !now;
+            crate::config::update(|c| c.library.authors_open = !now).ok();
             this.populate_filter_list();
         });
         row.add_controller(click);
@@ -539,37 +592,22 @@ pub(super) fn make_author_filter_row(
     row
 }
 
-pub(super) fn header_row(text: &str) -> ListBoxRow {
+/// A dim one-line suggestion under a section that has nothing in it yet.
+pub(super) fn hint_row(text: &str) -> ListBoxRow {
     let row = ListBoxRow::new();
     row.set_selectable(false);
     row.set_activatable(false);
-    if text.is_empty() {
-        row.set_child(Some(&Separator::new(Orientation::Horizontal)));
-    } else {
-        // Title case, because the shared section style letterspaces and
-        // uppercases it in CSS — passing SHOUTING text through would come out
-        // spaced twice and read as a different typeface from every other
-        // section in the suite.
-        let title = title_case(text);
-        let accent = if title == "Tags" {
-            "fond-accent-pinned"
-        } else {
-            "fond-accent-library"
-        };
-        row.set_child(Some(&crate::ui::styles::fond_section_header(
-            &title, accent,
-        )));
-    }
+    let label = Label::new(Some(text));
+    label.add_css_class("fond-row-meta");
+    label.set_halign(Align::Start);
+    label.set_wrap(true);
+    label.set_xalign(0.0);
+    label.set_margin_start(14);
+    label.set_margin_end(8);
+    label.set_margin_top(2);
+    label.set_margin_bottom(4);
+    row.set_child(Some(&label));
     row
-}
-
-pub(super) fn title_case(text: &str) -> String {
-    let lower = text.to_lowercase();
-    let mut chars = lower.chars();
-    match chars.next() {
-        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-        None => lower,
-    }
 }
 
 #[cfg(test)]

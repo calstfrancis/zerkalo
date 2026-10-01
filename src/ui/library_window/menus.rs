@@ -19,276 +19,114 @@ pub(super) fn popup_after_click(popover: &Popover) {
 }
 
 impl LibraryWindow {
-    pub(super) fn show_doc_menu(
-        &self,
-        row: &ListBoxRow,
-        doc: &crate::library::Document,
-        x: f64,
-        y: f64,
-    ) {
-        let popover = Popover::new();
-        popover.set_parent(row);
-        popover.set_has_arrow(true);
-        popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
-
-        let vbox = GtkBox::new(Orientation::Vertical, 2);
-        vbox.set_margin_top(4);
-        vbox.set_margin_bottom(4);
-        vbox.set_margin_start(4);
-        vbox.set_margin_end(4);
-
-        let mk = |label: &str| -> Button {
-            let b = Button::with_label(label);
-            b.add_css_class("flat");
-            b.set_halign(Align::Fill);
-            if let Some(child) = b.child() {
-                child.set_halign(Align::Start);
-            }
-            b
-        };
-
-        let is_trash = *self.current_filter.borrow() == LibraryFilter::Trash;
-        if is_trash {
-            let restore_b = mk("Restore");
-            {
-                let this = self.clone();
-                let id = doc.id;
-                let pop = popover.clone();
-                restore_b.connect_clicked(move |_| {
-                    pop.popdown();
-                    this.library.borrow_mut().restore_from_trash(id).ok();
-                    this.refresh();
-                });
-            }
-            vbox.append(&restore_b);
-
-            vbox.append(&Separator::new(Orientation::Horizontal));
-
-            let del_b = mk("Permanently Delete…");
-            del_b.add_css_class("error");
-            {
-                let this = self.clone();
-                let doc = doc.clone();
-                let pop = popover.clone();
-                del_b.connect_clicked(move |_| {
-                    pop.popdown();
-                    this.permanent_delete_dialog(&doc);
-                });
-            }
-            vbox.append(&del_b);
-
-            popover.set_child(Some(&vbox));
-            popup_after_click(&popover);
-            return;
-        }
-
-        let open_b = mk("Open");
-        {
+    /// The `doc.*` actions the document menus (the row's ⋯ button and its
+    /// right-click) call. Each takes the document's id as its target, looks the
+    /// document up fresh, and does what the old hand-built popover's buttons did.
+    pub(super) fn install_doc_actions(&self) {
+        use crate::library::Document;
+        let group = gtk4::gio::SimpleActionGroup::new();
+        let add = |name: &str, run: Box<dyn Fn(&LibraryWindow, Document)>| {
+            let action = gtk4::gio::SimpleAction::new(name, Some(glib::VariantTy::INT64));
             let this = self.clone();
-            let id = doc.id;
-            let pop = popover.clone();
-            open_b.connect_clicked(move |_| {
-                pop.popdown();
-                this.open_doc_by_id(id);
-            });
-        }
-        vbox.append(&open_b);
-
-        let export_b = mk("Export…");
-        {
-            let this = self.clone();
-            let doc = doc.clone();
-            let pop = popover.clone();
-            export_b.connect_clicked(move |_| {
-                pop.popdown();
-                this.export_doc_dialog(&doc);
-            });
-        }
-        vbox.append(&export_b);
-
-        let rename_b = mk("Rename…");
-        {
-            let this = self.clone();
-            let doc = doc.clone();
-            let pop = popover.clone();
-            rename_b.connect_clicked(move |_| {
-                pop.popdown();
-                this.rename_doc_dialog(&doc);
-            });
-        }
-        vbox.append(&rename_b);
-
-        // Only offered for documents saved outside the Zerkalo folder — the
-        // common case is a document dragged in from elsewhere, or saved
-        // before name-only New Document existed. Those don't reliably see
-        // the project's fonts and bibliography.
-        if !doc.path.starts_with(&self.work_dir) {
-            let move_b = mk("Move into Zerkalo Folder…");
-            let this = self.clone();
-            let doc = doc.clone();
-            let pop = popover.clone();
-            move_b.connect_clicked(move |_| {
-                pop.popdown();
-                this.move_into_work_dir(&doc);
-            });
-            vbox.append(&move_b);
-        }
-
-        let cat_b = mk("Edit Categories…");
-        {
-            let this = self.clone();
-            let id = doc.id;
-            let pop = popover.clone();
-            cat_b.connect_clicked(move |_| {
-                pop.popdown();
-                this.edit_categories_dialog(id);
-            });
-        }
-        vbox.append(&cat_b);
-
-        let tags_b = mk("Edit Tags…");
-        {
-            let this = self.clone();
-            let id = doc.id;
-            let pop = popover.clone();
-            tags_b.connect_clicked(move |_| {
-                pop.popdown();
-                this.edit_tags_dialog(id);
-            });
-        }
-        vbox.append(&tags_b);
-
-        let notes_b = mk("Edit Notes…");
-        {
-            let this = self.clone();
-            let doc = doc.clone();
-            let pop = popover.clone();
-            notes_b.connect_clicked(move |_| {
-                pop.popdown();
-                this.edit_notes_dialog(&doc);
-            });
-        }
-        vbox.append(&notes_b);
-
-        let project_b = mk("Add to Project…");
-        {
-            let this = self.clone();
-            let id = doc.id;
-            let pop = popover.clone();
-            project_b.connect_clicked(move |_| {
-                pop.popdown();
-                this.add_to_project_dialog(id);
-            });
-        }
-        vbox.append(&project_b);
-
-        let maybe_pid = match *self.current_filter.borrow() {
-            LibraryFilter::Project(pid) => Some(pid),
-            _ => None,
-        };
-        if let Some(pid) = maybe_pid {
-            let root_b = mk("Set as Project Root");
-            let this = self.clone();
-            let id = doc.id;
-            let pop = popover.clone();
-            root_b.connect_clicked(move |_| {
-                pop.popdown();
-                this.library
-                    .borrow_mut()
-                    .set_project_root(pid, Some(id))
-                    .ok();
-            });
-            vbox.append(&root_b);
-        }
-
-        let pin_label = if doc.pinned { "Unpin" } else { "Pin to Top" };
-        let pin_b = mk(pin_label);
-        {
-            let this = self.clone();
-            let id = doc.id;
-            let pinned = doc.pinned;
-            let pop = popover.clone();
-            pin_b.connect_clicked(move |_| {
-                pop.popdown();
-                this.library.borrow_mut().set_pinned(id, !pinned).ok();
-                this.populate_doc_list();
-            });
-        }
-        vbox.append(&pin_b);
-
-        let arch_label = if doc.archived { "Unarchive" } else { "Archive" };
-        let arch_b = mk(arch_label);
-        {
-            let this = self.clone();
-            let id = doc.id;
-            let archived = doc.archived;
-            let title = doc.title.clone();
-            let pop = popover.clone();
-            arch_b.connect_clicked(move |_| {
-                pop.popdown();
-                this.library.borrow_mut().set_archived(id, !archived).ok();
-                this.refresh();
-                if !archived {
-                    let undo = this.clone();
-                    this.toast_with_undo(&format!("Archived \u{201c}{title}\u{201d}"), move || {
-                        undo.library.borrow_mut().set_archived(id, false).ok();
-                        undo.refresh();
-                    });
+            action.connect_activate(move |_, param| {
+                let Some(id) = param.and_then(|p| p.get::<i64>()) else {
+                    return;
+                };
+                let doc = this.library.borrow().doc_by_id(id).ok().flatten();
+                if let Some(doc) = doc {
+                    run(&this, doc);
                 }
             });
-        }
-        vbox.append(&arch_b);
+            group.add_action(&action);
+        };
 
-        vbox.append(&Separator::new(Orientation::Horizontal));
-
-        let remove_b = mk("Remove from list");
-        {
-            let this = self.clone();
-            let id = doc.id;
-            let pop = popover.clone();
-            let win = self.window.clone();
-            remove_b.connect_clicked(move |_| {
-                pop.popdown();
-                let this2 = this.clone();
+        add("open", Box::new(|t, d| t.open_doc_by_id(d.id)));
+        add("rename", Box::new(|t, d| t.rename_doc_dialog(&d)));
+        add("export", Box::new(|t, d| t.export_doc_dialog(&d)));
+        add("project", Box::new(|t, d| t.add_to_project_dialog(d.id)));
+        add(
+            "categories",
+            Box::new(|t, d| t.edit_categories_dialog(d.id)),
+        );
+        add("tags", Box::new(|t, d| t.edit_tags_dialog(d.id)));
+        add("notes", Box::new(|t, d| t.edit_notes_dialog(&d)));
+        add("move-in", Box::new(|t, d| t.move_into_work_dir(&d)));
+        add(
+            "set-root",
+            Box::new(|t, d| {
+                let pid = match *t.current_filter.borrow() {
+                    LibraryFilter::Project(pid) => Some(pid),
+                    _ => None,
+                };
+                if let Some(pid) = pid {
+                    t.library
+                        .borrow_mut()
+                        .set_project_root(pid, Some(d.id))
+                        .ok();
+                }
+            }),
+        );
+        add(
+            "pin",
+            Box::new(|t, d| {
+                t.library.borrow_mut().set_pinned(d.id, !d.pinned).ok();
+                t.populate_doc_list();
+            }),
+        );
+        add(
+            "archive",
+            Box::new(|t, d| {
+                t.library.borrow_mut().set_archived(d.id, !d.archived).ok();
+                t.refresh();
+                if !d.archived {
+                    let undo = t.clone();
+                    let id = d.id;
+                    t.toast_with_undo(
+                        &format!("Archived \u{201c}{}\u{201d}", d.title),
+                        move || {
+                            undo.library.borrow_mut().set_archived(id, false).ok();
+                            undo.refresh();
+                        },
+                    );
+                }
+            }),
+        );
+        add(
+            "remove",
+            Box::new(|t, d| {
+                let this = t.clone();
+                let id = d.id;
                 crate::ui::confirm::confirm_destructive(
-                    Some(win.upcast_ref()),
+                    Some(t.window.upcast_ref()),
                     "Remove from list?",
                     "The document's file on disk isn't touched — this only removes it from \
                      this list. Zerkalo will find it again if you open it or its folder is \
                      rescanned.",
                     "Remove",
                     move || {
-                        this2.library.borrow_mut().remove_document(id).ok();
-                        this2.refresh();
+                        this.library.borrow_mut().remove_document(id).ok();
+                        this.refresh();
                     },
                 );
-            });
-        }
-        vbox.append(&remove_b);
-
-        let trash_b = mk("Delete");
-        trash_b.add_css_class("error");
-        {
-            let this = self.clone();
-            let id = doc.id;
-            let title = doc.title.clone();
-            let pop = popover.clone();
-            trash_b.connect_clicked(move |_| {
-                pop.popdown();
-                let moved = this.library.borrow_mut().move_to_trash(id);
+            }),
+        );
+        add(
+            "delete",
+            Box::new(|t, d| {
+                let moved = t.library.borrow_mut().move_to_trash(d.id);
                 match moved {
                     Err(e) => {
                         tracing::error!("move_to_trash failed: {e}");
-                        let toast = adw::Toast::new(&format!(
+                        t.toast_overlay.add_toast(adw::Toast::new(&format!(
                             "Couldn't move to the trash — {}.",
                             e.user_message()
-                        ));
-                        this.toast_overlay.add_toast(toast);
+                        )));
                     }
                     Ok(()) => {
-                        let undo = this.clone();
-                        this.toast_with_undo(
-                            &format!("Moved \u{201c}{title}\u{201d} to Trash"),
+                        let undo = t.clone();
+                        let id = d.id;
+                        t.toast_with_undo(
+                            &format!("Moved \u{201c}{}\u{201d} to Trash", d.title),
                             move || {
                                 undo.library.borrow_mut().restore_from_trash(id).ok();
                                 undo.refresh();
@@ -296,13 +134,86 @@ impl LibraryWindow {
                         );
                     }
                 }
-                this.refresh();
-            });
-        }
-        vbox.append(&trash_b);
+                t.refresh();
+            }),
+        );
+        add(
+            "restore",
+            Box::new(|t, d| {
+                t.library.borrow_mut().restore_from_trash(d.id).ok();
+                t.refresh();
+            }),
+        );
+        add(
+            "delete-forever",
+            Box::new(|t, d| t.permanent_delete_dialog(&d)),
+        );
 
-        popover.set_child(Some(&vbox));
-        popup_after_click(&popover);
+        self.window.insert_action_group("doc", Some(&group));
+    }
+
+    /// The menu for one document, grouped by what the items do rather than
+    /// listed flat: using it, organizing it, putting it away, and the rarely
+    /// wanted rest under More.
+    pub(super) fn doc_menu_model(&self, doc_id: i64) -> Option<gtk4::gio::Menu> {
+        use gtk4::gio::{Menu, MenuItem};
+        let doc = self.library.borrow().doc_by_id(doc_id).ok().flatten()?;
+        let id = doc_id.to_variant();
+        let item = |label: &str, action: &str| {
+            let it = MenuItem::new(Some(label), None);
+            it.set_action_and_target_value(Some(action), Some(&id));
+            it
+        };
+        let menu = Menu::new();
+
+        if *self.current_filter.borrow() == LibraryFilter::Trash {
+            let s = Menu::new();
+            s.append_item(&item("Restore", "doc.restore"));
+            s.append_item(&item("Delete Forever…", "doc.delete-forever"));
+            menu.append_section(None, &s);
+            return Some(menu);
+        }
+
+        let open = Menu::new();
+        open.append_item(&item("Open", "doc.open"));
+        open.append_item(&item("Rename…", "doc.rename"));
+        open.append_item(&item("Export…", "doc.export"));
+        menu.append_section(None, &open);
+
+        let organize = Menu::new();
+        organize.append_item(&item("Add to Project…", "doc.project"));
+        organize.append_item(&item("Edit Categories…", "doc.categories"));
+        organize.append_item(&item("Edit Tags…", "doc.tags"));
+        organize.append_item(&item("Edit Notes…", "doc.notes"));
+        let keep = Menu::new();
+        keep.append_submenu(Some("Organize"), &organize);
+        keep.append_item(&item(
+            if doc.pinned { "Unpin" } else { "Pin to Top" },
+            "doc.pin",
+        ));
+        menu.append_section(None, &keep);
+
+        let away = Menu::new();
+        away.append_item(&item(
+            if doc.archived { "Unarchive" } else { "Archive" },
+            "doc.archive",
+        ));
+        away.append_item(&item("Delete", "doc.delete"));
+        menu.append_section(None, &away);
+
+        let more = Menu::new();
+        if matches!(*self.current_filter.borrow(), LibraryFilter::Project(_)) {
+            more.append_item(&item("Set as Project Root", "doc.set-root"));
+        }
+        if !doc.path.starts_with(&self.work_dir) {
+            more.append_item(&item("Move into Zerkalo Folder…", "doc.move-in"));
+        }
+        more.append_item(&item("Remove from list…", "doc.remove"));
+        let rest = Menu::new();
+        rest.append_submenu(Some("More"), &more);
+        menu.append_section(None, &rest);
+
+        Some(menu)
     }
 
     pub(super) fn show_project_menu(
