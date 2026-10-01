@@ -378,25 +378,141 @@ fn build_bib_call(filename: &str, style: &str, title: &str) -> String {
     }
 }
 
-pub(crate) fn extract_bib_filename(s: &str) -> Option<&str> {
-    let open = s.find('(')?;
-    let inner = &s[open + 1..];
-    let q1 = inner.find('"')? + 1;
-    let q2 = inner[q1..].find('"')?;
-    Some(&inner[q1..q1 + q2])
+/// The top-level arguments of a call whose text begins at (or before) its
+/// opening `(`, as raw slices. Strings and nested brackets are skipped over,
+/// so a comma inside either doesn't split an argument; the list ends at the
+/// call's matching `)`, which may be on a later line.
+fn call_arg_spans(call: &str) -> Vec<std::ops::Range<usize>> {
+    let Some(open) = call.find('(') else {
+        return Vec::new();
+    };
+    let b = call.as_bytes();
+    let mut args = Vec::new();
+    let (mut depth, mut start, mut i) = (0usize, open + 1, open + 1);
+    while i < b.len() {
+        match b[i] {
+            b'"' => {
+                i += 1;
+                while i < b.len() && b[i] != b'"' {
+                    if b[i] == b'\\' {
+                        i += 1;
+                    }
+                    i += 1;
+                }
+            }
+            b'(' | b'[' | b'{' => depth += 1,
+            b')' | b']' | b'}' => {
+                if depth == 0 {
+                    args.push(start..i.min(call.len()));
+                    return args;
+                }
+                depth -= 1;
+            }
+            b',' if depth == 0 => {
+                args.push(start..i);
+                start = i + 1;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    if start <= call.len() {
+        args.push(start..call.len());
+    }
+    args
 }
 
-/// Finds a document's active (non-commented) `#bibliography(...)` call and
-/// returns its path argument, if any. Used by the compiler to detect a
-/// bibliography path that needs the sandbox root widened to reach — whether
-/// or not that path is also reflected in `Config::bib_path`, which a hand-
-/// edited or hand-typed `#bibliography(...)` line never is.
+fn call_args(call: &str) -> Vec<&str> {
+    call_arg_spans(call).into_iter().map(|r| &call[r]).collect()
+}
+
+/// Where the string literals inside `s` are, without their quotes.
+fn string_literal_spans(s: &str) -> Vec<std::ops::Range<usize>> {
+    let b = s.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'"' {
+            let start = i + 1;
+            i = start;
+            while i < b.len() && b[i] != b'"' {
+                if b[i] == b'\\' {
+                    i += 1;
+                }
+                i += 1;
+            }
+            if i < b.len() {
+                out.push(start..i);
+            }
+        }
+        i += 1;
+    }
+    out
+}
+
+fn string_literals(s: &str) -> Vec<&str> {
+    string_literal_spans(s).into_iter().map(|r| &s[r]).collect()
+}
+
+/// Where the path string sits inside a `#bibliography(...)` call's text:
+/// the first positional string. An array of files has no single path to
+/// point at, so it gives `None`.
+fn path_literal_span(call: &str) -> Option<std::ops::Range<usize>> {
+    for arg in call_arg_spans(call) {
+        let text = call[arg.clone()].trim_start();
+        let lead = call[arg.clone()].len() - text.len();
+        if text.starts_with('(') {
+            return None;
+        }
+        if text.starts_with('"') {
+            let first = string_literal_spans(&call[arg.start + lead..arg.end])
+                .into_iter()
+                .next()?;
+            return Some(arg.start + lead + first.start..arg.start + lead + first.end);
+        }
+    }
+    None
+}
+
+/// The bibliography path in a single `#bibliography(...)` call, if its path
+/// is one plain string — `#bibliography(style: "apa", "refs.bib")` gives
+/// `refs.bib`, not `apa`. An array of files gives `None`, so code that
+/// rewrites the call never collapses several files into one.
+pub(crate) fn extract_bib_filename(s: &str) -> Option<&str> {
+    for arg in call_args(s) {
+        let arg = arg.trim();
+        if arg.starts_with('"') {
+            return string_literals(arg).into_iter().next();
+        }
+        if arg.starts_with('(') {
+            return None;
+        }
+    }
+    None
+}
+
+/// Finds a document's active (non-commented) `#bibliography(...)` call — it
+/// may span several lines — and returns its path argument, the first one if
+/// an array of files is given. Used by the compiler to detect a bibliography
+/// path that needs the sandbox root widened to reach — whether or not that
+/// path is also reflected in `Config::bib_path`, which a hand-edited or
+/// hand-typed `#bibliography(...)` line never is.
 pub(crate) fn find_bibliography_path(content: &str) -> Option<&str> {
-    content
-        .lines()
-        .map(|l| l.trim())
-        .find(|l| l.starts_with("#bibliography("))
-        .and_then(extract_bib_filename)
+    let mut offset = 0;
+    for line in content.split_inclusive('\n') {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("#bibliography(") {
+            let call = &content[offset + (line.len() - trimmed.len())..];
+            return call_args(call).into_iter().find_map(|arg| {
+                let arg = arg.trim();
+                (arg.starts_with('"') || arg.starts_with('('))
+                    .then(|| string_literals(arg).into_iter().next())
+                    .flatten()
+            });
+        }
+        offset += line.len();
+    }
+    None
 }
 
 /// The `style: "..."` argument of a document's active `#bibliography(...)`
@@ -464,50 +580,68 @@ pub fn set_combine_serial_citations(content: &str, combine: bool) -> String {
 /// call inert would defeat the point. If no `#bibliography(...)` call
 /// exists anywhere, a plain new one is appended.
 pub fn set_bibliography_path(content: &str, new_path: &str) -> String {
-    let trailing_nl = content.ends_with('\n');
-    let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
-    let mut found = false;
+    let escaped = new_path.replace('\\', "\\\\").replace('"', "\\\"");
+    let mut offset = 0;
+    let mut commented: Option<(usize, usize)> = None;
+    for line in content.split_inclusive('\n') {
+        let lead = line.len() - line.trim_start().len();
+        let trimmed = line[lead..].trim_end_matches(['\n', '\r']);
+        if trimmed.starts_with("#bibliography(") {
+            // A live call: swap just the path string. A call whose path is
+            // an array, or that names none, is left exactly as written.
+            let call = &content[offset + lead..];
+            return match path_literal_span(call) {
+                Some(span) => {
+                    let at = offset + lead;
+                    format!(
+                        "{}{}{}",
+                        &content[..at + span.start],
+                        escaped,
+                        &content[at + span.end..]
+                    )
+                }
+                None => content.to_string(),
+            };
+        }
+        if commented.is_none()
+            && trimmed.starts_with("//")
+            && trimmed
+                .trim_start_matches('/')
+                .trim_start()
+                .starts_with("#bibliography(")
+        {
+            commented = Some((
+                offset + lead,
+                offset + line.trim_end_matches(['\n', '\r']).len(),
+            ));
+        }
+        offset += line.len();
+    }
 
-    for line in &mut lines {
-        let trimmed = line.trim();
-        let is_comment = trimmed.starts_with("//");
-        let core = if is_comment {
-            trimmed.trim_start_matches('/').trim()
-        } else {
-            trimmed
-        };
-        if core.starts_with("#bibliography(") {
-            found = true;
-            let indent: String = line.chars().take_while(|c| c.is_whitespace()).collect();
-            *line = format!("{indent}{}", replace_bib_path_in_call(core, new_path));
+    match commented {
+        // A commented-out call (written when a document was templated with
+        // no bibliography yet) is switched on: the person just said where
+        // their bibliography is.
+        Some((start, end)) => {
+            let core = content[start..end].trim_start_matches('/').trim_start();
+            let call = match path_literal_span(core) {
+                Some(span) => format!("{}{}{}", &core[..span.start], escaped, &core[span.end..]),
+                None => format!("#bibliography(\"{escaped}\")"),
+            };
+            format!("{}{}{}", &content[..start], call, &content[end..])
+        }
+        None => {
+            let mut out = content.to_string();
+            if !out.is_empty() && !out.ends_with('\n') {
+                out.push('\n');
+            }
+            out.push_str(&format!("#bibliography(\"{escaped}\")"));
+            if content.ends_with('\n') {
+                out.push('\n');
+            }
+            out
         }
     }
-
-    if !found {
-        lines.push(replace_bib_path_in_call("#bibliography(\"\")", new_path));
-    }
-
-    let mut result = lines.join("\n");
-    if trailing_nl {
-        result.push('\n');
-    }
-    result
-}
-
-fn replace_bib_path_in_call(call: &str, new_path: &str) -> String {
-    let escaped = new_path.replace('\\', "\\\\").replace('"', "\\\"");
-    let Some(open) = call.find('(') else {
-        return format!("#bibliography(\"{escaped}\")");
-    };
-    let Some(q1_rel) = call[open + 1..].find('"') else {
-        return format!("#bibliography(\"{escaped}\")");
-    };
-    let q1 = open + 1 + q1_rel;
-    let Some(q2_rel) = call[q1 + 1..].find('"') else {
-        return format!("#bibliography(\"{escaped}\")");
-    };
-    let q2 = q1 + 1 + q2_rel;
-    format!("{}\"{escaped}\"{}", &call[..q1], &call[q2 + 1..])
 }
 
 #[cfg(test)]
@@ -580,5 +714,89 @@ mod combine_marker_tests {
         );
         assert_eq!(set_combine_serial_citations(&on, true), on);
         assert_eq!(set_combine_serial_citations(&on, false), doc);
+    }
+}
+
+#[cfg(test)]
+mod bibliography_call_tests {
+    use super::*;
+
+    #[test]
+    fn the_path_is_the_positional_string_not_the_first_string() {
+        assert_eq!(
+            find_bibliography_path("#bibliography(style: \"apa\", \"refs.bib\")"),
+            Some("refs.bib")
+        );
+        assert_eq!(
+            find_bibliography_path("#bibliography(title: \"References\", \"refs.bib\")"),
+            Some("refs.bib")
+        );
+        assert_eq!(
+            find_bibliography_path("#bibliography(\"refs.bib\", style: \"apa\")"),
+            Some("refs.bib")
+        );
+    }
+
+    #[test]
+    fn a_call_split_over_lines_is_found() {
+        let doc = "= T\n#bibliography(\n  title: \"Works\",\n  \"lib/refs.bib\",\n  style: \"chicago-notes\",\n)\n";
+        assert_eq!(find_bibliography_path(doc), Some("lib/refs.bib"));
+    }
+
+    #[test]
+    fn an_array_of_files_gives_the_first_and_is_never_rewritten() {
+        let call = "#bibliography((\"a.bib\", \"b.bib\"), style: \"apa\")";
+        assert_eq!(find_bibliography_path(call), Some("a.bib"));
+        assert_eq!(extract_bib_filename(call), None);
+        // update_bibliography leaves such a line exactly as the author wrote it.
+        assert_eq!(update_bibliography_only(call, "mla", ""), call);
+    }
+
+    #[test]
+    fn a_commented_call_is_not_active() {
+        assert_eq!(
+            find_bibliography_path("// #bibliography(\"x.bib\")\n"),
+            None
+        );
+    }
+
+    #[test]
+    fn restyling_keeps_the_real_path_when_style_comes_first() {
+        let out =
+            update_bibliography_only("#bibliography(style: \"apa\", \"refs.bib\")\n", "mla", "");
+        assert_eq!(out, "#bibliography(\"refs.bib\", style: \"mla\")\n");
+    }
+
+    #[test]
+    fn choosing_a_source_swaps_only_the_path_string() {
+        let doc = "#bibliography(style: \"apa\", \"old.bib\")\nText\n";
+        assert_eq!(
+            set_bibliography_path(doc, "new.bib"),
+            "#bibliography(style: \"apa\", \"new.bib\")\nText\n"
+        );
+    }
+
+    #[test]
+    fn a_multi_line_call_keeps_its_shape() {
+        let doc = "#bibliography(\n  \"old.bib\",\n  style: \"apa\",\n)\n";
+        assert_eq!(
+            set_bibliography_path(doc, "lib/new.bib"),
+            "#bibliography(\n  \"lib/new.bib\",\n  style: \"apa\",\n)\n"
+        );
+    }
+
+    #[test]
+    fn a_call_naming_several_files_is_left_alone() {
+        let doc = "#bibliography((\"a.bib\", \"b.bib\"))\n";
+        assert_eq!(set_bibliography_path(doc, "c.bib"), doc);
+    }
+
+    #[test]
+    fn a_second_bibliography_line_is_not_touched() {
+        let doc = "#bibliography(\"a.bib\")\n= Appendix\n#bibliography(\"b.bib\")\n";
+        assert_eq!(
+            set_bibliography_path(doc, "c.bib"),
+            "#bibliography(\"c.bib\")\n= Appendix\n#bibliography(\"b.bib\")\n"
+        );
     }
 }

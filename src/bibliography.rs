@@ -2,12 +2,6 @@ use std::path::Path;
 
 use biblatex::{Bibliography, ChunksExt, DateValue, PermissiveType};
 
-/// Character class for a valid BibTeX citation key, shared by every regex
-/// that matches or renames citation keys (here and in `ui/ref_manager.rs`).
-/// Includes `-` — a normal BibTeX convention (e.g. `smith-2020`) that's easy
-/// to miss since it's not a valid identifier character in most other contexts.
-pub const CITE_KEY_CHARS: &str = "[A-Za-z][A-Za-z0-9_:-]*";
-
 #[derive(Clone, Debug, Default)]
 pub struct BibEntry {
     pub key: String,
@@ -20,19 +14,61 @@ pub struct BibEntry {
     pub year: String,
 }
 
-pub fn load_bib(path: &Path) -> Vec<BibEntry> {
+/// Reads the entries of a bibliography source, or says why it couldn't. An
+/// empty file is a fine, empty bibliography; an unreadable or malformed one is
+/// a problem the person should be told about, not an empty list that invites
+/// them to start a new file over it.
+pub fn try_load(path: &Path) -> Result<Vec<BibEntry>, String> {
     if is_vault_dir(path) {
-        return load_vault_entries(path);
+        return try_load_vault(path);
     }
+    let name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("the bibliography");
+    let content = std::fs::read_to_string(path).map_err(|e| match e.kind() {
+        std::io::ErrorKind::NotFound => {
+            format!("Couldn't find {name}. It may have been moved or renamed.")
+        }
+        _ => format!("Couldn't open {name}: {e}"),
+    })?;
     match path.extension().and_then(|e| e.to_str()) {
         Some(ext) if ext.eq_ignore_ascii_case("yaml") || ext.eq_ignore_ascii_case("yml") => {
-            load_yaml_bib(path)
+            if content.trim().is_empty() {
+                return Ok(Vec::new());
+            }
+            let library = hayagriva::io::from_yaml_str(&content)
+                .map_err(|e| format!("Couldn't read {name}: {e}"))?;
+            Ok(library.iter().map(bib_entry_from_hayagriva).collect())
         }
-        _ => match std::fs::read_to_string(path) {
-            Ok(content) => parse_bib(&content),
-            Err(_) => Vec::new(),
-        },
+        _ => {
+            if content.trim().is_empty() {
+                return Ok(Vec::new());
+            }
+            Bibliography::parse(&content)
+                .map(|bib| entries_from_bibliography(&bib))
+                .map_err(|e| format!("Couldn't read {name}: {e}"))
+        }
     }
+}
+
+fn try_load_vault(dir: &Path) -> Result<Vec<BibEntry>, String> {
+    let library = fond_bib::Library::open(dir)
+        .map_err(|e| format!("Couldn't open the Kartoteka vault: {e}"))?;
+    let keys = library
+        .keys_sorted()
+        .map_err(|e| format!("Couldn't list the vault's entries: {e}"))?;
+    Ok(keys
+        .iter()
+        .filter_map(|key| library.load_entry(key).ok())
+        .map(|parsed| bib_entry_from_hayagriva(&parsed.entry))
+        .collect())
+}
+
+/// The entries of `path`, or none if it can't be read.
+#[cfg(test)]
+pub fn load_bib(path: &Path) -> Vec<BibEntry> {
+    try_load(path).unwrap_or_default()
 }
 
 /// Whether `path` is a Kartoteka vault root — recognized by its `entries/`
@@ -58,22 +94,6 @@ pub fn bib_target_path(bib_path: &Path) -> std::path::PathBuf {
     } else {
         bib_path.to_path_buf()
     }
-}
-
-/// Loads every entry from a Kartoteka vault directly through `fond-bib`,
-/// bypassing `library.yml` (a derived export) so this always reflects the
-/// authoritative `entries/*.yml` files on disk.
-pub fn load_vault_entries(dir: &Path) -> Vec<BibEntry> {
-    let Ok(library) = fond_bib::Library::open(dir) else {
-        return Vec::new();
-    };
-    let Ok(keys) = library.keys_sorted() else {
-        return Vec::new();
-    };
-    keys.iter()
-        .filter_map(|key| library.load_entry(key).ok())
-        .map(|parsed| bib_entry_from_hayagriva(&parsed.entry))
-        .collect()
 }
 
 fn bib_entry_from_hayagriva(entry: &hayagriva::Entry) -> BibEntry {
@@ -103,13 +123,7 @@ fn bib_entry_from_hayagriva(entry: &hayagriva::Entry) -> BibEntry {
     }
 }
 
-fn load_yaml_bib(path: &Path) -> Vec<BibEntry> {
-    match std::fs::read_to_string(path) {
-        Ok(content) => parse_yaml_bib(&content),
-        Err(_) => Vec::new(),
-    }
-}
-
+#[cfg(test)]
 pub fn parse_yaml_bib(content: &str) -> Vec<BibEntry> {
     let library = match hayagriva::io::from_yaml_str(content) {
         Ok(lib) => lib,
@@ -164,12 +178,15 @@ fn first_last_name(author: &str) -> String {
     }
 }
 
+#[cfg(test)]
 pub fn parse_bib(content: &str) -> Vec<BibEntry> {
-    let bib = match Bibliography::parse(content) {
-        Ok(b) => b,
-        Err(_) => return Vec::new(),
-    };
+    match Bibliography::parse(content) {
+        Ok(b) => entries_from_bibliography(&b),
+        Err(_) => Vec::new(),
+    }
+}
 
+fn entries_from_bibliography(bib: &Bibliography) -> Vec<BibEntry> {
     bib.iter()
         .map(|entry| {
             let author = entry
@@ -213,62 +230,133 @@ pub fn parse_bib(content: &str) -> Vec<BibEntry> {
         .collect()
 }
 
-/// Renames a citation key in place in a BibTeX file. Returns an error if the
-/// file can't be read/parsed/written, if `old_key` isn't present, or if
-/// `new_key` already names a different entry (renaming would silently
-/// clobber it otherwise).
+/// Writes `text` to `path` so a crash or full disk can't leave half a file:
+/// the new text goes to a sibling temp file which then replaces the original.
+/// A symlinked file (a Zotero export linked into the project) is written
+/// through to its target rather than replaced by a plain file.
+pub fn write_atomic(path: &Path, text: &str) -> std::io::Result<()> {
+    let target = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let mut tmp = target.clone().into_os_string();
+    tmp.push(".tmp-zerkalo");
+    let tmp = std::path::PathBuf::from(tmp);
+    std::fs::write(&tmp, text)?;
+    if let Ok(meta) = std::fs::metadata(&target) {
+        let _ = std::fs::set_permissions(&tmp, meta.permissions());
+    }
+    std::fs::rename(&tmp, &target).inspect_err(|_| {
+        let _ = std::fs::remove_file(&tmp);
+    })
+}
+
+/// Matches an entry header `@type{key,` — group 3 is the key. Works on a
+/// file the full BibTeX parser would reject.
+fn entry_header_regex(key: &str) -> regex::Regex {
+    regex::Regex::new(&format!(
+        r"(?mi)^([ \t]*@([a-z]+)[ \t]*[{{(][ \t\r\n]*)({})([ \t]*,)",
+        regex::escape(key)
+    ))
+    .unwrap()
+}
+
+/// The captures of every real entry (not `@comment`, `@string`, `@preamble`)
+/// whose key is `key`.
+fn entry_headers<'a>(content: &'a str, key: &str) -> Vec<regex::Captures<'a>> {
+    entry_header_regex(key)
+        .captures_iter(content)
+        .filter(|c| {
+            !matches!(
+                c[2].to_ascii_lowercase().as_str(),
+                "comment" | "string" | "preamble"
+            )
+        })
+        .collect()
+}
+
+/// Renames a citation key in BibTeX text by replacing just the key in the
+/// entry's header line. Everything else — comments, `@string` macros, the
+/// author's own layout and ordering — stays exactly as it was. `None` if
+/// `old_key` isn't an entry here exactly once.
+pub fn rename_key_in_bib_text(content: &str, old_key: &str, new_key: &str) -> Option<String> {
+    let found = entry_headers(content, old_key);
+    if found.len() != 1 {
+        return None;
+    }
+    let key = found[0].get(3)?;
+    let mut out = String::with_capacity(content.len() + new_key.len());
+    out.push_str(&content[..key.start()]);
+    out.push_str(new_key);
+    out.push_str(&content[key.end()..]);
+    Some(out)
+}
+
+/// Whether BibTeX `text` already has an entry called `key` (case-sensitive,
+/// like citation keys are).
+pub fn bib_text_has_key(content: &str, key: &str) -> bool {
+    !entry_headers(content, key).is_empty()
+}
+
+/// Renames a citation key in a BibTeX file, touching only the key itself.
+/// Returns an error if the file can't be read or written, if `old_key`
+/// isn't present exactly once, or if `new_key` already names an entry
+/// (renaming would silently merge two works otherwise).
 pub fn rename_key_in_bib_file(path: &Path, old_key: &str, new_key: &str) -> std::io::Result<()> {
     let content = std::fs::read_to_string(path)?;
-    let mut bib = Bibliography::parse(&content)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
-    if new_key != old_key && bib.get(new_key).is_some() {
+    if new_key != old_key && bib_text_has_key(&content, new_key) {
         return Err(std::io::Error::new(
             std::io::ErrorKind::AlreadyExists,
             format!("key '{new_key}' already exists"),
         ));
     }
-    let mut entry = bib.remove(old_key).ok_or_else(|| {
+    let updated = rename_key_in_bib_text(&content, old_key, new_key).ok_or_else(|| {
         std::io::Error::new(
             std::io::ErrorKind::NotFound,
             format!("key '{old_key}' not found"),
         )
     })?;
-    entry.key = new_key.to_string();
-    bib.insert(entry);
-    std::fs::write(path, bib.to_bibtex_string())
+    write_atomic(path, &updated)
 }
 
-/// Renames occurrences of a citation key (`@key` shorthand or `#cite(<key>)` /
-/// `#cite("key")`) in Typst source text. Returns the rewritten text and
-/// whether anything changed.
-pub fn rename_key_in_text(text: &str, old_key: &str, new_key: &str) -> (String, bool) {
-    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    let re = RE.get_or_init(|| {
-        regex::Regex::new(&format!(
-            r#"@({CITE_KEY_CHARS})|#cite\(<([^>]+)>\)|#cite\("([^"]+)"\)"#
-        ))
-        .unwrap()
-    });
+/// One file's worth of a project-wide rename: what it said, what it will say.
+pub struct RenameEdit {
+    pub path: std::path::PathBuf,
+    pub before: String,
+    pub after: String,
+}
 
-    let result = re.replace_all(text, |caps: &regex::Captures| {
-        let whole = caps.get(0).unwrap().as_str();
-        if let Some(k) = caps.get(1) {
-            if k.as_str() == old_key {
-                return format!("@{new_key}");
-            }
-        } else if let Some(k) = caps.get(2) {
-            if k.as_str() == old_key {
-                return format!("#cite(<{new_key}>)");
-            }
-        } else if let Some(k) = caps.get(3) {
-            if k.as_str() == old_key {
-                return format!("#cite(\"{new_key}\")");
-            }
+/// Writes every edit, then the bibliography, and if any write fails puts back
+/// everything already written, so a rename lands in all the files or none.
+pub fn apply_rename(
+    bib_path: &Path,
+    old_key: &str,
+    new_key: &str,
+    docs: &[RenameEdit],
+) -> std::io::Result<()> {
+    let mut done: Vec<&RenameEdit> = Vec::new();
+    let undo = |done: &[&RenameEdit]| {
+        for e in done {
+            let _ = write_atomic(&e.path, &e.before);
         }
-        whole.to_string()
-    });
-    let changed = result != text;
-    (result.into_owned(), changed)
+    };
+    for e in docs {
+        if let Err(err) = write_atomic(&e.path, &e.after) {
+            undo(&done);
+            return Err(err);
+        }
+        done.push(e);
+    }
+    if let Err(err) = rename_key_in_bib_file(bib_path, old_key, new_key) {
+        undo(&done);
+        return Err(err);
+    }
+    Ok(())
+}
+
+/// Renames occurrences of a citation key (`@key` shorthand or `#cite(<key>…)` /
+/// `#cite("key"…)`, with or without further arguments) in Typst source text.
+/// Only the key's own characters change; every other byte is left as it was.
+/// Returns the rewritten text and whether anything changed.
+pub fn rename_key_in_text(text: &str, old_key: &str, new_key: &str) -> (String, bool) {
+    crate::citation_keys::rename_in_text(text, old_key, new_key)
 }
 
 fn format_biblatex_person(p: &biblatex::Person) -> String {
@@ -538,6 +626,74 @@ mod tests {
     }
 
     #[test]
+    fn rename_in_bib_leaves_every_other_byte_alone() {
+        let original = "% my notes\n@string{jt = \"Journal of Things\"}\n\n@Article{ smith2020 ,\n  author = {John Smith},\n  journal = jt,\n}\n@comment{smith2020, not an entry}\n@book{doe2019,\n    title   = {Keep   my   spacing},\n}\n";
+        let out = rename_key_in_bib_text(original, "doe2019", "doe2020").unwrap();
+        assert_eq!(out, original.replace("doe2019", "doe2020"));
+        let out = rename_key_in_bib_text(original, "smith2020", "smith2021").unwrap();
+        assert_eq!(out, original.replacen("smith2020 ,", "smith2021 ,", 1));
+    }
+
+    #[test]
+    fn rename_in_bib_refuses_when_unsure() {
+        assert!(rename_key_in_bib_text("@book{a,\n}\n@book{a,\n}\n", "a", "b").is_none());
+        assert!(rename_key_in_bib_text("@book{a,\n}\n", "z", "b").is_none());
+        assert!(rename_key_in_bib_text("@comment{a,\n}\n", "a", "b").is_none());
+    }
+
+    #[test]
+    fn rename_works_on_a_file_the_parser_rejects() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("refs.bib");
+        let original =
+            "@book{a,\n  title = {Unbalanced { brace},\n}\n@book{b,\n  year = {Winter 2001},\n}\n";
+        std::fs::write(&path, original).unwrap();
+        rename_key_in_bib_file(&path, "b", "c").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            original.replace("{b,", "{c,")
+        );
+    }
+
+    #[test]
+    fn a_failed_rename_puts_every_file_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let bib = dir.path().join("refs.bib");
+        std::fs::write(&bib, "@book{a,\n}\n").unwrap();
+        let doc = dir.path().join("p.typ");
+        std::fs::write(&doc, "@a").unwrap();
+        let edits = [RenameEdit {
+            path: doc.clone(),
+            before: "@a".into(),
+            after: "@zz".into(),
+        }];
+        // `zz` is not in the bib's way but `a`→`a` collision-free; force a bib failure.
+        let err = apply_rename(&bib, "missing", "zz", &edits).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
+        assert_eq!(std::fs::read_to_string(&doc).unwrap(), "@a");
+        assert_eq!(std::fs::read_to_string(&bib).unwrap(), "@book{a,\n}\n");
+    }
+
+    #[test]
+    fn write_atomic_follows_a_symlink_and_leaves_no_temp_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("real.bib");
+        std::fs::write(&real, "old").unwrap();
+        let link = dir.path().join("link.bib");
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&real, &link).unwrap();
+            write_atomic(&link, "new").unwrap();
+            assert_eq!(std::fs::read_to_string(&real).unwrap(), "new");
+            assert!(std::fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink());
+            assert!(!dir.path().join("real.bib.tmp-zerkalo").exists());
+        }
+    }
+
+    #[test]
     fn parse_yaml_bib_basic() {
         let yaml = r#"
 smith2020:
@@ -682,5 +838,18 @@ multi:
         assert_eq!(entries[0].year, "2020");
         assert_eq!(entries[1].key, "doe_important_2019");
         assert_eq!(entries[1].year, "2019");
+    }
+
+    #[test]
+    fn the_repos_own_zotero_style_library_loads_and_renames_byte_for_byte() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("citations.bib");
+        let Ok(original) = std::fs::read_to_string(&path) else {
+            return;
+        };
+        let entries = try_load(&path).expect("the repo's own bibliography reads");
+        assert!(entries.len() > 100);
+        let key = &entries[0].key;
+        let renamed = rename_key_in_bib_text(&original, key, "zz-renamed-key").unwrap();
+        assert_eq!(renamed.replace("zz-renamed-key", key), original);
     }
 }

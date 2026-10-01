@@ -3,6 +3,24 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- **Renaming a citation key now changes only the key.** In the bibliography it edits just the key in the entry's header, so your comments, `@string` macros, spacing and order stay byte-for-byte as you wrote them (before, the whole file was rewritten). The rename lands in every file or none; if anything fails, nothing changes.
+- **Rename now finds every citation:** `#cite(<k>, form: "prose")`, keys with dots or accents (`@smith.2020`, `@žižek2008`), and it no longer rewrites e-mail addresses.
+- **A bibliography that can't be read says so** and says why, instead of looking empty and inviting you to start a new one.
+- **"Broken citations" no longer lists cross-references** like `@fig-1`, and follows `#include`d chapters.
+- **Adding an entry checks first:** nickname unused and valid, braces paired, year four digits; the file is saved safely.
+- **`#bibliography(...)` is read properly:** `style:` before the path, calls split over several lines, and a list of files no longer confuse it; choosing a source never touches a call it can't safely edit.
+- **Switching bibliography now takes effect everywhere and keeps watching the right file.**
+
+### Changed
+
+- **One place decides the citation source.** The document's own `#bibliography` line wins, then the project setting, then Settings, then a bibliography in the project folder. Settings, the Citations panel and the document all go through it, and the editor follows the open document. Your files are only read, except the path in the open document's `#bibliography` line when you choose a source (written relative when the file is inside the project).
+
+---
+
 ## [0.40.0] "Tidy Glass" — 2026-10-01 — A Library that organises itself
 
 ### Added

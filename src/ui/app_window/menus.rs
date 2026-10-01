@@ -31,7 +31,6 @@ use super::{
     restore_snapshot_with_confirm, show_alert, show_dep_graph_window, show_file_history_window,
     show_ref_manager_window,
 };
-use crate::bibliography;
 use crate::config::Config;
 use crate::git_sync;
 use crate::writing_log::WritingLog;
@@ -56,6 +55,7 @@ pub(super) struct MenuCtx {
     pub(super) compile_mode_btn: Button,
     pub(super) compile_mode_label: Label,
     pub(super) effective_cv_elements: Option<std::path::PathBuf>,
+    pub(super) bib_manager: super::bib_manager::BibManager,
     pub(super) effective_bib: Option<std::path::PathBuf>,
     pub(super) auto_detected_bib: Rc<RefCell<Option<std::path::PathBuf>>>,
     pub(super) print_header_btn: Button,
@@ -89,6 +89,7 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
     let preview_for_settings = ctx.preview_pane.clone();
     let citation_for_settings = ctx.citation_panel.clone();
     let root_for_settings = ctx.project_root.clone();
+    let bib_for_settings = ctx.bib_manager.clone();
     menus.menu_settings_item.connect_clicked(move |_| {
         menu_popover_for_settings.popdown();
         let dialog =
@@ -129,6 +130,7 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
         let cm_btn_save = compile_mode_btn_for_settings.clone();
         let cm_lbl_save = compile_mode_label_for_settings.clone();
         let preview_for_save = preview_for_settings.clone();
+        let bib_for_save = bib_for_settings.clone();
         let citation_for_save = citation_for_settings.clone();
 
         // Live preview — apply appearance changes immediately while dialog is open
@@ -182,11 +184,7 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
             }
             let old_bib = cfg_rc.borrow().bib_path.clone();
             if old_bib != new_cfg.bib_path {
-                match new_cfg.bib_path.as_ref() {
-                    Some(bp) => editor.set_bib_entries(bibliography::load_bib(bp)),
-                    None => editor.set_bib_entries(Vec::new()),
-                }
-                preview_for_save.set_bib_path(new_cfg.bib_path.clone());
+                bib_for_save.settings_changed(new_cfg.bib_path.clone());
             }
             // CV elements were resolved once at startup, so changing this path
             // used to do nothing until the next launch, silently. It can be

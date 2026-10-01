@@ -29,23 +29,27 @@ impl RefFormat {
 
 /// Every citation key written in `root` and any `.typ` file it pulls in via
 /// `#include`/`#import` (followed transitively, relative to each file).
-/// Over-collects on purpose — `@preview`, e-mail addresses, and labels also
-/// match `@…` — since the result is only ever intersected with real
-/// bibliography keys.
+/// Over-collects on purpose — `@preview` and labels also match `@…` — since
+/// the result is only ever intersected with real bibliography keys.
 pub fn collect_cited_keys(root: &Path) -> BTreeSet<String> {
-    static CITE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    collect_citations(root, None).0
+}
+
+/// Like `collect_cited_keys`, but `root_text` stands in for the root file's
+/// contents (the editor's unsaved text), and the `<label>` names defined
+/// anywhere in the project's files come back too, so a caller can tell a
+/// cross-reference (`@fig-1`) from a citation that is missing from the
+/// bibliography.
+pub fn collect_citations(
+    root: &Path,
+    root_text: Option<&str>,
+) -> (BTreeSet<String>, BTreeSet<String>) {
     static INCLUDE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    let cite = CITE.get_or_init(|| {
-        regex::Regex::new(&format!(
-            r#"@({k})|#cite\(\s*<({k})>|#cite\(\s*"({k})""#,
-            k = "[A-Za-z][A-Za-z0-9_:.-]*"
-        ))
-        .unwrap()
-    });
     let include = INCLUDE
         .get_or_init(|| regex::Regex::new(r#"#(?:include|import)\s+"([^"]+\.typ)""#).unwrap());
 
     let mut keys = BTreeSet::new();
+    let mut labels = BTreeSet::new();
     let mut seen: BTreeSet<PathBuf> = BTreeSet::new();
     let mut queue = vec![root.to_path_buf()];
     while let Some(path) = queue.pop() {
@@ -53,21 +57,21 @@ pub fn collect_cited_keys(root: &Path) -> BTreeSet<String> {
         if !seen.insert(canon) {
             continue;
         }
-        let Ok(content) = std::fs::read_to_string(&path) else {
-            continue;
+        let content = match (root_text, path == root) {
+            (Some(t), true) => t.to_string(),
+            _ => match std::fs::read_to_string(&path) {
+                Ok(c) => c,
+                Err(_) => continue,
+            },
         };
-        for cap in cite.captures_iter(&content) {
-            if let Some(m) = cap.get(1).or(cap.get(2)).or(cap.get(3)) {
-                // A trailing `.`/`:` is sentence punctuation, not part of the key.
-                keys.insert(m.as_str().trim_end_matches(['.', ':']).to_string());
-            }
-        }
+        keys.extend(crate::citation_keys::keys_in(&content));
+        labels.extend(crate::citation_keys::labels_in(&content));
         let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
         for cap in include.captures_iter(&content) {
             queue.push(dir.join(&cap[1]));
         }
     }
-    keys
+    (keys, labels)
 }
 
 /// The bibliography file `root` compiles against: its own

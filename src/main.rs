@@ -8,7 +8,9 @@ mod assets;
 mod authors;
 mod auto_save;
 mod bib_sanitize;
+mod bib_source;
 mod bibliography;
+mod citation_keys;
 mod cited_refs;
 mod comments;
 mod compile_stats;
@@ -43,7 +45,6 @@ mod templates;
 mod typst_universe;
 mod ui;
 mod user_templates;
-mod vault_watch;
 mod web_export;
 mod writing_log;
 

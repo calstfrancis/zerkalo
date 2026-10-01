@@ -38,6 +38,9 @@ pub struct CitationPanel {
     bib_name_label: Label,
     skrizhal_btn: Button,
     bib_filename: Rc<RefCell<Option<String>>>,
+    /// Why the current source couldn't be read, shown instead of the
+    /// "No bibliography yet" invitation — a broken file is not an empty one.
+    bib_problem: Rc<RefCell<Option<String>>>,
     cv_filename: Rc<RefCell<Option<String>>>,
     collapse_btn: Button,
     revealer: Revealer,
@@ -309,6 +312,7 @@ impl CitationPanel {
             bib_name_label,
             skrizhal_btn,
             bib_filename: Rc::new(RefCell::new(None)),
+            bib_problem: Rc::new(RefCell::new(None)),
             cv_filename: Rc::new(RefCell::new(None)),
             collapse_btn,
             revealer,
@@ -461,6 +465,12 @@ impl CitationPanel {
         *self.on_open_kartoteka.borrow_mut() = Some(Box::new(f));
     }
 
+    /// Records (or clears) why the current source couldn't be read. Call
+    /// before `load_bib`, which redraws the list.
+    pub fn set_bib_problem(&self, problem: Option<String>) {
+        *self.bib_problem.borrow_mut() = problem;
+    }
+
     pub fn set_bib_filename(&self, name: Option<&str>) {
         *self.bib_filename.borrow_mut() = name.map(str::to_string);
         if !self.cv_mode.get() {
@@ -505,7 +515,13 @@ impl CitationPanel {
         let entries = self.bib_entries.borrow();
 
         if entries.is_empty() {
-            self.append_placeholder("No bibliography loaded yet.\nUse + above to start one, or the folder icon to pick an existing file.");
+            if let Some(problem) = self.bib_problem.borrow().as_deref() {
+                self.append_placeholder(&format!("{problem}\nYour file hasn't been changed."));
+            } else if self.bib_filename.borrow().is_some() {
+                self.append_placeholder("This bibliography has no entries yet.");
+            } else {
+                self.append_placeholder("No bibliography loaded yet.\nUse + above to start one, or the folder icon to pick an existing file.");
+            }
             return;
         }
 

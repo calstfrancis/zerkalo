@@ -31,6 +31,7 @@ use crate::writing_log::{count_words, FileStartWords, WritingLog};
 
 use crate::cv_mode::CV_HELPERS_TYPST;
 
+mod bib_manager;
 mod citations;
 mod dialogs;
 mod editor_extras;
@@ -537,6 +538,14 @@ impl AppWindow {
             apply_dark_accents(mgr.is_dark());
         });
 
+        let bib_manager = bib_manager::BibManager::new(
+            editor_pane.clone(),
+            citation_panel.clone(),
+            ref_manager.clone(),
+            preview_pane.clone(),
+            current_config.clone(),
+            project_root.clone(),
+        );
         let auto_detected_bib = wire_citations(&CitationCtx {
             window: window.clone(),
             editor_pane: editor_pane.clone(),
@@ -544,7 +553,7 @@ impl AppWindow {
             ref_manager: ref_manager.clone(),
             current_config: current_config.clone(),
             project_root: project_root.clone(),
-            effective_bib: effective_bib.clone(),
+            bib_manager: bib_manager.clone(),
             effective_cv_elements: effective_cv_elements.clone(),
         });
         // ── Sidebar toggle (item 1) ─────────────────────────────────────────
@@ -604,6 +613,7 @@ impl AppWindow {
             compile_mode_btn: compile_mode_btn.clone(),
             compile_mode_label: compile_mode_label.clone(),
             effective_cv_elements: effective_cv_elements.clone(),
+            bib_manager: bib_manager.clone(),
             effective_bib: effective_bib.clone(),
             auto_detected_bib: auto_detected_bib.clone(),
             print_header_btn: print_header_btn.clone(),
@@ -845,6 +855,7 @@ impl AppWindow {
         let outline_for_change = outline_panel.clone();
         let comments_for_change = comments_panel.clone();
         let refs_for_change = ref_manager.clone();
+        let bib_for_change = bib_manager.clone();
         let lsp_for_change = lsp_client.clone();
         let configured_root_for_change = configured_root.clone();
         let project_root_for_change = project_root.clone();
@@ -870,6 +881,7 @@ impl AppWindow {
             let outline = outline_for_change.clone();
             let comments = comments_for_change.clone();
             let refs = refs_for_change.clone();
+            let bib = bib_for_change.clone();
             let lsp = lsp_for_change.clone();
             let configured_root = configured_root_for_change.clone();
             let project_root_inner = project_root_for_change.clone();
@@ -904,7 +916,8 @@ impl AppWindow {
                                 outline.update(&content, &path);
                             }
                             comments.update(&path, &content);
-                            refs.update_used_keys(&content);
+                            bib.refresh(Some((&path, &content)));
+                            refs.update_used_keys(&content, &path);
                         }
                     }
                     if let Some(client) = lsp.borrow_mut().as_mut() {
@@ -1005,6 +1018,7 @@ impl AppWindow {
         let outline_for_switch = outline_panel.clone();
         let comments_for_switch = comments_panel.clone();
         let refs_for_switch = ref_manager.clone();
+        let bib_for_switch = bib_manager.clone();
         let dep_graph_for_switch = dep_graph.clone();
         let title_widget_for_switch = file_title_widget.clone();
         let preview_for_switch = preview_pane.clone();
@@ -1036,7 +1050,8 @@ impl AppWindow {
                 outline_for_switch.update(&content, &path);
             }
             comments_for_switch.update(&path, &content);
-            refs_for_switch.update_used_keys(&content);
+            bib_for_switch.refresh(Some((&path, &content)));
+            refs_for_switch.update_used_keys(&content, &path);
             dep_graph_for_switch.refresh(Some(&path));
             // Only recompile if the content has changed since the last compile for this file.
             let content_hash = {
