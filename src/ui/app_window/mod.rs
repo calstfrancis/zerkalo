@@ -3525,6 +3525,9 @@ fn start_folder_export(library: Rc<RefCell<Library>>, folder: PathBuf) {
     let tree = Rc::new(Cell::new(crate::library_restore::tree_stamp(&folder)));
     let waiting = Rc::new(Cell::new(false));
     let syncs_seen = Rc::new(Cell::new(crate::git_sync::syncs_finished()));
+    // The notes setting last exported with, so turning it on or off is acted on
+    // at once instead of waiting for something else to change.
+    let notes_seen: Rc<Cell<Option<bool>>> = Rc::new(Cell::new(None));
     let backups = crate::config::zerkalo_data_dir();
     glib::timeout_add_local(Duration::from_secs(3), move || {
         if !crate::config::shared().borrow().library.export || !folder.is_dir() {
@@ -3581,11 +3584,18 @@ fn start_folder_export(library: Rc<RefCell<Library>>, folder: PathBuf) {
             }
         }
 
+        let include_notes = crate::config::shared().borrow().library.export_notes;
         let stamp = library.borrow().change_stamp();
-        if !restore_now && verified.get() && last.get() == Some(stamp) {
+        if !restore_now
+            && verified.get()
+            && last.get() == Some(stamp)
+            && notes_seen.get() == Some(include_notes)
+        {
             return glib::ControlFlow::Continue;
         }
-        let report = crate::library_export::export(&library.borrow(), &folder, restore_now);
+        let report =
+            crate::library_export::export(&library.borrow(), &folder, restore_now, include_notes);
+        notes_seen.set(Some(include_notes));
         verified.set(true);
         // Exporting records what it wrote, which moves the stamp itself.
         last.set(Some(library.borrow().change_stamp()));

@@ -23,6 +23,10 @@
 //! never edit the same file, so a `pull --rebase` of the folder can't conflict
 //! over this data, and the backup of your writing is never held up by it.
 //! Other machines' folders are only ever read (see `library_restore`).
+//!
+//! Notes are left out unless asked for (`include_notes`): they are private
+//! writing, and this folder is usually pushed somewhere. Everything else here
+//! is a label, a pin or a name.
 
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
@@ -48,7 +52,8 @@ pub struct ExportReport {
 
 const README: &str = "\
 This folder is one machine's copy of what you've done in the Library: labels,
-projects, pins and notes. It lives here so it is backed up with the rest of
+projects and pins (and notes, if you've chosen to include them — they are left
+out unless you turn that on in the Library's View menu). It lives here so it is backed up with the rest of
 your Zerkalo folder, and so another machine can bring it in.
 
   docs/        one file per document, named after it
@@ -205,9 +210,14 @@ fn write_atomically(path: &Path, content: &str) -> std::io::Result<()> {
 /// `verify_disk` reads each file that is expected to be unchanged to check it
 /// really is; otherwise a file whose content hasn't changed since it was last
 /// written is not even looked at, which keeps frequent calls cheap.
-pub fn export(lib: &Library, folder: &Path, verify_disk: bool) -> ExportReport {
+pub fn export(
+    lib: &Library,
+    folder: &Path,
+    verify_disk: bool,
+    include_notes: bool,
+) -> ExportReport {
     let mut report = ExportReport::default();
-    let snapshot = match lib.export_snapshot() {
+    let mut snapshot = match lib.export_snapshot() {
         Ok(s) => s,
         Err(e) => {
             report
@@ -225,6 +235,13 @@ pub fn export(lib: &Library, folder: &Path, verify_disk: bool) -> ExportReport {
             return report;
         }
     };
+    if !include_notes {
+        // Not written, not even into a file that is being written anyway; a
+        // file that already has them is rewritten without.
+        for d in &mut snapshot.docs {
+            d.notes = None;
+        }
+    }
     let mut records = lib.export_records().unwrap_or_default();
     let root = folder.join(DIR).join(&id);
 
@@ -402,7 +419,7 @@ mod tests {
         lib.set_pinned(id, true).unwrap();
         lib.set_notes(id, Some("Check the Isaiah reading")).unwrap();
 
-        let r = export(&lib, folder.path(), true);
+        let r = export(&lib, folder.path(), true, true);
         assert!(r.errors.is_empty(), "{:?}", r.errors);
 
         let text = read(&lib, &folder, "docs/essay.typ.toml");
@@ -432,7 +449,7 @@ mod tests {
         let b = add(&mut lib, &folder, "b.typ");
         lib.set_title(a, "My Name For It").unwrap();
         lib.set_pinned(b, true).unwrap();
-        export(&lib, folder.path(), true);
+        export(&lib, folder.path(), true, true);
         assert!(read(&lib, &folder, "docs/a.typ.toml").contains("title = \"My Name For It\""));
         assert!(!read(&lib, &folder, "docs/b.typ.toml").contains("title"));
     }
@@ -441,7 +458,7 @@ mod tests {
     fn documents_with_nothing_to_say_get_no_file() {
         let (mut lib, folder) = setup();
         add(&mut lib, &folder, "plain.typ");
-        export(&lib, folder.path(), true);
+        export(&lib, folder.path(), true, true);
         assert!(!file(&lib, &folder, "docs/plain.typ.toml").exists());
         assert!(file(&lib, &folder, "README.txt").exists());
     }
@@ -451,7 +468,7 @@ mod tests {
         let (mut lib, folder) = setup();
         let id = add(&mut lib, &folder, "Thesis/ch1.typ");
         lib.set_pinned(id, true).unwrap();
-        export(&lib, folder.path(), true);
+        export(&lib, folder.path(), true, true);
         assert!(file(&lib, &folder, "docs/Thesis/ch1.typ.toml").exists());
     }
 
@@ -463,7 +480,7 @@ mod tests {
         std::fs::write(&path, "x").unwrap();
         let id = lib.upsert_document(&path).unwrap();
         lib.set_pinned(id, true).unwrap();
-        let r = export(&lib, folder.path(), true);
+        let r = export(&lib, folder.path(), true, true);
         assert_eq!(r.outside_folder, 1);
         assert!(!file(&lib, &folder, "docs").exists());
     }
@@ -479,7 +496,7 @@ mod tests {
             lib.add_doc_to_project(p, d).unwrap();
         }
         lib.set_project_root(p, Some(a)).unwrap();
-        export(&lib, folder.path(), true);
+        export(&lib, folder.path(), true, true);
         let parsed: toml::Value =
             toml::from_str(&read(&lib, &folder, "projects/My-Thesis.toml")).unwrap();
         assert_eq!(parsed["name"].as_str(), Some("My Thesis"));
@@ -501,7 +518,7 @@ mod tests {
         let (mut lib, folder) = setup();
         lib.create_project("Same").unwrap();
         lib.create_project("Same").unwrap();
-        export(&lib, folder.path(), true);
+        export(&lib, folder.path(), true, true);
         assert!(file(&lib, &folder, "projects/Same.toml").exists());
         assert!(file(&lib, &folder, "projects/Same-2.toml").exists());
     }
@@ -512,7 +529,7 @@ mod tests {
         let a = lib.create_label("Zeta").unwrap();
         lib.create_label("alpha").unwrap();
         lib.set_label_color(a, Some("#e01b24")).unwrap();
-        export(&lib, folder.path(), true);
+        export(&lib, folder.path(), true, true);
         let parsed: toml::Value = toml::from_str(&read(&lib, &folder, "labels.toml")).unwrap();
         let l = parsed["label"].as_array().unwrap();
         assert_eq!(l[0]["name"].as_str(), Some("alpha"));
@@ -525,10 +542,10 @@ mod tests {
         let (mut lib, folder) = setup();
         let id = add(&mut lib, &folder, "a.typ");
         lib.set_pinned(id, true).unwrap();
-        let first = export(&lib, folder.path(), true);
+        let first = export(&lib, folder.path(), true, true);
         assert!(first.written > 0);
         for verify in [false, true] {
-            let again = export(&lib, folder.path(), verify);
+            let again = export(&lib, folder.path(), verify, true);
             assert_eq!(again.written, 0, "verify={verify}");
             assert_eq!(again.left_alone, 0);
         }
@@ -540,11 +557,11 @@ mod tests {
         let id = add(&mut lib, &folder, "a.typ");
         let l = lib.create_label("Advent").unwrap();
         lib.add_labels(&[id], &[l]).unwrap();
-        export(&lib, folder.path(), true);
+        export(&lib, folder.path(), true, true);
         assert!(read(&lib, &folder, "docs/a.typ.toml").contains("Advent"));
 
         lib.remove_labels(&[id], &[l]).unwrap();
-        let r = export(&lib, folder.path(), false);
+        let r = export(&lib, folder.path(), false, true);
         assert_eq!(r.written, 1, "only the document's file changed");
         let text = read(&lib, &folder, "docs/a.typ.toml");
         assert!(!text.contains("Advent"), "the stale label is gone: {text}");
@@ -569,7 +586,7 @@ mod tests {
         std::fs::write(file(&lib, &folder, "docs/a.typ.toml"), theirs).unwrap();
 
         for _ in 0..3 {
-            let r = export(&lib, folder.path(), true);
+            let r = export(&lib, folder.path(), true, true);
             assert_eq!(r.left_alone, 1);
             assert_eq!(read(&lib, &folder, "docs/a.typ.toml"), theirs);
         }
@@ -581,12 +598,12 @@ mod tests {
         let (mut lib, folder) = setup();
         let id = add(&mut lib, &folder, "a.typ");
         lib.set_pinned(id, true).unwrap();
-        export(&lib, folder.path(), true);
+        export(&lib, folder.path(), true, true);
         let pulled = "labels = [\"Pulled\"]\npinned = true\narchived = false\n";
         std::fs::write(file(&lib, &folder, "docs/a.typ.toml"), pulled).unwrap();
 
         lib.set_notes(id, Some("a local change")).unwrap();
-        let r = export(&lib, folder.path(), true);
+        let r = export(&lib, folder.path(), true, true);
         assert_eq!(r.left_alone, 1);
         assert_eq!(read(&lib, &folder, "docs/a.typ.toml"), pulled);
     }
@@ -596,11 +613,11 @@ mod tests {
         let (mut lib, folder) = setup();
         let id = add(&mut lib, &folder, "a.typ");
         lib.set_pinned(id, true).unwrap();
-        export(&lib, folder.path(), true);
+        export(&lib, folder.path(), true, true);
         let conflicted = "<<<<<<< HEAD\npinned = true\n=======\npinned = false\n>>>>>>> other\n";
         std::fs::write(file(&lib, &folder, "docs/a.typ.toml"), conflicted).unwrap();
         lib.set_pinned(id, false).unwrap();
-        export(&lib, folder.path(), true);
+        export(&lib, folder.path(), true, true);
         assert_eq!(read(&lib, &folder, "docs/a.typ.toml"), conflicted);
     }
 
@@ -609,15 +626,15 @@ mod tests {
         let (mut lib, folder) = setup();
         let id = add(&mut lib, &folder, "a.typ");
         lib.set_pinned(id, true).unwrap();
-        export(&lib, folder.path(), true);
+        export(&lib, folder.path(), true, true);
         // The library forgets what it wrote (restored from an old copy, say).
         lib.forget_exports();
-        let r = export(&lib, folder.path(), true);
+        let r = export(&lib, folder.path(), true, true);
         assert_eq!(r.left_alone, 0);
         assert_eq!(r.written, 0);
         // …and from then on it may update that file.
         lib.set_pinned(id, false).unwrap();
-        export(&lib, folder.path(), true);
+        export(&lib, folder.path(), true, true);
         assert!(read(&lib, &folder, "docs/a.typ.toml").contains("pinned = false"));
     }
 
@@ -626,9 +643,9 @@ mod tests {
         let (mut lib, folder) = setup();
         let id = add(&mut lib, &folder, "a.typ");
         lib.set_pinned(id, true).unwrap();
-        export(&lib, folder.path(), true);
+        export(&lib, folder.path(), true, true);
         std::fs::remove_file(file(&lib, &folder, "docs/a.typ.toml")).unwrap();
-        export(&lib, folder.path(), true);
+        export(&lib, folder.path(), true, true);
         assert!(file(&lib, &folder, "docs/a.typ.toml").exists());
     }
 
@@ -639,7 +656,7 @@ mod tests {
         lib.set_pinned(id, true).unwrap();
         let before = std::fs::read_to_string(folder.path().join("a.typ")).unwrap();
         std::fs::write(folder.path().join("keep.txt"), "mine").unwrap();
-        export(&lib, folder.path(), true);
+        export(&lib, folder.path(), true, true);
         assert_eq!(
             std::fs::read_to_string(folder.path().join("a.typ")).unwrap(),
             before
@@ -679,7 +696,7 @@ mod tests {
         let (mut lib, folder) = setup();
         let id = add(&mut lib, &folder, "a.typ");
         lib.set_pinned(id, true).unwrap();
-        export(&lib, folder.path(), true);
+        export(&lib, folder.path(), true, true);
         fn walk(dir: &Path, out: &mut Vec<String>) {
             for e in std::fs::read_dir(dir).unwrap().flatten() {
                 let p = e.path();
@@ -702,7 +719,7 @@ mod tests {
         lib.set_pinned(id, true).unwrap();
         // A *file* where the export folder's parent should be a directory.
         std::fs::write(folder.path().join(".zerkalo"), "not a directory").unwrap();
-        let r = export(&lib, folder.path(), true);
+        let r = export(&lib, folder.path(), true, true);
         assert_eq!(r.written, 0);
         assert!(lib.export_records().unwrap().is_empty());
         assert_eq!(
@@ -717,7 +734,7 @@ mod tests {
         let id = add(&mut lib, &folder, "a.typ");
         let notes = "line one\nline \"two\" with a \\ backslash and 'quotes'\n\tтест — Žižek ✝";
         lib.set_notes(id, Some(notes)).unwrap();
-        export(&lib, folder.path(), true);
+        export(&lib, folder.path(), true, true);
         let parsed: toml::Value = toml::from_str(&read(&lib, &folder, "docs/a.typ.toml")).unwrap();
         assert_eq!(parsed["notes"].as_str(), Some(notes.trim()));
     }
@@ -728,7 +745,7 @@ mod tests {
         let id = add(&mut lib, &folder, "a.typ");
         lib.set_pinned(id, true).unwrap();
         lib.move_to_trash(id).unwrap();
-        export(&lib, folder.path(), true);
+        export(&lib, folder.path(), true, true);
         assert!(!file(&lib, &folder, "docs/a.typ.toml").exists());
     }
 
@@ -748,7 +765,7 @@ mod tests {
         let (mut lib, folder) = setup();
         let id = add(&mut lib, &folder, "a.typ");
         lib.set_pinned(id, true).unwrap();
-        export(&lib, folder.path(), true);
+        export(&lib, folder.path(), true, true);
         let entries: Vec<String> = std::fs::read_dir(folder.path().join(DIR))
             .unwrap()
             .flatten()
@@ -769,8 +786,8 @@ mod tests {
             });
             lib.set_pinned(id.unwrap(), true).unwrap();
         }
-        export(&a, folder.path(), true);
-        export(&b, folder.path(), true);
+        export(&a, folder.path(), true, true);
+        export(&b, folder.path(), true, true);
         assert_ne!(a.machine_id().unwrap(), b.machine_id().unwrap());
         assert!(file(&a, &folder, "docs/shared.typ.toml").exists());
         assert!(file(&b, &folder, "docs/shared.typ.toml").exists());
@@ -794,14 +811,14 @@ mod tests {
         let (mut lib, folder) = setup();
         let id = add(&mut lib, &folder, "a.typ");
         lib.set_pinned(id, true).unwrap();
-        export(&lib, folder.path(), true);
+        export(&lib, folder.path(), true, true);
         let mine = folder.path().join(DIR).join(lib.machine_id().unwrap());
         let theirs = folder.path().join(DIR).join("m-someone-else");
         std::fs::create_dir_all(theirs.join("docs")).unwrap();
         std::fs::write(mine.join("docs/crashed.tmp-zerkalo"), "half").unwrap();
         std::fs::write(mine.join("docs/note.txt"), "a file somebody put here").unwrap();
         std::fs::write(theirs.join("docs/other.tmp-zerkalo"), "not ours").unwrap();
-        export(&lib, folder.path(), true);
+        export(&lib, folder.path(), true, true);
         assert!(!mine.join("docs/crashed.tmp-zerkalo").exists());
         assert!(
             mine.join("docs/note.txt").exists(),
@@ -836,7 +853,7 @@ mod tests {
         }
         println!("built {n} documents in {:?}", t.elapsed());
         let t = Instant::now();
-        let r = export(&lib, folder.path(), true);
+        let r = export(&lib, folder.path(), true, true);
         println!(
             "first export (verify): {:?}, {} files written",
             t.elapsed(),
@@ -845,14 +862,14 @@ mod tests {
         let id = lib.export_snapshot().unwrap().docs[5].id;
         lib.set_pinned(id, true).unwrap();
         let t = Instant::now();
-        let r = export(&lib, folder.path(), false);
+        let r = export(&lib, folder.path(), false, true);
         println!(
             "after one change (no disk check): {:?}, {} written",
             t.elapsed(),
             r.written
         );
         let t = Instant::now();
-        export(&lib, folder.path(), true);
+        export(&lib, folder.path(), true, true);
         println!("full verify pass, nothing changed: {:?}", t.elapsed());
         // A second machine restoring all of it.
         let mut b = Library::open_in_memory();
@@ -873,6 +890,71 @@ mod tests {
             "a second restore pass (nothing new): {:?} ({} documents)",
             t.elapsed(),
             r.documents
+        );
+    }
+
+    // ── notes are opt-in ─────────────────────────────────────────────────
+
+    #[test]
+    fn notes_are_left_out_unless_asked_for_and_everything_else_still_goes() {
+        let (mut lib, folder) = setup();
+        let id = add(&mut lib, &folder, "a.typ");
+        let l = lib.create_label("Advent").unwrap();
+        lib.add_labels(&[id], &[l]).unwrap();
+        lib.set_pinned(id, true).unwrap();
+        lib.set_notes(id, Some("a private thought")).unwrap();
+        export(&lib, folder.path(), true, false);
+        let text = read(&lib, &folder, "docs/a.typ.toml");
+        assert!(
+            !text.contains("private") && !text.contains("notes"),
+            "{text}"
+        );
+        assert!(text.contains("Advent") && text.contains("pinned = true"));
+        // Nowhere else in the folder either.
+        let mut all = String::new();
+        fn walk(d: &Path, out: &mut String) {
+            for e in std::fs::read_dir(d).unwrap().flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    walk(&p, out);
+                } else {
+                    out.push_str(&std::fs::read_to_string(&p).unwrap());
+                }
+            }
+        }
+        walk(&folder.path().join(DIR), &mut all);
+        assert!(!all.contains("a private thought"));
+    }
+
+    #[test]
+    fn a_document_with_only_a_note_gets_no_file_while_notes_are_left_out() {
+        let (mut lib, folder) = setup();
+        let id = add(&mut lib, &folder, "a.typ");
+        lib.set_notes(id, Some("only a note")).unwrap();
+        export(&lib, folder.path(), true, false);
+        assert!(!file(&lib, &folder, "docs/a.typ.toml").exists());
+        export(&lib, folder.path(), true, true);
+        assert!(read(&lib, &folder, "docs/a.typ.toml").contains("only a note"));
+    }
+
+    #[test]
+    fn turning_notes_on_adds_them_and_turning_them_off_takes_them_out_of_our_files() {
+        let (mut lib, folder) = setup();
+        let id = add(&mut lib, &folder, "a.typ");
+        lib.set_pinned(id, true).unwrap();
+        lib.set_notes(id, Some("a private thought")).unwrap();
+        export(&lib, folder.path(), true, false);
+        assert!(!read(&lib, &folder, "docs/a.typ.toml").contains("private"));
+        let on = export(&lib, folder.path(), false, true);
+        assert_eq!(on.written, 1);
+        assert!(read(&lib, &folder, "docs/a.typ.toml").contains("a private thought"));
+        let off = export(&lib, folder.path(), false, false);
+        assert_eq!(off.written, 1);
+        assert!(!read(&lib, &folder, "docs/a.typ.toml").contains("private"));
+        // The library itself never lost the note.
+        assert_eq!(
+            lib.export_snapshot().unwrap().docs[0].notes.as_deref(),
+            Some("a private thought")
         );
     }
 }

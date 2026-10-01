@@ -204,9 +204,10 @@ impl LibraryWindow {
         let view_menu = gtk4::gio::Menu::new();
         view_menu.append(Some("Compact list"), Some("view.compact"));
         view_menu.append(
-            Some("Keep labels and notes in the folder"),
+            Some("Keep labels and projects in the folder"),
             Some("view.export"),
         );
+        view_menu.append(Some("…and include my notes"), Some("view.export-notes"));
         let view_btn = gtk4::MenuButton::new();
         view_btn.set_icon_name("open-menu-symbolic");
         view_btn.set_menu_model(Some(&view_menu));
@@ -481,6 +482,21 @@ impl LibraryWindow {
                 crate::config::update(|c| c.library.export = on).ok();
             });
             group.add_action(&export);
+
+            let notes = gtk4::gio::SimpleAction::new_stateful(
+                "export-notes",
+                None,
+                &self.config.borrow().library.export_notes.to_variant(),
+            );
+            notes.connect_activate(move |action, _| {
+                let on = !action
+                    .state()
+                    .and_then(|s| s.get::<bool>())
+                    .unwrap_or(false);
+                action.set_state(&on.to_variant());
+                crate::config::update(|c| c.library.export_notes = on).ok();
+            });
+            group.add_action(&notes);
             self.window.insert_action_group("view", Some(&group));
         }
         self.install_doc_actions();
@@ -763,9 +779,10 @@ impl LibraryWindow {
             return;
         }
         let toast = adw::Toast::new(
-            "Your labels, projects and notes are now also kept in your Zerkalo folder \
+            "Your labels, projects and pins are now also kept in your Zerkalo folder \
              (.zerkalo/library), so they back up with it — and come back from it on another \
-             machine. You can turn this off in the View menu.",
+             machine. Your notes stay on this computer unless you choose \u{201c}…and include \
+             my notes\u{201d} in the View menu.",
         );
         toast.set_use_markup(false);
         toast.set_timeout(12);

@@ -266,6 +266,11 @@ pub struct LibraryPrefs {
     /// (`.zerkalo/library/`) so they back up and travel with it.
     #[serde(default = "default_true")]
     pub export: bool,
+    /// Whether notes go into that copy too. Off unless asked for: a note is
+    /// private writing, and the folder may be pushed somewhere other people can
+    /// read.
+    #[serde(default)]
+    pub export_notes: bool,
     /// Whether the one-time "this is now saved in the folder" notice was shown.
     #[serde(default)]
     pub export_announced: bool,
@@ -282,6 +287,7 @@ impl Default for LibraryPrefs {
             compact: false,
             authors_open: false,
             export: true,
+            export_notes: false,
             export_announced: false,
             width: default_library_width(),
             height: default_library_height(),
@@ -708,6 +714,11 @@ mod tests {
         let cfg: Config = toml::from_str("").expect("empty config parses");
         assert_eq!(cfg.library.sort, "modified");
         assert!(!cfg.library.compact && !cfg.library.authors_open);
+        assert!(
+            cfg.library.export,
+            "labels and projects are kept in the folder by default"
+        );
+        assert!(!cfg.library.export_notes, "notes are not, until asked");
         assert_eq!((cfg.library.width, cfg.library.height), (900, 650));
     }
 

@@ -890,7 +890,7 @@ mod tests {
         lib.add_doc_to_project(p, b).unwrap();
         lib.add_doc_to_project(p, a).unwrap();
         lib.set_project_root(p, Some(a)).unwrap();
-        assert!(export(&lib, folder.path(), true).errors.is_empty());
+        assert!(export(&lib, folder.path(), true, true).errors.is_empty());
         (lib, folder)
     }
 
@@ -953,7 +953,7 @@ mod tests {
         let (mut b, fb) = machine_b();
         pull(&fa, &fb);
         restore(&mut b, fb.path(), None);
-        let report = export(&b, fb.path(), true);
+        let report = export(&b, fb.path(), true, true);
         assert_eq!(report.left_alone, 0, "nothing is stuck waiting");
         assert_eq!(own_files(&b, &fb), own_files(&a, &fa));
     }
@@ -966,7 +966,7 @@ mod tests {
         pull(&fa, &fb);
         let first = restore(&mut b, fb.path(), Some(backups.path()));
         assert!(first.changed_anything() && first.backed_up);
-        export(&b, fb.path(), true);
+        export(&b, fb.path(), true, true);
         let before = b.export_snapshot().unwrap().docs;
 
         let second = restore(&mut b, fb.path(), Some(backups.path()));
@@ -1149,13 +1149,13 @@ mod tests {
         let (mut b, fb) = machine_b();
         pull(&fa, &fb);
         restore(&mut b, fb.path(), None);
-        export(&b, fb.path(), true);
+        export(&b, fb.path(), true, true);
         assert!(state(&b, &fb, "sermon.typ").pinned);
 
         // A unpins and exports; B pulls and has changed nothing there.
         let id = state(&a, &fa, "sermon.typ").id;
         a.set_pinned(id, false).unwrap();
-        export(&a, fa.path(), true);
+        export(&a, fa.path(), true, true);
         pull(&fa, &fb);
         restore(&mut b, fb.path(), None);
         assert!(
@@ -1170,11 +1170,11 @@ mod tests {
         let (mut b, fb) = machine_b();
         pull(&fa, &fb);
         restore(&mut b, fb.path(), None);
-        export(&b, fb.path(), true);
+        export(&b, fb.path(), true, true);
 
         let ida = state(&a, &fa, "sermon.typ").id;
         a.set_title(ida, "Renamed on A").unwrap();
-        export(&a, fa.path(), true);
+        export(&a, fa.path(), true, true);
         let idb = state(&b, &fb, "sermon.typ").id;
         b.set_title(idb, "Renamed on B").unwrap();
         pull(&fa, &fb);
@@ -1192,7 +1192,7 @@ mod tests {
         let (mut b, fb) = machine_b();
         pull(&fa, &fb);
         restore(&mut b, fb.path(), None);
-        export(&b, fb.path(), true);
+        export(&b, fb.path(), true, true);
 
         // Each machine adds its own label and writes its own note.
         let (ida, idb) = (
@@ -1207,17 +1207,17 @@ mod tests {
         b.add_labels(&[idb], &[y]).unwrap();
         b.set_notes(idb, Some("Check the Isaiah reading\nB's addition"))
             .unwrap();
-        export(&a, fa.path(), true);
-        export(&b, fb.path(), true);
+        export(&a, fa.path(), true, true);
+        export(&b, fb.path(), true, true);
 
         let mut lens = Vec::new();
         for _ in 0..4 {
             pull(&fa, &fb);
             restore(&mut b, fb.path(), None);
-            export(&b, fb.path(), true);
+            export(&b, fb.path(), true, true);
             pull(&fb, &fa);
             restore(&mut a, fa.path(), None);
-            export(&a, fa.path(), true);
+            export(&a, fa.path(), true, true);
             lens.push(state(&a, &fa, "sermon.typ").notes.unwrap().len());
         }
         for (m, f) in [(&a, &fa), (&b, &fb)] {
@@ -1284,7 +1284,7 @@ mod tests {
             vec!["Advent", "Sermons"]
         );
         // …and the exporter keeps its hands off it too.
-        export(&b, fb.path(), true);
+        export(&b, fb.path(), true, true);
         assert_eq!(std::fs::read_to_string(&bad).unwrap(), conflicted);
     }
 
@@ -1404,7 +1404,7 @@ mod tests {
         );
         // And the library's own export doesn't disturb them.
         let before = snapshot_files(&fb);
-        export(&b, fb.path(), true);
+        export(&b, fb.path(), true, true);
         for (name, text) in &before {
             assert_eq!(
                 snapshot_files(&fb).get(name),
@@ -1482,8 +1482,8 @@ mod tests {
             .unwrap();
         a2.set_notes(i2, Some("Check the Isaiah reading\nfrom two"))
             .unwrap();
-        export(&a1, f1.path(), true);
-        export(&a2, f2.path(), true);
+        export(&a1, f1.path(), true, true);
+        export(&a2, f2.path(), true, true);
         let (mut b, fb) = machine_b();
         pull(&f1, &fb);
         pull(&f2, &fb);
@@ -1501,7 +1501,7 @@ mod tests {
         let (mut b, fb) = machine_b();
         pull(&fa, &fb);
         restore(&mut b, fb.path(), None);
-        export(&b, fb.path(), true);
+        export(&b, fb.path(), true, true);
         assert!(state(&b, &fb, "sermon.typ")
             .labels
             .contains(&"Advent".to_string()));
@@ -1517,10 +1517,10 @@ mod tests {
                 .id,
         );
         a.remove_labels(&[ida], &[advent]).unwrap();
-        export(&a, fa.path(), true);
+        export(&a, fa.path(), true, true);
         pull(&fa, &fb);
         restore(&mut b, fb.path(), None);
-        export(&b, fb.path(), true);
+        export(&b, fb.path(), true, true);
         assert_eq!(
             state(&b, &fb, "sermon.typ").labels,
             vec!["Sermons"],
@@ -1652,8 +1652,8 @@ mod sync_tests {
         let y = lb.create_label("FromDesktop").unwrap();
         lb.add_labels(&[ib], &[y]).unwrap();
         lb.set_notes(ib, Some("desktop note")).unwrap();
-        export(&la, a.path(), true);
-        export(&lb, b.path(), true);
+        export(&la, a.path(), true, true);
+        export(&lb, b.path(), true, true);
 
         // And writing, in the same documents, on both.
         std::fs::write(a.path().join("essay.typ"), "= Essay\nLaptop paragraph.\n").unwrap();
@@ -1703,7 +1703,7 @@ mod sync_tests {
         la.set_pinned(ia, true).unwrap();
         let p = la.create_project("Thesis").unwrap();
         la.add_doc_to_project(p, ia).unwrap();
-        export(&la, a.path(), true);
+        export(&la, a.path(), true, true);
         let writing_a = std::fs::read_to_string(a.path().join("essay.typ")).unwrap();
 
         assert!(git_sync::sync(a.path(), None).pushed);
@@ -1719,7 +1719,7 @@ mod sync_tests {
         assert_eq!(s.notes.as_deref(), Some("remember the Magnificat"));
         assert_eq!(lb.export_snapshot().unwrap().projects[0].name, "Thesis");
         // …and writes it into its own folder, which then syncs back cleanly.
-        export(&lb, b.path(), true);
+        export(&lb, b.path(), true, true);
         let back = git_sync::sync(b.path(), None);
         assert!(back.pushed && back.push_errors.is_empty(), "{back:?}");
         let again = git_sync::sync(a.path(), None);
