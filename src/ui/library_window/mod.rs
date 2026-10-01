@@ -74,6 +74,14 @@ pub struct LibraryWindow {
     empty_new_doc_btn: Button,
     empty_import_btn: Button,
     empty_clear_search_btn: Button,
+    /// Whether a search is held to the view it was typed in, rather than looking
+    /// through every document. Reset whenever the search box is emptied.
+    search_scoped: Rc<RefCell<bool>>,
+    /// The strip above the list saying what a search is looking through, shown
+    /// only while it isn't simply everything.
+    scope_bar: GtkBox,
+    scope_label: Label,
+    scope_btn: Button,
     /// Held while the sidebar's own selection is being restored, so putting the
     /// highlight back on the current view doesn't read as the user choosing it.
     inhibit_select: Rc<RefCell<bool>>,
@@ -161,8 +169,8 @@ impl LibraryWindow {
         right_header.set_show_title(false);
 
         let search_entry = SearchEntry::new();
-        search_entry.set_placeholder_text(Some("Search documents…"));
-        search_entry.set_width_request(240);
+        search_entry.set_placeholder_text(Some("Search titles, text and authors…"));
+        search_entry.set_width_request(290);
         // One search per pause in typing, not one per keystroke — each search
         // rebuilds the whole list.
         search_entry.set_search_delay(150);
@@ -241,7 +249,23 @@ impl LibraryWindow {
         doc_list_stack.set_transition_type(gtk4::StackTransitionType::Crossfade);
         doc_list_stack.add_named(&doc_scroll, Some("docs"));
         doc_list_stack.add_named(&empty_page, Some("empty"));
-        right.set_content(Some(&doc_list_stack));
+        let scope_bar = GtkBox::new(Orientation::Horizontal, 8);
+        scope_bar.set_margin_start(12);
+        scope_bar.set_margin_end(12);
+        scope_bar.set_margin_top(6);
+        scope_bar.set_visible(false);
+        let scope_label = Label::new(None);
+        scope_label.add_css_class("fond-row-meta");
+        scope_label.set_halign(Align::Start);
+        let scope_btn = Button::new();
+        scope_btn.add_css_class("flat");
+        scope_btn.add_css_class("fond-quiet");
+        scope_bar.append(&scope_label);
+        scope_bar.append(&scope_btn);
+        let content = GtkBox::new(Orientation::Vertical, 0);
+        content.append(&scope_bar);
+        content.append(&doc_list_stack);
+        right.set_content(Some(&content));
 
         // ── Bulk-action bottom bar ──────────────────────────────────────────
         let action_bar_revealer = Revealer::new();
@@ -378,6 +402,10 @@ impl LibraryWindow {
             empty_new_doc_btn,
             empty_import_btn,
             empty_clear_search_btn,
+            search_scoped: Rc::new(RefCell::new(false)),
+            scope_bar,
+            scope_label,
+            scope_btn,
             inhibit_select: Rc::new(RefCell::new(false)),
             authors_expanded: Rc::new(RefCell::new(prefs.authors_open)),
             row_widgets: Rc::new(RefCell::new(HashMap::new())),
@@ -595,7 +623,23 @@ impl LibraryWindow {
         }
         {
             let this = self.clone();
-            self.search_entry.connect_search_changed(move |_| {
+            self.search_entry.connect_search_changed(move |entry| {
+                if entry.text().trim().is_empty() {
+                    *this.search_scoped.borrow_mut() = false;
+                }
+                this.populate_doc_list();
+            });
+        }
+        {
+            // Escape in the box empties it, which also lifts any narrowing.
+            self.search_entry
+                .connect_stop_search(move |entry| entry.set_text(""));
+        }
+        {
+            let this = self.clone();
+            self.scope_btn.connect_clicked(move |_| {
+                let narrowed = *this.search_scoped.borrow();
+                *this.search_scoped.borrow_mut() = !narrowed;
                 this.populate_doc_list();
             });
         }

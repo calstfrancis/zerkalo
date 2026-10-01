@@ -19,6 +19,46 @@ pub(super) fn popup_after_click(popover: &Popover) {
 }
 
 impl LibraryWindow {
+    /// Asks where a missing document's file went and points the library at it.
+    fn locate_dialog(&self, doc: &crate::library::Document) {
+        let dialog = gtk4::FileDialog::new();
+        dialog.set_title(&format!("Locate \u{201c}{}\u{201d}", doc.title));
+        let filter = gtk4::FileFilter::new();
+        filter.add_pattern("*.typ");
+        filter.set_name(Some("Typst files"));
+        let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
+        filters.append(&filter);
+        dialog.set_filters(Some(&filters));
+        dialog.set_initial_folder(Some(&gtk4::gio::File::for_path(&self.work_dir)));
+        let this = self.clone();
+        let (id, title) = (doc.id, doc.title.clone());
+        dialog.open(
+            Some(&self.window),
+            gtk4::gio::Cancellable::NONE,
+            move |res| {
+                let Some(path) = res.ok().and_then(|f| f.path()) else {
+                    return;
+                };
+                let moved = this.library.borrow_mut().update_path(id, &path);
+                match moved {
+                    Ok(()) => {
+                        this.refresh();
+                        let toast = adw::Toast::new(&format!("Found \u{201c}{title}\u{201d}"));
+                        toast.set_use_markup(false);
+                        this.toast_overlay.add_toast(toast);
+                    }
+                    Err(_) => {
+                        // That file is already listed as another document.
+                        let toast = adw::Toast::new(
+                            "That file is already in the Library as another document.",
+                        );
+                        this.toast_overlay.add_toast(toast);
+                    }
+                }
+            },
+        );
+    }
+
     /// The `doc.*` actions the document menus (the row's ⋯ button and its
     /// right-click) call. Each takes the document's id as its target, looks the
     /// document up fresh, and does what the old hand-built popover's buttons did.
@@ -42,6 +82,7 @@ impl LibraryWindow {
 
         add("open", Box::new(|t, d| t.open_doc_by_id(d.id)));
         add("rename", Box::new(|t, d| t.rename_doc_dialog(&d)));
+        add("locate", Box::new(|t, d| t.locate_dialog(&d)));
         add("export", Box::new(|t, d| t.export_doc_dialog(&d)));
         add("project", Box::new(|t, d| t.add_to_project_dialog(d.id)));
         add(
@@ -175,9 +216,15 @@ impl LibraryWindow {
         }
 
         let open = Menu::new();
-        open.append_item(&item("Open", "doc.open"));
-        open.append_item(&item("Rename…", "doc.rename"));
-        open.append_item(&item("Export…", "doc.export"));
+        if doc.path.exists() {
+            open.append_item(&item("Open", "doc.open"));
+            open.append_item(&item("Rename…", "doc.rename"));
+            open.append_item(&item("Export…", "doc.export"));
+        } else {
+            // Nothing to open or export until the file is found again.
+            open.append_item(&item("Locate File…", "doc.locate"));
+            open.append_item(&item("Rename…", "doc.rename"));
+        }
         menu.append_section(None, &open);
 
         let organize = Menu::new();

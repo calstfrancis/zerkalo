@@ -2,6 +2,7 @@ use super::*;
 
 impl LibraryWindow {
     pub(super) fn populate_filter_list(&self) {
+        let counts = self.library.borrow().counts().unwrap_or_default();
         while let Some(child) = self.filter_list.first_child() {
             self.filter_list.remove(&child);
         }
@@ -10,22 +11,19 @@ impl LibraryWindow {
             "all",
             "view-list-symbolic",
             "All Documents",
-            self.library.borrow().doc_count(&LibraryFilter::All).ok(),
+            Some(counts.all),
         ));
         self.filter_list.append(&make_filter_row(
             "recent",
             "document-open-recent-symbolic",
             "Recent",
-            self.library.borrow().doc_count(&LibraryFilter::Recent).ok(),
+            Some(counts.recent),
         ));
         self.filter_list.append(&make_filter_row(
             "untagged",
             "edit-clear-symbolic",
             "Untagged",
-            self.library
-                .borrow()
-                .doc_count(&LibraryFilter::Untagged)
-                .ok(),
+            Some(counts.untagged),
         ));
 
         let projects = self.library.borrow().all_projects().unwrap_or_default();
@@ -43,11 +41,7 @@ impl LibraryWindow {
                 .append(&hint_row("Group documents that belong together"));
         } else {
             for p in projects {
-                let count = self
-                    .library
-                    .borrow()
-                    .doc_count(&LibraryFilter::Project(p.id))
-                    .ok();
+                let count = Some(counts.projects.get(&p.id).copied().unwrap_or(0));
                 let filter_row = make_filter_row(
                     &format!("project:{}", p.id),
                     "folder-symbolic",
@@ -104,11 +98,8 @@ impl LibraryWindow {
                 if cat.parent.is_none() && cats_with_children.contains(&cat.name) {
                     // Parent category row
                     let has_children = true;
-                    let cat_count = self
-                        .library
-                        .borrow()
-                        .doc_count(&LibraryFilter::CategoryGroup(cat.name.clone()))
-                        .ok();
+                    let cat_count =
+                        Some(counts.category_groups.get(&cat.name).copied().unwrap_or(0));
                     let filter_row = make_category_filter_row(
                         &format!("category-group:{}", cat.name),
                         &cat.color_hex
@@ -145,11 +136,8 @@ impl LibraryWindow {
                     // Children of this parent
                     for child in &all_cats {
                         if child.parent.as_deref() == Some(&cat.name) {
-                            let child_count = self
-                                .library
-                                .borrow()
-                                .doc_count(&LibraryFilter::Category(child.name.clone()))
-                                .ok();
+                            let child_count =
+                                Some(counts.categories.get(&child.name).copied().unwrap_or(0));
                             let child_row = make_category_filter_row_indented(
                                 &format!("category:{}", child.name),
                                 &child.color_hex.clone().unwrap_or_else(|| {
@@ -206,11 +194,7 @@ impl LibraryWindow {
                 if emitted.contains(&cat.name) {
                     continue;
                 }
-                let cat_count = self
-                    .library
-                    .borrow()
-                    .doc_count(&LibraryFilter::Category(cat.name.clone()))
-                    .ok();
+                let cat_count = Some(counts.categories.get(&cat.name).copied().unwrap_or(0));
                 let filter_row = make_category_filter_row(
                     &format!("category:{}", cat.name),
                     &cat.color_hex
@@ -271,11 +255,7 @@ impl LibraryWindow {
                 .append(&hint_row("Mark documents with your own words"));
         } else {
             for (t, _) in tags_with_counts.iter() {
-                let count = self
-                    .library
-                    .borrow()
-                    .doc_count(&LibraryFilter::Tag(t.id))
-                    .ok();
+                let count = Some(counts.tags.get(&t.id).copied().unwrap_or(0));
                 self.filter_list
                     .append(&make_tag_filter_row(t.id, &t.name, &t.color_hex, count));
             }
@@ -306,16 +286,13 @@ impl LibraryWindow {
             "trash",
             "user-trash-symbolic",
             "Trash",
-            self.library.borrow().doc_count(&LibraryFilter::Trash).ok(),
+            Some(counts.trash),
         ));
         self.bottom_filter_list.append(&make_filter_row(
             "archive",
             "view-archive-symbolic",
             "Archive",
-            self.library
-                .borrow()
-                .doc_count(&LibraryFilter::Archive)
-                .ok(),
+            Some(counts.archive),
         ));
 
         self.restore_sidebar_selection();
@@ -374,6 +351,38 @@ impl LibraryWindow {
             }
         }
         *self.inhibit_select.borrow_mut() = false;
+    }
+
+    /// What a view is called to the user — for saying what a search is looking
+    /// through.
+    pub(super) fn filter_label(&self, filter: &LibraryFilter) -> String {
+        let lib = self.library.borrow();
+        match filter {
+            LibraryFilter::All | LibraryFilter::Everywhere => "All Documents".into(),
+            LibraryFilter::Recent => "Recent".into(),
+            LibraryFilter::Untagged => "Untagged".into(),
+            LibraryFilter::Archive => "Archive".into(),
+            LibraryFilter::Trash => "Trash".into(),
+            LibraryFilter::Category(name) | LibraryFilter::CategoryGroup(name) => name.clone(),
+            LibraryFilter::Project(id) => lib
+                .all_projects()
+                .unwrap_or_default()
+                .into_iter()
+                .find(|p| p.id == *id)
+                .map_or_else(|| "this project".into(), |p| p.name),
+            LibraryFilter::Tag(id) => lib
+                .all_tags()
+                .unwrap_or_default()
+                .into_iter()
+                .find(|t| t.id == *id)
+                .map_or_else(|| "this tag".into(), |t| t.name),
+            LibraryFilter::Author(id) => lib
+                .all_authors_with_counts()
+                .unwrap_or_default()
+                .into_iter()
+                .find(|(a, _)| a.id == *id)
+                .map_or_else(|| "this author".into(), |(a, _)| a.name),
+        }
     }
 
     /// Switches to a view the way clicking its sidebar row would — for the
@@ -460,6 +469,7 @@ pub(super) fn filter_row_name(filter: &LibraryFilter) -> String {
         LibraryFilter::Archive => "archive".into(),
         LibraryFilter::Untagged => "untagged".into(),
         LibraryFilter::Trash => "trash".into(),
+        LibraryFilter::Everywhere => "everywhere".into(),
         LibraryFilter::Project(id) => format!("project:{id}"),
         LibraryFilter::Tag(id) => format!("tag:{id}"),
         LibraryFilter::Author(id) => format!("author:{id}"),
@@ -479,6 +489,8 @@ pub(super) fn parse_filter_name(name: &str) -> LibraryFilter {
         LibraryFilter::Untagged
     } else if name == "trash" {
         LibraryFilter::Trash
+    } else if name == "everywhere" {
+        LibraryFilter::Everywhere
     } else if let Some(rest) = name.strip_prefix("project:") {
         rest.parse::<i64>()
             .map(LibraryFilter::Project)
@@ -622,6 +634,7 @@ mod tests {
             LibraryFilter::Archive,
             LibraryFilter::Untagged,
             LibraryFilter::Trash,
+            LibraryFilter::Everywhere,
             LibraryFilter::Project(7),
             LibraryFilter::Tag(3),
             LibraryFilter::Author(12),

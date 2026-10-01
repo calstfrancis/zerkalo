@@ -71,6 +71,8 @@ raw markup dead-end: a live preview pane always shows the real formatting next t
 | Feature | Detail |
 |---|---|
 | **SQLite-backed library** | Every `.typ` document Zerkalo knows about, with search, sort, and filter |
+| **Search** | Looks through every document by default — titles, the text inside them, notes, file names, categories, tags and the authors they cite — as you type, with accents ignored (`zizek` finds Žižek) and half-typed words matched. Each result shows a line of the document around what was found, with the match in bold. Searching from inside a project or category says so and offers one button to hold the search to that view; Escape drops the search. `Ctrl+F` or `/` jumps to the search box |
+| **Missing files** | A document whose file has been moved or deleted is dimmed and marked "missing"; its ⋯ menu offers **Locate File…** to point the Library at the new place |
 | **Organisation** | Projects, coloured categories (a document can belong to more than one, including several under the same parent), and frequency-heat-coloured tags; sidebar filters for All Documents, Projects, Categories, Tags, Trash, and Archive |
 | **Authors** | A section of its own in the sidebar, separate from tags and made automatically: every author a document cites, as `Surname, I.` (first initial), read from the document's citations — including those in files it `#include`s — against the bibliography it names or the one in Settings. Click an author to see everything that cites them; search finds them too, and a document's tooltip lists who it cites. Kept up to date as documents are opened, saved and rescanned, so there is nothing to maintain |
 | **Views** | One line per document with its prose word count; a compact list for dense libraries (View menu ⋯ at the top). Sort, compact and window size are remembered |
@@ -79,7 +81,7 @@ raw markup dead-end: a live preview pane always shows the real formatting next t
 | **Document management** | Pin, archive, delete (to the Trash, with restore), and remove from the list (delists without touching the file on disk). Archive and Delete show an Undo button for a few seconds; removing from the list asks first |
 | **Bulk operations** | Multi-select for archive, tag, categorize, add-to-project, and remove |
 | **Import** | New Document and Import… are both reachable directly from the Library header |
-| **Auto-registration** | Any `.typ` file opened in the editor is added automatically |
+| **Auto-registration** | Any `.typ` file opened in the editor is added automatically, and the Zerkalo folder is scanned at startup (its top-level `Templates` folder is skipped — those are starting points, not documents). Word counts and the search index are kept in the library, and only files that have changed are read again |
 | **Move into Zerkalo Folder…** | For a document saved outside your Zerkalo folder (dragged in from elsewhere, or from before name-only New Document existed), moves the `.typ` file and its comment/template sidecars in, picking a free name on a collision. Only offered when the document isn't currently open |
 
 ### Document workflow

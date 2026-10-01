@@ -60,6 +60,27 @@ pub struct Document {
     pub created_at: String,
     pub modified_at: String,
     pub last_opened_at: Option<String>,
+    /// Prose word count, kept up to date by the index so the list never has to
+    /// read files to draw itself. `None` until the document has been indexed.
+    pub words: Option<usize>,
+}
+
+/// How many documents the Recent view lists at most.
+const RECENT_LIMIT: u32 = 30;
+
+/// Everything the sidebar counts, from `Library::counts`.
+#[derive(Debug, Default)]
+pub struct Counts {
+    pub all: i64,
+    pub archive: i64,
+    pub trash: i64,
+    pub recent: i64,
+    pub untagged: i64,
+    pub projects: std::collections::HashMap<i64, i64>,
+    pub tags: std::collections::HashMap<i64, i64>,
+    pub authors: std::collections::HashMap<i64, i64>,
+    pub categories: std::collections::HashMap<String, i64>,
+    pub category_groups: std::collections::HashMap<String, i64>,
 }
 
 #[derive(Clone, Debug)]
@@ -106,6 +127,9 @@ pub enum LibraryFilter {
     Recent,
     Untagged,
     Trash,
+    /// Every document that isn't in the Trash, archived or not — what a
+    /// search looks through unless it's been narrowed to the current view.
+    Everywhere,
 }
 
 /// The parts of `documents()`'s query that vary by filter: which columns to
@@ -120,10 +144,18 @@ struct FilterSpec {
     /// `None` means `pinned DESC` followed by the caller's sort. `Some`
     /// replaces the ordering entirely — project position, recency, trash order.
     order_override: Option<&'static str>,
+    /// Caps the result, applied after ordering — the Recent list's 30.
+    limit: Option<u32>,
     param: Option<rusqlite::types::Value>,
 }
 
 impl FilterSpec {
+    fn limit_clause(&self) -> String {
+        self.limit
+            .map(|n| format!(" LIMIT {n}"))
+            .unwrap_or_default()
+    }
+
     fn order(&self, sort: &SortOrder) -> String {
         match self.order_override {
             Some(o) => o.to_string(),
@@ -140,17 +172,20 @@ impl LibraryFilter {
             from: "documents".to_string(),
             conditions: conditions.to_string(),
             order_override: None,
+            limit: None,
             param: None,
         };
         match self {
             LibraryFilter::All => plain("archived = 0 AND deleted = 0"),
             LibraryFilter::Archive => plain("archived = 1 AND deleted = 0"),
+            LibraryFilter::Everywhere => plain("deleted = 0"),
             LibraryFilter::Untagged => plain(
                 "archived = 0 AND deleted = 0 \
                  AND id NOT IN (SELECT DISTINCT doc_id FROM doc_tags)",
             ),
             LibraryFilter::Recent => FilterSpec {
-                order_override: Some("pinned DESC, last_opened_at DESC LIMIT 30"),
+                order_override: Some("pinned DESC, last_opened_at DESC"),
+                limit: Some(RECENT_LIMIT),
                 ..plain("last_opened_at IS NOT NULL AND archived = 0 AND deleted = 0")
             },
             LibraryFilter::Trash => FilterSpec {
@@ -184,6 +219,7 @@ impl LibraryFilter {
                 from: "documents d JOIN project_docs pd ON pd.doc_id = d.id".to_string(),
                 conditions: "pd.project_id = ?1 AND d.deleted = 0".to_string(),
                 order_override: Some("d.pinned DESC, pd.position, d.title"),
+                limit: None,
                 param: Some(pid.into()),
             },
             LibraryFilter::Author(aid) => FilterSpec {
@@ -192,6 +228,7 @@ impl LibraryFilter {
                 from: "documents d JOIN doc_authors da ON da.doc_id = d.id".to_string(),
                 conditions: "da.author_id = ?1 AND d.archived = 0 AND d.deleted = 0".to_string(),
                 order_override: None,
+                limit: None,
                 param: Some(aid.into()),
             },
             LibraryFilter::Tag(tid) => FilterSpec {
@@ -200,6 +237,7 @@ impl LibraryFilter {
                 from: "documents d JOIN doc_tags dt ON dt.doc_id = d.id".to_string(),
                 conditions: "dt.tag_id = ?1 AND d.archived = 0 AND d.deleted = 0".to_string(),
                 order_override: None,
+                limit: None,
                 param: Some(tid.into()),
             },
         }
@@ -226,7 +264,7 @@ impl SortOrder {
 }
 
 const DOC_COLS: &str =
-    "id, path, title, archived, pinned, notes, created_at, modified_at, last_opened_at";
+    "id, path, title, archived, pinned, notes, created_at, modified_at, last_opened_at, words";
 
 /// Suffix for `path = ?N` comparisons — case-insensitive on Windows, where
 /// the same file reached via two differently-cased paths would otherwise
@@ -337,6 +375,32 @@ impl Library {
         self.conn
             .execute_batch(
                 "ALTER TABLE documents ADD COLUMN title_custom INTEGER NOT NULL DEFAULT 0;",
+            )
+            .ok();
+        // The text index: prose word count and a full-text table over title,
+        // notes, file name and body. `indexed_mtime`/`indexed_len` say which
+        // version of the file the index was built from, so a rescan only reads
+        // files that have changed.
+        for col in [
+            "words INTEGER",
+            "indexed_mtime INTEGER",
+            "indexed_len INTEGER",
+        ] {
+            self.conn
+                .execute_batch(&format!("ALTER TABLE documents ADD COLUMN {col};"))
+                .ok();
+        }
+        self.conn
+            .execute_batch(
+                "CREATE VIRTUAL TABLE IF NOT EXISTS doc_text USING fts5(
+                    title, notes, path, body,
+                    tokenize = 'unicode61 remove_diacritics 2'
+                );
+                CREATE TRIGGER IF NOT EXISTS documents_forget_text
+                AFTER DELETE ON documents
+                BEGIN
+                    DELETE FROM doc_text WHERE rowid = old.id;
+                END;",
             )
             .ok();
         self.conn
@@ -472,16 +536,24 @@ impl Library {
             })
             .unwrap_or_else(|| fs_modified.clone());
 
-        let existing: Option<i64> = self
+        let existing: Option<(i64, String, bool)> = self
             .conn
             .query_row(
-                &format!("SELECT id FROM documents WHERE path = ?1{PATH_COLLATE}"),
+                &format!(
+                    "SELECT id, title, title_custom FROM documents WHERE path = ?1{PATH_COLLATE}"
+                ),
                 params![path_str],
-                |r| r.get(0),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get::<_, i64>(2)? != 0)),
             )
             .optional()?;
+        // Whether the searchable metadata (title, notes, file name) may have
+        // changed — the body is tracked separately by the file's stamp.
+        let metadata_changed = match &existing {
+            None => true,
+            Some((_, old, custom)) => !custom && *old != title,
+        };
 
-        let id = if let Some(id) = existing {
+        let id = if let Some((id, _, _)) = existing {
             self.conn.execute(
                 "UPDATE documents SET modified_at = ?1,
                      title = CASE WHEN title_custom = 1 THEN title ELSE ?2 END
@@ -497,10 +569,116 @@ impl Library {
             )?;
             self.conn.last_insert_rowid()
         };
-        // Best effort: a bibliography that won't parse must not stop the
-        // document being listed.
+        // Best effort: a bibliography that won't parse, or a file that can't be
+        // read, must not stop the document being listed.
         self.refresh_authors(id, path).ok();
+        self.index_document(id, path, metadata_changed).ok();
         Ok(id)
+    }
+
+    /// Brings the word count and full-text row for a document up to date. The
+    /// file is only read when its size or modification time differ from what
+    /// the index was built from, so rescanning an unchanged library costs a
+    /// `stat` per document.
+    fn index_document(&mut self, id: i64, path: &Path, metadata_changed: bool) -> SqlResult<()> {
+        let stamp = file_stamp(path);
+        let stored: (Option<i64>, Option<i64>) = self.conn.query_row(
+            "SELECT indexed_mtime, indexed_len FROM documents WHERE id = ?1",
+            params![id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        let mut body = None;
+        if let Some((mtime, len)) = stamp {
+            if stored != (Some(mtime), Some(len)) {
+                if let Ok(content) = std::fs::read_to_string(path) {
+                    let words = prose_words(&content);
+                    self.conn.execute(
+                        "UPDATE documents SET words = ?1, indexed_mtime = ?2, indexed_len = ?3
+                         WHERE id = ?4",
+                        params![words.len() as i64, mtime, len, id],
+                    )?;
+                    body = Some(words.join(" "));
+                }
+            }
+        }
+        if body.is_some() || metadata_changed {
+            self.reindex_row(id, body)?;
+        }
+        Ok(())
+    }
+
+    /// Rewrites a document's full-text row from its current title, notes and
+    /// file name. `body` is the new prose if it has just been read; otherwise
+    /// the body already in the index is kept.
+    fn reindex_row(&self, id: i64, body: Option<String>) -> SqlResult<()> {
+        let body = match body {
+            Some(b) => b,
+            None => self
+                .conn
+                .query_row(
+                    "SELECT body FROM doc_text WHERE rowid = ?1",
+                    params![id],
+                    |r| r.get(0),
+                )
+                .optional()?
+                .unwrap_or_default(),
+        };
+        let row: Option<(String, String, String)> = self
+            .conn
+            .query_row(
+                "SELECT title, COALESCE(notes, ''), path FROM documents WHERE id = ?1",
+                params![id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .optional()?;
+        let Some((title, notes, path)) = row else {
+            return Ok(());
+        };
+        // The file name, not the folder: every document shares its folders'
+        // names, so indexing them would make searching "Documents" match all.
+        let file_name = Path::new(&path)
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        self.conn
+            .execute("DELETE FROM doc_text WHERE rowid = ?1", params![id])?;
+        self.conn.execute(
+            "INSERT INTO doc_text (rowid, title, notes, path, body) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![id, title, notes, file_name, body],
+        )?;
+        Ok(())
+    }
+
+    /// A short excerpt of each document's text around what `search` matched,
+    /// with the matches wrapped in `MARK_START`/`MARK_END`. Only documents
+    /// whose *body* matches appear — a hit in the title or a tag needs no
+    /// excerpt.
+    pub fn snippets(&self, search: &str) -> std::collections::HashMap<i64, String> {
+        let Some(q) = fts_query(search) else {
+            return Default::default();
+        };
+        let run = || -> SqlResult<std::collections::HashMap<i64, String>> {
+            let mut stmt = self.conn.prepare(
+                "SELECT rowid, snippet(doc_text, 3, ?2, ?3, '…', 16)
+                 FROM doc_text WHERE doc_text MATCH ?1",
+            )?;
+            let rows = stmt.query_map(
+                params![format!("body : ({q})"), MARK_START, MARK_END],
+                |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)),
+            )?;
+            rows.collect()
+        };
+        run().unwrap_or_default()
+    }
+
+    /// Drops index rows for documents that no longer exist.
+    pub fn prune_index(&mut self) {
+        self.conn
+            .execute(
+                "DELETE FROM doc_text WHERE rowid NOT IN (SELECT id FROM documents)",
+                [],
+            )
+            .ok();
     }
 
     /// Sets the bibliography used for documents that don't name their own,
@@ -634,6 +812,8 @@ impl Library {
             "UPDATE documents SET path = ?1 WHERE id = ?2",
             params![path_str, doc_id],
         )?;
+        self.reindex_row(doc_id, None)?;
+        self.index_document(doc_id, new_path, false)?;
         Ok(())
     }
 
@@ -680,11 +860,8 @@ impl Library {
         search: &str,
         sort: SortOrder,
     ) -> SqlResult<Vec<Document>> {
-        let search_pat = if search.is_empty() {
-            "%".to_string()
-        } else {
-            format!("%{}%", search)
-        };
+        let search_pat = like_pattern(search);
+        let fts = fts_query(search);
 
         // Every filter is the same query with five slots swapped: which columns
         // to select, what to join, the conditions before the search clause, the
@@ -693,12 +870,13 @@ impl Library {
         let q = filter.query();
         let search_idx = if q.param.is_some() { 2 } else { 1 };
         let sql = format!(
-            "SELECT {} FROM {} WHERE {} AND {} ORDER BY {}",
+            "SELECT {} FROM {} WHERE {} AND {} ORDER BY {}{}",
             q.select,
             q.from,
             q.conditions,
-            search_clause(q.prefix, search_idx),
+            search_clause(q.prefix, search_idx, fts.is_some()),
             q.order(&sort),
+            q.limit_clause(),
         );
 
         let mut args: Vec<rusqlite::types::Value> = Vec::new();
@@ -706,6 +884,9 @@ impl Library {
             args.push(v);
         }
         args.push(search_pat.into());
+        if let Some(q) = fts {
+            args.push(q.into());
+        }
 
         let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt.query_map(rusqlite::params_from_iter(args), row_to_doc)?;
@@ -716,64 +897,157 @@ impl Library {
         Ok(docs)
     }
 
+    // The sidebar now takes its numbers from `counts()`; this stays as the
+    // definition `counts()` is tested against.
+    #[cfg_attr(not(test), allow(dead_code))]
+    /// How many documents `filter` lists — built from the same `FilterSpec` as
+    /// `documents()`, so the number beside a sidebar row can't drift from what
+    /// clicking it shows.
     pub fn doc_count(&self, filter: &LibraryFilter) -> SqlResult<i64> {
-        match filter {
-            LibraryFilter::All => self.conn.query_row(
-                "SELECT COUNT(*) FROM documents WHERE archived=0 AND deleted=0",
-                [],
-                |r| r.get(0),
-            ),
-            LibraryFilter::Archive => self.conn.query_row(
-                "SELECT COUNT(*) FROM documents WHERE archived=1 AND deleted=0",
-                [],
-                |r| r.get(0),
-            ),
-            LibraryFilter::Project(pid) => self.conn.query_row(
-                "SELECT COUNT(*) FROM project_docs pd JOIN documents d ON d.id=pd.doc_id WHERE pd.project_id=?1 AND d.deleted=0",
-                params![pid],
-                |r| r.get(0),
-            ),
-            LibraryFilter::Tag(tid) => self.conn.query_row(
-                "SELECT COUNT(*) FROM doc_tags JOIN documents d ON d.id=doc_id WHERE tag_id=?1 AND d.archived=0 AND d.deleted=0",
-                params![tid],
-                |r| r.get(0),
-            ),
-            LibraryFilter::Author(aid) => self.conn.query_row(
-                "SELECT COUNT(*) FROM doc_authors JOIN documents d ON d.id=doc_id WHERE author_id=?1 AND d.archived=0 AND d.deleted=0",
-                params![aid],
-                |r| r.get(0),
-            ),
-            LibraryFilter::Category(cat) => self.conn.query_row(
-                "SELECT COUNT(*) FROM documents WHERE archived=0 AND deleted=0
-                 AND EXISTS (SELECT 1 FROM doc_categories dc WHERE dc.doc_id=documents.id AND dc.category=?1)",
-                params![cat],
-                |r| r.get(0),
-            ),
-            LibraryFilter::CategoryGroup(parent) => self.conn.query_row(
-                "SELECT COUNT(*) FROM documents WHERE archived=0 AND deleted=0
-                 AND EXISTS (
-                     SELECT 1 FROM doc_categories dc WHERE dc.doc_id=documents.id
-                     AND dc.category IN (SELECT name FROM categories WHERE name=?1 OR parent=?1)
-                 )",
-                params![parent],
-                |r| r.get(0),
-            ),
-            LibraryFilter::Recent => self.conn.query_row(
-                "SELECT COUNT(*) FROM (SELECT 1 FROM documents WHERE last_opened_at IS NOT NULL AND archived=0 AND deleted=0 ORDER BY last_opened_at DESC LIMIT 30)",
-                [],
-                |r| r.get(0),
-            ),
-            LibraryFilter::Untagged => self.conn.query_row(
-                "SELECT COUNT(*) FROM documents WHERE archived=0 AND deleted=0 AND id NOT IN (SELECT DISTINCT doc_id FROM doc_tags)",
-                [],
-                |r| r.get(0),
-            ),
-            LibraryFilter::Trash => self.conn.query_row(
-                "SELECT COUNT(*) FROM documents WHERE deleted=1",
-                [],
-                |r| r.get(0),
-            ),
+        let q = filter.clone().query();
+        let sql = format!(
+            "SELECT COUNT(*) FROM (SELECT 1 FROM {} WHERE {}{})",
+            q.from,
+            q.conditions,
+            q.limit_clause()
+        );
+        let args: Vec<rusqlite::types::Value> = q.param.into_iter().collect();
+        self.conn
+            .query_row(&sql, rusqlite::params_from_iter(args), |r| r.get(0))
+    }
+
+    /// Every number the sidebar shows, in a handful of grouped queries rather
+    /// than one `COUNT(*)` per row.
+    pub fn counts(&self) -> SqlResult<Counts> {
+        let mut c = Counts::default();
+        let (all, archive, trash, recent, untagged) = self.conn.query_row(
+            "SELECT
+                COALESCE(SUM(archived = 0 AND deleted = 0), 0),
+                COALESCE(SUM(archived = 1 AND deleted = 0), 0),
+                COALESCE(SUM(deleted = 1), 0),
+                COALESCE(SUM(archived = 0 AND deleted = 0 AND last_opened_at IS NOT NULL), 0),
+                COALESCE(SUM(archived = 0 AND deleted = 0
+                             AND id NOT IN (SELECT doc_id FROM doc_tags)), 0)
+             FROM documents",
+            [],
+            |r| {
+                Ok::<(i64, i64, i64, i64, i64), rusqlite::Error>((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                ))
+            },
+        )?;
+        c.all = all;
+        c.archive = archive;
+        c.trash = trash;
+        c.recent = recent.min(RECENT_LIMIT as i64);
+        c.untagged = untagged;
+
+        let grouped = |sql: &str| -> SqlResult<Vec<(rusqlite::types::Value, i64)>> {
+            let mut stmt = self.conn.prepare(sql)?;
+            let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            rows.collect()
+        };
+        let id = |v: rusqlite::types::Value| match v {
+            rusqlite::types::Value::Integer(i) => i,
+            _ => 0,
+        };
+        let text = |v: rusqlite::types::Value| match v {
+            rusqlite::types::Value::Text(t) => t,
+            _ => String::new(),
+        };
+        for (k, n) in grouped(
+            "SELECT pd.project_id, COUNT(*) FROM project_docs pd
+             JOIN documents d ON d.id = pd.doc_id
+             WHERE d.deleted = 0 GROUP BY pd.project_id",
+        )? {
+            c.projects.insert(id(k), n);
         }
+        for (k, n) in grouped(
+            "SELECT dt.tag_id, COUNT(*) FROM doc_tags dt
+             JOIN documents d ON d.id = dt.doc_id
+             WHERE d.archived = 0 AND d.deleted = 0 GROUP BY dt.tag_id",
+        )? {
+            c.tags.insert(id(k), n);
+        }
+        for (k, n) in grouped(
+            "SELECT da.author_id, COUNT(*) FROM doc_authors da
+             JOIN documents d ON d.id = da.doc_id
+             WHERE d.archived = 0 AND d.deleted = 0 GROUP BY da.author_id",
+        )? {
+            c.authors.insert(id(k), n);
+        }
+        for (k, n) in grouped(
+            "SELECT dc.category, COUNT(*) FROM doc_categories dc
+             JOIN documents d ON d.id = dc.doc_id
+             WHERE d.archived = 0 AND d.deleted = 0 GROUP BY dc.category",
+        )? {
+            c.categories.insert(text(k), n);
+        }
+        // A parent category's number counts a document once, however many of
+        // the family it carries.
+        for (k, n) in grouped(
+            "SELECT p.name, COUNT(DISTINCT dc.doc_id) FROM categories p
+             JOIN categories f ON f.name = p.name OR f.parent = p.name
+             JOIN doc_categories dc ON dc.category = f.name
+             JOIN documents d ON d.id = dc.doc_id
+             WHERE d.archived = 0 AND d.deleted = 0 GROUP BY p.name",
+        )? {
+            c.category_groups.insert(text(k), n);
+        }
+        Ok(c)
+    }
+
+    /// Every document's tags in one query, for drawing the list.
+    pub fn tags_by_doc(&self) -> SqlResult<std::collections::HashMap<i64, Vec<Tag>>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT dt.doc_id, t.id, t.name, t.color_hex FROM doc_tags dt
+             JOIN tags t ON t.id = dt.tag_id ORDER BY t.name",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                Tag {
+                    id: r.get(1)?,
+                    name: r.get(2)?,
+                    color_hex: r.get(3)?,
+                },
+            ))
+        })?;
+        let mut map: std::collections::HashMap<i64, Vec<Tag>> = Default::default();
+        for r in rows {
+            let (doc, tag) = r?;
+            map.entry(doc).or_default().push(tag);
+        }
+        Ok(map)
+    }
+
+    /// Every document's categories in one query, ordered like `doc_categories`.
+    pub fn categories_by_doc(&self) -> SqlResult<std::collections::HashMap<i64, Vec<Category>>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT dc.doc_id, c.name, c.color_hex, c.parent FROM doc_categories dc
+             JOIN categories c ON c.name = dc.category
+             ORDER BY c.parent NULLS FIRST, c.name",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                Category {
+                    name: r.get(1)?,
+                    color_hex: r.get(2)?,
+                    parent: r.get(3)?,
+                },
+            ))
+        })?;
+        let mut map: std::collections::HashMap<i64, Vec<Category>> = Default::default();
+        for r in rows {
+            let (doc, cat) = r?;
+            map.entry(doc).or_default().push(cat);
+        }
+        Ok(map)
     }
 
     pub fn doc_tags(&self, doc_id: i64) -> SqlResult<Vec<Tag>> {
@@ -801,6 +1075,7 @@ impl Library {
             "UPDATE documents SET title = ?1, title_custom = 1 WHERE id = ?2",
             params![title, doc_id],
         )?;
+        self.reindex_row(doc_id, None)?;
         Ok(())
     }
 
@@ -1118,6 +1393,7 @@ impl Library {
             "UPDATE documents SET notes=?1 WHERE id=?2",
             params![notes, doc_id],
         )?;
+        self.reindex_row(doc_id, None)?;
         Ok(())
     }
 
@@ -1465,7 +1741,14 @@ impl Library {
             .optional()
     }
 
+    /// Registers every `.typ` file under `dir`, skipping hidden folders and the
+    /// `Templates` folder at the top — those are starting points for new
+    /// documents, not documents, and listing them buries the real ones.
     pub fn import_directory(&mut self, dir: &Path) -> SqlResult<usize> {
+        self.import_tree(dir, dir)
+    }
+
+    fn import_tree(&mut self, dir: &Path, root: &Path) -> SqlResult<usize> {
         let mut count = 0;
         let Ok(entries) = std::fs::read_dir(dir) else {
             return Ok(0);
@@ -1473,12 +1756,13 @@ impl Library {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
-                let hidden = path
+                let name = path
                     .file_name()
-                    .map(|n| n.to_string_lossy().starts_with('.'))
-                    .unwrap_or(false);
-                if !hidden {
-                    count += self.import_directory(&path)?;
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                let is_templates = dir == root && name == "Templates";
+                if !name.starts_with('.') && !is_templates {
+                    count += self.import_tree(&path, root)?;
                 }
             } else if path
                 .extension()
@@ -1492,18 +1776,118 @@ impl Library {
     }
 }
 
-fn search_clause(prefix: &str, param: usize) -> String {
+/// `param` binds the LIKE pattern for names (title, categories, tags, authors).
+/// With `with_fts`, `param + 1` also binds the full-text query for what's inside
+/// the document — its body, notes and file name. A search with no words in it
+/// has no such query, and the clause leaves that part out: SQLite raises an
+/// error for `MATCH NULL`.
+fn search_clause(prefix: &str, param: usize, with_fts: bool) -> String {
+    let fts = param + 1;
+    let full_text = if with_fts {
+        format!(" OR {prefix}id IN (SELECT rowid FROM doc_text WHERE doc_text MATCH ?{fts})")
+    } else {
+        String::new()
+    };
     format!(
-        "({prefix}title LIKE ?{param} \
+        "({prefix}title LIKE ?{param} ESCAPE '\\' \
          OR {prefix}id IN (SELECT doc_id FROM doc_categories \
-                           WHERE category LIKE ?{param}) \
+                           WHERE category LIKE ?{param} ESCAPE '\\') \
          OR {prefix}id IN (SELECT doc_id FROM doc_tags _dt \
                            JOIN tags _t ON _t.id = _dt.tag_id \
-                           WHERE _t.name LIKE ?{param}) \
+                           WHERE _t.name LIKE ?{param} ESCAPE '\\') \
          OR {prefix}id IN (SELECT doc_id FROM doc_authors _da \
                            JOIN authors _a ON _a.id = _da.author_id \
-                           WHERE _a.name LIKE ?{param}))"
+                           WHERE _a.name LIKE ?{param} ESCAPE '\\'){full_text})"
     )
+}
+
+/// What the search box means as a substring: `%` and `_` typed by the user are
+/// ordinary characters, not wildcards.
+fn like_pattern(search: &str) -> String {
+    let mut out = String::from("%");
+    for c in search.chars() {
+        if matches!(c, '%' | '_' | '\\') {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out.push('%');
+    out
+}
+
+/// The search box as an FTS5 query: each word, matched as a prefix so results
+/// narrow as you type, all required. `None` when there are no words (an empty
+/// box, or only punctuation).
+fn fts_query(search: &str) -> Option<String> {
+    let words: Vec<String> = search
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .map(|w| format!("\"{w}\"*"))
+        .collect();
+    if words.is_empty() {
+        None
+    } else {
+        Some(words.join(" "))
+    }
+}
+
+/// Wraps what `snippets` matched; chosen so they can't occur in real text.
+pub const MARK_START: &str = "\u{e000}";
+pub const MARK_END: &str = "\u{e001}";
+
+/// A snippet as Pango markup: text escaped, matches in bold.
+pub fn snippet_to_markup(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len() + 16);
+    for c in raw.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '\u{e000}' => out.push_str("<b>"),
+            '\u{e001}' => out.push_str("</b>"),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// The words of a document that count as prose: not code blocks, not lines of
+/// Typst code or comments, and not citation keys, labels or inline code.
+pub fn prose_words(content: &str) -> Vec<&str> {
+    let mut in_code_block = false;
+    let mut words = Vec::new();
+    for line in content.lines() {
+        let t = line.trim();
+        if t.starts_with("```") {
+            in_code_block = !in_code_block;
+            continue;
+        }
+        if in_code_block || t.starts_with("//") || t.starts_with('#') {
+            continue;
+        }
+        words.extend(t.split_whitespace().filter(|w| {
+            // Not citation keys, labels or inline code — nor the `==` that
+            // marks a heading, which is syntax, not a word.
+            !w.starts_with('@')
+                && !w.starts_with('<')
+                && !w.starts_with('`')
+                && !w.chars().all(|c| c == '=')
+        }));
+    }
+    words
+}
+
+/// A file's modification time (nanoseconds) and length — the stamp that says
+/// whether the index is still describing it.
+fn file_stamp(path: &Path) -> Option<(i64, i64)> {
+    let meta = std::fs::metadata(path).ok()?;
+    let nanos = meta
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_nanos();
+    Some((nanos as i64, meta.len() as i64))
 }
 
 /// Looks for a file in `trash_dir` matching `move_to_trash`'s
@@ -1609,6 +1993,7 @@ fn row_to_doc(row: &rusqlite::Row<'_>) -> rusqlite::Result<Document> {
         created_at: row.get(6)?,
         modified_at: row.get(7)?,
         last_opened_at: row.get(8)?,
+        words: row.get::<_, Option<i64>>(9)?.map(|w| w.max(0) as usize),
     })
 }
 
@@ -3246,6 +3631,450 @@ mod tests {
         let map = lib.authors_by_doc().unwrap();
         assert_eq!(map[&id], vec!["Butler, J.", "Cone, J."]);
     }
+
+    // ── text index and search ────────────────────────────────────────────
+
+    fn search(lib: &Library, q: &str) -> Vec<i64> {
+        ids(&lib
+            .documents(LibraryFilter::Everywhere, q, SortOrder::Title)
+            .unwrap())
+    }
+
+    #[test]
+    fn search_finds_words_inside_a_document_including_as_you_type_prefixes() {
+        let (mut lib, work) = fixture();
+        let id = lib
+            .upsert_document(&write_doc(
+                &work,
+                "advent.typ",
+                "The Magnificat is sung here.\n",
+            ))
+            .unwrap();
+        lib.upsert_document(&write_doc(&work, "other.typ", "Nothing relevant.\n"))
+            .unwrap();
+        assert_eq!(search(&lib, "magnificat"), vec![id]);
+        assert_eq!(search(&lib, "magnif"), vec![id]);
+        assert_eq!(
+            search(&lib, "sung magnificat"),
+            vec![id],
+            "all words required"
+        );
+        assert!(search(&lib, "magnificat vespers").is_empty());
+    }
+
+    #[test]
+    fn heading_markers_are_not_words() {
+        assert_eq!(
+            prose_words("== Second heading\nBody text\n"),
+            vec!["Second", "heading", "Body", "text"]
+        );
+    }
+
+    #[test]
+    fn typst_code_and_comments_are_not_searchable_prose() {
+        let (mut lib, work) = fixture();
+        lib.upsert_document(&write_doc(
+            &work,
+            "a.typ",
+            "#let secretvariable = 1\n// hiddencomment\nVisible words.\n```\ncodeblockword\n```\n",
+        ))
+        .unwrap();
+        for hidden in ["secretvariable", "hiddencomment", "codeblockword"] {
+            assert!(search(&lib, hidden).is_empty(), "{hidden}");
+        }
+        assert_eq!(search(&lib, "visible").len(), 1);
+    }
+
+    #[test]
+    fn search_ignores_accents_in_either_direction() {
+        let (mut lib, work) = fixture();
+        let id = lib
+            .upsert_document(&write_doc(&work, "a.typ", "Slavoj Žižek writes.\n"))
+            .unwrap();
+        assert_eq!(search(&lib, "zizek"), vec![id]);
+        assert_eq!(search(&lib, "Žižek"), vec![id]);
+    }
+
+    #[test]
+    fn search_covers_notes_titles_and_file_names_and_follows_their_edits() {
+        let (mut lib, work) = fixture();
+        let id = lib
+            .upsert_document(&write_doc(&work, "draftsermon.typ", "Body.\n"))
+            .unwrap();
+        assert_eq!(search(&lib, "draftsermon"), vec![id], "file name");
+
+        assert!(search(&lib, "isaiah").is_empty());
+        lib.set_notes(id, Some("Check the Isaiah reading")).unwrap();
+        assert_eq!(search(&lib, "isaiah"), vec![id], "notes");
+        lib.set_notes(id, None).unwrap();
+        assert!(
+            search(&lib, "isaiah").is_empty(),
+            "cleared notes stop matching"
+        );
+
+        lib.set_title(id, "Advent Lament").unwrap();
+        assert_eq!(search(&lib, "lament"), vec![id], "renamed title");
+        assert_eq!(
+            search(&lib, "body"),
+            vec![id],
+            "the body survives a title change"
+        );
+    }
+
+    #[test]
+    fn folder_names_are_not_searchable() {
+        let (mut lib, work) = fixture();
+        std::fs::create_dir_all(work.path().join("quirkyfolder")).unwrap();
+        let path = work.path().join("quirkyfolder").join("a.typ");
+        std::fs::write(&path, "Text.\n").unwrap();
+        lib.upsert_document(&path).unwrap();
+        assert!(search(&lib, "quirkyfolder").is_empty());
+        assert_eq!(search(&lib, "a.typ").len(), 1);
+    }
+
+    #[test]
+    fn editing_the_file_updates_what_search_finds_and_the_word_count() {
+        let (mut lib, work) = fixture();
+        let path = write_doc(&work, "a.typ", "alpha beta gamma\n");
+        let id = lib.upsert_document(&path).unwrap();
+        assert_eq!(lib.doc_by_id(id).unwrap().unwrap().words, Some(3));
+        assert_eq!(search(&lib, "alpha"), vec![id]);
+
+        std::fs::write(&path, "delta epsilon\n").unwrap();
+        lib.touch_saved(&path).unwrap();
+        assert_eq!(lib.doc_by_id(id).unwrap().unwrap().words, Some(2));
+        assert!(search(&lib, "alpha").is_empty());
+        assert_eq!(search(&lib, "delta"), vec![id]);
+    }
+
+    #[test]
+    fn an_unchanged_file_is_not_read_again_but_a_changed_one_is() {
+        let (mut lib, work) = fixture();
+        let path = write_doc(&work, "a.typ", "one two three\n");
+        let id = lib.upsert_document(&path).unwrap();
+        // Poison the stored stamp's words; an unchanged file must leave them.
+        lib.conn
+            .execute("UPDATE documents SET words = 99 WHERE id = ?1", params![id])
+            .unwrap();
+        lib.upsert_document(&path).unwrap();
+        assert_eq!(lib.doc_by_id(id).unwrap().unwrap().words, Some(99));
+
+        std::fs::write(&path, "one two\n").unwrap();
+        lib.upsert_document(&path).unwrap();
+        assert_eq!(lib.doc_by_id(id).unwrap().unwrap().words, Some(2));
+    }
+
+    #[test]
+    fn a_missing_file_keeps_its_row_and_its_last_index() {
+        let (mut lib, work) = fixture();
+        let path = write_doc(&work, "a.typ", "remembered words\n");
+        let id = lib.upsert_document(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        lib.upsert_document(&path).unwrap();
+        assert_eq!(search(&lib, "remembered"), vec![id]);
+        assert_eq!(lib.doc_by_id(id).unwrap().unwrap().words, Some(2));
+    }
+
+    #[test]
+    fn moving_a_document_updates_its_file_name_in_the_index() {
+        let (mut lib, work) = fixture();
+        let id = lib
+            .upsert_document(&write_doc(&work, "oldname.typ", "Body.\n"))
+            .unwrap();
+        // The title is its own thing; only the file name is under test.
+        lib.set_title(id, "Sermon").unwrap();
+        let new = write_doc(&work, "newname.typ", "Body.\n");
+        lib.update_path(id, &new).unwrap();
+        assert!(search(&lib, "oldname").is_empty());
+        assert_eq!(search(&lib, "newname"), vec![id]);
+    }
+
+    #[test]
+    fn removing_a_document_removes_it_from_the_index() {
+        let (mut lib, work) = fixture();
+        let id = lib
+            .upsert_document(&write_doc(&work, "a.typ", "findable\n"))
+            .unwrap();
+        lib.remove_document(id).unwrap();
+        let left: i64 = lib
+            .conn
+            .query_row("SELECT COUNT(*) FROM doc_text", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(left, 0);
+    }
+
+    #[test]
+    fn prune_index_drops_rows_whose_document_is_gone() {
+        let (mut lib, work) = fixture();
+        lib.upsert_document(&write_doc(&work, "a.typ", "x\n"))
+            .unwrap();
+        lib.conn
+            .execute(
+                "INSERT INTO doc_text (rowid, title, notes, path, body) VALUES (999, 't', '', 'p', 'b')",
+                [],
+            )
+            .unwrap();
+        lib.prune_index();
+        let n: i64 = lib
+            .conn
+            .query_row("SELECT COUNT(*) FROM doc_text", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 1);
+    }
+
+    #[test]
+    fn awkward_search_text_never_errors_and_percent_is_literal() {
+        let (mut lib, work) = fixture();
+        let plain = lib
+            .upsert_document(&write_doc(&work, "plain.typ", "Just words.\n"))
+            .unwrap();
+        let pct = lib
+            .upsert_document(&write_doc(&work, "pct.typ", "= Grew 100% in a year\n"))
+            .unwrap();
+        lib.set_title(pct, "Grew 100% in a year").unwrap();
+        for q in [
+            "\"",
+            "(",
+            "*",
+            "OR",
+            "NEAR(",
+            "a AND",
+            "'; DROP TABLE documents; --",
+            ":",
+            "-x",
+        ] {
+            lib.documents(LibraryFilter::All, q, SortOrder::Title)
+                .unwrap_or_else(|e| panic!("search {q:?} failed: {e}"));
+        }
+        assert_eq!(search(&lib, "100%"), vec![pct]);
+        assert!(
+            !search(&lib, "%").contains(&plain),
+            "a lone % is not a wildcard"
+        );
+        assert!(search(&lib, "_").is_empty());
+    }
+
+    #[test]
+    fn snippets_exist_only_for_body_matches_and_mark_the_match() {
+        let (mut lib, work) = fixture();
+        let body = lib
+            .upsert_document(&write_doc(
+                &work,
+                "a.typ",
+                "Long before the dawn the Magnificat rose from the choir.\n",
+            ))
+            .unwrap();
+        let titled = lib
+            .upsert_document(&write_doc(&work, "b.typ", "Unrelated prose.\n"))
+            .unwrap();
+        lib.set_title(titled, "Magnificat in title only").unwrap();
+        let snips = lib.snippets("magnificat");
+        assert_eq!(snips.keys().copied().collect::<Vec<_>>(), vec![body]);
+        let text = &snips[&body];
+        assert!(
+            text.contains(&format!("{MARK_START}Magnificat{MARK_END}")),
+            "{text:?}"
+        );
+        assert!(lib.snippets("   ").is_empty());
+    }
+
+    #[test]
+    fn snippet_markup_escapes_text_and_bolds_the_match() {
+        let raw = format!("a < b & {MARK_START}c{MARK_END} > d");
+        assert_eq!(snippet_to_markup(&raw), "a &lt; b &amp; <b>c</b> &gt; d");
+    }
+
+    #[test]
+    fn the_search_box_becomes_prefix_terms_or_nothing() {
+        assert_eq!(
+            fts_query("gender trouble").as_deref(),
+            Some("\"gender\"* \"trouble\"*")
+        );
+        assert_eq!(
+            fts_query("Butler, J.").as_deref(),
+            Some("\"Butler\"* \"J\"*")
+        );
+        assert_eq!(fts_query("  ...  "), None);
+        assert_eq!(fts_query(""), None);
+        assert_eq!(like_pattern("50%_\\"), "%50\\%\\_\\\\%");
+    }
+
+    #[test]
+    fn everywhere_includes_archived_documents_but_not_trashed_ones() {
+        let (mut lib, work) = fixture();
+        let (live, _) = add_doc(&mut lib, &work, "live.typ");
+        let (old, _) = add_doc(&mut lib, &work, "old.typ");
+        let (gone, _) = add_doc(&mut lib, &work, "gone.typ");
+        lib.set_archived(old, true).unwrap();
+        lib.move_to_trash(gone).unwrap();
+        let mut got = search(&lib, "");
+        got.sort();
+        assert_eq!(got, vec![live, old]);
+    }
+
+    #[test]
+    fn import_skips_the_templates_folder_at_the_top_but_not_deeper_ones() {
+        let (mut lib, work) = fixture();
+        std::fs::create_dir_all(work.path().join("Templates")).unwrap();
+        std::fs::create_dir_all(work.path().join("Thesis/Templates")).unwrap();
+        std::fs::write(work.path().join("Templates/starter.typ"), "x").unwrap();
+        std::fs::write(work.path().join("Thesis/Templates/mine.typ"), "x").unwrap();
+        std::fs::write(work.path().join("real.typ"), "x").unwrap();
+        lib.import_directory(work.path()).unwrap();
+        let titles = titles(
+            &lib.documents(LibraryFilter::All, "", SortOrder::Title)
+                .unwrap(),
+        );
+        assert_eq!(titles, vec!["mine", "real"]);
+    }
+
+    // ── counts and bulk lookups ──────────────────────────────────────────
+
+    /// The sidebar's grouped counts and `doc_count` (and so the list a row
+    /// opens) must always agree.
+    #[test]
+    fn grouped_counts_agree_with_the_count_of_each_view() {
+        let (mut lib, work, _) = lib_with_bib();
+        let mut docs = Vec::new();
+        for (i, body) in [
+            "@gender",
+            "@black @gender",
+            "plain",
+            "@black",
+            "plain",
+            "plain",
+        ]
+        .iter()
+        .enumerate()
+        {
+            let id = lib
+                .upsert_document(&write_doc(
+                    &work,
+                    &format!("d{i}.typ"),
+                    &format!("{body}\n"),
+                ))
+                .unwrap();
+            docs.push(id);
+        }
+        let project = lib.create_project("Thesis").unwrap();
+        lib.add_doc_to_project(project, docs[0]).unwrap();
+        lib.add_doc_to_project(project, docs[2]).unwrap();
+        let tag = lib.create_tag("draft", "#fff").unwrap();
+        lib.set_doc_tags(docs[1], &[tag]).unwrap();
+        lib.create_category("Liturgy", None).unwrap();
+        lib.create_category("Advent", Some("Liturgy")).unwrap();
+        lib.create_category("Lent", Some("Liturgy")).unwrap();
+        lib.set_doc_categories(docs[0], &["Advent".into(), "Liturgy".into()])
+            .unwrap();
+        lib.set_doc_categories(docs[3], &["Lent".into()]).unwrap();
+        lib.set_archived(docs[4], true).unwrap();
+        lib.move_to_trash(docs[5]).unwrap();
+        for id in &docs[..3] {
+            lib.touch_opened(&work.path().join(format!(
+                "d{}.typ",
+                docs.iter().position(|d| d == id).unwrap()
+            )))
+            .unwrap();
+        }
+
+        let c = lib.counts().unwrap();
+        assert_eq!(c.all, lib.doc_count(&LibraryFilter::All).unwrap());
+        assert_eq!(c.archive, lib.doc_count(&LibraryFilter::Archive).unwrap());
+        assert_eq!(c.trash, lib.doc_count(&LibraryFilter::Trash).unwrap());
+        assert_eq!(c.recent, lib.doc_count(&LibraryFilter::Recent).unwrap());
+        assert_eq!(c.untagged, lib.doc_count(&LibraryFilter::Untagged).unwrap());
+        assert_eq!(
+            c.projects[&project],
+            lib.doc_count(&LibraryFilter::Project(project)).unwrap()
+        );
+        assert_eq!(
+            c.tags[&tag],
+            lib.doc_count(&LibraryFilter::Tag(tag)).unwrap()
+        );
+        for cat in ["Advent", "Lent", "Liturgy"] {
+            assert_eq!(
+                c.categories.get(cat).copied().unwrap_or(0),
+                lib.doc_count(&LibraryFilter::Category(cat.into())).unwrap(),
+                "{cat}"
+            );
+        }
+        assert_eq!(
+            c.category_groups["Liturgy"],
+            lib.doc_count(&LibraryFilter::CategoryGroup("Liturgy".into()))
+                .unwrap()
+        );
+        assert_eq!(
+            c.category_groups["Liturgy"], 2,
+            "a document in two of the family counts once"
+        );
+        for (a, n) in lib.all_authors_with_counts().unwrap() {
+            assert_eq!(c.authors[&a.id], n);
+            assert_eq!(n, lib.doc_count(&LibraryFilter::Author(a.id)).unwrap());
+        }
+    }
+
+    #[test]
+    fn counts_of_an_empty_library_are_zero_not_an_error() {
+        let (lib, _work) = fixture();
+        let c = lib.counts().unwrap();
+        assert_eq!(
+            (c.all, c.archive, c.trash, c.recent, c.untagged),
+            (0, 0, 0, 0, 0)
+        );
+        assert!(c.projects.is_empty());
+    }
+
+    #[test]
+    fn recent_is_capped_at_thirty_in_both_the_list_and_its_count() {
+        let (mut lib, work) = fixture();
+        for i in 0..35 {
+            let p = write_doc(&work, &format!("r{i}.typ"), "x\n");
+            lib.touch_opened(&p).unwrap();
+        }
+        let listed = lib
+            .documents(LibraryFilter::Recent, "", SortOrder::Opened)
+            .unwrap()
+            .len();
+        assert_eq!(listed, 30);
+        assert_eq!(lib.doc_count(&LibraryFilter::Recent).unwrap(), 30);
+        assert_eq!(lib.counts().unwrap().recent, 30);
+    }
+
+    #[test]
+    fn bulk_tag_and_category_lookups_match_the_per_document_ones() {
+        let (mut lib, work) = fixture();
+        let (a, _) = add_doc(&mut lib, &work, "a.typ");
+        let (b, _) = add_doc(&mut lib, &work, "b.typ");
+        let t1 = lib.create_tag("zeta", "#111").unwrap();
+        let t2 = lib.create_tag("alpha", "#222").unwrap();
+        lib.set_doc_tags(a, &[t1, t2]).unwrap();
+        lib.create_category("Papers", None).unwrap();
+        lib.create_category("Essays", Some("Papers")).unwrap();
+        lib.set_doc_categories(a, &["Essays".into(), "Papers".into()])
+            .unwrap();
+
+        let tags = lib.tags_by_doc().unwrap();
+        let cats = lib.categories_by_doc().unwrap();
+        let names = |v: Option<&Vec<Tag>>| -> Vec<String> {
+            v.map(|v| v.iter().map(|t| t.name.clone()).collect())
+                .unwrap_or_default()
+        };
+        assert_eq!(names(tags.get(&a)), vec!["alpha", "zeta"]);
+        assert_eq!(
+            names(tags.get(&a)),
+            lib.doc_tags(a)
+                .unwrap()
+                .into_iter()
+                .map(|t| t.name)
+                .collect::<Vec<_>>()
+        );
+        assert!(!tags.contains_key(&b));
+        let cat_names = |v: Vec<Category>| v.into_iter().map(|c| c.name).collect::<Vec<_>>();
+        assert_eq!(
+            cat_names(cats.get(&a).cloned().unwrap_or_default()),
+            cat_names(lib.doc_categories(a).unwrap())
+        );
+    }
 }
 
 #[cfg(test)]
@@ -3260,9 +4089,9 @@ mod sql_shape {
             q.select,
             q.from,
             q.conditions,
-            search_clause(q.prefix, idx),
+            search_clause(q.prefix, idx, true),
             q.order(&sort)
-        )
+        ) + &q.limit_clause()
     }
 
     /// Filters that take a leading parameter must bind the search pattern to

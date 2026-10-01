@@ -139,6 +139,7 @@ impl AppWindow {
                     global_bib_bg.as_deref(),
                 ));
                 lib.import_directory(&work_dir_bg).ok();
+                lib.prune_index();
                 lib.fix_created_dates_from_fs();
                 match lib.reconcile_trash_state() {
                     Ok(notes) => {

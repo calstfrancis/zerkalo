@@ -24,8 +24,20 @@ impl LibraryWindow {
         }
         self.row_widgets.borrow_mut().clear();
         self.list_order.borrow_mut().clear();
-        let search = self.search_entry.text().to_string();
-        let filter = self.current_filter.borrow().clone();
+        let search = self.search_entry.text().trim().to_string();
+        let searching = !search.is_empty();
+        let current = self.current_filter.borrow().clone();
+        // A search looks through every document unless it has been held to the
+        // view it was typed in (or that view is the Trash, which nothing else
+        // searches). Narrowing it silently used to make "I can't find my
+        // document" the likely outcome of searching from inside a project.
+        let narrowed = *self.search_scoped.borrow();
+        let filter = if searching && !narrowed && current != LibraryFilter::Trash {
+            LibraryFilter::Everywhere
+        } else {
+            current.clone()
+        };
+        self.update_scope_bar(searching, &current, narrowed);
         let sort = self.current_sort.borrow().clone();
         let project_reorder = match &filter {
             LibraryFilter::Project(pid) => Some(*pid),
@@ -38,7 +50,7 @@ impl LibraryWindow {
             .unwrap_or_default();
 
         if docs.is_empty() {
-            let state = empty_state(&self.current_filter.borrow(), &search);
+            let state = empty_state(&current, &search);
             self.empty_page.set_icon_name(Some(state.icon));
             self.empty_page.set_title(&state.title);
             self.empty_page.set_description(Some(&state.description));
@@ -62,6 +74,17 @@ impl LibraryWindow {
             })
             .collect();
         let authors_by_doc = self.library.borrow().authors_by_doc().unwrap_or_default();
+        let tags_by_doc = self.library.borrow().tags_by_doc().unwrap_or_default();
+        let cats_by_doc = self
+            .library
+            .borrow()
+            .categories_by_doc()
+            .unwrap_or_default();
+        let snippets = if searching {
+            self.library.borrow().snippets(&search)
+        } else {
+            HashMap::new()
+        };
         let mode = self.view_mode.borrow().clone();
 
         if mode == ViewMode::Compact {
@@ -77,7 +100,11 @@ impl LibraryWindow {
         let (pinned, rest): (Vec<_>, Vec<_>) = docs.into_iter().partition(|d| d.pinned);
         let groups: [(&str, &str, Vec<crate::library::Document>); 2] = [
             ("Pinned", "fond-accent-pinned", pinned),
-            ("Documents", "fond-accent-library", rest),
+            (
+                if searching { "Results" } else { "Documents" },
+                "fond-accent-library",
+                rest,
+            ),
         ];
 
         for (title, accent, group) in groups {
@@ -88,20 +115,17 @@ impl LibraryWindow {
                 .append(&section_row(title, accent, group.len()));
             let last_idx = group.len() - 1;
             for (i, doc) in group.into_iter().enumerate() {
-                let tags = self.library.borrow().doc_tags(doc.id).unwrap_or_default();
-                let categories = self
-                    .library
-                    .borrow()
-                    .doc_categories(doc.id)
-                    .unwrap_or_default();
+                let no_tags = Vec::new();
+                let no_cats = Vec::new();
                 let row = self.make_doc_row(
                     &doc,
-                    &tags,
-                    &categories,
+                    tags_by_doc.get(&doc.id).unwrap_or(&no_tags),
+                    cats_by_doc.get(&doc.id).unwrap_or(&no_cats),
                     project_reorder,
                     mode.clone(),
                     &cat_colors,
                     authors_by_doc.get(&doc.id).map_or(&[], |v| v.as_slice()),
+                    snippets.get(&doc.id).map(String::as_str),
                 );
                 if i == 0 {
                     row.add_css_class("fond-card-first");
@@ -147,6 +171,7 @@ impl LibraryWindow {
         mode: ViewMode,
         cat_colors: &HashMap<String, String>,
         cites: &[String],
+        snippet: Option<&str>,
     ) -> ListBoxRow {
         let row = ListBoxRow::new();
         row.set_widget_name(&doc.id.to_string());
@@ -190,8 +215,15 @@ impl LibraryWindow {
         });
         hbox.append(&crate::ui::styles::fond_cue(cue_color.as_deref()));
 
+        // A document whose file has gone from where the library last saw it.
+        // (In the Trash the file has been moved on purpose, so it isn't missing.)
+        let missing = *self.current_filter.borrow() != LibraryFilter::Trash && !doc.path.exists();
+
         let title = Label::new(Some(&doc.title));
         title.add_css_class("fond-row-title");
+        if missing {
+            title.add_css_class("dim-label");
+        }
         title.set_halign(Align::Start);
         title.set_ellipsize(gtk4::pango::EllipsizeMode::End);
         hbox.append(&title);
@@ -235,6 +267,15 @@ impl LibraryWindow {
         spacer.set_hexpand(true);
         hbox.append(&spacer);
 
+        if missing {
+            let badge = Label::new(Some("missing"));
+            badge.add_css_class("warning");
+            badge.set_tooltip_text(Some(
+                "Zerkalo can't find this file — it may have been moved or deleted. \
+                 Open the ⋯ menu and choose Locate File… to point it at the new place.",
+            ));
+            hbox.append(&badge);
+        }
         if doc.archived {
             let badge = Label::new(Some("archived"));
             badge.add_css_class("fond-row-meta");
@@ -251,13 +292,12 @@ impl LibraryWindow {
             hbox.append(&note);
         }
 
-        // The word count reads every file in the list, so it is worth having
-        // only where there is room to read it.
+        // The count comes from the index, so drawing the list reads no files;
+        // it is worth showing only where there is room to read it.
         let mut meta_text = format_date(&doc.modified_at);
         if mode != ViewMode::Compact {
-            let word_count = count_prose_words(std::path::Path::new(&doc.path));
-            if word_count > 0 {
-                meta_text = format!("{} \u{b7} {} words", meta_text, word_count);
+            if let Some(words) = doc.words.filter(|w| *w > 0) {
+                meta_text = format!("{} \u{b7} {} words", meta_text, words);
             }
         }
         let meta = Label::new(Some(&meta_text));
@@ -284,7 +324,26 @@ impl LibraryWindow {
         }
         hbox.append(&more);
 
-        row.set_child(Some(&hbox));
+        // In search results, a line of the document's own text around what was
+        // found, so you can tell which document is the one you meant.
+        match snippet.filter(|_| mode != ViewMode::Compact) {
+            Some(snippet) => {
+                let outer = GtkBox::new(Orientation::Vertical, 0);
+                outer.append(&hbox);
+                let line = Label::new(None);
+                line.set_markup(&crate::library::snippet_to_markup(snippet));
+                line.add_css_class("fond-row-meta");
+                line.set_halign(Align::Start);
+                line.set_xalign(0.0);
+                line.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+                line.set_margin_start(56);
+                line.set_margin_end(12);
+                line.set_margin_bottom(6);
+                outer.append(&line);
+                row.set_child(Some(&outer));
+            }
+            None => row.set_child(Some(&hbox)),
+        }
 
         let parts = RowParts {
             row: row.clone(),
@@ -425,6 +484,28 @@ impl LibraryWindow {
         row
     }
 
+    /// Shows what a search is looking through, and the one button that changes
+    /// it — only while a search is running from inside a narrower view.
+    fn update_scope_bar(&self, searching: bool, current: &LibraryFilter, narrowed: bool) {
+        let scoping = !matches!(
+            current,
+            LibraryFilter::All | LibraryFilter::Everywhere | LibraryFilter::Trash
+        );
+        if !(searching && scoping) {
+            self.scope_bar.set_visible(false);
+            return;
+        }
+        let name = self.filter_label(current);
+        if narrowed {
+            self.scope_label.set_text(&format!("Searching in {name}"));
+            self.scope_btn.set_label("Search all documents");
+        } else {
+            self.scope_label.set_text("Searching all documents");
+            self.scope_btn.set_label(&format!("Only in {name}"));
+        }
+        self.scope_bar.set_visible(true);
+    }
+
     pub(super) fn set_selected(&self, id: i64, on: bool) {
         {
             let mut sel = self.selection.borrow_mut();
@@ -506,19 +587,36 @@ impl LibraryWindow {
         let key = gtk4::EventControllerKey::new();
         let this = self.clone();
         key.connect_key_pressed(move |_, key, _, mods| {
+            let ctrl_f = mods.contains(gtk4::gdk::ModifierType::CONTROL_MASK)
+                && (key == gtk4::gdk::Key::f || key == gtk4::gdk::Key::F);
+            if ctrl_f {
+                this.search_entry.grab_focus();
+                return glib::Propagation::Stop;
+            }
             let typing = gtk4::prelude::GtkWindowExt::focus(&this.window)
                 .is_some_and(|w| w.is::<gtk4::Text>() || w.is::<TextView>());
             if typing {
                 return glib::Propagation::Proceed;
             }
             let ctrl = mods.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
+            if key == gtk4::gdk::Key::slash && !ctrl {
+                this.search_entry.grab_focus();
+                return glib::Propagation::Stop;
+            }
             if ctrl && (key == gtk4::gdk::Key::a || key == gtk4::gdk::Key::A) {
                 this.select_all_visible();
                 return glib::Propagation::Stop;
             }
-            if key == gtk4::gdk::Key::Escape && !this.selection.borrow().is_empty() {
-                this.clear_selection();
-                return glib::Propagation::Stop;
+            if key == gtk4::gdk::Key::Escape {
+                if !this.selection.borrow().is_empty() {
+                    this.clear_selection();
+                    return glib::Propagation::Stop;
+                }
+                // With nothing selected, Escape drops a search wherever focus is.
+                if !this.search_entry.text().is_empty() {
+                    this.search_entry.set_text("");
+                    return glib::Propagation::Stop;
+                }
             }
             glib::Propagation::Proceed
         });
@@ -529,6 +627,15 @@ impl LibraryWindow {
         let doc = self.library.borrow().doc_by_id(doc_id).ok().flatten();
         if let Some(doc) = doc {
             let path = doc.path.clone();
+            if !path.exists() {
+                let toast = adw::Toast::new(
+                    "Can't find this file — it may have been moved or deleted. \
+                     Use ⋯ › Locate File… to point Zerkalo at it.",
+                );
+                toast.set_use_markup(false);
+                self.toast_overlay.add_toast(toast);
+                return;
+            }
             self.library.borrow_mut().touch_opened(&path).ok();
             if let Some(cb) = self.on_open.borrow().as_ref() {
                 cb(path);
@@ -570,7 +677,7 @@ pub(super) fn empty_state(filter: &LibraryFilter, search: &str) -> EmptyState {
         };
     }
     match filter {
-        LibraryFilter::All => EmptyState {
+        LibraryFilter::All | LibraryFilter::Everywhere => EmptyState {
             offer_new: true,
             offer_import: true,
             ..plain(
@@ -654,61 +761,6 @@ pub(super) fn format_date(iso: &str) -> String {
     } else {
         dt.format("%b %-d, %Y").to_string()
     }
-}
-
-/// `count_prose_words_uncached`, remembered per file until it changes — the
-/// list is rebuilt on every keystroke of a search and every click, and used to
-/// read every document in full each time.
-pub(super) fn count_prose_words(path: &std::path::Path) -> usize {
-    use std::time::SystemTime;
-    thread_local! {
-        static CACHE: RefCell<HashMap<PathBuf, (SystemTime, u64, usize)>> =
-            RefCell::new(HashMap::new());
-    }
-    let stamp = std::fs::metadata(path)
-        .ok()
-        .and_then(|m| m.modified().ok().map(|t| (t, m.len())));
-    if let Some((mtime, len)) = stamp {
-        let hit = CACHE.with(|c| c.borrow().get(path).copied());
-        if let Some((cached_mtime, cached_len, words)) = hit {
-            if cached_mtime == mtime && cached_len == len {
-                return words;
-            }
-        }
-    }
-    let words = count_prose_words_uncached(path);
-    if let Some((mtime, len)) = stamp {
-        CACHE.with(|c| {
-            c.borrow_mut()
-                .insert(path.to_path_buf(), (mtime, len, words))
-        });
-    }
-    words
-}
-
-pub(super) fn count_prose_words_uncached(path: &std::path::Path) -> usize {
-    let content = match std::fs::read_to_string(path) {
-        Ok(c) => c,
-        Err(_) => return 0,
-    };
-    let mut in_code_block = false;
-    let mut total = 0usize;
-    for line in content.lines() {
-        let t = line.trim();
-        if t.starts_with("```") {
-            in_code_block = !in_code_block;
-            continue;
-        }
-        if in_code_block || t.starts_with("//") || t.starts_with('#') {
-            continue;
-        }
-        for word in t.split_whitespace() {
-            if !word.starts_with('@') && !word.starts_with('<') && !word.starts_with('`') {
-                total += 1;
-            }
-        }
-    }
-    total
 }
 
 #[cfg(test)]
