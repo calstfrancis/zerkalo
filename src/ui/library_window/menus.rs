@@ -84,12 +84,7 @@ impl LibraryWindow {
         add("rename", Box::new(|t, d| t.rename_doc_dialog(&d)));
         add("locate", Box::new(|t, d| t.locate_dialog(&d)));
         add("export", Box::new(|t, d| t.export_doc_dialog(&d)));
-        add("project", Box::new(|t, d| t.add_to_project_dialog(d.id)));
-        add(
-            "categories",
-            Box::new(|t, d| t.edit_categories_dialog(d.id)),
-        );
-        add("tags", Box::new(|t, d| t.edit_tags_dialog(d.id)));
+        add("organize", Box::new(|t, d| t.organize_from_row(d.id)));
         add("notes", Box::new(|t, d| t.edit_notes_dialog(&d)));
         add("move-in", Box::new(|t, d| t.move_into_work_dir(&d)));
         add(
@@ -151,33 +146,7 @@ impl LibraryWindow {
                 );
             }),
         );
-        add(
-            "delete",
-            Box::new(|t, d| {
-                let moved = t.library.borrow_mut().move_to_trash(d.id);
-                match moved {
-                    Err(e) => {
-                        tracing::error!("move_to_trash failed: {e}");
-                        t.toast_overlay.add_toast(adw::Toast::new(&format!(
-                            "Couldn't move to the trash — {}.",
-                            e.user_message()
-                        )));
-                    }
-                    Ok(()) => {
-                        let undo = t.clone();
-                        let id = d.id;
-                        t.toast_with_undo(
-                            &format!("Moved \u{201c}{}\u{201d} to Trash", d.title),
-                            move || {
-                                undo.library.borrow_mut().restore_from_trash(id).ok();
-                                undo.refresh();
-                            },
-                        );
-                    }
-                }
-                t.refresh();
-            }),
-        );
+        add("delete", Box::new(|t, d| t.trash_document(d.id)));
         add(
             "restore",
             Box::new(|t, d| {
@@ -227,13 +196,9 @@ impl LibraryWindow {
         }
         menu.append_section(None, &open);
 
-        let organize = Menu::new();
-        organize.append_item(&item("Add to Project…", "doc.project"));
-        organize.append_item(&item("Edit Categories…", "doc.categories"));
-        organize.append_item(&item("Edit Tags…", "doc.tags"));
-        organize.append_item(&item("Edit Notes…", "doc.notes"));
         let keep = Menu::new();
-        keep.append_submenu(Some("Organize"), &organize);
+        keep.append_item(&item("Organize…", "doc.organize"));
+        keep.append_item(&item("Edit Notes…", "doc.notes"));
         keep.append_item(&item(
             if doc.pinned { "Unpin" } else { "Pin to Top" },
             "doc.pin",
@@ -263,177 +228,321 @@ impl LibraryWindow {
         Some(menu)
     }
 
-    pub(super) fn show_project_menu(
-        &self,
-        row: &ListBoxRow,
-        project_id: i64,
-        project_name: &str,
-        x: f64,
-        y: f64,
-    ) {
-        let popover = Popover::new();
-        popover.set_parent(row);
-        popover.set_has_arrow(true);
-        popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
-
-        let vbox = GtkBox::new(Orientation::Vertical, 2);
-        vbox.set_margin_top(4);
-        vbox.set_margin_bottom(4);
-        vbox.set_margin_start(4);
-        vbox.set_margin_end(4);
-
-        let mk = |label: &str| -> Button {
-            let b = Button::with_label(label);
-            b.add_css_class("flat");
-            b.set_halign(Align::Fill);
-            if let Some(child) = b.child() {
-                child.set_halign(Align::Start);
-            }
-            b
+    /// Moves a document to the Trash, with an Undo toast — what the menu's
+    /// Delete does, and what dropping a document on the Trash row does.
+    pub(super) fn trash_document(&self, doc_id: i64) {
+        let Some(doc) = self.library.borrow().doc_by_id(doc_id).ok().flatten() else {
+            return;
         };
-
-        if let Ok(Some(root_path)) = self.library.borrow().project_root_path(project_id) {
-            let open_root = mk("Open Root File");
-            let this = self.clone();
-            let pop = popover.clone();
-            open_root.connect_clicked(move |_| {
-                pop.popdown();
-                if let Some(cb) = this.on_open.borrow().as_ref() {
-                    this.library.borrow_mut().touch_opened(&root_path).ok();
-                    cb(root_path.clone());
-                }
-            });
-            vbox.append(&open_root);
-            vbox.append(&Separator::new(Orientation::Horizontal));
+        let moved = self.library.borrow_mut().move_to_trash(doc_id);
+        match moved {
+            Err(e) => {
+                tracing::error!("move_to_trash failed: {e}");
+                self.toast_overlay.add_toast(adw::Toast::new(&format!(
+                    "Couldn't move to the trash — {}.",
+                    e.user_message()
+                )));
+            }
+            Ok(()) => {
+                let undo = self.clone();
+                self.toast_with_undo(
+                    &format!("Moved \u{201c}{}\u{201d} to Trash", doc.title),
+                    move || {
+                        undo.library.borrow_mut().restore_from_trash(doc_id).ok();
+                        undo.refresh();
+                    },
+                );
+            }
         }
-
-        let rename_b = mk("Rename Project…");
-        {
-            let this = self.clone();
-            let pop = popover.clone();
-            let pname = project_name.to_string();
-            rename_b.connect_clicked(move |_| {
-                pop.popdown();
-                this.rename_project_dialog(project_id, &pname);
-            });
-        }
-        vbox.append(&rename_b);
-
-        let delete_b = mk("Delete Project");
-        delete_b.add_css_class("error");
-        {
-            let this = self.clone();
-            let pop = popover.clone();
-            delete_b.connect_clicked(move |_| {
-                pop.popdown();
-                this.library.borrow_mut().delete_project(project_id).ok();
-                *this.current_filter.borrow_mut() = LibraryFilter::All;
-                this.refresh();
-            });
-        }
-        vbox.append(&delete_b);
-
-        popover.set_child(Some(&vbox));
-        popup_after_click(&popover);
+        self.refresh();
     }
 
-    pub(super) fn show_category_menu(
+    /// Opens the Organize popover for a document from its menu — for the whole
+    /// selection if the document is part of one.
+    pub(super) fn organize_from_row(&self, doc_id: i64) {
+        let ids: Vec<i64> = {
+            let sel = self.selection.borrow();
+            if sel.len() > 1 && sel.contains(&doc_id) {
+                sel.iter().copied().collect()
+            } else {
+                vec![doc_id]
+            }
+        };
+        let anchor = self
+            .row_widgets
+            .borrow()
+            .get(&doc_id)
+            .map(|p| p.row.clone().upcast::<gtk4::Widget>());
+        if let Some(anchor) = anchor {
+            // After the menu that asked for this has finished closing, or it
+            // takes the popover down with it.
+            let this = self.clone();
+            glib::timeout_add_local_once(Duration::from_millis(60), move || {
+                this.show_organize(ids, &anchor);
+            });
+        }
+    }
+
+    /// Gives a sidebar row a ⋯ menu that appears on hover or focus, and the
+    /// same menu on right-click, so renaming, recolouring and deleting aren't
+    /// hidden behind a gesture nobody is told about.
+    pub(super) fn attach_row_menu(
         &self,
         row: &ListBoxRow,
-        cat_name: &str,
-        has_children: bool,
-        x: f64,
-        y: f64,
+        hbox: &GtkBox,
+        model: impl Fn() -> Option<gtk4::gio::Menu> + 'static,
     ) {
-        let popover = Popover::new();
-        popover.set_parent(row);
-        popover.set_has_arrow(true);
-        popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
-        let vbox = GtkBox::new(Orientation::Vertical, 2);
-        vbox.set_margin_top(4);
-        vbox.set_margin_bottom(4);
-        vbox.set_margin_start(4);
-        vbox.set_margin_end(4);
-        let mk = |label: &str| -> Button {
-            let b = Button::with_label(label);
-            b.add_css_class("flat");
-            b.set_halign(Align::Fill);
-            if let Some(child) = b.child() {
-                child.set_halign(Align::Start);
-            }
-            b
+        let model: Rc<dyn Fn() -> Option<gtk4::gio::Menu>> = Rc::new(model);
+        let more = gtk4::MenuButton::new();
+        more.set_icon_name("view-more-symbolic");
+        more.add_css_class("flat");
+        more.add_css_class("circular");
+        more.add_css_class("row-more");
+        more.set_valign(Align::Center);
+        more.set_tooltip_text(Some("More actions"));
+        more.update_property(&[gtk4::accessible::Property::Label("More actions")]);
+        {
+            let model = model.clone();
+            more.set_create_popup_func(move |btn| btn.set_menu_model(model().as_ref()));
+        }
+        more.set_opacity(0.0);
+        more.set_can_target(false);
+        hbox.append(&more);
+
+        let show: Rc<dyn Fn(bool)> = {
+            let m = more.clone();
+            Rc::new(move |on: bool| {
+                m.set_opacity(if on { 1.0 } else { 0.0 });
+                m.set_can_target(on);
+            })
         };
-        let add_sub_b = mk("Add Subcategory…");
+        let hover = gtk4::EventControllerMotion::new();
+        let focus = gtk4::EventControllerFocus::new();
         {
-            let this = self.clone();
-            let pop = popover.clone();
-            let cname = cat_name.to_string();
-            add_sub_b.connect_clicked(move |_| {
-                pop.popdown();
-                this.add_subcategory_dialog(&cname);
-            });
+            let f = show.clone();
+            hover.connect_enter(move |_, _, _| f(true));
+            let f = show.clone();
+            hover.connect_leave(move |_| f(false));
+            let f = show.clone();
+            focus.connect_enter(move |_| f(true));
+            let f = show.clone();
+            focus.connect_leave(move |_| f(false));
         }
-        vbox.append(&add_sub_b);
-        if !has_children {
-            let set_parent_b = mk("Set Parent…");
+        row.add_controller(hover);
+        row.add_controller(focus);
+
+        let gesture = gtk4::GestureClick::new();
+        gesture.set_button(3);
+        let row_weak = row.downgrade();
+        gesture.connect_pressed(move |g, _, x, y| {
+            g.set_state(gtk4::EventSequenceState::Claimed);
+            if let (Some(row), Some(menu)) = (row_weak.upgrade(), model()) {
+                popup_menu_at(&row, &menu, x, y);
+            }
+        });
+        row.add_controller(gesture);
+    }
+
+    /// Lets a document row be dropped on `row`, with the row lit while it's
+    /// over it so it's clear where it will land.
+    pub(super) fn add_doc_drop_target(&self, row: &ListBoxRow, on_drop: impl Fn(i64) + 'static) {
+        let drop = DropTarget::new(glib::Type::STRING, gtk4::gdk::DragAction::COPY);
+        drop.connect_enter(|target, _, _| {
+            if let Some(w) = target.widget() {
+                w.add_css_class("drop-hover");
+            }
+            gtk4::gdk::DragAction::COPY
+        });
+        drop.connect_leave(|target| {
+            if let Some(w) = target.widget() {
+                w.remove_css_class("drop-hover");
+            }
+        });
+        drop.connect_drop(move |target, value, _, _| {
+            if let Some(w) = target.widget() {
+                w.remove_css_class("drop-hover");
+            }
+            match value
+                .get::<String>()
+                .ok()
+                .and_then(|s| s.parse::<i64>().ok())
+            {
+                Some(id) => {
+                    on_drop(id);
+                    true
+                }
+                None => false,
+            }
+        });
+        row.add_controller(drop);
+    }
+
+    /// The `project.*` actions: what a project's ⋯ menu does.
+    pub(super) fn install_project_actions(&self) {
+        let group = gtk4::gio::SimpleActionGroup::new();
+        let add = |name: &str, run: Box<dyn Fn(&LibraryWindow, i64)>| {
+            let action = gtk4::gio::SimpleAction::new(name, Some(glib::VariantTy::INT64));
             let this = self.clone();
-            let pop = popover.clone();
-            let cname = cat_name.to_string();
-            set_parent_b.connect_clicked(move |_| {
-                pop.popdown();
-                this.set_parent_dialog(&cname);
+            action.connect_activate(move |_, param| {
+                if let Some(id) = param.and_then(|p| p.get::<i64>()) {
+                    run(&this, id);
+                }
             });
-            vbox.append(&set_parent_b);
-        }
-        let rename_b = mk("Rename Category…");
-        {
-            let this = self.clone();
-            let pop = popover.clone();
-            let cname = cat_name.to_string();
-            rename_b.connect_clicked(move |_| {
-                pop.popdown();
-                this.rename_category_dialog(&cname);
-            });
-        }
-        vbox.append(&rename_b);
-        let recolor_b = mk("Recolor…");
-        {
-            let this = self.clone();
-            let pop = popover.clone();
-            let cname = cat_name.to_string();
-            recolor_b.connect_clicked(move |_| {
-                pop.popdown();
-                this.recolor_category_dialog(&cname);
-            });
-        }
-        vbox.append(&recolor_b);
-        let delete_b = mk("Delete Category");
-        delete_b.add_css_class("error");
-        if has_children {
-            delete_b.set_sensitive(false);
-            delete_b.add_css_class("dim-label");
-            delete_b.set_tooltip_text(Some("Remove subcategories first"));
-        } else {
-            let this = self.clone();
-            let pop = popover.clone();
-            let cname = cat_name.to_string();
-            delete_b.connect_clicked(move |_| {
-                pop.popdown();
-                let deleted = this
+            group.add_action(&action);
+        };
+        add(
+            "open-root",
+            Box::new(|t, pid| {
+                let root = t.library.borrow().project_root_path(pid).ok().flatten();
+                if let Some(path) = root {
+                    t.library.borrow_mut().touch_opened(&path).ok();
+                    if let Some(cb) = t.on_open.borrow().as_ref() {
+                        cb(path);
+                    }
+                }
+            }),
+        );
+        add(
+            "rename",
+            Box::new(|t, pid| {
+                let name = t.filter_label(&LibraryFilter::Project(pid));
+                t.rename_project_dialog(pid, &name);
+            }),
+        );
+        add(
+            "delete",
+            Box::new(|t, pid| {
+                let this = t.clone();
+                let name = t.filter_label(&LibraryFilter::Project(pid));
+                let n = t
                     .library
-                    .borrow_mut()
-                    .force_delete_category_if_no_children(&cname)
-                    .unwrap_or(false);
-                if !deleted {
-                    let toast = adw::Toast::new("Cannot delete: subcategories exist");
-                    this.toast_overlay.add_toast(toast);
-                }
-                *this.current_filter.borrow_mut() = LibraryFilter::All;
-                this.refresh();
-            });
-        }
-        vbox.append(&delete_b);
-        popover.set_child(Some(&vbox));
-        popup_after_click(&popover);
+                    .borrow()
+                    .doc_count(&LibraryFilter::Project(pid))
+                    .unwrap_or(0);
+                crate::ui::confirm::confirm_destructive(
+                    Some(t.window.upcast_ref()),
+                    "Delete project?",
+                    &format!(
+                        "\u{201c}{name}\u{201d} will go; its {n} document{} stay in the Library, \
+                         just no longer grouped.",
+                        if n == 1 { "" } else { "s" }
+                    ),
+                    "Delete",
+                    move || {
+                        this.library.borrow_mut().delete_project(pid).ok();
+                        if *this.current_filter.borrow() == LibraryFilter::Project(pid) {
+                            *this.current_filter.borrow_mut() = LibraryFilter::All;
+                        }
+                        this.refresh();
+                    },
+                );
+            }),
+        );
+        self.window.insert_action_group("project", Some(&group));
     }
+
+    pub(super) fn project_menu_model(&self, project_id: i64) -> Option<gtk4::gio::Menu> {
+        use gtk4::gio::{Menu, MenuItem};
+        let id = project_id.to_variant();
+        let item = |label: &str, action: &str| {
+            let it = MenuItem::new(Some(label), None);
+            it.set_action_and_target_value(Some(action), Some(&id));
+            it
+        };
+        let menu = Menu::new();
+        if let Ok(Some(_)) = self.library.borrow().project_root_path(project_id) {
+            let s = Menu::new();
+            s.append_item(&item("Open Root File", "project.open-root"));
+            menu.append_section(None, &s);
+        }
+        let s = Menu::new();
+        s.append_item(&item("Rename…", "project.rename"));
+        s.append_item(&item("Delete…", "project.delete"));
+        menu.append_section(None, &s);
+        Some(menu)
+    }
+
+    /// The `label.*` actions: what a label's ⋯ menu does.
+    pub(super) fn install_label_actions(&self) {
+        let group = gtk4::gio::SimpleActionGroup::new();
+        let add = |name: &str, run: Box<dyn Fn(&LibraryWindow, i64)>| {
+            let action = gtk4::gio::SimpleAction::new(name, Some(glib::VariantTy::INT64));
+            let this = self.clone();
+            action.connect_activate(move |_, param| {
+                if let Some(id) = param.and_then(|p| p.get::<i64>()) {
+                    run(&this, id);
+                }
+            });
+            group.add_action(&action);
+        };
+        add("rename", Box::new(|t, id| t.rename_label_dialog(id)));
+        add("color", Box::new(|t, id| t.label_color_dialog(id)));
+        add(
+            "delete",
+            Box::new(|t, id| {
+                let this = t.clone();
+                let name = t.filter_label(&LibraryFilter::Label(id));
+                let n = t
+                    .library
+                    .borrow()
+                    .doc_count(&LibraryFilter::Label(id))
+                    .unwrap_or(0);
+                crate::ui::confirm::confirm_destructive(
+                    Some(t.window.upcast_ref()),
+                    "Delete label?",
+                    &format!(
+                        "\u{201c}{name}\u{201d} will be taken off its {n} document{}. The \
+                         documents themselves aren't touched.",
+                        if n == 1 { "" } else { "s" }
+                    ),
+                    "Delete",
+                    move || {
+                        this.library.borrow_mut().delete_label(id).ok();
+                        if *this.current_filter.borrow() == LibraryFilter::Label(id) {
+                            *this.current_filter.borrow_mut() = LibraryFilter::All;
+                        }
+                        this.refresh();
+                    },
+                );
+            }),
+        );
+        self.window.insert_action_group("label", Some(&group));
+    }
+
+    pub(super) fn label_menu_model(&self, label_id: i64) -> Option<gtk4::gio::Menu> {
+        use gtk4::gio::{Menu, MenuItem};
+        let id = label_id.to_variant();
+        let item = |label: &str, action: &str| {
+            let it = MenuItem::new(Some(label), None);
+            it.set_action_and_target_value(Some(action), Some(&id));
+            it
+        };
+        let menu = Menu::new();
+        let s = Menu::new();
+        s.append_item(&item("Rename…", "label.rename"));
+        s.append_item(&item("Change Color…", "label.color"));
+        menu.append_section(None, &s);
+        let s = Menu::new();
+        s.append_item(&item("Delete…", "label.delete"));
+        menu.append_section(None, &s);
+        Some(menu)
+    }
+}
+
+/// Pops a menu up at a point inside `parent` — what a right-click does.
+pub(super) fn popup_menu_at(
+    parent: &impl IsA<gtk4::Widget>,
+    model: &gtk4::gio::Menu,
+    x: f64,
+    y: f64,
+) {
+    let popover = gtk4::PopoverMenu::from_model(Some(model));
+    popover.set_parent(parent);
+    popover.set_has_arrow(true);
+    popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+    popover.connect_closed(|p| {
+        let p = p.clone();
+        glib::idle_add_local_once(move || p.unparent());
+    });
+    popup_after_click(popover.upcast_ref());
 }

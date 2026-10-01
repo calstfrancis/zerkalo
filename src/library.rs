@@ -26,6 +26,30 @@ fn default_trash_dir() -> PathBuf {
     crate::config::zerkalo_data_dir().join("trash")
 }
 
+fn labels_migrated(conn: &Connection) -> bool {
+    conn.query_row(
+        "SELECT value FROM meta WHERE key = 'labels_migrated'",
+        [],
+        |r| r.get::<_, String>(0),
+    )
+    .map(|v| v == "1")
+    .unwrap_or(false)
+}
+
+/// There is an old-style library whose tags and categories haven't become
+/// labels yet.
+fn labels_migration_pending(conn: &Connection) -> bool {
+    let has_tags = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'tags'",
+            [],
+            |r| r.get::<_, i64>(0),
+        )
+        .unwrap_or(0)
+        > 0;
+    has_tags && !labels_migrated(conn)
+}
+
 /// `move_to_trash` must never mark a document deleted in the database unless
 /// the file actually landed in the trash directory — a filesystem failure
 /// (read-only fs, full disk, permissions) has to abort the whole operation
@@ -75,19 +99,21 @@ pub struct Counts {
     pub archive: i64,
     pub trash: i64,
     pub recent: i64,
-    pub untagged: i64,
+    pub unlabelled: i64,
     pub projects: std::collections::HashMap<i64, i64>,
-    pub tags: std::collections::HashMap<i64, i64>,
+    pub labels: std::collections::HashMap<i64, i64>,
     pub authors: std::collections::HashMap<i64, i64>,
-    pub categories: std::collections::HashMap<String, i64>,
-    pub category_groups: std::collections::HashMap<String, i64>,
 }
 
+/// A word a document can carry — what tags and categories used to be, as one
+/// thing. Flat: nesting is written into the name (`Liturgy › Advent`).
 #[derive(Clone, Debug)]
-pub struct Tag {
+pub struct Label {
     pub id: i64,
     pub name: String,
-    pub color_hex: String,
+    /// `None` until a colour is chosen — callers substitute a per-name palette
+    /// colour so distinct labels stay distinct.
+    pub color_hex: Option<String>,
 }
 
 /// A cited author's tag, e.g. `Butler, J.` — derived, never typed in.
@@ -105,27 +131,17 @@ pub struct Project {
     pub root_doc_id: Option<i64>,
     pub created_at: String,
 }
-#[derive(Clone, Debug)]
-pub struct Category {
-    pub name: String,
-    /// `None` when no colour has been explicitly chosen — callers substitute a
-    /// per-name palette colour so distinct categories stay distinct.
-    pub color_hex: Option<String>,
-    pub parent: Option<String>,
-}
-
 #[derive(Clone, Debug, PartialEq)]
 pub enum LibraryFilter {
     All,
     Project(i64),
-    Tag(i64),
+    Label(i64),
     /// Everything citing one author — see `authors.rs`.
     Author(i64),
-    Category(String),
-    CategoryGroup(String),
     Archive,
     Recent,
-    Untagged,
+    /// Documents with no label yet.
+    Unlabelled,
     Trash,
     /// Every document that isn't in the Trash, archived or not — what a
     /// search looks through unless it's been narrowed to the current view.
@@ -179,9 +195,9 @@ impl LibraryFilter {
             LibraryFilter::All => plain("archived = 0 AND deleted = 0"),
             LibraryFilter::Archive => plain("archived = 1 AND deleted = 0"),
             LibraryFilter::Everywhere => plain("deleted = 0"),
-            LibraryFilter::Untagged => plain(
+            LibraryFilter::Unlabelled => plain(
                 "archived = 0 AND deleted = 0 \
-                 AND id NOT IN (SELECT DISTINCT doc_id FROM doc_tags)",
+                 AND id NOT IN (SELECT DISTINCT doc_id FROM doc_labels)",
             ),
             LibraryFilter::Recent => FilterSpec {
                 order_override: Some("pinned DESC, last_opened_at DESC"),
@@ -191,27 +207,6 @@ impl LibraryFilter {
             LibraryFilter::Trash => FilterSpec {
                 order_override: Some("modified_at DESC"),
                 ..plain("deleted = 1")
-            },
-            // `EXISTS` rather than a `doc_categories` join: a document can now
-            // carry more than one category (including a parent and one of its
-            // own children at once), so a join could match the same document
-            // through more than one row and duplicate it in the results.
-            LibraryFilter::Category(cat) => FilterSpec {
-                param: Some(cat.into()),
-                ..plain(
-                    "EXISTS (SELECT 1 FROM doc_categories dc \
-                         WHERE dc.doc_id = id AND dc.category = ?1) \
-                     AND archived = 0 AND deleted = 0",
-                )
-            },
-            LibraryFilter::CategoryGroup(parent) => FilterSpec {
-                param: Some(parent.into()),
-                ..plain(
-                    "EXISTS (SELECT 1 FROM doc_categories dc \
-                         WHERE dc.doc_id = id AND dc.category IN (\
-                             SELECT name FROM categories WHERE name = ?1 OR parent = ?1\
-                         )) AND archived = 0 AND deleted = 0",
-                )
             },
             LibraryFilter::Project(pid) => FilterSpec {
                 prefix: "d.",
@@ -231,14 +226,14 @@ impl LibraryFilter {
                 limit: None,
                 param: Some(aid.into()),
             },
-            LibraryFilter::Tag(tid) => FilterSpec {
+            LibraryFilter::Label(lid) => FilterSpec {
                 prefix: "d.",
                 select: doc_cols_prefixed("d"),
-                from: "documents d JOIN doc_tags dt ON dt.doc_id = d.id".to_string(),
-                conditions: "dt.tag_id = ?1 AND d.archived = 0 AND d.deleted = 0".to_string(),
+                from: "documents d JOIN doc_labels dl ON dl.doc_id = d.id".to_string(),
+                conditions: "dl.label_id = ?1 AND d.archived = 0 AND d.deleted = 0".to_string(),
                 order_override: None,
                 limit: None,
-                param: Some(tid.into()),
+                param: Some(lid.into()),
             },
         }
     }
@@ -290,8 +285,18 @@ impl Library {
         let dir = crate::config::zerkalo_data_dir();
         std::fs::create_dir_all(&dir).ok();
         let path = dir.join("library.sqlite");
-        let conn = Connection::open(path)?;
+        let conn = Connection::open(&path)?;
         conn.execute_batch("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;")?;
+        // Tags and categories are about to be folded into labels. Keep a copy
+        // of the library as it was, once, so nothing is lost if that goes
+        // wrong or the change is unwelcome.
+        if labels_migration_pending(&conn) {
+            conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);").ok();
+            let backup = dir.join("library.before-labels.sqlite");
+            if !backup.exists() {
+                std::fs::copy(&path, backup).ok();
+            }
+        }
         let lib = Self {
             conn,
             trash_dir: default_trash_dir(),
@@ -465,6 +470,24 @@ impl Library {
              SELECT id, category FROM documents WHERE category IS NOT NULL;",
             )
             .ok();
+        // Labels, which replace tags and categories. The old tables stay where
+        // they are, untouched and unread, so the migration can be checked
+        // against them and a downgrade still finds its data.
+        self.conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+             CREATE TABLE IF NOT EXISTS labels (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                 color_hex TEXT
+             );
+             CREATE TABLE IF NOT EXISTS doc_labels (
+                 doc_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+                 label_id INTEGER NOT NULL REFERENCES labels(id) ON DELETE CASCADE,
+                 PRIMARY KEY (doc_id, label_id)
+             );
+             CREATE INDEX IF NOT EXISTS idx_doc_labels_label ON doc_labels(label_id);",
+        )?;
+        self.migrate_to_labels()?;
         Ok(())
     }
 
@@ -508,6 +531,51 @@ impl Library {
             self.conn.execute_batch("ROLLBACK;").ok();
         }
         self.conn.execute_batch("PRAGMA foreign_keys = ON;").ok();
+    }
+
+    /// Folds the old tags and categories into labels, once.
+    ///
+    /// - A tag becomes a label of the same name and carries the same documents.
+    /// - A category becomes a label too; a nested one is named for its whole
+    ///   path (`Liturgy › Advent`). A parent that only ever grouped children and
+    ///   held no documents of its own is dropped — its name lives on in theirs.
+    /// - A tag and a category with the same name become one label.
+    /// - The old default blue (applied automatically, never chosen) counts as
+    ///   "no colour", so migrated labels get distinct palette colours instead of
+    ///   all being blue.
+    fn migrate_to_labels(&self) -> SqlResult<()> {
+        if labels_migrated(&self.conn) {
+            return Ok(());
+        }
+        let name_expr = "CASE WHEN c.parent IS NULL THEN c.name \
+                         ELSE c.parent || ' \u{203a} ' || c.name END";
+        let keeps = "NOT (EXISTS (SELECT 1 FROM categories k WHERE k.parent = c.name) \
+                     AND NOT EXISTS (SELECT 1 FROM doc_categories x WHERE x.category = c.name))";
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute_batch(&format!(
+            "INSERT OR IGNORE INTO labels (name, color_hex)
+                 SELECT name, NULLIF(color_hex, '#3584e4') FROM tags;
+             INSERT OR IGNORE INTO doc_labels (doc_id, label_id)
+                 SELECT dt.doc_id, l.id FROM doc_tags dt
+                 JOIN tags t ON t.id = dt.tag_id
+                 JOIN labels l ON l.name = t.name;
+             INSERT OR IGNORE INTO labels (name, color_hex)
+                 SELECT {name_expr}, c.color_hex FROM categories c WHERE {keeps};
+             UPDATE labels SET color_hex = (
+                     SELECT c.color_hex FROM categories c
+                     WHERE {name_expr} = labels.name AND c.color_hex IS NOT NULL
+                       AND c.color_hex <> '#3584e4' LIMIT 1)
+                 WHERE color_hex IS NULL AND EXISTS (
+                     SELECT 1 FROM categories c
+                     WHERE {name_expr} = labels.name AND c.color_hex IS NOT NULL
+                       AND c.color_hex <> '#3584e4');
+             INSERT OR IGNORE INTO doc_labels (doc_id, label_id)
+                 SELECT dc.doc_id, l.id FROM doc_categories dc
+                 JOIN categories c ON c.name = dc.category
+                 JOIN labels l ON l.name = {name_expr};
+             INSERT OR REPLACE INTO meta (key, value) VALUES ('labels_migrated', '1');"
+        ))?;
+        tx.commit()
     }
 
     pub fn upsert_document(&mut self, path: &Path) -> SqlResult<i64> {
@@ -920,14 +988,14 @@ impl Library {
     /// than one `COUNT(*)` per row.
     pub fn counts(&self) -> SqlResult<Counts> {
         let mut c = Counts::default();
-        let (all, archive, trash, recent, untagged) = self.conn.query_row(
+        let (all, archive, trash, recent, unlabelled) = self.conn.query_row(
             "SELECT
                 COALESCE(SUM(archived = 0 AND deleted = 0), 0),
                 COALESCE(SUM(archived = 1 AND deleted = 0), 0),
                 COALESCE(SUM(deleted = 1), 0),
                 COALESCE(SUM(archived = 0 AND deleted = 0 AND last_opened_at IS NOT NULL), 0),
                 COALESCE(SUM(archived = 0 AND deleted = 0
-                             AND id NOT IN (SELECT doc_id FROM doc_tags)), 0)
+                             AND id NOT IN (SELECT doc_id FROM doc_labels)), 0)
              FROM documents",
             [],
             |r| {
@@ -944,7 +1012,7 @@ impl Library {
         c.archive = archive;
         c.trash = trash;
         c.recent = recent.min(RECENT_LIMIT as i64);
-        c.untagged = untagged;
+        c.unlabelled = unlabelled;
 
         let grouped = |sql: &str| -> SqlResult<Vec<(rusqlite::types::Value, i64)>> {
             let mut stmt = self.conn.prepare(sql)?;
@@ -955,10 +1023,6 @@ impl Library {
             rusqlite::types::Value::Integer(i) => i,
             _ => 0,
         };
-        let text = |v: rusqlite::types::Value| match v {
-            rusqlite::types::Value::Text(t) => t,
-            _ => String::new(),
-        };
         for (k, n) in grouped(
             "SELECT pd.project_id, COUNT(*) FROM project_docs pd
              JOIN documents d ON d.id = pd.doc_id
@@ -967,11 +1031,11 @@ impl Library {
             c.projects.insert(id(k), n);
         }
         for (k, n) in grouped(
-            "SELECT dt.tag_id, COUNT(*) FROM doc_tags dt
-             JOIN documents d ON d.id = dt.doc_id
-             WHERE d.archived = 0 AND d.deleted = 0 GROUP BY dt.tag_id",
+            "SELECT dl.label_id, COUNT(*) FROM doc_labels dl
+             JOIN documents d ON d.id = dl.doc_id
+             WHERE d.archived = 0 AND d.deleted = 0 GROUP BY dl.label_id",
         )? {
-            c.tags.insert(id(k), n);
+            c.labels.insert(id(k), n);
         }
         for (k, n) in grouped(
             "SELECT da.author_id, COUNT(*) FROM doc_authors da
@@ -980,94 +1044,7 @@ impl Library {
         )? {
             c.authors.insert(id(k), n);
         }
-        for (k, n) in grouped(
-            "SELECT dc.category, COUNT(*) FROM doc_categories dc
-             JOIN documents d ON d.id = dc.doc_id
-             WHERE d.archived = 0 AND d.deleted = 0 GROUP BY dc.category",
-        )? {
-            c.categories.insert(text(k), n);
-        }
-        // A parent category's number counts a document once, however many of
-        // the family it carries.
-        for (k, n) in grouped(
-            "SELECT p.name, COUNT(DISTINCT dc.doc_id) FROM categories p
-             JOIN categories f ON f.name = p.name OR f.parent = p.name
-             JOIN doc_categories dc ON dc.category = f.name
-             JOIN documents d ON d.id = dc.doc_id
-             WHERE d.archived = 0 AND d.deleted = 0 GROUP BY p.name",
-        )? {
-            c.category_groups.insert(text(k), n);
-        }
         Ok(c)
-    }
-
-    /// Every document's tags in one query, for drawing the list.
-    pub fn tags_by_doc(&self) -> SqlResult<std::collections::HashMap<i64, Vec<Tag>>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT dt.doc_id, t.id, t.name, t.color_hex FROM doc_tags dt
-             JOIN tags t ON t.id = dt.tag_id ORDER BY t.name",
-        )?;
-        let rows = stmt.query_map([], |r| {
-            Ok((
-                r.get::<_, i64>(0)?,
-                Tag {
-                    id: r.get(1)?,
-                    name: r.get(2)?,
-                    color_hex: r.get(3)?,
-                },
-            ))
-        })?;
-        let mut map: std::collections::HashMap<i64, Vec<Tag>> = Default::default();
-        for r in rows {
-            let (doc, tag) = r?;
-            map.entry(doc).or_default().push(tag);
-        }
-        Ok(map)
-    }
-
-    /// Every document's categories in one query, ordered like `doc_categories`.
-    pub fn categories_by_doc(&self) -> SqlResult<std::collections::HashMap<i64, Vec<Category>>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT dc.doc_id, c.name, c.color_hex, c.parent FROM doc_categories dc
-             JOIN categories c ON c.name = dc.category
-             ORDER BY c.parent NULLS FIRST, c.name",
-        )?;
-        let rows = stmt.query_map([], |r| {
-            Ok((
-                r.get::<_, i64>(0)?,
-                Category {
-                    name: r.get(1)?,
-                    color_hex: r.get(2)?,
-                    parent: r.get(3)?,
-                },
-            ))
-        })?;
-        let mut map: std::collections::HashMap<i64, Vec<Category>> = Default::default();
-        for r in rows {
-            let (doc, cat) = r?;
-            map.entry(doc).or_default().push(cat);
-        }
-        Ok(map)
-    }
-
-    pub fn doc_tags(&self, doc_id: i64) -> SqlResult<Vec<Tag>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT t.id, t.name, t.color_hex FROM tags t
-             JOIN doc_tags dt ON dt.tag_id = t.id
-             WHERE dt.doc_id = ?1 ORDER BY t.name",
-        )?;
-        let rows = stmt.query_map(params![doc_id], |r| {
-            Ok(Tag {
-                id: r.get(0)?,
-                name: r.get(1)?,
-                color_hex: r.get(2)?,
-            })
-        })?;
-        let mut tags = Vec::new();
-        for r in rows {
-            tags.push(r?);
-        }
-        Ok(tags)
     }
 
     pub fn set_title(&mut self, doc_id: i64, title: &str) -> SqlResult<()> {
@@ -1079,110 +1056,12 @@ impl Library {
         Ok(())
     }
 
-    /// Categories currently assigned to a document, ordered like
-    /// `all_categories_structured` (parents before children, then by name).
-    pub fn doc_categories(&self, doc_id: i64) -> SqlResult<Vec<Category>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT c.name, c.color_hex, c.parent FROM categories c
-             JOIN doc_categories dc ON dc.category = c.name
-             WHERE dc.doc_id = ?1 ORDER BY c.parent NULLS FIRST, c.name",
-        )?;
-        let rows = stmt.query_map(params![doc_id], |r| {
-            Ok(Category {
-                name: r.get(0)?,
-                color_hex: r.get(1)?,
-                parent: r.get(2)?,
-            })
-        })?;
-        let mut cats = Vec::new();
-        for r in rows {
-            cats.push(r?);
-        }
-        Ok(cats)
-    }
-
-    /// Replaces a document's full set of categories (mirrors `set_doc_tags`).
-    pub fn set_doc_categories(&mut self, doc_id: i64, names: &[String]) -> SqlResult<()> {
-        self.conn.execute(
-            "DELETE FROM doc_categories WHERE doc_id = ?1",
-            params![doc_id],
-        )?;
-        self.add_doc_categories(doc_id, names)
-    }
-
-    /// Adds categories to a document without disturbing any it already has
-    /// (mirrors `add_doc_tags`) — used by drag-and-drop-to-category and bulk
-    /// assignment, where dropping onto a category should add it, not replace
-    /// whatever the document already belongs to.
-    pub fn add_doc_categories(&mut self, doc_id: i64, names: &[String]) -> SqlResult<()> {
-        for name in names {
-            self.ensure_category(name)?;
-            self.conn.execute(
-                "INSERT OR IGNORE INTO doc_categories (doc_id, category) VALUES (?1, ?2)",
-                params![doc_id, name],
-            )?;
-        }
-        Ok(())
-    }
-
     pub fn set_pinned(&mut self, doc_id: i64, pinned: bool) -> SqlResult<()> {
         self.conn.execute(
             "UPDATE documents SET pinned=?1 WHERE id=?2",
             params![pinned as i64, doc_id],
         )?;
         Ok(())
-    }
-
-    /// Returns the saved color for a category, or `None` if it has never had
-    /// one assigned. Callers decide the fallback (e.g. a palette color keyed
-    /// off the category name) rather than baking in a single fixed color.
-    pub fn get_category_color(&self, name: &str) -> Option<String> {
-        self.conn
-            .query_row(
-                "SELECT color_hex FROM categories WHERE name=?1",
-                params![name],
-                |r| r.get::<_, Option<String>>(0),
-            )
-            .ok()
-            .flatten()
-    }
-
-    pub fn set_category_color(&mut self, name: &str, color: &str) -> SqlResult<()> {
-        self.conn.execute(
-            "INSERT INTO categories (name, color_hex) VALUES (?1, ?2)
-             ON CONFLICT(name) DO UPDATE SET color_hex=excluded.color_hex",
-            params![name, color],
-        )?;
-        Ok(())
-    }
-
-    pub fn ensure_category(&mut self, name: &str) -> SqlResult<()> {
-        self.conn.execute(
-            "INSERT OR IGNORE INTO categories (name) VALUES (?1)",
-            params![name],
-        )?;
-        Ok(())
-    }
-
-    /// Categories that appear on at least one document, paired with their saved
-    /// color if one has been assigned. `None` means the caller should pick a
-    /// fallback (e.g. a palette color keyed off the category name), so that
-    /// distinct uncolored categories don't all render identically.
-    pub fn all_categories_with_colors(&self) -> SqlResult<Vec<(String, Option<String>)>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT DISTINCT dc.category, c.color_hex
-             FROM doc_categories dc
-             JOIN documents d ON d.id = dc.doc_id
-             LEFT JOIN categories c ON c.name = dc.category
-             WHERE d.deleted = 0
-             ORDER BY dc.category",
-        )?;
-        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
-        let mut out = Vec::new();
-        for r in rows {
-            out.push(r?);
-        }
-        Ok(out)
     }
 
     pub fn move_to_trash(&mut self, doc_id: i64) -> Result<(), TrashError> {
@@ -1431,192 +1310,143 @@ impl Library {
         Ok(())
     }
 
-    pub fn all_tags(&self) -> SqlResult<Vec<Tag>> {
+    // ── labels ───────────────────────────────────────────────────────────
+
+    pub fn all_labels(&self) -> SqlResult<Vec<Label>> {
         let mut stmt = self
             .conn
-            .prepare("SELECT id, name, color_hex FROM tags ORDER BY name")?;
-        let rows = stmt.query_map([], |r| {
-            Ok(Tag {
-                id: r.get(0)?,
-                name: r.get(1)?,
-                color_hex: r.get(2)?,
-            })
-        })?;
-        let mut tags = Vec::new();
-        for r in rows {
-            tags.push(r?);
-        }
-        Ok(tags)
+            .prepare("SELECT id, name, color_hex FROM labels ORDER BY name COLLATE NOCASE")?;
+        let rows = stmt.query_map([], label_from_row)?;
+        rows.collect()
     }
 
-    pub fn all_tags_with_counts(&self) -> SqlResult<Vec<(Tag, i64)>> {
+    /// Every document's labels in one query, for drawing the list.
+    pub fn labels_by_doc(&self) -> SqlResult<std::collections::HashMap<i64, Vec<Label>>> {
         let mut stmt = self.conn.prepare(
-            "SELECT t.id, t.name, t.color_hex, COUNT(dt.doc_id) AS cnt
-             FROM tags t
-             LEFT JOIN doc_tags dt ON dt.tag_id = t.id
-             GROUP BY t.id
-             ORDER BY cnt DESC, t.name",
+            "SELECT dl.doc_id, l.id, l.name, l.color_hex FROM doc_labels dl
+             JOIN labels l ON l.id = dl.label_id
+             ORDER BY l.name COLLATE NOCASE",
         )?;
         let rows = stmt.query_map([], |r| {
             Ok((
-                Tag {
-                    id: r.get(0)?,
-                    name: r.get(1)?,
-                    color_hex: r.get(2)?,
+                r.get::<_, i64>(0)?,
+                Label {
+                    id: r.get(1)?,
+                    name: r.get(2)?,
+                    color_hex: r.get(3)?,
                 },
-                r.get::<_, i64>(3)?,
             ))
         })?;
-        let mut result = Vec::new();
+        let mut map: std::collections::HashMap<i64, Vec<Label>> = Default::default();
         for r in rows {
-            result.push(r?);
+            let (doc, label) = r?;
+            map.entry(doc).or_default().push(label);
         }
-        Ok(result)
+        Ok(map)
     }
 
-    pub fn create_tag(&mut self, name: &str, color: &str) -> SqlResult<i64> {
+    /// Makes a label, or returns the one that already has that name (names
+    /// ignore case, so "sermons" is "Sermons").
+    pub fn create_label(&mut self, name: &str) -> SqlResult<i64> {
+        let name = name.trim();
         self.conn.execute(
-            "INSERT OR IGNORE INTO tags (name, color_hex) VALUES (?1, ?2)",
-            params![name, color],
-        )?;
-        self.conn
-            .query_row("SELECT id FROM tags WHERE name = ?1", params![name], |r| {
-                r.get(0)
-            })
-    }
-
-    pub fn delete_tag(&mut self, tag_id: i64) -> SqlResult<()> {
-        self.conn
-            .execute("DELETE FROM tags WHERE id = ?1", params![tag_id])?;
-        Ok(())
-    }
-
-    pub fn rename_tag(&mut self, tag_id: i64, name: &str) -> SqlResult<()> {
-        self.conn.execute(
-            "UPDATE tags SET name = ?1 WHERE id = ?2",
-            params![name, tag_id],
-        )?;
-        Ok(())
-    }
-
-    pub fn set_doc_tags(&mut self, doc_id: i64, tag_ids: &[i64]) -> SqlResult<()> {
-        self.conn
-            .execute("DELETE FROM doc_tags WHERE doc_id = ?1", params![doc_id])?;
-        for tid in tag_ids {
-            self.conn.execute(
-                "INSERT OR IGNORE INTO doc_tags (doc_id, tag_id) VALUES (?1, ?2)",
-                params![doc_id, tid],
-            )?;
-        }
-        Ok(())
-    }
-
-    pub fn add_doc_tags(&mut self, doc_id: i64, tag_ids: &[i64]) -> SqlResult<()> {
-        for tid in tag_ids {
-            self.conn.execute(
-                "INSERT OR IGNORE INTO doc_tags (doc_id, tag_id) VALUES (?1, ?2)",
-                params![doc_id, tid],
-            )?;
-        }
-        Ok(())
-    }
-
-    #[allow(dead_code)] // rounds out the CRUD surface over the library DB; exercised by tests
-    pub fn all_categories(&self) -> SqlResult<Vec<String>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT DISTINCT category FROM doc_categories ORDER BY category")?;
-        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
-        let mut cats = Vec::new();
-        for r in rows {
-            cats.push(r?);
-        }
-        Ok(cats)
-    }
-
-    pub fn create_category(&mut self, name: &str, parent: Option<&str>) -> SqlResult<()> {
-        self.conn.execute(
-            "INSERT OR IGNORE INTO categories (name, parent) VALUES (?1, ?2)",
-            params![name, parent],
-        )?;
-        Ok(())
-    }
-
-    #[allow(dead_code)] // rounds out the CRUD surface over the library DB
-    pub fn delete_category(&mut self, name: &str) -> SqlResult<()> {
-        self.conn.execute(
-            "DELETE FROM doc_categories WHERE category = ?1",
+            "INSERT OR IGNORE INTO labels (name) VALUES (?1)",
             params![name],
         )?;
-        Ok(())
-    }
-
-    pub fn rename_category(&mut self, old_name: &str, new_name: &str) -> SqlResult<()> {
-        let tx = self.conn.transaction()?;
-        tx.execute(
-            "INSERT OR IGNORE INTO categories (name, color_hex, parent)
-             SELECT ?1, color_hex, parent FROM categories WHERE name = ?2",
-            params![new_name, old_name],
-        )?;
-        tx.execute(
-            "UPDATE categories SET parent = ?1 WHERE parent = ?2",
-            params![new_name, old_name],
-        )?;
-        tx.execute(
-            "INSERT OR IGNORE INTO doc_categories (doc_id, category)
-             SELECT doc_id, ?1 FROM doc_categories WHERE category = ?2",
-            params![new_name, old_name],
-        )?;
-        tx.execute("DELETE FROM categories WHERE name = ?1", params![old_name])?;
-        tx.commit()?;
-        Ok(())
-    }
-
-    pub fn all_categories_structured(&self) -> SqlResult<Vec<Category>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT name, color_hex, parent FROM categories ORDER BY parent NULLS FIRST, name",
-        )?;
-        let rows = stmt.query_map([], |r| {
-            Ok(Category {
-                name: r.get(0)?,
-                color_hex: r.get(1)?,
-                parent: r.get(2)?,
-            })
-        })?;
-        let mut out = Vec::new();
-        for r in rows {
-            out.push(r?);
-        }
-        Ok(out)
-    }
-
-    pub fn category_has_children(&self, name: &str) -> SqlResult<bool> {
-        let count: i64 = self.conn.query_row(
-            "SELECT COUNT(*) FROM categories WHERE parent = ?1",
+        self.conn.query_row(
+            "SELECT id FROM labels WHERE name = ?1",
             params![name],
             |r| r.get(0),
-        )?;
-        Ok(count > 0)
+        )
     }
 
-    pub fn force_delete_category_if_no_children(&mut self, name: &str) -> SqlResult<bool> {
-        if self.category_has_children(name)? {
-            return Ok(false);
-        }
-        // Relies on `doc_categories.category`'s `ON DELETE CASCADE` to clear
-        // the category from every document that had it, same as
-        // `delete_tag` relies on `doc_tags`'s cascade.
-        self.conn
-            .execute("DELETE FROM categories WHERE name = ?1", params![name])?;
-        Ok(true)
-    }
-
-    pub fn set_category_parent(&mut self, name: &str, parent: Option<&str>) -> SqlResult<()> {
+    pub fn set_label_color(&mut self, label_id: i64, color: Option<&str>) -> SqlResult<()> {
         self.conn.execute(
-            "UPDATE categories SET parent = ?1 WHERE name = ?2",
-            params![parent, name],
+            "UPDATE labels SET color_hex = ?1 WHERE id = ?2",
+            params![color, label_id],
         )?;
         Ok(())
+    }
+
+    /// Renames a label. Fails if another label already has the name.
+    pub fn rename_label(&mut self, label_id: i64, name: &str) -> SqlResult<()> {
+        self.conn.execute(
+            "UPDATE labels SET name = ?1 WHERE id = ?2",
+            params![name.trim(), label_id],
+        )?;
+        Ok(())
+    }
+
+    /// Deletes a label; the documents that carried it stay, unlabelled by it.
+    pub fn delete_label(&mut self, label_id: i64) -> SqlResult<()> {
+        self.conn
+            .execute("DELETE FROM labels WHERE id = ?1", params![label_id])?;
+        Ok(())
+    }
+
+    /// Gives each document each label, leaving what they already carry alone.
+    pub fn add_labels(&mut self, doc_ids: &[i64], label_ids: &[i64]) -> SqlResult<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        for doc in doc_ids {
+            for label in label_ids {
+                tx.execute(
+                    "INSERT OR IGNORE INTO doc_labels (doc_id, label_id) VALUES (?1, ?2)",
+                    params![doc, label],
+                )?;
+            }
+        }
+        tx.commit()
+    }
+
+    /// Takes each label off each document.
+    pub fn remove_labels(&mut self, doc_ids: &[i64], label_ids: &[i64]) -> SqlResult<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        for doc in doc_ids {
+            for label in label_ids {
+                tx.execute(
+                    "DELETE FROM doc_labels WHERE doc_id = ?1 AND label_id = ?2",
+                    params![doc, label],
+                )?;
+            }
+        }
+        tx.commit()
+    }
+
+    /// For each label carried by any of `doc_ids`, how many of them carry it —
+    /// what the Organize popover needs to show "all", "some" or "none".
+    pub fn label_memberships(
+        &self,
+        doc_ids: &[i64],
+    ) -> SqlResult<std::collections::HashMap<i64, usize>> {
+        self.memberships("doc_labels", "label_id", doc_ids)
+    }
+
+    /// The same for projects.
+    pub fn project_memberships(
+        &self,
+        doc_ids: &[i64],
+    ) -> SqlResult<std::collections::HashMap<i64, usize>> {
+        self.memberships("project_docs", "project_id", doc_ids)
+    }
+
+    fn memberships(
+        &self,
+        table: &str,
+        column: &str,
+        doc_ids: &[i64],
+    ) -> SqlResult<std::collections::HashMap<i64, usize>> {
+        if doc_ids.is_empty() {
+            return Ok(Default::default());
+        }
+        let marks = vec!["?"; doc_ids.len()].join(",");
+        let sql = format!(
+            "SELECT {column}, COUNT(*) FROM {table} WHERE doc_id IN ({marks}) GROUP BY {column}"
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(doc_ids.iter()), |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)? as usize))
+        })?;
+        rows.collect()
     }
 
     pub fn all_projects(&self) -> SqlResult<Vec<Project>> {
@@ -1776,7 +1606,7 @@ impl Library {
     }
 }
 
-/// `param` binds the LIKE pattern for names (title, categories, tags, authors).
+/// `param` binds the LIKE pattern for names (title, labels, authors).
 /// With `with_fts`, `param + 1` also binds the full-text query for what's inside
 /// the document — its body, notes and file name. A search with no words in it
 /// has no such query, and the clause leaves that part out: SQLite raises an
@@ -1790,11 +1620,9 @@ fn search_clause(prefix: &str, param: usize, with_fts: bool) -> String {
     };
     format!(
         "({prefix}title LIKE ?{param} ESCAPE '\\' \
-         OR {prefix}id IN (SELECT doc_id FROM doc_categories \
-                           WHERE category LIKE ?{param} ESCAPE '\\') \
-         OR {prefix}id IN (SELECT doc_id FROM doc_tags _dt \
-                           JOIN tags _t ON _t.id = _dt.tag_id \
-                           WHERE _t.name LIKE ?{param} ESCAPE '\\') \
+         OR {prefix}id IN (SELECT doc_id FROM doc_labels _dl \
+                           JOIN labels _l ON _l.id = _dl.label_id \
+                           WHERE _l.name LIKE ?{param} ESCAPE '\\') \
          OR {prefix}id IN (SELECT doc_id FROM doc_authors _da \
                            JOIN authors _a ON _a.id = _da.author_id \
                            WHERE _a.name LIKE ?{param} ESCAPE '\\'){full_text})"
@@ -1980,6 +1808,14 @@ fn parse_typst_string_value(s: &str) -> Option<String> {
         }
     }
     None
+}
+
+fn label_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Label> {
+    Ok(Label {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        color_hex: row.get(2)?,
+    })
 }
 
 fn row_to_doc(row: &rusqlite::Row<'_>) -> rusqlite::Result<Document> {
@@ -2445,10 +2281,8 @@ mod tests {
     fn trashed_documents_disappear_from_every_other_filter() {
         let (mut lib, work) = fixture();
         let (id, _) = add_doc(&mut lib, &work, "essay.typ");
-        let tag = lib.create_tag("draft", "#ff0000").expect("tag");
-        lib.set_doc_tags(id, &[tag]).expect("set tags");
-        lib.add_doc_categories(id, &["Essays".to_string()])
-            .expect("category");
+        let label = lib.create_label("Essays").expect("label");
+        lib.add_labels(&[id], &[label]).expect("label it");
         lib.touch_opened(&work.path().join("essay.typ"))
             .expect("open");
 
@@ -2456,8 +2290,7 @@ mod tests {
 
         for filter in [
             LibraryFilter::All,
-            LibraryFilter::Tag(tag),
-            LibraryFilter::Category("Essays".into()),
+            LibraryFilter::Label(label),
             LibraryFilter::Recent,
         ] {
             let docs = lib
@@ -2507,21 +2340,6 @@ mod tests {
     }
 
     #[test]
-    fn untagged_filter_shows_only_documents_with_no_tags() {
-        let (mut lib, work) = fixture();
-        let (tagged, _) = add_doc(&mut lib, &work, "tagged.typ");
-        let (bare, _) = add_doc(&mut lib, &work, "bare.typ");
-        let tag = lib.create_tag("draft", "#ff0000").expect("tag");
-        lib.set_doc_tags(tagged, &[tag]).expect("set tags");
-
-        let docs = lib
-            .documents(LibraryFilter::Untagged, "", SortOrder::Modified)
-            .expect("list");
-        assert_eq!(ids(&docs), vec![bare]);
-        assert_eq!(lib.doc_count(&LibraryFilter::Untagged).expect("count"), 1);
-    }
-
-    #[test]
     fn recent_filter_shows_only_documents_that_have_been_opened() {
         let (mut lib, work) = fixture();
         let (opened, opened_path) = add_doc(&mut lib, &work, "opened.typ");
@@ -2533,50 +2351,6 @@ mod tests {
             .expect("list");
         assert_eq!(ids(&docs), vec![opened]);
         assert_eq!(lib.doc_count(&LibraryFilter::Recent).expect("count"), 1);
-    }
-
-    #[test]
-    fn category_group_filter_includes_the_parent_and_its_children() {
-        let (mut lib, work) = fixture();
-        let (parent_doc, _) = add_doc(&mut lib, &work, "parent.typ");
-        let (child_doc, _) = add_doc(&mut lib, &work, "child.typ");
-        let (other_doc, _) = add_doc(&mut lib, &work, "other.typ");
-        lib.create_category("Academic", None).expect("parent cat");
-        lib.create_category("Essays", Some("Academic"))
-            .expect("child cat");
-        lib.add_doc_categories(parent_doc, &["Academic".to_string()])
-            .expect("set");
-        lib.add_doc_categories(child_doc, &["Essays".to_string()])
-            .expect("set");
-        lib.add_doc_categories(other_doc, &["Sermons".to_string()])
-            .expect("set");
-
-        let docs = lib
-            .documents(
-                LibraryFilter::CategoryGroup("Academic".into()),
-                "",
-                SortOrder::Title,
-            )
-            .expect("list");
-        let mut got = ids(&docs);
-        got.sort();
-        let mut want = vec![parent_doc, child_doc];
-        want.sort();
-        assert_eq!(got, want);
-        assert_eq!(
-            lib.doc_count(&LibraryFilter::CategoryGroup("Academic".into()))
-                .expect("count"),
-            2
-        );
-
-        let narrow = lib
-            .documents(
-                LibraryFilter::Category("Essays".into()),
-                "",
-                SortOrder::Title,
-            )
-            .expect("list");
-        assert_eq!(ids(&narrow), vec![child_doc]);
     }
 
     #[test]
@@ -2627,26 +2401,6 @@ mod tests {
                 .expect("list");
             assert_eq!(ids(&docs), vec![id], "query {query:?}");
         }
-    }
-
-    #[test]
-    fn search_also_matches_category_and_tag_names() {
-        let (mut lib, work) = fixture();
-        let (by_category, _) = add_doc(&mut lib, &work, "one.typ");
-        let (by_tag, _) = add_doc(&mut lib, &work, "two.typ");
-        lib.add_doc_categories(by_category, &["Homiletics".to_string()])
-            .expect("category");
-        let tag = lib.create_tag("patristics", "#ff0000").expect("tag");
-        lib.set_doc_tags(by_tag, &[tag]).expect("set tags");
-
-        let by_cat = lib
-            .documents(LibraryFilter::All, "Homile", SortOrder::Title)
-            .expect("list");
-        assert_eq!(ids(&by_cat), vec![by_category]);
-        let by_tag_name = lib
-            .documents(LibraryFilter::All, "patris", SortOrder::Title)
-            .expect("list");
-        assert_eq!(ids(&by_tag_name), vec![by_tag]);
     }
 
     #[test]
@@ -2722,7 +2476,7 @@ mod tests {
         for filter in [
             LibraryFilter::All,
             LibraryFilter::Archive,
-            LibraryFilter::Untagged,
+            LibraryFilter::Unlabelled,
         ] {
             let listed = lib
                 .documents(filter.clone(), "", SortOrder::Modified)
@@ -2804,573 +2558,6 @@ mod tests {
     }
 
     // ── Tags ─────────────────────────────────────────────────────────────────
-
-    #[test]
-    fn set_doc_tags_replaces_the_existing_set_rather_than_appending() {
-        let (mut lib, work) = fixture();
-        let (id, _) = add_doc(&mut lib, &work, "essay.typ");
-        let draft = lib.create_tag("draft", "#ff0000").expect("tag");
-        let final_tag = lib.create_tag("final", "#00ff00").expect("tag");
-
-        lib.set_doc_tags(id, &[draft]).expect("set");
-        lib.set_doc_tags(id, &[final_tag]).expect("replace");
-
-        let names: Vec<String> = lib
-            .doc_tags(id)
-            .expect("tags")
-            .into_iter()
-            .map(|t| t.name)
-            .collect();
-        assert_eq!(names, vec!["final"]);
-    }
-
-    #[test]
-    fn add_doc_tags_appends_and_ignores_duplicates() {
-        let (mut lib, work) = fixture();
-        let (id, _) = add_doc(&mut lib, &work, "essay.typ");
-        let draft = lib.create_tag("draft", "#ff0000").expect("tag");
-        let review = lib.create_tag("review", "#00ff00").expect("tag");
-
-        lib.set_doc_tags(id, &[draft]).expect("set");
-        lib.add_doc_tags(id, &[review]).expect("add");
-        lib.add_doc_tags(id, &[review]).expect("add again");
-
-        let names: Vec<String> = lib
-            .doc_tags(id)
-            .expect("tags")
-            .into_iter()
-            .map(|t| t.name)
-            .collect();
-        assert_eq!(names, vec!["draft", "review"]);
-    }
-
-    #[test]
-    fn creating_a_tag_that_already_exists_returns_the_original_id() {
-        let (mut lib, _work) = fixture();
-        let first = lib.create_tag("draft", "#ff0000").expect("tag");
-        let second = lib.create_tag("draft", "#00ff00").expect("tag again");
-
-        assert_eq!(first, second);
-        assert_eq!(lib.all_tags().expect("tags").len(), 1);
-    }
-
-    #[test]
-    fn deleting_a_tag_detaches_it_from_every_document() {
-        let (mut lib, work) = fixture();
-        let (a, _) = add_doc(&mut lib, &work, "a.typ");
-        let (b, _) = add_doc(&mut lib, &work, "b.typ");
-        let tag = lib.create_tag("draft", "#ff0000").expect("tag");
-        lib.set_doc_tags(a, &[tag]).expect("set");
-        lib.set_doc_tags(b, &[tag]).expect("set");
-
-        lib.delete_tag(tag).expect("delete");
-
-        assert!(lib.doc_tags(a).expect("tags").is_empty());
-        assert!(lib.doc_tags(b).expect("tags").is_empty());
-        let untagged = lib
-            .documents(LibraryFilter::Untagged, "", SortOrder::Title)
-            .expect("list");
-        assert_eq!(untagged.len(), 2);
-    }
-
-    #[test]
-    fn renaming_a_tag_keeps_its_document_associations() {
-        let (mut lib, work) = fixture();
-        let (id, _) = add_doc(&mut lib, &work, "essay.typ");
-        let tag = lib.create_tag("draft", "#ff0000").expect("tag");
-        lib.set_doc_tags(id, &[tag]).expect("set");
-
-        lib.rename_tag(tag, "in-progress").expect("rename");
-
-        let names: Vec<String> = lib
-            .doc_tags(id)
-            .expect("tags")
-            .into_iter()
-            .map(|t| t.name)
-            .collect();
-        assert_eq!(names, vec!["in-progress"]);
-        let docs = lib
-            .documents(LibraryFilter::Tag(tag), "", SortOrder::Title)
-            .expect("list");
-        assert_eq!(ids(&docs), vec![id]);
-    }
-
-    #[test]
-    fn tag_counts_include_zero_for_tags_nobody_uses() {
-        let (mut lib, work) = fixture();
-        let (id, _) = add_doc(&mut lib, &work, "essay.typ");
-        let used = lib.create_tag("used", "#ff0000").expect("tag");
-        lib.create_tag("unused", "#00ff00").expect("tag");
-        lib.set_doc_tags(id, &[used]).expect("set");
-
-        let counts: Vec<(String, i64)> = lib
-            .all_tags_with_counts()
-            .expect("counts")
-            .into_iter()
-            .map(|(t, n)| (t.name, n))
-            .collect();
-        assert_eq!(
-            counts,
-            vec![("used".to_string(), 1), ("unused".to_string(), 0)]
-        );
-    }
-
-    // ── Categories ───────────────────────────────────────────────────────────
-
-    #[test]
-    fn ensure_category_is_idempotent() {
-        let (mut lib, _work) = fixture();
-        lib.ensure_category("Essays").expect("first");
-        lib.ensure_category("Essays").expect("second");
-
-        let names: Vec<String> = lib
-            .all_categories_structured()
-            .expect("cats")
-            .into_iter()
-            .map(|c| c.name)
-            .collect();
-        assert_eq!(names, vec!["Essays"]);
-    }
-
-    #[test]
-    fn setting_a_category_on_a_document_registers_the_category() {
-        let (mut lib, work) = fixture();
-        let (id, _) = add_doc(&mut lib, &work, "essay.typ");
-
-        lib.add_doc_categories(id, &["Sermons".to_string()])
-            .expect("set");
-
-        assert_eq!(lib.all_categories().expect("cats"), vec!["Sermons"]);
-        assert!(lib
-            .all_categories_structured()
-            .expect("structured")
-            .iter()
-            .any(|c| c.name == "Sermons"));
-    }
-
-    /// The literal reported bug: a document must be able to hold more than
-    /// one category at once, including two siblings under the same parent —
-    /// not just one category total, and not just one-per-parent.
-    #[test]
-    fn a_document_can_hold_two_categories_under_the_same_parent() {
-        let (mut lib, work) = fixture();
-        let (id, _) = add_doc(&mut lib, &work, "essay.typ");
-        lib.create_category("Academic", None).expect("parent");
-        lib.create_category("Essays", Some("Academic"))
-            .expect("child 1");
-        lib.create_category("Lectures", Some("Academic"))
-            .expect("child 2");
-
-        lib.add_doc_categories(id, &["Essays".to_string(), "Lectures".to_string()])
-            .expect("set both");
-
-        let mut names: Vec<String> = lib
-            .doc_categories(id)
-            .expect("doc cats")
-            .into_iter()
-            .map(|c| c.name)
-            .collect();
-        names.sort();
-        assert_eq!(names, vec!["Essays".to_string(), "Lectures".to_string()]);
-
-        for cat in ["Essays", "Lectures"] {
-            let docs = lib
-                .documents(LibraryFilter::Category(cat.into()), "", SortOrder::Title)
-                .expect("list");
-            assert_eq!(ids(&docs), vec![id], "filter on {cat}");
-        }
-        let group = lib
-            .documents(
-                LibraryFilter::CategoryGroup("Academic".into()),
-                "",
-                SortOrder::Title,
-            )
-            .expect("list");
-        assert_eq!(
-            ids(&group),
-            vec![id],
-            "doc matching two children of the group must not be duplicated"
-        );
-    }
-
-    #[test]
-    fn add_doc_categories_is_additive_set_doc_categories_replaces() {
-        let (mut lib, work) = fixture();
-        let (id, _) = add_doc(&mut lib, &work, "essay.typ");
-
-        lib.add_doc_categories(id, &["Sermons".to_string()])
-            .expect("add first");
-        lib.add_doc_categories(id, &["Essays".to_string()])
-            .expect("add second");
-        let mut names: Vec<String> = lib
-            .doc_categories(id)
-            .expect("doc cats")
-            .into_iter()
-            .map(|c| c.name)
-            .collect();
-        names.sort();
-        assert_eq!(
-            names,
-            vec!["Essays".to_string(), "Sermons".to_string()],
-            "add_doc_categories must not clobber an existing category"
-        );
-
-        lib.set_doc_categories(id, &["Lectures".to_string()])
-            .expect("replace");
-        let names: Vec<String> = lib
-            .doc_categories(id)
-            .expect("doc cats")
-            .into_iter()
-            .map(|c| c.name)
-            .collect();
-        assert_eq!(
-            names,
-            vec!["Lectures".to_string()],
-            "set_doc_categories must replace the full set"
-        );
-    }
-
-    #[test]
-    fn category_colors_round_trip() {
-        let (mut lib, _work) = fixture();
-        lib.ensure_category("Essays").expect("ensure");
-
-        lib.set_category_color("Essays", "#aabbcc")
-            .expect("set color");
-
-        assert_eq!(
-            lib.get_category_color("Essays"),
-            Some("#aabbcc".to_string())
-        );
-    }
-
-    /// A category with no colour of its own must report `None`, so callers can
-    /// substitute a per-name palette colour and distinct categories stay
-    /// visually distinct. Guards the regression where the column's
-    /// `NOT NULL DEFAULT '#3584e4'` made `None` unreachable.
-    #[test]
-    fn a_category_with_no_chosen_color_reports_none() {
-        let (mut lib, work) = fixture();
-        lib.ensure_category("Essays").expect("ensure");
-        lib.create_category("Homilies", None).expect("create");
-        let (id, _) = add_doc(&mut lib, &work, "essay.typ");
-        lib.add_doc_categories(id, &["Sermons".to_string()])
-            .expect("set");
-
-        assert_eq!(lib.get_category_color("Essays"), None);
-        assert_eq!(lib.get_category_color("Homilies"), None);
-        assert_eq!(
-            lib.all_categories_with_colors().expect("colors"),
-            vec![("Sermons".to_string(), None)]
-        );
-    }
-
-    #[test]
-    fn an_explicitly_chosen_color_survives_alongside_uncolored_categories() {
-        let (mut lib, _work) = fixture();
-        lib.ensure_category("Essays").expect("ensure");
-        lib.ensure_category("Sermons").expect("ensure");
-
-        lib.set_category_color("Essays", "#e01b24")
-            .expect("set color");
-
-        assert_eq!(
-            lib.get_category_color("Essays"),
-            Some("#e01b24".to_string())
-        );
-        assert_eq!(lib.get_category_color("Sermons"), None);
-    }
-
-    /// Someone may have deliberately picked the blue that used to be the schema
-    /// default; once set explicitly it must round-trip like any other choice.
-    #[test]
-    fn the_old_default_blue_can_still_be_chosen_deliberately() {
-        let (mut lib, _work) = fixture();
-        lib.ensure_category("Essays").expect("ensure");
-
-        lib.set_category_color("Essays", "#3584e4")
-            .expect("set color");
-
-        assert_eq!(
-            lib.get_category_color("Essays"),
-            Some("#3584e4".to_string())
-        );
-    }
-
-    // ── Schema migration ─────────────────────────────────────────────────────
-
-    /// Builds the pre-fix `categories` shape, then runs the migration over it.
-    fn library_with_legacy_categories(rows: &[(&str, &str, Option<&str>)]) -> Library {
-        let conn = Connection::open_in_memory().expect("in-memory DB");
-        conn.execute_batch(
-            "CREATE TABLE categories (
-                 name TEXT NOT NULL PRIMARY KEY,
-                 color_hex TEXT NOT NULL DEFAULT '#3584e4'
-             );
-             ALTER TABLE categories ADD COLUMN parent TEXT REFERENCES categories(name);",
-        )
-        .expect("legacy schema");
-        for (name, color, parent) in rows {
-            conn.execute(
-                "INSERT INTO categories (name, color_hex, parent) VALUES (?1, ?2, ?3)",
-                params![name, color, parent],
-            )
-            .expect("seed");
-        }
-        let lib = Library {
-            conn,
-            trash_dir: PathBuf::from("/nonexistent"),
-            authors: AuthorSync::default(),
-        };
-        lib.migrate().expect("migrate");
-        lib
-    }
-
-    #[test]
-    fn migration_treats_the_old_auto_applied_default_as_no_color_chosen() {
-        let lib = library_with_legacy_categories(&[
-            ("Essays", "#3584e4", None),
-            ("Sermons", "#e01b24", None),
-        ]);
-
-        assert_eq!(
-            lib.get_category_color("Essays"),
-            None,
-            "auto default becomes unset"
-        );
-        assert_eq!(
-            lib.get_category_color("Sermons"),
-            Some("#e01b24".to_string()),
-            "a real choice is preserved"
-        );
-    }
-
-    #[test]
-    fn migration_preserves_category_parents() {
-        let lib = library_with_legacy_categories(&[
-            ("Academic", "#3584e4", None),
-            ("Essays", "#33d17a", Some("Academic")),
-        ]);
-
-        let cats = lib.all_categories_structured().expect("cats");
-        let essays = cats
-            .iter()
-            .find(|c| c.name == "Essays")
-            .expect("child present");
-        assert_eq!(essays.parent, Some("Academic".to_string()));
-        assert!(lib.category_has_children("Academic").expect("children"));
-    }
-
-    #[test]
-    fn migration_is_idempotent_and_leaves_the_column_nullable() {
-        let lib = library_with_legacy_categories(&[("Essays", "#3584e4", None)]);
-        lib.migrate().expect("second migrate");
-        lib.migrate().expect("third migrate");
-
-        assert_eq!(lib.get_category_color("Essays"), None);
-        let not_null: i64 = lib
-            .conn
-            .query_row(
-                "SELECT \"notnull\" FROM pragma_table_info('categories') WHERE name = 'color_hex'",
-                [],
-                |r| r.get(0),
-            )
-            .expect("pragma");
-        assert_eq!(not_null, 0, "color_hex should be nullable after migrating");
-    }
-
-    /// The in-memory tests above run without WAL or foreign-key enforcement.
-    /// A real library is a file with both switched on, and the migration drops
-    /// and recreates a table that other rows reference — so exercise it there.
-    #[test]
-    fn migration_survives_a_real_file_database_with_wal_and_foreign_keys() {
-        let work = TempDir::new().expect("temp dir");
-        let db_path = work.path().join("library.sqlite");
-        {
-            let conn = Connection::open(&db_path).expect("create");
-            conn.execute_batch(
-                "PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;
-                 CREATE TABLE categories (
-                     name TEXT NOT NULL PRIMARY KEY,
-                     color_hex TEXT NOT NULL DEFAULT '#3584e4'
-                 );
-                 ALTER TABLE categories ADD COLUMN parent TEXT REFERENCES categories(name);
-                 INSERT INTO categories (name, color_hex, parent) VALUES ('Academic', '#3584e4', NULL);
-                 INSERT INTO categories (name, color_hex, parent) VALUES ('Essays', '#e01b24', 'Academic');",
-            )
-            .expect("legacy file schema");
-        }
-
-        let conn = Connection::open(&db_path).expect("reopen");
-        conn.execute_batch("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;")
-            .expect("pragmas");
-        let lib = Library {
-            conn,
-            trash_dir: work.path().join("trash"),
-            authors: AuthorSync::default(),
-        };
-        lib.migrate().expect("migrate");
-
-        assert_eq!(lib.get_category_color("Academic"), None);
-        assert_eq!(
-            lib.get_category_color("Essays"),
-            Some("#e01b24".to_string())
-        );
-        let essays = lib
-            .all_categories_structured()
-            .expect("cats")
-            .into_iter()
-            .find(|c| c.name == "Essays")
-            .expect("child survived");
-        assert_eq!(essays.parent, Some("Academic".to_string()));
-
-        let fk_violations: i64 = lib
-            .conn
-            .query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |r| {
-                r.get(0)
-            })
-            .expect("fk check");
-        assert_eq!(
-            fk_violations, 0,
-            "migration must not leave dangling references"
-        );
-        let fk_on: i64 = lib
-            .conn
-            .query_row("PRAGMA foreign_keys", [], |r| r.get(0))
-            .expect("pragma");
-        assert_eq!(fk_on, 1, "foreign keys must be switched back on afterwards");
-    }
-
-    #[test]
-    fn a_freshly_created_database_already_has_a_nullable_color_column() {
-        let (lib, _work) = fixture();
-        let not_null: i64 = lib
-            .conn
-            .query_row(
-                "SELECT \"notnull\" FROM pragma_table_info('categories') WHERE name = 'color_hex'",
-                [],
-                |r| r.get(0),
-            )
-            .expect("pragma");
-        assert_eq!(not_null, 0);
-    }
-
-    /// Pre-multi-category databases stored a document's one category in
-    /// `documents.category` directly; `migrate()` must backfill that value
-    /// into `doc_categories` so existing libraries don't lose their
-    /// categorization the first time they're opened after the upgrade.
-    #[test]
-    fn migration_backfills_existing_document_categories_into_the_join_table() {
-        let conn = Connection::open_in_memory().expect("in-memory DB");
-        conn.execute_batch(
-            "PRAGMA foreign_keys = ON;
-             CREATE TABLE documents (
-                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                 path TEXT NOT NULL UNIQUE,
-                 title TEXT NOT NULL,
-                 category TEXT,
-                 archived INTEGER NOT NULL DEFAULT 0,
-                 notes TEXT,
-                 created_at TEXT NOT NULL,
-                 modified_at TEXT NOT NULL,
-                 last_opened_at TEXT
-             );
-             INSERT INTO documents (path, title, category, created_at, modified_at)
-                 VALUES ('/tmp/essay.typ', 'Essay', 'Sermons', '2020-01-01', '2020-01-01');",
-        )
-        .expect("legacy documents schema");
-        let lib = Library {
-            conn,
-            trash_dir: PathBuf::from("/nonexistent"),
-            authors: AuthorSync::default(),
-        };
-        lib.migrate().expect("migrate");
-
-        let id: i64 = lib
-            .conn
-            .query_row(
-                "SELECT id FROM documents WHERE path = '/tmp/essay.typ'",
-                [],
-                |r| r.get(0),
-            )
-            .expect("doc id");
-        let names: Vec<String> = lib
-            .doc_categories(id)
-            .expect("doc cats")
-            .into_iter()
-            .map(|c| c.name)
-            .collect();
-        assert_eq!(names, vec!["Sermons".to_string()]);
-    }
-
-    #[test]
-    fn renaming_a_category_moves_its_documents_and_reparents_its_children() {
-        let (mut lib, work) = fixture();
-        let (id, _) = add_doc(&mut lib, &work, "essay.typ");
-        lib.create_category("Academic", None).expect("parent");
-        lib.create_category("Essays", Some("Academic"))
-            .expect("child");
-        lib.add_doc_categories(id, &["Academic".to_string()])
-            .expect("set");
-
-        lib.rename_category("Academic", "Scholarly")
-            .expect("rename");
-
-        let doc_cat_names: Vec<String> = lib
-            .doc_categories(id)
-            .expect("doc cats")
-            .into_iter()
-            .map(|c| c.name)
-            .collect();
-        assert_eq!(doc_cat_names, vec!["Scholarly".to_string()]);
-        let child = lib
-            .all_categories_structured()
-            .expect("cats")
-            .into_iter()
-            .find(|c| c.name == "Essays")
-            .expect("child still present");
-        assert_eq!(child.parent, Some("Scholarly".to_string()));
-        assert!(!lib
-            .all_categories_structured()
-            .expect("cats")
-            .iter()
-            .any(|c| c.name == "Academic"));
-    }
-
-    #[test]
-    fn a_category_with_children_refuses_to_be_force_deleted() {
-        let (mut lib, _work) = fixture();
-        lib.create_category("Academic", None).expect("parent");
-        lib.create_category("Essays", Some("Academic"))
-            .expect("child");
-
-        assert!(lib.category_has_children("Academic").expect("check"));
-        assert!(!lib
-            .force_delete_category_if_no_children("Academic")
-            .expect("delete"));
-        assert!(lib
-            .all_categories_structured()
-            .expect("cats")
-            .iter()
-            .any(|c| c.name == "Academic"));
-    }
-
-    #[test]
-    fn force_deleting_a_childless_category_clears_it_from_its_documents() {
-        let (mut lib, work) = fixture();
-        let (id, _) = add_doc(&mut lib, &work, "essay.typ");
-        lib.add_doc_categories(id, &["Essays".to_string()])
-            .expect("set");
-
-        assert!(lib
-            .force_delete_category_if_no_children("Essays")
-            .expect("delete"));
-
-        assert!(lib.doc_categories(id).expect("doc cats").is_empty());
-        assert!(lib.all_categories().expect("cats").is_empty());
-    }
-
-    // ── Projects ─────────────────────────────────────────────────────────────
 
     #[test]
     fn documents_added_to_a_project_get_sequential_positions() {
@@ -3930,95 +3117,12 @@ mod tests {
 
     // ── counts and bulk lookups ──────────────────────────────────────────
 
-    /// The sidebar's grouped counts and `doc_count` (and so the list a row
-    /// opens) must always agree.
-    #[test]
-    fn grouped_counts_agree_with_the_count_of_each_view() {
-        let (mut lib, work, _) = lib_with_bib();
-        let mut docs = Vec::new();
-        for (i, body) in [
-            "@gender",
-            "@black @gender",
-            "plain",
-            "@black",
-            "plain",
-            "plain",
-        ]
-        .iter()
-        .enumerate()
-        {
-            let id = lib
-                .upsert_document(&write_doc(
-                    &work,
-                    &format!("d{i}.typ"),
-                    &format!("{body}\n"),
-                ))
-                .unwrap();
-            docs.push(id);
-        }
-        let project = lib.create_project("Thesis").unwrap();
-        lib.add_doc_to_project(project, docs[0]).unwrap();
-        lib.add_doc_to_project(project, docs[2]).unwrap();
-        let tag = lib.create_tag("draft", "#fff").unwrap();
-        lib.set_doc_tags(docs[1], &[tag]).unwrap();
-        lib.create_category("Liturgy", None).unwrap();
-        lib.create_category("Advent", Some("Liturgy")).unwrap();
-        lib.create_category("Lent", Some("Liturgy")).unwrap();
-        lib.set_doc_categories(docs[0], &["Advent".into(), "Liturgy".into()])
-            .unwrap();
-        lib.set_doc_categories(docs[3], &["Lent".into()]).unwrap();
-        lib.set_archived(docs[4], true).unwrap();
-        lib.move_to_trash(docs[5]).unwrap();
-        for id in &docs[..3] {
-            lib.touch_opened(&work.path().join(format!(
-                "d{}.typ",
-                docs.iter().position(|d| d == id).unwrap()
-            )))
-            .unwrap();
-        }
-
-        let c = lib.counts().unwrap();
-        assert_eq!(c.all, lib.doc_count(&LibraryFilter::All).unwrap());
-        assert_eq!(c.archive, lib.doc_count(&LibraryFilter::Archive).unwrap());
-        assert_eq!(c.trash, lib.doc_count(&LibraryFilter::Trash).unwrap());
-        assert_eq!(c.recent, lib.doc_count(&LibraryFilter::Recent).unwrap());
-        assert_eq!(c.untagged, lib.doc_count(&LibraryFilter::Untagged).unwrap());
-        assert_eq!(
-            c.projects[&project],
-            lib.doc_count(&LibraryFilter::Project(project)).unwrap()
-        );
-        assert_eq!(
-            c.tags[&tag],
-            lib.doc_count(&LibraryFilter::Tag(tag)).unwrap()
-        );
-        for cat in ["Advent", "Lent", "Liturgy"] {
-            assert_eq!(
-                c.categories.get(cat).copied().unwrap_or(0),
-                lib.doc_count(&LibraryFilter::Category(cat.into())).unwrap(),
-                "{cat}"
-            );
-        }
-        assert_eq!(
-            c.category_groups["Liturgy"],
-            lib.doc_count(&LibraryFilter::CategoryGroup("Liturgy".into()))
-                .unwrap()
-        );
-        assert_eq!(
-            c.category_groups["Liturgy"], 2,
-            "a document in two of the family counts once"
-        );
-        for (a, n) in lib.all_authors_with_counts().unwrap() {
-            assert_eq!(c.authors[&a.id], n);
-            assert_eq!(n, lib.doc_count(&LibraryFilter::Author(a.id)).unwrap());
-        }
-    }
-
     #[test]
     fn counts_of_an_empty_library_are_zero_not_an_error() {
         let (lib, _work) = fixture();
         let c = lib.counts().unwrap();
         assert_eq!(
-            (c.all, c.archive, c.trash, c.recent, c.untagged),
+            (c.all, c.archive, c.trash, c.recent, c.unlabelled),
             (0, 0, 0, 0, 0)
         );
         assert!(c.projects.is_empty());
@@ -4040,40 +3144,426 @@ mod tests {
         assert_eq!(lib.counts().unwrap().recent, 30);
     }
 
+    // ── labels ───────────────────────────────────────────────────────────
+
+    fn label_names(lib: &Library, doc: i64) -> Vec<String> {
+        lib.labels_by_doc()
+            .unwrap()
+            .remove(&doc)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|l| l.name)
+            .collect()
+    }
+
     #[test]
-    fn bulk_tag_and_category_lookups_match_the_per_document_ones() {
+    fn a_label_is_made_once_whatever_its_case() {
+        let (mut lib, _work) = fixture();
+        let a = lib.create_label("Sermons").unwrap();
+        let b = lib.create_label("  sermons ").unwrap();
+        assert_eq!(a, b);
+        assert_eq!(lib.all_labels().unwrap().len(), 1);
+        assert_eq!(
+            lib.all_labels().unwrap()[0].name,
+            "Sermons",
+            "first spelling wins"
+        );
+    }
+
+    #[test]
+    fn labels_are_added_and_removed_across_many_documents_without_disturbing_others() {
         let (mut lib, work) = fixture();
         let (a, _) = add_doc(&mut lib, &work, "a.typ");
         let (b, _) = add_doc(&mut lib, &work, "b.typ");
-        let t1 = lib.create_tag("zeta", "#111").unwrap();
-        let t2 = lib.create_tag("alpha", "#222").unwrap();
-        lib.set_doc_tags(a, &[t1, t2]).unwrap();
-        lib.create_category("Papers", None).unwrap();
-        lib.create_category("Essays", Some("Papers")).unwrap();
-        lib.set_doc_categories(a, &["Essays".into(), "Papers".into()])
-            .unwrap();
+        let (c, _) = add_doc(&mut lib, &work, "c.typ");
+        let draft = lib.create_label("draft").unwrap();
+        let advent = lib.create_label("Advent").unwrap();
+        lib.add_labels(&[a], &[advent]).unwrap();
 
-        let tags = lib.tags_by_doc().unwrap();
-        let cats = lib.categories_by_doc().unwrap();
-        let names = |v: Option<&Vec<Tag>>| -> Vec<String> {
-            v.map(|v| v.iter().map(|t| t.name.clone()).collect())
-                .unwrap_or_default()
+        lib.add_labels(&[a, b], &[draft]).unwrap();
+        lib.add_labels(&[a, b], &[draft]).unwrap(); // idempotent
+        assert_eq!(label_names(&lib, a), vec!["Advent", "draft"]);
+        assert_eq!(label_names(&lib, b), vec!["draft"]);
+        assert!(label_names(&lib, c).is_empty());
+
+        lib.remove_labels(&[a, c], &[draft]).unwrap();
+        assert_eq!(label_names(&lib, a), vec!["Advent"]);
+        assert_eq!(
+            label_names(&lib, b),
+            vec!["draft"],
+            "b was not in the removal"
+        );
+    }
+
+    #[test]
+    fn membership_counts_say_how_many_of_the_chosen_documents_have_each() {
+        let (mut lib, work) = fixture();
+        let (a, _) = add_doc(&mut lib, &work, "a.typ");
+        let (b, _) = add_doc(&mut lib, &work, "b.typ");
+        let (c, _) = add_doc(&mut lib, &work, "c.typ");
+        let all = lib.create_label("all").unwrap();
+        let some = lib.create_label("some").unwrap();
+        lib.add_labels(&[a, b], &[all]).unwrap();
+        lib.add_labels(&[a], &[some]).unwrap();
+        lib.add_labels(&[c], &[some]).unwrap(); // not among the chosen
+        let m = lib.label_memberships(&[a, b]).unwrap();
+        assert_eq!(m[&all], 2);
+        assert_eq!(m[&some], 1);
+        assert!(lib.label_memberships(&[]).unwrap().is_empty());
+        let project = lib.create_project("P").unwrap();
+        lib.add_doc_to_project(project, a).unwrap();
+        assert_eq!(lib.project_memberships(&[a, b]).unwrap()[&project], 1);
+    }
+
+    #[test]
+    fn deleting_a_label_takes_it_off_every_document_but_keeps_the_documents() {
+        let (mut lib, work) = fixture();
+        let (a, _) = add_doc(&mut lib, &work, "a.typ");
+        let l = lib.create_label("temp").unwrap();
+        lib.add_labels(&[a], &[l]).unwrap();
+        lib.delete_label(l).unwrap();
+        assert!(label_names(&lib, a).is_empty());
+        assert!(lib.doc_by_id(a).unwrap().is_some());
+    }
+
+    #[test]
+    fn renaming_a_label_keeps_its_documents_and_refuses_a_name_already_taken() {
+        let (mut lib, work) = fixture();
+        let (a, _) = add_doc(&mut lib, &work, "a.typ");
+        let one = lib.create_label("one").unwrap();
+        let two = lib.create_label("two").unwrap();
+        lib.add_labels(&[a], &[one]).unwrap();
+        lib.rename_label(one, "Uno").unwrap();
+        assert_eq!(label_names(&lib, a), vec!["Uno"]);
+        assert!(lib.rename_label(two, "uno").is_err(), "names ignore case");
+    }
+
+    #[test]
+    fn a_label_colour_can_be_set_and_handed_back_to_automatic() {
+        let (mut lib, _work) = fixture();
+        let l = lib.create_label("x").unwrap();
+        assert_eq!(lib.all_labels().unwrap()[0].color_hex, None);
+        lib.set_label_color(l, Some("#e01b24")).unwrap();
+        assert_eq!(
+            lib.all_labels().unwrap()[0].color_hex.as_deref(),
+            Some("#e01b24")
+        );
+        lib.set_label_color(l, None).unwrap();
+        assert_eq!(lib.all_labels().unwrap()[0].color_hex, None);
+    }
+
+    #[test]
+    fn the_label_filter_unlabelled_view_and_search_all_agree_with_the_labels() {
+        let (mut lib, work) = fixture();
+        let (a, _) = add_doc(&mut lib, &work, "a.typ");
+        let (b, _) = add_doc(&mut lib, &work, "b.typ");
+        let l = lib.create_label("Sermons").unwrap();
+        lib.add_labels(&[a], &[l]).unwrap();
+
+        let labelled = lib
+            .documents(LibraryFilter::Label(l), "", SortOrder::Title)
+            .unwrap();
+        assert_eq!(ids(&labelled), vec![a]);
+        let unlabelled = lib
+            .documents(LibraryFilter::Unlabelled, "", SortOrder::Title)
+            .unwrap();
+        assert_eq!(ids(&unlabelled), vec![b]);
+        assert_eq!(
+            search(&lib, "sermons"),
+            vec![a],
+            "a label's name is searchable"
+        );
+
+        let c = lib.counts().unwrap();
+        assert_eq!(
+            c.labels[&l],
+            lib.doc_count(&LibraryFilter::Label(l)).unwrap()
+        );
+        assert_eq!(
+            c.unlabelled,
+            lib.doc_count(&LibraryFilter::Unlabelled).unwrap()
+        );
+    }
+
+    /// The sidebar's grouped counts and `doc_count` (and so the list a row
+    /// opens) must always agree.
+    #[test]
+    fn grouped_counts_agree_with_the_count_of_each_view() {
+        let (mut lib, work, _) = lib_with_bib();
+        let mut docs = Vec::new();
+        for (i, body) in [
+            "@gender",
+            "@black @gender",
+            "plain",
+            "@black",
+            "plain",
+            "plain",
+        ]
+        .iter()
+        .enumerate()
+        {
+            let path = write_doc(&work, &format!("d{i}.typ"), &format!("{body}\n"));
+            docs.push(lib.upsert_document(&path).unwrap());
+            lib.touch_opened(&path).ok();
+        }
+        let project = lib.create_project("Thesis").unwrap();
+        lib.add_doc_to_project(project, docs[0]).unwrap();
+        lib.add_doc_to_project(project, docs[2]).unwrap();
+        let draft = lib.create_label("draft").unwrap();
+        let advent = lib.create_label("Advent").unwrap();
+        lib.add_labels(&[docs[1], docs[3]], &[draft]).unwrap();
+        lib.add_labels(&[docs[0], docs[1]], &[advent]).unwrap();
+        lib.set_archived(docs[4], true).unwrap();
+        lib.move_to_trash(docs[5]).unwrap();
+
+        let c = lib.counts().unwrap();
+        for (f, n) in [
+            (LibraryFilter::All, c.all),
+            (LibraryFilter::Archive, c.archive),
+            (LibraryFilter::Trash, c.trash),
+            (LibraryFilter::Recent, c.recent),
+            (LibraryFilter::Unlabelled, c.unlabelled),
+            (LibraryFilter::Project(project), c.projects[&project]),
+            (LibraryFilter::Label(draft), c.labels[&draft]),
+            (LibraryFilter::Label(advent), c.labels[&advent]),
+        ] {
+            assert_eq!(n, lib.doc_count(&f).unwrap(), "{f:?}");
+        }
+        for (a, n) in lib.all_authors_with_counts().unwrap() {
+            assert_eq!(c.authors[&a.id], n);
+            assert_eq!(n, lib.doc_count(&LibraryFilter::Author(a.id)).unwrap());
+        }
+    }
+
+    #[test]
+    fn bulk_label_lookup_matches_the_per_document_view() {
+        let (mut lib, work) = fixture();
+        let (a, _) = add_doc(&mut lib, &work, "a.typ");
+        let (b, _) = add_doc(&mut lib, &work, "b.typ");
+        let z = lib.create_label("zeta").unwrap();
+        let y = lib.create_label("alpha").unwrap();
+        lib.add_labels(&[a], &[z, y]).unwrap();
+        let by = lib.labels_by_doc().unwrap();
+        assert_eq!(label_names(&lib, a), vec!["alpha", "zeta"]);
+        assert!(!by.contains_key(&b));
+    }
+
+    // ── tags and categories becoming labels ──────────────────────────────
+
+    /// An old-style library: documents, tags and categories, with the labels
+    /// tables not yet filled in. Built by hand so the shapes are exactly what
+    /// earlier versions wrote.
+    fn legacy_library(work: &TempDir) -> Library {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        conn.execute_batch(
+            "CREATE TABLE documents (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL UNIQUE,
+                 title TEXT NOT NULL, category TEXT, archived INTEGER NOT NULL DEFAULT 0,
+                 notes TEXT, created_at TEXT NOT NULL, modified_at TEXT NOT NULL,
+                 last_opened_at TEXT);
+             CREATE TABLE tags (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE,
+                 color_hex TEXT NOT NULL DEFAULT '#3584e4');
+             CREATE TABLE doc_tags (
+                 doc_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+                 tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+                 PRIMARY KEY (doc_id, tag_id));
+             CREATE TABLE categories (
+                 name TEXT NOT NULL PRIMARY KEY,
+                 color_hex TEXT NOT NULL DEFAULT '#3584e4',
+                 parent TEXT REFERENCES categories(name));
+             CREATE TABLE doc_categories (
+                 doc_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+                 category TEXT NOT NULL REFERENCES categories(name) ON DELETE CASCADE,
+                 PRIMARY KEY (doc_id, category));",
+        )
+        .unwrap();
+        for (i, name) in ["a", "b", "c", "d"].iter().enumerate() {
+            conn.execute(
+                "INSERT INTO documents (path, title, created_at, modified_at) VALUES (?1, ?2, 't', 't')",
+                params![work.path().join(format!("{name}.typ")).to_string_lossy(), name],
+            )
+            .unwrap();
+            let _ = i;
+        }
+        Library {
+            conn,
+            trash_dir: work.path().join("trash"),
+            authors: AuthorSync::default(),
+        }
+    }
+
+    fn labels_of(lib: &Library, doc: i64) -> Vec<String> {
+        label_names(lib, doc)
+    }
+
+    #[test]
+    fn tags_and_categories_become_labels_carrying_the_same_documents() {
+        let work = TempDir::new().unwrap();
+        let lib = legacy_library(&work);
+        lib.conn.execute_batch(
+            "INSERT INTO tags (name, color_hex) VALUES ('draft', '#e01b24'), ('plain', '#3584e4');
+             INSERT INTO doc_tags VALUES (1, 1), (2, 1), (2, 2);
+             INSERT INTO categories (name, color_hex, parent) VALUES
+                 ('Liturgy', '#3584e4', NULL), ('Advent', '#33d17a', 'Liturgy'),
+                 ('Papers', '#3584e4', NULL);
+             INSERT INTO doc_categories VALUES (1, 'Advent'), (3, 'Papers');",
+        ).unwrap();
+        lib.migrate().unwrap();
+
+        assert_eq!(labels_of(&lib, 1), vec!["draft", "Liturgy › Advent"]);
+        assert_eq!(labels_of(&lib, 2), vec!["draft", "plain"]);
+        assert_eq!(labels_of(&lib, 3), vec!["Papers"]);
+        assert!(labels_of(&lib, 4).is_empty());
+
+        let by_name: std::collections::HashMap<String, Option<String>> = lib
+            .all_labels()
+            .unwrap()
+            .into_iter()
+            .map(|l| (l.name, l.color_hex))
+            .collect();
+        assert_eq!(
+            by_name["draft"].as_deref(),
+            Some("#e01b24"),
+            "a chosen tag colour is kept"
+        );
+        assert_eq!(
+            by_name["plain"], None,
+            "the old default blue was never chosen"
+        );
+        assert_eq!(by_name["Papers"], None, "nor was a category's");
+        assert_eq!(by_name["Liturgy › Advent"].as_deref(), Some("#33d17a"));
+    }
+
+    #[test]
+    fn a_parent_category_that_only_grouped_its_children_is_not_a_label_of_its_own() {
+        let work = TempDir::new().unwrap();
+        let lib = legacy_library(&work);
+        lib.conn.execute_batch(
+            "INSERT INTO categories (name, parent) VALUES ('Liturgy', NULL), ('Advent', 'Liturgy'),
+                 ('Lent', 'Liturgy'), ('Empty', NULL);
+             INSERT INTO doc_categories VALUES (1, 'Advent');",
+        ).unwrap();
+        lib.migrate().unwrap();
+        let names: Vec<String> = lib
+            .all_labels()
+            .unwrap()
+            .into_iter()
+            .map(|l| l.name)
+            .collect();
+        assert_eq!(names, vec!["Empty", "Liturgy › Advent", "Liturgy › Lent"]);
+    }
+
+    #[test]
+    fn a_parent_that_also_held_documents_keeps_its_own_label_beside_its_children() {
+        let work = TempDir::new().unwrap();
+        let lib = legacy_library(&work);
+        lib.conn.execute_batch(
+            "INSERT INTO categories (name, parent) VALUES ('Liturgy', NULL), ('Advent', 'Liturgy');
+             INSERT INTO doc_categories VALUES (1, 'Liturgy'), (1, 'Advent');",
+        ).unwrap();
+        lib.migrate().unwrap();
+        assert_eq!(labels_of(&lib, 1), vec!["Liturgy", "Liturgy › Advent"]);
+    }
+
+    #[test]
+    fn a_tag_and_a_category_with_one_name_become_one_label_with_the_chosen_colour() {
+        let work = TempDir::new().unwrap();
+        let lib = legacy_library(&work);
+        lib.conn
+            .execute_batch(
+                "INSERT INTO tags (name) VALUES ('Sermons');
+             INSERT INTO doc_tags VALUES (1, 1);
+             INSERT INTO categories (name, color_hex) VALUES ('sermons', '#9141ac');
+             INSERT INTO doc_categories VALUES (2, 'sermons');",
+            )
+            .unwrap();
+        lib.migrate().unwrap();
+        let labels = lib.all_labels().unwrap();
+        assert_eq!(labels.len(), 1);
+        assert_eq!(labels[0].color_hex.as_deref(), Some("#9141ac"));
+        assert_eq!(labels_of(&lib, 1), vec!["Sermons"]);
+        assert_eq!(labels_of(&lib, 2), vec!["Sermons"]);
+    }
+
+    #[test]
+    fn the_migration_runs_once_and_leaves_the_old_tables_alone() {
+        let work = TempDir::new().unwrap();
+        let mut lib = legacy_library(&work);
+        lib.conn
+            .execute_batch(
+                "INSERT INTO tags (name) VALUES ('draft'); INSERT INTO doc_tags VALUES (1, 1);",
+            )
+            .unwrap();
+        lib.migrate().unwrap();
+        // The user then renames the label; migrating again must not undo that
+        // or bring the old tag back.
+        let id = lib.all_labels().unwrap()[0].id;
+        lib.rename_label(id, "Draft v2").unwrap();
+        lib.migrate().unwrap();
+        lib.migrate().unwrap();
+        assert_eq!(lib.all_labels().unwrap().len(), 1);
+        assert_eq!(lib.all_labels().unwrap()[0].name, "Draft v2");
+        let old: i64 = lib
+            .conn
+            .query_row("SELECT COUNT(*) FROM tags", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(old, 1, "the old table is kept as it was");
+        assert!(labels_migrated(&lib.conn));
+    }
+
+    #[test]
+    fn a_new_library_starts_with_the_migration_done_and_no_labels() {
+        let (lib, _work) = fixture();
+        assert!(labels_migrated(&lib.conn));
+        assert!(lib.all_labels().unwrap().is_empty());
+    }
+
+    #[test]
+    fn the_pending_check_sees_an_old_library_and_not_a_new_or_finished_one() {
+        let work = TempDir::new().unwrap();
+        let lib = legacy_library(&work);
+        assert!(labels_migration_pending(&lib.conn));
+        lib.migrate().unwrap();
+        assert!(!labels_migration_pending(&lib.conn));
+        let (fresh, _w) = fixture();
+        assert!(!labels_migration_pending(&fresh.conn));
+    }
+
+    #[test]
+    fn migrating_a_real_file_database_with_wal_keeps_everything() {
+        let work = TempDir::new().unwrap();
+        let path = work.path().join("library.sqlite");
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;")
+                .unwrap();
+            conn.execute_batch(
+                "CREATE TABLE documents (
+                     id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL UNIQUE,
+                     title TEXT NOT NULL, category TEXT, archived INTEGER NOT NULL DEFAULT 0,
+                     notes TEXT, created_at TEXT NOT NULL, modified_at TEXT NOT NULL,
+                     last_opened_at TEXT);
+                 CREATE TABLE tags (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE,
+                     color_hex TEXT NOT NULL DEFAULT '#3584e4');
+                 CREATE TABLE doc_tags (doc_id INTEGER NOT NULL, tag_id INTEGER NOT NULL,
+                     PRIMARY KEY (doc_id, tag_id));
+                 INSERT INTO documents (path, title, created_at, modified_at) VALUES ('/x.typ', 'x', 't', 't');
+                 INSERT INTO tags (name) VALUES ('keep');
+                 INSERT INTO doc_tags VALUES (1, 1);",
+            ).unwrap();
+        }
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;")
+            .unwrap();
+        let lib = Library {
+            conn,
+            trash_dir: work.path().join("t"),
+            authors: AuthorSync::default(),
         };
-        assert_eq!(names(tags.get(&a)), vec!["alpha", "zeta"]);
-        assert_eq!(
-            names(tags.get(&a)),
-            lib.doc_tags(a)
-                .unwrap()
-                .into_iter()
-                .map(|t| t.name)
-                .collect::<Vec<_>>()
-        );
-        assert!(!tags.contains_key(&b));
-        let cat_names = |v: Vec<Category>| v.into_iter().map(|c| c.name).collect::<Vec<_>>();
-        assert_eq!(
-            cat_names(cats.get(&a).cloned().unwrap_or_default()),
-            cat_names(lib.doc_categories(a).unwrap())
-        );
+        lib.migrate().unwrap();
+        assert_eq!(label_names(&lib, 1), vec!["keep"]);
     }
 }
 
@@ -4096,13 +3586,13 @@ mod sql_shape {
 
     /// Filters that take a leading parameter must bind the search pattern to
     /// `?2`; the rest to `?1`. Getting this wrong silently searches for the
-    /// category/tag id instead of the user's text.
+    /// label/project id instead of the user's text.
     #[test]
     fn search_pattern_takes_the_slot_after_any_leading_parameter() {
         for f in [
             LibraryFilter::All,
             LibraryFilter::Archive,
-            LibraryFilter::Untagged,
+            LibraryFilter::Unlabelled,
             LibraryFilter::Recent,
             LibraryFilter::Trash,
         ] {
@@ -4113,10 +3603,9 @@ mod sql_shape {
             );
         }
         for f in [
-            LibraryFilter::Category("C".into()),
-            LibraryFilter::CategoryGroup("G".into()),
+            LibraryFilter::Label(3),
+            LibraryFilter::Author(5),
             LibraryFilter::Project(7),
-            LibraryFilter::Tag(9),
         ] {
             let sql = sql_for(f.clone(), SortOrder::Modified);
             assert!(sql.contains("LIKE ?2"), "{f:?} should bind search to ?2");
@@ -4125,7 +3614,7 @@ mod sql_shape {
 
     #[test]
     fn joined_filters_prefix_every_column_with_the_table_alias() {
-        for f in [LibraryFilter::Project(7), LibraryFilter::Tag(9)] {
+        for f in [LibraryFilter::Project(7), LibraryFilter::Label(9)] {
             let sql = sql_for(f.clone(), SortOrder::Modified);
             assert!(sql.contains("FROM documents d JOIN"), "{f:?}");
             assert!(
@@ -4158,9 +3647,8 @@ mod sql_shape {
         for f in [
             LibraryFilter::All,
             LibraryFilter::Archive,
-            LibraryFilter::Untagged,
-            LibraryFilter::Category("C".into()),
-            LibraryFilter::Tag(9),
+            LibraryFilter::Unlabelled,
+            LibraryFilter::Label(9),
         ] {
             for (sort, tail) in [
                 (SortOrder::Title, "title COLLATE NOCASE ASC"),
@@ -4185,23 +3673,15 @@ mod sql_shape {
             (LibraryFilter::Archive, "archived = 1 AND deleted = 0"),
             (LibraryFilter::Trash, "deleted = 1"),
             (
-                LibraryFilter::Untagged,
-                "id NOT IN (SELECT DISTINCT doc_id FROM doc_tags)",
+                LibraryFilter::Unlabelled,
+                "id NOT IN (SELECT DISTINCT doc_id FROM doc_labels)",
             ),
             (LibraryFilter::Recent, "last_opened_at IS NOT NULL"),
-            (
-                LibraryFilter::Category("C".into()),
-                "EXISTS (SELECT 1 FROM doc_categories dc WHERE dc.doc_id = id AND dc.category = ?1)",
-            ),
-            (
-                LibraryFilter::CategoryGroup("G".into()),
-                "name = ?1 OR parent = ?1",
-            ),
             (
                 LibraryFilter::Project(7),
                 "pd.project_id = ?1 AND d.deleted = 0",
             ),
-            (LibraryFilter::Tag(9), "dt.tag_id = ?1"),
+            (LibraryFilter::Label(9), "dl.label_id = ?1"),
         ];
         for (f, needle) in cases {
             let sql = sql_for(f.clone(), SortOrder::Modified);

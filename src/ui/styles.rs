@@ -57,6 +57,11 @@ const GLOBAL_CSS: &str = "\
        because selection is tracked by the window, so the :selected rule in \
        fond.css never applies — this says the same thing in a class. */ \
     .doc-selected { background: alpha(@window_fg_color, 0.09); } \
+    /* The ⋯ button on a row: small enough not to make the row taller than \
+       its text. */ \
+    menubutton.row-more, menubutton.row-more > button { min-height: 20px; min-width: 20px; padding: 0; margin: 0; } \
+    /* A sidebar row a document is being dragged over. */ \
+    .drop-hover { background: alpha(@accent_bg_color, 0.22); } \
     .navigation-sidebar > row:hover:not(:selected) { \
         background-color: alpha(@accent_color, 0.08); \
     } \

@@ -62,24 +62,8 @@ impl LibraryWindow {
         }
         self.doc_list_stack.set_visible_child_name("docs");
 
-        let cat_colors: HashMap<String, String> = self
-            .library
-            .borrow()
-            .all_categories_with_colors()
-            .unwrap_or_default()
-            .into_iter()
-            .map(|(name, color)| {
-                let color = color.unwrap_or_else(|| stable_palette_color(&name).to_string());
-                (name, color)
-            })
-            .collect();
         let authors_by_doc = self.library.borrow().authors_by_doc().unwrap_or_default();
-        let tags_by_doc = self.library.borrow().tags_by_doc().unwrap_or_default();
-        let cats_by_doc = self
-            .library
-            .borrow()
-            .categories_by_doc()
-            .unwrap_or_default();
+        let labels_by_doc = self.library.borrow().labels_by_doc().unwrap_or_default();
         let snippets = if searching {
             self.library.borrow().snippets(&search)
         } else {
@@ -115,15 +99,12 @@ impl LibraryWindow {
                 .append(&section_row(title, accent, group.len()));
             let last_idx = group.len() - 1;
             for (i, doc) in group.into_iter().enumerate() {
-                let no_tags = Vec::new();
-                let no_cats = Vec::new();
+                let no_labels = Vec::new();
                 let row = self.make_doc_row(
                     &doc,
-                    tags_by_doc.get(&doc.id).unwrap_or(&no_tags),
-                    cats_by_doc.get(&doc.id).unwrap_or(&no_cats),
+                    labels_by_doc.get(&doc.id).unwrap_or(&no_labels),
                     project_reorder,
                     mode.clone(),
-                    &cat_colors,
                     authors_by_doc.get(&doc.id).map_or(&[], |v| v.as_slice()),
                     snippets.get(&doc.id).map(String::as_str),
                 );
@@ -141,7 +122,7 @@ impl LibraryWindow {
         self.sync_selection_ui();
     }
 
-    /// A category or tag as it appears on a row: its colour as a dot, then its
+    /// A label as it appears on a row: its colour as a dot, then its
     /// name, and a click shows only the documents that carry it.
     fn filter_chip(&self, name: &str, color: &str, target: LibraryFilter) -> GtkBox {
         let chip = GtkBox::new(Orientation::Horizontal, 4);
@@ -165,11 +146,9 @@ impl LibraryWindow {
     pub(super) fn make_doc_row(
         &self,
         doc: &crate::library::Document,
-        tags: &[crate::library::Tag],
-        categories: &[crate::library::Category],
+        labels: &[crate::library::Label],
         project_reorder: Option<i64>,
         mode: ViewMode,
-        cat_colors: &HashMap<String, String>,
         cites: &[String],
         snippet: Option<&str>,
     ) -> ListBoxRow {
@@ -178,8 +157,8 @@ impl LibraryWindow {
         row.add_css_class("fond-card");
         row.add_css_class("fond-row");
 
-        // One line per document: a cue in the category's colour, the title, the
-        // category and tags as dim reference text, and the date and length at
+        // One line per document: a cue in the first label's colour, the title, its
+        // labels as dim reference text, and the date and length at
         // the right edge. A checkbox at the left and a ⋯ menu at the right
         // appear when the row is hovered or focused — they are what make
         // selecting and acting on documents discoverable without hiding it all
@@ -207,12 +186,7 @@ impl LibraryWindow {
             hbox.append(&pin);
         }
 
-        let cue_color = categories.first().map(|cat| {
-            cat_colors
-                .get(&cat.name)
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| stable_palette_color(&cat.name).to_string())
-        });
+        let cue_color = labels.first().map(label_color);
         hbox.append(&crate::ui::styles::fond_cue(cue_color.as_deref()));
 
         // A document whose file has gone from where the library last saw it.
@@ -228,19 +202,24 @@ impl LibraryWindow {
         title.set_ellipsize(gtk4::pango::EllipsizeMode::End);
         hbox.append(&title);
 
-        for cat in categories {
-            let color = cat_colors
-                .get(&cat.name)
-                .cloned()
-                .unwrap_or_else(|| stable_palette_color(&cat.name).to_string());
+        for label in labels.iter().take(4) {
             hbox.append(&self.filter_chip(
-                &cat.name,
-                &color,
-                LibraryFilter::Category(cat.name.clone()),
+                &label.name,
+                &label_color(label),
+                LibraryFilter::Label(label.id),
             ));
         }
-        for tag in tags.iter().take(4) {
-            hbox.append(&self.filter_chip(&tag.name, &tag.color_hex, LibraryFilter::Tag(tag.id)));
+        if labels.len() > 4 {
+            let more = Label::new(Some(&format!("+{}", labels.len() - 4)));
+            more.add_css_class("fond-row-meta");
+            more.set_tooltip_text(Some(
+                &labels[4..]
+                    .iter()
+                    .map(|l| l.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            ));
+            hbox.append(&more);
         }
 
         let mut tip = doc
@@ -309,6 +288,7 @@ impl LibraryWindow {
         more.set_icon_name("view-more-symbolic");
         more.add_css_class("flat");
         more.add_css_class("circular");
+        more.add_css_class("row-more");
         more.set_valign(Align::Center);
         more.set_tooltip_text(Some("More actions"));
         more.update_property(&[gtk4::accessible::Property::Label(&format!(
@@ -469,15 +449,7 @@ impl LibraryWindow {
             let (Some(row), Some(model)) = (row_weak.upgrade(), this.doc_menu_model(doc_id)) else {
                 return;
             };
-            let popover = gtk4::PopoverMenu::from_model(Some(&model));
-            popover.set_parent(&row);
-            popover.set_has_arrow(true);
-            popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
-            popover.connect_closed(|p| {
-                let p = p.clone();
-                glib::idle_add_local_once(move || p.unparent());
-            });
-            popup_after_click(popover.upcast_ref());
+            popup_menu_at(&row, &model, x, y);
         });
         row.add_controller(gesture);
 
@@ -672,7 +644,7 @@ pub(super) fn empty_state(filter: &LibraryFilter, search: &str) -> EmptyState {
             ..plain(
                 "system-search-symbolic",
                 &format!("Nothing matches \u{201c}{search}\u{201d}"),
-                "Searched titles, categories, tags and the authors a document cites.",
+                "Searched titles, text, labels and the authors a document cites.",
             )
         };
     }
@@ -691,25 +663,20 @@ pub(super) fn empty_state(filter: &LibraryFilter, search: &str) -> EmptyState {
             "Nothing opened yet",
             "Documents you open show up here, most recent first.",
         ),
-        LibraryFilter::Untagged => plain(
+        LibraryFilter::Unlabelled => plain(
             "emblem-ok-symbolic",
-            "Every document has a tag",
-            "Documents without a tag would be listed here.",
+            "Every document has a label",
+            "Documents without a label would be listed here.",
         ),
         LibraryFilter::Project(_) => plain(
             "folder-symbolic",
             "This project is empty",
-            "Open a document's \u{22ef} menu and choose Organize \u{203a} Add to Project, or select several documents and use Add to Project.",
+            "Open a document's \u{22ef} menu and choose Organize, or drag a document onto the project in the sidebar.",
         ),
-        LibraryFilter::Category(_) | LibraryFilter::CategoryGroup(_) => plain(
-            "folder-symbolic",
-            "Nothing in this category yet",
-            "Drag a document onto the category in the sidebar, or select documents and choose Categorize.",
-        ),
-        LibraryFilter::Tag(_) => plain(
+        LibraryFilter::Label(_) => plain(
             "tag-symbolic",
-            "No documents have this tag",
-            "Select documents and choose Tag to add it.",
+            "No documents have this label",
+            "Drag a document onto the label in the sidebar, or select documents and choose Organize.",
         ),
         LibraryFilter::Author(_) => plain(
             "avatar-default-symbolic",
@@ -786,11 +753,9 @@ mod empty_tests {
         assert!(all.offer_new && all.offer_import);
         for f in [
             LibraryFilter::Recent,
-            LibraryFilter::Untagged,
+            LibraryFilter::Unlabelled,
             LibraryFilter::Project(1),
-            LibraryFilter::Category("x".into()),
-            LibraryFilter::CategoryGroup("x".into()),
-            LibraryFilter::Tag(1),
+            LibraryFilter::Label(1),
             LibraryFilter::Author(1),
             LibraryFilter::Archive,
             LibraryFilter::Trash,

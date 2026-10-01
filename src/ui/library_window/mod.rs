@@ -20,10 +20,11 @@ use crate::library::{Library, LibraryFilter, SortOrder};
 mod dialogs;
 mod files;
 mod menus;
+mod organize;
 mod rows;
 mod sidebar;
 
-use menus::popup_after_click;
+use menus::popup_menu_at;
 use rows::RowParts;
 use sidebar::*;
 
@@ -31,7 +32,16 @@ const TAG_COLORS: &[&str] = &[
     "#3584e4", "#33d17a", "#f6d32d", "#ff7800", "#e01b24", "#9141ac", "#dc8add", "#986a44",
 ];
 
-/// Deterministic palette color for a category/tag name that has never had one
+/// A label's colour: the one chosen for it, or a palette colour taken from its
+/// name so labels nobody has coloured still look distinct.
+fn label_color(label: &crate::library::Label) -> String {
+    label
+        .color_hex
+        .clone()
+        .unwrap_or_else(|| stable_palette_color(&label.name).to_string())
+}
+
+/// Deterministic palette color for a label name that has never had one
 /// explicitly assigned, so distinct uncolored categories still look distinct
 /// instead of all silently defaulting to the same blue.
 fn stable_palette_color(name: &str) -> &'static str {
@@ -290,17 +300,9 @@ impl LibraryWindow {
         bulk_archive_btn.add_css_class("flat");
         action_bar.append(&bulk_archive_btn);
 
-        let bulk_tag_btn = Button::with_label("Tag…");
-        bulk_tag_btn.add_css_class("flat");
-        action_bar.append(&bulk_tag_btn);
-
-        let bulk_category_btn = Button::with_label("Categorize…");
-        bulk_category_btn.add_css_class("flat");
-        action_bar.append(&bulk_category_btn);
-
-        let bulk_project_btn = Button::with_label("Add to Project…");
-        bulk_project_btn.add_css_class("flat");
-        action_bar.append(&bulk_project_btn);
+        let bulk_organize_btn = Button::with_label("Organize…");
+        bulk_organize_btn.add_css_class("flat");
+        action_bar.append(&bulk_organize_btn);
 
         let bulk_remove_btn = Button::with_label("Remove");
         bulk_remove_btn.add_css_class("destructive-action");
@@ -320,13 +322,13 @@ impl LibraryWindow {
         toast_overlay.set_child(Some(&root));
 
         // F1 labels everything on screen, same as the main editor window —
-        // Library's Project/Category/Tag/Archive/Trash sidebar has no other
+        // Library's Project/Label/Archive/Trash sidebar has no other
         // in-app explanation anywhere.
         let help_overlay = super::help_overlay::HelpOverlay::new(&toast_overlay);
         help_overlay.annotate(
             &filter_list,
             "Filters",
-            "All Documents, plus any Projects, Categories, and Tags you've made, and the Authors your documents cite. Click one to show only those documents.",
+            "All Documents, plus any Projects and Labels you've made, and the Authors your documents cite. Click one to show only those documents. Drag a document onto a project or label to file it; hover a row for its ⋯ menu.",
         );
         help_overlay.annotate(
             &bottom_filter_list,
@@ -421,9 +423,7 @@ impl LibraryWindow {
             &import_btn,
             &sort_dropdown,
             &bulk_archive_btn,
-            &bulk_tag_btn,
-            &bulk_category_btn,
-            &bulk_project_btn,
+            &bulk_organize_btn,
             &bulk_remove_btn,
             &clear_btn,
         );
@@ -438,9 +438,7 @@ impl LibraryWindow {
         import_btn: &Button,
         sort_dropdown: &gtk4::DropDown,
         bulk_archive_btn: &Button,
-        bulk_tag_btn: &Button,
-        bulk_category_btn: &Button,
-        bulk_project_btn: &Button,
+        bulk_organize_btn: &Button,
         bulk_remove_btn: &Button,
         clear_btn: &Button,
     ) {
@@ -470,6 +468,8 @@ impl LibraryWindow {
             self.window.insert_action_group("view", Some(&group));
         }
         self.install_doc_actions();
+        self.install_project_actions();
+        self.install_label_actions();
         self.install_selection_keys();
         let inhibit = self.inhibit_select.clone();
         let inhibit_b = inhibit.clone();
@@ -596,29 +596,9 @@ impl LibraryWindow {
         }
         {
             let this = self.clone();
-            bulk_tag_btn.connect_clicked(move |_| {
+            bulk_organize_btn.connect_clicked(move |btn| {
                 let ids: Vec<i64> = this.selection.borrow().iter().cloned().collect();
-                if !ids.is_empty() {
-                    this.bulk_tag_dialog(ids);
-                }
-            });
-        }
-        {
-            let this = self.clone();
-            bulk_category_btn.connect_clicked(move |_| {
-                let ids: Vec<i64> = this.selection.borrow().iter().cloned().collect();
-                if !ids.is_empty() {
-                    this.bulk_category_dialog(ids);
-                }
-            });
-        }
-        {
-            let this = self.clone();
-            bulk_project_btn.connect_clicked(move |_| {
-                let ids: Vec<i64> = this.selection.borrow().iter().cloned().collect();
-                if !ids.is_empty() {
-                    this.bulk_add_to_project_dialog(ids);
-                }
+                this.show_organize(ids, btn.upcast_ref());
             });
         }
         {

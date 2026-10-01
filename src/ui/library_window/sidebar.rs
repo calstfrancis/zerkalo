@@ -20,10 +20,10 @@ impl LibraryWindow {
             Some(counts.recent),
         ));
         self.filter_list.append(&make_filter_row(
-            "untagged",
+            "unlabelled",
             "edit-clear-symbolic",
-            "Untagged",
-            Some(counts.untagged),
+            "Needs a label",
+            Some(counts.unlabelled),
         ));
 
         let projects = self.library.borrow().all_projects().unwrap_or_default();
@@ -42,222 +42,54 @@ impl LibraryWindow {
         } else {
             for p in projects {
                 let count = Some(counts.projects.get(&p.id).copied().unwrap_or(0));
-                let filter_row = make_filter_row(
-                    &format!("project:{}", p.id),
-                    "folder-symbolic",
-                    &p.name,
-                    count,
-                );
-                let gesture = gtk4::GestureClick::new();
-                gesture.set_button(3);
-                let this = self.clone();
+                let (row, hbox) = filter_row_shell(&format!("project:{}", p.id), &p.name, count);
+                let img = Image::from_icon_name("folder-symbolic");
+                img.set_pixel_size(14);
+                img.add_css_class("fond-quiet");
+                hbox.prepend(&img);
                 let pid = p.id;
-                let pname = p.name.clone();
-                let row_weak = filter_row.downgrade();
-                gesture.connect_pressed(move |g, _, x, y| {
-                    g.set_state(gtk4::EventSequenceState::Claimed);
-                    if let Some(row) = row_weak.upgrade() {
-                        this.show_project_menu(&row, pid, &pname, x, y);
-                    }
+                let this = self.clone();
+                self.attach_row_menu(&row, &hbox, move || this.project_menu_model(pid));
+                let this = self.clone();
+                self.add_doc_drop_target(&row, move |doc_id| {
+                    this.library
+                        .borrow_mut()
+                        .add_doc_to_project(pid, doc_id)
+                        .ok();
+                    this.refresh();
                 });
-                filter_row.add_controller(gesture);
-                self.filter_list.append(&filter_row);
+                self.filter_list.append(&row);
             }
         }
 
-        let all_cats = self
-            .library
-            .borrow()
-            .all_categories_structured()
-            .unwrap_or_default();
+        let labels = self.library.borrow().all_labels().unwrap_or_default();
         {
             let this = self.clone();
             self.filter_list.append(&self.add_header(
-                "Categories",
-                "fond-accent-library",
-                "New category",
-                move || this.create_category_dialog(),
-            ));
-        }
-        if all_cats.is_empty() {
-            self.filter_list
-                .append(&hint_row("Sort documents into kinds"));
-        } else {
-            // Partition into parents (have children), children (have parent), standalone
-            let parent_names: std::collections::HashSet<String> =
-                all_cats.iter().filter_map(|c| c.parent.clone()).collect();
-            let cats_with_children: std::collections::HashSet<String> = all_cats
-                .iter()
-                .filter(|c| parent_names.contains(&c.name))
-                .map(|c| c.name.clone())
-                .collect();
-
-            // Emit parent rows first, then their children, then standalones
-            let mut emitted: std::collections::HashSet<String> = std::collections::HashSet::new();
-            for cat in &all_cats {
-                if cat.parent.is_none() && cats_with_children.contains(&cat.name) {
-                    // Parent category row
-                    let has_children = true;
-                    let cat_count =
-                        Some(counts.category_groups.get(&cat.name).copied().unwrap_or(0));
-                    let filter_row = make_category_filter_row(
-                        &format!("category-group:{}", cat.name),
-                        &cat.color_hex
-                            .clone()
-                            .unwrap_or_else(|| stable_palette_color(&cat.name).to_string()),
-                        &cat.name,
-                        cat_count,
-                    );
-                    // Parent rows: drop rejected with toast
-                    let drop =
-                        DropTarget::new(gtk4::glib::Type::STRING, gtk4::gdk::DragAction::COPY);
-                    let toast_overlay = self.toast_overlay.clone();
-                    drop.connect_drop(move |_, _, _, _| {
-                        let toast = adw::Toast::new("Drop onto a specific subcategory");
-                        toast_overlay.add_toast(toast);
-                        false
-                    });
-                    filter_row.add_controller(drop);
-                    let gesture = gtk4::GestureClick::new();
-                    gesture.set_button(3);
-                    let this = self.clone();
-                    let cat_name = cat.name.clone();
-                    let row_weak = filter_row.downgrade();
-                    gesture.connect_pressed(move |g, _, x, y| {
-                        g.set_state(gtk4::EventSequenceState::Claimed);
-                        if let Some(row) = row_weak.upgrade() {
-                            this.show_category_menu(&row, &cat_name, has_children, x, y);
-                        }
-                    });
-                    filter_row.add_controller(gesture);
-                    self.filter_list.append(&filter_row);
-                    emitted.insert(cat.name.clone());
-
-                    // Children of this parent
-                    for child in &all_cats {
-                        if child.parent.as_deref() == Some(&cat.name) {
-                            let child_count =
-                                Some(counts.categories.get(&child.name).copied().unwrap_or(0));
-                            let child_row = make_category_filter_row_indented(
-                                &format!("category:{}", child.name),
-                                &child.color_hex.clone().unwrap_or_else(|| {
-                                    stable_palette_color(&child.name).to_string()
-                                }),
-                                &child.name,
-                                child_count,
-                                16,
-                            );
-                            let drop2 = DropTarget::new(
-                                gtk4::glib::Type::STRING,
-                                gtk4::gdk::DragAction::COPY,
-                            );
-                            let this2 = self.clone();
-                            let cname2 = child.name.clone();
-                            drop2.connect_drop(move |_, value, _, _| {
-                                if let Ok(id_str) = value.get::<String>() {
-                                    if let Ok(doc_id) = id_str.parse::<i64>() {
-                                        this2
-                                            .library
-                                            .borrow_mut()
-                                            .add_doc_categories(
-                                                doc_id,
-                                                std::slice::from_ref(&cname2),
-                                            )
-                                            .ok();
-                                        this2.refresh();
-                                        return true;
-                                    }
-                                }
-                                false
-                            });
-                            child_row.add_controller(drop2);
-                            let gesture2 = gtk4::GestureClick::new();
-                            gesture2.set_button(3);
-                            let this2 = self.clone();
-                            let cname2 = child.name.clone();
-                            let row_weak2 = child_row.downgrade();
-                            gesture2.connect_pressed(move |g, _, x, y| {
-                                g.set_state(gtk4::EventSequenceState::Claimed);
-                                if let Some(row) = row_weak2.upgrade() {
-                                    this2.show_category_menu(&row, &cname2, false, x, y);
-                                }
-                            });
-                            child_row.add_controller(gesture2);
-                            self.filter_list.append(&child_row);
-                            emitted.insert(child.name.clone());
-                        }
-                    }
-                }
-            }
-            // Standalone categories (no parent, no children)
-            for cat in &all_cats {
-                if emitted.contains(&cat.name) {
-                    continue;
-                }
-                let cat_count = Some(counts.categories.get(&cat.name).copied().unwrap_or(0));
-                let filter_row = make_category_filter_row(
-                    &format!("category:{}", cat.name),
-                    &cat.color_hex
-                        .clone()
-                        .unwrap_or_else(|| stable_palette_color(&cat.name).to_string()),
-                    &cat.name,
-                    cat_count,
-                );
-                let drop = DropTarget::new(gtk4::glib::Type::STRING, gtk4::gdk::DragAction::COPY);
-                let this = self.clone();
-                let cat_name = cat.name.clone();
-                drop.connect_drop(move |_, value, _, _| {
-                    if let Ok(id_str) = value.get::<String>() {
-                        if let Ok(doc_id) = id_str.parse::<i64>() {
-                            this.library
-                                .borrow_mut()
-                                .add_doc_categories(doc_id, std::slice::from_ref(&cat_name))
-                                .ok();
-                            this.refresh();
-                            return true;
-                        }
-                    }
-                    false
-                });
-                filter_row.add_controller(drop);
-                let gesture = gtk4::GestureClick::new();
-                gesture.set_button(3);
-                let this = self.clone();
-                let cat_name = cat.name.clone();
-                let row_weak = filter_row.downgrade();
-                gesture.connect_pressed(move |g, _, x, y| {
-                    g.set_state(gtk4::EventSequenceState::Claimed);
-                    if let Some(row) = row_weak.upgrade() {
-                        this.show_category_menu(&row, &cat_name, false, x, y);
-                    }
-                });
-                filter_row.add_controller(gesture);
-                self.filter_list.append(&filter_row);
-            }
-        }
-
-        let tags_with_counts = self
-            .library
-            .borrow()
-            .all_tags_with_counts()
-            .unwrap_or_default();
-        {
-            let this = self.clone();
-            self.filter_list.append(&self.add_header(
-                "Tags",
+                "Labels",
                 "fond-accent-pinned",
-                "Manage tags",
-                move || this.show_manage_tags(),
+                "New label",
+                move || this.create_label_dialog(),
             ));
         }
-        if tags_with_counts.is_empty() {
+        if labels.is_empty() {
             self.filter_list
                 .append(&hint_row("Mark documents with your own words"));
         } else {
-            for (t, _) in tags_with_counts.iter() {
-                let count = Some(counts.tags.get(&t.id).copied().unwrap_or(0));
-                self.filter_list
-                    .append(&make_tag_filter_row(t.id, &t.name, &t.color_hex, count));
+            for label in &labels {
+                let count = Some(counts.labels.get(&label.id).copied().unwrap_or(0));
+                let (row, hbox) =
+                    filter_row_shell(&format!("label:{}", label.id), &label.name, count);
+                hbox.prepend(&crate::ui::styles::fond_cue(Some(&label_color(label))));
+                let lid = label.id;
+                let this = self.clone();
+                self.attach_row_menu(&row, &hbox, move || this.label_menu_model(lid));
+                let this = self.clone();
+                self.add_doc_drop_target(&row, move |doc_id| {
+                    this.library.borrow_mut().add_labels(&[doc_id], &[lid]).ok();
+                    this.refresh();
+                });
+                self.filter_list.append(&row);
             }
         }
 
@@ -282,12 +114,15 @@ impl LibraryWindow {
         while let Some(child) = self.bottom_filter_list.first_child() {
             self.bottom_filter_list.remove(&child);
         }
-        self.bottom_filter_list.append(&make_filter_row(
-            "trash",
-            "user-trash-symbolic",
-            "Trash",
-            Some(counts.trash),
-        ));
+        let trash_row =
+            make_filter_row("trash", "user-trash-symbolic", "Trash", Some(counts.trash));
+        {
+            let this = self.clone();
+            self.add_doc_drop_target(&trash_row, move |doc_id| {
+                this.trash_document(doc_id);
+            });
+        }
+        self.bottom_filter_list.append(&trash_row);
         self.bottom_filter_list.append(&make_filter_row(
             "archive",
             "view-archive-symbolic",
@@ -360,22 +195,21 @@ impl LibraryWindow {
         match filter {
             LibraryFilter::All | LibraryFilter::Everywhere => "All Documents".into(),
             LibraryFilter::Recent => "Recent".into(),
-            LibraryFilter::Untagged => "Untagged".into(),
+            LibraryFilter::Unlabelled => "Needs a label".into(),
             LibraryFilter::Archive => "Archive".into(),
             LibraryFilter::Trash => "Trash".into(),
-            LibraryFilter::Category(name) | LibraryFilter::CategoryGroup(name) => name.clone(),
             LibraryFilter::Project(id) => lib
                 .all_projects()
                 .unwrap_or_default()
                 .into_iter()
                 .find(|p| p.id == *id)
                 .map_or_else(|| "this project".into(), |p| p.name),
-            LibraryFilter::Tag(id) => lib
-                .all_tags()
+            LibraryFilter::Label(id) => lib
+                .all_labels()
                 .unwrap_or_default()
                 .into_iter()
-                .find(|t| t.id == *id)
-                .map_or_else(|| "this tag".into(), |t| t.name),
+                .find(|l| l.id == *id)
+                .map_or_else(|| "this label".into(), |l| l.name),
             LibraryFilter::Author(id) => lib
                 .all_authors_with_counts()
                 .unwrap_or_default()
@@ -467,14 +301,12 @@ pub(super) fn filter_row_name(filter: &LibraryFilter) -> String {
         LibraryFilter::All => "all".into(),
         LibraryFilter::Recent => "recent".into(),
         LibraryFilter::Archive => "archive".into(),
-        LibraryFilter::Untagged => "untagged".into(),
+        LibraryFilter::Unlabelled => "unlabelled".into(),
         LibraryFilter::Trash => "trash".into(),
         LibraryFilter::Everywhere => "everywhere".into(),
         LibraryFilter::Project(id) => format!("project:{id}"),
-        LibraryFilter::Tag(id) => format!("tag:{id}"),
+        LibraryFilter::Label(id) => format!("label:{id}"),
         LibraryFilter::Author(id) => format!("author:{id}"),
-        LibraryFilter::CategoryGroup(name) => format!("category-group:{name}"),
-        LibraryFilter::Category(name) => format!("category:{name}"),
     }
 }
 
@@ -485,8 +317,8 @@ pub(super) fn parse_filter_name(name: &str) -> LibraryFilter {
         LibraryFilter::Recent
     } else if name == "archive" {
         LibraryFilter::Archive
-    } else if name == "untagged" {
-        LibraryFilter::Untagged
+    } else if name == "unlabelled" {
+        LibraryFilter::Unlabelled
     } else if name == "trash" {
         LibraryFilter::Trash
     } else if name == "everywhere" {
@@ -499,14 +331,10 @@ pub(super) fn parse_filter_name(name: &str) -> LibraryFilter {
         rest.parse::<i64>()
             .map(LibraryFilter::Author)
             .unwrap_or(LibraryFilter::All)
-    } else if let Some(rest) = name.strip_prefix("tag:") {
+    } else if let Some(rest) = name.strip_prefix("label:") {
         rest.parse::<i64>()
-            .map(LibraryFilter::Tag)
+            .map(LibraryFilter::Label)
             .unwrap_or(LibraryFilter::All)
-    } else if let Some(rest) = name.strip_prefix("category-group:") {
-        LibraryFilter::CategoryGroup(rest.to_string())
-    } else if let Some(rest) = name.strip_prefix("category:") {
-        LibraryFilter::Category(rest.to_string())
     } else {
         LibraryFilter::All
     }
@@ -558,42 +386,6 @@ pub(super) fn make_filter_row(
     row
 }
 
-pub(super) fn make_category_filter_row(
-    name: &str,
-    color: &str,
-    label: &str,
-    count: Option<i64>,
-) -> ListBoxRow {
-    let (row, hbox) = filter_row_shell(name, label, count);
-    hbox.prepend(&crate::ui::styles::fond_cue(Some(color)));
-    row
-}
-
-pub(super) fn make_category_filter_row_indented(
-    name: &str,
-    color: &str,
-    label: &str,
-    count: Option<i64>,
-    indent: i32,
-) -> ListBoxRow {
-    let row = make_category_filter_row(name, color, label, count);
-    if let Some(child) = row.child() {
-        child.set_margin_start(indent);
-    }
-    row
-}
-
-pub(super) fn make_tag_filter_row(
-    tag_id: i64,
-    label: &str,
-    color: &str,
-    count: Option<i64>,
-) -> ListBoxRow {
-    let (row, hbox) = filter_row_shell(&format!("tag:{tag_id}"), label, count);
-    hbox.prepend(&crate::ui::styles::fond_cue(Some(color)));
-    row
-}
-
 pub(super) fn make_author_filter_row(
     author_id: i64,
     label: &str,
@@ -632,14 +424,12 @@ mod tests {
             LibraryFilter::All,
             LibraryFilter::Recent,
             LibraryFilter::Archive,
-            LibraryFilter::Untagged,
+            LibraryFilter::Unlabelled,
             LibraryFilter::Trash,
             LibraryFilter::Everywhere,
             LibraryFilter::Project(7),
-            LibraryFilter::Tag(3),
+            LibraryFilter::Label(3),
             LibraryFilter::Author(12),
-            LibraryFilter::Category("Sermons".into()),
-            LibraryFilter::CategoryGroup("Liturgy".into()),
         ] {
             assert_eq!(parse_filter_name(&filter_row_name(&f)), f);
         }
