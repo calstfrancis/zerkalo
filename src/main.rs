@@ -5,6 +5,7 @@
 #![allow(clippy::type_complexity)]
 
 mod assets;
+mod authors;
 mod auto_save;
 mod bib_sanitize;
 mod bibliography;
@@ -28,6 +29,8 @@ mod import_log;
 mod imposition;
 mod keybindings;
 mod library;
+mod library_export;
+mod library_restore;
 mod lsp;
 mod print_layout;
 mod project;

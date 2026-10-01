@@ -9,10 +9,45 @@ pub struct Library {
     /// `glib::user_data_dir()` call so tests can point it at a temp dir instead
     /// of the real data dir.
     trash_dir: PathBuf,
+    /// Derives the author tags (see `authors.rs`) each time a document is
+    /// scanned, opened or saved.
+    authors: AuthorSync,
+}
+
+/// The bibliography fallback for documents that don't name one themselves,
+/// plus the parse cache that keeps a scan from re-reading it per document.
+#[derive(Default)]
+struct AuthorSync {
+    bib_source: Option<PathBuf>,
+    index: crate::authors::AuthorIndex,
 }
 
 fn default_trash_dir() -> PathBuf {
     crate::config::zerkalo_data_dir().join("trash")
+}
+
+fn labels_migrated(conn: &Connection) -> bool {
+    conn.query_row(
+        "SELECT value FROM meta WHERE key = 'labels_migrated'",
+        [],
+        |r| r.get::<_, String>(0),
+    )
+    .map(|v| v == "1")
+    .unwrap_or(false)
+}
+
+/// There is an old-style library whose tags and categories haven't become
+/// labels yet.
+fn labels_migration_pending(conn: &Connection) -> bool {
+    let has_tags = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'tags'",
+            [],
+            |r| r.get::<_, i64>(0),
+        )
+        .unwrap_or(0)
+        > 0;
+    has_tags && !labels_migrated(conn)
 }
 
 /// `move_to_trash` must never mark a document deleted in the database unless
@@ -49,13 +84,74 @@ pub struct Document {
     pub created_at: String,
     pub modified_at: String,
     pub last_opened_at: Option<String>,
+    /// Prose word count, kept up to date by the index so the list never has to
+    /// read files to draw itself. `None` until the document has been indexed.
+    pub words: Option<usize>,
 }
 
+/// One document's own data, as the folder export writes it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DocState {
+    pub id: i64,
+    pub path: PathBuf,
+    /// Only when the user renamed it in the Library; otherwise the title comes
+    /// from the file and there is nothing to save.
+    pub title: Option<String>,
+    pub pinned: bool,
+    pub archived: bool,
+    pub notes: Option<String>,
+    pub labels: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProjectState {
+    pub name: String,
+    pub root: Option<PathBuf>,
+    /// In the project's own order.
+    pub documents: Vec<PathBuf>,
+}
+
+/// Everything the library knows that isn't recoverable from the documents
+/// themselves — what the folder export writes out.
+#[derive(Clone, Debug, Default)]
+pub struct Snapshot {
+    pub docs: Vec<DocState>,
+    pub labels: Vec<Label>,
+    pub projects: Vec<ProjectState>,
+}
+
+/// How many documents the Recent view lists at most.
+const RECENT_LIMIT: u32 = 30;
+
+/// Everything the sidebar counts, from `Library::counts`.
+#[derive(Debug, Default)]
+pub struct Counts {
+    pub all: i64,
+    pub archive: i64,
+    pub trash: i64,
+    pub recent: i64,
+    pub unlabelled: i64,
+    pub projects: std::collections::HashMap<i64, i64>,
+    pub labels: std::collections::HashMap<i64, i64>,
+    pub authors: std::collections::HashMap<i64, i64>,
+}
+
+/// A word a document can carry — what tags and categories used to be, as one
+/// thing. Flat: nesting is written into the name (`Liturgy › Advent`).
 #[derive(Clone, Debug)]
-pub struct Tag {
+pub struct Label {
     pub id: i64,
     pub name: String,
-    pub color_hex: String,
+    /// `None` until a colour is chosen — callers substitute a per-name palette
+    /// colour so distinct labels stay distinct.
+    pub color_hex: Option<String>,
+}
+
+/// A cited author's tag, e.g. `Butler, J.` — derived, never typed in.
+#[derive(Clone, Debug)]
+pub struct Author {
+    pub id: i64,
+    pub name: String,
 }
 
 #[derive(Clone, Debug)]
@@ -66,26 +162,21 @@ pub struct Project {
     pub root_doc_id: Option<i64>,
     pub created_at: String,
 }
-#[derive(Clone, Debug)]
-pub struct Category {
-    pub name: String,
-    /// `None` when no colour has been explicitly chosen — callers substitute a
-    /// per-name palette colour so distinct categories stay distinct.
-    pub color_hex: Option<String>,
-    pub parent: Option<String>,
-}
-
 #[derive(Clone, Debug, PartialEq)]
 pub enum LibraryFilter {
     All,
     Project(i64),
-    Tag(i64),
-    Category(String),
-    CategoryGroup(String),
+    Label(i64),
+    /// Everything citing one author — see `authors.rs`.
+    Author(i64),
     Archive,
     Recent,
-    Untagged,
+    /// Documents with no label yet.
+    Unlabelled,
     Trash,
+    /// Every document that isn't in the Trash, archived or not — what a
+    /// search looks through unless it's been narrowed to the current view.
+    Everywhere,
 }
 
 /// The parts of `documents()`'s query that vary by filter: which columns to
@@ -100,10 +191,18 @@ struct FilterSpec {
     /// `None` means `pinned DESC` followed by the caller's sort. `Some`
     /// replaces the ordering entirely — project position, recency, trash order.
     order_override: Option<&'static str>,
+    /// Caps the result, applied after ordering — the Recent list's 30.
+    limit: Option<u32>,
     param: Option<rusqlite::types::Value>,
 }
 
 impl FilterSpec {
+    fn limit_clause(&self) -> String {
+        self.limit
+            .map(|n| format!(" LIMIT {n}"))
+            .unwrap_or_default()
+    }
+
     fn order(&self, sort: &SortOrder) -> String {
         match self.order_override {
             Some(o) => o.to_string(),
@@ -120,43 +219,25 @@ impl LibraryFilter {
             from: "documents".to_string(),
             conditions: conditions.to_string(),
             order_override: None,
+            limit: None,
             param: None,
         };
         match self {
             LibraryFilter::All => plain("archived = 0 AND deleted = 0"),
             LibraryFilter::Archive => plain("archived = 1 AND deleted = 0"),
-            LibraryFilter::Untagged => plain(
+            LibraryFilter::Everywhere => plain("deleted = 0"),
+            LibraryFilter::Unlabelled => plain(
                 "archived = 0 AND deleted = 0 \
-                 AND id NOT IN (SELECT DISTINCT doc_id FROM doc_tags)",
+                 AND id NOT IN (SELECT DISTINCT doc_id FROM doc_labels)",
             ),
             LibraryFilter::Recent => FilterSpec {
-                order_override: Some("pinned DESC, last_opened_at DESC LIMIT 30"),
+                order_override: Some("pinned DESC, last_opened_at DESC"),
+                limit: Some(RECENT_LIMIT),
                 ..plain("last_opened_at IS NOT NULL AND archived = 0 AND deleted = 0")
             },
             LibraryFilter::Trash => FilterSpec {
                 order_override: Some("modified_at DESC"),
                 ..plain("deleted = 1")
-            },
-            // `EXISTS` rather than a `doc_categories` join: a document can now
-            // carry more than one category (including a parent and one of its
-            // own children at once), so a join could match the same document
-            // through more than one row and duplicate it in the results.
-            LibraryFilter::Category(cat) => FilterSpec {
-                param: Some(cat.into()),
-                ..plain(
-                    "EXISTS (SELECT 1 FROM doc_categories dc \
-                         WHERE dc.doc_id = id AND dc.category = ?1) \
-                     AND archived = 0 AND deleted = 0",
-                )
-            },
-            LibraryFilter::CategoryGroup(parent) => FilterSpec {
-                param: Some(parent.into()),
-                ..plain(
-                    "EXISTS (SELECT 1 FROM doc_categories dc \
-                         WHERE dc.doc_id = id AND dc.category IN (\
-                             SELECT name FROM categories WHERE name = ?1 OR parent = ?1\
-                         )) AND archived = 0 AND deleted = 0",
-                )
             },
             LibraryFilter::Project(pid) => FilterSpec {
                 prefix: "d.",
@@ -164,15 +245,26 @@ impl LibraryFilter {
                 from: "documents d JOIN project_docs pd ON pd.doc_id = d.id".to_string(),
                 conditions: "pd.project_id = ?1 AND d.deleted = 0".to_string(),
                 order_override: Some("d.pinned DESC, pd.position, d.title"),
+                limit: None,
                 param: Some(pid.into()),
             },
-            LibraryFilter::Tag(tid) => FilterSpec {
+            LibraryFilter::Author(aid) => FilterSpec {
                 prefix: "d.",
                 select: doc_cols_prefixed("d"),
-                from: "documents d JOIN doc_tags dt ON dt.doc_id = d.id".to_string(),
-                conditions: "dt.tag_id = ?1 AND d.archived = 0 AND d.deleted = 0".to_string(),
+                from: "documents d JOIN doc_authors da ON da.doc_id = d.id".to_string(),
+                conditions: "da.author_id = ?1 AND d.archived = 0 AND d.deleted = 0".to_string(),
                 order_override: None,
-                param: Some(tid.into()),
+                limit: None,
+                param: Some(aid.into()),
+            },
+            LibraryFilter::Label(lid) => FilterSpec {
+                prefix: "d.",
+                select: doc_cols_prefixed("d"),
+                from: "documents d JOIN doc_labels dl ON dl.doc_id = d.id".to_string(),
+                conditions: "dl.label_id = ?1 AND d.archived = 0 AND d.deleted = 0".to_string(),
+                order_override: None,
+                limit: None,
+                param: Some(lid.into()),
             },
         }
     }
@@ -198,7 +290,7 @@ impl SortOrder {
 }
 
 const DOC_COLS: &str =
-    "id, path, title, archived, pinned, notes, created_at, modified_at, last_opened_at";
+    "id, path, title, archived, pinned, notes, created_at, modified_at, last_opened_at, words";
 
 /// Suffix for `path = ?N` comparisons — case-insensitive on Windows, where
 /// the same file reached via two differently-cased paths would otherwise
@@ -224,11 +316,22 @@ impl Library {
         let dir = crate::config::zerkalo_data_dir();
         std::fs::create_dir_all(&dir).ok();
         let path = dir.join("library.sqlite");
-        let conn = Connection::open(path)?;
+        let conn = Connection::open(&path)?;
         conn.execute_batch("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;")?;
+        // Tags and categories are about to be folded into labels. Keep a copy
+        // of the library as it was, once, so nothing is lost if that goes
+        // wrong or the change is unwelcome.
+        if labels_migration_pending(&conn) {
+            conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);").ok();
+            let backup = dir.join("library.before-labels.sqlite");
+            if !backup.exists() {
+                std::fs::copy(&path, backup).ok();
+            }
+        }
         let lib = Self {
             conn,
             trash_dir: default_trash_dir(),
+            authors: AuthorSync::default(),
         };
         lib.migrate()?;
         Ok(lib)
@@ -241,7 +344,11 @@ impl Library {
     fn in_memory_with_trash_dir(trash_dir: PathBuf) -> Self {
         let conn = Connection::open_in_memory().expect("in-memory DB");
         conn.execute_batch("PRAGMA foreign_keys = ON;").ok();
-        let lib = Self { conn, trash_dir };
+        let lib = Self {
+            conn,
+            trash_dir,
+            authors: AuthorSync::default(),
+        };
         lib.migrate().ok();
         lib
     }
@@ -299,6 +406,65 @@ impl Library {
         self.conn
             .execute_batch("ALTER TABLE documents ADD COLUMN trash_path TEXT;")
             .ok();
+        // 1 once the user has renamed the document in the Library: from then on
+        // a rescan must not overwrite the title with the one in the file.
+        let had_custom_titles = self
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('documents') WHERE name = 'title_custom'",
+                [],
+                |r| r.get::<_, i64>(0),
+            )
+            .unwrap_or(0)
+            > 0;
+        self.conn
+            .execute_batch(
+                "ALTER TABLE documents ADD COLUMN title_custom INTEGER NOT NULL DEFAULT 0;",
+            )
+            .ok();
+        if !had_custom_titles {
+            self.protect_existing_titles();
+        }
+        // The text index: prose word count and a full-text table over title,
+        // notes, file name and body. `indexed_mtime`/`indexed_len` say which
+        // version of the file the index was built from, so a rescan only reads
+        // files that have changed.
+        for col in [
+            "words INTEGER",
+            "indexed_mtime INTEGER",
+            "indexed_len INTEGER",
+        ] {
+            self.conn
+                .execute_batch(&format!("ALTER TABLE documents ADD COLUMN {col};"))
+                .ok();
+        }
+        self.conn
+            .execute_batch(
+                "CREATE VIRTUAL TABLE IF NOT EXISTS doc_text USING fts5(
+                    title, notes, path, body,
+                    tokenize = 'unicode61 remove_diacritics 2'
+                );
+                CREATE TRIGGER IF NOT EXISTS documents_forget_text
+                AFTER DELETE ON documents
+                BEGIN
+                    DELETE FROM doc_text WHERE rowid = old.id;
+                END;",
+            )
+            .ok();
+        self.conn
+            .execute_batch(
+                "CREATE TABLE IF NOT EXISTS authors (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE COLLATE NOCASE
+                );
+                CREATE TABLE IF NOT EXISTS doc_authors (
+                    doc_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+                    author_id INTEGER NOT NULL REFERENCES authors(id) ON DELETE CASCADE,
+                    PRIMARY KEY (doc_id, author_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_doc_authors_author ON doc_authors(author_id);",
+            )
+            .ok();
         self.conn
             .execute_batch(
                 "CREATE TABLE IF NOT EXISTS categories (
@@ -347,6 +513,41 @@ impl Library {
              SELECT id, category FROM documents WHERE category IS NOT NULL;",
             )
             .ok();
+        // Labels, which replace tags and categories. The old tables stay where
+        // they are, untouched and unread, so the migration can be checked
+        // against them and a downgrade still finds its data.
+        // None of this may stop the library opening: if it fails (a full disk,
+        // a locked file) the documents are still listed, the labels simply
+        // aren't there yet, and it is tried again at the next start — the
+        // migration is one transaction, so it never half-happens.
+        if let Err(e) = self.conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+             CREATE TABLE IF NOT EXISTS labels (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                 color_hex TEXT
+             );
+             CREATE TABLE IF NOT EXISTS doc_labels (
+                 doc_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+                 label_id INTEGER NOT NULL REFERENCES labels(id) ON DELETE CASCADE,
+                 PRIMARY KEY (doc_id, label_id)
+             );
+             CREATE INDEX IF NOT EXISTS idx_doc_labels_label ON doc_labels(label_id);
+             -- What the folder export last wrote to each file, so it can tell a
+             -- file it wrote (and may update) from one that changed elsewhere.
+             CREATE TABLE IF NOT EXISTS export_files (
+                 path TEXT PRIMARY KEY,
+                 content TEXT NOT NULL
+             );",
+        ) {
+            tracing::warn!("Couldn't set up labels; will try again next time: {e}");
+            return Ok(());
+        }
+        if let Err(e) = self.migrate_to_labels() {
+            tracing::warn!(
+                "Couldn't move tags and categories to labels; will try again next time: {e}"
+            );
+        }
         Ok(())
     }
 
@@ -392,6 +593,85 @@ impl Library {
         self.conn.execute_batch("PRAGMA foreign_keys = ON;").ok();
     }
 
+    /// Libraries from before titles could be protected have no way to say "this
+    /// title was chosen by the user". The one sign is a title that differs from
+    /// what the file itself would give — so, once, as the column is added, every
+    /// such title is marked as chosen. Without this the first rescan would
+    /// replace it with the file's own.
+    fn protect_existing_titles(&self) {
+        let rows: Vec<(i64, String, String)> = {
+            let Ok(mut stmt) = self.conn.prepare("SELECT id, path, title FROM documents") else {
+                return;
+            };
+            stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+                .into_iter()
+                .flatten()
+                .filter_map(|r| r.ok())
+                .collect()
+        };
+        for (id, path, title) in rows {
+            let p = Path::new(&path);
+            let derived = extract_typst_title(p).unwrap_or_else(|| {
+                p.file_stem()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_else(|| path.clone())
+            });
+            if title != derived {
+                self.conn
+                    .execute(
+                        "UPDATE documents SET title_custom = 1 WHERE id = ?1",
+                        params![id],
+                    )
+                    .ok();
+            }
+        }
+    }
+
+    /// Folds the old tags and categories into labels, once.
+    ///
+    /// - A tag becomes a label of the same name and carries the same documents.
+    /// - A category becomes a label too; a nested one is named for its whole
+    ///   path (`Liturgy › Advent`). A parent that only ever grouped children and
+    ///   held no documents of its own is dropped — its name lives on in theirs.
+    /// - A tag and a category with the same name become one label.
+    /// - The old default blue (applied automatically, never chosen) counts as
+    ///   "no colour", so migrated labels get distinct palette colours instead of
+    ///   all being blue.
+    fn migrate_to_labels(&self) -> SqlResult<()> {
+        if labels_migrated(&self.conn) {
+            return Ok(());
+        }
+        let name_expr = "CASE WHEN c.parent IS NULL THEN c.name \
+                         ELSE c.parent || ' \u{203a} ' || c.name END";
+        let keeps = "NOT (EXISTS (SELECT 1 FROM categories k WHERE k.parent = c.name) \
+                     AND NOT EXISTS (SELECT 1 FROM doc_categories x WHERE x.category = c.name))";
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute_batch(&format!(
+            "INSERT OR IGNORE INTO labels (name, color_hex)
+                 SELECT name, NULLIF(color_hex, '#3584e4') FROM tags;
+             INSERT OR IGNORE INTO doc_labels (doc_id, label_id)
+                 SELECT dt.doc_id, l.id FROM doc_tags dt
+                 JOIN tags t ON t.id = dt.tag_id
+                 JOIN labels l ON l.name = t.name;
+             INSERT OR IGNORE INTO labels (name, color_hex)
+                 SELECT {name_expr}, c.color_hex FROM categories c WHERE {keeps};
+             UPDATE labels SET color_hex = (
+                     SELECT c.color_hex FROM categories c
+                     WHERE {name_expr} = labels.name AND c.color_hex IS NOT NULL
+                       AND c.color_hex <> '#3584e4' LIMIT 1)
+                 WHERE color_hex IS NULL AND EXISTS (
+                     SELECT 1 FROM categories c
+                     WHERE {name_expr} = labels.name AND c.color_hex IS NOT NULL
+                       AND c.color_hex <> '#3584e4');
+             INSERT OR IGNORE INTO doc_labels (doc_id, label_id)
+                 SELECT dc.doc_id, l.id FROM doc_categories dc
+                 JOIN categories c ON c.name = dc.category
+                 JOIN labels l ON l.name = {name_expr};
+             INSERT OR REPLACE INTO meta (key, value) VALUES ('labels_migrated', '1');"
+        ))?;
+        tx.commit()
+    }
+
     pub fn upsert_document(&mut self, path: &Path) -> SqlResult<i64> {
         let path_str = path.to_string_lossy().to_string();
         let title = extract_typst_title(path).unwrap_or_else(|| {
@@ -418,29 +698,248 @@ impl Library {
             })
             .unwrap_or_else(|| fs_modified.clone());
 
-        let existing: Option<i64> = self
+        let existing: Option<(i64, String, bool)> = self
             .conn
             .query_row(
-                &format!("SELECT id FROM documents WHERE path = ?1{PATH_COLLATE}"),
+                &format!(
+                    "SELECT id, title, title_custom FROM documents WHERE path = ?1{PATH_COLLATE}"
+                ),
                 params![path_str],
-                |r| r.get(0),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get::<_, i64>(2)? != 0)),
             )
             .optional()?;
+        // Whether the searchable metadata (title, notes, file name) may have
+        // changed — the body is tracked separately by the file's stamp.
+        let metadata_changed = match &existing {
+            None => true,
+            Some((_, old, custom)) => !custom && *old != title,
+        };
 
-        if let Some(id) = existing {
+        let id = if let Some((id, _, _)) = existing {
             self.conn.execute(
-                "UPDATE documents SET modified_at = ?1, title = ?2 WHERE id = ?3",
+                "UPDATE documents SET modified_at = ?1,
+                     title = CASE WHEN title_custom = 1 THEN title ELSE ?2 END
+                 WHERE id = ?3",
                 params![fs_modified, title, id],
             )?;
-            Ok(id)
+            id
         } else {
             self.conn.execute(
                 "INSERT INTO documents (path, title, created_at, modified_at)
                  VALUES (?1, ?2, ?3, ?4)",
                 params![path_str, title, fs_created, fs_modified],
             )?;
-            Ok(self.conn.last_insert_rowid())
+            self.conn.last_insert_rowid()
+        };
+        // Best effort: a bibliography that won't parse, or a file that can't be
+        // read, must not stop the document being listed.
+        self.refresh_authors(id, path).ok();
+        self.index_document(id, path, metadata_changed).ok();
+        Ok(id)
+    }
+
+    /// Brings the word count and full-text row for a document up to date. The
+    /// file is only read when its size or modification time differ from what
+    /// the index was built from, so rescanning an unchanged library costs a
+    /// `stat` per document.
+    fn index_document(&mut self, id: i64, path: &Path, metadata_changed: bool) -> SqlResult<()> {
+        let stamp = file_stamp(path);
+        let stored: (Option<i64>, Option<i64>) = self.conn.query_row(
+            "SELECT indexed_mtime, indexed_len FROM documents WHERE id = ?1",
+            params![id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        let mut body = None;
+        if let Some((mtime, len)) = stamp {
+            if stored != (Some(mtime), Some(len)) {
+                if let Ok(content) = std::fs::read_to_string(path) {
+                    let words = prose_words(&content);
+                    self.conn.execute(
+                        "UPDATE documents SET words = ?1, indexed_mtime = ?2, indexed_len = ?3
+                         WHERE id = ?4",
+                        params![words.len() as i64, mtime, len, id],
+                    )?;
+                    body = Some(words.join(" "));
+                }
+            }
         }
+        if body.is_some() || metadata_changed {
+            self.reindex_row(id, body)?;
+        }
+        Ok(())
+    }
+
+    /// Rewrites a document's full-text row from its current title, notes and
+    /// file name. `body` is the new prose if it has just been read; otherwise
+    /// the body already in the index is kept.
+    fn reindex_row(&self, id: i64, body: Option<String>) -> SqlResult<()> {
+        let body = match body {
+            Some(b) => b,
+            None => self
+                .conn
+                .query_row(
+                    "SELECT body FROM doc_text WHERE rowid = ?1",
+                    params![id],
+                    |r| r.get(0),
+                )
+                .optional()?
+                .unwrap_or_default(),
+        };
+        let row: Option<(String, String, String)> = self
+            .conn
+            .query_row(
+                "SELECT title, COALESCE(notes, ''), path FROM documents WHERE id = ?1",
+                params![id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .optional()?;
+        let Some((title, notes, path)) = row else {
+            return Ok(());
+        };
+        // The file name, not the folder: every document shares its folders'
+        // names, so indexing them would make searching "Documents" match all.
+        let file_name = Path::new(&path)
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        self.conn
+            .execute("DELETE FROM doc_text WHERE rowid = ?1", params![id])?;
+        self.conn.execute(
+            "INSERT INTO doc_text (rowid, title, notes, path, body) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![id, title, notes, file_name, body],
+        )?;
+        Ok(())
+    }
+
+    /// A short excerpt of each document's text around what `search` matched,
+    /// with the matches wrapped in `MARK_START`/`MARK_END`. Only documents
+    /// whose *body* matches appear — a hit in the title or a tag needs no
+    /// excerpt.
+    pub fn snippets(&self, search: &str) -> std::collections::HashMap<i64, String> {
+        let Some(q) = fts_query(search) else {
+            return Default::default();
+        };
+        let run = || -> SqlResult<std::collections::HashMap<i64, String>> {
+            let mut stmt = self.conn.prepare(
+                "SELECT rowid, snippet(doc_text, 3, ?2, ?3, '…', 16)
+                 FROM doc_text WHERE doc_text MATCH ?1",
+            )?;
+            let rows = stmt.query_map(
+                params![format!("body : ({q})"), MARK_START, MARK_END],
+                |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)),
+            )?;
+            rows.collect()
+        };
+        run().unwrap_or_default()
+    }
+
+    /// Drops index rows for documents that no longer exist.
+    pub fn prune_index(&mut self) {
+        self.conn
+            .execute(
+                "DELETE FROM doc_text WHERE rowid NOT IN (SELECT id FROM documents)",
+                [],
+            )
+            .ok();
+    }
+
+    /// Sets the bibliography used for documents that don't name their own,
+    /// returning whether it changed (the caller then wants `resync_authors`).
+    pub fn set_bibliography(&mut self, source: Option<PathBuf>) -> bool {
+        if self.authors.bib_source == source {
+            return false;
+        }
+        self.authors.bib_source = source;
+        true
+    }
+
+    /// Replaces the document's author tags with what it cites now, and drops
+    /// any author no document cites any more.
+    fn refresh_authors(&mut self, doc_id: i64, path: &Path) -> SqlResult<()> {
+        let tags = self
+            .authors
+            .index
+            .tags_for_document(path, self.authors.bib_source.as_deref());
+        self.set_doc_authors(doc_id, &tags)
+    }
+
+    /// Recomputes every document's authors — for when the bibliography itself
+    /// changed rather than any one document.
+    pub fn resync_authors(&mut self) {
+        let docs: Vec<(i64, String)> = {
+            let Ok(mut stmt) = self
+                .conn
+                .prepare("SELECT id, path FROM documents WHERE deleted = 0")
+            else {
+                return;
+            };
+            stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+                .into_iter()
+                .flatten()
+                .filter_map(|r| r.ok())
+                .collect()
+        };
+        for (id, path) in docs {
+            self.refresh_authors(id, Path::new(&path)).ok();
+        }
+    }
+
+    fn set_doc_authors(&mut self, doc_id: i64, names: &[String]) -> SqlResult<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute("DELETE FROM doc_authors WHERE doc_id = ?1", params![doc_id])?;
+        for name in names {
+            tx.execute(
+                "INSERT OR IGNORE INTO authors (name) VALUES (?1)",
+                params![name],
+            )?;
+            tx.execute(
+                "INSERT OR IGNORE INTO doc_authors (doc_id, author_id)
+                 SELECT ?1, id FROM authors WHERE name = ?2",
+                params![doc_id, name],
+            )?;
+        }
+        tx.execute(
+            "DELETE FROM authors WHERE id NOT IN (SELECT author_id FROM doc_authors)",
+            [],
+        )?;
+        tx.commit()
+    }
+
+    /// Authors cited by at least one live document, with how many, by name.
+    pub fn all_authors_with_counts(&self) -> SqlResult<Vec<(Author, i64)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT a.id, a.name, COUNT(*) FROM authors a
+             JOIN doc_authors da ON da.author_id = a.id
+             JOIN documents d ON d.id = da.doc_id
+             WHERE d.archived = 0 AND d.deleted = 0
+             GROUP BY a.id ORDER BY a.name COLLATE NOCASE",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok((
+                Author {
+                    id: r.get(0)?,
+                    name: r.get(1)?,
+                },
+                r.get(2)?,
+            ))
+        })?;
+        rows.collect()
+    }
+
+    /// Every document's authors in one query, for the list's tooltips.
+    pub fn authors_by_doc(&self) -> SqlResult<std::collections::HashMap<i64, Vec<String>>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT da.doc_id, a.name FROM doc_authors da
+             JOIN authors a ON a.id = da.author_id
+             ORDER BY a.name COLLATE NOCASE",
+        )?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?;
+        let mut map: std::collections::HashMap<i64, Vec<String>> = Default::default();
+        for r in rows {
+            let (doc, name) = r?;
+            map.entry(doc).or_default().push(name);
+        }
+        Ok(map)
     }
 
     pub fn touch_opened(&mut self, path: &Path) -> SqlResult<()> {
@@ -475,6 +974,8 @@ impl Library {
             "UPDATE documents SET path = ?1 WHERE id = ?2",
             params![path_str, doc_id],
         )?;
+        self.reindex_row(doc_id, None)?;
+        self.index_document(doc_id, new_path, false)?;
         Ok(())
     }
 
@@ -521,11 +1022,8 @@ impl Library {
         search: &str,
         sort: SortOrder,
     ) -> SqlResult<Vec<Document>> {
-        let search_pat = if search.is_empty() {
-            "%".to_string()
-        } else {
-            format!("%{}%", search)
-        };
+        let search_pat = like_pattern(search);
+        let fts = fts_query(search);
 
         // Every filter is the same query with five slots swapped: which columns
         // to select, what to join, the conditions before the search clause, the
@@ -533,20 +1031,36 @@ impl Library {
         // near-identical arms, each preparing and draining its own statement.
         let q = filter.query();
         let search_idx = if q.param.is_some() { 2 } else { 1 };
+        // With nothing typed there is no search clause at all. It matters: the
+        // clause names the label, author and text-index tables, and a query
+        // that names a table that is missing or broken fails outright — so a
+        // library with a problem there would list nothing, even with no search.
+        let searching = !search.is_empty();
+        let clause = if searching {
+            search_clause(q.prefix, search_idx, fts.is_some())
+        } else {
+            "1 = 1".to_string()
+        };
         let sql = format!(
-            "SELECT {} FROM {} WHERE {} AND {} ORDER BY {}",
+            "SELECT {} FROM {} WHERE {} AND {} ORDER BY {}{}",
             q.select,
             q.from,
             q.conditions,
-            search_clause(q.prefix, search_idx),
+            clause,
             q.order(&sort),
+            q.limit_clause(),
         );
 
         let mut args: Vec<rusqlite::types::Value> = Vec::new();
         if let Some(v) = q.param {
             args.push(v);
         }
-        args.push(search_pat.into());
+        if searching {
+            args.push(search_pat.into());
+            if let Some(q) = fts {
+                args.push(q.into());
+            }
+        }
 
         let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt.query_map(rusqlite::params_from_iter(args), row_to_doc)?;
@@ -557,132 +1071,94 @@ impl Library {
         Ok(docs)
     }
 
+    // The sidebar now takes its numbers from `counts()`; this stays as the
+    // definition `counts()` is tested against.
+    #[cfg_attr(not(test), allow(dead_code))]
+    /// How many documents `filter` lists — built from the same `FilterSpec` as
+    /// `documents()`, so the number beside a sidebar row can't drift from what
+    /// clicking it shows.
     pub fn doc_count(&self, filter: &LibraryFilter) -> SqlResult<i64> {
-        match filter {
-            LibraryFilter::All => self.conn.query_row(
-                "SELECT COUNT(*) FROM documents WHERE archived=0 AND deleted=0",
-                [],
-                |r| r.get(0),
-            ),
-            LibraryFilter::Archive => self.conn.query_row(
-                "SELECT COUNT(*) FROM documents WHERE archived=1 AND deleted=0",
-                [],
-                |r| r.get(0),
-            ),
-            LibraryFilter::Project(pid) => self.conn.query_row(
-                "SELECT COUNT(*) FROM project_docs pd JOIN documents d ON d.id=pd.doc_id WHERE pd.project_id=?1 AND d.deleted=0",
-                params![pid],
-                |r| r.get(0),
-            ),
-            LibraryFilter::Tag(tid) => self.conn.query_row(
-                "SELECT COUNT(*) FROM doc_tags JOIN documents d ON d.id=doc_id WHERE tag_id=?1 AND d.archived=0 AND d.deleted=0",
-                params![tid],
-                |r| r.get(0),
-            ),
-            LibraryFilter::Category(cat) => self.conn.query_row(
-                "SELECT COUNT(*) FROM documents WHERE archived=0 AND deleted=0
-                 AND EXISTS (SELECT 1 FROM doc_categories dc WHERE dc.doc_id=documents.id AND dc.category=?1)",
-                params![cat],
-                |r| r.get(0),
-            ),
-            LibraryFilter::CategoryGroup(parent) => self.conn.query_row(
-                "SELECT COUNT(*) FROM documents WHERE archived=0 AND deleted=0
-                 AND EXISTS (
-                     SELECT 1 FROM doc_categories dc WHERE dc.doc_id=documents.id
-                     AND dc.category IN (SELECT name FROM categories WHERE name=?1 OR parent=?1)
-                 )",
-                params![parent],
-                |r| r.get(0),
-            ),
-            LibraryFilter::Recent => self.conn.query_row(
-                "SELECT COUNT(*) FROM (SELECT 1 FROM documents WHERE last_opened_at IS NOT NULL AND archived=0 AND deleted=0 ORDER BY last_opened_at DESC LIMIT 30)",
-                [],
-                |r| r.get(0),
-            ),
-            LibraryFilter::Untagged => self.conn.query_row(
-                "SELECT COUNT(*) FROM documents WHERE archived=0 AND deleted=0 AND id NOT IN (SELECT DISTINCT doc_id FROM doc_tags)",
-                [],
-                |r| r.get(0),
-            ),
-            LibraryFilter::Trash => self.conn.query_row(
-                "SELECT COUNT(*) FROM documents WHERE deleted=1",
-                [],
-                |r| r.get(0),
-            ),
-        }
+        let q = filter.clone().query();
+        let sql = format!(
+            "SELECT COUNT(*) FROM (SELECT 1 FROM {} WHERE {}{})",
+            q.from,
+            q.conditions,
+            q.limit_clause()
+        );
+        let args: Vec<rusqlite::types::Value> = q.param.into_iter().collect();
+        self.conn
+            .query_row(&sql, rusqlite::params_from_iter(args), |r| r.get(0))
     }
 
-    pub fn doc_tags(&self, doc_id: i64) -> SqlResult<Vec<Tag>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT t.id, t.name, t.color_hex FROM tags t
-             JOIN doc_tags dt ON dt.tag_id = t.id
-             WHERE dt.doc_id = ?1 ORDER BY t.name",
+    /// Every number the sidebar shows, in a handful of grouped queries rather
+    /// than one `COUNT(*)` per row.
+    pub fn counts(&self) -> SqlResult<Counts> {
+        let mut c = Counts::default();
+        let (all, archive, trash, recent, unlabelled) = self.conn.query_row(
+            "SELECT
+                COALESCE(SUM(archived = 0 AND deleted = 0), 0),
+                COALESCE(SUM(archived = 1 AND deleted = 0), 0),
+                COALESCE(SUM(deleted = 1), 0),
+                COALESCE(SUM(archived = 0 AND deleted = 0 AND last_opened_at IS NOT NULL), 0),
+                COALESCE(SUM(archived = 0 AND deleted = 0
+                             AND id NOT IN (SELECT doc_id FROM doc_labels)), 0)
+             FROM documents",
+            [],
+            |r| {
+                Ok::<(i64, i64, i64, i64, i64), rusqlite::Error>((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                ))
+            },
         )?;
-        let rows = stmt.query_map(params![doc_id], |r| {
-            Ok(Tag {
-                id: r.get(0)?,
-                name: r.get(1)?,
-                color_hex: r.get(2)?,
-            })
-        })?;
-        let mut tags = Vec::new();
-        for r in rows {
-            tags.push(r?);
+        c.all = all;
+        c.archive = archive;
+        c.trash = trash;
+        c.recent = recent.min(RECENT_LIMIT as i64);
+        c.unlabelled = unlabelled;
+
+        let grouped = |sql: &str| -> SqlResult<Vec<(rusqlite::types::Value, i64)>> {
+            let mut stmt = self.conn.prepare(sql)?;
+            let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            rows.collect()
+        };
+        let id = |v: rusqlite::types::Value| match v {
+            rusqlite::types::Value::Integer(i) => i,
+            _ => 0,
+        };
+        for (k, n) in grouped(
+            "SELECT pd.project_id, COUNT(*) FROM project_docs pd
+             JOIN documents d ON d.id = pd.doc_id
+             WHERE d.deleted = 0 GROUP BY pd.project_id",
+        )? {
+            c.projects.insert(id(k), n);
         }
-        Ok(tags)
+        for (k, n) in grouped(
+            "SELECT dl.label_id, COUNT(*) FROM doc_labels dl
+             JOIN documents d ON d.id = dl.doc_id
+             WHERE d.archived = 0 AND d.deleted = 0 GROUP BY dl.label_id",
+        )? {
+            c.labels.insert(id(k), n);
+        }
+        for (k, n) in grouped(
+            "SELECT da.author_id, COUNT(*) FROM doc_authors da
+             JOIN documents d ON d.id = da.doc_id
+             WHERE d.archived = 0 AND d.deleted = 0 GROUP BY da.author_id",
+        )? {
+            c.authors.insert(id(k), n);
+        }
+        Ok(c)
     }
 
     pub fn set_title(&mut self, doc_id: i64, title: &str) -> SqlResult<()> {
         self.conn.execute(
-            "UPDATE documents SET title = ?1 WHERE id = ?2",
+            "UPDATE documents SET title = ?1, title_custom = 1 WHERE id = ?2",
             params![title, doc_id],
         )?;
-        Ok(())
-    }
-
-    /// Categories currently assigned to a document, ordered like
-    /// `all_categories_structured` (parents before children, then by name).
-    pub fn doc_categories(&self, doc_id: i64) -> SqlResult<Vec<Category>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT c.name, c.color_hex, c.parent FROM categories c
-             JOIN doc_categories dc ON dc.category = c.name
-             WHERE dc.doc_id = ?1 ORDER BY c.parent NULLS FIRST, c.name",
-        )?;
-        let rows = stmt.query_map(params![doc_id], |r| {
-            Ok(Category {
-                name: r.get(0)?,
-                color_hex: r.get(1)?,
-                parent: r.get(2)?,
-            })
-        })?;
-        let mut cats = Vec::new();
-        for r in rows {
-            cats.push(r?);
-        }
-        Ok(cats)
-    }
-
-    /// Replaces a document's full set of categories (mirrors `set_doc_tags`).
-    pub fn set_doc_categories(&mut self, doc_id: i64, names: &[String]) -> SqlResult<()> {
-        self.conn.execute(
-            "DELETE FROM doc_categories WHERE doc_id = ?1",
-            params![doc_id],
-        )?;
-        self.add_doc_categories(doc_id, names)
-    }
-
-    /// Adds categories to a document without disturbing any it already has
-    /// (mirrors `add_doc_tags`) — used by drag-and-drop-to-category and bulk
-    /// assignment, where dropping onto a category should add it, not replace
-    /// whatever the document already belongs to.
-    pub fn add_doc_categories(&mut self, doc_id: i64, names: &[String]) -> SqlResult<()> {
-        for name in names {
-            self.ensure_category(name)?;
-            self.conn.execute(
-                "INSERT OR IGNORE INTO doc_categories (doc_id, category) VALUES (?1, ?2)",
-                params![doc_id, name],
-            )?;
-        }
+        self.reindex_row(doc_id, None)?;
         Ok(())
     }
 
@@ -692,58 +1168,6 @@ impl Library {
             params![pinned as i64, doc_id],
         )?;
         Ok(())
-    }
-
-    /// Returns the saved color for a category, or `None` if it has never had
-    /// one assigned. Callers decide the fallback (e.g. a palette color keyed
-    /// off the category name) rather than baking in a single fixed color.
-    pub fn get_category_color(&self, name: &str) -> Option<String> {
-        self.conn
-            .query_row(
-                "SELECT color_hex FROM categories WHERE name=?1",
-                params![name],
-                |r| r.get::<_, Option<String>>(0),
-            )
-            .ok()
-            .flatten()
-    }
-
-    pub fn set_category_color(&mut self, name: &str, color: &str) -> SqlResult<()> {
-        self.conn.execute(
-            "INSERT INTO categories (name, color_hex) VALUES (?1, ?2)
-             ON CONFLICT(name) DO UPDATE SET color_hex=excluded.color_hex",
-            params![name, color],
-        )?;
-        Ok(())
-    }
-
-    pub fn ensure_category(&mut self, name: &str) -> SqlResult<()> {
-        self.conn.execute(
-            "INSERT OR IGNORE INTO categories (name) VALUES (?1)",
-            params![name],
-        )?;
-        Ok(())
-    }
-
-    /// Categories that appear on at least one document, paired with their saved
-    /// color if one has been assigned. `None` means the caller should pick a
-    /// fallback (e.g. a palette color keyed off the category name), so that
-    /// distinct uncolored categories don't all render identically.
-    pub fn all_categories_with_colors(&self) -> SqlResult<Vec<(String, Option<String>)>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT DISTINCT dc.category, c.color_hex
-             FROM doc_categories dc
-             JOIN documents d ON d.id = dc.doc_id
-             LEFT JOIN categories c ON c.name = dc.category
-             WHERE d.deleted = 0
-             ORDER BY dc.category",
-        )?;
-        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
-        let mut out = Vec::new();
-        for r in rows {
-            out.push(r?);
-        }
-        Ok(out)
     }
 
     pub fn move_to_trash(&mut self, doc_id: i64) -> Result<(), TrashError> {
@@ -954,6 +1378,7 @@ impl Library {
             "UPDATE documents SET notes=?1 WHERE id=?2",
             params![notes, doc_id],
         )?;
+        self.reindex_row(doc_id, None)?;
         Ok(())
     }
 
@@ -991,192 +1416,337 @@ impl Library {
         Ok(())
     }
 
-    pub fn all_tags(&self) -> SqlResult<Vec<Tag>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT id, name, color_hex FROM tags ORDER BY name")?;
-        let rows = stmt.query_map([], |r| {
-            Ok(Tag {
-                id: r.get(0)?,
-                name: r.get(1)?,
-                color_hex: r.get(2)?,
-            })
-        })?;
-        let mut tags = Vec::new();
-        for r in rows {
-            tags.push(r?);
-        }
-        Ok(tags)
+    // ── folder export ────────────────────────────────────────────────────
+
+    /// Writes a complete, consistent copy of the library to `dest` — safe on a
+    /// library that is open and being written to.
+    pub fn backup_to(&self, dest: &Path) -> SqlResult<()> {
+        self.conn
+            .execute("VACUUM INTO ?1", params![dest.to_string_lossy()])?;
+        Ok(())
     }
 
-    pub fn all_tags_with_counts(&self) -> SqlResult<Vec<(Tag, i64)>> {
+    /// This library's name among the machines that share the folder — made
+    /// once, kept in the library, and never reused. Each machine writes only
+    /// into its own folder named by it, so no two ever edit the same file.
+    ///
+    /// It is also tied to the computer's name. A library copied to another
+    /// computer (a copied database, a restored disk image) must not carry the
+    /// first one's name with it, or the two would write the same files and git
+    /// would conflict over them again.
+    pub fn machine_id(&self) -> SqlResult<String> {
+        self.machine_id_on(&glib::host_name())
+    }
+
+    fn machine_id_on(&self, host: &str) -> SqlResult<String> {
+        let get = |key: &str| -> SqlResult<Option<String>> {
+            self.conn
+                .query_row("SELECT value FROM meta WHERE key = ?1", params![key], |r| {
+                    r.get::<_, String>(0)
+                })
+                .optional()
+        };
+        if let Some(id) = get("machine_id")? {
+            match get("machine_host")? {
+                Some(h) if h != host => {} // somewhere else now: name it afresh
+                Some(_) => return Ok(id),
+                None => {
+                    // Named before the computer was recorded: keep the name.
+                    self.conn.execute(
+                        "INSERT OR REPLACE INTO meta (key, value) VALUES ('machine_host', ?1)",
+                        params![host],
+                    )?;
+                    return Ok(id);
+                }
+            }
+        }
+        use std::hash::{BuildHasher, Hasher};
+        // Random enough to tell a handful of machines apart: the hasher's keys
+        // are random per process, and the time and process make each run differ.
+        let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+        h.write_u128(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0),
+        );
+        h.write_u32(std::process::id());
+        let id = format!("m-{:012x}", h.finish() & 0xffff_ffff_ffff);
+        self.conn.execute(
+            "INSERT OR REPLACE INTO meta (key, value) VALUES ('machine_id', ?1)",
+            params![id],
+        )?;
+        self.conn.execute(
+            "INSERT OR REPLACE INTO meta (key, value) VALUES ('machine_host', ?1)",
+            params![host],
+        )?;
+        Ok(id)
+    }
+
+    /// A small note left for the next time the Library window opens.
+    pub fn set_note(&self, key: &str, value: &str) -> SqlResult<()> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)",
+            params![key, value],
+        )?;
+        Ok(())
+    }
+
+    /// Reads and clears a note left with `set_note`.
+    pub fn take_note(&self, key: &str) -> Option<String> {
+        let value: Option<String> = self
+            .conn
+            .query_row("SELECT value FROM meta WHERE key = ?1", params![key], |r| {
+                r.get(0)
+            })
+            .optional()
+            .ok()
+            .flatten();
+        if value.is_some() {
+            self.conn
+                .execute("DELETE FROM meta WHERE key = ?1", params![key])
+                .ok();
+        }
+        value
+    }
+
+    /// A count that moves whenever anything in the library is written, however
+    /// small — cheap to poll to learn "something may have changed".
+    pub fn change_stamp(&self) -> i64 {
+        self.conn.total_changes() as i64
+    }
+
+    /// The library's own data, ready to write out. Documents in the Trash are
+    /// left out.
+    pub fn export_snapshot(&self) -> SqlResult<Snapshot> {
+        let mut labels_of = self.labels_by_doc()?;
         let mut stmt = self.conn.prepare(
-            "SELECT t.id, t.name, t.color_hex, COUNT(dt.doc_id) AS cnt
-             FROM tags t
-             LEFT JOIN doc_tags dt ON dt.tag_id = t.id
-             GROUP BY t.id
-             ORDER BY cnt DESC, t.name",
+            "SELECT id, path, title, title_custom, pinned, archived, notes
+             FROM documents WHERE deleted = 0 ORDER BY path",
+        )?;
+        let docs = stmt
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    DocState {
+                        id: r.get::<_, i64>(0)?,
+                        path: PathBuf::from(r.get::<_, String>(1)?),
+                        title: if r.get::<_, i64>(3)? != 0 {
+                            Some(r.get::<_, String>(2)?)
+                        } else {
+                            None
+                        },
+                        pinned: r.get::<_, i64>(4)? != 0,
+                        archived: r.get::<_, i64>(5)? != 0,
+                        notes: r
+                            .get::<_, Option<String>>(6)?
+                            .filter(|n| !n.trim().is_empty()),
+                        labels: Vec::new(),
+                    },
+                ))
+            })?
+            .collect::<SqlResult<Vec<_>>>()?;
+        let docs = docs
+            .into_iter()
+            .map(|(id, mut d)| {
+                d.labels = labels_of
+                    .remove(&id)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|l| l.name)
+                    .collect();
+                d
+            })
+            .collect();
+
+        let mut projects = Vec::new();
+        for p in self.all_projects()? {
+            let root = match p.root_doc_id {
+                Some(id) => self.doc_by_id(id)?.map(|d| d.path),
+                None => None,
+            };
+            let mut stmt = self.conn.prepare(
+                "SELECT d.path FROM project_docs pd JOIN documents d ON d.id = pd.doc_id
+                 WHERE pd.project_id = ?1 AND d.deleted = 0 ORDER BY pd.position, d.title",
+            )?;
+            let documents = stmt
+                .query_map(params![p.id], |r| Ok(PathBuf::from(r.get::<_, String>(0)?)))?
+                .collect::<SqlResult<Vec<_>>>()?;
+            projects.push(ProjectState {
+                name: p.name,
+                root,
+                documents,
+            });
+        }
+        Ok(Snapshot {
+            docs,
+            labels: self.all_labels()?,
+            projects,
+        })
+    }
+
+    /// What the export last wrote to each of its files, by path under the
+    /// export folder.
+    pub fn export_records(&self) -> SqlResult<std::collections::HashMap<String, String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT path, content FROM export_files")?;
+        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        rows.collect()
+    }
+
+    /// Forgets what the export has written — as if the library had been lost
+    /// and rebuilt over the same folder.
+    #[cfg(test)]
+    pub fn forget_exports(&self) {
+        self.conn.execute("DELETE FROM export_files", []).unwrap();
+    }
+
+    pub fn set_export_record(&self, path: &str, content: &str) -> SqlResult<()> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO export_files (path, content) VALUES (?1, ?2)",
+            params![path, content],
+        )?;
+        Ok(())
+    }
+
+    // ── labels ───────────────────────────────────────────────────────────
+
+    pub fn all_labels(&self) -> SqlResult<Vec<Label>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, name, color_hex FROM labels ORDER BY name COLLATE NOCASE")?;
+        let rows = stmt.query_map([], label_from_row)?;
+        rows.collect()
+    }
+
+    /// Every document's labels in one query, for drawing the list.
+    pub fn labels_by_doc(&self) -> SqlResult<std::collections::HashMap<i64, Vec<Label>>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT dl.doc_id, l.id, l.name, l.color_hex FROM doc_labels dl
+             JOIN labels l ON l.id = dl.label_id
+             ORDER BY l.name COLLATE NOCASE",
         )?;
         let rows = stmt.query_map([], |r| {
             Ok((
-                Tag {
-                    id: r.get(0)?,
-                    name: r.get(1)?,
-                    color_hex: r.get(2)?,
+                r.get::<_, i64>(0)?,
+                Label {
+                    id: r.get(1)?,
+                    name: r.get(2)?,
+                    color_hex: r.get(3)?,
                 },
-                r.get::<_, i64>(3)?,
             ))
         })?;
-        let mut result = Vec::new();
+        let mut map: std::collections::HashMap<i64, Vec<Label>> = Default::default();
         for r in rows {
-            result.push(r?);
+            let (doc, label) = r?;
+            map.entry(doc).or_default().push(label);
         }
-        Ok(result)
+        Ok(map)
     }
 
-    pub fn create_tag(&mut self, name: &str, color: &str) -> SqlResult<i64> {
+    /// Makes a label, or returns the one that already has that name (names
+    /// ignore case, so "sermons" is "Sermons").
+    pub fn create_label(&mut self, name: &str) -> SqlResult<i64> {
+        let name = name.trim();
         self.conn.execute(
-            "INSERT OR IGNORE INTO tags (name, color_hex) VALUES (?1, ?2)",
-            params![name, color],
-        )?;
-        self.conn
-            .query_row("SELECT id FROM tags WHERE name = ?1", params![name], |r| {
-                r.get(0)
-            })
-    }
-
-    pub fn delete_tag(&mut self, tag_id: i64) -> SqlResult<()> {
-        self.conn
-            .execute("DELETE FROM tags WHERE id = ?1", params![tag_id])?;
-        Ok(())
-    }
-
-    pub fn rename_tag(&mut self, tag_id: i64, name: &str) -> SqlResult<()> {
-        self.conn.execute(
-            "UPDATE tags SET name = ?1 WHERE id = ?2",
-            params![name, tag_id],
-        )?;
-        Ok(())
-    }
-
-    pub fn set_doc_tags(&mut self, doc_id: i64, tag_ids: &[i64]) -> SqlResult<()> {
-        self.conn
-            .execute("DELETE FROM doc_tags WHERE doc_id = ?1", params![doc_id])?;
-        for tid in tag_ids {
-            self.conn.execute(
-                "INSERT OR IGNORE INTO doc_tags (doc_id, tag_id) VALUES (?1, ?2)",
-                params![doc_id, tid],
-            )?;
-        }
-        Ok(())
-    }
-
-    pub fn add_doc_tags(&mut self, doc_id: i64, tag_ids: &[i64]) -> SqlResult<()> {
-        for tid in tag_ids {
-            self.conn.execute(
-                "INSERT OR IGNORE INTO doc_tags (doc_id, tag_id) VALUES (?1, ?2)",
-                params![doc_id, tid],
-            )?;
-        }
-        Ok(())
-    }
-
-    #[allow(dead_code)] // rounds out the CRUD surface over the library DB; exercised by tests
-    pub fn all_categories(&self) -> SqlResult<Vec<String>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT DISTINCT category FROM doc_categories ORDER BY category")?;
-        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
-        let mut cats = Vec::new();
-        for r in rows {
-            cats.push(r?);
-        }
-        Ok(cats)
-    }
-
-    pub fn create_category(&mut self, name: &str, parent: Option<&str>) -> SqlResult<()> {
-        self.conn.execute(
-            "INSERT OR IGNORE INTO categories (name, parent) VALUES (?1, ?2)",
-            params![name, parent],
-        )?;
-        Ok(())
-    }
-
-    #[allow(dead_code)] // rounds out the CRUD surface over the library DB
-    pub fn delete_category(&mut self, name: &str) -> SqlResult<()> {
-        self.conn.execute(
-            "DELETE FROM doc_categories WHERE category = ?1",
+            "INSERT OR IGNORE INTO labels (name) VALUES (?1)",
             params![name],
         )?;
-        Ok(())
-    }
-
-    pub fn rename_category(&mut self, old_name: &str, new_name: &str) -> SqlResult<()> {
-        let tx = self.conn.transaction()?;
-        tx.execute(
-            "INSERT OR IGNORE INTO categories (name, color_hex, parent)
-             SELECT ?1, color_hex, parent FROM categories WHERE name = ?2",
-            params![new_name, old_name],
-        )?;
-        tx.execute(
-            "UPDATE categories SET parent = ?1 WHERE parent = ?2",
-            params![new_name, old_name],
-        )?;
-        tx.execute(
-            "INSERT OR IGNORE INTO doc_categories (doc_id, category)
-             SELECT doc_id, ?1 FROM doc_categories WHERE category = ?2",
-            params![new_name, old_name],
-        )?;
-        tx.execute("DELETE FROM categories WHERE name = ?1", params![old_name])?;
-        tx.commit()?;
-        Ok(())
-    }
-
-    pub fn all_categories_structured(&self) -> SqlResult<Vec<Category>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT name, color_hex, parent FROM categories ORDER BY parent NULLS FIRST, name",
-        )?;
-        let rows = stmt.query_map([], |r| {
-            Ok(Category {
-                name: r.get(0)?,
-                color_hex: r.get(1)?,
-                parent: r.get(2)?,
-            })
-        })?;
-        let mut out = Vec::new();
-        for r in rows {
-            out.push(r?);
-        }
-        Ok(out)
-    }
-
-    pub fn category_has_children(&self, name: &str) -> SqlResult<bool> {
-        let count: i64 = self.conn.query_row(
-            "SELECT COUNT(*) FROM categories WHERE parent = ?1",
+        self.conn.query_row(
+            "SELECT id FROM labels WHERE name = ?1",
             params![name],
             |r| r.get(0),
-        )?;
-        Ok(count > 0)
+        )
     }
 
-    pub fn force_delete_category_if_no_children(&mut self, name: &str) -> SqlResult<bool> {
-        if self.category_has_children(name)? {
-            return Ok(false);
-        }
-        // Relies on `doc_categories.category`'s `ON DELETE CASCADE` to clear
-        // the category from every document that had it, same as
-        // `delete_tag` relies on `doc_tags`'s cascade.
-        self.conn
-            .execute("DELETE FROM categories WHERE name = ?1", params![name])?;
-        Ok(true)
-    }
-
-    pub fn set_category_parent(&mut self, name: &str, parent: Option<&str>) -> SqlResult<()> {
+    pub fn set_label_color(&mut self, label_id: i64, color: Option<&str>) -> SqlResult<()> {
         self.conn.execute(
-            "UPDATE categories SET parent = ?1 WHERE name = ?2",
-            params![parent, name],
+            "UPDATE labels SET color_hex = ?1 WHERE id = ?2",
+            params![color, label_id],
         )?;
         Ok(())
+    }
+
+    /// Renames a label. Fails if another label already has the name.
+    pub fn rename_label(&mut self, label_id: i64, name: &str) -> SqlResult<()> {
+        self.conn.execute(
+            "UPDATE labels SET name = ?1 WHERE id = ?2",
+            params![name.trim(), label_id],
+        )?;
+        Ok(())
+    }
+
+    /// Deletes a label; the documents that carried it stay, unlabelled by it.
+    pub fn delete_label(&mut self, label_id: i64) -> SqlResult<()> {
+        self.conn
+            .execute("DELETE FROM labels WHERE id = ?1", params![label_id])?;
+        Ok(())
+    }
+
+    /// Gives each document each label, leaving what they already carry alone.
+    pub fn add_labels(&mut self, doc_ids: &[i64], label_ids: &[i64]) -> SqlResult<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        for doc in doc_ids {
+            for label in label_ids {
+                tx.execute(
+                    "INSERT OR IGNORE INTO doc_labels (doc_id, label_id) VALUES (?1, ?2)",
+                    params![doc, label],
+                )?;
+            }
+        }
+        tx.commit()
+    }
+
+    /// Takes each label off each document.
+    pub fn remove_labels(&mut self, doc_ids: &[i64], label_ids: &[i64]) -> SqlResult<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        for doc in doc_ids {
+            for label in label_ids {
+                tx.execute(
+                    "DELETE FROM doc_labels WHERE doc_id = ?1 AND label_id = ?2",
+                    params![doc, label],
+                )?;
+            }
+        }
+        tx.commit()
+    }
+
+    /// For each label carried by any of `doc_ids`, how many of them carry it —
+    /// what the Organize popover needs to show "all", "some" or "none".
+    pub fn label_memberships(
+        &self,
+        doc_ids: &[i64],
+    ) -> SqlResult<std::collections::HashMap<i64, usize>> {
+        self.memberships("doc_labels", "label_id", doc_ids)
+    }
+
+    /// The same for projects.
+    pub fn project_memberships(
+        &self,
+        doc_ids: &[i64],
+    ) -> SqlResult<std::collections::HashMap<i64, usize>> {
+        self.memberships("project_docs", "project_id", doc_ids)
+    }
+
+    fn memberships(
+        &self,
+        table: &str,
+        column: &str,
+        doc_ids: &[i64],
+    ) -> SqlResult<std::collections::HashMap<i64, usize>> {
+        if doc_ids.is_empty() {
+            return Ok(Default::default());
+        }
+        let marks = vec!["?"; doc_ids.len()].join(",");
+        let sql = format!(
+            "SELECT {column}, COUNT(*) FROM {table} WHERE doc_id IN ({marks}) GROUP BY {column}"
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(doc_ids.iter()), |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)? as usize))
+        })?;
+        rows.collect()
     }
 
     pub fn all_projects(&self) -> SqlResult<Vec<Project>> {
@@ -1301,7 +1871,14 @@ impl Library {
             .optional()
     }
 
+    /// Registers every `.typ` file under `dir`, skipping hidden folders and the
+    /// `Templates` folder at the top — those are starting points for new
+    /// documents, not documents, and listing them buries the real ones.
     pub fn import_directory(&mut self, dir: &Path) -> SqlResult<usize> {
+        self.import_tree(dir, dir)
+    }
+
+    fn import_tree(&mut self, dir: &Path, root: &Path) -> SqlResult<usize> {
         let mut count = 0;
         let Ok(entries) = std::fs::read_dir(dir) else {
             return Ok(0);
@@ -1309,12 +1886,13 @@ impl Library {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
-                let hidden = path
+                let name = path
                     .file_name()
-                    .map(|n| n.to_string_lossy().starts_with('.'))
-                    .unwrap_or(false);
-                if !hidden {
-                    count += self.import_directory(&path)?;
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                let is_templates = dir == root && name == "Templates";
+                if !name.starts_with('.') && !is_templates {
+                    count += self.import_tree(&path, root)?;
                 }
             } else if path
                 .extension()
@@ -1328,15 +1906,116 @@ impl Library {
     }
 }
 
-fn search_clause(prefix: &str, param: usize) -> String {
+/// `param` binds the LIKE pattern for names (title, labels, authors).
+/// With `with_fts`, `param + 1` also binds the full-text query for what's inside
+/// the document — its body, notes and file name. A search with no words in it
+/// has no such query, and the clause leaves that part out: SQLite raises an
+/// error for `MATCH NULL`.
+fn search_clause(prefix: &str, param: usize, with_fts: bool) -> String {
+    let fts = param + 1;
+    let full_text = if with_fts {
+        format!(" OR {prefix}id IN (SELECT rowid FROM doc_text WHERE doc_text MATCH ?{fts})")
+    } else {
+        String::new()
+    };
     format!(
-        "({prefix}title LIKE ?{param} \
-         OR {prefix}id IN (SELECT doc_id FROM doc_categories \
-                           WHERE category LIKE ?{param}) \
-         OR {prefix}id IN (SELECT doc_id FROM doc_tags _dt \
-                           JOIN tags _t ON _t.id = _dt.tag_id \
-                           WHERE _t.name LIKE ?{param}))"
+        "({prefix}title LIKE ?{param} ESCAPE '\\' \
+         OR {prefix}id IN (SELECT doc_id FROM doc_labels _dl \
+                           JOIN labels _l ON _l.id = _dl.label_id \
+                           WHERE _l.name LIKE ?{param} ESCAPE '\\') \
+         OR {prefix}id IN (SELECT doc_id FROM doc_authors _da \
+                           JOIN authors _a ON _a.id = _da.author_id \
+                           WHERE _a.name LIKE ?{param} ESCAPE '\\'){full_text})"
     )
+}
+
+/// What the search box means as a substring: `%` and `_` typed by the user are
+/// ordinary characters, not wildcards.
+fn like_pattern(search: &str) -> String {
+    let mut out = String::from("%");
+    for c in search.chars() {
+        if matches!(c, '%' | '_' | '\\') {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out.push('%');
+    out
+}
+
+/// The search box as an FTS5 query: each word, matched as a prefix so results
+/// narrow as you type, all required. `None` when there are no words (an empty
+/// box, or only punctuation).
+fn fts_query(search: &str) -> Option<String> {
+    let words: Vec<String> = search
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .map(|w| format!("\"{w}\"*"))
+        .collect();
+    if words.is_empty() {
+        None
+    } else {
+        Some(words.join(" "))
+    }
+}
+
+/// Wraps what `snippets` matched; chosen so they can't occur in real text.
+pub const MARK_START: &str = "\u{e000}";
+pub const MARK_END: &str = "\u{e001}";
+
+/// A snippet as Pango markup: text escaped, matches in bold.
+pub fn snippet_to_markup(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len() + 16);
+    for c in raw.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '\u{e000}' => out.push_str("<b>"),
+            '\u{e001}' => out.push_str("</b>"),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// The words of a document that count as prose: not code blocks, not lines of
+/// Typst code or comments, and not citation keys, labels or inline code.
+pub fn prose_words(content: &str) -> Vec<&str> {
+    let mut in_code_block = false;
+    let mut words = Vec::new();
+    for line in content.lines() {
+        let t = line.trim();
+        if t.starts_with("```") {
+            in_code_block = !in_code_block;
+            continue;
+        }
+        if in_code_block || t.starts_with("//") || t.starts_with('#') {
+            continue;
+        }
+        words.extend(t.split_whitespace().filter(|w| {
+            // Not citation keys, labels or inline code — nor the `==` that
+            // marks a heading, which is syntax, not a word.
+            !w.starts_with('@')
+                && !w.starts_with('<')
+                && !w.starts_with('`')
+                && !w.chars().all(|c| c == '=')
+        }));
+    }
+    words
+}
+
+/// A file's modification time (nanoseconds) and length — the stamp that says
+/// whether the index is still describing it.
+fn file_stamp(path: &Path) -> Option<(i64, i64)> {
+    let meta = std::fs::metadata(path).ok()?;
+    let nanos = meta
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_nanos();
+    Some((nanos as i64, meta.len() as i64))
 }
 
 /// Looks for a file in `trash_dir` matching `move_to_trash`'s
@@ -1431,6 +2110,14 @@ fn parse_typst_string_value(s: &str) -> Option<String> {
     None
 }
 
+fn label_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Label> {
+    Ok(Label {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        color_hex: row.get(2)?,
+    })
+}
+
 fn row_to_doc(row: &rusqlite::Row<'_>) -> rusqlite::Result<Document> {
     Ok(Document {
         id: row.get(0)?,
@@ -1442,6 +2129,7 @@ fn row_to_doc(row: &rusqlite::Row<'_>) -> rusqlite::Result<Document> {
         created_at: row.get(6)?,
         modified_at: row.get(7)?,
         last_opened_at: row.get(8)?,
+        words: row.get::<_, Option<i64>>(9)?.map(|w| w.max(0) as usize),
     })
 }
 
@@ -1893,10 +2581,8 @@ mod tests {
     fn trashed_documents_disappear_from_every_other_filter() {
         let (mut lib, work) = fixture();
         let (id, _) = add_doc(&mut lib, &work, "essay.typ");
-        let tag = lib.create_tag("draft", "#ff0000").expect("tag");
-        lib.set_doc_tags(id, &[tag]).expect("set tags");
-        lib.add_doc_categories(id, &["Essays".to_string()])
-            .expect("category");
+        let label = lib.create_label("Essays").expect("label");
+        lib.add_labels(&[id], &[label]).expect("label it");
         lib.touch_opened(&work.path().join("essay.typ"))
             .expect("open");
 
@@ -1904,8 +2590,7 @@ mod tests {
 
         for filter in [
             LibraryFilter::All,
-            LibraryFilter::Tag(tag),
-            LibraryFilter::Category("Essays".into()),
+            LibraryFilter::Label(label),
             LibraryFilter::Recent,
         ] {
             let docs = lib
@@ -1955,21 +2640,6 @@ mod tests {
     }
 
     #[test]
-    fn untagged_filter_shows_only_documents_with_no_tags() {
-        let (mut lib, work) = fixture();
-        let (tagged, _) = add_doc(&mut lib, &work, "tagged.typ");
-        let (bare, _) = add_doc(&mut lib, &work, "bare.typ");
-        let tag = lib.create_tag("draft", "#ff0000").expect("tag");
-        lib.set_doc_tags(tagged, &[tag]).expect("set tags");
-
-        let docs = lib
-            .documents(LibraryFilter::Untagged, "", SortOrder::Modified)
-            .expect("list");
-        assert_eq!(ids(&docs), vec![bare]);
-        assert_eq!(lib.doc_count(&LibraryFilter::Untagged).expect("count"), 1);
-    }
-
-    #[test]
     fn recent_filter_shows_only_documents_that_have_been_opened() {
         let (mut lib, work) = fixture();
         let (opened, opened_path) = add_doc(&mut lib, &work, "opened.typ");
@@ -1981,50 +2651,6 @@ mod tests {
             .expect("list");
         assert_eq!(ids(&docs), vec![opened]);
         assert_eq!(lib.doc_count(&LibraryFilter::Recent).expect("count"), 1);
-    }
-
-    #[test]
-    fn category_group_filter_includes_the_parent_and_its_children() {
-        let (mut lib, work) = fixture();
-        let (parent_doc, _) = add_doc(&mut lib, &work, "parent.typ");
-        let (child_doc, _) = add_doc(&mut lib, &work, "child.typ");
-        let (other_doc, _) = add_doc(&mut lib, &work, "other.typ");
-        lib.create_category("Academic", None).expect("parent cat");
-        lib.create_category("Essays", Some("Academic"))
-            .expect("child cat");
-        lib.add_doc_categories(parent_doc, &["Academic".to_string()])
-            .expect("set");
-        lib.add_doc_categories(child_doc, &["Essays".to_string()])
-            .expect("set");
-        lib.add_doc_categories(other_doc, &["Sermons".to_string()])
-            .expect("set");
-
-        let docs = lib
-            .documents(
-                LibraryFilter::CategoryGroup("Academic".into()),
-                "",
-                SortOrder::Title,
-            )
-            .expect("list");
-        let mut got = ids(&docs);
-        got.sort();
-        let mut want = vec![parent_doc, child_doc];
-        want.sort();
-        assert_eq!(got, want);
-        assert_eq!(
-            lib.doc_count(&LibraryFilter::CategoryGroup("Academic".into()))
-                .expect("count"),
-            2
-        );
-
-        let narrow = lib
-            .documents(
-                LibraryFilter::Category("Essays".into()),
-                "",
-                SortOrder::Title,
-            )
-            .expect("list");
-        assert_eq!(ids(&narrow), vec![child_doc]);
     }
 
     #[test]
@@ -2075,26 +2701,6 @@ mod tests {
                 .expect("list");
             assert_eq!(ids(&docs), vec![id], "query {query:?}");
         }
-    }
-
-    #[test]
-    fn search_also_matches_category_and_tag_names() {
-        let (mut lib, work) = fixture();
-        let (by_category, _) = add_doc(&mut lib, &work, "one.typ");
-        let (by_tag, _) = add_doc(&mut lib, &work, "two.typ");
-        lib.add_doc_categories(by_category, &["Homiletics".to_string()])
-            .expect("category");
-        let tag = lib.create_tag("patristics", "#ff0000").expect("tag");
-        lib.set_doc_tags(by_tag, &[tag]).expect("set tags");
-
-        let by_cat = lib
-            .documents(LibraryFilter::All, "Homile", SortOrder::Title)
-            .expect("list");
-        assert_eq!(ids(&by_cat), vec![by_category]);
-        let by_tag_name = lib
-            .documents(LibraryFilter::All, "patris", SortOrder::Title)
-            .expect("list");
-        assert_eq!(ids(&by_tag_name), vec![by_tag]);
     }
 
     #[test]
@@ -2170,7 +2776,7 @@ mod tests {
         for filter in [
             LibraryFilter::All,
             LibraryFilter::Archive,
-            LibraryFilter::Untagged,
+            LibraryFilter::Unlabelled,
         ] {
             let listed = lib
                 .documents(filter.clone(), "", SortOrder::Modified)
@@ -2252,570 +2858,6 @@ mod tests {
     }
 
     // ── Tags ─────────────────────────────────────────────────────────────────
-
-    #[test]
-    fn set_doc_tags_replaces_the_existing_set_rather_than_appending() {
-        let (mut lib, work) = fixture();
-        let (id, _) = add_doc(&mut lib, &work, "essay.typ");
-        let draft = lib.create_tag("draft", "#ff0000").expect("tag");
-        let final_tag = lib.create_tag("final", "#00ff00").expect("tag");
-
-        lib.set_doc_tags(id, &[draft]).expect("set");
-        lib.set_doc_tags(id, &[final_tag]).expect("replace");
-
-        let names: Vec<String> = lib
-            .doc_tags(id)
-            .expect("tags")
-            .into_iter()
-            .map(|t| t.name)
-            .collect();
-        assert_eq!(names, vec!["final"]);
-    }
-
-    #[test]
-    fn add_doc_tags_appends_and_ignores_duplicates() {
-        let (mut lib, work) = fixture();
-        let (id, _) = add_doc(&mut lib, &work, "essay.typ");
-        let draft = lib.create_tag("draft", "#ff0000").expect("tag");
-        let review = lib.create_tag("review", "#00ff00").expect("tag");
-
-        lib.set_doc_tags(id, &[draft]).expect("set");
-        lib.add_doc_tags(id, &[review]).expect("add");
-        lib.add_doc_tags(id, &[review]).expect("add again");
-
-        let names: Vec<String> = lib
-            .doc_tags(id)
-            .expect("tags")
-            .into_iter()
-            .map(|t| t.name)
-            .collect();
-        assert_eq!(names, vec!["draft", "review"]);
-    }
-
-    #[test]
-    fn creating_a_tag_that_already_exists_returns_the_original_id() {
-        let (mut lib, _work) = fixture();
-        let first = lib.create_tag("draft", "#ff0000").expect("tag");
-        let second = lib.create_tag("draft", "#00ff00").expect("tag again");
-
-        assert_eq!(first, second);
-        assert_eq!(lib.all_tags().expect("tags").len(), 1);
-    }
-
-    #[test]
-    fn deleting_a_tag_detaches_it_from_every_document() {
-        let (mut lib, work) = fixture();
-        let (a, _) = add_doc(&mut lib, &work, "a.typ");
-        let (b, _) = add_doc(&mut lib, &work, "b.typ");
-        let tag = lib.create_tag("draft", "#ff0000").expect("tag");
-        lib.set_doc_tags(a, &[tag]).expect("set");
-        lib.set_doc_tags(b, &[tag]).expect("set");
-
-        lib.delete_tag(tag).expect("delete");
-
-        assert!(lib.doc_tags(a).expect("tags").is_empty());
-        assert!(lib.doc_tags(b).expect("tags").is_empty());
-        let untagged = lib
-            .documents(LibraryFilter::Untagged, "", SortOrder::Title)
-            .expect("list");
-        assert_eq!(untagged.len(), 2);
-    }
-
-    #[test]
-    fn renaming_a_tag_keeps_its_document_associations() {
-        let (mut lib, work) = fixture();
-        let (id, _) = add_doc(&mut lib, &work, "essay.typ");
-        let tag = lib.create_tag("draft", "#ff0000").expect("tag");
-        lib.set_doc_tags(id, &[tag]).expect("set");
-
-        lib.rename_tag(tag, "in-progress").expect("rename");
-
-        let names: Vec<String> = lib
-            .doc_tags(id)
-            .expect("tags")
-            .into_iter()
-            .map(|t| t.name)
-            .collect();
-        assert_eq!(names, vec!["in-progress"]);
-        let docs = lib
-            .documents(LibraryFilter::Tag(tag), "", SortOrder::Title)
-            .expect("list");
-        assert_eq!(ids(&docs), vec![id]);
-    }
-
-    #[test]
-    fn tag_counts_include_zero_for_tags_nobody_uses() {
-        let (mut lib, work) = fixture();
-        let (id, _) = add_doc(&mut lib, &work, "essay.typ");
-        let used = lib.create_tag("used", "#ff0000").expect("tag");
-        lib.create_tag("unused", "#00ff00").expect("tag");
-        lib.set_doc_tags(id, &[used]).expect("set");
-
-        let counts: Vec<(String, i64)> = lib
-            .all_tags_with_counts()
-            .expect("counts")
-            .into_iter()
-            .map(|(t, n)| (t.name, n))
-            .collect();
-        assert_eq!(
-            counts,
-            vec![("used".to_string(), 1), ("unused".to_string(), 0)]
-        );
-    }
-
-    // ── Categories ───────────────────────────────────────────────────────────
-
-    #[test]
-    fn ensure_category_is_idempotent() {
-        let (mut lib, _work) = fixture();
-        lib.ensure_category("Essays").expect("first");
-        lib.ensure_category("Essays").expect("second");
-
-        let names: Vec<String> = lib
-            .all_categories_structured()
-            .expect("cats")
-            .into_iter()
-            .map(|c| c.name)
-            .collect();
-        assert_eq!(names, vec!["Essays"]);
-    }
-
-    #[test]
-    fn setting_a_category_on_a_document_registers_the_category() {
-        let (mut lib, work) = fixture();
-        let (id, _) = add_doc(&mut lib, &work, "essay.typ");
-
-        lib.add_doc_categories(id, &["Sermons".to_string()])
-            .expect("set");
-
-        assert_eq!(lib.all_categories().expect("cats"), vec!["Sermons"]);
-        assert!(lib
-            .all_categories_structured()
-            .expect("structured")
-            .iter()
-            .any(|c| c.name == "Sermons"));
-    }
-
-    /// The literal reported bug: a document must be able to hold more than
-    /// one category at once, including two siblings under the same parent —
-    /// not just one category total, and not just one-per-parent.
-    #[test]
-    fn a_document_can_hold_two_categories_under_the_same_parent() {
-        let (mut lib, work) = fixture();
-        let (id, _) = add_doc(&mut lib, &work, "essay.typ");
-        lib.create_category("Academic", None).expect("parent");
-        lib.create_category("Essays", Some("Academic"))
-            .expect("child 1");
-        lib.create_category("Lectures", Some("Academic"))
-            .expect("child 2");
-
-        lib.add_doc_categories(id, &["Essays".to_string(), "Lectures".to_string()])
-            .expect("set both");
-
-        let mut names: Vec<String> = lib
-            .doc_categories(id)
-            .expect("doc cats")
-            .into_iter()
-            .map(|c| c.name)
-            .collect();
-        names.sort();
-        assert_eq!(names, vec!["Essays".to_string(), "Lectures".to_string()]);
-
-        for cat in ["Essays", "Lectures"] {
-            let docs = lib
-                .documents(LibraryFilter::Category(cat.into()), "", SortOrder::Title)
-                .expect("list");
-            assert_eq!(ids(&docs), vec![id], "filter on {cat}");
-        }
-        let group = lib
-            .documents(
-                LibraryFilter::CategoryGroup("Academic".into()),
-                "",
-                SortOrder::Title,
-            )
-            .expect("list");
-        assert_eq!(
-            ids(&group),
-            vec![id],
-            "doc matching two children of the group must not be duplicated"
-        );
-    }
-
-    #[test]
-    fn add_doc_categories_is_additive_set_doc_categories_replaces() {
-        let (mut lib, work) = fixture();
-        let (id, _) = add_doc(&mut lib, &work, "essay.typ");
-
-        lib.add_doc_categories(id, &["Sermons".to_string()])
-            .expect("add first");
-        lib.add_doc_categories(id, &["Essays".to_string()])
-            .expect("add second");
-        let mut names: Vec<String> = lib
-            .doc_categories(id)
-            .expect("doc cats")
-            .into_iter()
-            .map(|c| c.name)
-            .collect();
-        names.sort();
-        assert_eq!(
-            names,
-            vec!["Essays".to_string(), "Sermons".to_string()],
-            "add_doc_categories must not clobber an existing category"
-        );
-
-        lib.set_doc_categories(id, &["Lectures".to_string()])
-            .expect("replace");
-        let names: Vec<String> = lib
-            .doc_categories(id)
-            .expect("doc cats")
-            .into_iter()
-            .map(|c| c.name)
-            .collect();
-        assert_eq!(
-            names,
-            vec!["Lectures".to_string()],
-            "set_doc_categories must replace the full set"
-        );
-    }
-
-    #[test]
-    fn category_colors_round_trip() {
-        let (mut lib, _work) = fixture();
-        lib.ensure_category("Essays").expect("ensure");
-
-        lib.set_category_color("Essays", "#aabbcc")
-            .expect("set color");
-
-        assert_eq!(
-            lib.get_category_color("Essays"),
-            Some("#aabbcc".to_string())
-        );
-    }
-
-    /// A category with no colour of its own must report `None`, so callers can
-    /// substitute a per-name palette colour and distinct categories stay
-    /// visually distinct. Guards the regression where the column's
-    /// `NOT NULL DEFAULT '#3584e4'` made `None` unreachable.
-    #[test]
-    fn a_category_with_no_chosen_color_reports_none() {
-        let (mut lib, work) = fixture();
-        lib.ensure_category("Essays").expect("ensure");
-        lib.create_category("Homilies", None).expect("create");
-        let (id, _) = add_doc(&mut lib, &work, "essay.typ");
-        lib.add_doc_categories(id, &["Sermons".to_string()])
-            .expect("set");
-
-        assert_eq!(lib.get_category_color("Essays"), None);
-        assert_eq!(lib.get_category_color("Homilies"), None);
-        assert_eq!(
-            lib.all_categories_with_colors().expect("colors"),
-            vec![("Sermons".to_string(), None)]
-        );
-    }
-
-    #[test]
-    fn an_explicitly_chosen_color_survives_alongside_uncolored_categories() {
-        let (mut lib, _work) = fixture();
-        lib.ensure_category("Essays").expect("ensure");
-        lib.ensure_category("Sermons").expect("ensure");
-
-        lib.set_category_color("Essays", "#e01b24")
-            .expect("set color");
-
-        assert_eq!(
-            lib.get_category_color("Essays"),
-            Some("#e01b24".to_string())
-        );
-        assert_eq!(lib.get_category_color("Sermons"), None);
-    }
-
-    /// Someone may have deliberately picked the blue that used to be the schema
-    /// default; once set explicitly it must round-trip like any other choice.
-    #[test]
-    fn the_old_default_blue_can_still_be_chosen_deliberately() {
-        let (mut lib, _work) = fixture();
-        lib.ensure_category("Essays").expect("ensure");
-
-        lib.set_category_color("Essays", "#3584e4")
-            .expect("set color");
-
-        assert_eq!(
-            lib.get_category_color("Essays"),
-            Some("#3584e4".to_string())
-        );
-    }
-
-    // ── Schema migration ─────────────────────────────────────────────────────
-
-    /// Builds the pre-fix `categories` shape, then runs the migration over it.
-    fn library_with_legacy_categories(rows: &[(&str, &str, Option<&str>)]) -> Library {
-        let conn = Connection::open_in_memory().expect("in-memory DB");
-        conn.execute_batch(
-            "CREATE TABLE categories (
-                 name TEXT NOT NULL PRIMARY KEY,
-                 color_hex TEXT NOT NULL DEFAULT '#3584e4'
-             );
-             ALTER TABLE categories ADD COLUMN parent TEXT REFERENCES categories(name);",
-        )
-        .expect("legacy schema");
-        for (name, color, parent) in rows {
-            conn.execute(
-                "INSERT INTO categories (name, color_hex, parent) VALUES (?1, ?2, ?3)",
-                params![name, color, parent],
-            )
-            .expect("seed");
-        }
-        let lib = Library {
-            conn,
-            trash_dir: PathBuf::from("/nonexistent"),
-        };
-        lib.migrate().expect("migrate");
-        lib
-    }
-
-    #[test]
-    fn migration_treats_the_old_auto_applied_default_as_no_color_chosen() {
-        let lib = library_with_legacy_categories(&[
-            ("Essays", "#3584e4", None),
-            ("Sermons", "#e01b24", None),
-        ]);
-
-        assert_eq!(
-            lib.get_category_color("Essays"),
-            None,
-            "auto default becomes unset"
-        );
-        assert_eq!(
-            lib.get_category_color("Sermons"),
-            Some("#e01b24".to_string()),
-            "a real choice is preserved"
-        );
-    }
-
-    #[test]
-    fn migration_preserves_category_parents() {
-        let lib = library_with_legacy_categories(&[
-            ("Academic", "#3584e4", None),
-            ("Essays", "#33d17a", Some("Academic")),
-        ]);
-
-        let cats = lib.all_categories_structured().expect("cats");
-        let essays = cats
-            .iter()
-            .find(|c| c.name == "Essays")
-            .expect("child present");
-        assert_eq!(essays.parent, Some("Academic".to_string()));
-        assert!(lib.category_has_children("Academic").expect("children"));
-    }
-
-    #[test]
-    fn migration_is_idempotent_and_leaves_the_column_nullable() {
-        let lib = library_with_legacy_categories(&[("Essays", "#3584e4", None)]);
-        lib.migrate().expect("second migrate");
-        lib.migrate().expect("third migrate");
-
-        assert_eq!(lib.get_category_color("Essays"), None);
-        let not_null: i64 = lib
-            .conn
-            .query_row(
-                "SELECT \"notnull\" FROM pragma_table_info('categories') WHERE name = 'color_hex'",
-                [],
-                |r| r.get(0),
-            )
-            .expect("pragma");
-        assert_eq!(not_null, 0, "color_hex should be nullable after migrating");
-    }
-
-    /// The in-memory tests above run without WAL or foreign-key enforcement.
-    /// A real library is a file with both switched on, and the migration drops
-    /// and recreates a table that other rows reference — so exercise it there.
-    #[test]
-    fn migration_survives_a_real_file_database_with_wal_and_foreign_keys() {
-        let work = TempDir::new().expect("temp dir");
-        let db_path = work.path().join("library.sqlite");
-        {
-            let conn = Connection::open(&db_path).expect("create");
-            conn.execute_batch(
-                "PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;
-                 CREATE TABLE categories (
-                     name TEXT NOT NULL PRIMARY KEY,
-                     color_hex TEXT NOT NULL DEFAULT '#3584e4'
-                 );
-                 ALTER TABLE categories ADD COLUMN parent TEXT REFERENCES categories(name);
-                 INSERT INTO categories (name, color_hex, parent) VALUES ('Academic', '#3584e4', NULL);
-                 INSERT INTO categories (name, color_hex, parent) VALUES ('Essays', '#e01b24', 'Academic');",
-            )
-            .expect("legacy file schema");
-        }
-
-        let conn = Connection::open(&db_path).expect("reopen");
-        conn.execute_batch("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;")
-            .expect("pragmas");
-        let lib = Library {
-            conn,
-            trash_dir: work.path().join("trash"),
-        };
-        lib.migrate().expect("migrate");
-
-        assert_eq!(lib.get_category_color("Academic"), None);
-        assert_eq!(
-            lib.get_category_color("Essays"),
-            Some("#e01b24".to_string())
-        );
-        let essays = lib
-            .all_categories_structured()
-            .expect("cats")
-            .into_iter()
-            .find(|c| c.name == "Essays")
-            .expect("child survived");
-        assert_eq!(essays.parent, Some("Academic".to_string()));
-
-        let fk_violations: i64 = lib
-            .conn
-            .query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |r| {
-                r.get(0)
-            })
-            .expect("fk check");
-        assert_eq!(
-            fk_violations, 0,
-            "migration must not leave dangling references"
-        );
-        let fk_on: i64 = lib
-            .conn
-            .query_row("PRAGMA foreign_keys", [], |r| r.get(0))
-            .expect("pragma");
-        assert_eq!(fk_on, 1, "foreign keys must be switched back on afterwards");
-    }
-
-    #[test]
-    fn a_freshly_created_database_already_has_a_nullable_color_column() {
-        let (lib, _work) = fixture();
-        let not_null: i64 = lib
-            .conn
-            .query_row(
-                "SELECT \"notnull\" FROM pragma_table_info('categories') WHERE name = 'color_hex'",
-                [],
-                |r| r.get(0),
-            )
-            .expect("pragma");
-        assert_eq!(not_null, 0);
-    }
-
-    /// Pre-multi-category databases stored a document's one category in
-    /// `documents.category` directly; `migrate()` must backfill that value
-    /// into `doc_categories` so existing libraries don't lose their
-    /// categorization the first time they're opened after the upgrade.
-    #[test]
-    fn migration_backfills_existing_document_categories_into_the_join_table() {
-        let conn = Connection::open_in_memory().expect("in-memory DB");
-        conn.execute_batch(
-            "PRAGMA foreign_keys = ON;
-             CREATE TABLE documents (
-                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                 path TEXT NOT NULL UNIQUE,
-                 title TEXT NOT NULL,
-                 category TEXT,
-                 archived INTEGER NOT NULL DEFAULT 0,
-                 notes TEXT,
-                 created_at TEXT NOT NULL,
-                 modified_at TEXT NOT NULL,
-                 last_opened_at TEXT
-             );
-             INSERT INTO documents (path, title, category, created_at, modified_at)
-                 VALUES ('/tmp/essay.typ', 'Essay', 'Sermons', '2020-01-01', '2020-01-01');",
-        )
-        .expect("legacy documents schema");
-        let lib = Library {
-            conn,
-            trash_dir: PathBuf::from("/nonexistent"),
-        };
-        lib.migrate().expect("migrate");
-
-        let id: i64 = lib
-            .conn
-            .query_row(
-                "SELECT id FROM documents WHERE path = '/tmp/essay.typ'",
-                [],
-                |r| r.get(0),
-            )
-            .expect("doc id");
-        let names: Vec<String> = lib
-            .doc_categories(id)
-            .expect("doc cats")
-            .into_iter()
-            .map(|c| c.name)
-            .collect();
-        assert_eq!(names, vec!["Sermons".to_string()]);
-    }
-
-    #[test]
-    fn renaming_a_category_moves_its_documents_and_reparents_its_children() {
-        let (mut lib, work) = fixture();
-        let (id, _) = add_doc(&mut lib, &work, "essay.typ");
-        lib.create_category("Academic", None).expect("parent");
-        lib.create_category("Essays", Some("Academic"))
-            .expect("child");
-        lib.add_doc_categories(id, &["Academic".to_string()])
-            .expect("set");
-
-        lib.rename_category("Academic", "Scholarly")
-            .expect("rename");
-
-        let doc_cat_names: Vec<String> = lib
-            .doc_categories(id)
-            .expect("doc cats")
-            .into_iter()
-            .map(|c| c.name)
-            .collect();
-        assert_eq!(doc_cat_names, vec!["Scholarly".to_string()]);
-        let child = lib
-            .all_categories_structured()
-            .expect("cats")
-            .into_iter()
-            .find(|c| c.name == "Essays")
-            .expect("child still present");
-        assert_eq!(child.parent, Some("Scholarly".to_string()));
-        assert!(!lib
-            .all_categories_structured()
-            .expect("cats")
-            .iter()
-            .any(|c| c.name == "Academic"));
-    }
-
-    #[test]
-    fn a_category_with_children_refuses_to_be_force_deleted() {
-        let (mut lib, _work) = fixture();
-        lib.create_category("Academic", None).expect("parent");
-        lib.create_category("Essays", Some("Academic"))
-            .expect("child");
-
-        assert!(lib.category_has_children("Academic").expect("check"));
-        assert!(!lib
-            .force_delete_category_if_no_children("Academic")
-            .expect("delete"));
-        assert!(lib
-            .all_categories_structured()
-            .expect("cats")
-            .iter()
-            .any(|c| c.name == "Academic"));
-    }
-
-    #[test]
-    fn force_deleting_a_childless_category_clears_it_from_its_documents() {
-        let (mut lib, work) = fixture();
-        let (id, _) = add_doc(&mut lib, &work, "essay.typ");
-        lib.add_doc_categories(id, &["Essays".to_string()])
-            .expect("set");
-
-        assert!(lib
-            .force_delete_category_if_no_children("Essays")
-            .expect("delete"));
-
-        assert!(lib.doc_categories(id).expect("doc cats").is_empty());
-        assert!(lib.all_categories().expect("cats").is_empty());
-    }
-
-    // ── Projects ─────────────────────────────────────────────────────────────
 
     #[test]
     fn documents_added_to_a_project_get_sequential_positions() {
@@ -2903,6 +2945,1200 @@ mod tests {
             .collect();
         assert_eq!(found, vec!["deep", "top"]);
     }
+
+    #[test]
+    fn a_title_chosen_in_the_library_survives_a_rescan() {
+        let (mut lib, work) = fixture();
+        let path = write_doc(&work, "essay.typ", "#let doc-title = \"From The File\"\n");
+        let id = lib.upsert_document(&path).expect("upsert");
+        lib.set_title(id, "My Name For It").unwrap();
+
+        lib.upsert_document(&path).expect("rescan");
+        lib.touch_saved(&path).expect("save");
+
+        assert_eq!(lib.doc_by_id(id).unwrap().unwrap().title, "My Name For It");
+    }
+
+    const BIB: &str = "@book{gender, author = {Butler, Judith}}\n\
+                       @book{black, author = {Cone, James H.}}\n";
+
+    fn lib_with_bib() -> (Library, TempDir, PathBuf) {
+        let (mut lib, work) = fixture();
+        let bib = write_doc(&work, "refs.bib", BIB);
+        lib.set_bibliography(Some(bib.clone()));
+        (lib, work, bib)
+    }
+
+    fn author_names(lib: &Library) -> Vec<String> {
+        lib.all_authors_with_counts()
+            .unwrap()
+            .into_iter()
+            .map(|(a, _)| a.name)
+            .collect()
+    }
+
+    #[test]
+    fn scanning_a_document_tags_it_with_the_authors_it_cites() {
+        let (mut lib, work, _) = lib_with_bib();
+        let path = write_doc(&work, "paper.typ", "See @gender and @black.\n");
+        let id = lib.upsert_document(&path).unwrap();
+
+        assert_eq!(author_names(&lib), vec!["Butler, J.", "Cone, J."]);
+        let butler = lib.all_authors_with_counts().unwrap()[0].0.id;
+        let docs = lib
+            .documents(LibraryFilter::Author(butler), "", SortOrder::Title)
+            .unwrap();
+        assert_eq!(ids(&docs), vec![id]);
+        assert_eq!(lib.doc_count(&LibraryFilter::Author(butler)).unwrap(), 1);
+    }
+
+    #[test]
+    fn the_author_filter_lists_every_document_citing_that_author() {
+        let (mut lib, work, _) = lib_with_bib();
+        let a = write_doc(&work, "a.typ", "@gender @black\n");
+        let b = write_doc(&work, "b.typ", "@black\n");
+        let c = write_doc(&work, "c.typ", "@gender\n");
+        let (ia, ib) = (
+            lib.upsert_document(&a).unwrap(),
+            lib.upsert_document(&b).unwrap(),
+        );
+        lib.upsert_document(&c).unwrap();
+
+        let cone = lib
+            .all_authors_with_counts()
+            .unwrap()
+            .into_iter()
+            .find(|(a, _)| a.name == "Cone, J.")
+            .unwrap();
+        assert_eq!(cone.1, 2);
+        let docs = lib
+            .documents(LibraryFilter::Author(cone.0.id), "", SortOrder::Title)
+            .unwrap();
+        let mut got = ids(&docs);
+        got.sort();
+        assert_eq!(got, vec![ia, ib]);
+    }
+
+    #[test]
+    fn searching_finds_a_document_by_a_cited_author() {
+        let (mut lib, work, _) = lib_with_bib();
+        let path = write_doc(&work, "paper.typ", "@gender\n");
+        let id = lib.upsert_document(&path).unwrap();
+        write_doc(&work, "other.typ", "No citations.\n");
+        lib.upsert_document(&work.path().join("other.typ")).unwrap();
+
+        for q in ["Butler", "butler, j", "Butler, J."] {
+            let found = lib
+                .documents(LibraryFilter::All, q, SortOrder::Title)
+                .unwrap();
+            assert_eq!(ids(&found), vec![id], "query {q:?}");
+        }
+    }
+
+    #[test]
+    fn dropping_a_citation_drops_the_author_tag_and_an_uncited_author_disappears() {
+        let (mut lib, work, _) = lib_with_bib();
+        let path = write_doc(&work, "paper.typ", "@gender @black\n");
+        lib.upsert_document(&path).unwrap();
+        assert_eq!(author_names(&lib), vec!["Butler, J.", "Cone, J."]);
+
+        std::fs::write(&path, "@gender\n").unwrap();
+        lib.touch_saved(&path).unwrap();
+        assert_eq!(author_names(&lib), vec!["Butler, J."]);
+
+        std::fs::write(&path, "no citations now\n").unwrap();
+        lib.touch_saved(&path).unwrap();
+        assert!(author_names(&lib).is_empty());
+    }
+
+    #[test]
+    fn archived_and_trashed_documents_do_not_count_toward_an_author() {
+        let (mut lib, work, _) = lib_with_bib();
+        let a = lib
+            .upsert_document(&write_doc(&work, "a.typ", "@gender\n"))
+            .unwrap();
+        let b = lib
+            .upsert_document(&write_doc(&work, "b.typ", "@gender\n"))
+            .unwrap();
+        assert_eq!(lib.all_authors_with_counts().unwrap()[0].1, 2);
+
+        lib.set_archived(a, true).unwrap();
+        assert_eq!(lib.all_authors_with_counts().unwrap()[0].1, 1);
+        lib.move_to_trash(b).unwrap();
+        assert!(author_names(&lib).is_empty());
+    }
+
+    #[test]
+    fn removing_a_document_clears_its_author_links() {
+        let (mut lib, work, _) = lib_with_bib();
+        let id = lib
+            .upsert_document(&write_doc(&work, "a.typ", "@gender\n"))
+            .unwrap();
+        lib.remove_document(id).unwrap();
+        // The link rows cascade; the author itself goes on the next sync.
+        assert!(author_names(&lib).is_empty());
+    }
+
+    #[test]
+    fn changing_the_bibliography_and_resyncing_updates_every_document() {
+        let (mut lib, work, bib) = lib_with_bib();
+        lib.upsert_document(&write_doc(&work, "a.typ", "@gender\n"))
+            .unwrap();
+        assert_eq!(author_names(&lib), vec!["Butler, J."]);
+
+        let other = write_doc(
+            &work,
+            "other.bib",
+            "@book{gender, author = {Arendt, Hannah}}",
+        );
+        assert!(lib.set_bibliography(Some(other.clone())));
+        assert!(
+            !lib.set_bibliography(Some(other)),
+            "unchanged is not a change"
+        );
+        lib.resync_authors();
+        assert_eq!(author_names(&lib), vec!["Arendt, H."]);
+        let _ = bib;
+    }
+
+    #[test]
+    fn a_document_with_no_bibliography_available_simply_has_no_authors() {
+        let (mut lib, work) = fixture();
+        lib.upsert_document(&write_doc(&work, "a.typ", "@gender\n"))
+            .unwrap();
+        assert!(author_names(&lib).is_empty());
+    }
+
+    #[test]
+    fn authors_by_doc_groups_names_per_document() {
+        let (mut lib, work, _) = lib_with_bib();
+        let id = lib
+            .upsert_document(&write_doc(&work, "a.typ", "@gender @black\n"))
+            .unwrap();
+        let map = lib.authors_by_doc().unwrap();
+        assert_eq!(map[&id], vec!["Butler, J.", "Cone, J."]);
+    }
+
+    // ── text index and search ────────────────────────────────────────────
+
+    fn search(lib: &Library, q: &str) -> Vec<i64> {
+        ids(&lib
+            .documents(LibraryFilter::Everywhere, q, SortOrder::Title)
+            .unwrap())
+    }
+
+    #[test]
+    fn search_finds_words_inside_a_document_including_as_you_type_prefixes() {
+        let (mut lib, work) = fixture();
+        let id = lib
+            .upsert_document(&write_doc(
+                &work,
+                "advent.typ",
+                "The Magnificat is sung here.\n",
+            ))
+            .unwrap();
+        lib.upsert_document(&write_doc(&work, "other.typ", "Nothing relevant.\n"))
+            .unwrap();
+        assert_eq!(search(&lib, "magnificat"), vec![id]);
+        assert_eq!(search(&lib, "magnif"), vec![id]);
+        assert_eq!(
+            search(&lib, "sung magnificat"),
+            vec![id],
+            "all words required"
+        );
+        assert!(search(&lib, "magnificat vespers").is_empty());
+    }
+
+    #[test]
+    fn heading_markers_are_not_words() {
+        assert_eq!(
+            prose_words("== Second heading\nBody text\n"),
+            vec!["Second", "heading", "Body", "text"]
+        );
+    }
+
+    #[test]
+    fn typst_code_and_comments_are_not_searchable_prose() {
+        let (mut lib, work) = fixture();
+        lib.upsert_document(&write_doc(
+            &work,
+            "a.typ",
+            "#let secretvariable = 1\n// hiddencomment\nVisible words.\n```\ncodeblockword\n```\n",
+        ))
+        .unwrap();
+        for hidden in ["secretvariable", "hiddencomment", "codeblockword"] {
+            assert!(search(&lib, hidden).is_empty(), "{hidden}");
+        }
+        assert_eq!(search(&lib, "visible").len(), 1);
+    }
+
+    #[test]
+    fn search_ignores_accents_in_either_direction() {
+        let (mut lib, work) = fixture();
+        let id = lib
+            .upsert_document(&write_doc(&work, "a.typ", "Slavoj Žižek writes.\n"))
+            .unwrap();
+        assert_eq!(search(&lib, "zizek"), vec![id]);
+        assert_eq!(search(&lib, "Žižek"), vec![id]);
+    }
+
+    #[test]
+    fn search_covers_notes_titles_and_file_names_and_follows_their_edits() {
+        let (mut lib, work) = fixture();
+        let id = lib
+            .upsert_document(&write_doc(&work, "draftsermon.typ", "Body.\n"))
+            .unwrap();
+        assert_eq!(search(&lib, "draftsermon"), vec![id], "file name");
+
+        assert!(search(&lib, "isaiah").is_empty());
+        lib.set_notes(id, Some("Check the Isaiah reading")).unwrap();
+        assert_eq!(search(&lib, "isaiah"), vec![id], "notes");
+        lib.set_notes(id, None).unwrap();
+        assert!(
+            search(&lib, "isaiah").is_empty(),
+            "cleared notes stop matching"
+        );
+
+        lib.set_title(id, "Advent Lament").unwrap();
+        assert_eq!(search(&lib, "lament"), vec![id], "renamed title");
+        assert_eq!(
+            search(&lib, "body"),
+            vec![id],
+            "the body survives a title change"
+        );
+    }
+
+    #[test]
+    fn folder_names_are_not_searchable() {
+        let (mut lib, work) = fixture();
+        std::fs::create_dir_all(work.path().join("quirkyfolder")).unwrap();
+        let path = work.path().join("quirkyfolder").join("a.typ");
+        std::fs::write(&path, "Text.\n").unwrap();
+        lib.upsert_document(&path).unwrap();
+        assert!(search(&lib, "quirkyfolder").is_empty());
+        assert_eq!(search(&lib, "a.typ").len(), 1);
+    }
+
+    #[test]
+    fn editing_the_file_updates_what_search_finds_and_the_word_count() {
+        let (mut lib, work) = fixture();
+        let path = write_doc(&work, "a.typ", "alpha beta gamma\n");
+        let id = lib.upsert_document(&path).unwrap();
+        assert_eq!(lib.doc_by_id(id).unwrap().unwrap().words, Some(3));
+        assert_eq!(search(&lib, "alpha"), vec![id]);
+
+        std::fs::write(&path, "delta epsilon\n").unwrap();
+        lib.touch_saved(&path).unwrap();
+        assert_eq!(lib.doc_by_id(id).unwrap().unwrap().words, Some(2));
+        assert!(search(&lib, "alpha").is_empty());
+        assert_eq!(search(&lib, "delta"), vec![id]);
+    }
+
+    #[test]
+    fn an_unchanged_file_is_not_read_again_but_a_changed_one_is() {
+        let (mut lib, work) = fixture();
+        let path = write_doc(&work, "a.typ", "one two three\n");
+        let id = lib.upsert_document(&path).unwrap();
+        // Poison the stored stamp's words; an unchanged file must leave them.
+        lib.conn
+            .execute("UPDATE documents SET words = 99 WHERE id = ?1", params![id])
+            .unwrap();
+        lib.upsert_document(&path).unwrap();
+        assert_eq!(lib.doc_by_id(id).unwrap().unwrap().words, Some(99));
+
+        std::fs::write(&path, "one two\n").unwrap();
+        lib.upsert_document(&path).unwrap();
+        assert_eq!(lib.doc_by_id(id).unwrap().unwrap().words, Some(2));
+    }
+
+    #[test]
+    fn a_missing_file_keeps_its_row_and_its_last_index() {
+        let (mut lib, work) = fixture();
+        let path = write_doc(&work, "a.typ", "remembered words\n");
+        let id = lib.upsert_document(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        lib.upsert_document(&path).unwrap();
+        assert_eq!(search(&lib, "remembered"), vec![id]);
+        assert_eq!(lib.doc_by_id(id).unwrap().unwrap().words, Some(2));
+    }
+
+    #[test]
+    fn moving_a_document_updates_its_file_name_in_the_index() {
+        let (mut lib, work) = fixture();
+        let id = lib
+            .upsert_document(&write_doc(&work, "oldname.typ", "Body.\n"))
+            .unwrap();
+        // The title is its own thing; only the file name is under test.
+        lib.set_title(id, "Sermon").unwrap();
+        let new = write_doc(&work, "newname.typ", "Body.\n");
+        lib.update_path(id, &new).unwrap();
+        assert!(search(&lib, "oldname").is_empty());
+        assert_eq!(search(&lib, "newname"), vec![id]);
+    }
+
+    #[test]
+    fn removing_a_document_removes_it_from_the_index() {
+        let (mut lib, work) = fixture();
+        let id = lib
+            .upsert_document(&write_doc(&work, "a.typ", "findable\n"))
+            .unwrap();
+        lib.remove_document(id).unwrap();
+        let left: i64 = lib
+            .conn
+            .query_row("SELECT COUNT(*) FROM doc_text", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(left, 0);
+    }
+
+    #[test]
+    fn prune_index_drops_rows_whose_document_is_gone() {
+        let (mut lib, work) = fixture();
+        lib.upsert_document(&write_doc(&work, "a.typ", "x\n"))
+            .unwrap();
+        lib.conn
+            .execute(
+                "INSERT INTO doc_text (rowid, title, notes, path, body) VALUES (999, 't', '', 'p', 'b')",
+                [],
+            )
+            .unwrap();
+        lib.prune_index();
+        let n: i64 = lib
+            .conn
+            .query_row("SELECT COUNT(*) FROM doc_text", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 1);
+    }
+
+    #[test]
+    fn awkward_search_text_never_errors_and_percent_is_literal() {
+        let (mut lib, work) = fixture();
+        let plain = lib
+            .upsert_document(&write_doc(&work, "plain.typ", "Just words.\n"))
+            .unwrap();
+        let pct = lib
+            .upsert_document(&write_doc(&work, "pct.typ", "= Grew 100% in a year\n"))
+            .unwrap();
+        lib.set_title(pct, "Grew 100% in a year").unwrap();
+        for q in [
+            "\"",
+            "(",
+            "*",
+            "OR",
+            "NEAR(",
+            "a AND",
+            "'; DROP TABLE documents; --",
+            ":",
+            "-x",
+        ] {
+            lib.documents(LibraryFilter::All, q, SortOrder::Title)
+                .unwrap_or_else(|e| panic!("search {q:?} failed: {e}"));
+        }
+        assert_eq!(search(&lib, "100%"), vec![pct]);
+        assert!(
+            !search(&lib, "%").contains(&plain),
+            "a lone % is not a wildcard"
+        );
+        assert!(search(&lib, "_").is_empty());
+    }
+
+    #[test]
+    fn snippets_exist_only_for_body_matches_and_mark_the_match() {
+        let (mut lib, work) = fixture();
+        let body = lib
+            .upsert_document(&write_doc(
+                &work,
+                "a.typ",
+                "Long before the dawn the Magnificat rose from the choir.\n",
+            ))
+            .unwrap();
+        let titled = lib
+            .upsert_document(&write_doc(&work, "b.typ", "Unrelated prose.\n"))
+            .unwrap();
+        lib.set_title(titled, "Magnificat in title only").unwrap();
+        let snips = lib.snippets("magnificat");
+        assert_eq!(snips.keys().copied().collect::<Vec<_>>(), vec![body]);
+        let text = &snips[&body];
+        assert!(
+            text.contains(&format!("{MARK_START}Magnificat{MARK_END}")),
+            "{text:?}"
+        );
+        assert!(lib.snippets("   ").is_empty());
+    }
+
+    #[test]
+    fn snippet_markup_escapes_text_and_bolds_the_match() {
+        let raw = format!("a < b & {MARK_START}c{MARK_END} > d");
+        assert_eq!(snippet_to_markup(&raw), "a &lt; b &amp; <b>c</b> &gt; d");
+    }
+
+    #[test]
+    fn the_search_box_becomes_prefix_terms_or_nothing() {
+        assert_eq!(
+            fts_query("gender trouble").as_deref(),
+            Some("\"gender\"* \"trouble\"*")
+        );
+        assert_eq!(
+            fts_query("Butler, J.").as_deref(),
+            Some("\"Butler\"* \"J\"*")
+        );
+        assert_eq!(fts_query("  ...  "), None);
+        assert_eq!(fts_query(""), None);
+        assert_eq!(like_pattern("50%_\\"), "%50\\%\\_\\\\%");
+    }
+
+    #[test]
+    fn everywhere_includes_archived_documents_but_not_trashed_ones() {
+        let (mut lib, work) = fixture();
+        let (live, _) = add_doc(&mut lib, &work, "live.typ");
+        let (old, _) = add_doc(&mut lib, &work, "old.typ");
+        let (gone, _) = add_doc(&mut lib, &work, "gone.typ");
+        lib.set_archived(old, true).unwrap();
+        lib.move_to_trash(gone).unwrap();
+        let mut got = search(&lib, "");
+        got.sort();
+        assert_eq!(got, vec![live, old]);
+    }
+
+    #[test]
+    fn import_skips_the_templates_folder_at_the_top_but_not_deeper_ones() {
+        let (mut lib, work) = fixture();
+        std::fs::create_dir_all(work.path().join("Templates")).unwrap();
+        std::fs::create_dir_all(work.path().join("Thesis/Templates")).unwrap();
+        std::fs::write(work.path().join("Templates/starter.typ"), "x").unwrap();
+        std::fs::write(work.path().join("Thesis/Templates/mine.typ"), "x").unwrap();
+        std::fs::write(work.path().join("real.typ"), "x").unwrap();
+        lib.import_directory(work.path()).unwrap();
+        let titles = titles(
+            &lib.documents(LibraryFilter::All, "", SortOrder::Title)
+                .unwrap(),
+        );
+        assert_eq!(titles, vec!["mine", "real"]);
+    }
+
+    // ── counts and bulk lookups ──────────────────────────────────────────
+
+    #[test]
+    fn counts_of_an_empty_library_are_zero_not_an_error() {
+        let (lib, _work) = fixture();
+        let c = lib.counts().unwrap();
+        assert_eq!(
+            (c.all, c.archive, c.trash, c.recent, c.unlabelled),
+            (0, 0, 0, 0, 0)
+        );
+        assert!(c.projects.is_empty());
+    }
+
+    #[test]
+    fn recent_is_capped_at_thirty_in_both_the_list_and_its_count() {
+        let (mut lib, work) = fixture();
+        for i in 0..35 {
+            let p = write_doc(&work, &format!("r{i}.typ"), "x\n");
+            lib.touch_opened(&p).unwrap();
+        }
+        let listed = lib
+            .documents(LibraryFilter::Recent, "", SortOrder::Opened)
+            .unwrap()
+            .len();
+        assert_eq!(listed, 30);
+        assert_eq!(lib.doc_count(&LibraryFilter::Recent).unwrap(), 30);
+        assert_eq!(lib.counts().unwrap().recent, 30);
+    }
+
+    // ── labels ───────────────────────────────────────────────────────────
+
+    fn label_names(lib: &Library, doc: i64) -> Vec<String> {
+        lib.labels_by_doc()
+            .unwrap()
+            .remove(&doc)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|l| l.name)
+            .collect()
+    }
+
+    #[test]
+    fn a_label_is_made_once_whatever_its_case() {
+        let (mut lib, _work) = fixture();
+        let a = lib.create_label("Sermons").unwrap();
+        let b = lib.create_label("  sermons ").unwrap();
+        assert_eq!(a, b);
+        assert_eq!(lib.all_labels().unwrap().len(), 1);
+        assert_eq!(
+            lib.all_labels().unwrap()[0].name,
+            "Sermons",
+            "first spelling wins"
+        );
+    }
+
+    #[test]
+    fn labels_are_added_and_removed_across_many_documents_without_disturbing_others() {
+        let (mut lib, work) = fixture();
+        let (a, _) = add_doc(&mut lib, &work, "a.typ");
+        let (b, _) = add_doc(&mut lib, &work, "b.typ");
+        let (c, _) = add_doc(&mut lib, &work, "c.typ");
+        let draft = lib.create_label("draft").unwrap();
+        let advent = lib.create_label("Advent").unwrap();
+        lib.add_labels(&[a], &[advent]).unwrap();
+
+        lib.add_labels(&[a, b], &[draft]).unwrap();
+        lib.add_labels(&[a, b], &[draft]).unwrap(); // idempotent
+        assert_eq!(label_names(&lib, a), vec!["Advent", "draft"]);
+        assert_eq!(label_names(&lib, b), vec!["draft"]);
+        assert!(label_names(&lib, c).is_empty());
+
+        lib.remove_labels(&[a, c], &[draft]).unwrap();
+        assert_eq!(label_names(&lib, a), vec!["Advent"]);
+        assert_eq!(
+            label_names(&lib, b),
+            vec!["draft"],
+            "b was not in the removal"
+        );
+    }
+
+    #[test]
+    fn membership_counts_say_how_many_of_the_chosen_documents_have_each() {
+        let (mut lib, work) = fixture();
+        let (a, _) = add_doc(&mut lib, &work, "a.typ");
+        let (b, _) = add_doc(&mut lib, &work, "b.typ");
+        let (c, _) = add_doc(&mut lib, &work, "c.typ");
+        let all = lib.create_label("all").unwrap();
+        let some = lib.create_label("some").unwrap();
+        lib.add_labels(&[a, b], &[all]).unwrap();
+        lib.add_labels(&[a], &[some]).unwrap();
+        lib.add_labels(&[c], &[some]).unwrap(); // not among the chosen
+        let m = lib.label_memberships(&[a, b]).unwrap();
+        assert_eq!(m[&all], 2);
+        assert_eq!(m[&some], 1);
+        assert!(lib.label_memberships(&[]).unwrap().is_empty());
+        let project = lib.create_project("P").unwrap();
+        lib.add_doc_to_project(project, a).unwrap();
+        assert_eq!(lib.project_memberships(&[a, b]).unwrap()[&project], 1);
+    }
+
+    #[test]
+    fn deleting_a_label_takes_it_off_every_document_but_keeps_the_documents() {
+        let (mut lib, work) = fixture();
+        let (a, _) = add_doc(&mut lib, &work, "a.typ");
+        let l = lib.create_label("temp").unwrap();
+        lib.add_labels(&[a], &[l]).unwrap();
+        lib.delete_label(l).unwrap();
+        assert!(label_names(&lib, a).is_empty());
+        assert!(lib.doc_by_id(a).unwrap().is_some());
+    }
+
+    #[test]
+    fn renaming_a_label_keeps_its_documents_and_refuses_a_name_already_taken() {
+        let (mut lib, work) = fixture();
+        let (a, _) = add_doc(&mut lib, &work, "a.typ");
+        let one = lib.create_label("one").unwrap();
+        let two = lib.create_label("two").unwrap();
+        lib.add_labels(&[a], &[one]).unwrap();
+        lib.rename_label(one, "Uno").unwrap();
+        assert_eq!(label_names(&lib, a), vec!["Uno"]);
+        assert!(lib.rename_label(two, "uno").is_err(), "names ignore case");
+    }
+
+    #[test]
+    fn a_label_colour_can_be_set_and_handed_back_to_automatic() {
+        let (mut lib, _work) = fixture();
+        let l = lib.create_label("x").unwrap();
+        assert_eq!(lib.all_labels().unwrap()[0].color_hex, None);
+        lib.set_label_color(l, Some("#e01b24")).unwrap();
+        assert_eq!(
+            lib.all_labels().unwrap()[0].color_hex.as_deref(),
+            Some("#e01b24")
+        );
+        lib.set_label_color(l, None).unwrap();
+        assert_eq!(lib.all_labels().unwrap()[0].color_hex, None);
+    }
+
+    #[test]
+    fn the_label_filter_unlabelled_view_and_search_all_agree_with_the_labels() {
+        let (mut lib, work) = fixture();
+        let (a, _) = add_doc(&mut lib, &work, "a.typ");
+        let (b, _) = add_doc(&mut lib, &work, "b.typ");
+        let l = lib.create_label("Sermons").unwrap();
+        lib.add_labels(&[a], &[l]).unwrap();
+
+        let labelled = lib
+            .documents(LibraryFilter::Label(l), "", SortOrder::Title)
+            .unwrap();
+        assert_eq!(ids(&labelled), vec![a]);
+        let unlabelled = lib
+            .documents(LibraryFilter::Unlabelled, "", SortOrder::Title)
+            .unwrap();
+        assert_eq!(ids(&unlabelled), vec![b]);
+        assert_eq!(
+            search(&lib, "sermons"),
+            vec![a],
+            "a label's name is searchable"
+        );
+
+        let c = lib.counts().unwrap();
+        assert_eq!(
+            c.labels[&l],
+            lib.doc_count(&LibraryFilter::Label(l)).unwrap()
+        );
+        assert_eq!(
+            c.unlabelled,
+            lib.doc_count(&LibraryFilter::Unlabelled).unwrap()
+        );
+    }
+
+    /// The sidebar's grouped counts and `doc_count` (and so the list a row
+    /// opens) must always agree.
+    #[test]
+    fn grouped_counts_agree_with_the_count_of_each_view() {
+        let (mut lib, work, _) = lib_with_bib();
+        let mut docs = Vec::new();
+        for (i, body) in [
+            "@gender",
+            "@black @gender",
+            "plain",
+            "@black",
+            "plain",
+            "plain",
+        ]
+        .iter()
+        .enumerate()
+        {
+            let path = write_doc(&work, &format!("d{i}.typ"), &format!("{body}\n"));
+            docs.push(lib.upsert_document(&path).unwrap());
+            lib.touch_opened(&path).ok();
+        }
+        let project = lib.create_project("Thesis").unwrap();
+        lib.add_doc_to_project(project, docs[0]).unwrap();
+        lib.add_doc_to_project(project, docs[2]).unwrap();
+        let draft = lib.create_label("draft").unwrap();
+        let advent = lib.create_label("Advent").unwrap();
+        lib.add_labels(&[docs[1], docs[3]], &[draft]).unwrap();
+        lib.add_labels(&[docs[0], docs[1]], &[advent]).unwrap();
+        lib.set_archived(docs[4], true).unwrap();
+        lib.move_to_trash(docs[5]).unwrap();
+
+        let c = lib.counts().unwrap();
+        for (f, n) in [
+            (LibraryFilter::All, c.all),
+            (LibraryFilter::Archive, c.archive),
+            (LibraryFilter::Trash, c.trash),
+            (LibraryFilter::Recent, c.recent),
+            (LibraryFilter::Unlabelled, c.unlabelled),
+            (LibraryFilter::Project(project), c.projects[&project]),
+            (LibraryFilter::Label(draft), c.labels[&draft]),
+            (LibraryFilter::Label(advent), c.labels[&advent]),
+        ] {
+            assert_eq!(n, lib.doc_count(&f).unwrap(), "{f:?}");
+        }
+        for (a, n) in lib.all_authors_with_counts().unwrap() {
+            assert_eq!(c.authors[&a.id], n);
+            assert_eq!(n, lib.doc_count(&LibraryFilter::Author(a.id)).unwrap());
+        }
+    }
+
+    #[test]
+    fn bulk_label_lookup_matches_the_per_document_view() {
+        let (mut lib, work) = fixture();
+        let (a, _) = add_doc(&mut lib, &work, "a.typ");
+        let (b, _) = add_doc(&mut lib, &work, "b.typ");
+        let z = lib.create_label("zeta").unwrap();
+        let y = lib.create_label("alpha").unwrap();
+        lib.add_labels(&[a], &[z, y]).unwrap();
+        let by = lib.labels_by_doc().unwrap();
+        assert_eq!(label_names(&lib, a), vec!["alpha", "zeta"]);
+        assert!(!by.contains_key(&b));
+    }
+
+    // ── tags and categories becoming labels ──────────────────────────────
+
+    /// An old-style library: documents, tags and categories, with the labels
+    /// tables not yet filled in. Built by hand so the shapes are exactly what
+    /// earlier versions wrote.
+    fn legacy_library(work: &TempDir) -> Library {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        conn.execute_batch(
+            "CREATE TABLE documents (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL UNIQUE,
+                 title TEXT NOT NULL, category TEXT, archived INTEGER NOT NULL DEFAULT 0,
+                 notes TEXT, created_at TEXT NOT NULL, modified_at TEXT NOT NULL,
+                 last_opened_at TEXT);
+             CREATE TABLE tags (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE,
+                 color_hex TEXT NOT NULL DEFAULT '#3584e4');
+             CREATE TABLE doc_tags (
+                 doc_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+                 tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+                 PRIMARY KEY (doc_id, tag_id));
+             CREATE TABLE categories (
+                 name TEXT NOT NULL PRIMARY KEY,
+                 color_hex TEXT NOT NULL DEFAULT '#3584e4',
+                 parent TEXT REFERENCES categories(name));
+             CREATE TABLE doc_categories (
+                 doc_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+                 category TEXT NOT NULL REFERENCES categories(name) ON DELETE CASCADE,
+                 PRIMARY KEY (doc_id, category));",
+        )
+        .unwrap();
+        for (i, name) in ["a", "b", "c", "d"].iter().enumerate() {
+            conn.execute(
+                "INSERT INTO documents (path, title, created_at, modified_at) VALUES (?1, ?2, 't', 't')",
+                params![work.path().join(format!("{name}.typ")).to_string_lossy(), name],
+            )
+            .unwrap();
+            let _ = i;
+        }
+        Library {
+            conn,
+            trash_dir: work.path().join("trash"),
+            authors: AuthorSync::default(),
+        }
+    }
+
+    fn labels_of(lib: &Library, doc: i64) -> Vec<String> {
+        label_names(lib, doc)
+    }
+
+    #[test]
+    fn tags_and_categories_become_labels_carrying_the_same_documents() {
+        let work = TempDir::new().unwrap();
+        let lib = legacy_library(&work);
+        lib.conn.execute_batch(
+            "INSERT INTO tags (name, color_hex) VALUES ('draft', '#e01b24'), ('plain', '#3584e4');
+             INSERT INTO doc_tags VALUES (1, 1), (2, 1), (2, 2);
+             INSERT INTO categories (name, color_hex, parent) VALUES
+                 ('Liturgy', '#3584e4', NULL), ('Advent', '#33d17a', 'Liturgy'),
+                 ('Papers', '#3584e4', NULL);
+             INSERT INTO doc_categories VALUES (1, 'Advent'), (3, 'Papers');",
+        ).unwrap();
+        lib.migrate().unwrap();
+
+        assert_eq!(labels_of(&lib, 1), vec!["draft", "Liturgy › Advent"]);
+        assert_eq!(labels_of(&lib, 2), vec!["draft", "plain"]);
+        assert_eq!(labels_of(&lib, 3), vec!["Papers"]);
+        assert!(labels_of(&lib, 4).is_empty());
+
+        let by_name: std::collections::HashMap<String, Option<String>> = lib
+            .all_labels()
+            .unwrap()
+            .into_iter()
+            .map(|l| (l.name, l.color_hex))
+            .collect();
+        assert_eq!(
+            by_name["draft"].as_deref(),
+            Some("#e01b24"),
+            "a chosen tag colour is kept"
+        );
+        assert_eq!(
+            by_name["plain"], None,
+            "the old default blue was never chosen"
+        );
+        assert_eq!(by_name["Papers"], None, "nor was a category's");
+        assert_eq!(by_name["Liturgy › Advent"].as_deref(), Some("#33d17a"));
+    }
+
+    #[test]
+    fn a_parent_category_that_only_grouped_its_children_is_not_a_label_of_its_own() {
+        let work = TempDir::new().unwrap();
+        let lib = legacy_library(&work);
+        lib.conn.execute_batch(
+            "INSERT INTO categories (name, parent) VALUES ('Liturgy', NULL), ('Advent', 'Liturgy'),
+                 ('Lent', 'Liturgy'), ('Empty', NULL);
+             INSERT INTO doc_categories VALUES (1, 'Advent');",
+        ).unwrap();
+        lib.migrate().unwrap();
+        let names: Vec<String> = lib
+            .all_labels()
+            .unwrap()
+            .into_iter()
+            .map(|l| l.name)
+            .collect();
+        assert_eq!(names, vec!["Empty", "Liturgy › Advent", "Liturgy › Lent"]);
+    }
+
+    #[test]
+    fn a_parent_that_also_held_documents_keeps_its_own_label_beside_its_children() {
+        let work = TempDir::new().unwrap();
+        let lib = legacy_library(&work);
+        lib.conn.execute_batch(
+            "INSERT INTO categories (name, parent) VALUES ('Liturgy', NULL), ('Advent', 'Liturgy');
+             INSERT INTO doc_categories VALUES (1, 'Liturgy'), (1, 'Advent');",
+        ).unwrap();
+        lib.migrate().unwrap();
+        assert_eq!(labels_of(&lib, 1), vec!["Liturgy", "Liturgy › Advent"]);
+    }
+
+    #[test]
+    fn a_tag_and_a_category_with_one_name_become_one_label_with_the_chosen_colour() {
+        let work = TempDir::new().unwrap();
+        let lib = legacy_library(&work);
+        lib.conn
+            .execute_batch(
+                "INSERT INTO tags (name) VALUES ('Sermons');
+             INSERT INTO doc_tags VALUES (1, 1);
+             INSERT INTO categories (name, color_hex) VALUES ('sermons', '#9141ac');
+             INSERT INTO doc_categories VALUES (2, 'sermons');",
+            )
+            .unwrap();
+        lib.migrate().unwrap();
+        let labels = lib.all_labels().unwrap();
+        assert_eq!(labels.len(), 1);
+        assert_eq!(labels[0].color_hex.as_deref(), Some("#9141ac"));
+        assert_eq!(labels_of(&lib, 1), vec!["Sermons"]);
+        assert_eq!(labels_of(&lib, 2), vec!["Sermons"]);
+    }
+
+    #[test]
+    fn the_migration_runs_once_and_leaves_the_old_tables_alone() {
+        let work = TempDir::new().unwrap();
+        let mut lib = legacy_library(&work);
+        lib.conn
+            .execute_batch(
+                "INSERT INTO tags (name) VALUES ('draft'); INSERT INTO doc_tags VALUES (1, 1);",
+            )
+            .unwrap();
+        lib.migrate().unwrap();
+        // The user then renames the label; migrating again must not undo that
+        // or bring the old tag back.
+        let id = lib.all_labels().unwrap()[0].id;
+        lib.rename_label(id, "Draft v2").unwrap();
+        lib.migrate().unwrap();
+        lib.migrate().unwrap();
+        assert_eq!(lib.all_labels().unwrap().len(), 1);
+        assert_eq!(lib.all_labels().unwrap()[0].name, "Draft v2");
+        let old: i64 = lib
+            .conn
+            .query_row("SELECT COUNT(*) FROM tags", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(old, 1, "the old table is kept as it was");
+        assert!(labels_migrated(&lib.conn));
+    }
+
+    #[test]
+    fn a_title_chosen_before_titles_could_be_protected_survives_the_upgrade() {
+        // An old library: no title_custom column. One document has a title that
+        // differs from its file's (the user renamed it), one has the file's own.
+        let work = TempDir::new().unwrap();
+        let renamed = work.path().join("ch1.typ");
+        let plain = work.path().join("ch2.typ");
+        std::fs::write(&renamed, "= One\n").unwrap();
+        std::fs::write(&plain, "= Two\n").unwrap();
+        let mut lib = legacy_library(&work);
+        lib.conn.execute_batch("DELETE FROM documents;").unwrap();
+        for (path, title) in [(&renamed, "My Chapter One"), (&plain, "ch2")] {
+            lib.conn
+                .execute(
+                    "INSERT INTO documents (path, title, created_at, modified_at) VALUES (?1, ?2, 't', 't')",
+                    params![path.to_string_lossy(), title],
+                )
+                .unwrap();
+        }
+        lib.migrate().unwrap();
+        // The first scan after upgrading — which used to reset the title.
+        lib.upsert_document(&renamed).unwrap();
+        lib.upsert_document(&plain).unwrap();
+        fn title(lib: &Library, p: &Path) -> String {
+            lib.doc_by_path(p).unwrap().unwrap().title
+        }
+        assert_eq!(title(&lib, &renamed), "My Chapter One");
+        assert_eq!(title(&lib, &plain), "ch2");
+        // A title from the file still follows the file.
+        std::fs::write(&plain, "#let doc-title = \"Retitled\"\n").unwrap();
+        lib.upsert_document(&plain).unwrap();
+        assert_eq!(title(&lib, &plain), "Retitled");
+    }
+
+    #[test]
+    fn a_new_library_starts_with_the_migration_done_and_no_labels() {
+        let (lib, _work) = fixture();
+        assert!(labels_migrated(&lib.conn));
+        assert!(lib.all_labels().unwrap().is_empty());
+    }
+
+    #[test]
+    fn the_pending_check_sees_an_old_library_and_not_a_new_or_finished_one() {
+        let work = TempDir::new().unwrap();
+        let lib = legacy_library(&work);
+        assert!(labels_migration_pending(&lib.conn));
+        lib.migrate().unwrap();
+        assert!(!labels_migration_pending(&lib.conn));
+        let (fresh, _w) = fixture();
+        assert!(!labels_migration_pending(&fresh.conn));
+    }
+
+    #[test]
+    fn migrating_a_real_file_database_with_wal_keeps_everything() {
+        let work = TempDir::new().unwrap();
+        let path = work.path().join("library.sqlite");
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;")
+                .unwrap();
+            conn.execute_batch(
+                "CREATE TABLE documents (
+                     id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL UNIQUE,
+                     title TEXT NOT NULL, category TEXT, archived INTEGER NOT NULL DEFAULT 0,
+                     notes TEXT, created_at TEXT NOT NULL, modified_at TEXT NOT NULL,
+                     last_opened_at TEXT);
+                 CREATE TABLE tags (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE,
+                     color_hex TEXT NOT NULL DEFAULT '#3584e4');
+                 CREATE TABLE doc_tags (doc_id INTEGER NOT NULL, tag_id INTEGER NOT NULL,
+                     PRIMARY KEY (doc_id, tag_id));
+                 INSERT INTO documents (path, title, created_at, modified_at) VALUES ('/x.typ', 'x', 't', 't');
+                 INSERT INTO tags (name) VALUES ('keep');
+                 INSERT INTO doc_tags VALUES (1, 1);",
+            ).unwrap();
+        }
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;")
+            .unwrap();
+        let lib = Library {
+            conn,
+            trash_dir: work.path().join("t"),
+            authors: AuthorSync::default(),
+        };
+        lib.migrate().unwrap();
+        assert_eq!(label_names(&lib, 1), vec!["keep"]);
+    }
+
+    // ── upgrading a library exactly as v0.39.2 left it ───────────────────
+
+    /// The tables and indexes the original version created, copied from a
+    /// library it made — so these tests start from what users really have.
+    const V0_39_2_SCHEMA: &str = "
+        CREATE TABLE documents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL UNIQUE,
+            title TEXT NOT NULL, category TEXT, archived INTEGER NOT NULL DEFAULT 0,
+            notes TEXT, created_at TEXT NOT NULL, modified_at TEXT NOT NULL,
+            last_opened_at TEXT, pinned INTEGER NOT NULL DEFAULT 0,
+            deleted INTEGER NOT NULL DEFAULT 0, trash_path TEXT);
+        CREATE TABLE tags (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE,
+            color_hex TEXT NOT NULL DEFAULT '#3584e4');
+        CREATE TABLE doc_tags (
+            doc_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+            PRIMARY KEY (doc_id, tag_id));
+        CREATE TABLE categories (name TEXT NOT NULL PRIMARY KEY, color_hex TEXT,
+            parent TEXT REFERENCES categories(name));
+        CREATE TABLE doc_categories (
+            doc_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            category TEXT NOT NULL REFERENCES categories(name) ON DELETE CASCADE,
+            PRIMARY KEY (doc_id, category));
+        CREATE TABLE projects (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,
+            root_doc_id INTEGER REFERENCES documents(id) ON DELETE SET NULL,
+            created_at TEXT NOT NULL);
+        CREATE TABLE project_docs (
+            project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            doc_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            position INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (project_id, doc_id));
+        CREATE INDEX idx_doc_archived ON documents(archived, deleted);
+        CREATE INDEX idx_doc_tags_doc ON doc_tags(doc_id);";
+
+    fn dump(conn: &Connection, sql: &str) -> Vec<String> {
+        let mut stmt = conn.prepare(sql).unwrap();
+        let cols = stmt.column_count();
+        stmt.query_map([], |r| {
+            Ok((0..cols)
+                .map(|i| format!("{:?}", r.get_ref(i).unwrap()))
+                .collect::<Vec<_>>()
+                .join("|"))
+        })
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect()
+    }
+
+    #[test]
+    fn a_library_exactly_as_the_original_version_left_it_upgrades_without_losing_anything() {
+        let work = TempDir::new().unwrap();
+        let trash = work.path().join("trash");
+        std::fs::create_dir_all(&trash).unwrap();
+        let live = work.path().join("sermon.typ");
+        let binned = work.path().join("old draft.typ");
+        let archived = work.path().join("journal.typ");
+        std::fs::write(&live, "= Sermon\nMy writing.\n").unwrap();
+        std::fs::write(&archived, "= Journal\n").unwrap();
+        // The trashed document's file lives in the trash folder, as the
+        // original version left it.
+        let in_trash = trash.join("1700000000-2-old draft.typ");
+        std::fs::write(&in_trash, "= Old draft\nSomething I may want back.\n").unwrap();
+
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        conn.execute_batch(V0_39_2_SCHEMA).unwrap();
+        let ins = |id: i64,
+                   path: &Path,
+                   title: &str,
+                   archived: i64,
+                   pinned: i64,
+                   notes: Option<&str>,
+                   deleted: i64,
+                   trash_path: Option<String>| {
+            conn.execute(
+                "INSERT INTO documents (id, path, title, archived, notes, created_at, modified_at, pinned, deleted, trash_path)
+                 VALUES (?1, ?2, ?3, ?4, ?5, '2025-01-01', '2025-02-02', ?6, ?7, ?8)",
+                params![id, path.to_string_lossy(), title, archived, notes, pinned, deleted, trash_path],
+            )
+            .unwrap();
+        };
+        ins(
+            1,
+            &live,
+            "sermon",
+            0,
+            1,
+            Some("Check the Isaiah reading"),
+            0,
+            None,
+        );
+        ins(
+            2,
+            &binned,
+            "old draft",
+            0,
+            0,
+            None,
+            1,
+            Some(in_trash.to_string_lossy().into_owned()),
+        );
+        ins(3, &archived, "My Journal", 1, 0, None, 0, None);
+        conn.execute_batch(
+            "INSERT INTO tags (name, color_hex) VALUES ('draft', '#3584e4'), ('urgent', '#e01b24');
+             INSERT INTO doc_tags VALUES (1, 1), (1, 2), (3, 1);
+             INSERT INTO categories (name, color_hex, parent) VALUES
+                ('Liturgy', NULL, NULL), ('Advent', '#33d17a', 'Liturgy');
+             INSERT INTO doc_categories VALUES (1, 'Advent'), (2, 'Liturgy');
+             INSERT INTO projects (id, name, root_doc_id, created_at) VALUES (1, 'Thesis', 1, '2025-01-01');
+             INSERT INTO project_docs VALUES (1, 3, 0), (1, 1, 1);",
+        )
+        .unwrap();
+
+        let documents = "SELECT id, path, title, category, archived, notes, created_at, modified_at,
+                                last_opened_at, pinned, deleted, trash_path FROM documents ORDER BY id";
+        let old_tables = [
+            "SELECT * FROM tags ORDER BY 1",
+            "SELECT * FROM doc_tags ORDER BY 1, 2",
+            "SELECT * FROM categories ORDER BY 1",
+            "SELECT * FROM doc_categories ORDER BY 1, 2",
+            "SELECT * FROM projects ORDER BY 1",
+            "SELECT * FROM project_docs ORDER BY 1, 2",
+        ];
+        let before_docs = dump(&conn, documents);
+        let before_old: Vec<_> = old_tables.iter().map(|q| dump(&conn, q)).collect();
+
+        let mut lib = Library {
+            conn,
+            trash_dir: trash.clone(),
+            authors: AuthorSync::default(),
+        };
+        lib.migrate().unwrap();
+        lib.migrate().unwrap(); // and again: every launch runs it
+
+        // Nothing about any document changed — not its path, title, pin,
+        // archive flag, notes, dates, or where its trashed file is.
+        assert_eq!(dump(&lib.conn, documents), before_docs);
+        for (q, before) in old_tables.iter().zip(&before_old) {
+            assert_eq!(&dump(&lib.conn, q), before, "{q} changed");
+        }
+        // The organisation arrived as labels.
+        let names = |doc| {
+            let mut v: Vec<String> = lib
+                .labels_by_doc()
+                .unwrap()
+                .remove(&doc)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|l| l.name)
+                .collect();
+            v.sort();
+            v
+        };
+        assert_eq!(names(1), vec!["Liturgy › Advent", "draft", "urgent"]);
+        assert_eq!(names(2), vec!["Liturgy"], "even on the trashed document");
+        assert_eq!(names(3), vec!["draft"]);
+        // The project keeps its order and its root.
+        let snap = lib.export_snapshot().unwrap();
+        assert_eq!(
+            snap.projects[0].documents,
+            vec![archived.clone(), live.clone()]
+        );
+        assert_eq!(snap.projects[0].root, Some(live.clone()));
+        // The renamed title (My Journal ≠ the file's "journal"?) is kept: the
+        // file gives "journal", the library had "My Journal".
+        lib.upsert_document(&archived).unwrap();
+        assert_eq!(lib.doc_by_id(3).unwrap().unwrap().title, "My Journal");
+
+        // The trashed document can still be brought back, file and all.
+        lib.restore_from_trash(2).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&binned).unwrap(),
+            "= Old draft\nSomething I may want back.\n"
+        );
+        assert!(!lib.doc_by_id(2).unwrap().unwrap().archived);
+        // And the writing itself was never touched.
+        assert_eq!(
+            std::fs::read_to_string(&live).unwrap(),
+            "= Sermon\nMy writing.\n"
+        );
+    }
+
+    #[test]
+    fn if_the_label_migration_cannot_run_the_library_still_opens_and_lists_everything() {
+        // Make it fail: a table named `labels` of the wrong shape is in the way.
+        let work = TempDir::new().unwrap();
+        let lib = legacy_library(&work);
+        lib.conn
+            .execute_batch(
+                "CREATE TABLE labels (unrelated INTEGER);
+                 INSERT INTO tags (name) VALUES ('draft'); INSERT INTO doc_tags VALUES (1, 1);",
+            )
+            .unwrap();
+        lib.migrate()
+            .expect("a failed label migration must not fail the open");
+        assert!(
+            !labels_migrated(&lib.conn),
+            "so it is tried again next time"
+        );
+        // Documents are all there and listable, and the old tags untouched.
+        assert_eq!(
+            lib.documents(LibraryFilter::All, "", SortOrder::Title)
+                .unwrap()
+                .len(),
+            4
+        );
+        let tags: i64 = lib
+            .conn
+            .query_row("SELECT COUNT(*) FROM doc_tags", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(tags, 1);
+        // Nothing was half-done.
+        let rows: i64 = lib
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('labels')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(rows, 1, "the table in the way is as it was");
+    }
+
+    #[test]
+    fn a_machines_name_stays_while_it_stays_put_and_changes_when_the_library_moves() {
+        let (lib, _w) = fixture();
+        let on_a = lib.machine_id_on("laptop").unwrap();
+        assert_eq!(lib.machine_id_on("laptop").unwrap(), on_a);
+        // The same library file turning up on another computer must not share
+        // the first one's name — the two would write the same files.
+        let on_b = lib.machine_id_on("desktop").unwrap();
+        assert_ne!(on_b, on_a);
+        assert_eq!(lib.machine_id_on("desktop").unwrap(), on_b);
+        // A library named before the computer was recorded keeps its name.
+        let (old, _w2) = fixture();
+        old.set_note("machine_id", "m-0123456789ab").unwrap();
+        assert_eq!(old.machine_id_on("anywhere").unwrap(), "m-0123456789ab");
+        assert_eq!(old.machine_id_on("anywhere").unwrap(), "m-0123456789ab");
+        assert_ne!(old.machine_id_on("elsewhere").unwrap(), "m-0123456789ab");
+    }
 }
 
 #[cfg(test)]
@@ -2917,20 +4153,20 @@ mod sql_shape {
             q.select,
             q.from,
             q.conditions,
-            search_clause(q.prefix, idx),
+            search_clause(q.prefix, idx, true),
             q.order(&sort)
-        )
+        ) + &q.limit_clause()
     }
 
     /// Filters that take a leading parameter must bind the search pattern to
     /// `?2`; the rest to `?1`. Getting this wrong silently searches for the
-    /// category/tag id instead of the user's text.
+    /// label/project id instead of the user's text.
     #[test]
     fn search_pattern_takes_the_slot_after_any_leading_parameter() {
         for f in [
             LibraryFilter::All,
             LibraryFilter::Archive,
-            LibraryFilter::Untagged,
+            LibraryFilter::Unlabelled,
             LibraryFilter::Recent,
             LibraryFilter::Trash,
         ] {
@@ -2941,10 +4177,9 @@ mod sql_shape {
             );
         }
         for f in [
-            LibraryFilter::Category("C".into()),
-            LibraryFilter::CategoryGroup("G".into()),
+            LibraryFilter::Label(3),
+            LibraryFilter::Author(5),
             LibraryFilter::Project(7),
-            LibraryFilter::Tag(9),
         ] {
             let sql = sql_for(f.clone(), SortOrder::Modified);
             assert!(sql.contains("LIKE ?2"), "{f:?} should bind search to ?2");
@@ -2953,7 +4188,7 @@ mod sql_shape {
 
     #[test]
     fn joined_filters_prefix_every_column_with_the_table_alias() {
-        for f in [LibraryFilter::Project(7), LibraryFilter::Tag(9)] {
+        for f in [LibraryFilter::Project(7), LibraryFilter::Label(9)] {
             let sql = sql_for(f.clone(), SortOrder::Modified);
             assert!(sql.contains("FROM documents d JOIN"), "{f:?}");
             assert!(
@@ -2986,9 +4221,8 @@ mod sql_shape {
         for f in [
             LibraryFilter::All,
             LibraryFilter::Archive,
-            LibraryFilter::Untagged,
-            LibraryFilter::Category("C".into()),
-            LibraryFilter::Tag(9),
+            LibraryFilter::Unlabelled,
+            LibraryFilter::Label(9),
         ] {
             for (sort, tail) in [
                 (SortOrder::Title, "title COLLATE NOCASE ASC"),
@@ -3013,23 +4247,15 @@ mod sql_shape {
             (LibraryFilter::Archive, "archived = 1 AND deleted = 0"),
             (LibraryFilter::Trash, "deleted = 1"),
             (
-                LibraryFilter::Untagged,
-                "id NOT IN (SELECT DISTINCT doc_id FROM doc_tags)",
+                LibraryFilter::Unlabelled,
+                "id NOT IN (SELECT DISTINCT doc_id FROM doc_labels)",
             ),
             (LibraryFilter::Recent, "last_opened_at IS NOT NULL"),
-            (
-                LibraryFilter::Category("C".into()),
-                "EXISTS (SELECT 1 FROM doc_categories dc WHERE dc.doc_id = id AND dc.category = ?1)",
-            ),
-            (
-                LibraryFilter::CategoryGroup("G".into()),
-                "name = ?1 OR parent = ?1",
-            ),
             (
                 LibraryFilter::Project(7),
                 "pd.project_id = ?1 AND d.deleted = 0",
             ),
-            (LibraryFilter::Tag(9), "dt.tag_id = ?1"),
+            (LibraryFilter::Label(9), "dl.label_id = ?1"),
         ];
         for (f, needle) in cases {
             let sql = sql_for(f.clone(), SortOrder::Modified);

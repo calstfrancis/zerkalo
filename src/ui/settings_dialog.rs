@@ -875,6 +875,7 @@ impl SettingsDialog {
             // Owned by the print sheet, not this dialog — carried through so
             // saving preferences doesn't reset the last-used print settings.
             let print_cur = current.print.clone();
+            let library_cur = current.library.clone();
             let snippets_cur = current.snippets.clone();
             move || {
                 let work_dir_text = work_dir_row.text().trim().to_string();
@@ -998,6 +999,7 @@ impl SettingsDialog {
                         .cloned()
                         .unwrap_or_else(|| default_serif_font_cur.clone()),
                     print: print_cur.clone(),
+                    library: library_cur.clone(),
                 }
             }
         };

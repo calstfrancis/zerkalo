@@ -247,6 +247,62 @@ pub struct Config {
     pub default_serif_font: String,
     #[serde(default)]
     pub print: PrintPrefs,
+    #[serde(default)]
+    pub library: LibraryPrefs,
+}
+
+/// How the Library window was left, so it reopens the way it was.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct LibraryPrefs {
+    /// `modified`, `created`, `opened` or `name`.
+    #[serde(default = "default_library_sort")]
+    pub sort: String,
+    #[serde(default)]
+    pub compact: bool,
+    /// Whether the sidebar's Authors section is unfolded.
+    #[serde(default)]
+    pub authors_open: bool,
+    /// Keep a copy of labels, projects, pins and notes in the Zerkalo folder
+    /// (`.zerkalo/library/`) so they back up and travel with it.
+    #[serde(default = "default_true")]
+    pub export: bool,
+    /// Whether notes go into that copy too. Off unless asked for: a note is
+    /// private writing, and the folder may be pushed somewhere other people can
+    /// read.
+    #[serde(default)]
+    pub export_notes: bool,
+    /// Whether the one-time "this is now saved in the folder" notice was shown.
+    #[serde(default)]
+    pub export_announced: bool,
+    #[serde(default = "default_library_width")]
+    pub width: i32,
+    #[serde(default = "default_library_height")]
+    pub height: i32,
+}
+
+impl Default for LibraryPrefs {
+    fn default() -> Self {
+        Self {
+            sort: default_library_sort(),
+            compact: false,
+            authors_open: false,
+            export: true,
+            export_notes: false,
+            export_announced: false,
+            width: default_library_width(),
+            height: default_library_height(),
+        }
+    }
+}
+
+fn default_library_sort() -> String {
+    "modified".to_string()
+}
+fn default_library_width() -> i32 {
+    900
+}
+fn default_library_height() -> i32 {
+    650
 }
 
 fn default_work_dir() -> PathBuf {
@@ -385,6 +441,7 @@ impl Default for Config {
             default_sans_font: String::new(),
             default_serif_font: String::new(),
             print: PrintPrefs::default(),
+            library: LibraryPrefs::default(),
         }
     }
 }
@@ -650,6 +707,31 @@ mod tests {
         let toml_str = toml::to_string(&cfg).expect("serialize");
         let loaded: Config = toml::from_str(&toml_str).expect("deserialize");
         assert_eq!(loaded.cv_elements_path, cfg.cv_elements_path);
+    }
+
+    #[test]
+    fn a_config_from_before_the_library_remembered_anything_gets_its_defaults() {
+        let cfg: Config = toml::from_str("").expect("empty config parses");
+        assert_eq!(cfg.library.sort, "modified");
+        assert!(!cfg.library.compact && !cfg.library.authors_open);
+        assert!(
+            cfg.library.export,
+            "labels and projects are kept in the folder by default"
+        );
+        assert!(!cfg.library.export_notes, "notes are not, until asked");
+        assert_eq!((cfg.library.width, cfg.library.height), (900, 650));
+    }
+
+    #[test]
+    fn library_prefs_survive_a_round_trip() {
+        let mut cfg = Config::default();
+        cfg.library.sort = "name".into();
+        cfg.library.compact = true;
+        cfg.library.width = 1100;
+        let back: Config = toml::from_str(&toml::to_string(&cfg).unwrap()).unwrap();
+        assert_eq!(back.library.sort, "name");
+        assert!(back.library.compact);
+        assert_eq!(back.library.width, 1100);
     }
 
     #[test]

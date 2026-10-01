@@ -3,6 +3,34 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.40.0] "Tidy Glass" — 2026-10-01 — A Library that organises itself
+
+### Added
+
+- **Labels replace tags and categories.** One simple idea instead of two: give a document any number of labels, with an optional colour. A label named "Course › Ethics" nests under "Course" in the sidebar. Your existing tags and categories are converted automatically the first time you open 0.40 (see *Upgrading* below).
+- **Organize… (right-click a document, or the ⋯ button on its row).** One small popover with tri-state checkboxes for labels and projects, a pin toggle, and create-by-typing for new labels. It works on a whole selection at once.
+- **Author tags, made for you.** Everyone a document cites appears in the sidebar as "Lastname, I." — read from the document's `@keys` and `#cite(...)`s (following `#include`s) against its bibliography. Click one to see everything you have cited that author in. These are derived, never hand-edited, and always match the text.
+- **Search that reads your writing.** The Library search looks through the full text of every document (titles, body, labels and authors), shows a snippet of the match, and handles partial words. "Everywhere" searches Archive and Trash too.
+- **New views:** Recent, "Needs a label" and a clearer empty state that tells you what to do next. Word counts on every row, a compact-row option, and drag-and-drop of documents onto projects and labels.
+- **Missing files are visible.** A document whose file has moved shows a "missing" badge, and **Locate File…** reconnects it without losing its labels, projects or notes.
+- **Your organisation is kept in your folder.** Labels, projects, pins, archived state and custom titles are written as small readable TOML files under `.zerkalo/library/<this-computer>/`, so they ride along with your git backup and can rebuild the Library on a new machine. Notes are included only if you turn on **View ▸ Include notes in folder backup**.
+- **…and brought back from it.** On start-up, after a sync, and when the folder changes, Zerkalo merges what other computers have recorded. Each computer writes only to its own subfolder, so two machines can never produce a git conflict over library data.
+
+### Changed
+
+- The Library sidebar is regrouped into Library views, Projects, Labels and Authors, with row menus and "+" buttons where you would expect them.
+
+### Upgrading — nothing you wrote is touched
+
+- Your `.typ` files and git history are never rewritten by the library migration; it only adds files under `.zerkalo/library/`.
+- Before the labels migration, Zerkalo copies the library database to `library.before-labels.sqlite`; before the first restore-merge it keeps `library.before-restore-*.sqlite` (the newest five). If a backup cannot be made, the change is not made.
+- The old tag and category tables are left in place, so going back to 0.39 still shows your old tags. Labels created in 0.40 will not appear there.
+- Documents that another computer has archived are archived here the first time the two merge; the notice after a restore says how many.
+- A document that is moved or renamed outside Zerkalo shows as "missing" until you use Locate File…; its old export file is left behind rather than deleted.
+- Renaming a computer starts a new subfolder under `.zerkalo/library/`; the old one is harmless and still merged.
+
+---
+
 ## [0.39.2] "Amber Glass" — 2026-09-30 — Colour for the tabs
 
 ### Changed

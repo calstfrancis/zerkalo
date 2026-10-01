@@ -123,17 +123,29 @@ impl AppWindow {
         {
             let library_bg = library.clone();
             let work_dir_bg = config.work_dir.clone();
+            let global_bib_bg = config.bib_path.clone();
+            let folder_bg = config.work_dir.clone();
             // Plain mpsc polled from the main loop, matching every other
             // worker handoff in this file. `MainContext::channel` was
             // deprecated in favour of an async channel, and this codebase has
             // no async runtime on the GTK side to host one.
-            let (sender, receiver) = std::sync::mpsc::sync_channel::<Library>(1);
+            let (sender, receiver) = std::sync::mpsc::sync_channel::<(Library, bool)>(1);
             std::thread::spawn(move || {
-                let mut lib = Library::open().unwrap_or_else(|e| {
-                    tracing::warn!("Failed to open library DB: {e}");
-                    Library::open_in_memory()
-                });
+                // `persistent` is false when the real library couldn't be opened
+                // and this is a throwaway stand-in; nothing is exported from one.
+                let (mut lib, persistent) = match Library::open() {
+                    Ok(lib) => (lib, true),
+                    Err(e) => {
+                        tracing::warn!("Failed to open library DB: {e}");
+                        (Library::open_in_memory(), false)
+                    }
+                };
+                lib.set_bibliography(crate::authors::configured_bibliography(
+                    &work_dir_bg,
+                    global_bib_bg.as_deref(),
+                ));
                 lib.import_directory(&work_dir_bg).ok();
+                lib.prune_index();
                 lib.fix_created_dates_from_fs();
                 match lib.reconcile_trash_state() {
                     Ok(notes) => {
@@ -143,13 +155,18 @@ impl AppWindow {
                     }
                     Err(e) => tracing::warn!("Trash reconciliation failed: {e}"),
                 }
-                sender.send(lib).ok();
+                sender.send((lib, persistent)).ok();
             });
             glib::timeout_add_local(Duration::from_millis(100), move || {
                 match receiver.try_recv() {
-                    Ok(lib) => {
+                    Ok((lib, persistent)) => {
                         *library_bg.borrow_mut() = lib;
                         tracing::info!("Library DB ready");
+                        // Only now: before this the library is an empty
+                        // placeholder with nothing to export.
+                        if persistent {
+                            start_folder_export(library_bg.clone(), folder_bg.clone());
+                        }
                         glib::ControlFlow::Break
                     }
                     Err(std::sync::mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
@@ -3491,6 +3508,113 @@ fn extract_doc_title(content: &str) -> Option<String> {
 /// Strip pandoc's generated `#set` preamble from a standalone Typst output so we can
 /// replace it with a Zerkalo template section.
 #[cfg_attr(not(test), allow(dead_code))]
+/// Keeps the library and the copy of its labels, projects and notes in the
+/// Zerkalo folder (`library_export`, `library_restore`) in step.
+///
+/// Whatever the folder holds that the library hasn't agreed to yet is merged in
+/// first — at the start of each session, and whenever the files there change
+/// (a sync, say) — and then anything in the library that isn't in the folder
+/// is written out. Every few seconds it checks whether the library has been
+/// written to; the first pass of a session also checks the files on disk, and
+/// later ones trust what they last wrote, which keeps them cheap.
+fn start_folder_export(library: Rc<RefCell<Library>>, folder: PathBuf) {
+    use std::cell::Cell;
+    let last: Rc<Cell<Option<i64>>> = Rc::new(Cell::new(None));
+    let verified = Rc::new(Cell::new(false));
+    let ticks = Rc::new(Cell::new(0u32));
+    let tree = Rc::new(Cell::new(crate::library_restore::tree_stamp(&folder)));
+    let waiting = Rc::new(Cell::new(false));
+    let syncs_seen = Rc::new(Cell::new(crate::git_sync::syncs_finished()));
+    // The notes setting last exported with, so turning it on or off is acted on
+    // at once instead of waiting for something else to change.
+    let notes_seen: Rc<Cell<Option<bool>>> = Rc::new(Cell::new(None));
+    let backups = crate::config::zerkalo_data_dir();
+    glib::timeout_add_local(Duration::from_secs(3), move || {
+        if !crate::config::shared().borrow().library.export || !folder.is_dir() {
+            return glib::ControlFlow::Continue;
+        }
+        // A sync is committing and pulling: a file changing now would make the
+        // pull refuse and hold up the push of the writing. Wait it out.
+        if crate::git_sync::sync_active() {
+            return glib::ControlFlow::Continue;
+        }
+        ticks.set(ticks.get().wrapping_add(1));
+        // Right after a sync (files may have arrived), and otherwise about once
+        // a minute, look for files that have changed or arrived.
+        let just_synced = crate::git_sync::syncs_finished() != syncs_seen.get();
+        syncs_seen.set(crate::git_sync::syncs_finished());
+        let files_changed = just_synced
+            || (ticks.get().is_multiple_of(20)
+                && (crate::library_restore::tree_stamp(&folder) != tree.get() || waiting.get()));
+        let restore_now = !verified.get() || files_changed;
+
+        if restore_now {
+            let r =
+                crate::library_restore::restore(&mut library.borrow_mut(), &folder, Some(&backups));
+            waiting.set(r.waiting_for_document > 0);
+            if r.changed_anything() || r.unreadable > 0 {
+                tracing::info!(
+                    "Library restore: {} documents, {} projects, {} labels added; {} unreadable, {} waiting",
+                    r.documents,
+                    r.projects,
+                    r.labels_created,
+                    r.unreadable,
+                    r.waiting_for_document
+                );
+            }
+            if r.changed_anything() {
+                let plural =
+                    |n: usize, one: &str| format!("{n} {one}{}", if n == 1 { "" } else { "s" });
+                let mut text = format!(
+                    "Brought in labels, projects and notes from your Zerkalo folder: {}, {}, {} added. \
+                     A copy of the library from just before is in Zerkalo's data folder.",
+                    plural(r.documents, "document"),
+                    plural(r.projects, "project"),
+                    plural(r.labels_created, "label"),
+                );
+                if r.archived > 0 {
+                    text.push_str(&format!(
+                        " {} of the documents {} archived there, so {} in Archive, not All Documents.",
+                        r.archived,
+                        if r.archived == 1 { "was" } else { "were" },
+                        if r.archived == 1 { "it is" } else { "they are" },
+                    ));
+                }
+                library.borrow().set_note("restore_notice", &text).ok();
+            }
+        }
+
+        let include_notes = crate::config::shared().borrow().library.export_notes;
+        let stamp = library.borrow().change_stamp();
+        if !restore_now
+            && verified.get()
+            && last.get() == Some(stamp)
+            && notes_seen.get() == Some(include_notes)
+        {
+            return glib::ControlFlow::Continue;
+        }
+        let report =
+            crate::library_export::export(&library.borrow(), &folder, restore_now, include_notes);
+        notes_seen.set(Some(include_notes));
+        verified.set(true);
+        // Exporting records what it wrote, which moves the stamp itself.
+        last.set(Some(library.borrow().change_stamp()));
+        tree.set(crate::library_restore::tree_stamp(&folder));
+        if report.written > 0 || report.left_alone > 0 || !report.errors.is_empty() {
+            tracing::info!(
+                "Library export: {} written, {} left alone (changed elsewhere), {} outside the folder",
+                report.written,
+                report.left_alone,
+                report.outside_folder
+            );
+        }
+        for e in &report.errors {
+            tracing::warn!("Library export: {e}");
+        }
+        glib::ControlFlow::Continue
+    });
+}
+
 fn load_app_css() {
     crate::ui::styles::load_global_css();
     crate::ui::styles::pin_icon_theme();
