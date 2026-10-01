@@ -2,9 +2,12 @@
 //! (`library_export` wrote them there) into the library — on a new machine,
 //! after moving the folder, or when another machine's changes arrive in it.
 //!
-//! The rule is **merge, never replace, never remove**:
+//! The rule is **merge, never replace, never delete**:
 //!
-//! - labels and project members are only ever *added*;
+//! - project members are only ever *added*; a label is added when the other
+//!   machine added it, and taken off a document only when the other machine
+//!   took it off since the two last agreed — a label that was here and was
+//!   never in their file is left alone;
 //! - a note is never lost: if both sides have different notes, both are kept;
 //! - a pin, an archive flag or a renamed title takes the folder's value only
 //!   when it changed there since the library and the folder last agreed *and*
@@ -15,8 +18,13 @@
 //!   so any merge can be undone by putting that file back.
 //!
 //! "Last agreed" is what `library_export` recorded for each file: when a file
-//! has been merged, its content is recorded as agreed, so the export that
-//! follows may update it with the combined result.
+//! has been merged, its content is recorded as agreed, so a later change to it
+//! elsewhere can be told from one made here.
+//!
+//! Each machine's data is in its own folder under `.zerkalo/library/`. This
+//! reads every folder *but its own* and changes none of them; the export writes
+//! the combined result into this machine's folder only. Files left by an
+//! earlier layout (directly under `.zerkalo/library/`) are read the same way.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -71,6 +79,8 @@ pub struct RestoreReport {
     pub waiting_for_document: usize,
     /// Whether a copy of the library was saved before changing it.
     pub backed_up: bool,
+    /// The copy couldn't be saved, so nothing was changed.
+    pub backup_failed: bool,
 }
 
 impl RestoreReport {
@@ -85,6 +95,8 @@ impl RestoreReport {
 #[derive(Debug, Default, PartialEq)]
 struct DocPlan {
     add_labels: Vec<String>,
+    /// Labels the other machine took off since the two last agreed.
+    remove_labels: Vec<String>,
     pinned: Option<bool>,
     archived: Option<bool>,
     title: Option<String>,
@@ -130,16 +142,44 @@ fn merge_notes(ours: Option<&str>, theirs: Option<&str>) -> Option<String> {
 }
 
 fn plan_doc(ours: &DocState, theirs: &DocIn, base: Option<&DocIn>) -> DocPlan {
-    let have: HashSet<String> = ours.labels.iter().map(|l| l.to_lowercase()).collect();
+    let lower = |l: &str| l.trim().to_lowercase();
+    let have: HashSet<String> = ours.labels.iter().map(|l| lower(l)).collect();
+    let theirs_set: HashSet<String> = theirs.labels.iter().map(|l| lower(l)).collect();
+    let base_set: Option<HashSet<String>> =
+        base.map(|b| b.labels.iter().map(|l| lower(l)).collect());
+
+    // Added: in their file, not here, and — when we have a record of what the
+    // two last agreed — not something they already had then (a label that was
+    // agreed and has since been taken off here must not come back just because
+    // their file changed for another reason).
     let mut seen = HashSet::new();
     let add_labels = theirs
         .labels
         .iter()
         .map(|l| l.trim())
         .filter(|l| !l.is_empty())
-        .filter(|l| !have.contains(&l.to_lowercase()) && seen.insert(l.to_lowercase()))
+        .filter(|l| {
+            let k = lower(l);
+            !have.contains(&k)
+                && base_set.as_ref().is_none_or(|b| !b.contains(&k))
+                && seen.insert(k)
+        })
         .map(String::from)
         .collect();
+    // Removed: agreed once, gone from their file now, and still here. Needs a
+    // record of the agreement — without one nothing can be called a removal.
+    let remove_labels = match (&base_set, base) {
+        (Some(b), Some(base)) => base
+            .labels
+            .iter()
+            .map(|l| l.trim().to_string())
+            .filter(|l| {
+                let k = lower(l);
+                b.contains(&k) && !theirs_set.contains(&k) && have.contains(&k)
+            })
+            .collect(),
+        _ => Vec::new(),
+    };
 
     // A renamed title: take theirs if it changed there and not here; with no
     // record, only fill in one that isn't set here.
@@ -153,6 +193,7 @@ fn plan_doc(ours: &DocState, theirs: &DocIn, base: Option<&DocIn>) -> DocPlan {
 
     DocPlan {
         add_labels,
+        remove_labels,
         pinned: merge_flag(ours.pinned, theirs.pinned, base.map(|b| b.pinned)),
         archived: merge_flag(ours.archived, theirs.archived, base.map(|b| b.archived)),
         title,
@@ -222,21 +263,26 @@ fn plan_project(
 struct Backup<'a> {
     dir: Option<&'a Path>,
     done: bool,
+    ok: bool,
 }
 
 impl Backup<'_> {
-    fn before_change(&mut self, lib: &Library) {
+    /// Called before anything is changed. `false` means the safety copy could
+    /// not be saved, and the caller must change nothing.
+    fn before_change(&mut self, lib: &Library) -> bool {
         if self.done {
-            return;
+            return self.ok;
         }
         self.done = true;
-        let Some(dir) = self.dir else { return };
+        let Some(dir) = self.dir else { return true };
         std::fs::create_dir_all(dir).ok();
         let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
         let dest = dir.join(format!("library.before-restore-{stamp}.sqlite"));
         if lib.backup_to(&dest).is_err() {
-            tracing::warn!("Couldn't save a copy of the library before restoring");
-            return;
+            tracing::warn!("Couldn't save a copy of the library before restoring; not restoring");
+            std::fs::remove_file(&dest).ok();
+            self.ok = false;
+            return false;
         }
         // Keep the newest five.
         let mut old: Vec<PathBuf> = std::fs::read_dir(dir)
@@ -255,6 +301,7 @@ impl Backup<'_> {
         for p in old.into_iter().take(excess) {
             std::fs::remove_file(p).ok();
         }
+        true
     }
 }
 
@@ -298,23 +345,51 @@ pub fn tree_stamp(folder: &Path) -> (usize, Option<std::time::SystemTime>) {
 /// that don't want one).
 pub fn restore(lib: &mut Library, folder: &Path, backup_dir: Option<&Path>) -> RestoreReport {
     let mut report = RestoreReport::default();
-    let root = folder.join(DIR);
-    let mut files = Vec::new();
-    collect(&root, &root, &mut files);
+    let Ok(own) = lib.machine_id() else {
+        return report;
+    };
+    let base = folder.join(DIR);
+
+    // Every file in every folder but this machine's own: (the name it is
+    // recorded under, its name within its folder, where it is).
+    let mut files: Vec<(String, String, PathBuf)> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&base) {
+        for e in entries.flatten() {
+            let (path, id) = (e.path(), e.file_name().to_string_lossy().into_owned());
+            if path.is_dir() && id != own && id != "docs" && id != "projects" {
+                let mut found = Vec::new();
+                collect(&path, &path, &mut found);
+                files.extend(found.into_iter().map(|(n, p)| (format!("{id}/{n}"), n, p)));
+            }
+        }
+    }
+    // The earlier layout: files directly under the library folder.
+    let mut legacy = Vec::new();
+    collect(&base.join("docs"), &base, &mut legacy);
+    collect(&base.join("projects"), &base, &mut legacy);
+    if base.join("labels.toml").is_file() {
+        legacy.push(("labels.toml".to_string(), base.join("labels.toml")));
+    }
+    files.extend(legacy.into_iter().map(|(n, p)| (n.clone(), n, p)));
+
     if files.is_empty() {
         return report;
     }
     // Labels first, so a document can use a colour that came with them.
-    files.sort_by_key(|(name, _)| match name.as_str() {
-        "labels.toml" => 0,
-        n if n.starts_with("docs/") => 1,
-        _ => 2,
+    files.sort_by_key(|(key, name, _)| {
+        let rank = match name.as_str() {
+            "labels.toml" => 0,
+            n if n.starts_with("docs/") => 1,
+            _ => 2,
+        };
+        (rank, key.clone())
     });
 
     let records = lib.export_records().unwrap_or_default();
     let mut backup = Backup {
         dir: backup_dir,
         done: false,
+        ok: true,
     };
     let Ok(snapshot) = lib.export_snapshot() else {
         return report;
@@ -325,7 +400,7 @@ pub fn restore(lib: &mut Library, folder: &Path, backup_dir: Option<&Path>) -> R
         .map(|d| (d.path.clone(), d.clone()))
         .collect();
     let known: HashSet<PathBuf> = docs.keys().cloned().collect();
-    let projects: HashMap<String, ProjectState> = snapshot
+    let mut projects: HashMap<String, ProjectState> = snapshot
         .projects
         .iter()
         .map(|p| (p.name.to_lowercase(), p.clone()))
@@ -336,12 +411,12 @@ pub fn restore(lib: &mut Library, folder: &Path, backup_dir: Option<&Path>) -> R
         .map(|l| (l.name.to_lowercase(), l.color_hex.clone()))
         .collect();
 
-    for (name, path) in files {
+    for (key, name, path) in files {
         let Ok(text) = std::fs::read_to_string(&path) else {
             report.unreadable += 1;
             continue;
         };
-        let recorded = records.get(&name);
+        let recorded = records.get(&key);
         // Already agreed: this is what the library last wrote or merged.
         if recorded == Some(&text) {
             continue;
@@ -357,7 +432,10 @@ pub fn restore(lib: &mut Library, folder: &Path, backup_dir: Option<&Path>) -> R
                 let key = l.name.trim().to_lowercase();
                 match labels.get(&key) {
                     None => {
-                        backup.before_change(lib);
+                        if !backup.before_change(lib) {
+                            report.backup_failed = true;
+                            return report;
+                        }
                         if let Ok(id) = lib.create_label(&l.name) {
                             if let Some(c) = &l.color {
                                 lib.set_label_color(id, Some(c)).ok();
@@ -374,7 +452,10 @@ pub fn restore(lib: &mut Library, folder: &Path, backup_dir: Option<&Path>) -> R
                             .ok()
                             .and_then(|ls| ls.into_iter().find(|x| x.name.to_lowercase() == key))
                         {
-                            backup.before_change(lib);
+                            if !backup.before_change(lib) {
+                                report.backup_failed = true;
+                                return report;
+                            }
                             lib.set_label_color(existing.id, l.color.as_deref()).ok();
                             labels.insert(key, l.color.clone());
                         }
@@ -398,7 +479,10 @@ pub fn restore(lib: &mut Library, folder: &Path, backup_dir: Option<&Path>) -> R
             let base = recorded.and_then(|r| toml::from_str::<DocIn>(r).ok());
             let plan = plan_doc(&doc, &theirs, base.as_ref());
             if !plan.is_empty() {
-                backup.before_change(lib);
+                if !backup.before_change(lib) {
+                    report.backup_failed = true;
+                    return report;
+                }
                 if !plan.add_labels.is_empty() {
                     let mut ids = Vec::new();
                     for l in &plan.add_labels {
@@ -412,6 +496,20 @@ pub fn restore(lib: &mut Library, folder: &Path, backup_dir: Option<&Path>) -> R
                         }
                     }
                     lib.add_labels(&[doc.id], &ids).ok();
+                }
+                if !plan.remove_labels.is_empty() {
+                    let ids: Vec<i64> = lib
+                        .all_labels()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter(|l| {
+                            plan.remove_labels
+                                .iter()
+                                .any(|r| r.eq_ignore_ascii_case(&l.name))
+                        })
+                        .map(|l| l.id)
+                        .collect();
+                    lib.remove_labels(&[doc.id], &ids).ok();
                 }
                 if let Some(p) = plan.pinned {
                     lib.set_pinned(doc.id, p).ok();
@@ -429,6 +527,8 @@ pub fn restore(lib: &mut Library, folder: &Path, backup_dir: Option<&Path>) -> R
                 // What is here now, for any later file about the same document.
                 if let Some(d) = docs.get_mut(&doc.path) {
                     d.labels.extend(plan.add_labels.iter().cloned());
+                    d.labels
+                        .retain(|l| !plan.remove_labels.iter().any(|r| r.eq_ignore_ascii_case(l)));
                     d.pinned = plan.pinned.unwrap_or(d.pinned);
                     d.archived = plan.archived.unwrap_or(d.archived);
                     if plan.title.is_some() {
@@ -458,7 +558,10 @@ pub fn restore(lib: &mut Library, folder: &Path, backup_dir: Option<&Path>) -> R
                 .filter_map(|r| resolve(folder, r))
                 .all(|p| known.contains(&p));
             if !plan.is_empty() {
-                backup.before_change(lib);
+                if !backup.before_change(lib) {
+                    report.backup_failed = true;
+                    return report;
+                }
                 let pid = match ours {
                     Some(_) => lib
                         .all_projects()
@@ -481,6 +584,19 @@ pub fn restore(lib: &mut Library, folder: &Path, backup_dir: Option<&Path>) -> R
                         lib.set_project_root(pid, Some(r.id)).ok();
                     }
                     report.projects += 1;
+                    // Remember it, so another machine's file for the same
+                    // project adds to it instead of making a second one.
+                    let entry = projects
+                        .entry(theirs.name.trim().to_lowercase())
+                        .or_insert_with(|| ProjectState {
+                            name: theirs.name.trim().to_string(),
+                            root: None,
+                            documents: Vec::new(),
+                        });
+                    entry.documents.extend(plan.add.iter().cloned());
+                    if entry.root.is_none() {
+                        entry.root = plan.root.clone();
+                    }
                 }
             }
         } else {
@@ -490,7 +606,7 @@ pub fn restore(lib: &mut Library, folder: &Path, backup_dir: Option<&Path>) -> R
 
         if complete {
             // Agreed: from here the export may update this file with the merge.
-            lib.set_export_record(&name, &text).ok();
+            lib.set_export_record(&key, &text).ok();
         } else {
             report.waiting_for_document += 1;
         }
@@ -564,6 +680,15 @@ mod tests {
                     std::fs::read_to_string(&p).unwrap(),
                 )
             })
+            .collect()
+    }
+
+    /// The files a machine wrote, by name within its own folder.
+    fn own_files(lib: &Library, folder: &TempDir) -> std::collections::BTreeMap<String, String> {
+        let prefix = format!("{}/", lib.machine_id().unwrap());
+        snapshot_files(folder)
+            .into_iter()
+            .filter_map(|(k, v)| k.strip_prefix(&prefix).map(|n| (n.to_string(), v)))
             .collect()
     }
 
@@ -644,7 +769,7 @@ mod tests {
     }
 
     #[test]
-    fn labels_are_only_ever_added_and_matched_ignoring_case() {
+    fn with_no_record_labels_are_only_ever_added_and_matched_ignoring_case() {
         let mut mine = ours();
         mine.labels = vec!["Advent".into()];
         let theirs = DocIn {
@@ -652,9 +777,61 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(plan_doc(&mine, &theirs, None).add_labels, vec!["Lent"]);
-        // Their file having *fewer* labels asks for nothing to be removed.
+        // With no record of an earlier agreement, a file with *fewer* labels
+        // can't be called a removal, and asks for nothing.
         let fewer = DocIn::default();
         assert!(plan_doc(&mine, &fewer, None).is_empty());
+    }
+
+    fn doc_in(labels: &[&str]) -> DocIn {
+        DocIn {
+            labels: labels.iter().map(|s| s.to_string()).collect(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_label_they_took_off_since_the_two_agreed_is_taken_off_here_too() {
+        let mut mine = ours();
+        mine.labels = vec!["Advent".into(), "Lent".into()];
+        let base = doc_in(&["Advent", "Lent"]);
+        let theirs = doc_in(&["Lent"]);
+        let plan = plan_doc(&mine, &theirs, Some(&base));
+        assert_eq!(plan.remove_labels, vec!["Advent"]);
+        assert!(plan.add_labels.is_empty());
+    }
+
+    #[test]
+    fn a_label_added_here_after_the_agreement_is_never_taken_away() {
+        let mut mine = ours();
+        mine.labels = vec!["Advent".into(), "MineOnly".into()];
+        let base = doc_in(&["Advent"]);
+        let theirs = doc_in(&[]); // they removed Advent
+        let plan = plan_doc(&mine, &theirs, Some(&base));
+        assert_eq!(plan.remove_labels, vec!["Advent"], "only what they removed");
+    }
+
+    #[test]
+    fn a_label_taken_off_here_does_not_come_back_when_their_file_changes_for_another_reason() {
+        let mine = ours(); // no labels: Advent was removed here
+        let base = doc_in(&["Advent"]);
+        let mut theirs = doc_in(&["Advent"]);
+        theirs.pinned = true; // their file changed, but not its labels
+        let plan = plan_doc(&mine, &theirs, Some(&base));
+        assert!(plan.add_labels.is_empty(), "{plan:?}");
+        assert_eq!(plan.pinned, Some(true));
+    }
+
+    #[test]
+    fn a_label_they_added_is_added_here() {
+        let base = doc_in(&["Advent"]);
+        let theirs = doc_in(&["Advent", "New"]);
+        let mut mine = ours();
+        mine.labels = vec!["Advent".into()];
+        assert_eq!(
+            plan_doc(&mine, &theirs, Some(&base)).add_labels,
+            vec!["New"]
+        );
     }
 
     #[test]
@@ -766,13 +943,13 @@ mod tests {
 
     #[test]
     fn after_restoring_and_exporting_the_new_machine_agrees_with_the_old_byte_for_byte() {
-        let (_a, fa) = machine_a();
+        let (a, fa) = machine_a();
         let (mut b, fb) = machine_b();
         pull(&fa, &fb);
         restore(&mut b, fb.path(), None);
         let report = export(&b, fb.path(), true);
         assert_eq!(report.left_alone, 0, "nothing is stuck waiting");
-        assert_eq!(snapshot_files(&fb), snapshot_files(&fa));
+        assert_eq!(own_files(&b, &fb), own_files(&a, &fa));
     }
 
     #[test]
@@ -1083,10 +1260,12 @@ mod tests {
 
     #[test]
     fn a_file_that_cannot_be_read_is_skipped_untouched_and_the_rest_still_merge() {
-        let (_a, fa) = machine_a();
+        let (a, fa) = machine_a();
         let (mut b, fb) = machine_b();
         pull(&fa, &fb);
-        let bad = lib_dir(&fb).join("docs/Thesis/ch1.typ.toml");
+        let bad = lib_dir(&fb)
+            .join(a.machine_id().unwrap())
+            .join("docs/Thesis/ch1.typ.toml");
         let conflicted =
             "<<<<<<< HEAD\narchived = true\n=======\narchived = false\n>>>>>>> other\n";
         std::fs::write(&bad, conflicted).unwrap();
@@ -1172,6 +1351,194 @@ mod tests {
         assert_eq!(after.docs.len(), before.docs.len());
     }
 
+    // ── the layouts and the ways a machine can be lost ───────────────────
+
+    #[test]
+    fn a_library_that_was_lost_gets_everything_back_from_its_own_old_folder() {
+        // Same folder, same documents, but the library database is gone, so
+        // this machine has a new name and its old folder looks like another's.
+        let (_old, folder) = machine_a();
+        let mut fresh = Library::open_in_memory();
+        for n in ["Thesis/main.typ", "Thesis/ch1.typ", "sermon.typ"] {
+            fresh.upsert_document(&folder.path().join(n)).unwrap();
+        }
+        let r = restore(&mut fresh, folder.path(), None);
+        assert!(r.changed_anything());
+        let s = state(&fresh, &folder, "sermon.typ");
+        assert_eq!(s.labels, vec!["Advent", "Sermons"]);
+        assert!(s.pinned);
+        assert_eq!(s.notes.as_deref(), Some("Check the Isaiah reading"));
+        assert_eq!(fresh.export_snapshot().unwrap().projects.len(), 1);
+    }
+
+    #[test]
+    fn files_left_by_the_earlier_flat_layout_are_still_brought_in() {
+        // The same data, but sitting directly under .zerkalo/library/ as the
+        // first version of the export wrote it.
+        let (a, fa) = machine_a();
+        let (mut b, fb) = machine_b();
+        let flat = lib_dir(&fb);
+        let src = lib_dir(&fa).join(a.machine_id().unwrap());
+        fn copy(from: &Path, to: &Path) {
+            std::fs::create_dir_all(to).unwrap();
+            for e in std::fs::read_dir(from).unwrap().flatten() {
+                if e.path().is_dir() {
+                    copy(&e.path(), &to.join(e.file_name()));
+                } else {
+                    std::fs::copy(e.path(), to.join(e.file_name())).unwrap();
+                }
+            }
+        }
+        copy(&src, &flat);
+        let r = restore(&mut b, fb.path(), None);
+        assert!(r.changed_anything());
+        assert_eq!(
+            state(&b, &fb, "sermon.typ").labels,
+            vec!["Advent", "Sermons"]
+        );
+        // And the library's own export doesn't disturb them.
+        let before = snapshot_files(&fb);
+        export(&b, fb.path(), true);
+        for (name, text) in &before {
+            assert_eq!(
+                snapshot_files(&fb).get(name),
+                Some(text),
+                "{name} was touched"
+            );
+        }
+    }
+
+    #[test]
+    fn a_machine_never_merges_its_own_folder_back_into_itself() {
+        let (mut a, fa) = machine_a();
+        let id = state(&a, &fa, "sermon.typ").id;
+        // The user removes a label; a stale copy of the old state sits in this
+        // machine's own folder until the export catches up.
+        let l = a
+            .all_labels()
+            .unwrap()
+            .into_iter()
+            .find(|l| l.name == "Advent")
+            .unwrap();
+        a.remove_labels(&[id], &[l.id]).unwrap();
+        let r = restore(&mut a, fa.path(), None);
+        assert!(!r.changed_anything());
+        assert_eq!(
+            state(&a, &fa, "sermon.typ").labels,
+            vec!["Sermons"],
+            "not resurrected"
+        );
+    }
+
+    #[test]
+    fn nothing_is_changed_if_the_safety_copy_cannot_be_saved() {
+        let (_a, fa) = machine_a();
+        let (mut b, fb) = machine_b();
+        pull(&fa, &fb);
+        let blocker = TempDir::new().unwrap();
+        // A *file* where the backup folder should be.
+        let not_a_dir = blocker.path().join("backups");
+        std::fs::write(&not_a_dir, "x").unwrap();
+        let before = b.export_snapshot().unwrap().docs;
+        let r = restore(&mut b, fb.path(), Some(&not_a_dir));
+        assert!(r.backup_failed);
+        assert!(!r.changed_anything());
+        assert_eq!(
+            b.export_snapshot().unwrap().docs,
+            before,
+            "no change was made"
+        );
+        assert!(b.all_labels().unwrap().is_empty());
+        assert!(b.export_snapshot().unwrap().projects.is_empty());
+    }
+
+    #[test]
+    fn a_project_known_to_two_other_machines_is_made_once() {
+        let (_a, fa) = machine_a();
+        let (_a2, fa2) = machine_a();
+        let (mut b, fb) = machine_b();
+        // Two other machines, both with a project called Thesis.
+        pull(&fa, &fb);
+        pull(&fa2, &fb);
+        restore(&mut b, fb.path(), None);
+        let projects = b.export_snapshot().unwrap().projects;
+        assert_eq!(projects.len(), 1, "{projects:?}");
+        assert_eq!(projects[0].documents.len(), 2);
+    }
+
+    #[test]
+    fn a_document_note_from_two_other_machines_keeps_both() {
+        let (mut a1, f1) = machine_a();
+        let (mut a2, f2) = machine_a();
+        let i1 = state(&a1, &f1, "sermon.typ").id;
+        let i2 = state(&a2, &f2, "sermon.typ").id;
+        a1.set_notes(i1, Some("Check the Isaiah reading\nfrom one"))
+            .unwrap();
+        a2.set_notes(i2, Some("Check the Isaiah reading\nfrom two"))
+            .unwrap();
+        export(&a1, f1.path(), true);
+        export(&a2, f2.path(), true);
+        let (mut b, fb) = machine_b();
+        pull(&f1, &fb);
+        pull(&f2, &fb);
+        restore(&mut b, fb.path(), None);
+        let notes = state(&b, &fb, "sermon.typ").notes.unwrap();
+        assert!(
+            notes.contains("from one") && notes.contains("from two"),
+            "{notes}"
+        );
+    }
+
+    #[test]
+    fn removing_a_label_on_one_machine_removes_it_on_the_other_and_it_stays_removed() {
+        let (mut a, fa) = machine_a();
+        let (mut b, fb) = machine_b();
+        pull(&fa, &fb);
+        restore(&mut b, fb.path(), None);
+        export(&b, fb.path(), true);
+        assert!(state(&b, &fb, "sermon.typ")
+            .labels
+            .contains(&"Advent".to_string()));
+
+        // A takes Advent off the sermon.
+        let (ida, advent) = (
+            state(&a, &fa, "sermon.typ").id,
+            a.all_labels()
+                .unwrap()
+                .into_iter()
+                .find(|l| l.name == "Advent")
+                .unwrap()
+                .id,
+        );
+        a.remove_labels(&[ida], &[advent]).unwrap();
+        export(&a, fa.path(), true);
+        pull(&fa, &fb);
+        restore(&mut b, fb.path(), None);
+        export(&b, fb.path(), true);
+        assert_eq!(
+            state(&b, &fb, "sermon.typ").labels,
+            vec!["Sermons"],
+            "it followed"
+        );
+
+        // And B's next export doesn't bring it back to A.
+        pull(&fb, &fa);
+        restore(&mut a, fa.path(), None);
+        assert_eq!(
+            state(&a, &fa, "sermon.typ").labels,
+            vec!["Sermons"],
+            "and stayed gone"
+        );
+        for _ in 0..2 {
+            pull(&fa, &fb);
+            restore(&mut b, fb.path(), None);
+            pull(&fb, &fa);
+            restore(&mut a, fa.path(), None);
+        }
+        assert_eq!(state(&a, &fa, "sermon.typ").labels, vec!["Sermons"]);
+        assert_eq!(state(&b, &fb, "sermon.typ").labels, vec!["Sermons"]);
+    }
+
     #[test]
     fn the_tree_stamp_notices_a_file_arriving() {
         let (_a, fa) = machine_a();
@@ -1181,5 +1548,196 @@ mod tests {
         pull(&fa, &fb);
         assert!(tree_stamp(fb.path()).0 > 0);
         assert_ne!(tree_stamp(fb.path()), empty);
+    }
+}
+
+/// Real git, two clones and a shared remote: the whole point of keeping this
+/// data in the folder is that it travels through the folder's git, so what
+/// happens to the *writing* when two machines change the same label matters
+/// more than anything else here.
+#[cfg(test)]
+mod sync_tests {
+    use super::*;
+    use crate::git_sync;
+    use crate::library_export::export;
+    use std::process::Command;
+    use tempfile::TempDir;
+
+    fn git(dir: &Path, args: &[&str]) -> String {
+        let out = Command::new("git")
+            .current_dir(dir)
+            .args(args)
+            .output()
+            .expect("git runs");
+        assert!(
+            out.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    }
+
+    fn identity(dir: &Path) {
+        git(dir, &["config", "user.name", "T"]);
+        git(dir, &["config", "user.email", "t@example.com"]);
+        git(dir, &["config", "commit.gpgsign", "false"]);
+    }
+
+    /// A shared remote and two clones, each with the same two documents.
+    fn two_machines() -> (TempDir, TempDir, TempDir, Library, Library) {
+        let remote = TempDir::new().unwrap();
+        git(remote.path(), &["init", "--bare", "-b", "main"]);
+        let a = TempDir::new().unwrap();
+        git(a.path(), &["init", "-b", "main"]);
+        identity(a.path());
+        git(
+            a.path(),
+            &["remote", "add", "origin", remote.path().to_str().unwrap()],
+        );
+        std::fs::write(a.path().join("sermon.typ"), "= Sermon\nFirst draft.\n").unwrap();
+        std::fs::write(a.path().join("essay.typ"), "= Essay\nFirst draft.\n").unwrap();
+        git(a.path(), &["add", "."]);
+        git(a.path(), &["commit", "-m", "start"]);
+        git(a.path(), &["push", "-u", "origin", "main"]);
+        let b = TempDir::new().unwrap();
+        git(b.path(), &["clone", remote.path().to_str().unwrap(), "."]);
+        identity(b.path());
+        let (mut la, mut lb) = (Library::open_in_memory(), Library::open_in_memory());
+        for (lib, dir) in [(&mut la, &a), (&mut lb, &b)] {
+            for n in ["sermon.typ", "essay.typ"] {
+                lib.upsert_document(&dir.path().join(n)).unwrap();
+            }
+        }
+        (remote, a, b, la, lb)
+    }
+
+    fn id_state(lib: &Library, dir: &TempDir, name: &str) -> crate::library::DocState {
+        let path = dir.path().join(name);
+        lib.export_snapshot()
+            .unwrap()
+            .docs
+            .into_iter()
+            .find(|d| d.path == path)
+            .unwrap()
+    }
+
+    fn id_of(lib: &Library, dir: &TempDir, name: &str) -> i64 {
+        let path = dir.path().join(name);
+        lib.export_snapshot()
+            .unwrap()
+            .docs
+            .into_iter()
+            .find(|d| d.path == path)
+            .unwrap()
+            .id
+    }
+
+    #[test]
+    fn two_machines_labelling_the_same_document_still_back_up_the_writing() {
+        let (_remote, a, b, mut la, mut lb) = two_machines();
+
+        // Each labels and pins the same document its own way, exports, and
+        // does what Save & Back Up does.
+        let (ia, ib) = (id_of(&la, &a, "sermon.typ"), id_of(&lb, &b, "sermon.typ"));
+        let x = la.create_label("FromLaptop").unwrap();
+        la.add_labels(&[ia], &[x]).unwrap();
+        la.set_pinned(ia, true).unwrap();
+        la.set_notes(ia, Some("laptop note")).unwrap();
+        let y = lb.create_label("FromDesktop").unwrap();
+        lb.add_labels(&[ib], &[y]).unwrap();
+        lb.set_notes(ib, Some("desktop note")).unwrap();
+        export(&la, a.path(), true);
+        export(&lb, b.path(), true);
+
+        // And writing, in the same documents, on both.
+        std::fs::write(a.path().join("essay.typ"), "= Essay\nLaptop paragraph.\n").unwrap();
+        std::fs::write(
+            b.path().join("sermon.typ"),
+            "= Sermon\nDesktop paragraph.\n",
+        )
+        .unwrap();
+
+        let first = git_sync::sync(a.path(), None);
+        assert!(first.pushed && first.push_errors.is_empty(), "{first:?}");
+        let second = git_sync::sync(b.path(), None);
+        assert!(
+            second.pushed && second.push_errors.is_empty(),
+            "the second machine's backup of its writing must not be blocked: {second:?}"
+        );
+
+        // Nothing written was lost, on either side.
+        assert_eq!(
+            std::fs::read_to_string(b.path().join("essay.typ")).unwrap(),
+            "= Essay\nLaptop paragraph.\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(b.path().join("sermon.typ")).unwrap(),
+            "= Sermon\nDesktop paragraph.\n"
+        );
+        let third = git_sync::sync(a.path(), None);
+        assert!(third.push_errors.is_empty(), "{third:?}");
+        assert_eq!(
+            std::fs::read_to_string(a.path().join("sermon.typ")).unwrap(),
+            "= Sermon\nDesktop paragraph.\n"
+        );
+        assert_eq!(
+            git(b.path(), &["status", "--porcelain"]).trim(),
+            "",
+            "nothing left half-merged"
+        );
+    }
+
+    #[test]
+    fn labels_travel_through_git_to_the_other_machine_and_nothing_written_is_touched() {
+        let (_remote, a, b, mut la, mut lb) = two_machines();
+        let ia = id_of(&la, &a, "sermon.typ");
+        let advent = la.create_label("Advent").unwrap();
+        la.add_labels(&[ia], &[advent]).unwrap();
+        la.set_notes(ia, Some("remember the Magnificat")).unwrap();
+        la.set_pinned(ia, true).unwrap();
+        let p = la.create_project("Thesis").unwrap();
+        la.add_doc_to_project(p, ia).unwrap();
+        export(&la, a.path(), true);
+        let writing_a = std::fs::read_to_string(a.path().join("essay.typ")).unwrap();
+
+        assert!(git_sync::sync(a.path(), None).pushed);
+        let pulled = git_sync::sync(b.path(), None);
+        assert!(pulled.pushed && pulled.push_errors.is_empty(), "{pulled:?}");
+
+        // The other machine merges what arrived…
+        let r = restore(&mut lb, b.path(), None);
+        assert!(r.changed_anything(), "{r:?}");
+        let s = id_state(&lb, &b, "sermon.typ");
+        assert_eq!(s.labels, vec!["Advent"]);
+        assert!(s.pinned);
+        assert_eq!(s.notes.as_deref(), Some("remember the Magnificat"));
+        assert_eq!(lb.export_snapshot().unwrap().projects[0].name, "Thesis");
+        // …and writes it into its own folder, which then syncs back cleanly.
+        export(&lb, b.path(), true);
+        let back = git_sync::sync(b.path(), None);
+        assert!(back.pushed && back.push_errors.is_empty(), "{back:?}");
+        let again = git_sync::sync(a.path(), None);
+        assert!(again.push_errors.is_empty(), "{again:?}");
+
+        // No document was changed by any of it.
+        assert_eq!(
+            std::fs::read_to_string(a.path().join("essay.typ")).unwrap(),
+            writing_a
+        );
+        assert_eq!(
+            std::fs::read_to_string(b.path().join("essay.typ")).unwrap(),
+            "= Essay\nFirst draft.\n"
+        );
+        assert_eq!(git(a.path(), &["status", "--porcelain"]).trim(), "");
+        assert_eq!(git(b.path(), &["status", "--porcelain"]).trim(), "");
+        // Both clones have both machines' folders and no conflict markers anywhere.
+        let log = git(a.path(), &["log", "--oneline"]);
+        assert!(!log.is_empty());
+        for root in [&a, &b] {
+            let tree = git(root.path(), &["ls-files", ".zerkalo/library"]);
+            let dirs: std::collections::HashSet<&str> =
+                tree.lines().filter_map(|l| l.split('/').nth(2)).collect();
+            assert_eq!(dirs.len(), 2, "{tree}");
+        }
     }
 }

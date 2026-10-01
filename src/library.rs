@@ -408,11 +408,23 @@ impl Library {
             .ok();
         // 1 once the user has renamed the document in the Library: from then on
         // a rescan must not overwrite the title with the one in the file.
+        let had_custom_titles = self
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('documents') WHERE name = 'title_custom'",
+                [],
+                |r| r.get::<_, i64>(0),
+            )
+            .unwrap_or(0)
+            > 0;
         self.conn
             .execute_batch(
                 "ALTER TABLE documents ADD COLUMN title_custom INTEGER NOT NULL DEFAULT 0;",
             )
             .ok();
+        if !had_custom_titles {
+            self.protect_existing_titles();
+        }
         // The text index: prose word count and a full-text table over title,
         // notes, file name and body. `indexed_mtime`/`indexed_len` say which
         // version of the file the index was built from, so a rescan only reads
@@ -568,6 +580,40 @@ impl Library {
             self.conn.execute_batch("ROLLBACK;").ok();
         }
         self.conn.execute_batch("PRAGMA foreign_keys = ON;").ok();
+    }
+
+    /// Libraries from before titles could be protected have no way to say "this
+    /// title was chosen by the user". The one sign is a title that differs from
+    /// what the file itself would give — so, once, as the column is added, every
+    /// such title is marked as chosen. Without this the first rescan would
+    /// replace it with the file's own.
+    fn protect_existing_titles(&self) {
+        let rows: Vec<(i64, String, String)> = {
+            let Ok(mut stmt) = self.conn.prepare("SELECT id, path, title FROM documents") else {
+                return;
+            };
+            stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+                .into_iter()
+                .flatten()
+                .filter_map(|r| r.ok())
+                .collect()
+        };
+        for (id, path, title) in rows {
+            let p = Path::new(&path);
+            let derived = extract_typst_title(p).unwrap_or_else(|| {
+                p.file_stem()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_else(|| path.clone())
+            });
+            if title != derived {
+                self.conn
+                    .execute(
+                        "UPDATE documents SET title_custom = 1 WHERE id = ?1",
+                        params![id],
+                    )
+                    .ok();
+            }
+        }
     }
 
     /// Folds the old tags and categories into labels, once.
@@ -1357,6 +1403,41 @@ impl Library {
         Ok(())
     }
 
+    /// This library's name among the machines that share the folder — made
+    /// once, kept in the library, and never reused. Each machine writes only
+    /// into its own folder named by it, so no two ever edit the same file.
+    pub fn machine_id(&self) -> SqlResult<String> {
+        if let Some(id) = self
+            .conn
+            .query_row("SELECT value FROM meta WHERE key = 'machine_id'", [], |r| {
+                r.get::<_, String>(0)
+            })
+            .optional()?
+        {
+            return Ok(id);
+        }
+        use std::hash::{BuildHasher, Hasher};
+        // Random enough to tell a handful of machines apart: the hasher's keys
+        // are random per process, and the time and process make each run differ.
+        let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+        h.write_u128(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0),
+        );
+        h.write_u32(std::process::id());
+        let id = format!("m-{:012x}", h.finish() & 0xffff_ffff_ffff);
+        self.conn.execute(
+            "INSERT OR IGNORE INTO meta (key, value) VALUES ('machine_id', ?1)",
+            params![id],
+        )?;
+        self.conn
+            .query_row("SELECT value FROM meta WHERE key = 'machine_id'", [], |r| {
+                r.get(0)
+            })
+    }
+
     /// A small note left for the next time the Library window opens.
     pub fn set_note(&self, key: &str, value: &str) -> SqlResult<()> {
         self.conn.execute(
@@ -1467,6 +1548,13 @@ impl Library {
             .prepare("SELECT path, content FROM export_files")?;
         let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
         rows.collect()
+    }
+
+    /// Forgets what the export has written — as if the library had been lost
+    /// and rebuilt over the same folder.
+    #[cfg(test)]
+    pub fn forget_exports(&self) {
+        self.conn.execute("DELETE FROM export_files", []).unwrap();
     }
 
     pub fn set_export_record(&self, path: &str, content: &str) -> SqlResult<()> {
@@ -3678,6 +3766,40 @@ mod tests {
             .unwrap();
         assert_eq!(old, 1, "the old table is kept as it was");
         assert!(labels_migrated(&lib.conn));
+    }
+
+    #[test]
+    fn a_title_chosen_before_titles_could_be_protected_survives_the_upgrade() {
+        // An old library: no title_custom column. One document has a title that
+        // differs from its file's (the user renamed it), one has the file's own.
+        let work = TempDir::new().unwrap();
+        let renamed = work.path().join("ch1.typ");
+        let plain = work.path().join("ch2.typ");
+        std::fs::write(&renamed, "= One\n").unwrap();
+        std::fs::write(&plain, "= Two\n").unwrap();
+        let mut lib = legacy_library(&work);
+        lib.conn.execute_batch("DELETE FROM documents;").unwrap();
+        for (path, title) in [(&renamed, "My Chapter One"), (&plain, "ch2")] {
+            lib.conn
+                .execute(
+                    "INSERT INTO documents (path, title, created_at, modified_at) VALUES (?1, ?2, 't', 't')",
+                    params![path.to_string_lossy(), title],
+                )
+                .unwrap();
+        }
+        lib.migrate().unwrap();
+        // The first scan after upgrading — which used to reset the title.
+        lib.upsert_document(&renamed).unwrap();
+        lib.upsert_document(&plain).unwrap();
+        fn title(lib: &Library, p: &Path) -> String {
+            lib.doc_by_path(p).unwrap().unwrap().title
+        }
+        assert_eq!(title(&lib, &renamed), "My Chapter One");
+        assert_eq!(title(&lib, &plain), "ch2");
+        // A title from the file still follows the file.
+        std::fs::write(&plain, "#let doc-title = \"Retitled\"\n").unwrap();
+        lib.upsert_document(&plain).unwrap();
+        assert_eq!(title(&lib, &plain), "Retitled");
     }
 
     #[test]

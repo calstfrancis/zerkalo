@@ -72,8 +72,42 @@ pub(crate) fn git_cmd(repo_path: &Path) -> Command {
     cmd
 }
 
+// ── Knowing when a sync is running or has run ────────────────────────────────
+
+static SYNC_ACTIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static SYNC_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Whether a sync is in the middle of committing and pulling. Anything else
+/// that writes into the folder should wait: a file changing between the commit
+/// and the pull makes `pull --rebase` refuse, and the push after it is skipped.
+pub fn sync_active() -> bool {
+    SYNC_ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+/// How many syncs have finished — it moves whenever files may have arrived.
+pub fn syncs_finished() -> usize {
+    SYNC_COUNT.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+struct SyncRunning;
+
+impl SyncRunning {
+    fn begin() -> Self {
+        SYNC_ACTIVE.store(true, std::sync::atomic::Ordering::SeqCst);
+        SyncRunning
+    }
+}
+
+impl Drop for SyncRunning {
+    fn drop(&mut self) {
+        SYNC_ACTIVE.store(false, std::sync::atomic::Ordering::SeqCst);
+        SYNC_COUNT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
 // ── Public types ─────────────────────────────────────────────────────────────
 
+#[derive(Debug)]
 pub struct SyncResult {
     pub committed: bool,
     /// True if at least one remote was pushed successfully.
@@ -269,6 +303,7 @@ pub fn craft_message(changed: &[String]) -> String {
 /// `http.extraHeader` (see [`apply_github_auth`]), never embedded in the
 /// remote URL itself. `pushed` is true if at least one remote succeeded.
 pub fn sync(repo_path: &Path, github_token: Option<&str>) -> SyncResult {
+    let _running = SyncRunning::begin();
     let changed = changed_files(repo_path);
     let msg = craft_message(&changed);
 

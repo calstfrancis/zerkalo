@@ -3517,15 +3517,25 @@ fn start_folder_export(library: Rc<RefCell<Library>>, folder: PathBuf) {
     let ticks = Rc::new(Cell::new(0u32));
     let tree = Rc::new(Cell::new(crate::library_restore::tree_stamp(&folder)));
     let waiting = Rc::new(Cell::new(false));
+    let syncs_seen = Rc::new(Cell::new(crate::git_sync::syncs_finished()));
     let backups = crate::config::zerkalo_data_dir();
     glib::timeout_add_local(Duration::from_secs(3), move || {
         if !crate::config::shared().borrow().library.export || !folder.is_dir() {
             return glib::ControlFlow::Continue;
         }
+        // A sync is committing and pulling: a file changing now would make the
+        // pull refuse and hold up the push of the writing. Wait it out.
+        if crate::git_sync::sync_active() {
+            return glib::ControlFlow::Continue;
+        }
         ticks.set(ticks.get().wrapping_add(1));
-        // About once a minute, look for files that have changed or arrived.
-        let files_changed = ticks.get().is_multiple_of(20)
-            && (crate::library_restore::tree_stamp(&folder) != tree.get() || waiting.get());
+        // Right after a sync (files may have arrived), and otherwise about once
+        // a minute, look for files that have changed or arrived.
+        let just_synced = crate::git_sync::syncs_finished() != syncs_seen.get();
+        syncs_seen.set(crate::git_sync::syncs_finished());
+        let files_changed = just_synced
+            || (ticks.get().is_multiple_of(20)
+                && (crate::library_restore::tree_stamp(&folder) != tree.get() || waiting.get()));
         let restore_now = !verified.get() || files_changed;
 
         if restore_now {
