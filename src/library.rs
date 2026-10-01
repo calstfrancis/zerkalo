@@ -92,6 +92,7 @@ pub struct Document {
 /// One document's own data, as the folder export writes it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct DocState {
+    pub id: i64,
     pub path: PathBuf,
     /// Only when the user renamed it in the Library; otherwise the title comes
     /// from the file and there is nothing to save.
@@ -1348,6 +1349,41 @@ impl Library {
 
     // ── folder export ────────────────────────────────────────────────────
 
+    /// Writes a complete, consistent copy of the library to `dest` — safe on a
+    /// library that is open and being written to.
+    pub fn backup_to(&self, dest: &Path) -> SqlResult<()> {
+        self.conn
+            .execute("VACUUM INTO ?1", params![dest.to_string_lossy()])?;
+        Ok(())
+    }
+
+    /// A small note left for the next time the Library window opens.
+    pub fn set_note(&self, key: &str, value: &str) -> SqlResult<()> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)",
+            params![key, value],
+        )?;
+        Ok(())
+    }
+
+    /// Reads and clears a note left with `set_note`.
+    pub fn take_note(&self, key: &str) -> Option<String> {
+        let value: Option<String> = self
+            .conn
+            .query_row("SELECT value FROM meta WHERE key = ?1", params![key], |r| {
+                r.get(0)
+            })
+            .optional()
+            .ok()
+            .flatten();
+        if value.is_some() {
+            self.conn
+                .execute("DELETE FROM meta WHERE key = ?1", params![key])
+                .ok();
+        }
+        value
+    }
+
     /// A count that moves whenever anything in the library is written, however
     /// small — cheap to poll to learn "something may have changed".
     pub fn change_stamp(&self) -> i64 {
@@ -1367,6 +1403,7 @@ impl Library {
                 Ok((
                     r.get::<_, i64>(0)?,
                     DocState {
+                        id: r.get::<_, i64>(0)?,
                         path: PathBuf::from(r.get::<_, String>(1)?),
                         title: if r.get::<_, i64>(3)? != 0 {
                             Some(r.get::<_, String>(2)?)

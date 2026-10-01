@@ -204,7 +204,7 @@ impl LibraryWindow {
         let view_menu = gtk4::gio::Menu::new();
         view_menu.append(Some("Compact list"), Some("view.compact"));
         view_menu.append(
-            Some("Save labels and notes in the folder"),
+            Some("Keep labels and notes in the folder"),
             Some("view.export"),
         );
         let view_btn = gtk4::MenuButton::new();
@@ -742,6 +742,14 @@ impl LibraryWindow {
     /// goes wherever the folder goes, deserves a word.
     fn announce_folder_export(&self) {
         let prefs = self.config.borrow().library.clone();
+        // Something was just merged in from the folder: say so, every time.
+        let merged = self.library.borrow().take_note("restore_notice");
+        if let Some(text) = merged {
+            let toast = adw::Toast::new(&text);
+            toast.set_use_markup(false);
+            toast.set_timeout(15);
+            self.toast_overlay.add_toast(toast);
+        }
         if !prefs.export || prefs.export_announced {
             return;
         }
@@ -755,8 +763,9 @@ impl LibraryWindow {
             return;
         }
         let toast = adw::Toast::new(
-            "Your labels, projects and notes are now also saved in your Zerkalo folder \
-             (.zerkalo/library), so they back up with it. You can turn this off in the View menu.",
+            "Your labels, projects and notes are now also kept in your Zerkalo folder \
+             (.zerkalo/library), so they back up with it — and come back from it on another \
+             machine. You can turn this off in the View menu.",
         );
         toast.set_use_markup(false);
         toast.set_timeout(12);

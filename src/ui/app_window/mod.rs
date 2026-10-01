@@ -3501,26 +3501,75 @@ fn extract_doc_title(content: &str) -> Option<String> {
 /// Strip pandoc's generated `#set` preamble from a standalone Typst output so we can
 /// replace it with a Zerkalo template section.
 #[cfg_attr(not(test), allow(dead_code))]
-/// Keeps the copy of the library's labels, projects and notes in the Zerkalo
-/// folder (`library_export`) up to date: checks every few seconds whether
-/// anything in the library has been written, and exports if so. The first pass
-/// of a session also checks the files on disk; later ones trust what they last
-/// wrote, which keeps them cheap.
+/// Keeps the library and the copy of its labels, projects and notes in the
+/// Zerkalo folder (`library_export`, `library_restore`) in step.
+///
+/// Whatever the folder holds that the library hasn't agreed to yet is merged in
+/// first — at the start of each session, and whenever the files there change
+/// (a sync, say) — and then anything in the library that isn't in the folder
+/// is written out. Every few seconds it checks whether the library has been
+/// written to; the first pass of a session also checks the files on disk, and
+/// later ones trust what they last wrote, which keeps them cheap.
 fn start_folder_export(library: Rc<RefCell<Library>>, folder: PathBuf) {
-    let last: Rc<std::cell::Cell<Option<i64>>> = Rc::new(std::cell::Cell::new(None));
-    let verified = Rc::new(std::cell::Cell::new(false));
+    use std::cell::Cell;
+    let last: Rc<Cell<Option<i64>>> = Rc::new(Cell::new(None));
+    let verified = Rc::new(Cell::new(false));
+    let ticks = Rc::new(Cell::new(0u32));
+    let tree = Rc::new(Cell::new(crate::library_restore::tree_stamp(&folder)));
+    let waiting = Rc::new(Cell::new(false));
+    let backups = crate::config::zerkalo_data_dir();
     glib::timeout_add_local(Duration::from_secs(3), move || {
         if !crate::config::shared().borrow().library.export || !folder.is_dir() {
             return glib::ControlFlow::Continue;
         }
+        ticks.set(ticks.get().wrapping_add(1));
+        // About once a minute, look for files that have changed or arrived.
+        let files_changed = ticks.get().is_multiple_of(20)
+            && (crate::library_restore::tree_stamp(&folder) != tree.get() || waiting.get());
+        let restore_now = !verified.get() || files_changed;
+
+        if restore_now {
+            let r =
+                crate::library_restore::restore(&mut library.borrow_mut(), &folder, Some(&backups));
+            waiting.set(r.waiting_for_document > 0);
+            if r.changed_anything() || r.unreadable > 0 {
+                tracing::info!(
+                    "Library restore: {} documents, {} projects, {} labels added; {} unreadable, {} waiting",
+                    r.documents,
+                    r.projects,
+                    r.labels_created,
+                    r.unreadable,
+                    r.waiting_for_document
+                );
+            }
+            if r.changed_anything() {
+                let plural =
+                    |n: usize, one: &str| format!("{n} {one}{}", if n == 1 { "" } else { "s" });
+                library
+                    .borrow()
+                    .set_note(
+                        "restore_notice",
+                        &format!(
+                            "Brought in labels, projects and notes from your Zerkalo folder: {}, {}, {} added. \
+                             A copy of the library from just before is in Zerkalo's data folder.",
+                            plural(r.documents, "document"),
+                            plural(r.projects, "project"),
+                            plural(r.labels_created, "label"),
+                        ),
+                    )
+                    .ok();
+            }
+        }
+
         let stamp = library.borrow().change_stamp();
-        if verified.get() && last.get() == Some(stamp) {
+        if !restore_now && verified.get() && last.get() == Some(stamp) {
             return glib::ControlFlow::Continue;
         }
-        let report = crate::library_export::export(&library.borrow(), &folder, !verified.get());
+        let report = crate::library_export::export(&library.borrow(), &folder, restore_now);
         verified.set(true);
         // Exporting records what it wrote, which moves the stamp itself.
         last.set(Some(library.borrow().change_stamp()));
+        tree.set(crate::library_restore::tree_stamp(&folder));
         if report.written > 0 || report.left_alone > 0 || !report.errors.is_empty() {
             tracing::info!(
                 "Library export: {} written, {} left alone (changed elsewhere), {} outside the folder",
