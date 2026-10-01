@@ -72,6 +72,9 @@ pub struct RestoreReport {
     pub documents: usize,
     pub projects: usize,
     pub labels_created: usize,
+    /// Documents archived because the other machine had archived them — they
+    /// leave "All Documents", so the notice says so.
+    pub archived: usize,
     /// Files that couldn't be read as what they should be; left untouched.
     pub unreadable: usize,
     /// Files naming a document the library doesn't have (yet). They are tried
@@ -516,6 +519,9 @@ pub fn restore(lib: &mut Library, folder: &Path, backup_dir: Option<&Path>) -> R
                 }
                 if let Some(a) = plan.archived {
                     lib.set_archived(doc.id, a).ok();
+                    if a {
+                        report.archived += 1;
+                    }
                 }
                 if let Some(t) = &plan.title {
                     lib.set_title(doc.id, t).ok();

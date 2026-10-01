@@ -169,6 +169,23 @@ fn slug(name: &str) -> String {
     }
 }
 
+/// A crash between writing a file and renaming it leaves a `.tmp-zerkalo`
+/// file behind, which a sync would then commit. These are ours, in our own
+/// folder; clearing them up is all that is ever deleted here.
+fn remove_stale_temp_files(root: &Path) {
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return;
+    };
+    for e in entries.flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            remove_stale_temp_files(&p);
+        } else if p.extension().is_some_and(|x| x == "tmp-zerkalo") {
+            std::fs::remove_file(&p).ok();
+        }
+    }
+}
+
 /// Writes `content` to `path` through a temporary file, so the file is always
 /// either the old version or the new one.
 fn write_atomically(path: &Path, content: &str) -> std::io::Result<()> {
@@ -210,6 +227,10 @@ pub fn export(lib: &Library, folder: &Path, verify_disk: bool) -> ExportReport {
     };
     let mut records = lib.export_records().unwrap_or_default();
     let root = folder.join(DIR).join(&id);
+
+    if verify_disk {
+        remove_stale_temp_files(&root);
+    }
 
     let mut files: Vec<(String, String)> = vec![("README.txt".into(), README.into())];
 
@@ -766,5 +787,92 @@ mod tests {
         assert!(first.starts_with("m-") && first.len() > 6);
         assert_eq!(lib.machine_id().unwrap(), first);
         assert_ne!(Library::open_in_memory().machine_id().unwrap(), first);
+    }
+
+    #[test]
+    fn leftover_temporary_files_in_our_own_folder_are_cleared_and_nothing_else_is() {
+        let (mut lib, folder) = setup();
+        let id = add(&mut lib, &folder, "a.typ");
+        lib.set_pinned(id, true).unwrap();
+        export(&lib, folder.path(), true);
+        let mine = folder.path().join(DIR).join(lib.machine_id().unwrap());
+        let theirs = folder.path().join(DIR).join("m-someone-else");
+        std::fs::create_dir_all(theirs.join("docs")).unwrap();
+        std::fs::write(mine.join("docs/crashed.tmp-zerkalo"), "half").unwrap();
+        std::fs::write(mine.join("docs/note.txt"), "a file somebody put here").unwrap();
+        std::fs::write(theirs.join("docs/other.tmp-zerkalo"), "not ours").unwrap();
+        export(&lib, folder.path(), true);
+        assert!(!mine.join("docs/crashed.tmp-zerkalo").exists());
+        assert!(
+            mine.join("docs/note.txt").exists(),
+            "only our own temporaries go"
+        );
+        assert!(
+            theirs.join("docs/other.tmp-zerkalo").exists(),
+            "another machine's folder is never touched"
+        );
+    }
+
+    /// Not run by default: how long the export and a restore take on a big
+    /// library, since both run on the main thread. `cargo test big_library --
+    /// --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn big_library_timings() {
+        use std::time::Instant;
+        let (mut lib, folder) = setup();
+        let n = 4000;
+        let t = Instant::now();
+        let labels: Vec<i64> = (0..40)
+            .map(|i| lib.create_label(&format!("label {i}")).unwrap())
+            .collect();
+        for i in 0..n {
+            let id = add(&mut lib, &folder, &format!("d{}/doc{i}.typ", i % 40));
+            lib.add_labels(&[id], &[labels[i % 40], labels[(i * 7) % 40]])
+                .unwrap();
+            if i % 3 == 0 {
+                lib.set_notes(id, Some("a note about this one")).unwrap();
+            }
+        }
+        println!("built {n} documents in {:?}", t.elapsed());
+        let t = Instant::now();
+        let r = export(&lib, folder.path(), true);
+        println!(
+            "first export (verify): {:?}, {} files written",
+            t.elapsed(),
+            r.written
+        );
+        let id = lib.export_snapshot().unwrap().docs[5].id;
+        lib.set_pinned(id, true).unwrap();
+        let t = Instant::now();
+        let r = export(&lib, folder.path(), false);
+        println!(
+            "after one change (no disk check): {:?}, {} written",
+            t.elapsed(),
+            r.written
+        );
+        let t = Instant::now();
+        export(&lib, folder.path(), true);
+        println!("full verify pass, nothing changed: {:?}", t.elapsed());
+        // A second machine restoring all of it.
+        let mut b = Library::open_in_memory();
+        for i in 0..n {
+            b.upsert_document(&folder.path().join(format!("d{}/doc{i}.typ", i % 40)))
+                .unwrap();
+        }
+        let t = Instant::now();
+        let r = crate::library_restore::restore(&mut b, folder.path(), None);
+        println!(
+            "restore of everything onto a new machine: {:?} ({} documents)",
+            t.elapsed(),
+            r.documents
+        );
+        let t = Instant::now();
+        let r = crate::library_restore::restore(&mut b, folder.path(), None);
+        println!(
+            "a second restore pass (nothing new): {:?} ({} documents)",
+            t.elapsed(),
+            r.documents
+        );
     }
 }

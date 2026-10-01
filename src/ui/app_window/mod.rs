@@ -129,12 +129,17 @@ impl AppWindow {
             // worker handoff in this file. `MainContext::channel` was
             // deprecated in favour of an async channel, and this codebase has
             // no async runtime on the GTK side to host one.
-            let (sender, receiver) = std::sync::mpsc::sync_channel::<Library>(1);
+            let (sender, receiver) = std::sync::mpsc::sync_channel::<(Library, bool)>(1);
             std::thread::spawn(move || {
-                let mut lib = Library::open().unwrap_or_else(|e| {
-                    tracing::warn!("Failed to open library DB: {e}");
-                    Library::open_in_memory()
-                });
+                // `persistent` is false when the real library couldn't be opened
+                // and this is a throwaway stand-in; nothing is exported from one.
+                let (mut lib, persistent) = match Library::open() {
+                    Ok(lib) => (lib, true),
+                    Err(e) => {
+                        tracing::warn!("Failed to open library DB: {e}");
+                        (Library::open_in_memory(), false)
+                    }
+                };
                 lib.set_bibliography(crate::authors::configured_bibliography(
                     &work_dir_bg,
                     global_bib_bg.as_deref(),
@@ -150,16 +155,18 @@ impl AppWindow {
                     }
                     Err(e) => tracing::warn!("Trash reconciliation failed: {e}"),
                 }
-                sender.send(lib).ok();
+                sender.send((lib, persistent)).ok();
             });
             glib::timeout_add_local(Duration::from_millis(100), move || {
                 match receiver.try_recv() {
-                    Ok(lib) => {
+                    Ok((lib, persistent)) => {
                         *library_bg.borrow_mut() = lib;
                         tracing::info!("Library DB ready");
                         // Only now: before this the library is an empty
                         // placeholder with nothing to export.
-                        start_folder_export(library_bg.clone(), folder_bg.clone());
+                        if persistent {
+                            start_folder_export(library_bg.clone(), folder_bg.clone());
+                        }
                         glib::ControlFlow::Break
                     }
                     Err(std::sync::mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
@@ -3555,19 +3562,22 @@ fn start_folder_export(library: Rc<RefCell<Library>>, folder: PathBuf) {
             if r.changed_anything() {
                 let plural =
                     |n: usize, one: &str| format!("{n} {one}{}", if n == 1 { "" } else { "s" });
-                library
-                    .borrow()
-                    .set_note(
-                        "restore_notice",
-                        &format!(
-                            "Brought in labels, projects and notes from your Zerkalo folder: {}, {}, {} added. \
-                             A copy of the library from just before is in Zerkalo's data folder.",
-                            plural(r.documents, "document"),
-                            plural(r.projects, "project"),
-                            plural(r.labels_created, "label"),
-                        ),
-                    )
-                    .ok();
+                let mut text = format!(
+                    "Brought in labels, projects and notes from your Zerkalo folder: {}, {}, {} added. \
+                     A copy of the library from just before is in Zerkalo's data folder.",
+                    plural(r.documents, "document"),
+                    plural(r.projects, "project"),
+                    plural(r.labels_created, "label"),
+                );
+                if r.archived > 0 {
+                    text.push_str(&format!(
+                        " {} of the documents {} archived there, so {} in Archive, not All Documents.",
+                        r.archived,
+                        if r.archived == 1 { "was" } else { "were" },
+                        if r.archived == 1 { "it is" } else { "they are" },
+                    ));
+                }
+                library.borrow().set_note("restore_notice", &text).ok();
             }
         }
 

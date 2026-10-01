@@ -516,7 +516,11 @@ impl Library {
         // Labels, which replace tags and categories. The old tables stay where
         // they are, untouched and unread, so the migration can be checked
         // against them and a downgrade still finds its data.
-        self.conn.execute_batch(
+        // None of this may stop the library opening: if it fails (a full disk,
+        // a locked file) the documents are still listed, the labels simply
+        // aren't there yet, and it is tried again at the next start — the
+        // migration is one transaction, so it never half-happens.
+        if let Err(e) = self.conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
              CREATE TABLE IF NOT EXISTS labels (
                  id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -535,8 +539,15 @@ impl Library {
                  path TEXT PRIMARY KEY,
                  content TEXT NOT NULL
              );",
-        )?;
-        self.migrate_to_labels()?;
+        ) {
+            tracing::warn!("Couldn't set up labels; will try again next time: {e}");
+            return Ok(());
+        }
+        if let Err(e) = self.migrate_to_labels() {
+            tracing::warn!(
+                "Couldn't move tags and categories to labels; will try again next time: {e}"
+            );
+        }
         Ok(())
     }
 
@@ -1020,12 +1031,22 @@ impl Library {
         // near-identical arms, each preparing and draining its own statement.
         let q = filter.query();
         let search_idx = if q.param.is_some() { 2 } else { 1 };
+        // With nothing typed there is no search clause at all. It matters: the
+        // clause names the label, author and text-index tables, and a query
+        // that names a table that is missing or broken fails outright — so a
+        // library with a problem there would list nothing, even with no search.
+        let searching = !search.is_empty();
+        let clause = if searching {
+            search_clause(q.prefix, search_idx, fts.is_some())
+        } else {
+            "1 = 1".to_string()
+        };
         let sql = format!(
             "SELECT {} FROM {} WHERE {} AND {} ORDER BY {}{}",
             q.select,
             q.from,
             q.conditions,
-            search_clause(q.prefix, search_idx, fts.is_some()),
+            clause,
             q.order(&sort),
             q.limit_clause(),
         );
@@ -1034,9 +1055,11 @@ impl Library {
         if let Some(v) = q.param {
             args.push(v);
         }
-        args.push(search_pat.into());
-        if let Some(q) = fts {
-            args.push(q.into());
+        if searching {
+            args.push(search_pat.into());
+            if let Some(q) = fts {
+                args.push(q.into());
+            }
         }
 
         let mut stmt = self.conn.prepare(&sql)?;
@@ -1406,15 +1429,36 @@ impl Library {
     /// This library's name among the machines that share the folder — made
     /// once, kept in the library, and never reused. Each machine writes only
     /// into its own folder named by it, so no two ever edit the same file.
+    ///
+    /// It is also tied to the computer's name. A library copied to another
+    /// computer (a copied database, a restored disk image) must not carry the
+    /// first one's name with it, or the two would write the same files and git
+    /// would conflict over them again.
     pub fn machine_id(&self) -> SqlResult<String> {
-        if let Some(id) = self
-            .conn
-            .query_row("SELECT value FROM meta WHERE key = 'machine_id'", [], |r| {
-                r.get::<_, String>(0)
-            })
-            .optional()?
-        {
-            return Ok(id);
+        self.machine_id_on(&glib::host_name())
+    }
+
+    fn machine_id_on(&self, host: &str) -> SqlResult<String> {
+        let get = |key: &str| -> SqlResult<Option<String>> {
+            self.conn
+                .query_row("SELECT value FROM meta WHERE key = ?1", params![key], |r| {
+                    r.get::<_, String>(0)
+                })
+                .optional()
+        };
+        if let Some(id) = get("machine_id")? {
+            match get("machine_host")? {
+                Some(h) if h != host => {} // somewhere else now: name it afresh
+                Some(_) => return Ok(id),
+                None => {
+                    // Named before the computer was recorded: keep the name.
+                    self.conn.execute(
+                        "INSERT OR REPLACE INTO meta (key, value) VALUES ('machine_host', ?1)",
+                        params![host],
+                    )?;
+                    return Ok(id);
+                }
+            }
         }
         use std::hash::{BuildHasher, Hasher};
         // Random enough to tell a handful of machines apart: the hasher's keys
@@ -1429,13 +1473,14 @@ impl Library {
         h.write_u32(std::process::id());
         let id = format!("m-{:012x}", h.finish() & 0xffff_ffff_ffff);
         self.conn.execute(
-            "INSERT OR IGNORE INTO meta (key, value) VALUES ('machine_id', ?1)",
+            "INSERT OR REPLACE INTO meta (key, value) VALUES ('machine_id', ?1)",
             params![id],
         )?;
-        self.conn
-            .query_row("SELECT value FROM meta WHERE key = 'machine_id'", [], |r| {
-                r.get(0)
-            })
+        self.conn.execute(
+            "INSERT OR REPLACE INTO meta (key, value) VALUES ('machine_host', ?1)",
+            params![host],
+        )?;
+        Ok(id)
     }
 
     /// A small note left for the next time the Library window opens.
@@ -3853,6 +3898,246 @@ mod tests {
         };
         lib.migrate().unwrap();
         assert_eq!(label_names(&lib, 1), vec!["keep"]);
+    }
+
+    // ── upgrading a library exactly as v0.39.2 left it ───────────────────
+
+    /// The tables and indexes the original version created, copied from a
+    /// library it made — so these tests start from what users really have.
+    const V0_39_2_SCHEMA: &str = "
+        CREATE TABLE documents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL UNIQUE,
+            title TEXT NOT NULL, category TEXT, archived INTEGER NOT NULL DEFAULT 0,
+            notes TEXT, created_at TEXT NOT NULL, modified_at TEXT NOT NULL,
+            last_opened_at TEXT, pinned INTEGER NOT NULL DEFAULT 0,
+            deleted INTEGER NOT NULL DEFAULT 0, trash_path TEXT);
+        CREATE TABLE tags (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE,
+            color_hex TEXT NOT NULL DEFAULT '#3584e4');
+        CREATE TABLE doc_tags (
+            doc_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+            PRIMARY KEY (doc_id, tag_id));
+        CREATE TABLE categories (name TEXT NOT NULL PRIMARY KEY, color_hex TEXT,
+            parent TEXT REFERENCES categories(name));
+        CREATE TABLE doc_categories (
+            doc_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            category TEXT NOT NULL REFERENCES categories(name) ON DELETE CASCADE,
+            PRIMARY KEY (doc_id, category));
+        CREATE TABLE projects (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,
+            root_doc_id INTEGER REFERENCES documents(id) ON DELETE SET NULL,
+            created_at TEXT NOT NULL);
+        CREATE TABLE project_docs (
+            project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            doc_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            position INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (project_id, doc_id));
+        CREATE INDEX idx_doc_archived ON documents(archived, deleted);
+        CREATE INDEX idx_doc_tags_doc ON doc_tags(doc_id);";
+
+    fn dump(conn: &Connection, sql: &str) -> Vec<String> {
+        let mut stmt = conn.prepare(sql).unwrap();
+        let cols = stmt.column_count();
+        stmt.query_map([], |r| {
+            Ok((0..cols)
+                .map(|i| format!("{:?}", r.get_ref(i).unwrap()))
+                .collect::<Vec<_>>()
+                .join("|"))
+        })
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect()
+    }
+
+    #[test]
+    fn a_library_exactly_as_the_original_version_left_it_upgrades_without_losing_anything() {
+        let work = TempDir::new().unwrap();
+        let trash = work.path().join("trash");
+        std::fs::create_dir_all(&trash).unwrap();
+        let live = work.path().join("sermon.typ");
+        let binned = work.path().join("old draft.typ");
+        let archived = work.path().join("journal.typ");
+        std::fs::write(&live, "= Sermon\nMy writing.\n").unwrap();
+        std::fs::write(&archived, "= Journal\n").unwrap();
+        // The trashed document's file lives in the trash folder, as the
+        // original version left it.
+        let in_trash = trash.join("1700000000-2-old draft.typ");
+        std::fs::write(&in_trash, "= Old draft\nSomething I may want back.\n").unwrap();
+
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        conn.execute_batch(V0_39_2_SCHEMA).unwrap();
+        let ins = |id: i64,
+                   path: &Path,
+                   title: &str,
+                   archived: i64,
+                   pinned: i64,
+                   notes: Option<&str>,
+                   deleted: i64,
+                   trash_path: Option<String>| {
+            conn.execute(
+                "INSERT INTO documents (id, path, title, archived, notes, created_at, modified_at, pinned, deleted, trash_path)
+                 VALUES (?1, ?2, ?3, ?4, ?5, '2025-01-01', '2025-02-02', ?6, ?7, ?8)",
+                params![id, path.to_string_lossy(), title, archived, notes, pinned, deleted, trash_path],
+            )
+            .unwrap();
+        };
+        ins(
+            1,
+            &live,
+            "sermon",
+            0,
+            1,
+            Some("Check the Isaiah reading"),
+            0,
+            None,
+        );
+        ins(
+            2,
+            &binned,
+            "old draft",
+            0,
+            0,
+            None,
+            1,
+            Some(in_trash.to_string_lossy().into_owned()),
+        );
+        ins(3, &archived, "My Journal", 1, 0, None, 0, None);
+        conn.execute_batch(
+            "INSERT INTO tags (name, color_hex) VALUES ('draft', '#3584e4'), ('urgent', '#e01b24');
+             INSERT INTO doc_tags VALUES (1, 1), (1, 2), (3, 1);
+             INSERT INTO categories (name, color_hex, parent) VALUES
+                ('Liturgy', NULL, NULL), ('Advent', '#33d17a', 'Liturgy');
+             INSERT INTO doc_categories VALUES (1, 'Advent'), (2, 'Liturgy');
+             INSERT INTO projects (id, name, root_doc_id, created_at) VALUES (1, 'Thesis', 1, '2025-01-01');
+             INSERT INTO project_docs VALUES (1, 3, 0), (1, 1, 1);",
+        )
+        .unwrap();
+
+        let documents = "SELECT id, path, title, category, archived, notes, created_at, modified_at,
+                                last_opened_at, pinned, deleted, trash_path FROM documents ORDER BY id";
+        let old_tables = [
+            "SELECT * FROM tags ORDER BY 1",
+            "SELECT * FROM doc_tags ORDER BY 1, 2",
+            "SELECT * FROM categories ORDER BY 1",
+            "SELECT * FROM doc_categories ORDER BY 1, 2",
+            "SELECT * FROM projects ORDER BY 1",
+            "SELECT * FROM project_docs ORDER BY 1, 2",
+        ];
+        let before_docs = dump(&conn, documents);
+        let before_old: Vec<_> = old_tables.iter().map(|q| dump(&conn, q)).collect();
+
+        let mut lib = Library {
+            conn,
+            trash_dir: trash.clone(),
+            authors: AuthorSync::default(),
+        };
+        lib.migrate().unwrap();
+        lib.migrate().unwrap(); // and again: every launch runs it
+
+        // Nothing about any document changed — not its path, title, pin,
+        // archive flag, notes, dates, or where its trashed file is.
+        assert_eq!(dump(&lib.conn, documents), before_docs);
+        for (q, before) in old_tables.iter().zip(&before_old) {
+            assert_eq!(&dump(&lib.conn, q), before, "{q} changed");
+        }
+        // The organisation arrived as labels.
+        let names = |doc| {
+            let mut v: Vec<String> = lib
+                .labels_by_doc()
+                .unwrap()
+                .remove(&doc)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|l| l.name)
+                .collect();
+            v.sort();
+            v
+        };
+        assert_eq!(names(1), vec!["Liturgy › Advent", "draft", "urgent"]);
+        assert_eq!(names(2), vec!["Liturgy"], "even on the trashed document");
+        assert_eq!(names(3), vec!["draft"]);
+        // The project keeps its order and its root.
+        let snap = lib.export_snapshot().unwrap();
+        assert_eq!(
+            snap.projects[0].documents,
+            vec![archived.clone(), live.clone()]
+        );
+        assert_eq!(snap.projects[0].root, Some(live.clone()));
+        // The renamed title (My Journal ≠ the file's "journal"?) is kept: the
+        // file gives "journal", the library had "My Journal".
+        lib.upsert_document(&archived).unwrap();
+        assert_eq!(lib.doc_by_id(3).unwrap().unwrap().title, "My Journal");
+
+        // The trashed document can still be brought back, file and all.
+        lib.restore_from_trash(2).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&binned).unwrap(),
+            "= Old draft\nSomething I may want back.\n"
+        );
+        assert!(!lib.doc_by_id(2).unwrap().unwrap().archived);
+        // And the writing itself was never touched.
+        assert_eq!(
+            std::fs::read_to_string(&live).unwrap(),
+            "= Sermon\nMy writing.\n"
+        );
+    }
+
+    #[test]
+    fn if_the_label_migration_cannot_run_the_library_still_opens_and_lists_everything() {
+        // Make it fail: a table named `labels` of the wrong shape is in the way.
+        let work = TempDir::new().unwrap();
+        let mut lib = legacy_library(&work);
+        lib.conn
+            .execute_batch(
+                "CREATE TABLE labels (unrelated INTEGER);
+                 INSERT INTO tags (name) VALUES ('draft'); INSERT INTO doc_tags VALUES (1, 1);",
+            )
+            .unwrap();
+        lib.migrate()
+            .expect("a failed label migration must not fail the open");
+        assert!(
+            !labels_migrated(&lib.conn),
+            "so it is tried again next time"
+        );
+        // Documents are all there and listable, and the old tags untouched.
+        assert_eq!(
+            lib.documents(LibraryFilter::All, "", SortOrder::Title)
+                .unwrap()
+                .len(),
+            4
+        );
+        let tags: i64 = lib
+            .conn
+            .query_row("SELECT COUNT(*) FROM doc_tags", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(tags, 1);
+        // Nothing was half-done.
+        let rows: i64 = lib
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('labels')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(rows, 1, "the table in the way is as it was");
+    }
+
+    #[test]
+    fn a_machines_name_stays_while_it_stays_put_and_changes_when_the_library_moves() {
+        let (lib, _w) = fixture();
+        let on_a = lib.machine_id_on("laptop").unwrap();
+        assert_eq!(lib.machine_id_on("laptop").unwrap(), on_a);
+        // The same library file turning up on another computer must not share
+        // the first one's name — the two would write the same files.
+        let on_b = lib.machine_id_on("desktop").unwrap();
+        assert_ne!(on_b, on_a);
+        assert_eq!(lib.machine_id_on("desktop").unwrap(), on_b);
+        // A library named before the computer was recorded keeps its name.
+        let (old, _w2) = fixture();
+        old.set_note("machine_id", "m-0123456789ab").unwrap();
+        assert_eq!(old.machine_id_on("anywhere").unwrap(), "m-0123456789ab");
+        assert_eq!(old.machine_id_on("anywhere").unwrap(), "m-0123456789ab");
+        assert_ne!(old.machine_id_on("elsewhere").unwrap(), "m-0123456789ab");
     }
 }
 

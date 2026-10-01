@@ -114,15 +114,14 @@ impl LibraryWindow {
         while let Some(child) = self.bottom_filter_list.first_child() {
             self.bottom_filter_list.remove(&child);
         }
-        let trash_row =
-            make_filter_row("trash", "user-trash-symbolic", "Trash", Some(counts.trash));
-        {
-            let this = self.clone();
-            self.add_doc_drop_target(&trash_row, move |doc_id| {
-                this.trash_document(doc_id);
-            });
-        }
-        self.bottom_filter_list.append(&trash_row);
+        // Not a drop target: a drag that slipped onto it would move a document's
+        // file out of its folder, and nothing about dragging should do that.
+        self.bottom_filter_list.append(&make_filter_row(
+            "trash",
+            "user-trash-symbolic",
+            "Trash",
+            Some(counts.trash),
+        ));
         self.bottom_filter_list.append(&make_filter_row(
             "archive",
             "view-archive-symbolic",
