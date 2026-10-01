@@ -203,6 +203,10 @@ impl LibraryWindow {
         sort_dropdown.set_selected(sort_to_index(&sort_from_pref(&prefs.sort)));
         let view_menu = gtk4::gio::Menu::new();
         view_menu.append(Some("Compact list"), Some("view.compact"));
+        view_menu.append(
+            Some("Save labels and notes in the folder"),
+            Some("view.export"),
+        );
         let view_btn = gtk4::MenuButton::new();
         view_btn.set_icon_name("open-menu-symbolic");
         view_btn.set_menu_model(Some(&view_menu));
@@ -465,6 +469,18 @@ impl LibraryWindow {
                 this.populate_doc_list();
             });
             group.add_action(&compact);
+
+            let export = gtk4::gio::SimpleAction::new_stateful(
+                "export",
+                None,
+                &self.config.borrow().library.export.to_variant(),
+            );
+            export.connect_activate(move |action, _| {
+                let on = !action.state().and_then(|s| s.get::<bool>()).unwrap_or(true);
+                action.set_state(&on.to_variant());
+                crate::config::update(|c| c.library.export = on).ok();
+            });
+            group.add_action(&export);
             self.window.insert_action_group("view", Some(&group));
         }
         self.install_doc_actions();
@@ -712,12 +728,40 @@ impl LibraryWindow {
             &self.work_dir,
             self.config.borrow().bib_path.as_deref(),
         );
+        self.announce_folder_export();
         let changed = self.library.borrow_mut().set_bibliography(bib);
         if changed {
             self.library.borrow_mut().resync_authors();
         }
         self.populate_filter_list();
         self.populate_doc_list();
+    }
+
+    /// Says, once, that labels, projects and notes are now also kept in the
+    /// folder — a hidden folder appearing in someone's documents, which then
+    /// goes wherever the folder goes, deserves a word.
+    fn announce_folder_export(&self) {
+        let prefs = self.config.borrow().library.clone();
+        if !prefs.export || prefs.export_announced {
+            return;
+        }
+        let exported = self
+            .library
+            .borrow()
+            .export_records()
+            .map(|r| !r.is_empty())
+            .unwrap_or(false);
+        if !exported {
+            return;
+        }
+        let toast = adw::Toast::new(
+            "Your labels, projects and notes are now also saved in your Zerkalo folder \
+             (.zerkalo/library), so they back up with it. You can turn this off in the View menu.",
+        );
+        toast.set_use_markup(false);
+        toast.set_timeout(12);
+        self.toast_overlay.add_toast(toast);
+        crate::config::update(|c| c.library.export_announced = true).ok();
     }
 
     pub fn window(&self) -> &adw::Window {

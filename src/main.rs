@@ -29,6 +29,7 @@ mod import_log;
 mod imposition;
 mod keybindings;
 mod library;
+mod library_export;
 mod lsp;
 mod print_layout;
 mod project;

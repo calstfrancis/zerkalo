@@ -124,6 +124,7 @@ impl AppWindow {
             let library_bg = library.clone();
             let work_dir_bg = config.work_dir.clone();
             let global_bib_bg = config.bib_path.clone();
+            let folder_bg = config.work_dir.clone();
             // Plain mpsc polled from the main loop, matching every other
             // worker handoff in this file. `MainContext::channel` was
             // deprecated in favour of an async channel, and this codebase has
@@ -156,6 +157,9 @@ impl AppWindow {
                     Ok(lib) => {
                         *library_bg.borrow_mut() = lib;
                         tracing::info!("Library DB ready");
+                        // Only now: before this the library is an empty
+                        // placeholder with nothing to export.
+                        start_folder_export(library_bg.clone(), folder_bg.clone());
                         glib::ControlFlow::Break
                     }
                     Err(std::sync::mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
@@ -3497,6 +3501,41 @@ fn extract_doc_title(content: &str) -> Option<String> {
 /// Strip pandoc's generated `#set` preamble from a standalone Typst output so we can
 /// replace it with a Zerkalo template section.
 #[cfg_attr(not(test), allow(dead_code))]
+/// Keeps the copy of the library's labels, projects and notes in the Zerkalo
+/// folder (`library_export`) up to date: checks every few seconds whether
+/// anything in the library has been written, and exports if so. The first pass
+/// of a session also checks the files on disk; later ones trust what they last
+/// wrote, which keeps them cheap.
+fn start_folder_export(library: Rc<RefCell<Library>>, folder: PathBuf) {
+    let last: Rc<std::cell::Cell<Option<i64>>> = Rc::new(std::cell::Cell::new(None));
+    let verified = Rc::new(std::cell::Cell::new(false));
+    glib::timeout_add_local(Duration::from_secs(3), move || {
+        if !crate::config::shared().borrow().library.export || !folder.is_dir() {
+            return glib::ControlFlow::Continue;
+        }
+        let stamp = library.borrow().change_stamp();
+        if verified.get() && last.get() == Some(stamp) {
+            return glib::ControlFlow::Continue;
+        }
+        let report = crate::library_export::export(&library.borrow(), &folder, !verified.get());
+        verified.set(true);
+        // Exporting records what it wrote, which moves the stamp itself.
+        last.set(Some(library.borrow().change_stamp()));
+        if report.written > 0 || report.left_alone > 0 || !report.errors.is_empty() {
+            tracing::info!(
+                "Library export: {} written, {} left alone (changed elsewhere), {} outside the folder",
+                report.written,
+                report.left_alone,
+                report.outside_folder
+            );
+        }
+        for e in &report.errors {
+            tracing::warn!("Library export: {e}");
+        }
+        glib::ControlFlow::Continue
+    });
+}
+
 fn load_app_css() {
     crate::ui::styles::load_global_css();
     crate::ui::styles::pin_icon_theme();

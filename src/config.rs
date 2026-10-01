@@ -262,6 +262,13 @@ pub struct LibraryPrefs {
     /// Whether the sidebar's Authors section is unfolded.
     #[serde(default)]
     pub authors_open: bool,
+    /// Keep a copy of labels, projects, pins and notes in the Zerkalo folder
+    /// (`.zerkalo/library/`) so they back up and travel with it.
+    #[serde(default = "default_true")]
+    pub export: bool,
+    /// Whether the one-time "this is now saved in the folder" notice was shown.
+    #[serde(default)]
+    pub export_announced: bool,
     #[serde(default = "default_library_width")]
     pub width: i32,
     #[serde(default = "default_library_height")]
@@ -274,6 +281,8 @@ impl Default for LibraryPrefs {
             sort: default_library_sort(),
             compact: false,
             authors_open: false,
+            export: true,
+            export_announced: false,
             width: default_library_width(),
             height: default_library_height(),
         }

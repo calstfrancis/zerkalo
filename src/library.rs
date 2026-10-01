@@ -89,6 +89,36 @@ pub struct Document {
     pub words: Option<usize>,
 }
 
+/// One document's own data, as the folder export writes it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DocState {
+    pub path: PathBuf,
+    /// Only when the user renamed it in the Library; otherwise the title comes
+    /// from the file and there is nothing to save.
+    pub title: Option<String>,
+    pub pinned: bool,
+    pub archived: bool,
+    pub notes: Option<String>,
+    pub labels: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProjectState {
+    pub name: String,
+    pub root: Option<PathBuf>,
+    /// In the project's own order.
+    pub documents: Vec<PathBuf>,
+}
+
+/// Everything the library knows that isn't recoverable from the documents
+/// themselves — what the folder export writes out.
+#[derive(Clone, Debug, Default)]
+pub struct Snapshot {
+    pub docs: Vec<DocState>,
+    pub labels: Vec<Label>,
+    pub projects: Vec<ProjectState>,
+}
+
 /// How many documents the Recent view lists at most.
 const RECENT_LIMIT: u32 = 30;
 
@@ -485,7 +515,13 @@ impl Library {
                  label_id INTEGER NOT NULL REFERENCES labels(id) ON DELETE CASCADE,
                  PRIMARY KEY (doc_id, label_id)
              );
-             CREATE INDEX IF NOT EXISTS idx_doc_labels_label ON doc_labels(label_id);",
+             CREATE INDEX IF NOT EXISTS idx_doc_labels_label ON doc_labels(label_id);
+             -- What the folder export last wrote to each file, so it can tell a
+             -- file it wrote (and may update) from one that changed elsewhere.
+             CREATE TABLE IF NOT EXISTS export_files (
+                 path TEXT PRIMARY KEY,
+                 content TEXT NOT NULL
+             );",
         )?;
         self.migrate_to_labels()?;
         Ok(())
@@ -1307,6 +1343,100 @@ impl Library {
     pub fn remove_document(&mut self, doc_id: i64) -> SqlResult<()> {
         self.conn
             .execute("DELETE FROM documents WHERE id = ?1", params![doc_id])?;
+        Ok(())
+    }
+
+    // ── folder export ────────────────────────────────────────────────────
+
+    /// A count that moves whenever anything in the library is written, however
+    /// small — cheap to poll to learn "something may have changed".
+    pub fn change_stamp(&self) -> i64 {
+        self.conn.total_changes() as i64
+    }
+
+    /// The library's own data, ready to write out. Documents in the Trash are
+    /// left out.
+    pub fn export_snapshot(&self) -> SqlResult<Snapshot> {
+        let mut labels_of = self.labels_by_doc()?;
+        let mut stmt = self.conn.prepare(
+            "SELECT id, path, title, title_custom, pinned, archived, notes
+             FROM documents WHERE deleted = 0 ORDER BY path",
+        )?;
+        let docs = stmt
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    DocState {
+                        path: PathBuf::from(r.get::<_, String>(1)?),
+                        title: if r.get::<_, i64>(3)? != 0 {
+                            Some(r.get::<_, String>(2)?)
+                        } else {
+                            None
+                        },
+                        pinned: r.get::<_, i64>(4)? != 0,
+                        archived: r.get::<_, i64>(5)? != 0,
+                        notes: r
+                            .get::<_, Option<String>>(6)?
+                            .filter(|n| !n.trim().is_empty()),
+                        labels: Vec::new(),
+                    },
+                ))
+            })?
+            .collect::<SqlResult<Vec<_>>>()?;
+        let docs = docs
+            .into_iter()
+            .map(|(id, mut d)| {
+                d.labels = labels_of
+                    .remove(&id)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|l| l.name)
+                    .collect();
+                d
+            })
+            .collect();
+
+        let mut projects = Vec::new();
+        for p in self.all_projects()? {
+            let root = match p.root_doc_id {
+                Some(id) => self.doc_by_id(id)?.map(|d| d.path),
+                None => None,
+            };
+            let mut stmt = self.conn.prepare(
+                "SELECT d.path FROM project_docs pd JOIN documents d ON d.id = pd.doc_id
+                 WHERE pd.project_id = ?1 AND d.deleted = 0 ORDER BY pd.position, d.title",
+            )?;
+            let documents = stmt
+                .query_map(params![p.id], |r| Ok(PathBuf::from(r.get::<_, String>(0)?)))?
+                .collect::<SqlResult<Vec<_>>>()?;
+            projects.push(ProjectState {
+                name: p.name,
+                root,
+                documents,
+            });
+        }
+        Ok(Snapshot {
+            docs,
+            labels: self.all_labels()?,
+            projects,
+        })
+    }
+
+    /// What the export last wrote to each of its files, by path under the
+    /// export folder.
+    pub fn export_records(&self) -> SqlResult<std::collections::HashMap<String, String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT path, content FROM export_files")?;
+        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        rows.collect()
+    }
+
+    pub fn set_export_record(&self, path: &str, content: &str) -> SqlResult<()> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO export_files (path, content) VALUES (?1, ?2)",
+            params![path, content],
+        )?;
         Ok(())
     }
 
