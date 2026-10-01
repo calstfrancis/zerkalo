@@ -118,14 +118,32 @@ pub fn resolve(
 }
 
 /// How to write `source` in a `#bibliography(...)` line of `doc`: relative to
-/// the document when the file sits beside it or below it (so the folder can
-/// move between computers), otherwise the full path.
-pub fn path_for_document(source: &Path, doc: &Path) -> PathBuf {
+/// the document whenever the file is inside the project (so the folder can
+/// move between computers, and a chapter in a sub-folder reaches a file at the
+/// project's top with `../`), otherwise the full path.
+pub fn path_for_document(source: &Path, doc: &Path, project_root: &Path) -> PathBuf {
+    let canon = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
     let target = crate::bibliography::bib_target_path(source);
-    match doc.parent().and_then(|dir| target.strip_prefix(dir).ok()) {
-        Some(rel) if !rel.as_os_str().is_empty() => rel.to_path_buf(),
-        _ => target,
+    let (root, target_c) = (canon(project_root), canon(&target));
+    let Some(doc_dir) = doc.parent().map(canon) else {
+        return target;
+    };
+    if !target_c.starts_with(&root) || !doc_dir.starts_with(&root) {
+        return target;
     }
+    let (t, d): (Vec<_>, Vec<_>) = (
+        target_c.components().collect(),
+        doc_dir.components().collect(),
+    );
+    let common = t.iter().zip(&d).take_while(|(a, b)| a == b).count();
+    let mut rel = PathBuf::new();
+    for _ in common..d.len() {
+        rel.push("..");
+    }
+    for c in &t[common..] {
+        rel.push(c);
+    }
+    rel
 }
 
 #[cfg(test)]
@@ -226,10 +244,32 @@ mod tests {
     #[test]
     fn inside_the_project_the_document_gets_a_relative_path() {
         let dir = tempfile::tempdir().unwrap();
-        let doc = dir.path().join("essay.typ");
-        let bib = dir.path().join("lib").join("refs.bib");
-        assert_eq!(path_for_document(&bib, &doc), PathBuf::from("lib/refs.bib"));
+        let root = dir.path();
+        let doc = root.join("essay.typ");
+        let bib = root.join("lib").join("refs.bib");
+        assert_eq!(
+            path_for_document(&bib, &doc, root),
+            PathBuf::from("lib/refs.bib")
+        );
         let elsewhere = PathBuf::from("/other/place/refs.bib");
-        assert_eq!(path_for_document(&elsewhere, &doc), elsewhere);
+        assert_eq!(path_for_document(&elsewhere, &doc, root), elsewhere);
+    }
+
+    #[test]
+    fn a_chapter_in_a_subfolder_reaches_the_top_with_dots() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("chapters/deep")).unwrap();
+        let bib = write(root, "references.bib", "");
+        let doc = root.join("chapters/deep/ch1.typ");
+        assert_eq!(
+            path_for_document(&bib, &doc, root),
+            PathBuf::from("../../references.bib")
+        );
+        let sibling = root.join("chapters/ch2.typ");
+        assert_eq!(
+            path_for_document(&bib, &sibling, root),
+            PathBuf::from("../references.bib")
+        );
     }
 }

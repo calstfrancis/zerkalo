@@ -3,14 +3,36 @@ use std::rc::Rc;
 
 use gtk4::prelude::*;
 use gtk4::{
-    Align, Box as GtkBox, Button, Label, ListBox, ListBoxRow, Orientation, Revealer,
-    RevealerTransitionType, ScrolledWindow, SearchEntry, SelectionMode, Separator,
+    Align, Box as GtkBox, Button, CheckButton, Label, ListBox, ListBoxRow, MenuButton, Orientation,
+    Popover, Revealer, RevealerTransitionType, ScrolledWindow, SearchEntry, SelectionMode,
+    Separator,
 };
 
 use crate::bibliography::BibEntry;
 
 type InsertCb = Rc<RefCell<Option<Box<dyn Fn(String)>>>>;
 type ChooseCb = Rc<RefCell<Option<Box<dyn Fn()>>>>;
+type SourcesCb = Rc<RefCell<Option<Box<dyn Fn(SourcesAction)>>>>;
+
+/// What the Sources menu asks for beyond choosing a file, vault or new file
+/// (those have their own callbacks).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SourcesAction {
+    ConnectZotero,
+    PickFromZotero,
+    KeepCopy(bool),
+    TellKartoteka(bool),
+    Freeze,
+}
+
+/// How the Sources menu's switches and optional items should look.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SourcesState {
+    pub keep_copy: bool,
+    pub tell_kartoteka: bool,
+    pub vault_in_use: bool,
+    pub zotero_ready: bool,
+}
 
 /// The panel connects to either a bibliography or a Skrizhal CV-element
 /// database, never both at once — `cv_mode` mirrors the active document's
@@ -32,6 +54,14 @@ pub struct CitationPanel {
     on_open_skrizhal: ChooseCb,
     on_open_kartoteka: ChooseCb,
     choose_btn: Button,
+    sources_btn: MenuButton,
+    on_sources: SourcesCb,
+    keep_copy_check: CheckButton,
+    tell_kartoteka_check: CheckButton,
+    zotero_pick_btn: Button,
+    /// Set while the menu's switches are being set from outside, so that
+    /// doing so doesn't look like the person clicking them.
+    syncing_switches: Rc<Cell<bool>>,
     new_bib_btn: Button,
     vault_btn: Button,
     kartoteka_btn: Button,
@@ -100,6 +130,7 @@ impl CitationPanel {
         vault_btn.update_property(&[gtk4::accessible::Property::Label(
             "Choose a Kartoteka vault folder",
         )]);
+        vault_btn.set_visible(false);
         header_box.append(&vault_btn);
 
         // Bib mode only — launches (or focuses, if already running) the actual Kartoteka
@@ -111,6 +142,7 @@ impl CitationPanel {
         kartoteka_btn.add_css_class("circular");
         kartoteka_btn.set_tooltip_text(Some("Open Kartoteka"));
         kartoteka_btn.update_property(&[gtk4::accessible::Property::Label("Open Kartoteka")]);
+        kartoteka_btn.set_visible(false);
         header_box.append(&kartoteka_btn);
 
         let choose_btn = Button::from_icon_name("document-open-symbolic");
@@ -122,6 +154,7 @@ impl CitationPanel {
         choose_btn.update_property(&[gtk4::accessible::Property::Label(
             "Choose bibliography file",
         )]);
+        choose_btn.set_visible(false);
         header_box.append(&choose_btn);
 
         // Bib mode only — creates a new, empty .bib file so a first-time user
@@ -133,7 +166,94 @@ impl CitationPanel {
         new_bib_btn.update_property(&[gtk4::accessible::Property::Label(
             "Start a new bibliography",
         )]);
+        new_bib_btn.set_visible(false);
         header_box.append(&new_bib_btn);
+
+        // The one place to say where citations come from. It replaces the row of
+        // small icons that used to do this (they are still created for CV mode's
+        // sake, or hidden here).
+        let on_sources: SourcesCb = Rc::new(RefCell::new(None));
+        let syncing_switches = Rc::new(Cell::new(false));
+        let sources_btn = MenuButton::new();
+        sources_btn.set_label("Sources");
+        sources_btn.add_css_class("flat");
+        sources_btn.set_tooltip_text(Some("Where your citations come from"));
+        let popover = Popover::new();
+        let menu_box = GtkBox::new(Orientation::Vertical, 2);
+        menu_box.set_margin_top(6);
+        menu_box.set_margin_bottom(6);
+        menu_box.set_margin_start(6);
+        menu_box.set_margin_end(6);
+        let item = |label: &str, tip: &str| {
+            let b = Button::with_label(label);
+            b.add_css_class("flat");
+            b.set_halign(Align::Fill);
+            if let Some(child) = b.child().and_then(|c| c.downcast::<Label>().ok()) {
+                child.set_xalign(0.0);
+            }
+            b.set_tooltip_text(Some(tip));
+            b
+        };
+        let pop_for = |b: &Button, f: Box<dyn Fn()>| {
+            let pop = popover.clone();
+            b.connect_clicked(move |_| {
+                pop.popdown();
+                f();
+            });
+        };
+        let choose_item = item(
+            "Choose a file…",
+            "A .bib or .yaml file — such as the one Zotero keeps updated",
+        );
+        let vault_item = item(
+            "Choose a Kartoteka vault…",
+            "Cite from your Kartoteka library, live",
+        );
+        let new_item = item(
+            "Start a new bibliography…",
+            "Make an empty .bib file to add sources to",
+        );
+        let zotero_item = item(
+            "Connect Zotero…",
+            "How to keep Zotero's export up to date here",
+        );
+        let zotero_pick = item(
+            "Pick from Zotero…",
+            "Open Zotero's own picker and cite what you choose",
+        );
+        zotero_pick.set_visible(false);
+        let freeze_item = item(
+            "Freeze for submission…",
+            "Save a small file holding only the sources this document cites, and point the document at it",
+        );
+        let kartoteka_item = item("Open Kartoteka", "Open the Kartoteka app");
+        let keep_copy_check = CheckButton::with_label("Keep a copy in the project");
+        keep_copy_check.set_tooltip_text(Some(
+            "When you choose a library stored elsewhere, keep an up-to-date copy in this folder so your document compiles on any computer. Copies already made keep updating.",
+        ));
+        keep_copy_check.set_margin_start(8);
+        let tell_kartoteka_check =
+            CheckButton::with_label("Tell Kartoteka which documents cite its sources");
+        tell_kartoteka_check.set_tooltip_text(Some(
+            "Adds one small file to the vault's projects folder so Kartoteka can show where each source is used. Off unless you turn it on.",
+        ));
+        tell_kartoteka_check.set_margin_start(8);
+        tell_kartoteka_check.set_visible(false);
+
+        menu_box.append(&choose_item);
+        menu_box.append(&vault_item);
+        menu_box.append(&new_item);
+        menu_box.append(&Separator::new(Orientation::Horizontal));
+        menu_box.append(&zotero_item);
+        menu_box.append(&zotero_pick);
+        menu_box.append(&Separator::new(Orientation::Horizontal));
+        menu_box.append(&keep_copy_check);
+        menu_box.append(&tell_kartoteka_check);
+        menu_box.append(&freeze_item);
+        menu_box.append(&kartoteka_item);
+        popover.set_child(Some(&menu_box));
+        sources_btn.set_popover(Some(&popover));
+        header_box.append(&sources_btn);
 
         // Furthest right on the bar, matching Comments' and Packages'
         // collapse toggle — collapsing hides everything below the header via
@@ -292,6 +412,77 @@ impl CitationPanel {
             });
         }
 
+        // Sources menu items.
+        {
+            let cb = on_choose_bib.clone();
+            pop_for(
+                &choose_item,
+                Box::new(move || {
+                    if let Some(f) = cb.borrow().as_ref() {
+                        f();
+                    }
+                }),
+            );
+            let cb = on_choose_vault.clone();
+            pop_for(
+                &vault_item,
+                Box::new(move || {
+                    if let Some(f) = cb.borrow().as_ref() {
+                        f();
+                    }
+                }),
+            );
+            let cb = on_new_bib.clone();
+            pop_for(
+                &new_item,
+                Box::new(move || {
+                    if let Some(f) = cb.borrow().as_ref() {
+                        f();
+                    }
+                }),
+            );
+            let cb = on_open_kartoteka.clone();
+            pop_for(
+                &kartoteka_item,
+                Box::new(move || {
+                    if let Some(f) = cb.borrow().as_ref() {
+                        f();
+                    }
+                }),
+            );
+            for (btn, action) in [
+                (&zotero_item, SourcesAction::ConnectZotero),
+                (&zotero_pick, SourcesAction::PickFromZotero),
+                (&freeze_item, SourcesAction::Freeze),
+            ] {
+                let cb = on_sources.clone();
+                pop_for(
+                    btn,
+                    Box::new(move || {
+                        if let Some(f) = cb.borrow().as_ref() {
+                            f(action);
+                        }
+                    }),
+                );
+            }
+            let (cb, guard) = (on_sources.clone(), syncing_switches.clone());
+            keep_copy_check.connect_toggled(move |c| {
+                if !guard.get() {
+                    if let Some(f) = cb.borrow().as_ref() {
+                        f(SourcesAction::KeepCopy(c.is_active()));
+                    }
+                }
+            });
+            let (cb, guard) = (on_sources.clone(), syncing_switches.clone());
+            tell_kartoteka_check.connect_toggled(move |c| {
+                if !guard.get() {
+                    if let Some(f) = cb.borrow().as_ref() {
+                        f(SourcesAction::TellKartoteka(c.is_active()));
+                    }
+                }
+            });
+        }
+
         let panel = Self {
             widget,
             list,
@@ -308,6 +499,12 @@ impl CitationPanel {
             on_open_skrizhal,
             on_open_kartoteka,
             choose_btn,
+            sources_btn,
+            on_sources,
+            keep_copy_check,
+            tell_kartoteka_check,
+            zotero_pick_btn: zotero_pick,
+            syncing_switches,
             new_bib_btn,
             vault_btn,
             kartoteka_btn,
@@ -416,6 +613,8 @@ impl CitationPanel {
                 .update_property(&[gtk4::accessible::Property::Label("Choose CV element file")]);
             self.bib_name_label.set_visible(false);
             self.skrizhal_btn.set_visible(true);
+            self.choose_btn.set_visible(true);
+            self.sources_btn.set_visible(false);
             self.vault_btn.set_visible(false);
             self.kartoteka_btn.set_visible(false);
             self.new_bib_btn.set_visible(false);
@@ -431,9 +630,13 @@ impl CitationPanel {
                     "Choose bibliography file",
                 )]);
             self.skrizhal_btn.set_visible(false);
-            self.vault_btn.set_visible(true);
-            self.kartoteka_btn.set_visible(true);
-            self.new_bib_btn.set_visible(true);
+            // The Sources menu replaces the separate file / vault / new / Kartoteka
+            // icons.
+            self.choose_btn.set_visible(false);
+            self.sources_btn.set_visible(true);
+            self.vault_btn.set_visible(false);
+            self.kartoteka_btn.set_visible(false);
+            self.new_bib_btn.set_visible(false);
             self.refresh_filename_label(self.bib_filename.borrow().as_deref());
         }
         let query = self.search.text();
@@ -458,6 +661,21 @@ impl CitationPanel {
 
     pub fn set_on_open_skrizhal(&self, f: impl Fn() + 'static) {
         *self.on_open_skrizhal.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn set_on_sources(&self, f: impl Fn(SourcesAction) + 'static) {
+        *self.on_sources.borrow_mut() = Some(Box::new(f));
+    }
+
+    /// Brings the Sources menu's switches and optional items in line with the
+    /// current settings, without it counting as a click.
+    pub fn set_sources_state(&self, state: SourcesState) {
+        self.syncing_switches.set(true);
+        self.keep_copy_check.set_active(state.keep_copy);
+        self.tell_kartoteka_check.set_active(state.tell_kartoteka);
+        self.syncing_switches.set(false);
+        self.tell_kartoteka_check.set_visible(state.vault_in_use);
+        self.zotero_pick_btn.set_visible(state.zotero_ready);
     }
 
     pub fn set_on_choose_vault(&self, f: impl Fn() + 'static) {

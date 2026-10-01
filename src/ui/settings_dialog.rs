@@ -876,6 +876,8 @@ impl SettingsDialog {
             // saving preferences doesn't reset the last-used print settings.
             let print_cur = current.print.clone();
             let library_cur = current.library.clone();
+            let mirror_cur = current.mirror_bibliography;
+            let tell_kartoteka_cur = current.tell_kartoteka;
             let snippets_cur = current.snippets.clone();
             move || {
                 let work_dir_text = work_dir_row.text().trim().to_string();
@@ -944,6 +946,8 @@ impl SettingsDialog {
                     recent_files: recent_files_cur.clone(),
                     recent_projects: recent_projects_cur.clone(),
                     bib_path,
+                    mirror_bibliography: mirror_cur,
+                    tell_kartoteka: tell_kartoteka_cur,
                     cv_elements_path,
                     custom_csl_path,
                     debounce_ms: debounce_spin.value() as u64,

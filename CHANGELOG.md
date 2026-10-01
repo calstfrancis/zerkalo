@@ -15,6 +15,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`#bibliography(...)` is read properly:** `style:` before the path, calls split over several lines, and a list of files no longer confuse it; choosing a source never touches a call it can't safely edit.
 - **Switching bibliography now takes effect everywhere and keeps watching the right file.**
 
+### Added
+
+- **A Sources menu in the Citations panel** replaces the row of small icons: choose a file or Kartoteka vault, start a new bibliography, connect Zotero, pick from Zotero, keep a copy in the project, freeze for submission.
+- **Zotero with Better BibTeX:** *Connect Zotero…* walks through keeping an export up to date in your folder (and recommends Better BibTeX); *Pick from Zotero…* opens Zotero's own picker and inserts the `@key`s you choose. It talks only to Zotero on your own computer.
+- **Documents that work on any computer.** A bibliography stored outside the project is now mirrored into it (`references.bib`, marked as Zerkalo's) and kept up to date; the document points at the copy by a relative path, so it compiles wherever the folder is synced. Zerkalo only ever rewrites files it made itself — never one of yours. *Keep a copy in the project* can be turned off to keep linking instead.
+- **Freeze for submission:** writes a small `.bib` with only the sources a document cites and points the document at it (undoable).
+- **Tell Kartoteka which documents cite its sources** (off by default): with a vault as the source, writes one small, marked file to the vault's `projects/` folder, named for this computer, so Kartoteka's *Used in* works.
+
 ### Changed
 
 - **One citation search everywhere.** The `@` popup, the Citations panel and the References window now find the same things: type words in any order ("butler gender 90"), ignoring case and accents ("zizek" finds Žižek), across author, title, year, key and journal/publisher. Works your document already cites come first, marked ●. The popup shows the best 60 and narrows as you type.

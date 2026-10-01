@@ -7,6 +7,7 @@
 mod assets;
 mod authors;
 mod auto_save;
+mod bib_mirror;
 mod bib_sanitize;
 mod bib_source;
 mod bibliography;
@@ -30,6 +31,7 @@ mod github_auth;
 mod i18n;
 mod import_log;
 mod imposition;
+mod kartoteka_link;
 mod keybindings;
 mod library;
 mod library_export;
@@ -48,6 +50,7 @@ mod ui;
 mod user_templates;
 mod web_export;
 mod writing_log;
+mod zotero;
 
 use std::cell::RefCell;
 use std::env;

@@ -11,7 +11,7 @@ use adw::prelude::*;
 use gtk4::prelude::*;
 use libadwaita as adw;
 
-use super::super::citation_panel::CitationPanel;
+use super::super::citation_panel::{CitationPanel, SourcesAction, SourcesState};
 use super::super::editor_pane::EditorPane;
 use super::super::ref_manager::RefManager;
 use super::bib_manager::BibManager;
@@ -37,6 +37,7 @@ pub(super) fn wire_citations(ctx: &CitationCtx) -> Rc<RefCell<Option<PathBuf>>> 
     // document is open this is the project / Settings choice, else the one
     // bibliography found in the project folder.
     ctx.bib_manager.refresh(None);
+    ctx.bib_manager.watch_for_mirror();
     let auto_detected_bib: Rc<RefCell<Option<std::path::PathBuf>>> =
         Rc::new(RefCell::new(ctx.bib_manager.found_in_folder()));
 
@@ -91,30 +92,10 @@ pub(super) fn wire_citations(ctx: &CitationCtx) -> Rc<RefCell<Option<PathBuf>>> 
     // ── Citation panel: choose bib file button ────────────────────────────
 
     {
-        let win_for_bib = ctx.window.clone();
+        let win = ctx.window.clone();
         let manager = ctx.bib_manager.clone();
-        ctx.citation_panel.set_on_choose_bib(move || {
-            let dialog = gtk4::FileDialog::new();
-            dialog.set_title("Choose Bibliography File");
-            let filter = gtk4::FileFilter::new();
-            filter.set_name(Some("Bibliography files (*.bib, *.yaml, *.yml)"));
-            filter.add_pattern("*.bib");
-            filter.add_pattern("*.yaml");
-            filter.add_pattern("*.yml");
-            let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
-            filters.append(&filter);
-            dialog.set_filters(Some(&filters));
-            let manager = manager.clone();
-            dialog.open(
-                Some(&win_for_bib),
-                None::<&gtk4::gio::Cancellable>,
-                move |result| {
-                    if let Some(path) = result.ok().and_then(|f| f.path()) {
-                        manager.choose(path);
-                    }
-                },
-            );
-        });
+        ctx.citation_panel
+            .set_on_choose_bib(move || choose_file_dialog(&win, &manager));
     }
 
     // ── Citation panel + reference manager: start a new bibliography ──────
@@ -154,6 +135,137 @@ pub(super) fn wire_citations(ctx: &CitationCtx) -> Rc<RefCell<Option<PathBuf>>> 
                     }
                 },
             );
+        });
+    }
+
+    // ── Citation panel: the Sources menu ─────────────────────────────────
+
+    {
+        let zotero_ready = Rc::new(std::cell::Cell::new(false));
+        let refresh_state = {
+            let (panel, cfg, manager, zr) = (
+                ctx.citation_panel.clone(),
+                ctx.current_config.clone(),
+                ctx.bib_manager.clone(),
+                zotero_ready.clone(),
+            );
+            move || {
+                let c = cfg.borrow();
+                panel.set_sources_state(SourcesState {
+                    keep_copy: c.mirror_bibliography,
+                    tell_kartoteka: c.tell_kartoteka,
+                    vault_in_use: manager.vault_in_use(),
+                    zotero_ready: zr.get(),
+                });
+            }
+        };
+        refresh_state();
+        // Cheap: only sets a few widget properties.
+        glib::timeout_add_local(Duration::from_secs(2), {
+            let refresh_state = refresh_state.clone();
+            move || {
+                refresh_state();
+                glib::ControlFlow::Continue
+            }
+        });
+        // Is Zotero (with Better BibTeX) running? Asked in the background.
+        glib::timeout_add_local(Duration::from_secs(15), {
+            let zr = zotero_ready.clone();
+            move || {
+                let zr = zr.clone();
+                glib::spawn_future_local(async move {
+                    if let Ok(up) = gtk4::gio::spawn_blocking(crate::zotero::is_available).await {
+                        zr.set(up);
+                    }
+                });
+                glib::ControlFlow::Continue
+            }
+        });
+        {
+            let zr = zotero_ready.clone();
+            glib::spawn_future_local(async move {
+                if let Ok(up) = gtk4::gio::spawn_blocking(crate::zotero::is_available).await {
+                    zr.set(up);
+                }
+            });
+        }
+
+        let (win, ep, manager, cfg) = (
+            ctx.window.clone(),
+            ctx.editor_pane.clone(),
+            ctx.bib_manager.clone(),
+            ctx.current_config.clone(),
+        );
+        ctx.citation_panel.set_on_sources(move |action| match action {
+            SourcesAction::KeepCopy(on) => {
+                let mut c = cfg.borrow_mut();
+                c.mirror_bibliography = on;
+                let _ = c.save();
+            }
+            SourcesAction::TellKartoteka(on) => {
+                {
+                    let mut c = cfg.borrow_mut();
+                    c.tell_kartoteka = on;
+                    let _ = c.save();
+                }
+                manager.tell_kartoteka();
+            }
+            SourcesAction::ConnectZotero => {
+                let dlg = adw::MessageDialog::new(
+                    Some(&win),
+                    Some("Connect Zotero"),
+                    Some(
+                        "Zerkalo works best with the Better BibTeX add-on for Zotero: it gives every source a permanent nickname (like butler1990) and can keep a .bib file up to date by itself.\n\n1. In Zotero, install Better BibTeX (retorque.re/zotero-better-bibtex).\n2. Right-click your library or collection → Export… → format “Better BibLaTeX”, and tick “Keep updated”.\n3. Save it anywhere, ideally inside your Zerkalo folder.\n4. Choose that file here.\n\nFrom then on, new sources you add in Zotero appear in Zerkalo within seconds.",
+                    ),
+                );
+                dlg.add_response("cancel", "Not now");
+                dlg.add_response("choose", "Choose the file…");
+                dlg.set_response_appearance("choose", adw::ResponseAppearance::Suggested);
+                let (w, m) = (win.clone(), manager.clone());
+                dlg.connect_response(None, move |dlg, response| {
+                    dlg.close();
+                    if response == "choose" {
+                        choose_file_dialog(&w, &m);
+                    }
+                });
+                dlg.present();
+            }
+            SourcesAction::PickFromZotero => {
+                let (ep, win) = (ep.clone(), win.clone());
+                glib::spawn_future_local(async move {
+                    match gtk4::gio::spawn_blocking(crate::zotero::pick).await {
+                        Ok(Ok(keys)) if !keys.is_empty() => {
+                            ep.insert_at_cursor(&crate::zotero::insert_text(&keys));
+                        }
+                        Ok(Ok(_)) => {}
+                        Ok(Err(why)) => info_dialog(&win, "Couldn't reach Zotero", &why),
+                        Err(_) => {}
+                    }
+                });
+            }
+            SourcesAction::Freeze => {
+                let dlg = adw::MessageDialog::new(
+                    Some(&win),
+                    Some("Freeze for submission?"),
+                    Some(
+                        "This saves a small file holding only the sources this document cites, and points the document at it — so you can hand over the essay and one complete, tidy bibliography.\n\nYour main library isn't changed, and you can undo the change to the document with Ctrl+Z.",
+                    ),
+                );
+                dlg.add_response("cancel", "Cancel");
+                dlg.add_response("freeze", "Freeze");
+                dlg.set_response_appearance("freeze", adw::ResponseAppearance::Suggested);
+                let (w, m) = (win.clone(), manager.clone());
+                dlg.connect_response(None, move |dlg, response| {
+                    dlg.close();
+                    if response == "freeze" {
+                        match m.freeze_active() {
+                            Ok(msg) => info_dialog(&w, "Frozen", &msg),
+                            Err(why) => info_dialog(&w, "Couldn't freeze", &why),
+                        }
+                    }
+                });
+                dlg.present();
+            }
         });
     }
 
@@ -214,7 +326,9 @@ pub(super) fn wire_citations(ctx: &CitationCtx) -> Rc<RefCell<Option<PathBuf>>> 
         let win = ctx.window.clone();
         let project_root_for_rename = ctx.project_root.clone();
         ctx.ref_manager.set_on_rename(move |old_key, new_key| {
-            let Some(bib_path) = manager.current().map(|r| r.path) else {
+            let Some(bib_path) = manager.current().map(|r| {
+                crate::bib_mirror::origin_of(&r.path).unwrap_or(r.path)
+            }) else {
                 return;
             };
             let is_bibtex = bib_path
@@ -317,6 +431,31 @@ pub(super) fn wire_citations(ctx: &CitationCtx) -> Rc<RefCell<Option<PathBuf>>> 
     }
 
     auto_detected_bib
+}
+
+fn choose_file_dialog(win: &adw::ApplicationWindow, manager: &BibManager) {
+    let dialog = gtk4::FileDialog::new();
+    dialog.set_title("Choose Bibliography File");
+    let filter = gtk4::FileFilter::new();
+    filter.set_name(Some("Bibliography files (*.bib, *.yaml, *.yml)"));
+    filter.add_pattern("*.bib");
+    filter.add_pattern("*.yaml");
+    filter.add_pattern("*.yml");
+    let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
+    filters.append(&filter);
+    dialog.set_filters(Some(&filters));
+    let manager = manager.clone();
+    dialog.open(Some(win), None::<&gtk4::gio::Cancellable>, move |result| {
+        if let Some(path) = result.ok().and_then(|f| f.path()) {
+            manager.choose(path);
+        }
+    });
+}
+
+fn info_dialog(win: &adw::ApplicationWindow, title: &str, body: &str) {
+    let dlg = adw::MessageDialog::new(Some(win), Some(title), Some(body));
+    dlg.add_response("ok", "OK");
+    dlg.present();
 }
 
 /// Opens a save dialog for a brand-new, empty `.bib` file, then makes it the
