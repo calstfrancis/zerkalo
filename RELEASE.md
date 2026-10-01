@@ -1,8 +1,12 @@
 ### What's new
 
-Colour for the tabs.
+A Library that organises itself.
 
-**A tab bar in the Fond palette.** The selected tab is a warm ochre wash with an ochre rule beneath it, and a hovered tab takes dusty blue. They are the same muted hues Pereplyot uses for highlights, now shared across the suite through `fond.css`.
+**Labels, Organize… and author tags.** Tags and categories become simple labels (converted automatically, with a backup). Right-click a document and choose Organize… to label, file in projects and pin in one step. Every author you cite becomes a "Lastname, I." tag you can click.
+
+**Search that reads your writing**, and missing files that can be re-located instead of lost.
+
+**Your organisation travels with your backup.** Labels, projects and pins are saved as readable files in your folder, one subfolder per computer, so git sync never conflicts. Notes are included only if you turn that on.
 
 ---
 

@@ -85,6 +85,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.40.0" date="2026-10-01">
+      <description>
+        <p>0.40.0 "Tidy Glass" — a Library that organises itself. Labels replace tags and categories (your old ones are converted automatically, with a backup first); an Organize… popover files documents in one step; every author you cite becomes a "Lastname, I." tag; search reads the full text of your documents; missing files are flagged and can be re-located. Your organisation is also kept in readable files in your own folder, one subfolder per computer, so it travels with your git backup and never conflicts. Notes are included only if you opt in.</p>
+      </description>
+    </release>
     <release version="0.39.2" date="2026-09-30">
       <description>
         <p>0.39.2 "Amber Glass" — colour for the tab bar. The selected tab is a warm ochre wash with an ochre rule beneath it, and a hovered tab takes dusty blue, using the same muted highlight palette as Pereplyot, now shared across the Fond suite.</p>
