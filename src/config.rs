@@ -109,6 +109,16 @@ pub struct Config {
     pub recent_projects: Vec<PathBuf>,
     #[serde(default)]
     pub bib_path: Option<PathBuf>,
+    /// When the chosen bibliography lives outside the project folder, keep a
+    /// copy of it inside (so the document compiles on any computer the folder
+    /// is synced to). On unless the person chooses to keep it linked.
+    #[serde(default = "default_true")]
+    pub mirror_bibliography: bool,
+    /// With a Kartoteka vault as the source, tell it which documents this
+    /// project contains so it can show where each source is used. Off until
+    /// the person turns it on.
+    #[serde(default)]
+    pub tell_kartoteka: bool,
     /// Path to a Skrizhal `cv-elements.yaml`. When resolved (here or via
     /// `ProjectConfig`), the document is in "CV mode": the citation panel and
     /// `!`/`@` popup switch to browsing/inserting CV entries instead of
@@ -392,6 +402,8 @@ impl Default for Config {
             recent_files: Vec::new(),
             recent_projects: Vec::new(),
             bib_path: None,
+            mirror_bibliography: true,
+            tell_kartoteka: false,
             cv_elements_path: None,
             custom_csl_path: None,
             debounce_ms: 800,
@@ -743,5 +755,18 @@ mod tests {
         let toml_str = toml::to_string(&cfg).expect("serialize");
         let loaded: ProjectConfig = toml::from_str(&toml_str).expect("deserialize");
         assert_eq!(loaded.cv_elements_path, cfg.cv_elements_path);
+    }
+
+    #[test]
+    fn a_config_saved_before_the_sources_menu_still_loads_and_changes_nothing() {
+        let old = "bib_path = \"/home/u/Zotero/library.bib\"\ndebounce_ms = 400\n";
+        let cfg: Config = toml::from_str(old).expect("an older config file loads");
+        assert_eq!(
+            cfg.bib_path,
+            Some(std::path::PathBuf::from("/home/u/Zotero/library.bib"))
+        );
+        // The new switches default to "nothing happens until you ask".
+        assert!(!cfg.tell_kartoteka);
+        assert!(cfg.mirror_bibliography);
     }
 }

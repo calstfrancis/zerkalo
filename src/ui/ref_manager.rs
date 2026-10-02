@@ -2,7 +2,6 @@ use std::cell::RefCell;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::OnceLock;
 
 use adw::prelude::*;
 use gtk4::prelude::*;
@@ -11,21 +10,12 @@ use gtk4::{
     SelectionMode, Separator,
 };
 use libadwaita as adw;
-use regex::Regex;
 
 use crate::bibliography::BibEntry;
 
 type InsertCb = Rc<RefCell<Option<Box<dyn Fn(String)>>>>;
 type JumpCb = Rc<RefCell<Option<Box<dyn Fn(String)>>>>;
 type RenameCb = Rc<RefCell<Option<Box<dyn Fn(String, String)>>>>;
-
-static CITE_RE: OnceLock<Regex> = OnceLock::new();
-
-fn cite_re() -> &'static Regex {
-    CITE_RE.get_or_init(|| {
-        Regex::new(&format!(r"@({})", crate::bibliography::CITE_KEY_CHARS)).unwrap()
-    })
-}
 
 #[derive(Clone)]
 pub struct RefManager {
@@ -38,7 +28,11 @@ pub struct RefManager {
     on_rename: RenameCb,
     on_create_bib: Rc<RefCell<Option<Box<dyn Fn()>>>>,
     used_keys: Rc<RefCell<HashSet<String>>>,
+    /// `<label>`s defined in the project: `@fig-1` is a cross-reference to one of
+    /// these, not a citation missing from the bibliography.
+    labels: Rc<RefCell<HashSet<String>>>,
     bib_path: Rc<RefCell<Option<PathBuf>>>,
+    problem: Rc<RefCell<Option<String>>>,
 }
 
 impl RefManager {
@@ -96,6 +90,8 @@ impl RefManager {
         let on_create_bib: Rc<RefCell<Option<Box<dyn Fn()>>>> = Rc::new(RefCell::new(None));
         let entries: Rc<RefCell<Vec<BibEntry>>> = Rc::new(RefCell::new(Vec::new()));
         let used_keys: Rc<RefCell<HashSet<String>>> = Rc::new(RefCell::new(HashSet::new()));
+        let labels: Rc<RefCell<HashSet<String>>> = Rc::new(RefCell::new(HashSet::new()));
+        let problem: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
         let bib_path: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
 
         let panel = Self {
@@ -108,7 +104,9 @@ impl RefManager {
             on_rename,
             on_create_bib,
             used_keys,
+            labels,
             bib_path,
+            problem,
         };
 
         // Filter entry → rebuild list
@@ -264,23 +262,52 @@ impl RefManager {
         *self.on_create_bib.borrow_mut() = Some(Box::new(f));
     }
 
-    pub fn bib_path(&self) -> Option<PathBuf> {
-        self.bib_path.borrow().clone()
+    /// The keys the open document cites.
+    pub fn used(&self) -> HashSet<String> {
+        self.used_keys.borrow().clone()
     }
 
+    /// Re-reads `path` and shows it.
     pub fn load_bib(&self, path: &Path) {
+        self.set_source(path, crate::bibliography::try_load(path));
+    }
+
+    /// Shows the outcome of reading `path`: its entries, or why it couldn't be
+    /// read (instead of an empty list that invites starting a new file).
+    pub fn set_source(&self, path: &Path, loaded: Result<Vec<BibEntry>, String>) {
         *self.bib_path.borrow_mut() = Some(path.to_path_buf());
-        let entries = crate::bibliography::load_bib(path);
-        *self.entries.borrow_mut() = entries;
+        match loaded {
+            Ok(entries) => {
+                *self.entries.borrow_mut() = entries;
+                *self.problem.borrow_mut() = None;
+            }
+            Err(why) => {
+                self.entries.borrow_mut().clear();
+                *self.problem.borrow_mut() = Some(why);
+            }
+        }
         self.rebuild_list("");
     }
 
-    pub fn update_used_keys(&self, text: &str) {
-        let mut keys = HashSet::new();
-        for cap in cite_re().captures_iter(text) {
-            keys.insert(cap[1].to_string());
+    /// No bibliography at all.
+    pub fn clear(&self) {
+        *self.bib_path.borrow_mut() = None;
+        self.entries.borrow_mut().clear();
+        *self.problem.borrow_mut() = None;
+        self.rebuild_list("");
+    }
+
+    /// Refreshes which keys the document cites. `text` is the open file as
+    /// typed (possibly unsaved); chapters it `#include`s are read from disk.
+    pub fn update_used_keys(&self, text: &str, path: &Path) {
+        let (keys, labels) = crate::cited_refs::collect_citations(path, Some(text));
+        let keys: HashSet<String> = keys.into_iter().collect();
+        let labels: HashSet<String> = labels.into_iter().collect();
+        if *self.used_keys.borrow() == keys && *self.labels.borrow() == labels {
+            return;
         }
         *self.used_keys.borrow_mut() = keys;
+        *self.labels.borrow_mut() = labels;
         let filter = self.filter_entry.text();
         self.rebuild_list(filter.as_str());
     }
@@ -290,9 +317,9 @@ impl RefManager {
             self.list_box.remove(&child);
         }
 
-        let filter_lower = filter.to_lowercase();
         let entries = self.entries.borrow();
         let used = self.used_keys.borrow();
+        let labels = self.labels.borrow();
         let has_used_data = !used.is_empty();
 
         // Broken citations section — keys used in doc but not found in bib
@@ -300,7 +327,7 @@ impl RefManager {
             let entry_keys: HashSet<&str> = entries.iter().map(|e| e.key.as_str()).collect();
             let mut broken: Vec<&str> = used
                 .iter()
-                .filter(|k| !entry_keys.contains(k.as_str()))
+                .filter(|k| !entry_keys.contains(k.as_str()) && !labels.contains(k.as_str()))
                 .map(|k| k.as_str())
                 .collect();
             broken.sort_unstable();
@@ -349,9 +376,14 @@ impl RefManager {
             let row = ListBoxRow::new();
             row.set_selectable(false);
             row.set_activatable(false);
-            let lbl = Label::new(Some(
-                "No bibliography loaded yet.\nClick + above to start one.",
-            ));
+            let message = match self.problem.borrow().as_deref() {
+                Some(problem) => format!("{problem}\nYour file hasn't been changed."),
+                None if self.bib_path.borrow().is_some() => {
+                    "This bibliography has no entries yet.".to_string()
+                }
+                None => "No bibliography loaded yet.\nClick + above to start one.".to_string(),
+            };
+            let lbl = Label::new(Some(&message));
             lbl.add_css_class("dim-label");
             lbl.set_justify(gtk4::Justification::Center);
             lbl.set_margin_top(16);
@@ -362,18 +394,8 @@ impl RefManager {
         }
 
         let mut shown = 0usize;
-        for entry in entries.iter() {
-            if !filter_lower.is_empty() {
-                let haystack = format!(
-                    "{} {} {} {}",
-                    entry.key, entry.author, entry.title, entry.year
-                )
-                .to_lowercase();
-                if !haystack.contains(&filter_lower) {
-                    continue;
-                }
-            }
-
+        let order = crate::cite_search::search(&entries, filter, &used);
+        for entry in order.iter().map(|&i| &entries[i]) {
             let is_used = has_used_data && used.contains(&entry.key);
 
             let row = ListBoxRow::new();
@@ -608,10 +630,56 @@ fn open_new_entry_dialog(parent: Option<&gtk4::Window>, panel: RefManager) {
     let dlg_cancel = dialog.clone();
     cancel_btn.connect_clicked(move |_| dlg_cancel.close());
 
+    let problem_label = Label::new(None);
+    problem_label.add_css_class("error");
+    problem_label.set_wrap(true);
+    problem_label.set_xalign(0.0);
+    problem_label.set_visible(false);
+    type_group.set_description(Some(
+        "Fill in what you know; only the nickname is required.",
+    ));
+    page.add(&{
+        let g = adw::PreferencesGroup::new();
+        g.add(&problem_label);
+        g
+    });
+
     let dlg_add = dialog.clone();
     add_btn.connect_clicked(move |_| {
         let key = key_row.text().trim().to_string();
-        if key.is_empty() {
+        let show = |msg: &str| {
+            problem_label.set_text(msg);
+            problem_label.set_visible(true);
+        };
+        if let Some(msg) = crate::citation_keys::key_problem(&key) {
+            show(msg);
+            return;
+        }
+        let existing_text = panel
+            .bib_path
+            .borrow()
+            .as_ref()
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .unwrap_or_default();
+        if crate::bibliography::bib_text_has_key(&existing_text, &key) {
+            show("Another entry already uses that nickname. Pick a different one.");
+            return;
+        }
+        for (label, field) in [
+            ("Author(s)", author_row.text()),
+            ("Title", title_row.text()),
+            ("Journal / Publisher", venue_row.text()),
+        ] {
+            if !braces_balanced(field.as_str()) {
+                show(&format!(
+                    "{label} has a {{ or }} without its partner. Remove it or add the other one."
+                ));
+                return;
+            }
+        }
+        let year_text = year_row.text();
+        if !year_text.trim().is_empty() && !is_plausible_year(year_text.trim()) {
+            show("Year should be four digits, like 1990 — or leave it blank.");
             return;
         }
 
@@ -649,14 +717,19 @@ fn open_new_entry_dialog(parent: Option<&gtk4::Window>, panel: RefManager) {
         bibtex.push_str("}\n");
 
         if let Some(ref p) = *panel.bib_path.borrow() {
-            let existing = std::fs::read_to_string(p).unwrap_or_default();
-            let updated = if existing.ends_with('\n') || existing.is_empty() {
+            let existing = existing_text.as_str();
+            let updated = if existing.is_empty() {
+                bibtex.clone()
+            } else if existing.ends_with('\n') {
                 format!("{existing}\n{bibtex}")
             } else {
                 format!("{existing}\n\n{bibtex}")
             };
-            if std::fs::write(p, &updated).is_ok() {
+            if crate::bibliography::write_atomic(p, &updated).is_ok() {
                 panel.load_bib(p);
+            } else {
+                show("Couldn't save the bibliography file. Nothing was added.");
+                return;
             }
         }
 
@@ -664,4 +737,46 @@ fn open_new_entry_dialog(parent: Option<&gtk4::Window>, panel: RefManager) {
     });
 
     dialog.present();
+}
+
+/// `{` and `}` pair up, in order — an unpaired one in a field would swallow the
+/// rest of the `.bib` file.
+fn braces_balanced(text: &str) -> bool {
+    let mut depth = 0i32;
+    for c in text.chars() {
+        match c {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth < 0 {
+                    return false;
+                }
+            }
+            _ => {}
+        }
+    }
+    depth == 0
+}
+
+fn is_plausible_year(text: &str) -> bool {
+    text.len() == 4 && text.chars().all(|c| c.is_ascii_digit())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn braces_must_pair_up() {
+        assert!(braces_balanced("The {Bible} and {{God}}"));
+        assert!(!braces_balanced("open { only"));
+        assert!(!braces_balanced("close } first {"));
+    }
+
+    #[test]
+    fn year_is_four_digits() {
+        assert!(is_plausible_year("1990"));
+        assert!(!is_plausible_year("Winter 2001"));
+        assert!(!is_plausible_year("90"));
+    }
 }

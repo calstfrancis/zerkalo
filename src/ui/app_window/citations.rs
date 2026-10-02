@@ -11,9 +11,10 @@ use adw::prelude::*;
 use gtk4::prelude::*;
 use libadwaita as adw;
 
-use super::super::citation_panel::CitationPanel;
+use super::super::citation_panel::{CitationPanel, SourcesAction, SourcesState};
 use super::super::editor_pane::EditorPane;
 use super::super::ref_manager::RefManager;
+use super::bib_manager::BibManager;
 use crate::bibliography;
 use crate::config::Config;
 
@@ -25,119 +26,20 @@ pub(super) struct CitationCtx {
     pub(super) ref_manager: RefManager,
     pub(super) current_config: Rc<RefCell<Config>>,
     pub(super) project_root: PathBuf,
-    pub(super) effective_bib: Option<PathBuf>,
+    pub(super) bib_manager: BibManager,
     pub(super) effective_cv_elements: Option<PathBuf>,
-}
-
-/// Rewrites the active document's `#bibliography(...)` call to point at
-/// `path`, so choosing a bibliography source from the citation panel takes
-/// effect immediately instead of only updating `Config::bib_path` — which
-/// drives the citation panel's own autocomplete/list but nothing in the
-/// document itself, leaving it uncompilable (a real bug reported live:
-/// picking a new source here didn't touch the code, and the document
-/// wouldn't compile until the `#bibliography(...)` line was fixed by hand).
-/// A no-op if no document is open. Wrapped as one undoable edit so it can be
-/// undone like any other change, since — unlike Update Template Settings,
-/// which the user explicitly opens to change the document — this fires as a
-/// side effect of a dialog whose primary purpose looks like a Settings
-/// action, not a document edit.
-fn update_active_document_bib_path(ep: &EditorPane, path: &std::path::Path) {
-    let Some(content) = ep.get_active_content() else {
-        return;
-    };
-    let target = bibliography::bib_target_path(path);
-    let new_content = crate::styles::set_bibliography_path(&content, &target.to_string_lossy());
-    if new_content != content {
-        ep.set_active_content_undoable(&new_content);
-    }
 }
 
 /// Returns the auto-detected `.bib` slot, which later sections read.
 pub(super) fn wire_citations(ctx: &CitationCtx) -> Rc<RefCell<Option<PathBuf>>> {
-    // ── Bibliography loading & watch ────────────────────────────────────
-
-    if let Some(ref bp) = ctx.effective_bib {
-        let entries = bibliography::load_bib(bp);
-        if !entries.is_empty() {
-            tracing::info!("Loaded {} bib entries from {}", entries.len(), bp.display());
-        }
-        ctx.editor_pane.set_bib_entries(entries.clone());
-        ctx.citation_panel.load_bib(entries);
-        ctx.citation_panel
-            .set_bib_filename(bp.file_name().and_then(|n| n.to_str()));
-        ctx.ref_manager.load_bib(bp);
-
-        if bibliography::is_vault_dir(bp) {
-            let editor_for_bib = ctx.editor_pane.clone();
-            let citation_for_bib = ctx.citation_panel.clone();
-            let bib_for_watch = bp.clone();
-            // Leaked deliberately: the watch must outlive `wire_citations`
-            // (called once from `AppWindow::new`), and there is exactly one
-            // per window for the process's lifetime — same lifetime as the
-            // window itself, so there is nothing to reclaim it into.
-            let watch = crate::vault_watch::start(bp.clone(), move || {
-                let entries = bibliography::load_bib(&bib_for_watch);
-                tracing::info!("Reloaded {} bib entries from vault", entries.len());
-                editor_for_bib.set_bib_entries(entries.clone());
-                citation_for_bib.load_bib(entries);
-            });
-            std::mem::forget(watch);
-        } else {
-            let editor_for_bib = ctx.editor_pane.clone();
-            let citation_for_bib = ctx.citation_panel.clone();
-            let bib_for_watch = bp.clone();
-            let last_mtime: Rc<RefCell<Option<SystemTime>>> = Rc::new(RefCell::new(
-                std::fs::metadata(&bib_for_watch)
-                    .and_then(|m| m.modified())
-                    .ok(),
-            ));
-            glib::timeout_add_local(Duration::from_secs(5), move || {
-                let current = std::fs::metadata(&bib_for_watch)
-                    .and_then(|m| m.modified())
-                    .ok();
-                let changed = match (*last_mtime.borrow(), current) {
-                    (Some(old), Some(new)) => old != new,
-                    (None, Some(_)) => true,
-                    _ => false,
-                };
-                if changed {
-                    *last_mtime.borrow_mut() = current;
-                    let entries = bibliography::load_bib(&bib_for_watch);
-                    tracing::info!("Reloaded {} bib entries", entries.len());
-                    editor_for_bib.set_bib_entries(entries.clone());
-                    citation_for_bib.load_bib(entries);
-                }
-                glib::ControlFlow::Continue
-            });
-        }
-    }
-
-    // ── Auto-detect .bib when no bib is configured ─────────────────────────
-    let auto_detected_bib: Rc<RefCell<Option<std::path::PathBuf>>> = Rc::new(RefCell::new(None));
-    if ctx.effective_bib.is_none() {
-        if let Ok(mut entries) = std::fs::read_dir(&ctx.project_root) {
-            let found = entries.find_map(|e| {
-                let path = e.ok()?.path();
-                let ext = path.extension().and_then(|x| x.to_str())?;
-                if ext.eq_ignore_ascii_case("bib")
-                    || ext.eq_ignore_ascii_case("yaml")
-                    || ext.eq_ignore_ascii_case("yml")
-                {
-                    Some(path)
-                } else {
-                    None
-                }
-            });
-            if let Some(bib_path) = found {
-                let entries = bibliography::load_bib(&bib_path);
-                ctx.editor_pane.set_bib_entries(entries.clone());
-                ctx.citation_panel.load_bib(entries);
-                ctx.citation_panel
-                    .set_bib_filename(bib_path.file_name().and_then(|n| n.to_str()));
-                *auto_detected_bib.borrow_mut() = Some(bib_path);
-            }
-        }
-    }
+    // ── Bibliography: one manager decides, loads and watches ────────────
+    // The open document's own `#bibliography(...)` line wins; before any
+    // document is open this is the project / Settings choice, else the one
+    // bibliography found in the project folder.
+    ctx.bib_manager.refresh(None);
+    ctx.bib_manager.watch_for_mirror();
+    let auto_detected_bib: Rc<RefCell<Option<std::path::PathBuf>>> =
+        Rc::new(RefCell::new(ctx.bib_manager.found_in_folder()));
 
     // ── CV entries loading & watch ───────────────────────────────────────
 
@@ -190,42 +92,10 @@ pub(super) fn wire_citations(ctx: &CitationCtx) -> Rc<RefCell<Option<PathBuf>>> 
     // ── Citation panel: choose bib file button ────────────────────────────
 
     {
-        let win_for_bib = ctx.window.clone();
-        let ep_for_bib = ctx.editor_pane.clone();
-        let cp_for_bib = ctx.citation_panel.clone();
-        let cfg_for_bib = ctx.current_config.clone();
-        let rm_for_bib = ctx.ref_manager.clone();
-        ctx.citation_panel.set_on_choose_bib(move || {
-            let dialog = gtk4::FileDialog::new();
-            dialog.set_title("Choose Bibliography File");
-            let filter = gtk4::FileFilter::new();
-            filter.set_name(Some("Bibliography files (*.bib, *.yaml, *.yml)"));
-            filter.add_pattern("*.bib");
-            filter.add_pattern("*.yaml");
-            filter.add_pattern("*.yml");
-            let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
-            filters.append(&filter);
-            dialog.set_filters(Some(&filters));
-            let win = win_for_bib.clone();
-            let ep = ep_for_bib.clone();
-            let cp = cp_for_bib.clone();
-            let cfg = cfg_for_bib.clone();
-            let rm = rm_for_bib.clone();
-            dialog.open(Some(&win), None::<&gtk4::gio::Cancellable>, move |result| {
-                if let Ok(file) = result {
-                    if let Some(path) = file.path() {
-                        let entries = bibliography::load_bib(&path);
-                        ep.set_bib_entries(entries.clone());
-                        cp.load_bib(entries);
-                        cp.set_bib_filename(path.file_name().and_then(|n| n.to_str()));
-                        rm.load_bib(&path);
-                        update_active_document_bib_path(&ep, &path);
-                        cfg.borrow_mut().bib_path = Some(path);
-                        let _ = cfg.borrow().save();
-                    }
-                }
-            });
-        });
+        let win = ctx.window.clone();
+        let manager = ctx.bib_manager.clone();
+        ctx.citation_panel
+            .set_on_choose_bib(move || choose_file_dialog(&win, &manager));
     }
 
     // ── Citation panel + reference manager: start a new bibliography ──────
@@ -234,22 +104,16 @@ pub(super) fn wire_citations(ctx: &CitationCtx) -> Rc<RefCell<Option<PathBuf>>> 
 
     {
         let win = ctx.window.clone();
-        let ep = ctx.editor_pane.clone();
-        let cp = ctx.citation_panel.clone();
-        let cfg = ctx.current_config.clone();
-        let rm = ctx.ref_manager.clone();
+        let manager = ctx.bib_manager.clone();
         ctx.citation_panel.set_on_new_bib(move || {
-            open_create_bib_dialog(&win, &ep, &cp, &cfg, &rm);
+            open_create_bib_dialog(&win, &manager);
         });
     }
     {
         let win = ctx.window.clone();
-        let ep = ctx.editor_pane.clone();
-        let cp = ctx.citation_panel.clone();
-        let cfg = ctx.current_config.clone();
-        let rm = ctx.ref_manager.clone();
+        let manager = ctx.bib_manager.clone();
         ctx.ref_manager.set_on_create_bib(move || {
-            open_create_bib_dialog(&win, &ep, &cp, &cfg, &rm);
+            open_create_bib_dialog(&win, &manager);
         });
     }
 
@@ -257,32 +121,151 @@ pub(super) fn wire_citations(ctx: &CitationCtx) -> Rc<RefCell<Option<PathBuf>>> 
 
     {
         let win_for_vault = ctx.window.clone();
-        let ep_for_vault = ctx.editor_pane.clone();
-        let cp_for_vault = ctx.citation_panel.clone();
-        let cfg_for_vault = ctx.current_config.clone();
-        let rm_for_vault = ctx.ref_manager.clone();
+        let manager = ctx.bib_manager.clone();
         ctx.citation_panel.set_on_choose_vault(move || {
             let dialog = gtk4::FileDialog::new();
             dialog.set_title("Choose Kartoteka Vault Folder");
-            let win = win_for_vault.clone();
-            let ep = ep_for_vault.clone();
-            let cp = cp_for_vault.clone();
-            let cfg = cfg_for_vault.clone();
-            let rm = rm_for_vault.clone();
-            dialog.select_folder(Some(&win), None::<&gtk4::gio::Cancellable>, move |result| {
-                if let Ok(file) = result {
-                    if let Some(path) = file.path() {
-                        let entries = bibliography::load_bib(&path);
-                        ep.set_bib_entries(entries.clone());
-                        cp.load_bib(entries);
-                        cp.set_bib_filename(path.file_name().and_then(|n| n.to_str()));
-                        rm.load_bib(&path);
-                        update_active_document_bib_path(&ep, &path);
-                        cfg.borrow_mut().bib_path = Some(path);
-                        let _ = cfg.borrow().save();
+            let manager = manager.clone();
+            dialog.select_folder(
+                Some(&win_for_vault),
+                None::<&gtk4::gio::Cancellable>,
+                move |result| {
+                    if let Some(path) = result.ok().and_then(|f| f.path()) {
+                        manager.choose(path);
                     }
+                },
+            );
+        });
+    }
+
+    // ── Citation panel: the Sources menu ─────────────────────────────────
+
+    {
+        let zotero_ready = Rc::new(std::cell::Cell::new(false));
+        let refresh_state = {
+            let (panel, cfg, manager, zr) = (
+                ctx.citation_panel.clone(),
+                ctx.current_config.clone(),
+                ctx.bib_manager.clone(),
+                zotero_ready.clone(),
+            );
+            move || {
+                let c = cfg.borrow();
+                panel.set_sources_state(SourcesState {
+                    keep_copy: c.mirror_bibliography,
+                    tell_kartoteka: c.tell_kartoteka,
+                    vault_in_use: manager.vault_in_use(),
+                    zotero_ready: zr.get(),
+                });
+            }
+        };
+        refresh_state();
+        // Cheap: only sets a few widget properties.
+        glib::timeout_add_local(Duration::from_secs(2), {
+            let refresh_state = refresh_state.clone();
+            move || {
+                refresh_state();
+                glib::ControlFlow::Continue
+            }
+        });
+        // Is Zotero (with Better BibTeX) running? Asked in the background.
+        glib::timeout_add_local(Duration::from_secs(15), {
+            let zr = zotero_ready.clone();
+            move || {
+                let zr = zr.clone();
+                glib::spawn_future_local(async move {
+                    if let Ok(up) = gtk4::gio::spawn_blocking(crate::zotero::is_available).await {
+                        zr.set(up);
+                    }
+                });
+                glib::ControlFlow::Continue
+            }
+        });
+        {
+            let zr = zotero_ready.clone();
+            glib::spawn_future_local(async move {
+                if let Ok(up) = gtk4::gio::spawn_blocking(crate::zotero::is_available).await {
+                    zr.set(up);
                 }
             });
+        }
+
+        let (win, ep, manager, cfg) = (
+            ctx.window.clone(),
+            ctx.editor_pane.clone(),
+            ctx.bib_manager.clone(),
+            ctx.current_config.clone(),
+        );
+        ctx.citation_panel.set_on_sources(move |action| match action {
+            SourcesAction::KeepCopy(on) => {
+                let mut c = cfg.borrow_mut();
+                c.mirror_bibliography = on;
+                let _ = c.save();
+            }
+            SourcesAction::TellKartoteka(on) => {
+                {
+                    let mut c = cfg.borrow_mut();
+                    c.tell_kartoteka = on;
+                    let _ = c.save();
+                }
+                manager.tell_kartoteka();
+            }
+            SourcesAction::ConnectZotero => {
+                let dlg = adw::MessageDialog::new(
+                    Some(&win),
+                    Some("Connect Zotero"),
+                    Some(
+                        "Zerkalo works best with the Better BibTeX add-on for Zotero: it gives every source a permanent nickname (like butler1990) and can keep a .bib file up to date by itself.\n\n1. In Zotero, install Better BibTeX (retorque.re/zotero-better-bibtex).\n2. Right-click your library or collection → Export… → format “Better BibLaTeX”, and tick “Keep updated”.\n3. Save it anywhere, ideally inside your Zerkalo folder.\n4. Choose that file here.\n\nFrom then on, new sources you add in Zotero appear in Zerkalo within seconds.",
+                    ),
+                );
+                dlg.add_response("cancel", "Not now");
+                dlg.add_response("choose", "Choose the file…");
+                dlg.set_response_appearance("choose", adw::ResponseAppearance::Suggested);
+                let (w, m) = (win.clone(), manager.clone());
+                dlg.connect_response(None, move |dlg, response| {
+                    dlg.close();
+                    if response == "choose" {
+                        choose_file_dialog(&w, &m);
+                    }
+                });
+                dlg.present();
+            }
+            SourcesAction::PickFromZotero => {
+                let (ep, win) = (ep.clone(), win.clone());
+                glib::spawn_future_local(async move {
+                    match gtk4::gio::spawn_blocking(crate::zotero::pick).await {
+                        Ok(Ok(keys)) if !keys.is_empty() => {
+                            ep.insert_at_cursor(&crate::zotero::insert_text(&keys));
+                        }
+                        Ok(Ok(_)) => {}
+                        Ok(Err(why)) => info_dialog(&win, "Couldn't reach Zotero", &why),
+                        Err(_) => {}
+                    }
+                });
+            }
+            SourcesAction::Freeze => {
+                let dlg = adw::MessageDialog::new(
+                    Some(&win),
+                    Some("Freeze for submission?"),
+                    Some(
+                        "This saves a small file holding only the sources this document cites, and points the document at it — so you can hand over the essay and one complete, tidy bibliography.\n\nYour main library isn't changed, and you can undo the change to the document with Ctrl+Z.",
+                    ),
+                );
+                dlg.add_response("cancel", "Cancel");
+                dlg.add_response("freeze", "Freeze");
+                dlg.set_response_appearance("freeze", adw::ResponseAppearance::Suggested);
+                let (w, m) = (win.clone(), manager.clone());
+                dlg.connect_response(None, move |dlg, response| {
+                    dlg.close();
+                    if response == "freeze" {
+                        match m.freeze_active() {
+                            Ok(msg) => info_dialog(&w, "Frozen", &msg),
+                            Err(why) => info_dialog(&w, "Couldn't freeze", &why),
+                        }
+                    }
+                });
+                dlg.present();
+            }
         });
     }
 
@@ -339,12 +322,15 @@ pub(super) fn wire_citations(ctx: &CitationCtx) -> Rc<RefCell<Option<PathBuf>>> 
     // ── Reference manager: project-wide citation-key rename ───────────────
     {
         let ep = ctx.editor_pane.clone();
-        let rm = ctx.ref_manager.clone();
-        let cp = ctx.citation_panel.clone();
+        let manager = ctx.bib_manager.clone();
         let win = ctx.window.clone();
         let project_root_for_rename = ctx.project_root.clone();
         ctx.ref_manager.set_on_rename(move |old_key, new_key| {
-            let Some(bib_path) = rm.bib_path() else { return };
+            let Some(bib_path) = manager.current().map(|r| {
+                crate::bib_mirror::origin_of(&r.path).unwrap_or(r.path)
+            }) else {
+                return;
+            };
             let is_bibtex = bib_path
                 .extension()
                 .and_then(|e| e.to_str())
@@ -393,8 +379,7 @@ pub(super) fn wire_citations(ctx: &CitationCtx) -> Rc<RefCell<Option<PathBuf>>> 
             let old_key2 = old_key.clone();
             let new_key2 = new_key.clone();
             let ep2 = ep.clone();
-            let rm2 = rm.clone();
-            let cp2 = cp.clone();
+            let manager2 = manager.clone();
             let win2 = win.clone();
             let typ_files2 = typ_files.clone();
             dlg.connect_response(None, move |dlg, response| {
@@ -403,11 +388,34 @@ pub(super) fn wire_citations(ctx: &CitationCtx) -> Rc<RefCell<Option<PathBuf>>> 
                     return;
                 }
 
-                if let Err(e) = bibliography::rename_key_in_bib_file(&bib_path2, &old_key2, &new_key2) {
+                // Files that aren't open are changed on disk, together with the
+                // bibliography, as one all-or-nothing step. Open tabs are
+                // edited in the editor (undoable) once that has succeeded.
+                let open_paths: std::collections::HashSet<PathBuf> =
+                    ep2.open_tab_paths().into_iter().collect();
+                let edits: Vec<bibliography::RenameEdit> = typ_files2
+                    .iter()
+                    .filter(|p| !open_paths.contains(*p))
+                    .filter_map(|path| {
+                        let before = std::fs::read_to_string(path).ok()?;
+                        let (after, changed) =
+                            bibliography::rename_key_in_text(&before, &old_key2, &new_key2);
+                        changed.then(|| bibliography::RenameEdit {
+                            path: path.clone(),
+                            before,
+                            after,
+                        })
+                    })
+                    .collect();
+                if let Err(e) =
+                    bibliography::apply_rename(&bib_path2, &old_key2, &new_key2, &edits)
+                {
                     let err_dlg = adw::MessageDialog::new(
                         Some(&win2),
                         Some("Rename failed"),
-                        Some(&format!("Could not update the bibliography file: {e}")),
+                        Some(&format!(
+                            "Nothing was changed. Could not update the files: {e}"
+                        )),
                     );
                     err_dlg.add_response("ok", "OK");
                     err_dlg.present();
@@ -416,25 +424,7 @@ pub(super) fn wire_citations(ctx: &CitationCtx) -> Rc<RefCell<Option<PathBuf>>> 
 
                 ep2.replace_citation_key_in_open_tabs(&old_key2, &new_key2);
 
-                let open_paths: std::collections::HashSet<PathBuf> =
-                    ep2.open_tab_paths().into_iter().collect();
-                for path in &typ_files2 {
-                    if open_paths.contains(path) {
-                        continue;
-                    }
-                    if let Ok(content) = std::fs::read_to_string(path) {
-                        let (new_content, changed) =
-                            bibliography::rename_key_in_text(&content, &old_key2, &new_key2);
-                        if changed {
-                            let _ = std::fs::write(path, new_content);
-                        }
-                    }
-                }
-
-                let entries = bibliography::load_bib(&bib_path2);
-                ep2.set_bib_entries(entries.clone());
-                cp2.load_bib(entries.clone());
-                rm2.load_bib(&bib_path2);
+                manager2.reload();
             });
             dlg.present();
         });
@@ -443,37 +433,45 @@ pub(super) fn wire_citations(ctx: &CitationCtx) -> Rc<RefCell<Option<PathBuf>>> 
     auto_detected_bib
 }
 
-/// Opens a save dialog for a brand-new, empty `.bib` file, then wires it up
-/// exactly like picking an existing one: loads it (empty) into the editor,
-/// citation panel and reference manager, and remembers it in config.
-fn open_create_bib_dialog(
-    win: &adw::ApplicationWindow,
-    ep: &EditorPane,
-    cp: &CitationPanel,
-    cfg: &Rc<RefCell<Config>>,
-    rm: &RefManager,
-) {
+fn choose_file_dialog(win: &adw::ApplicationWindow, manager: &BibManager) {
+    let dialog = gtk4::FileDialog::new();
+    dialog.set_title("Choose Bibliography File");
+    let filter = gtk4::FileFilter::new();
+    filter.set_name(Some("Bibliography files (*.bib, *.yaml, *.yml)"));
+    filter.add_pattern("*.bib");
+    filter.add_pattern("*.yaml");
+    filter.add_pattern("*.yml");
+    let filters = gtk4::gio::ListStore::new::<gtk4::FileFilter>();
+    filters.append(&filter);
+    dialog.set_filters(Some(&filters));
+    let manager = manager.clone();
+    dialog.open(Some(win), None::<&gtk4::gio::Cancellable>, move |result| {
+        if let Some(path) = result.ok().and_then(|f| f.path()) {
+            manager.choose(path);
+        }
+    });
+}
+
+fn info_dialog(win: &adw::ApplicationWindow, title: &str, body: &str) {
+    let dlg = adw::MessageDialog::new(Some(win), Some(title), Some(body));
+    dlg.add_response("ok", "OK");
+    dlg.present();
+}
+
+/// Opens a save dialog for a brand-new, empty `.bib` file, then makes it the
+/// bibliography exactly as if an existing one had been picked.
+fn open_create_bib_dialog(win: &adw::ApplicationWindow, manager: &BibManager) {
     let dialog = gtk4::FileDialog::new();
     dialog.set_title("Create Bibliography File");
     dialog.set_initial_name(Some("references.bib"));
-    let win = win.clone();
-    let ep = ep.clone();
-    let cp = cp.clone();
-    let cfg = cfg.clone();
-    let rm = rm.clone();
-    dialog.save(Some(&win), None::<&gtk4::gio::Cancellable>, move |result| {
-        if let Ok(file) = result {
-            if let Some(path) = file.path() {
-                if std::fs::write(&path, "").is_ok() {
-                    let entries = bibliography::load_bib(&path);
-                    ep.set_bib_entries(entries.clone());
-                    cp.load_bib(entries);
-                    cp.set_bib_filename(path.file_name().and_then(|n| n.to_str()));
-                    rm.load_bib(&path);
-                    update_active_document_bib_path(&ep, &path);
-                    cfg.borrow_mut().bib_path = Some(path);
-                    let _ = cfg.borrow().save();
-                }
+    let manager = manager.clone();
+    dialog.save(Some(win), None::<&gtk4::gio::Cancellable>, move |result| {
+        if let Some(path) = result.ok().and_then(|f| f.path()) {
+            // Never write over a file that's already there: the save dialog
+            // asks about overwriting, but an empty file written over a real
+            // bibliography would lose every entry in it, so keep what exists.
+            if path.exists() || std::fs::write(&path, "").is_ok() {
+                manager.choose(path);
             }
         }
     });

@@ -215,6 +215,8 @@ pub struct EditorPane {
     on_cursor_heading: Rc<RefCell<Option<Box<dyn Fn(PathBuf, u32)>>>>,
     on_cursor_moved: Rc<RefCell<Option<Box<dyn Fn(PathBuf, u32, u32)>>>>,
     bib_entries: Rc<RefCell<Vec<BibEntry>>>,
+    /// Keys the open document cites; shared with every file's `@` popup.
+    cited_keys: Rc<RefCell<std::collections::HashSet<String>>>,
     cv_entries: Rc<RefCell<Vec<skrizhal_core::CvEntry>>>,
     font_provider: Rc<CssProvider>,
     font_size: Rc<RefCell<u32>>,
@@ -1576,6 +1578,7 @@ impl EditorPane {
             on_cursor_heading,
             on_cursor_moved,
             bib_entries: Rc::new(RefCell::new(Vec::new())),
+            cited_keys: Rc::new(RefCell::new(std::collections::HashSet::new())),
             cv_entries: Rc::new(RefCell::new(Vec::new())),
             font_provider: Rc::new(font_provider),
             font_size,
@@ -2070,6 +2073,11 @@ impl EditorPane {
     }
 
     // ── Settings ──────────────────────────────────────────────────────────────
+
+    /// Keys the open document cites, so the `@` popup lists them first.
+    pub fn set_cited_keys(&self, keys: std::collections::HashSet<String>) {
+        *self.cited_keys.borrow_mut() = keys;
+    }
 
     pub fn set_bib_entries(&self, entries: Vec<BibEntry>) {
         *self.bib_entries.borrow_mut() = entries;
@@ -6175,7 +6183,12 @@ impl EditorPane {
     }
 
     fn wire_citation_autocomplete(&self, view: &View, buffer: &Buffer) -> CitationAutocomplete {
-        let bib_popup = BibPopup::new(view, self.bib_entries.clone(), self.cv_entries.clone());
+        let bib_popup = BibPopup::new(
+            view,
+            self.bib_entries.clone(),
+            self.cv_entries.clone(),
+            self.cited_keys.clone(),
+        );
         let ac_mark: Rc<RefCell<Option<gtk4::TextMark>>> = Rc::new(RefCell::new(None));
         let completing: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
         let bib_active_for_open = self.bib_active.clone();
@@ -6314,8 +6327,23 @@ impl EditorPane {
             // Same rules as `#`: inline suggestion first, list once the query is
             // worth listing. A bare `@` used to drop the whole bibliography over
             // the text.
-            let matches = popup_ac.matches_for(query, source);
-            let ghost_entry = popup_ac.ghost_entry(query, source);
+            // `@fig-1` or `@intro` naming a label this document defines is a
+            // cross-reference, not a citation: stay quiet rather than offer
+            // bibliography entries that happen to match.
+            let is_local_label = source == PopupSource::Bib && !query.is_empty() && {
+                let (s, e) = buf.bounds();
+                crate::citation_keys::labels_in(buf.text(&s, &e, false).as_str()).contains(query)
+            };
+            let matches = if is_local_label {
+                Vec::new()
+            } else {
+                popup_ac.matches_for(query, source)
+            };
+            let ghost_entry = if is_local_label {
+                None
+            } else {
+                popup_ac.ghost_entry(query, source)
+            };
             let list_open = query.chars().count() >= MIN_POPUP_PREFIX && !matches.is_empty();
             if list_open {
                 popup_ac.show_filtered(query, wx, wy, above, source);

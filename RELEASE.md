@@ -1,12 +1,14 @@
 ### What's new
 
-A Library that organises itself.
+One place to cite from.
 
-**Labels, Organize… and author tags.** Tags and categories become simple labels (converted automatically, with a backup). Right-click a document and choose Organize… to label, file in projects and pin in one step. Every author you cite becomes a "Lastname, I." tag you can click.
+**A Sources menu.** The Citations panel's row of icons becomes one menu: choose a file or Kartoteka vault, start a new bibliography, connect Zotero, pick from Zotero, freeze for submission. The document's own `#bibliography` line wins, then the project, then Settings.
 
-**Search that reads your writing**, and missing files that can be re-located instead of lost.
+**One search for every citation list.** Words in any order, accents ignored, works you already cite first; better labels ("Smith & Doe", "Cone (ed.)").
 
-**Your organisation travels with your backup.** Labels, projects and pins are saved as readable files in your folder, one subfolder per computer, so git sync never conflicts. Notes are included only if you turn that on.
+**Documents that work on any computer.** A bibliography stored elsewhere is copied into the project and kept up to date, so essays compile wherever your folder syncs.
+
+**Safer renames and fixes.** Renaming a key changes only the key; broken-citation lists no longer include cross-references; unreadable bibliographies explain why.
 
 ---
 

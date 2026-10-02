@@ -3,6 +3,35 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.41.0] "Steady Glass" — 2026-10-02 — One place to cite from
+
+### Fixed
+
+- **Renaming a citation key now changes only the key.** In the bibliography it edits just the key in the entry's header, so your comments, `@string` macros, spacing and order stay byte-for-byte as you wrote them (before, the whole file was rewritten). The rename lands in every file or none; if anything fails, nothing changes.
+- **Rename now finds every citation:** `#cite(<k>, form: "prose")`, keys with dots or accents (`@smith.2020`, `@žižek2008`), and it no longer rewrites e-mail addresses.
+- **A bibliography that can't be read says so** and says why, instead of looking empty and inviting you to start a new one.
+- **"Broken citations" no longer lists cross-references** like `@fig-1`, and follows `#include`d chapters.
+- **Adding an entry checks first:** nickname unused and valid, braces paired, year four digits; the file is saved safely.
+- **`#bibliography(...)` is read properly:** `style:` before the path, calls split over several lines, and a list of files no longer confuse it; choosing a source never touches a call it can't safely edit.
+- **Switching bibliography now takes effect everywhere and keeps watching the right file.**
+
+### Added
+
+- **A Sources menu in the Citations panel** replaces the row of small icons: choose a file or Kartoteka vault, start a new bibliography, connect Zotero, pick from Zotero, keep a copy in the project, freeze for submission.
+- **Zotero with Better BibTeX:** *Connect Zotero…* walks through keeping an export up to date in your folder (and recommends Better BibTeX); *Pick from Zotero…* opens Zotero's own picker and inserts the `@key`s you choose. It talks only to Zotero on your own computer.
+- **Documents that work on any computer.** A bibliography stored outside the project is now mirrored into it (`references.bib`, marked as Zerkalo's) and kept up to date; the document points at the copy by a relative path, so it compiles wherever the folder is synced. Zerkalo only ever rewrites files it made itself — never one of yours. *Keep a copy in the project* can be turned off to keep linking instead.
+- **Freeze for submission:** writes a small `.bib` with only the sources a document cites and points the document at it (undoable).
+- **Tell Kartoteka which documents cite its sources** (off by default): with a vault as the source, writes one small, marked file to the vault's `projects/` folder, named for this computer, so Kartoteka's *Used in* works.
+
+### Changed
+
+- **One citation search everywhere.** The `@` popup, the Citations panel and the References window now find the same things: type words in any order ("butler gender 90"), ignoring case and accents ("zizek" finds Žižek), across author, title, year, key and journal/publisher. Works your document already cites come first, marked ●. The popup shows the best 60 and narrows as you type.
+- **Citation labels read properly:** "Smith & Doe", "Smith et al.", "Cone (ed.)" for an edited volume, and an institution by its whole name ("World Council of Churches") instead of "Churches".
+- **Typing `@fig-1` (a label your document defines) no longer pops up bibliography suggestions.**
+- **One place decides the citation source.** The document's own `#bibliography` line wins, then the project setting, then Settings, then a bibliography in the project folder. Settings, the Citations panel and the document all go through it, and the editor follows the open document. Your files are only read, except the path in the open document's `#bibliography` line when you choose a source (written relative when the file is inside the project).
+
+---
+
 ## [0.40.0] "Tidy Glass" — 2026-10-01 — A Library that organises itself
 
 ### Added

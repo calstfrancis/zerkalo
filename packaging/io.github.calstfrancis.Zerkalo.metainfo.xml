@@ -85,6 +85,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.41.0" date="2026-10-02">
+      <description>
+        <p>0.41.0 "Steady Glass" — one place to cite from. A Sources menu in the Citations panel replaces the row of icons; the document's own #bibliography line, the project, Settings and the project folder are resolved in one place. One search for the @ popup, panel and References window (words in any order, accents ignored, works you already cite first). Zotero with Better BibTeX: a connect guide and a picker. A bibliography stored elsewhere is mirrored into the project so documents compile on any computer; Freeze for submission saves only what a document cites. Renaming a citation key now changes only the key, in every file or none, and many citation bugs are fixed. Your files are only read, never rewritten unprompted.</p>
+      </description>
+    </release>
     <release version="0.40.0" date="2026-10-01">
       <description>
         <p>0.40.0 "Tidy Glass" — a Library that organises itself. Labels replace tags and categories (your old ones are converted automatically, with a backup first); an Organize… popover files documents in one step; every author you cite becomes a "Lastname, I." tag; search reads the full text of your documents; missing files are flagged and can be re-located. Your organisation is also kept in readable files in your own folder, one subfolder per computer, so it travels with your git backup and never conflicts. Notes are included only if you opt in.</p>
