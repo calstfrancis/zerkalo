@@ -85,6 +85,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.42.0" date="2026-10-02">
+      <description>
+        <p>0.42.0 "Joined Glass" — your writing follows you between computers. Get Latest from GitHub brings everything backed up online down to the computer you are sitting at, sending nothing back; edits made there are saved as a version first, and a disagreement changes nothing. At start-up Zerkalo catches a computer that is simply behind up to date by itself, or offers to when you have un-backed-up work of your own. The setup wizard also brings your writing down when you point a new computer at an existing online copy.</p>
+      </description>
+    </release>
     <release version="0.41.1" date="2026-10-02">
       <description>
         <p>0.41.1 "Plain Glass" — a steadier editor. Word wrap is always on and the setting is gone; the editor can no longer scroll sideways. Brackets and quotes pair only when it helps, and the cursor and view no longer jump to the start or end of the document after Replace All, restoring a snapshot, applying a style, renaming a citation key or reloading a changed file. Resizing the window keeps the preview where it was.</p>

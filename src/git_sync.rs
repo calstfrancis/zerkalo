@@ -543,10 +543,20 @@ fn primary_remote(repo_path: &Path) -> Option<String> {
         .cloned()
 }
 
-/// How many changes are waiting online that this folder doesn't have yet, or
-/// `None` if that can't be told (offline, no online copy, not signed in).
-/// Only fetches; it changes nothing in the folder.
-pub fn waiting_online(repo_path: &Path, github_token: Option<&str>) -> Option<usize> {
+/// Newer work waiting online that this folder doesn't have yet.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Waiting {
+    pub changes: usize,
+    /// Bringing it here is a plain catch-up: nothing is waiting to be backed up
+    /// from this folder (no loose edits, no unpushed versions), so it can be
+    /// done without any chance of the two sides disagreeing.
+    pub plain_catch_up: bool,
+}
+
+/// What is waiting online that this folder doesn't have yet, or `None` if that
+/// can't be told (offline, no online copy, not signed in). Only fetches; it
+/// changes nothing in the folder.
+pub fn waiting_online(repo_path: &Path, github_token: Option<&str>) -> Option<Waiting> {
     let remote = primary_remote(repo_path)?;
     fetch(repo_path, &remote, github_token).ok()?;
     let branch = head_branch(repo_path);
@@ -556,9 +566,25 @@ pub fn waiting_online(repo_path: &Path, github_token: Option<&str>) -> Option<us
     } else {
         format!("{remote}/{theirs}")
     };
-    git_ok(repo_path, &["rev-list", "--count", &range])?
+    let changes: usize = git_ok(repo_path, &["rev-list", "--count", &range])?
         .parse()
-        .ok()
+        .ok()?;
+    let plain_catch_up = changed_files(repo_path).is_empty()
+        && has_commits(repo_path)
+        // Everything here is already part of the online history.
+        && git_cmd(repo_path)
+            .args([
+                "merge-base",
+                "--is-ancestor",
+                "HEAD",
+                &format!("{remote}/{theirs}"),
+            ])
+            .output()
+            .is_ok_and(|o| o.status.success());
+    Some(Waiting {
+        changes,
+        plain_catch_up,
+    })
 }
 
 /// Brings everything backed up online down to this folder, without sending
@@ -1024,7 +1050,10 @@ mod tests {
         std::fs::write(b.path().join("other.typ"), "B's own work\n").unwrap();
         let remote_head_before = g(remote.path(), &["rev-parse", "main"]);
 
-        assert_eq!(waiting_online(b.path(), None), Some(1));
+        let w = waiting_online(b.path(), None).unwrap();
+        assert_eq!(w.changes, 1);
+        // B has loose edits, so this is not a plain catch-up.
+        assert!(!w.plain_catch_up);
         let r = pull(b.path(), None);
         assert!(r.error.is_none() && !r.conflict, "{r:?}");
         assert_eq!(r.new_commits, 1);
@@ -1040,7 +1069,7 @@ mod tests {
         );
         // Nothing was sent back online.
         assert_eq!(g(remote.path(), &["rev-parse", "main"]), remote_head_before);
-        assert_eq!(waiting_online(b.path(), None), Some(0));
+        assert_eq!(waiting_online(b.path(), None).unwrap().changes, 0);
     }
 
     #[test]
@@ -1091,5 +1120,24 @@ mod tests {
         g(b.path(), &["init", "-b", "main"]);
         let r = pull(b.path(), None);
         assert!(r.error.is_some());
+    }
+
+    #[test]
+    fn a_clean_folder_that_is_simply_behind_is_a_plain_catch_up() {
+        let (remote, a) = online_with_one_commit();
+        let b = tempfile::tempdir().unwrap();
+        g(b.path(), &["clone", remote.path().to_str().unwrap(), "."]);
+        identify(b.path());
+        std::fs::write(a.path().join("essay.typ"), "first draft\nand more\n").unwrap();
+        g(a.path(), &["commit", "-am", "two"]);
+        g(a.path(), &["push"]);
+        let w = waiting_online(b.path(), None).unwrap();
+        assert_eq!((w.changes, w.plain_catch_up), (1, true));
+        // A version here that was never backed up means it is no longer plain.
+        std::fs::write(b.path().join("b.typ"), "mine\n").unwrap();
+        g(b.path(), &["add", "."]);
+        g(b.path(), &["commit", "-m", "mine"]);
+        let w = waiting_online(b.path(), None).unwrap();
+        assert!(!w.plain_catch_up);
     }
 }

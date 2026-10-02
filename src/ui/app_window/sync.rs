@@ -230,8 +230,9 @@ fn show_pull_result(
 }
 
 /// When Zerkalo starts, quietly asks GitHub whether newer writing is waiting
-/// — typically from another computer — and offers to bring it here. Silent
-/// when offline, signed out, or already up to date.
+/// — typically from another computer. If this folder is simply behind (nothing
+/// of its own waiting to be backed up) it catches up straight away; otherwise it
+/// offers. Silent when offline, signed out, or already up to date.
 pub(super) fn offer_waiting_work(
     root: PathBuf,
     window: adw::ApplicationWindow,
@@ -247,7 +248,7 @@ pub(super) fn offer_waiting_work(
     }
     let root_for_thread = root.clone();
     let token_for_thread = token.clone();
-    let (tx, rx) = std::sync::mpsc::sync_channel::<Option<usize>>(1);
+    let (tx, rx) = std::sync::mpsc::sync_channel::<Option<git_sync::Waiting>>(1);
     std::thread::spawn(move || {
         tx.send(git_sync::waiting_online(
             &root_for_thread,
@@ -257,7 +258,22 @@ pub(super) fn offer_waiting_work(
     });
     let rx = Rc::new(rx);
     glib::timeout_add_local(Duration::from_millis(300), move || match rx.try_recv() {
-        Ok(Some(n)) if n > 0 => {
+        Ok(Some(waiting)) if waiting.changes > 0 => {
+            // A folder that is simply behind, with nothing of its own waiting to
+            // be backed up, is brought up to date on the spot: there is nothing
+            // that could disagree. Anything else is offered, never forced.
+            if waiting.plain_catch_up {
+                do_pull(
+                    root.clone(),
+                    window.clone(),
+                    overlay.clone(),
+                    badge.clone(),
+                    token.clone(),
+                    current_config.clone(),
+                );
+                return glib::ControlFlow::Break;
+            }
+            let n = waiting.changes;
             let t = adw::Toast::new(&format!(
                 "Newer writing is waiting on GitHub ({n} {})",
                 if n == 1 { "change" } else { "changes" }
