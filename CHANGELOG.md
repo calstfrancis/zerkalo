@@ -3,6 +3,20 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.42.1] "Fresh Glass" — 2026-10-02 — What's New tells the truth
+
+### Fixed
+
+- **"What's New" now shows what's actually new.** It had kept announcing the old tab-bar colours because its text was typed into the program and never updated. It now reads the changelog itself, so it can't fall behind — and if you skipped some releases it shows each one you missed, not just the newest.
+- **Catching up on 0.40–0.42:** the Library's labels and *Organize…*, a *Sources* menu for citations (with Zotero, an in-project copy and *Freeze for submission*), *Get Latest from GitHub* with a safe force option, and always-on word wrap. This is the first release whose What's New says so.
+- **Help now matches the app.** The in-app Help covers syncing between computers, the Library and citing from Zotero; the Back Up shortcut is shown correctly as Ctrl+Shift+S (some screens said Ctrl+Shift+G); and the saved-versions count is right (100 per file).
+
+### Added
+
+- **Get Latest from GitHub** is in the command palette (Ctrl+K).
+
+---
+
 ## [0.42.0] "Joined Glass" — 2026-10-02 — Your writing follows you between computers
 
 ### Added

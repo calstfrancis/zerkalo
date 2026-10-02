@@ -7,7 +7,7 @@ use gtk4::{Align, Box as GtkBox, Button, Label, Orientation, ScrolledWindow, Sep
 use libadwaita as adw;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const RELEASE_NAME: &str = "Joined Glass";
+pub const RELEASE_NAME: &str = "Fresh Glass";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -22,7 +22,21 @@ impl WelcomeWindow {
             .exists()
     }
 
-    pub fn new(parent: &impl IsA<gtk4::Window>, is_first_run: bool) -> Self {
+    /// The version recorded the last time this window was shown, if any.
+    pub fn last_seen() -> Option<String> {
+        std::fs::read_to_string(crate::config::zerkalo_data_dir().join(".welcome_version"))
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    }
+
+    /// `last_seen` is the version recorded before this launch, so a person who
+    /// skipped releases is shown each one they missed.
+    pub fn new(
+        parent: &impl IsA<gtk4::Window>,
+        is_first_run: bool,
+        last_seen: Option<String>,
+    ) -> Self {
         let on_dismissed: Rc<RefCell<Option<Box<dyn Fn()>>>> = Rc::new(RefCell::new(None));
 
         let title = if is_first_run {
@@ -158,10 +172,33 @@ impl WelcomeWindow {
                 body.append(&bullet_row(item));
             }
         } else {
-            body.append(&section_label(&format!("What's New in {VERSION}")));
-            body.append(&bullet_row(
-                "The tab bar takes the Fond palette: the selected tab is a warm ochre wash with an ochre rule beneath it, and a hovered tab takes dusty blue.",
-            ));
+            // Read from CHANGELOG.md, so it can never fall behind the release.
+            let releases = crate::whats_new::for_dialog(last_seen.as_deref());
+            for (n, rel) in releases.iter().enumerate() {
+                if n > 0 {
+                    body.append(&Separator::new(Orientation::Horizontal));
+                }
+                let heading = if rel.name.is_empty() {
+                    format!("What's New in {}", rel.version)
+                } else {
+                    format!("What's New in {} \u{201c}{}\u{201d}", rel.version, rel.name)
+                };
+                body.append(&section_label(&heading));
+                if !rel.subtitle.is_empty() {
+                    let sub = Label::new(Some(&rel.subtitle));
+                    sub.set_xalign(0.0);
+                    sub.add_css_class("dim-label");
+                    body.append(&sub);
+                }
+                for item in rel.items.iter().take(8) {
+                    body.append(&bullet_row(item));
+                }
+            }
+            if releases.iter().all(|r| r.items.is_empty()) {
+                body.append(&bullet_row(
+                    "See the changelog for what changed in this version.",
+                ));
+            }
         }
 
         body.append(&Separator::new(Orientation::Horizontal));
@@ -172,7 +209,7 @@ impl WelcomeWindow {
             ("Ctrl+K", "Command palette"),
             ("Ctrl+F", "Find in document"),
             ("Ctrl+Tab", "Next open file"),
-            ("Ctrl+Shift+G", "Save a version & back up"),
+            ("Ctrl+Shift+S", "Save a version & back up"),
         ] {
             body.append(&shortcut_row(key, desc));
         }

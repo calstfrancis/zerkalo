@@ -49,6 +49,7 @@ mod typst_universe;
 mod ui;
 mod user_templates;
 mod web_export;
+mod whats_new;
 mod writing_log;
 mod zotero;
 

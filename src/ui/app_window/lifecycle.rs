@@ -146,9 +146,15 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
     glib::timeout_add_local(Duration::from_millis(1200), move || {
         if super::super::welcome_window::WelcomeWindow::should_show() {
             let is_first_run = super::super::welcome_window::WelcomeWindow::is_first_run();
+            // Read before it is overwritten: a person who skipped releases is
+            // shown each one they missed.
+            let last_seen = super::super::welcome_window::WelcomeWindow::last_seen();
             super::super::welcome_window::WelcomeWindow::mark_shown();
-            let ww =
-                super::super::welcome_window::WelcomeWindow::new(&win_for_welcome, is_first_run);
+            let ww = super::super::welcome_window::WelcomeWindow::new(
+                &win_for_welcome,
+                is_first_run,
+                last_seen,
+            );
             if is_first_run {
                 // "Get Started" leads straight into creating a first document
                 // instead of just closing the window on a blank editor. The

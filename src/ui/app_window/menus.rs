@@ -286,7 +286,8 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
     let menu_popover_for_whats_new = ctx.menu_popover.clone();
     menus.menu_whats_new_item.connect_clicked(move |_| {
         menu_popover_for_whats_new.popdown();
-        super::super::welcome_window::WelcomeWindow::new(&window_for_whats_new, false).present();
+        super::super::welcome_window::WelcomeWindow::new(&window_for_whats_new, false, None)
+            .present();
     });
 
     // ── Menu: About ─────────────────────────────────────────────────────

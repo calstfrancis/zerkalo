@@ -72,6 +72,7 @@ struct PaletteTargets {
     template: Button,
     save: Button,
     sidebar: Button,
+    get_latest: Button,
 }
 
 pub struct AppWindow {
@@ -2495,6 +2496,7 @@ impl AppWindow {
                 template: menus.menu_new_template_item,
                 save: menus.menu_save_item,
                 sidebar: sidebar_btn,
+                get_latest: menus.menu_get_latest_item,
             },
             menu_import_item: menus.menu_import_item,
             config: current_config,
@@ -2568,6 +2570,7 @@ impl AppWindow {
                         "toggle_sidebar" => targets_for_pal.sidebar.emit_clicked(),
                         "toggle_preview" => compile_btn_for_pal.emit_clicked(),
                         "git_sync" => sync_btn_for_pal.emit_clicked(),
+                        "get_latest" => targets_for_pal.get_latest.emit_clicked(),
                         "focus_mode" => editor_for_pal.focus_button_for_header().emit_clicked(),
                         "show_in_preview" => editor_for_pal.show_cursor_in_preview(),
                         "help" => {

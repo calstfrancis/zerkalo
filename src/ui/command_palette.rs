@@ -340,6 +340,11 @@ pub fn default_commands() -> Vec<PaletteItem> {
             subtitle: "Save this version and send it to all backup locations (Ctrl+Shift+S)".into(),
         },
         PaletteItem {
+            id: "get_latest".into(),
+            label: "Get Latest from GitHub".into(),
+            subtitle: "Bring everything backed up online down to this computer".into(),
+        },
+        PaletteItem {
             id: "toggle_profile".into(),
             label: "Toggle Profile".into(),
             subtitle: "Switch the preview between Final (full quality) and Draft (fast)".into(),

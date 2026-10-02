@@ -85,6 +85,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.42.1" date="2026-10-02">
+      <description>
+        <p>0.42.1 "Fresh Glass" — What's New tells the truth. The What's New dialog now reads the changelog itself, so it can never fall behind a release, and shows every release you missed if you skipped some. The in-app Help is brought up to date (syncing between computers, the Library, citing from Zotero), the Back Up shortcut is shown correctly as Ctrl+Shift+S, and Get Latest from GitHub is in the command palette.</p>
+      </description>
+    </release>
     <release version="0.42.0" date="2026-10-02">
       <description>
         <p>0.42.0 "Joined Glass" — your writing follows you between computers. Get Latest from GitHub brings everything backed up online down to the computer you are sitting at, sending nothing back; edits made there are saved as a version first, and a disagreement changes nothing. At start-up Zerkalo catches a computer that is simply behind up to date by itself, or offers to when you have un-backed-up work of your own. If the two sides disagree you can choose GitHub's version, after Zerkalo keeps everything that was only on this computer in a saved copy. The setup wizard also brings your writing down when you point a new computer at an existing online copy.</p>
