@@ -5814,7 +5814,7 @@ dependencies = [
 
 [[package]]
 name = "zerkalo"
-version = "0.41.0"
+version = "0.41.1"
 dependencies = [
  "ashpd",
  "base64",

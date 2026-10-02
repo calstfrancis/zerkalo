@@ -200,7 +200,6 @@ theme                  = "system"    # "system" | "light" | "dark"
 editor_font_family     = "Monospace"
 editor_font_size       = 13
 editor_tab_width       = 2
-editor_word_wrap       = false
 editor_show_whitespace = false
 preview_zoom           = 1.0
 ```

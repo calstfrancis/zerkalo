@@ -41,7 +41,6 @@ settings-editor-font-title = Editor font
 settings-editor-font-subtitle = Family and size
 settings-tab-width-title = Tab width
 settings-tab-width-subtitle = Spaces
-settings-word-wrap-title = Word wrap
 settings-show-whitespace-title = Show whitespace
 settings-spacing-compact = Compact (0 px)
 settings-spacing-normal = Normal (2 px)

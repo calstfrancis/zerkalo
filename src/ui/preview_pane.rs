@@ -98,6 +98,66 @@ pub struct PreviewPane {
     zoom_osd: Label,
     osd_timer: Rc<RefCell<Option<glib::SourceId>>>,
     osd_fade_timer: Rc<RefCell<Option<glib::SourceId>>>,
+    /// What was at the top of the viewport when a window resize began refitting
+    /// the pages, held for a moment so the viewport can be put back on it as
+    /// the new sizes arrive — see `ScrollAnchor`.
+    resize_anchor: Rc<Cell<Option<ScrollAnchor>>>,
+    resize_anchor_gen: Rc<Cell<u64>>,
+}
+
+/// A spot in the document, named in terms that survive the pages changing
+/// size: which page, how far down it (as a fraction of its height), and how
+/// far into the fixed gap beneath it. A pixel offset can't do this — fitting
+/// the pages to a new window width scales every page, so the same pixel offset
+/// is somewhere else in the document.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct ScrollAnchor {
+    page: usize,
+    frac: f64,
+    gap: f64,
+}
+
+/// Space between pages, in pixels. Not scaled with the zoom.
+const PAGE_GAP_PX: f64 = 20.0;
+
+/// Page heights in pixels at `zoom`, rounded the way the drawing area is sized.
+fn scaled_heights(page_heights: &[f64], zoom: f64) -> Vec<f64> {
+    page_heights.iter().map(|h| (h * zoom).round()).collect()
+}
+
+fn anchor_for_offset(heights: &[f64], offset: f64) -> Option<ScrollAnchor> {
+    let mut top = 0.0;
+    for (page, &h) in heights.iter().enumerate() {
+        let rel = offset - top;
+        if rel < h + PAGE_GAP_PX || page + 1 == heights.len() {
+            let rel = rel.max(0.0);
+            return Some(if rel <= h {
+                ScrollAnchor {
+                    page,
+                    frac: if h > 0.0 { rel / h } else { 0.0 },
+                    gap: 0.0,
+                }
+            } else {
+                ScrollAnchor {
+                    page,
+                    frac: 1.0,
+                    gap: (rel - h).min(PAGE_GAP_PX),
+                }
+            });
+        }
+        top += h + PAGE_GAP_PX;
+    }
+    None
+}
+
+fn offset_for_anchor(heights: &[f64], anchor: ScrollAnchor) -> f64 {
+    let top: f64 = heights
+        .iter()
+        .take(anchor.page)
+        .map(|h| h + PAGE_GAP_PX)
+        .sum();
+    let h = heights.get(anchor.page).copied().unwrap_or(0.0);
+    top + anchor.frac * h + anchor.gap
 }
 
 impl PreviewPane {
@@ -417,18 +477,34 @@ impl PreviewPane {
             zoom_osd,
             osd_timer: Rc::new(RefCell::new(None)),
             osd_fade_timer: Rc::new(RefCell::new(None)),
+            resize_anchor: Rc::new(Cell::new(None)),
+            resize_anchor_gen: Rc::new(Cell::new(0)),
         };
 
         // Refit to width whenever the scroll viewport width changes (window resize).
+        //
+        // Fitting rescales every page, which moves everything in the document
+        // to a new pixel offset; the adjustment keeps its old one, so the page
+        // slid away under the reader with every step of a resize. Instead the
+        // spot at the top of the viewport is remembered and put back at the top
+        // as the new layout arrives (the vertical adjustment's `changed`, below).
+        // Only an end-of-document clamp can move it, when there's no longer
+        // enough below to fill the window.
         {
             let pane_r = pane.clone();
             pane.img_scroll
                 .hadjustment()
                 .connect_page_size_notify(move |_| {
                     if *pane_r.auto_fit.borrow() && !pane_r.page_pixbufs.borrow().is_empty() {
-                        pane_r.fit_width();
+                        pane_r.refit_keeping_place();
                     }
                 });
+        }
+        {
+            let pane_c = pane.clone();
+            pane.img_scroll.vadjustment().connect_changed(move |_| {
+                pane_c.apply_resize_anchor();
+            });
         }
 
         // Wire scroll → page-changed once here; load_pixbufs_from_bytes must NOT
@@ -510,6 +586,54 @@ impl PreviewPane {
         });
 
         pane
+    }
+
+    fn page_heights(&self) -> Vec<f64> {
+        self.page_pixbufs
+            .borrow()
+            .iter()
+            .map(|pb| pb.height() as f64)
+            .collect()
+    }
+
+    /// `fit_width`, without losing the reader's place.
+    fn refit_keeping_place(&self) {
+        let adj = self.img_scroll.vadjustment();
+        // Mid-resize the previous step's anchor is still the truth: the
+        // adjustment hasn't caught up with it yet, and reading it now would
+        // measure the old layout against the new zoom.
+        let anchor = self.resize_anchor.get().or_else(|| {
+            let heights = scaled_heights(&self.page_heights(), *self.zoom.borrow());
+            anchor_for_offset(&heights, adj.value())
+        });
+        self.resize_anchor.set(anchor);
+        // Forget it shortly after the last resize step, so an ordinary scroll
+        // afterwards is never mistaken for part of it.
+        let gen = self.resize_anchor_gen.get().wrapping_add(1);
+        self.resize_anchor_gen.set(gen);
+        let pane = self.clone();
+        glib::timeout_add_local_once(Duration::from_millis(250), move || {
+            if pane.resize_anchor_gen.get() == gen {
+                pane.resize_anchor.set(None);
+            }
+        });
+        self.fit_width();
+        self.apply_resize_anchor();
+    }
+
+    /// Puts the viewport back on the remembered spot, if a resize is under way.
+    /// Called again whenever the scroll range changes, since the new document
+    /// height only exists once the drawing area has been allocated.
+    fn apply_resize_anchor(&self) {
+        let Some(anchor) = self.resize_anchor.get() else {
+            return;
+        };
+        let heights = scaled_heights(&self.page_heights(), *self.zoom.borrow());
+        let target = offset_for_anchor(&heights, anchor);
+        let adj = self.img_scroll.vadjustment();
+        if (adj.value() - target).abs() > 0.5 {
+            adj.set_value(target);
+        }
     }
 
     pub fn show_zoom_osd(&self, zoom: f64) {
@@ -1411,4 +1535,50 @@ fn bbox_distance(w: &PdfWord, px: f64, py: f64) -> f64 {
         0.0
     };
     dx * dx + dy * dy
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_top_of_a_page_stays_the_top_of_that_page_at_any_zoom() {
+        let before = scaled_heights(&[1000.0, 1000.0], 0.5);
+        let a = anchor_for_offset(&before, 520.0).unwrap();
+        assert_eq!(a.page, 1);
+        assert_eq!(a.gap, 0.0);
+        let after = scaled_heights(&[1000.0, 1000.0], 1.0);
+        assert_eq!(offset_for_anchor(&after, a), 1020.0);
+    }
+
+    #[test]
+    fn a_spot_partway_down_a_page_keeps_its_proportion() {
+        let before = scaled_heights(&[800.0, 800.0], 0.5);
+        // Halfway down page 2: 400 + 20 + 200.
+        let a = anchor_for_offset(&before, 620.0).unwrap();
+        assert_eq!(a.page, 1);
+        assert!((a.frac - 0.5).abs() < 1e-9);
+        let after = scaled_heights(&[800.0, 800.0], 2.0);
+        assert_eq!(offset_for_anchor(&after, a), 1620.0 + 800.0);
+    }
+
+    #[test]
+    fn the_gap_between_pages_does_not_scale() {
+        let before = scaled_heights(&[1000.0, 1000.0], 1.0);
+        let a = anchor_for_offset(&before, 1010.0).unwrap();
+        assert_eq!((a.page, a.gap), (0, 10.0));
+        let after = scaled_heights(&[1000.0, 1000.0], 0.5);
+        assert_eq!(offset_for_anchor(&after, a), 510.0);
+    }
+
+    #[test]
+    fn the_very_top_stays_the_very_top() {
+        let a = anchor_for_offset(&scaled_heights(&[900.0], 0.7), 0.0).unwrap();
+        assert_eq!(offset_for_anchor(&scaled_heights(&[900.0], 1.3), a), 0.0);
+    }
+
+    #[test]
+    fn nothing_to_anchor_in_an_empty_document() {
+        assert!(anchor_for_offset(&[], 10.0).is_none());
+    }
 }

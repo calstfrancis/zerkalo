@@ -24,6 +24,7 @@ use super::lsp_popup::LspPopup;
 use super::tab_host::{TabHost, TabMark};
 use crate::bibliography::BibEntry;
 use crate::lsp::CompletionItem;
+use crate::ui::autopair;
 
 // Package names/descriptions matching EXTRA_PACKAGES in template_dialog.rs
 /// The buffer mark `jump_to_line` scrolls to. Named, so one mark per buffer is
@@ -161,11 +162,8 @@ const CV_SNIPPETS: &[(&str, &str, &str, &str)] = &[
 struct EditorTab {
     buffer: Buffer,
     view: View,
-    scroll_window: ScrolledWindow,
-    // The actual notebook page widget (an Overlay wrapping scroll_window, for
-    // the empty-buffer placeholder — see where it's built). Distinct from
-    // scroll_window because ScrolledWindow-specific calls (set_policy,
-    // vadjustment, ...) need the real ScrolledWindow, while notebook.page_num/
+    // The actual notebook page widget (an Overlay wrapping the ScrolledWindow,
+    // for the empty-buffer placeholder — see where it's built): notebook.page_num/
     // remove_page/etc. need whatever was actually passed to append_page.
     notebook_page: gtk4::Overlay,
     modified: bool,
@@ -221,7 +219,6 @@ pub struct EditorPane {
     font_provider: Rc<CssProvider>,
     font_size: Rc<RefCell<u32>>,
     font_family: Rc<RefCell<String>>,
-    word_wrap: Rc<RefCell<bool>>,
     show_whitespace: Rc<RefCell<bool>>,
     tab_width: Rc<RefCell<u32>>,
     find_bar: FindBar,
@@ -244,7 +241,6 @@ pub struct EditorPane {
     section_wc_label: Label,
     breadcrumb_label: Label,
     breadcrumb_bar: GtkBox,
-    word_wrap_btn: ToggleButton,
     simple_mode: Rc<RefCell<bool>>,
     simple_mode_label: Label,
     on_simple_mode_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
@@ -747,13 +743,6 @@ impl EditorPane {
         breadcrumb_label.set_xalign(0.0);
         breadcrumb_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
 
-        let word_wrap_btn = ToggleButton::new();
-        word_wrap_btn.set_icon_name("format-justify-left-symbolic");
-        word_wrap_btn.add_css_class("flat");
-        word_wrap_btn.set_tooltip_text(Some("Toggle word wrap"));
-        word_wrap_btn.set_valign(gtk4::Align::Center);
-        word_wrap_btn.update_property(&[gtk4::accessible::Property::Label("Toggle word wrap")]);
-
         let breadcrumb_bar = GtkBox::new(Orientation::Horizontal, 0);
         breadcrumb_bar.add_css_class("breadcrumb-bar");
         // Undo/redo at top-left of the editor panel
@@ -767,7 +756,6 @@ impl EditorPane {
         breadcrumb_bar.append(&sep);
         breadcrumb_bar.append(&breadcrumb_label);
         breadcrumb_bar.append(&section_wc_label);
-        let _ = &word_wrap_btn; // kept for settings sync; not shown in toolbar
 
         let editor_row = GtkBox::new(Orientation::Horizontal, 0);
         editor_row.set_hexpand(true);
@@ -1507,7 +1495,6 @@ impl EditorPane {
 
         let font_size: Rc<RefCell<u32>> = Rc::new(RefCell::new(13));
         let font_family: Rc<RefCell<String>> = Rc::new(RefCell::new("Monospace".to_string()));
-        let word_wrap: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
         let show_whitespace: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
         let tab_width: Rc<RefCell<u32>> = Rc::new(RefCell::new(2));
         let line_spacing: Rc<RefCell<u32>> = Rc::new(RefCell::new(2));
@@ -1583,7 +1570,6 @@ impl EditorPane {
             font_provider: Rc::new(font_provider),
             font_size,
             font_family,
-            word_wrap,
             show_whitespace,
             tab_width,
             find_bar,
@@ -1605,7 +1591,6 @@ impl EditorPane {
             section_wc_label,
             breadcrumb_label,
             breadcrumb_bar,
-            word_wrap_btn,
             simple_mode: Rc::new(RefCell::new(true)),
             simple_mode_label: simple_mode_label.clone(),
             on_simple_mode_toggle,
@@ -2005,14 +1990,6 @@ impl EditorPane {
                 .set_on_replace_all(move |find, replace| ep2.do_replace_all(find, replace));
         }
 
-        // Word wrap toggle button
-        {
-            let ep2 = ep.clone();
-            ep.word_wrap_btn.connect_toggled(move |btn| {
-                ep2.apply_word_wrap(btn.is_active());
-            });
-        }
-
         // SIMPLE mode button
         {
             let ep2 = ep.clone();
@@ -2118,10 +2095,6 @@ impl EditorPane {
         *self.project_root.borrow_mut() = Some(path);
     }
 
-    pub fn set_word_wrap_btn(&self, active: bool) {
-        self.word_wrap_btn.set_active(active);
-    }
-
     /// Apply simple mode to the current active buffer and update button label.
     /// The button reads "show template" or "hide template" — the action the
     /// next click performs — rather than a name-as-label bold/plain toggle,
@@ -2177,32 +2150,6 @@ impl EditorPane {
 
     pub fn breadcrumb_bar_append(&self, w: &impl gtk4::prelude::IsA<gtk4::Widget>) {
         self.breadcrumb_bar.append(w);
-    }
-
-    pub fn apply_word_wrap(&self, enabled: bool) {
-        *self.word_wrap.borrow_mut() = enabled;
-        let mode = if enabled {
-            gtk4::WrapMode::Word
-        } else {
-            gtk4::WrapMode::None
-        };
-        let h_policy = if enabled {
-            gtk4::PolicyType::Never
-        } else {
-            gtk4::PolicyType::Automatic
-        };
-        let tabs: Vec<_> = {
-            let state = self.state.borrow();
-            state
-                .tabs
-                .values()
-                .map(|t| (t.view.clone(), t.scroll_window.clone()))
-                .collect()
-        };
-        for (view, scroll) in &tabs {
-            view.set_wrap_mode(mode);
-            scroll.set_policy(h_policy, gtk4::PolicyType::Automatic);
-        }
     }
 
     pub fn apply_show_whitespace(&self, enabled: bool) {
@@ -2523,13 +2470,7 @@ impl EditorPane {
                     self.find_bar.set_entry_error(false);
                     let new_text = re.replace_all(&full_text, replace);
                     count = re.find_iter(&full_text).count();
-                    let mut start = buffer.start_iter();
-                    let mut end = buffer.end_iter();
-                    buffer.begin_user_action();
-                    buffer.delete(&mut start, &mut end);
-                    let mut ins = buffer.start_iter();
-                    buffer.insert(&mut ins, &new_text);
-                    buffer.end_user_action();
+                    replace_text_minimally(&buffer, &new_text);
                     let sm = *self.simple_mode.borrow();
                     apply_simple_mode_tag(&buffer, sm);
                 }
@@ -2714,12 +2655,7 @@ impl EditorPane {
             if !changed {
                 continue;
             }
-            buf.begin_user_action();
-            let mut start = buf.start_iter();
-            let mut end = buf.end_iter();
-            buf.delete(&mut start, &mut end);
-            buf.insert(&mut start, &new_text);
-            buf.end_user_action();
+            replace_text_minimally(&buf, &new_text);
             changed_paths.push(path);
         }
         changed_paths
@@ -2783,11 +2719,7 @@ impl EditorPane {
             state.tabs.get(path).map(|tab| tab.buffer.clone())
         };
         if let Some(buffer) = buffer_opt {
-            buffer.begin_user_action();
-            let (start, end) = buffer.bounds();
-            buffer.delete(&mut start.clone(), &mut end.clone());
-            buffer.insert(&mut buffer.end_iter(), new_content);
-            buffer.end_user_action();
+            replace_text_minimally(&buffer, new_content);
             let sm = *self.simple_mode.borrow();
             apply_simple_mode_tag(&buffer, sm);
         }
@@ -3223,7 +3155,12 @@ impl EditorPane {
                 .map(|tab| (tab.buffer.clone(), tab.notebook_page.clone()))
         };
         if let Some((buffer, scroll)) = existing {
-            buffer.set_text(content);
+            // The text on disk replaces the buffer's, so what was undoable no
+            // longer applies — but only the changed stretch is touched, so the
+            // cursor and scroll position stay where the writer left them.
+            buffer.begin_irreversible_action();
+            replace_text_minimally(&buffer, content);
+            buffer.end_irreversible_action();
             {
                 let sm = *self.simple_mode.borrow();
                 apply_simple_mode_tag(&buffer, sm);
@@ -3264,29 +3201,19 @@ impl EditorPane {
         match marker {
             Some(m) => {
                 let body_byte = current_text.find(m).unwrap();
-                let body_char = current_text[..body_byte].chars().count() as i32;
                 let new_preamble = full_new_content
                     .find(m)
                     .map(|pos| &full_new_content[..pos])
                     .unwrap_or(full_new_content);
-                let mut preamble_end = buffer.iter_at_offset(body_char);
-                let mut preamble_start = buffer.start_iter();
-                buffer.begin_user_action();
-                buffer.delete(&mut preamble_start, &mut preamble_end);
-                let mut ins = buffer.start_iter();
-                buffer.insert(&mut ins, new_preamble);
-                buffer.end_user_action();
+                let body: String = current_text[body_byte..].to_string();
+                replace_text_minimally(&buffer, &format!("{new_preamble}{body}"));
                 {
                     let sm = *self.simple_mode.borrow();
                     apply_simple_mode_tag(&buffer, sm);
                 }
             }
             None => {
-                buffer.begin_user_action();
-                let (start, end) = buffer.bounds();
-                buffer.delete(&mut start.clone(), &mut end.clone());
-                buffer.insert(&mut buffer.end_iter(), full_new_content);
-                buffer.end_user_action();
+                replace_text_minimally(&buffer, full_new_content);
                 {
                     let sm = *self.simple_mode.borrow();
                     apply_simple_mode_tag(&buffer, sm);
@@ -3382,12 +3309,10 @@ impl EditorPane {
         // Do NOT set_monospace — the editor font family is set explicitly via
         // apply_font_family; monospace mode only matters when no font is configured.
         view.set_highlight_current_line(true);
-        let wrap_mode = if *self.word_wrap.borrow() {
-            gtk4::WrapMode::Word
-        } else {
-            gtk4::WrapMode::None
-        };
-        view.set_wrap_mode(wrap_mode);
+        // Text always wraps at word boundaries; there is no unwrapped mode. A
+        // single word too long to fit (a URL, say) breaks across lines rather than
+        // running off the edge, since the editor never scrolls sideways.
+        view.set_wrap_mode(gtk4::WrapMode::WordChar);
         apply_space_drawer(&view, *self.show_whitespace.borrow());
         set_view_line_spacing(&view, *self.line_spacing.borrow());
         // Comfortable content padding. In simple mode the gutter is hidden so
@@ -3418,12 +3343,7 @@ impl EditorPane {
         // Horizontal scroll is permanently disabled — all wrapping is done in the
         // text view itself. Kinetic scrolling is disabled to prevent the view from
         // "coasting" past where the user clicked.
-        let h_policy = if *self.word_wrap.borrow() {
-            gtk4::PolicyType::Never
-        } else {
-            gtk4::PolicyType::Automatic
-        };
-        scroll.set_policy(h_policy, gtk4::PolicyType::Automatic);
+        lock_horizontal_scroll(&scroll);
         scroll.set_kinetic_scrolling(false);
 
         // Ghost-text placeholder — shown when the buffer is empty. This wraps
@@ -3922,7 +3842,6 @@ impl EditorPane {
             EditorTab {
                 buffer,
                 view,
-                scroll_window: scroll,
                 notebook_page: editor_overlay,
                 modified: false,
                 dot_label,
@@ -4024,11 +3943,7 @@ impl EditorPane {
                 .map(|t| t.buffer.clone())
         };
         if let Some(buffer) = buf {
-            buffer.begin_user_action();
-            let (start, end) = buffer.bounds();
-            buffer.delete(&mut start.clone(), &mut end.clone());
-            buffer.insert(&mut buffer.end_iter(), text);
-            buffer.end_user_action();
+            replace_text_minimally(&buffer, text);
             {
                 let sm = *self.simple_mode.borrow();
                 apply_simple_mode_tag(&buffer, sm);
@@ -4095,11 +4010,7 @@ impl EditorPane {
     pub fn set_content(&self, path: &std::path::Path, text: &str) {
         let buf = self.state.borrow().tabs.get(path).map(|t| t.buffer.clone());
         if let Some(buffer) = buf {
-            buffer.begin_user_action();
-            let (start, end) = buffer.bounds();
-            buffer.delete(&mut start.clone(), &mut end.clone());
-            buffer.insert(&mut buffer.end_iter(), text);
-            buffer.end_user_action();
+            replace_text_minimally(&buffer, text);
             {
                 let sm = *self.simple_mode.borrow();
                 apply_simple_mode_tag(&buffer, sm);
@@ -4633,6 +4544,91 @@ impl EditorPane {
 
 const SIMPLE_TAG: &str = "zk-simple-hidden";
 const BODY_SEPARATOR: &str = "// ── Document body";
+
+/// Makes the editor unable to scroll sideways at all: no horizontal scrollbar,
+/// and an adjustment that snaps back to zero if anything — a stale restore, a
+/// scroll-to-cursor, GTK's own focus handling — ever nudges it.
+fn lock_horizontal_scroll(scroll: &ScrolledWindow) {
+    scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
+    let adj = scroll.hadjustment();
+    if adj.value() != 0.0 {
+        adj.set_value(0.0);
+    }
+    // Once per scrolled window: this runs again whenever word wrap is toggled.
+    const LOCKED: &str = "zerkalo-hscroll-locked";
+    // SAFETY: only ever stores and reads a `bool` under this key.
+    if unsafe { adj.data::<bool>(LOCKED) }.is_some() {
+        return;
+    }
+    unsafe { adj.set_data(LOCKED, true) };
+    adj.connect_value_changed(|adj| {
+        if adj.value() != 0.0 {
+            adj.set_value(0.0);
+        }
+    });
+}
+
+/// Replaces a buffer's whole text with `new_text`, touching only the stretch
+/// that actually differs.
+///
+/// Deleting everything and typing it back looks the same on paper but isn't:
+/// the cursor ends up at the very end of the document, every tag and mark is
+/// gone, and — worst — the emptied view clamps its scroll position to zero, so
+/// the writer finds themselves looking at line 1 of a document they were
+/// halfway down. Whole-text rewrites come from Replace All, restoring a
+/// snapshot, applying a style, a changed file on disk and more, so all of them
+/// go through here. Everything outside the changed stretch keeps its place;
+/// a cursor inside it lands at the same distance into the new text.
+fn replace_text_minimally(buffer: &Buffer, new_text: &str) {
+    let (s, e) = buffer.bounds();
+    // Hidden text included: simple mode makes the template invisible, and
+    // dropping it here would delete it.
+    let old = buffer.text(&s, &e, true);
+    let Some((prefix, old_end, inserted)) = changed_span(&old, new_text) else {
+        return;
+    };
+    let cursor = buffer.cursor_position().max(0) as usize;
+    let inserted_len = inserted.chars().count();
+
+    buffer.begin_user_action();
+    if old_end > prefix {
+        let mut from = buffer.iter_at_offset(prefix as i32);
+        let mut to = buffer.iter_at_offset(old_end as i32);
+        buffer.delete(&mut from, &mut to);
+    }
+    if !inserted.is_empty() {
+        let mut at = buffer.iter_at_offset(prefix as i32);
+        buffer.insert(&mut at, &inserted);
+    }
+    if cursor > prefix && cursor < old_end {
+        let target = prefix + (cursor - prefix).min(inserted_len);
+        buffer.place_cursor(&buffer.iter_at_offset(target as i32));
+    }
+    buffer.end_user_action();
+}
+
+/// The stretch of `old` that has to change to become `new`, as character
+/// offsets: `(start, old_end, replacement)` — delete `start..old_end`, insert
+/// `replacement` there. `None` when the two are identical.
+fn changed_span(old: &str, new: &str) -> Option<(usize, usize, String)> {
+    if old == new {
+        return None;
+    }
+    let old: Vec<char> = old.chars().collect();
+    let new: Vec<char> = new.chars().collect();
+    let prefix = old.iter().zip(&new).take_while(|(a, b)| a == b).count();
+    let suffix = old[prefix..]
+        .iter()
+        .rev()
+        .zip(new[prefix..].iter().rev())
+        .take_while(|(a, b)| a == b)
+        .count();
+    Some((
+        prefix,
+        old.len() - suffix,
+        new[prefix..new.len() - suffix].iter().collect(),
+    ))
+}
 
 fn apply_simple_mode_tag(buffer: &Buffer, on: bool) {
     let table = buffer.tag_table();
@@ -5682,6 +5678,30 @@ fn find_heading_line_for(buf: &sourceview5::Buffer, line_idx: i32) -> u32 {
 }
 
 /// True if `ln` is a Typst heading line (starts with `=`).
+/// The text of the current paragraph up to `cursor` — how far back it is worth
+/// looking for a bracket or quote that is still open. Capped, so a document
+/// with no blank lines can't make a keystroke scan the whole file.
+fn text_before_in_paragraph(buf: &Buffer, cursor: &gtk4::TextIter) -> String {
+    const MAX_LINES: i32 = 60;
+    let cursor_line = cursor.line();
+    let mut first = cursor_line;
+    while first > 0 && cursor_line - first < MAX_LINES {
+        let Some(prev) = buf.iter_at_line(first - 1) else {
+            break;
+        };
+        let mut end = prev;
+        if !end.ends_line() {
+            end.forward_to_line_end();
+        }
+        if buf.text(&prev, &end, false).trim().is_empty() {
+            break;
+        }
+        first -= 1;
+    }
+    let start = buf.iter_at_line(first).unwrap_or_else(|| buf.start_iter());
+    buf.text(&start, cursor, false).to_string()
+}
+
 fn is_heading_line(buf: &sourceview5::Buffer, ln: i32) -> bool {
     if let Some(it) = buf.iter_at_line(ln) {
         let mut end = it;
@@ -6867,46 +6887,73 @@ impl EditorPane {
         view.add_controller(key_ctrl);
 
         // ── Auto-pair brackets and quotes ─────────────────────────────────────
-        let last_was_autopair: Rc<std::cell::Cell<bool>> = Rc::new(std::cell::Cell::new(false));
+        // What gets paired is decided by `autopair::decide`, from what sits
+        // around the cursor — see there for the rules.
         {
             let buf_pair = buffer.clone();
             let pair_ctrl = EventControllerKey::new();
             pair_ctrl.set_propagation_phase(PropagationPhase::Capture);
-            let last_ap = last_was_autopair.clone();
             pair_ctrl.connect_key_pressed(move |_, key, _, mods| {
                 use gtk4::gdk::Key;
                 // Don't interfere when modifier keys are held (shortcuts)
                 if mods.intersects(
                     gtk4::gdk::ModifierType::CONTROL_MASK | gtk4::gdk::ModifierType::ALT_MASK,
                 ) {
-                    last_ap.set(false);
                     return glib::Propagation::Proceed;
                 }
-                let pair = match key {
-                    Key::parenleft => Some(("(", ")")),
-                    Key::bracketleft => Some(("[", "]")),
-                    Key::braceleft => Some(("{", "}")),
-                    Key::quotedbl => Some(("\"", "\"")),
-                    Key::dollar => Some(("$", "$")),
-                    _ => None,
+
+                // Backspace between an empty pair takes both halves.
+                if key == Key::BackSpace {
+                    if buf_pair.has_selection() {
+                        return glib::Propagation::Proceed;
+                    }
+                    let pos = buf_pair.cursor_position();
+                    if pos < 1 {
+                        return glib::Propagation::Proceed;
+                    }
+                    let mut from = buf_pair.iter_at_offset(pos - 1);
+                    let mid = buf_pair.iter_at_offset(pos);
+                    if mid.is_end() {
+                        return glib::Propagation::Proceed;
+                    }
+                    let mut to = buf_pair.iter_at_offset(pos + 1);
+                    if autopair::is_empty_pair(from.char(), mid.char()) {
+                        buf_pair.begin_user_action();
+                        buf_pair.delete(&mut from, &mut to);
+                        buf_pair.end_user_action();
+                        return glib::Propagation::Stop;
+                    }
+                    return glib::Propagation::Proceed;
+                }
+
+                let typed = match key {
+                    Key::parenleft => '(',
+                    Key::bracketleft => '[',
+                    Key::braceleft => '{',
+                    Key::quotedbl => '"',
+                    Key::dollar => '$',
+                    Key::parenright => ')',
+                    Key::bracketright => ']',
+                    Key::braceright => '}',
+                    _ => return glib::Propagation::Proceed,
                 };
 
                 // With a selection, an opening pair character wraps the
                 // selected text instead of replacing it (the same behavior
                 // as VS Code, Sublime, etc.) — e.g. selecting a word and
                 // typing `"` surrounds it in one quote each side, rather
-                // than deleting it and leaving a lone `"`. Any other key
-                // (including a closing bracket alone) falls through to
-                // GTK's normal replace-selection behavior, unchanged.
-                if let Some((open, close)) = pair {
+                // than deleting it and leaving a lone `"`. A closing bracket
+                // alone falls through to GTK's normal replace-selection
+                // behavior, unchanged.
+                if let Some(close) = autopair::partner(typed) {
                     if let Some((start, end)) = buf_pair.selection_bounds() {
                         let start_off = start.offset();
                         let end_off = end.offset();
                         buf_pair.begin_user_action();
                         let mut end_iter = buf_pair.iter_at_offset(end_off);
-                        buf_pair.insert(&mut end_iter, close);
+                        buf_pair.insert(&mut end_iter, &close.to_string());
                         let mut start_iter = buf_pair.iter_at_offset(start_off);
-                        buf_pair.insert(&mut start_iter, open);
+                        buf_pair.insert(&mut start_iter, &typed.to_string());
                         buf_pair.end_user_action();
                         // Re-select the original text, now shifted right by
                         // the inserted opening character, so the wrap can be
@@ -6915,49 +6962,40 @@ impl EditorPane {
                         let new_start = buf_pair.iter_at_offset(start_off + 1);
                         let new_end = buf_pair.iter_at_offset(end_off + 1);
                         buf_pair.select_range(&new_start, &new_end);
-                        last_ap.set(false);
                         return glib::Propagation::Stop;
                     }
                 }
                 if buf_pair.has_selection() {
-                    last_ap.set(false);
                     return glib::Propagation::Proceed;
                 }
 
-                // Skip-forward if the closing char is already there from a prior autopair
-                let skip_char: Option<char> = match key {
-                    Key::parenright => Some(')'),
-                    Key::bracketright => Some(']'),
-                    Key::braceright => Some('}'),
-                    // Only skip " when we know it was auto-inserted
-                    Key::quotedbl if last_ap.get() => Some('"'),
-                    _ => None,
+                let pos = buf_pair.cursor_position();
+                let cursor = buf_pair.iter_at_offset(pos);
+                let next = if cursor.is_end() || cursor.ends_line() {
+                    None
+                } else {
+                    Some(cursor.char())
                 };
-                if let Some(expected) = skip_char {
-                    let pos = buf_pair.cursor_position();
-                    let next = buf_pair.iter_at_offset(pos);
-                    if next.char() == expected {
+                let before = text_before_in_paragraph(&buf_pair, &cursor);
+
+                match autopair::decide(typed, &before, next) {
+                    autopair::Action::SkipOver => {
                         let ahead = buf_pair.iter_at_offset(pos + 1);
                         buf_pair.place_cursor(&ahead);
-                        last_ap.set(false);
-                        return glib::Propagation::Stop;
+                        glib::Propagation::Stop
                     }
+                    autopair::Action::Pair => {
+                        let close = autopair::partner(typed).unwrap_or(typed);
+                        buf_pair.begin_user_action();
+                        buf_pair.insert_at_cursor(&format!("{typed}{close}"));
+                        // Move cursor back one character to sit between the pair
+                        let iter = buf_pair.iter_at_offset(pos + 1);
+                        buf_pair.place_cursor(&iter);
+                        buf_pair.end_user_action();
+                        glib::Propagation::Stop
+                    }
+                    autopair::Action::Single => glib::Propagation::Proceed,
                 }
-
-                if let Some((open, close)) = pair {
-                    buf_pair.begin_user_action();
-                    buf_pair.insert_at_cursor(open);
-                    buf_pair.insert_at_cursor(close);
-                    // Move cursor back one character to sit between the pair
-                    let pos = buf_pair.cursor_position();
-                    let iter = buf_pair.iter_at_offset(pos - 1);
-                    buf_pair.place_cursor(&iter);
-                    buf_pair.end_user_action();
-                    last_ap.set(true);
-                    return glib::Propagation::Stop;
-                }
-                last_ap.set(false);
-                glib::Propagation::Proceed
             });
             view.add_controller(pair_ctrl);
         }
@@ -7371,6 +7409,11 @@ impl EditorPane {
             let until = track_paused_until.clone();
             let user_until = user_scroll_until.clone();
             move || {
+                // A tab that isn't showing isn't being scrolled by anyone;
+                // whatever its adjustment does while hidden is layout.
+                if !view.is_mapped() {
+                    return false;
+                }
                 let now = Instant::now();
                 if now < user_until.get() {
                     return true;
@@ -7388,6 +7431,8 @@ impl EditorPane {
         };
         {
             let sv = saved_scroll.clone();
+            let wheel_until = user_scroll_until.clone();
+            let view_v = view.clone();
             let held = hold_position.clone();
             let held_until = hold_until.clone();
             let reasserting: Rc<Cell<bool>> = Rc::new(Cell::new(false));
@@ -7406,7 +7451,17 @@ impl EditorPane {
                     held.set(None);
                 }
                 if record_v() {
-                    sv.set(adj.value());
+                    // Not the very top, unless the editor itself has focus.
+                    // Reflowing a hidden or resizing view clamps its scroll to
+                    // zero, and a zero recorded as "where the writer was" is
+                    // what a later focus-enter restore threw them back to: line
+                    // 1 of a document they were halfway down. Actually going to
+                    // the top (Ctrl+Home, the wheel) always has either focus or
+                    // a wheel event behind it.
+                    let wheel = Instant::now() < wheel_until.get();
+                    if adj.value() > adj.lower() || wheel || view_v.has_focus() {
+                        sv.set(adj.value());
+                    }
                 }
             });
             let sh = saved_hscroll.clone();
@@ -8679,6 +8734,45 @@ impl EditorPane {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── Minimal buffer rewrites ──────────────────────────────────────────────
+
+    #[test]
+    fn a_rewrite_touches_only_the_stretch_that_differs() {
+        let (start, end, ins) = changed_span("the cat sat", "the dog sat").unwrap();
+        assert_eq!((start, end, ins.as_str()), (4, 7, "dog"));
+    }
+
+    #[test]
+    fn an_identical_rewrite_changes_nothing() {
+        assert!(changed_span("same", "same").is_none());
+    }
+
+    #[test]
+    fn a_pure_insertion_or_deletion_is_one_sided() {
+        assert_eq!(changed_span("ab", "aXb"), Some((1, 1, "X".to_string())));
+        assert_eq!(changed_span("aXb", "ab"), Some((1, 2, String::new())));
+    }
+
+    #[test]
+    fn repeated_characters_are_not_counted_twice() {
+        // Prefix and suffix must not overlap: "aa" -> "aaa" is one insertion.
+        assert_eq!(changed_span("aa", "aaa"), Some((2, 2, "a".to_string())));
+        assert_eq!(changed_span("aaa", "aa"), Some((2, 3, String::new())));
+    }
+
+    #[test]
+    fn offsets_count_characters_not_bytes() {
+        let (start, end, ins) = changed_span("héllo wörld", "héllo wurld").unwrap();
+        assert_eq!((start, end, ins.as_str()), (7, 8, "u"));
+    }
+
+    #[test]
+    fn replacing_everything_replaces_everything() {
+        assert_eq!(changed_span("abc", "xyz"), Some((0, 3, "xyz".to_string())));
+        assert_eq!(changed_span("", "xyz"), Some((0, 0, "xyz".to_string())));
+        assert_eq!(changed_span("abc", ""), Some((0, 3, String::new())));
+    }
 
     // ── Word counting ────────────────────────────────────────────────────────
 
