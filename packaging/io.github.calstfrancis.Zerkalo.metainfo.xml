@@ -87,7 +87,7 @@
   <releases>
     <release version="0.42.1" date="2026-10-02">
       <description>
-        <p>0.42.1 "Fresh Glass" — What's New tells the truth. The What's New dialog now reads the changelog itself, so it can never fall behind a release, and shows every release you missed if you skipped some. The in-app Help is brought up to date (syncing between computers, the Library, citing from Zotero), the Back Up shortcut is shown correctly as Ctrl+Shift+S, and Get Latest from GitHub is in the command palette.</p>
+        <p>0.42.1 "Fresh Glass" — What's New tells the truth. Get Latest from GitHub now updates the documents you have open, and a computer that is simply behind catches up by itself at start-up. The What's New dialog now reads the changelog itself, so it can never fall behind a release, and shows every release you missed if you skipped some. The in-app Help is brought up to date (syncing between computers, the Library, citing from Zotero), the Back Up shortcut is shown correctly as Ctrl+Shift+S, and Get Latest from GitHub is in the command palette.</p>
       </description>
     </release>
     <release version="0.42.0" date="2026-10-02">

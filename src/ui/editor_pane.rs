@@ -3145,6 +3145,34 @@ impl EditorPane {
 
     /// Like `open_file` but forces a buffer refresh if the file is already open.
     pub fn reload_file(&self, path: PathBuf, content: &str) {
+        self.reload_tab(path, content, true);
+    }
+
+    /// After files changed on disk underneath open tabs — a pull from GitHub, a
+    /// replace with GitHub's copy — brings every open tab that has no unsaved
+    /// typing up to date with what is now on disk, without moving the cursor
+    /// or switching tabs. Without this an open document kept showing its old
+    /// text, and the next save would have written that old text over what
+    /// arrived. Returns the tabs refreshed and the ones left alone because
+    /// they hold typing that isn't saved.
+    pub fn refresh_open_from_disk(&self) -> (Vec<PathBuf>, Vec<PathBuf>) {
+        let (refresh, skipped) = tabs_to_refresh(
+            &self.all_tab_texts(),
+            |p| self.is_modified(p),
+            |p| std::fs::read_to_string(p).ok(),
+        );
+        let mut done = Vec::new();
+        for (path, content) in refresh {
+            self.reload_tab(path.clone(), &content, false);
+            // The buffer now equals the file, so it holds nothing unsaved (the
+            // text swap itself would otherwise mark the tab as edited).
+            self.mark_saved(&path);
+            done.push(path);
+        }
+        (done, skipped)
+    }
+
+    fn reload_tab(&self, path: PathBuf, content: &str, focus: bool) {
         // Clone the buffer out before releasing the borrow — set_text fires
         // connect_changed which re-borrows state, causing a double-borrow panic.
         let existing = {
@@ -3165,12 +3193,16 @@ impl EditorPane {
                 let sm = *self.simple_mode.borrow();
                 apply_simple_mode_tag(&buffer, sm);
             }
-            if let Some(n) = self.notebook.page_num(&scroll) {
-                self.notebook.set_current_page(Some(n));
+            if focus {
+                if let Some(n) = self.notebook.page_num(&scroll) {
+                    self.notebook.set_current_page(Some(n));
+                }
             }
             return;
         }
-        self.open_file(path, content);
+        if focus {
+            self.open_file(path, content);
+        }
     }
 
     /// Replace only the preamble region of an already-open file, preserving the
@@ -4579,6 +4611,30 @@ fn lock_horizontal_scroll(scroll: &ScrolledWindow) {
 /// snapshot, applying a style, a changed file on disk and more, so all of them
 /// go through here. Everything outside the changed stretch keeps its place;
 /// a cursor inside it lands at the same distance into the new text.
+/// Which open tabs should take new text from disk: those whose saved file now
+/// differs from the buffer and that hold no unsaved typing. The second list is
+/// the tabs that differ but have unsaved typing, which are left untouched.
+fn tabs_to_refresh(
+    tabs: &[(PathBuf, String)],
+    modified: impl Fn(&std::path::Path) -> bool,
+    read: impl Fn(&std::path::Path) -> Option<String>,
+) -> (Vec<(PathBuf, String)>, Vec<PathBuf>) {
+    let mut refresh = Vec::new();
+    let mut skipped = Vec::new();
+    for (path, buffer) in tabs {
+        let Some(disk) = read(path) else { continue };
+        if &disk == buffer {
+            continue;
+        }
+        if modified(path) {
+            skipped.push(path.clone());
+        } else {
+            refresh.push((path.clone(), disk));
+        }
+    }
+    (refresh, skipped)
+}
+
 fn replace_text_minimally(buffer: &Buffer, new_text: &str) {
     let (s, e) = buffer.bounds();
     // Hidden text included: simple mode makes the template invisible, and
@@ -8733,6 +8789,32 @@ impl EditorPane {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn open_tabs_take_what_arrived_unless_they_hold_unsaved_typing() {
+        let tabs = vec![
+            (PathBuf::from("same.typ"), "same".to_string()),
+            (PathBuf::from("arrived.typ"), "old words".to_string()),
+            (PathBuf::from("typing.typ"), "my unsaved words".to_string()),
+            (PathBuf::from("gone.typ"), "no file".to_string()),
+        ];
+        let disk = |p: &std::path::Path| match p.to_str().unwrap() {
+            "same.typ" => Some("same".to_string()),
+            "arrived.typ" => Some("new words from GitHub".to_string()),
+            "typing.typ" => Some("their version".to_string()),
+            _ => None,
+        };
+        let modified = |p: &std::path::Path| p.to_str() == Some("typing.typ");
+        let (refresh, skipped) = tabs_to_refresh(&tabs, modified, disk);
+        assert_eq!(
+            refresh,
+            vec![(
+                PathBuf::from("arrived.typ"),
+                "new words from GitHub".to_string()
+            )]
+        );
+        assert_eq!(skipped, vec![PathBuf::from("typing.typ")]);
+    }
+
     use super::*;
 
     // ── Minimal buffer rewrites ──────────────────────────────────────────────
