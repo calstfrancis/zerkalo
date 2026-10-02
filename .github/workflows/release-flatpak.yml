@@ -1,7 +1,9 @@
 name: Release flatpak
 
 # Triggers on the same tag pattern release.yml (the GitHub Release workflow) uses, plus a
-# manual dispatch for testing this workflow itself without cutting a real version tag.
+# manual dispatch ("Run workflow" in the Actions tab, from any browser or phone, with the
+# version to publish) that needs no local git at all: it builds and publishes the flatpak
+# from the chosen branch (main), then creates the vX.Y.Z tag and GitHub Release itself.
 # Requires two repo secrets that only Cal can set up (see zerkalo/RELEASE-CI-SETUP.md):
 #   FLATPAK_GPG_PRIVATE_KEY — armored export of the signing key
 #   FLATPAK_REPO_TOKEN      — a token with push access to calstfrancis/flatpak
@@ -23,14 +25,16 @@ jobs:
     # runner with nothing cached yet) — without leaving a hang to run for GitHub's 6-hour
     # default.
     timeout-minutes: 45
+    permissions:
+      contents: write   # the manual-run path creates the tag and GitHub Release
+      checks: read      # the CI gate below reads check-runs
     steps:
       - uses: actions/checkout@v4
 
       # Structural version of a check CLAUDE.md used to ask Cal to remember to do by hand:
       # don't publish a build from a commit whose own CI run (build/test/clippy) didn't pass.
-      # Skipped on manual dispatch — that path is for testing this workflow itself.
+      # Applies to manual runs too: a release is only built from a commit whose CI is green.
       - name: Require CI to have passed for this commit
-        if: github.event_name != 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -234,3 +238,21 @@ jobs:
           done
           echo "ERROR: still rejected after 5 attempts."
           exit 1
+
+      # Manual runs have no pushed tag, so create it (and the GitHub Release release.yml would
+      # have made from it) here, once the flatpak is safely published. Tag-triggered runs skip
+      # this: the tag, and release.yml, already exist. A tag that already exists is left alone.
+      - name: Tag and create the GitHub Release (manual runs)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="v$VERSION"
+          if gh release view "$TAG" >/dev/null 2>&1 \
+            || git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "$TAG already exists — leaving it alone."
+            exit 0
+          fi
+          gh release create "$TAG" --target "$GITHUB_SHA" \
+            --title "Zerkalo $TAG" --notes-file RELEASE.md screenshots/*.png

@@ -63,3 +63,7 @@ This setup is Zerkalo-only for now. The same three secrets, the same workflow sh
 swapping the manifest path and app ID), would need repeating per-app — worth doing as a
 shared reusable workflow (`workflow_call`) rather than copy-pasted eight times, if/when you
 want the rest of the suite on this too.
+
+## Releasing without a computer
+
+Once a version is merged to `main` (Cargo.toml, CHANGELOG, metainfo and `RELEASE.md` already bumped, CI green), open **Actions → Release flatpak → Run workflow**, leave the branch as `main`, type the version (e.g. `0.41.1`) and run it — from any browser or phone. It checks CI is green for that commit, builds, signs and publishes the flatpak, then creates the `vX.Y.Z` tag and GitHub Release. No local git or tag push is needed (pushing a tag still works as before).
