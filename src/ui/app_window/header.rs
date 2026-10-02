@@ -32,6 +32,8 @@ pub(super) struct Menus {
     pub(super) menu_depgraph_item: Button,
     pub(super) menu_table_item: Button,
     pub(super) menu_save_as_item: Button,
+    pub(super) menu_get_latest_item: Button,
+    pub(super) menu_replace_with_online_item: Button,
     pub(super) menu_save_item: Button,
     pub(super) menu_settings_item: Button,
     pub(super) menu_snapshots_item: Button,
@@ -225,6 +227,8 @@ pub(super) fn build_header() -> HeaderWidgets {
         menu_depgraph_item,
         menu_table_item,
         menu_save_as_item,
+        menu_get_latest_item,
+        menu_replace_with_online_item,
         menu_save_item,
         menu_settings_item,
         menu_snapshots_item,
@@ -282,9 +286,14 @@ pub(super) fn build_header() -> HeaderWidgets {
     // enough to share one flyout rather than each being its own row.
     menu_popover_box.append(&menu_save_item);
     menu_popover_box.append(&menu_save_as_item);
+    menu_popover_box.append(&menu_get_latest_item);
     let version_history_btn = super::make_submenu_button(
         "Version History",
-        &[menu_snapshots_item.clone(), menu_history_item.clone()],
+        &[
+            menu_snapshots_item.clone(),
+            menu_history_item.clone(),
+            menu_replace_with_online_item.clone(),
+        ],
     );
     menu_popover_box.append(&version_history_btn);
     menu_popover_box.append(&Separator::new(Orientation::Horizontal));
@@ -383,6 +392,8 @@ pub(super) fn build_header() -> HeaderWidgets {
             menu_depgraph_item,
             menu_table_item,
             menu_save_as_item,
+            menu_get_latest_item,
+            menu_replace_with_online_item,
             menu_save_item,
             menu_settings_item,
             menu_snapshots_item,

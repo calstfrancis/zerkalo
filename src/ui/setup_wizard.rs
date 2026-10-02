@@ -816,6 +816,10 @@ fn run_plan(
                     });
                     return;
                 }
+                // Pointing a new computer at an existing online copy: bring its
+                // writing down first, so what's already there arrives here instead
+                // of being met by a fresh, empty folder at the first backup.
+                let _ = crate::git_sync::pull(&work_dir, token.as_deref());
                 format!("Your work is saved to {}", url.trim_end_matches(".git"))
             }
             Plan::Folder { path } => {
