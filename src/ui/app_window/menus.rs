@@ -25,7 +25,7 @@ use super::super::template_dialog::TemplateDialog;
 use super::header::Menus;
 use super::import::run_pdf_import;
 use super::open_template_for_active_document;
-use super::sync::{do_sync, show_backup_remote_dialog};
+use super::sync::{do_pull, do_sync, offer_waiting_work, show_backup_remote_dialog};
 use super::{
     apply_compile_mode_css, apply_theme, compile_mode_label_str, print_from_preview,
     restore_snapshot_with_confirm, show_alert, show_dep_graph_window, show_file_history_window,
@@ -855,6 +855,60 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
     }
     let config_for_sync = ctx.current_config.clone();
     let project_root_for_sync_fallback = ctx.project_root.clone();
+
+    // ── Get Latest from GitHub ──────────────────────────────────────────
+    // For sitting down at another computer: bring everything backed up online
+    // down to this one, sending nothing back.
+    {
+        let (editor, window, toasts, badge, cfg, pop) = (
+            ctx.editor_pane.clone(),
+            ctx.window.clone(),
+            ctx.toast_overlay.clone(),
+            ctx.sync_badge.clone(),
+            ctx.current_config.clone(),
+            ctx.menu_popover.clone(),
+        );
+        let project_root = ctx.project_root.clone();
+        menus.menu_get_latest_item.connect_clicked(move |_| {
+            pop.popdown();
+            // Anything typed but not saved is written first, so the files that
+            // arrive can never land on top of unsaved words.
+            let failed = editor.save_all_modified();
+            if !failed.is_empty() {
+                let t = adw::Toast::new(
+                    "Couldn't save your open documents first — nothing was changed",
+                );
+                t.set_timeout(6);
+                toasts.add_toast(t);
+                return;
+            }
+            let root =
+                git_sync::git_repo_root(&project_root).unwrap_or_else(|| project_root.clone());
+            if !git_sync::has_remote(&root) {
+                let wizard = super::super::setup_wizard::SetupWizard::new(&window, &root);
+                wizard.present();
+                return;
+            }
+            do_pull(
+                root,
+                window.clone(),
+                toasts.clone(),
+                badge.clone(),
+                crate::secret_store::load_github_token(),
+                cfg.clone(),
+            );
+        });
+    }
+    // On start-up, offer newer writing that's waiting online.
+    offer_waiting_work(
+        git_sync::git_repo_root(&ctx.project_root).unwrap_or_else(|| ctx.project_root.clone()),
+        ctx.window.clone(),
+        ctx.toast_overlay.clone(),
+        ctx.sync_badge.clone(),
+        crate::secret_store::load_github_token(),
+        ctx.current_config.clone(),
+    );
+
     ctx.sync_btn.connect_clicked(move |_| {
         let failed = editor_for_sync.save_all_modified();
         if !failed.is_empty() {

@@ -3,6 +3,16 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- **Get Latest from GitHub** (☰ menu). Sit down at another computer and bring everything backed up online down to it — work in progress included — without sending anything back. Edits made on this computer are saved as a version first, so nothing is lost; if the same part of a document was changed in both places, Zerkalo changes nothing and tells you. Open documents are saved first so incoming files never land on unsaved words.
+- **Zerkalo now tells you when newer writing is waiting online** when it starts, with a *Get it* button. It stays silent offline, signed out, or when you're up to date.
+- **A new computer pointed at your existing online copy now gets your writing straight away** (the setup wizard pulls it down before the first backup).
+
+---
+
 ## [0.41.1] "Plain Glass" — 2026-10-02 — A steadier editor
 
 ### Changed
