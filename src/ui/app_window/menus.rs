@@ -25,7 +25,9 @@ use super::super::template_dialog::TemplateDialog;
 use super::header::Menus;
 use super::import::run_pdf_import;
 use super::open_template_for_active_document;
-use super::sync::{do_pull, do_sync, offer_waiting_work, show_backup_remote_dialog};
+use super::sync::{
+    confirm_force_pull, do_pull, do_sync, offer_waiting_work, show_backup_remote_dialog,
+};
 use super::{
     apply_compile_mode_css, apply_theme, compile_mode_label_str, print_from_preview,
     restore_snapshot_with_confirm, show_alert, show_dep_graph_window, show_file_history_window,
@@ -898,6 +900,39 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
                 cfg.clone(),
             );
         });
+    }
+    // Replace this computer's copy with GitHub's (kept-copy first, after asking).
+    {
+        let (editor, window, toasts, badge, cfg, pop) = (
+            ctx.editor_pane.clone(),
+            ctx.window.clone(),
+            ctx.toast_overlay.clone(),
+            ctx.sync_badge.clone(),
+            ctx.current_config.clone(),
+            ctx.menu_popover.clone(),
+        );
+        let project_root = ctx.project_root.clone();
+        menus
+            .menu_replace_with_online_item
+            .connect_clicked(move |_| {
+                pop.popdown();
+                let failed = editor.save_all_modified();
+                if !failed.is_empty() {
+                    let t = adw::Toast::new(
+                        "Couldn't save your open documents first — nothing was changed",
+                    );
+                    t.set_timeout(6);
+                    toasts.add_toast(t);
+                    return;
+                }
+                let root =
+                    git_sync::git_repo_root(&project_root).unwrap_or_else(|| project_root.clone());
+                if !git_sync::has_remote(&root) {
+                    super::super::setup_wizard::SetupWizard::new(&window, &root).present();
+                    return;
+                }
+                confirm_force_pull(&window, &toasts, &badge, root, cfg.clone());
+            });
     }
     // On start-up, offer newer writing that's waiting online.
     offer_waiting_work(

@@ -710,6 +710,117 @@ pub fn pull(repo_path: &Path, github_token: Option<&str>) -> PullResult {
     result
 }
 
+/// What `force_pull` did.
+#[derive(Debug, Default)]
+pub struct ForceResult {
+    /// Where everything that was only on this computer was kept, if there was
+    /// anything to keep.
+    pub saved_as: Option<String>,
+    /// Files whose contents differed between this computer and online (a few).
+    pub replaced_files: Vec<String>,
+    pub nothing_online: bool,
+    pub auth_failed: bool,
+    pub error: Option<String>,
+}
+
+/// Makes this folder match the online copy exactly, whatever is different here.
+///
+/// Nothing is thrown away outright: first everything here (loose edits, versions
+/// never backed up, files that exist only here) is committed to a saved copy — a
+/// branch named `before-replace-<date>-<time>` — and only then is the folder
+/// reset to the online copy. The saved copy stays in the folder's history, so
+/// any of it can be brought back.
+pub fn force_pull(repo_path: &Path, github_token: Option<&str>) -> ForceResult {
+    let _running = SyncRunning::begin();
+    let mut result = ForceResult::default();
+
+    let Some(remote) = primary_remote(repo_path) else {
+        result.error = Some("This folder isn't connected to an online backup yet.".into());
+        return result;
+    };
+    if let Err((msg, auth)) = fetch(repo_path, &remote, github_token) {
+        result.auth_failed = auth;
+        result.error = Some(msg);
+        return result;
+    }
+    let branch = head_branch(repo_path);
+    let Some(theirs) = online_branch(repo_path, &remote, &branch) else {
+        // No history of its own here, or nothing online: nothing to force.
+        if has_commits(repo_path) {
+            result.nothing_online = true;
+        } else {
+            let pulled = pull(repo_path, github_token);
+            result.error = pulled.error;
+            result.nothing_online = pulled.nothing_online;
+        }
+        return result;
+    };
+    let upstream = format!("{remote}/{theirs}");
+
+    if has_commits(repo_path) {
+        // 1 · Keep everything that is only here.
+        let local = changed_files(repo_path);
+        if !local.is_empty() {
+            if let Err(e) = run_git(repo_path, &["add", "-A"]) {
+                result.error = Some(format!("git add: {e}"));
+                return result;
+            }
+            let msg = format!(
+                "Saved before replacing with the online copy\n\n{}",
+                craft_message(&local)
+            );
+            if let Err(e) = git_cmd(repo_path)
+                .args(["commit", "-m", &msg])
+                .output()
+                .map_err(|e| e.to_string())
+                .and_then(|o| {
+                    if o.status.success() || lossy_combined(&o).contains("nothing to commit") {
+                        Ok(())
+                    } else {
+                        Err(lossy_combined(&o))
+                    }
+                })
+            {
+                result.error = Some(format!("git commit: {e}"));
+                return result;
+            }
+        }
+        result.replaced_files = git_ok(repo_path, &["diff", "--name-only", &upstream, "HEAD"])
+            .map(|t| t.lines().take(8).map(str::to_string).collect())
+            .unwrap_or_default();
+        let differs = git_ok(
+            repo_path,
+            &["rev-list", "--count", &format!("{upstream}..HEAD")],
+        )
+        .and_then(|n| n.parse::<usize>().ok())
+        .unwrap_or(0)
+            > 0
+            || !result.replaced_files.is_empty();
+        if differs {
+            let stamp = Local::now().format("%Y%m%d-%H%M%S");
+            let name = format!("before-replace-{stamp}");
+            if let Err(e) = run_git(repo_path, &["branch", &name, "HEAD"]) {
+                result.error = Some(format!(
+                    "Couldn't keep a saved copy, so nothing was changed: {e}"
+                ));
+                return result;
+            }
+            result.saved_as = Some(name);
+        }
+    }
+
+    // 2 · Now make this folder match the online copy.
+    let reset = git_cmd(repo_path)
+        .args(["checkout", "-B", &branch, "--track", &upstream, "--force"])
+        .output();
+    match reset {
+        Err(e) => result.error = Some(e.to_string()),
+        Ok(o) if !o.status.success() => result.error = Some(lossy_combined(&o)),
+        Ok(_) => {}
+    }
+    result
+}
+
 /// Whether `url` is an `https://github.com/...` remote — the only case the
 /// stored OAuth token is authorized for. Never send it to any other host.
 fn is_github_https(url: &str) -> bool {
@@ -1139,5 +1250,65 @@ mod tests {
         g(b.path(), &["commit", "-m", "mine"]);
         let w = waiting_online(b.path(), None).unwrap();
         assert!(!w.plain_catch_up);
+    }
+
+    #[test]
+    fn forcing_makes_this_folder_match_online_and_keeps_what_was_only_here() {
+        let (remote, a) = online_with_one_commit();
+        let b = tempfile::tempdir().unwrap();
+        g(b.path(), &["clone", remote.path().to_str().unwrap(), "."]);
+        identify(b.path());
+        // Online moves on…
+        std::fs::write(a.path().join("essay.typ"), "A's version\n").unwrap();
+        g(a.path(), &["commit", "-am", "A"]);
+        g(a.path(), &["push"]);
+        // …while B has a backed-up-nowhere version, a loose edit, and a file of its own.
+        std::fs::write(b.path().join("essay.typ"), "B's competing version\n").unwrap();
+        g(b.path(), &["commit", "-am", "B"]);
+        std::fs::write(
+            b.path().join("essay.typ"),
+            "B's competing version, edited again\n",
+        )
+        .unwrap();
+        std::fs::write(b.path().join("only-here.typ"), "mine alone\n").unwrap();
+
+        // A normal pull refuses…
+        assert!(pull(b.path(), None).conflict);
+        // …force replaces, but keeps everything.
+        let r = force_pull(b.path(), None);
+        assert!(r.error.is_none(), "{r:?}");
+        let saved = r.saved_as.clone().expect("a saved copy was made");
+        assert!(saved.starts_with("before-replace-"));
+        assert!(r.replaced_files.contains(&"essay.typ".to_string()));
+        assert_eq!(
+            std::fs::read_to_string(b.path().join("essay.typ")).unwrap(),
+            "A's version\n"
+        );
+        assert!(!b.path().join("only-here.typ").exists());
+        assert_eq!(g(b.path(), &["status", "--porcelain"]), "");
+        // The saved copy still holds all of B's words.
+        assert_eq!(
+            g(b.path(), &["show", &format!("{saved}:essay.typ")]),
+            "B's competing version, edited again"
+        );
+        assert_eq!(
+            g(b.path(), &["show", &format!("{saved}:only-here.typ")]),
+            "mine alone"
+        );
+        // Nothing was sent online.
+        assert_eq!(
+            g(remote.path(), &["rev-parse", "main"]),
+            g(a.path(), &["rev-parse", "HEAD"])
+        );
+    }
+
+    #[test]
+    fn forcing_when_already_identical_changes_nothing_and_keeps_no_copy() {
+        let (remote, _a) = online_with_one_commit();
+        let b = tempfile::tempdir().unwrap();
+        g(b.path(), &["clone", remote.path().to_str().unwrap(), "."]);
+        identify(b.path());
+        let r = force_pull(b.path(), None);
+        assert!(r.error.is_none() && r.saved_as.is_none(), "{r:?}");
     }
 }

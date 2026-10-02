@@ -3667,6 +3667,7 @@ struct HamburgerItems {
     menu_save_item: Button,
     menu_save_as_item: Button,
     menu_get_latest_item: Button,
+    menu_replace_with_online_item: Button,
     menu_snapshots_item: Button,
     menu_history_item: Button,
     menu_export_item: Button,
@@ -3716,6 +3717,13 @@ fn build_hamburger_menu_items() -> HamburgerItems {
             let item = make_menu_item("Get Latest from GitHub", None);
             item.set_tooltip_text(Some(
                 "Bring everything backed up online down to this computer — for picking up work you left on another one. Nothing is sent back.",
+            ));
+            item
+        },
+        menu_replace_with_online_item: {
+            let item = make_menu_item("Replace This Computer's Copy with GitHub's…", None);
+            item.set_tooltip_text(Some(
+                "Make this computer match GitHub exactly. Anything here that isn't backed up online is kept in a saved copy first.",
             ));
             item
         },

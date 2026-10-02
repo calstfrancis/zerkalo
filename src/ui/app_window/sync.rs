@@ -185,14 +185,36 @@ fn show_pull_result(
         return;
     }
     if result.conflict {
-        show_alert(
-            window,
-            "Online and this computer disagree",
-            "The same part of a document was changed here and online, so Zerkalo hasn't \
-             combined them. Nothing was lost or changed — what's on this computer is still \
-             here, and the online copy is untouched. Back up from the computer that has the \
-             version you want to keep, or ask for help merging the two.",
+        let dlg = adw::MessageDialog::new(
+            Some(window),
+            Some("Online and this computer disagree"),
+            Some(
+                "The same part of a document was changed here and online, so Zerkalo hasn't \
+                 combined them. Nothing was lost or changed — what's on this computer is still \
+                 here, and the online copy is untouched.\n\nIf the online version is the one \
+                 you want, you can use it instead; what's only on this computer is kept in a \
+                 saved copy first.",
+            ),
         );
+        dlg.add_response("leave", "Leave as it is");
+        dlg.add_response("force", "Use GitHub's Version…");
+        dlg.set_response_appearance("force", adw::ResponseAppearance::Destructive);
+        dlg.set_default_response(Some("leave"));
+        dlg.set_close_response("leave");
+        let (w, o, b, r, c) = (
+            window.clone(),
+            overlay.clone(),
+            badge.clone(),
+            root.clone(),
+            current_config.clone(),
+        );
+        dlg.connect_response(None, move |dlg, response| {
+            dlg.close();
+            if response == "force" {
+                confirm_force_pull(&w, &o, &b, r.clone(), c.clone());
+            }
+        });
+        dlg.present();
         return;
     }
     if result.nothing_online {
@@ -227,6 +249,108 @@ fn show_pull_result(
     let t = adw::Toast::new(&format!("Got {what} from GitHub{names}"));
     t.set_timeout(6);
     overlay.add_toast(t);
+}
+
+/// Asks before replacing this computer's copy with the online one — the one
+/// destructive thing here, so it's two steps and says exactly what is kept.
+pub(super) fn confirm_force_pull(
+    window: &adw::ApplicationWindow,
+    overlay: &adw::ToastOverlay,
+    badge: &Label,
+    root: PathBuf,
+    current_config: Rc<RefCell<Config>>,
+) {
+    let dlg = adw::MessageDialog::new(
+        Some(window),
+        Some("Replace this computer's copy with GitHub's?"),
+        Some(
+            "Everything here will match what's online. Anything on this computer that isn't \
+             backed up online — unsaved edits, versions never sent, files that exist only here — \
+             is first kept in a saved copy, so nothing is lost, but it will no longer appear in \
+             your documents.\n\nNothing is sent to GitHub.",
+        ),
+    );
+    dlg.add_response("cancel", "Cancel");
+    dlg.add_response("replace", "Replace with GitHub's");
+    dlg.set_response_appearance("replace", adw::ResponseAppearance::Destructive);
+    dlg.set_default_response(Some("cancel"));
+    dlg.set_close_response("cancel");
+    let (w, o, b) = (window.clone(), overlay.clone(), badge.clone());
+    dlg.connect_response(None, move |dlg, response| {
+        dlg.close();
+        if response == "replace" {
+            do_force_pull(
+                root.clone(),
+                w.clone(),
+                o.clone(),
+                b.clone(),
+                crate::secret_store::load_github_token(),
+                current_config.clone(),
+            );
+        }
+    });
+    dlg.present();
+}
+
+fn do_force_pull(
+    root: PathBuf,
+    window: adw::ApplicationWindow,
+    overlay: adw::ToastOverlay,
+    badge: Label,
+    token: Option<String>,
+    current_config: Rc<RefCell<Config>>,
+) {
+    use std::sync::mpsc::TryRecvError;
+
+    let root_for_thread = root.clone();
+    let (tx, rx) = std::sync::mpsc::sync_channel::<git_sync::ForceResult>(1);
+    std::thread::spawn(move || {
+        tx.send(git_sync::force_pull(&root_for_thread, token.as_deref()))
+            .ok();
+    });
+    let rx = Rc::new(rx);
+    glib::timeout_add_local(Duration::from_millis(150), move || match rx.try_recv() {
+        Ok(result) => {
+            if let Some(err) = result.error {
+                if result.auth_failed {
+                    show_github_token_dialog(
+                        &window,
+                        &overlay,
+                        badge.clone(),
+                        root.clone(),
+                        current_config.clone(),
+                        "Zerkalo's sign-in to GitHub has stopped working. Paste an access code \
+                         below to reconnect.",
+                    );
+                } else {
+                    show_alert(&window, "Couldn't replace with GitHub's copy", &err);
+                }
+            } else if result.nothing_online {
+                overlay.add_toast(adw::Toast::new(
+                    "Nothing has been backed up online from this folder yet",
+                ));
+            } else {
+                set_sync_badge(&badge, SyncBadge::Clear);
+                match result.saved_as {
+                    Some(name) => show_alert(
+                        &window,
+                        "This computer now matches GitHub",
+                        &format!(
+                            "What was only on this computer is kept in a saved copy called \
+                             “{name}” in this folder's history, so it can be brought back. \
+                             For example, to get one file back:\n\n    git checkout {name} -- yourfile.typ"
+                        ),
+                    ),
+                    None => overlay.add_toast(adw::Toast::new(
+                        "This computer already matched GitHub — nothing was different",
+                    )),
+                }
+            }
+            glib::ControlFlow::Break
+        }
+        Err(TryRecvError::Empty) => glib::ControlFlow::Continue,
+        Err(TryRecvError::Disconnected) => glib::ControlFlow::Break,
+    });
 }
 
 /// When Zerkalo starts, quietly asks GitHub whether newer writing is waiting
