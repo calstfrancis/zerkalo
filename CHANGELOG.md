@@ -3,6 +3,15 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- **Brackets and quotes pair only when it helps.** `(`, `[`, `{`, `"` and `$` no longer add their partner when you type them in front of existing text, after a backslash, or when the character closes something already open. A closing `)`, `]`, `}`, `"` or `$` steps over its partner only if it really closes something open, so no stray doubles. `$` now closes cleanly instead of producing `$$$`, and Backspace between an empty pair removes both halves.
+- **The editor can no longer scroll sideways.** There is no horizontal scrollbar and the horizontal position is pinned to zero. "Word wrap" off now wraps at any character instead of not wrapping.
+- **The cursor and view no longer jump to the end or start of the document** after Replace All, restoring a snapshot, applying a style, renaming a citation key or reloading a changed file. These used to delete and retype the whole text; they now change only what differs. A scroll position recorded as "the top" while a tab was hidden or reflowing is no longer used to restore the view.
+- **Resizing the window keeps the preview where it was.** The spot at the top of the preview stays at the top while the pages refit to the new width.
+
 ## [0.41.0] "Steady Glass" — 2026-10-02 — One place to cite from
 
 ### Fixed
