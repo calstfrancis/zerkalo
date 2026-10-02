@@ -312,8 +312,6 @@ impl AppWindow {
 
         editor_pane.apply_font_size(config.editor_font_size);
         editor_pane.apply_font_family(&config.editor_font_family);
-        editor_pane.apply_word_wrap(config.editor_word_wrap);
-        editor_pane.set_word_wrap_btn(config.editor_word_wrap);
         editor_pane.apply_show_whitespace(config.editor_show_whitespace);
         editor_pane.apply_tab_width(config.editor_tab_width);
         editor_pane.apply_line_spacing(config.editor_line_spacing);

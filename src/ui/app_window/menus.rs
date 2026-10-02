@@ -140,8 +140,6 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
             dialog.set_on_preview(move |cfg| {
                 editor_p.apply_font_size(cfg.editor_font_size);
                 editor_p.apply_font_family(&cfg.editor_font_family);
-                editor_p.apply_word_wrap(cfg.editor_word_wrap);
-                editor_p.set_word_wrap_btn(cfg.editor_word_wrap);
                 editor_p.apply_show_whitespace(cfg.editor_show_whitespace);
                 editor_p.apply_tab_width(cfg.editor_tab_width);
                 editor_p.apply_line_spacing(cfg.editor_line_spacing);
@@ -164,8 +162,6 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
             apply_compile_mode_css(&cm_btn_save, new_cfg.auto_compile);
             editor.apply_font_size(new_cfg.editor_font_size);
             editor.apply_font_family(&new_cfg.editor_font_family);
-            editor.apply_word_wrap(new_cfg.editor_word_wrap);
-            editor.set_word_wrap_btn(new_cfg.editor_word_wrap);
             editor.apply_show_whitespace(new_cfg.editor_show_whitespace);
             editor.apply_tab_width(new_cfg.editor_tab_width);
             editor.apply_line_spacing(new_cfg.editor_line_spacing);

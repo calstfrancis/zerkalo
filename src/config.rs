@@ -140,8 +140,6 @@ pub struct Config {
     pub theme: Theme,
     #[serde(default = "default_font_family")]
     pub editor_font_family: String,
-    #[serde(default = "default_true")]
-    pub editor_word_wrap: bool,
     #[serde(default)]
     pub editor_show_whitespace: bool,
     #[serde(default = "default_tab_width")]
@@ -411,7 +409,6 @@ impl Default for Config {
             editor_font_size: 13,
             theme: Theme::default(),
             editor_font_family: default_font_family(),
-            editor_word_wrap: true,
             editor_show_whitespace: false,
             editor_tab_width: 2,
             preview_zoom: 1.0,
@@ -768,5 +765,12 @@ mod tests {
         // The new switches default to "nothing happens until you ask".
         assert!(!cfg.tell_kartoteka);
         assert!(cfg.mirror_bibliography);
+    }
+
+    #[test]
+    fn a_config_that_still_has_the_old_word_wrap_setting_loads() {
+        // Word wrap is always on now; a saved `editor_word_wrap = false` is ignored.
+        let old = "editor_word_wrap = false\neditor_font_size = 13\n";
+        assert!(toml::from_str::<Config>(old).is_ok());
     }
 }

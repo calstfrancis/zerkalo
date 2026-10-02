@@ -161,11 +161,8 @@ const CV_SNIPPETS: &[(&str, &str, &str, &str)] = &[
 struct EditorTab {
     buffer: Buffer,
     view: View,
-    scroll_window: ScrolledWindow,
-    // The actual notebook page widget (an Overlay wrapping scroll_window, for
-    // the empty-buffer placeholder — see where it's built). Distinct from
-    // scroll_window because ScrolledWindow-specific calls (set_policy,
-    // vadjustment, ...) need the real ScrolledWindow, while notebook.page_num/
+    // The actual notebook page widget (an Overlay wrapping the ScrolledWindow,
+    // for the empty-buffer placeholder — see where it's built): notebook.page_num/
     // remove_page/etc. need whatever was actually passed to append_page.
     notebook_page: gtk4::Overlay,
     modified: bool,
@@ -221,7 +218,6 @@ pub struct EditorPane {
     font_provider: Rc<CssProvider>,
     font_size: Rc<RefCell<u32>>,
     font_family: Rc<RefCell<String>>,
-    word_wrap: Rc<RefCell<bool>>,
     show_whitespace: Rc<RefCell<bool>>,
     tab_width: Rc<RefCell<u32>>,
     find_bar: FindBar,
@@ -244,7 +240,6 @@ pub struct EditorPane {
     section_wc_label: Label,
     breadcrumb_label: Label,
     breadcrumb_bar: GtkBox,
-    word_wrap_btn: ToggleButton,
     simple_mode: Rc<RefCell<bool>>,
     simple_mode_label: Label,
     on_simple_mode_toggle: Rc<RefCell<Option<Box<dyn Fn(bool)>>>>,
@@ -747,13 +742,6 @@ impl EditorPane {
         breadcrumb_label.set_xalign(0.0);
         breadcrumb_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
 
-        let word_wrap_btn = ToggleButton::new();
-        word_wrap_btn.set_icon_name("format-justify-left-symbolic");
-        word_wrap_btn.add_css_class("flat");
-        word_wrap_btn.set_tooltip_text(Some("Toggle word wrap"));
-        word_wrap_btn.set_valign(gtk4::Align::Center);
-        word_wrap_btn.update_property(&[gtk4::accessible::Property::Label("Toggle word wrap")]);
-
         let breadcrumb_bar = GtkBox::new(Orientation::Horizontal, 0);
         breadcrumb_bar.add_css_class("breadcrumb-bar");
         // Undo/redo at top-left of the editor panel
@@ -767,7 +755,6 @@ impl EditorPane {
         breadcrumb_bar.append(&sep);
         breadcrumb_bar.append(&breadcrumb_label);
         breadcrumb_bar.append(&section_wc_label);
-        let _ = &word_wrap_btn; // kept for settings sync; not shown in toolbar
 
         let editor_row = GtkBox::new(Orientation::Horizontal, 0);
         editor_row.set_hexpand(true);
@@ -1507,7 +1494,6 @@ impl EditorPane {
 
         let font_size: Rc<RefCell<u32>> = Rc::new(RefCell::new(13));
         let font_family: Rc<RefCell<String>> = Rc::new(RefCell::new("Monospace".to_string()));
-        let word_wrap: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
         let show_whitespace: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
         let tab_width: Rc<RefCell<u32>> = Rc::new(RefCell::new(2));
         let line_spacing: Rc<RefCell<u32>> = Rc::new(RefCell::new(2));
@@ -1583,7 +1569,6 @@ impl EditorPane {
             font_provider: Rc::new(font_provider),
             font_size,
             font_family,
-            word_wrap,
             show_whitespace,
             tab_width,
             find_bar,
@@ -1605,7 +1590,6 @@ impl EditorPane {
             section_wc_label,
             breadcrumb_label,
             breadcrumb_bar,
-            word_wrap_btn,
             simple_mode: Rc::new(RefCell::new(true)),
             simple_mode_label: simple_mode_label.clone(),
             on_simple_mode_toggle,
@@ -2005,14 +1989,6 @@ impl EditorPane {
                 .set_on_replace_all(move |find, replace| ep2.do_replace_all(find, replace));
         }
 
-        // Word wrap toggle button
-        {
-            let ep2 = ep.clone();
-            ep.word_wrap_btn.connect_toggled(move |btn| {
-                ep2.apply_word_wrap(btn.is_active());
-            });
-        }
-
         // SIMPLE mode button
         {
             let ep2 = ep.clone();
@@ -2118,10 +2094,6 @@ impl EditorPane {
         *self.project_root.borrow_mut() = Some(path);
     }
 
-    pub fn set_word_wrap_btn(&self, active: bool) {
-        self.word_wrap_btn.set_active(active);
-    }
-
     /// Apply simple mode to the current active buffer and update button label.
     /// The button reads "show template" or "hide template" — the action the
     /// next click performs — rather than a name-as-label bold/plain toggle,
@@ -2177,32 +2149,6 @@ impl EditorPane {
 
     pub fn breadcrumb_bar_append(&self, w: &impl gtk4::prelude::IsA<gtk4::Widget>) {
         self.breadcrumb_bar.append(w);
-    }
-
-    pub fn apply_word_wrap(&self, enabled: bool) {
-        *self.word_wrap.borrow_mut() = enabled;
-        let mode = if enabled {
-            gtk4::WrapMode::Word
-        } else {
-            gtk4::WrapMode::None
-        };
-        let h_policy = if enabled {
-            gtk4::PolicyType::Never
-        } else {
-            gtk4::PolicyType::Automatic
-        };
-        let tabs: Vec<_> = {
-            let state = self.state.borrow();
-            state
-                .tabs
-                .values()
-                .map(|t| (t.view.clone(), t.scroll_window.clone()))
-                .collect()
-        };
-        for (view, scroll) in &tabs {
-            view.set_wrap_mode(mode);
-            scroll.set_policy(h_policy, gtk4::PolicyType::Automatic);
-        }
     }
 
     pub fn apply_show_whitespace(&self, enabled: bool) {
@@ -3382,12 +3328,8 @@ impl EditorPane {
         // Do NOT set_monospace — the editor font family is set explicitly via
         // apply_font_family; monospace mode only matters when no font is configured.
         view.set_highlight_current_line(true);
-        let wrap_mode = if *self.word_wrap.borrow() {
-            gtk4::WrapMode::Word
-        } else {
-            gtk4::WrapMode::None
-        };
-        view.set_wrap_mode(wrap_mode);
+        // Text always wraps at word boundaries; there is no unwrapped mode.
+        view.set_wrap_mode(gtk4::WrapMode::Word);
         apply_space_drawer(&view, *self.show_whitespace.borrow());
         set_view_line_spacing(&view, *self.line_spacing.borrow());
         // Comfortable content padding. In simple mode the gutter is hidden so
@@ -3418,12 +3360,7 @@ impl EditorPane {
         // Horizontal scroll is permanently disabled — all wrapping is done in the
         // text view itself. Kinetic scrolling is disabled to prevent the view from
         // "coasting" past where the user clicked.
-        let h_policy = if *self.word_wrap.borrow() {
-            gtk4::PolicyType::Never
-        } else {
-            gtk4::PolicyType::Automatic
-        };
-        scroll.set_policy(h_policy, gtk4::PolicyType::Automatic);
+        scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
         scroll.set_kinetic_scrolling(false);
 
         // Ghost-text placeholder — shown when the buffer is empty. This wraps
@@ -3922,7 +3859,6 @@ impl EditorPane {
             EditorTab {
                 buffer,
                 view,
-                scroll_window: scroll,
                 notebook_page: editor_overlay,
                 modified: false,
                 dot_label,

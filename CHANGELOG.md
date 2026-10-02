@@ -3,6 +3,14 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+
+- **Word wrap is always on, and the setting is gone.** The editor always wraps lines at word boundaries and never scrolls sideways; there is no unwrapped mode and no switch in Settings. An old `editor_word_wrap` setting in your config file is simply ignored.
+
+---
+
 ## [0.41.0] "Steady Glass" — 2026-10-02 — One place to cite from
 
 ### Fixed

@@ -252,10 +252,6 @@ impl SettingsDialog {
         tab_spin.set_subtitle(&tr("settings-tab-width-subtitle"));
         tab_spin.set_value(current.editor_tab_width as f64);
 
-        let wrap_row = adw::SwitchRow::new();
-        wrap_row.set_title(&tr("settings-word-wrap-title"));
-        wrap_row.set_active(current.editor_word_wrap);
-
         let ws_row = adw::SwitchRow::new();
         ws_row.set_title(&tr("settings-show-whitespace-title"));
         ws_row.set_active(current.editor_show_whitespace);
@@ -350,7 +346,6 @@ impl SettingsDialog {
 
         font_group.add(&font_row);
         font_group.add(&tab_spin);
-        font_group.add(&wrap_row);
         font_group.add(&ws_row);
         font_group.add(&spacing_row);
         font_group.add(&typewriter_row);
@@ -823,7 +818,6 @@ impl SettingsDialog {
             let font_btn = font_btn.clone();
             let debounce_spin = debounce_spin.clone();
             let tab_spin = tab_spin.clone();
-            let wrap_row = wrap_row.clone();
             let ws_row = ws_row.clone();
             let spacing_row = spacing_row.clone();
             let typewriter_row = typewriter_row.clone();
@@ -955,7 +949,6 @@ impl SettingsDialog {
                     editor_font_size,
                     theme,
                     editor_font_family,
-                    editor_word_wrap: wrap_row.is_active(),
                     editor_show_whitespace: ws_row.is_active(),
                     editor_tab_width: tab_spin.value() as u32,
                     preview_zoom: preview_zoom_cur,
@@ -1025,7 +1018,6 @@ impl SettingsDialog {
         wire_preview!(font_btn, connect_font_desc_notify);
         wire_preview!(tab_spin, connect_value_notify);
         wire_preview!(spacing_row, connect_selected_notify);
-        wire_preview!(wrap_row, connect_active_notify);
         wire_preview!(ws_row, connect_active_notify);
         wire_preview!(typewriter_row, connect_active_notify);
         wire_preview!(high_contrast_row, connect_active_notify);
