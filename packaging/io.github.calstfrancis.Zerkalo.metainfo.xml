@@ -85,6 +85,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.41.1" date="2026-10-02">
+      <description>
+        <p>0.41.1 "Plain Glass" — a steadier editor. Word wrap is always on and the setting is gone; the editor can no longer scroll sideways. Brackets and quotes pair only when it helps, and the cursor and view no longer jump to the start or end of the document after Replace All, restoring a snapshot, applying a style, renaming a citation key or reloading a changed file. Resizing the window keeps the preview where it was.</p>
+      </description>
+    </release>
     <release version="0.41.0" date="2026-10-02">
       <description>
         <p>0.41.0 "Steady Glass" — one place to cite from. A Sources menu in the Citations panel replaces the row of icons; the document's own #bibliography line, the project, Settings and the project folder are resolved in one place. One search for the @ popup, panel and References window (words in any order, accents ignored, works you already cite first). Zotero with Better BibTeX: a connect guide and a picker. A bibliography stored elsewhere is mirrored into the project so documents compile on any computer; Freeze for submission saves only what a document cites. Renaming a citation key now changes only the key, in every file or none, and many citation bugs are fixed. Your files are only read, never rewritten unprompted.</p>
