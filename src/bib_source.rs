@@ -272,4 +272,34 @@ mod tests {
             PathBuf::from("../references.bib")
         );
     }
+
+    // The ways people already have things set up, resolved as they always were.
+    #[test]
+    fn existing_setups_keep_citing_from_the_same_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let ext = tempfile::tempdir().unwrap();
+        let lib = write(ext.path(), "library.bib", "@book{a,}");
+        // 1. Only Settings names a bibliography; the document says nothing.
+        let plain = write(root, "plain.typ", "See @a.");
+        let r = resolve(Some((&plain, None)), None, Some(&lib), root).unwrap();
+        assert_eq!((r.path, r.origin), (lib.clone(), Origin::Settings));
+        // 2. The document names the same absolute file Settings does.
+        let abs = write(
+            root,
+            "abs.typ",
+            &format!("#bibliography(\"{}\", style: \"apa\")", lib.display()),
+        );
+        let r = resolve(Some((&abs, None)), None, Some(&lib), root).unwrap();
+        assert_eq!(r.path, lib);
+        // 3. A project override and no document line.
+        let proj = write(ext.path(), "proj.bib", "");
+        let r = resolve(Some((&plain, None)), Some(&proj), Some(&lib), root).unwrap();
+        assert_eq!(r.path, proj);
+        // 4. A relative path beside the document.
+        write(root, "refs.bib", "");
+        let rel = write(root, "rel.typ", "#bibliography(\"refs.bib\")");
+        let r = resolve(Some((&rel, None)), None, Some(&lib), root).unwrap();
+        assert_eq!(r.path, root.join("refs.bib"));
+    }
 }

@@ -756,4 +756,17 @@ mod tests {
         let loaded: ProjectConfig = toml::from_str(&toml_str).expect("deserialize");
         assert_eq!(loaded.cv_elements_path, cfg.cv_elements_path);
     }
+
+    #[test]
+    fn a_config_saved_before_the_sources_menu_still_loads_and_changes_nothing() {
+        let old = "bib_path = \"/home/u/Zotero/library.bib\"\ndebounce_ms = 400\n";
+        let cfg: Config = toml::from_str(old).expect("an older config file loads");
+        assert_eq!(
+            cfg.bib_path,
+            Some(std::path::PathBuf::from("/home/u/Zotero/library.bib"))
+        );
+        // The new switches default to "nothing happens until you ask".
+        assert!(!cfg.tell_kartoteka);
+        assert!(cfg.mirror_bibliography);
+    }
 }
