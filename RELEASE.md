@@ -1,15 +1,11 @@
-<!-- zerkalo-release: 0.42.1 -->
+<!-- zerkalo-release: 0.43.0 -->
 ### What's new
 
-What's New tells the truth.
+Cite a page.
 
-**Get Latest from GitHub now updates the documents you have open** (they used to keep showing their old text, so it looked as if nothing had arrived), and a computer that is simply behind catches up by itself at start-up.
+**The Citations panel has a "Page for the next citation" box.** Type `12`, then click a source, and `@key[p. 12]` is inserted instead of a bare `@key` (`12-14` gives `@key[pp. 12–14]`, roman numerals work, and anything else such as `ch. 3` is used as typed). The box empties itself after each citation, so a page never carries over to the next one.
 
-**The What's New dialog is fixed.** It had kept announcing old tab-bar colours; it now reads the changelog itself and shows every release you missed.
-
-**Catching up on 0.40–0.42:** the Library's labels and Organize…, a Sources menu for citations (with Zotero, an in-project copy and Freeze for submission), Get Latest from GitHub with a safe force option, and always-on word wrap.
-
-**Help matches the app:** syncing between computers, the Library and Zotero are explained, and the Back Up shortcut is shown correctly as Ctrl+Shift+S.
+**Works with Kartoteka 0.19.** Zerkalo now reads a Kartoteka library with the same code as Kartoteka 0.19 — it was pinned to a much older version — including notes that use relation types newer than Zerkalo knows about. The page text it makes is identical to what Kartoteka's Cite box produces.
 
 ---
 
