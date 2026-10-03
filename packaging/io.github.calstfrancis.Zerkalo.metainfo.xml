@@ -85,6 +85,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.44.1" date="2026-10-03">
+      <description>
+        <p>0.44.1 "Quiet Glass" — comment out the bibliography. Commenting out a document's #bibliography line to drop the reference list used to fail the whole document, because Typst can't print a citation without a bibliography. Zerkalo now supplies a hidden one in the preview, PDF, print and Word export: citations and footnotes still appear, and the reference list doesn't. It uses the file the commented-out line names, with that line's style, or your vault if that file is gone.</p>
+      </description>
+    </release>
     <release version="0.44.0" date="2026-10-03">
       <description>
         <p>0.44.0 "Anchored Glass" — your vault stays put. Settings now accepts a Kartoteka vault folder instead of refusing to save until the field was cleared, which used to quietly forget the vault; a document with no bibliography line goes back to using it. Exported cited-references files and frozen copies are never mistaken for the project's bibliography. Printing now happens in Zerkalo's own Print window alone: it has a Printer row that remembers your last choice and sends the job straight there, with the system dialog used only if no printers can be found.</p>

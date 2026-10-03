@@ -118,6 +118,28 @@ mod tests {
     }
 
     #[test]
+    fn a_commented_out_bibliography_keeps_the_notes_and_drops_the_list() {
+        let path = project("nobib", &DOC.replace("#bibliography", "// #bibliography"));
+        let out = export(
+            &path,
+            &HashMap::new(),
+            &HashMap::new(),
+            None,
+            Target::InDesign,
+        )
+        .unwrap();
+        let body = part(&out.bytes, "word/document.xml");
+        let notes = part(&out.bytes, "word/footnotes.xml");
+        assert_eq!(body.matches("<w:footnoteReference").count(), 3, "{body}");
+        assert!(notes.contains("Ann Alpha"), "{notes}");
+        assert!(
+            !body.contains(r#"<w:pStyle w:val="Bibliography"/>"#),
+            "{body}"
+        );
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
     fn canva_target_puts_numbered_notes_at_the_end() {
         let path = project("canva", DOC);
         let out = export(&path, &HashMap::new(), &HashMap::new(), None, Target::Canva).unwrap();

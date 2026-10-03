@@ -3,6 +3,12 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.44.1] "Quiet Glass" — 2026-10-03 — Comment out the bibliography
+
+### Fixed
+
+- **Commenting out `#bibliography` no longer breaks the document.** Typst can't print a citation unless the document has a bibliography, so commenting the line out to drop the reference list failed the whole compile ("label does not exist"). Zerkalo now supplies a hidden bibliography for preview, PDF, print and Word export: citations and footnotes still appear, and the reference list doesn't. It uses the file the commented-out line names, with that line's style, or your vault if that file is gone.
+
 ## [0.44.0] "Anchored Glass" — 2026-10-03 — Your vault stays put
 
 ### Changed

@@ -437,6 +437,8 @@ impl Cx {
                 self.prev_was_para = false;
             }
             "hr" => {}
+            // A bibliography kept only so citations resolve (see `compiler::HiddenBib`).
+            "div" if e.attr("hidden").is_some() => {}
             "div" if matches!(e.attr("class"), Some("zk-center") | Some("zk-right")) => {
                 let aligned = if e.attr("class") == Some("zk-center") {
                     PStyle::Centered

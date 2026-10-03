@@ -306,11 +306,111 @@ const EXPORT_RULES: &str = r#"#show columns: it => it.body
 }
 "#;
 
-fn wrapper_source(root_file_name: &str, split: bool, force_split: bool, export: bool) -> String {
-    let escaped = root_file_name.replace('\\', "\\\\").replace('"', "\\\"");
+fn wrapper_source(
+    root_file_name: &str,
+    split: bool,
+    force_split: bool,
+    export: bool,
+    hidden_bib: Option<&str>,
+) -> String {
+    let escaped = typst_string(root_file_name);
     let export_rules = if export { EXPORT_RULES } else { "" };
+    let hidden_bib = hidden_bib.unwrap_or("");
     format!(
-        "#let zk-split = {split}\n#let zk-force-split = {force_split}\n#let zk-export = {export}\n{SPLIT_NOTE_CITES}{export_rules}#include \"{escaped}\"\n"
+        "#let zk-split = {split}\n#let zk-force-split = {force_split}\n#let zk-export = {export}\n{SPLIT_NOTE_CITES}{export_rules}#include \"{escaped}\"\n{hidden_bib}"
+    )
+}
+
+fn typst_string(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+/// The bibliography a document with no `#bibliography(...)` line of its own
+/// still cites from: Typst can't print a citation without one, so commenting
+/// the line out (to drop the reference list) used to fail the whole compile.
+struct HiddenBib {
+    path: PathBuf,
+    /// The style named on the commented-out line, so footnotes keep their style.
+    style: Option<String>,
+}
+
+/// Whether `text` calls `bibliography(...)` anywhere outside a `//` comment —
+/// deliberately broader than `styles::find_bibliography_path`, since adding a
+/// second bibliography to a document that already has one is an error.
+fn has_live_bibliography_call(text: &str) -> bool {
+    text.lines().any(|l| {
+        let code = l.find("//").map_or(l, |i| &l[..i]);
+        code.contains("bibliography(")
+    })
+}
+
+/// The rest of a commented-out `// #bibliography(...)` line.
+fn commented_bibliography_line(text: &str) -> Option<&str> {
+    text.lines().find_map(|l| {
+        let rest = l.trim_start().strip_prefix("//")?;
+        let rest = rest.trim_start_matches('/').trim_start();
+        rest.starts_with("#bibliography(").then_some(rest)
+    })
+}
+
+fn commented_bibliography_style(text: &str) -> Option<&str> {
+    crate::styles::find_bibliography_style(commented_bibliography_line(text)?)
+}
+
+/// When no file of the manuscript calls `bibliography(...)` but it does cite:
+/// the file the commented-out line names, if it's still there (what the
+/// document compiled against until the line was commented out), else the same
+/// source the Citations panel offers keys from — the project's or Settings'
+/// bibliography (`configured`), else one found in the project folder.
+fn hidden_bibliography(
+    root_file: &Path,
+    project_root: &Path,
+    overrides: &HashMap<PathBuf, String>,
+    root_text: &str,
+    configured: Option<&Path>,
+) -> Option<HiddenBib> {
+    let files = crate::project::manuscript_files(root_file, project_root);
+    let texts: Vec<(PathBuf, &str)> = std::iter::once((root_file.to_path_buf(), root_text))
+        .chain(files.iter().skip(1).map(|(p, disk)| {
+            (
+                p.clone(),
+                overrides.get(p).map_or(disk.as_str(), String::as_str),
+            )
+        }))
+        .collect();
+    if texts.iter().any(|(_, t)| has_live_bibliography_call(t))
+        || !texts
+            .iter()
+            .any(|(_, t)| t.contains('@') || t.contains("cite("))
+    {
+        return None;
+    }
+    let commented = texts.iter().find_map(|(file, t)| {
+        let line = commented_bibliography_line(t)?;
+        let named = Path::new(crate::styles::find_bibliography_path(line)?);
+        let dir = file.parent().unwrap_or(project_root);
+        Some(dir.join(named)).filter(|p| p.is_file())
+    });
+    let path = commented.or_else(|| {
+        let source = crate::bib_source::resolve(None, configured, None, project_root)?;
+        Some(crate::bibliography::bib_target_path(&source.path)).filter(|p| p.is_file())
+    })?;
+    let style = texts
+        .iter()
+        .find_map(|(_, t)| commented_bibliography_style(t))
+        .map(str::to_string);
+    Some(HiddenBib { path, style })
+}
+
+/// A bibliography that resolves citations but prints no reference list. HTML
+/// (Word export) keeps it, marked hidden, as the citations link to its entries.
+fn hidden_bibliography_code(path: &str, style: Option<&str>) -> String {
+    let style = style.map_or(String::new(), |s| {
+        format!(", style: \"{}\"", typst_string(s))
+    });
+    format!(
+        "#{{ show bibliography: it => context if target() == \"html\" {{ html.elem(\"div\", attrs: (hidden: \"hidden\"), it) }}; bibliography(\"{}\"{style}) }}\n",
+        typst_string(path)
     )
 }
 
@@ -451,8 +551,23 @@ impl ZerkaloWorld {
                     })
             });
 
+        let hidden_bib = if content.as_deref().is_some_and(has_live_bibliography_call) {
+            None
+        } else {
+            hidden_bibliography(
+                root_file,
+                &project_root,
+                &overrides,
+                content.as_deref().unwrap_or(""),
+                extra_root,
+            )
+        };
+
         let needs_widening = extra_root.is_some_and(is_outside_project)
-            || doc_bib_abs_path.as_deref().is_some_and(is_outside_project);
+            || doc_bib_abs_path.as_deref().is_some_and(is_outside_project)
+            || hidden_bib
+                .as_ref()
+                .is_some_and(|h| is_outside_project(&h.path));
 
         // A single malformed date field — a common Zotero/BetterBibTeX export
         // quirk (e.g. `year = {Winter/Spring 2001}`) — fails Typst's stricter
@@ -489,8 +604,35 @@ impl ZerkaloWorld {
                 std::fs::canonicalize(root_file).unwrap_or_else(|_| root_file.to_path_buf());
             (PathBuf::from("/"), canon)
         } else {
-            (project_root, root_file.to_path_buf())
+            (project_root.clone(), root_file.to_path_buf())
         };
+
+        let hidden_bib_code = hidden_bib.map(|h| {
+            // Typst reads a path starting with `/` from the World's root.
+            let (served, written) = if needs_widening {
+                let abs = std::fs::canonicalize(&h.path).unwrap_or(h.path);
+                (abs.clone(), abs.to_string_lossy().into_owned())
+            } else {
+                let rel = h
+                    .path
+                    .strip_prefix(&project_root)
+                    .unwrap_or(&h.path)
+                    .to_path_buf();
+                (
+                    project_root.join(&rel),
+                    format!("/{}", rel.to_string_lossy().replace('\\', "/")),
+                )
+            };
+            if served
+                .extension()
+                .is_some_and(|x| x.eq_ignore_ascii_case("bib"))
+            {
+                if let Some(fixed) = sanitize_bib_cached(&served) {
+                    overrides.insert(served, fixed);
+                }
+            }
+            hidden_bibliography_code(&written, h.style.as_deref())
+        });
 
         let root_file_name = abs_root_file
             .file_name()
@@ -499,7 +641,13 @@ impl ZerkaloWorld {
         let wrapper_path = abs_root_file.with_file_name(WRAPPER_NAME);
         overrides.insert(
             wrapper_path.clone(),
-            wrapper_source(&root_file_name, split, force_split, export),
+            wrapper_source(
+                &root_file_name,
+                split,
+                force_split,
+                export,
+                hidden_bib_code.as_deref(),
+            ),
         );
 
         let vpath = VirtualPath::virtualize(&root, &wrapper_path).map_err(|e| {
@@ -1091,11 +1239,14 @@ mod tests {
     fn write_temp_typ(content: &str) -> std::path::PathBuf {
         static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let path = std::path::PathBuf::from(format!(
-            "/tmp/zerkalo_test_compile_{}_{}.typ",
+        // A folder of its own: a stray bibliography beside it would be found.
+        let dir = std::path::PathBuf::from(format!(
+            "/tmp/zerkalo_test_compile_{}_{}",
             std::process::id(),
             n
         ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("main.typ");
         std::fs::write(&path, content).unwrap();
         path
     }
@@ -1204,6 +1355,88 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&doc_dir);
         let _ = std::fs::remove_dir_all(&vault_dir);
+    }
+
+    const SMITH_YML: &str =
+        "smith2020:\n  type: article\n  title: Hidden Title\n  author: Smith, Jane\n  date: 2020\n";
+
+    #[test]
+    fn a_commented_out_bibliography_still_cites_from_the_configured_vault() {
+        // The reported case: commenting out the #bibliography line, to drop
+        // the reference list, failed the whole compile because the document
+        // still cites.
+        let base = tempfile::tempdir().unwrap();
+        let (work, vault) = (base.path().join("work"), base.path().join("Kartoteka"));
+        std::fs::create_dir_all(&work).unwrap();
+        std::fs::create_dir_all(vault.join("entries")).unwrap();
+        std::fs::write(vault.join("library.yml"), SMITH_YML).unwrap();
+        let doc = work.join("main.typ");
+        std::fs::write(
+            &doc,
+            "See @smith2020.\n\n// #bibliography(\"citations.bib\", style: \"chicago-notes\")\n",
+        )
+        .unwrap();
+
+        let html = compile_to_html(&doc, &HashMap::new(), &HashMap::new(), Some(&vault))
+            .expect("compiles against the vault with the line commented out");
+        assert!(
+            html.contains("Hidden Title"),
+            "the style's footnote cites it: {html}"
+        );
+        assert!(
+            html.contains("hidden"),
+            "the reference list is hidden: {html}"
+        );
+        assert!(compile_to_pdf_bytes(&doc, &HashMap::new(), &HashMap::new(), Some(&vault)).is_ok());
+    }
+
+    #[test]
+    fn a_commented_out_bibliography_prefers_the_file_it_names() {
+        // Cal's case: the sources live in citations.bib, not the vault.
+        let base = tempfile::tempdir().unwrap();
+        let (work, vault) = (base.path().join("work"), base.path().join("Kartoteka"));
+        std::fs::create_dir_all(&work).unwrap();
+        std::fs::create_dir_all(vault.join("entries")).unwrap();
+        std::fs::write(
+            vault.join("library.yml"),
+            "other2021:\n  type: book\n  title: O\n",
+        )
+        .unwrap();
+        std::fs::write(work.join("citations.yml"), SMITH_YML).unwrap();
+        let doc = work.join("main.typ");
+        std::fs::write(
+            &doc,
+            "See @smith2020.\n// #bibliography(\"citations.yml\", style: \"chicago-notes\")\n",
+        )
+        .unwrap();
+        let result = compile_to_pdf_bytes(&doc, &HashMap::new(), &HashMap::new(), Some(&vault));
+        assert!(result.is_ok(), "{:?}", result.err());
+    }
+
+    #[test]
+    fn a_document_without_a_bibliography_line_cites_from_one_in_its_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("refs.yml"), SMITH_YML).unwrap();
+        let doc = dir.path().join("main.typ");
+        std::fs::write(&doc, "See @smith2020.\n").unwrap();
+        let result = compile_to_pdf_bytes(&doc, &HashMap::new(), &HashMap::new(), None);
+        assert!(result.is_ok(), "{:?}", result.err());
+    }
+
+    #[test]
+    fn a_live_bibliography_call_is_never_doubled() {
+        assert!(has_live_bibliography_call("#bibliography(\"a.bib\")"));
+        assert!(has_live_bibliography_call("#{ bibliography(\"a.bib\") }"));
+        assert!(!has_live_bibliography_call("// #bibliography(\"a.bib\")"));
+        assert!(!has_live_bibliography_call("#show bibliography: none"));
+        assert_eq!(
+            commented_bibliography_style("x\n  //  #bibliography(\"a.bib\", style: \"apa\")\n"),
+            Some("apa")
+        );
+        assert_eq!(
+            commented_bibliography_style("#bibliography(\"a.bib\", style: \"apa\")"),
+            None
+        );
     }
 
     #[test]
@@ -2006,7 +2239,7 @@ mod tests {
         let cv_helpers_src = include_str!("../templates/cv-helpers.typ");
         let mut overrides = HashMap::new();
         overrides.insert(
-            std::path::PathBuf::from("/tmp/cv-helpers.typ"),
+            path.with_file_name("cv-helpers.typ"),
             cv_helpers_src.to_string(),
         );
 
@@ -2056,7 +2289,7 @@ mdiv-2024:
         let cv_helpers_src = include_str!("../templates/cv-helpers.typ");
         let mut overrides = HashMap::new();
         overrides.insert(
-            std::path::PathBuf::from("/tmp/cv-helpers.typ"),
+            path.with_file_name("cv-helpers.typ"),
             cv_helpers_src.to_string(),
         );
 
