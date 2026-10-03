@@ -1,11 +1,13 @@
-<!-- zerkalo-release: 0.43.0 -->
+<!-- zerkalo-release: 0.44.0 -->
 ### What's new
 
-Cite a page.
+Your vault stays put.
 
-**The Citations panel has a "Page for the next citation" box.** Type `12`, then click a source, and `@key[p. 12]` is inserted instead of a bare `@key` (`12-14` gives `@key[pp. 12–14]`, roman numerals work, and anything else such as `ch. 3` is used as typed). The box empties itself after each citation, so a page never carries over to the next one.
+**Zerkalo no longer forgets your Kartoteka vault.** Settings used to refuse to save while the bibliography field held a vault folder, because it was checking for a file and a vault is a folder. The only way to save any other setting was to clear the field, which quietly forgot the vault. Settings now accepts a vault folder, and a document whose `#bibliography` line is missing or commented out goes back to using it.
 
-**Works with Kartoteka 0.19.** Zerkalo now reads a Kartoteka library with the same code as Kartoteka 0.19 — it was pinned to a much older version — including notes that use relation types newer than Zerkalo knows about. The page text it makes is identical to what Kartoteka's Cite box produces.
+**Exporting no longer changes your bibliography.** The cited-references file Export can write (`<document>-references.bib` or `.yaml`) and the copies made by "Freeze for submission…" are never picked up as the project's bibliography, even when they land in the project folder.
+
+**One Print window.** Printing now happens entirely in Zerkalo's own Print window. It has a Printer row that remembers your last choice, and Print sends the job straight to that printer with your copies, two-sided and colour settings — no second system dialog that forgot your options. The system dialog is only used if no printers can be found.
 
 ---
 

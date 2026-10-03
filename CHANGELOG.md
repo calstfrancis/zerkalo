@@ -3,6 +3,17 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.44.0] "Anchored Glass" — 2026-10-03 — Your vault stays put
+
+### Changed
+
+- **Printing uses only Zerkalo's own Print window.** The sheet now has a Printer row (remembering your last choice), and Print sends the PDF straight to that printer — no second system dialog that forgot your options. The desktop dialog is only used if no printers can be found.
+
+### Fixed
+
+- **Your Kartoteka vault stays set.** Settings refused to save while the bibliography field held a vault folder ("Bib file not found", because a vault is a folder, not a file), so the only way to save any other setting was to clear the field, and that quietly forgot the vault. Settings now accepts a vault folder. Documents whose `#bibliography` line is missing or commented out go back to using the vault.
+- **Exporting cited references no longer changes which bibliography is used.** Export's "cited references" file (`<document>-references.bib`/`.yaml`) and the frozen copies made by "Freeze for submission…" are no longer picked up as the project's bibliography when no other source is set.
+
 ## [0.43.0] "Ruled Glass" — 2026-10-03 — Cite a page
 
 ### Added

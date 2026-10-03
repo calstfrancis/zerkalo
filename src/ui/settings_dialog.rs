@@ -1069,19 +1069,29 @@ impl SettingsDialog {
                     }
                 }
             }
-            for (label, path) in [
-                (tr("settings-bib-file-label"), new_cfg.bib_path.as_ref()),
+            // A Kartoteka vault is a folder; rejecting it here forced people to
+            // clear the field just to save anything else, losing the vault.
+            let is_file = |p: &std::path::Path| p.is_file();
+            let checks: [(String, Option<&PathBuf>, &dyn Fn(&std::path::Path) -> bool); 3] = [
+                (
+                    tr("settings-bib-file-label"),
+                    new_cfg.bib_path.as_ref(),
+                    &crate::bibliography::is_usable_source,
+                ),
                 (
                     tr("settings-custom-csl-file-label"),
                     new_cfg.custom_csl_path.as_ref(),
+                    &is_file,
                 ),
                 (
                     tr("settings-skrizhal-file-label"),
                     new_cfg.cv_elements_path.as_ref(),
+                    &is_file,
                 ),
-            ] {
+            ];
+            for (label, path, usable) in checks {
                 if let Some(p) = path {
-                    if !p.is_file() {
+                    if !usable(p) {
                         notice(
                             &win_save,
                             &tr_args("settings-file-not-found-heading", &[("label", &label)]),

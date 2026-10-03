@@ -86,6 +86,11 @@ pub fn is_vault_dir(path: &Path) -> bool {
     path.is_dir() && path.join("entries").is_dir()
 }
 
+/// Whether `path` can be used as a bibliography source: a file, or a vault folder.
+pub fn is_usable_source(path: &Path) -> bool {
+    path.is_file() || is_vault_dir(path)
+}
+
 /// The path a Typst `#bibliography(...)` call should actually name for
 /// `bib_path`: unchanged for a plain `.bib`/`.yaml` file, or the vault's
 /// `library.yml` when `bib_path` is a Kartoteka vault directory. Typst's
@@ -662,6 +667,15 @@ mod tests {
         assert!(!is_vault_dir(dir.path()));
         std::fs::create_dir(dir.path().join("entries")).unwrap();
         assert!(is_vault_dir(dir.path()));
+    }
+
+    #[test]
+    fn a_vault_folder_is_a_usable_source() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(!is_usable_source(dir.path()));
+        std::fs::create_dir(dir.path().join("entries")).unwrap();
+        assert!(is_usable_source(dir.path()));
+        assert!(!is_usable_source(&dir.path().join("missing.bib")));
     }
 
     #[test]

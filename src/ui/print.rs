@@ -209,6 +209,10 @@ pub struct PrintJob {
     pub pages: Vec<usize>,
     pub imposition: Imposition,
     pub prefs: PrintPrefs,
+    /// Printer chosen on the sheet. When present the job goes straight to it
+    /// with no system dialog; when absent (no printers were found) the desktop
+    /// portal's dialog is used instead.
+    pub printer: Option<gtk4::Printer>,
 }
 
 pub enum PrintStatus {
@@ -235,6 +239,11 @@ pub fn send_to_printer(
         on_status(PrintStatus::Failed(
             "No pages were selected to print.".into(),
         ));
+        return;
+    }
+
+    if let Some(printer) = job.printer.clone() {
+        send_direct(prepared, printer, job, on_status);
         return;
     }
 
@@ -312,6 +321,89 @@ pub fn send_to_printer(
             glib::ControlFlow::Break
         }
     });
+}
+
+/// Send the PDF straight to a chosen printer through GTK's print backend, so
+/// the only dialog the user ever sees is Zerkalo's own sheet. The PDF goes as-is,
+/// keeping text as vectors.
+fn send_direct(
+    prepared: &Rc<Prepared>,
+    printer: gtk4::Printer,
+    job: PrintJob,
+    on_status: Rc<dyn Fn(PrintStatus)>,
+) {
+    let paper = sheet_paper(prepared.paper, job.imposition);
+    let (tx, rx) = mpsc::sync_channel::<Result<Vec<u8>, String>>(1);
+    let source_pdf = prepared.pdf.clone();
+    let pages = job.pages.clone();
+    let imposition = job.imposition;
+    std::thread::spawn(move || {
+        tx.send(crate::imposition::impose(&source_pdf, &pages, imposition))
+            .ok();
+    });
+
+    glib::timeout_add_local(Duration::from_millis(50), move || {
+        let pdf = match rx.try_recv() {
+            Err(TryRecvError::Empty) => return glib::ControlFlow::Continue,
+            Err(TryRecvError::Disconnected) => {
+                on_status(PrintStatus::Failed(
+                    "The print helper stopped unexpectedly.".into(),
+                ));
+                return glib::ControlFlow::Break;
+            }
+            Ok(Err(e)) => {
+                on_status(PrintStatus::Failed(e));
+                return glib::ControlFlow::Break;
+            }
+            Ok(Ok(pdf)) => pdf,
+        };
+
+        let path = staging_path();
+        if let Err(e) = std::fs::write(&path, &pdf) {
+            on_status(PrintStatus::Failed(format!(
+                "Couldn't stage the document: {e}"
+            )));
+            return glib::ControlFlow::Break;
+        }
+
+        let settings = gtk_print_settings(&printer, &job.prefs);
+        let gtk_job =
+            gtk4::PrintJob::new(&job.job_name, &printer, &settings, &gtk_page_setup(paper));
+        if let Err(e) = gtk_job.set_source_file(&path) {
+            std::fs::remove_file(&path).ok();
+            on_status(PrintStatus::Failed(format!(
+                "Couldn't prepare the print job: {e}"
+            )));
+            return glib::ControlFlow::Break;
+        }
+        let on_status = on_status.clone();
+        gtk_job.send(move |_, result| {
+            std::fs::remove_file(&path).ok();
+            match result {
+                Ok(()) => on_status(PrintStatus::Sent),
+                Err(e) => on_status(PrintStatus::Failed(e.to_string())),
+            }
+        });
+        glib::ControlFlow::Break
+    });
+}
+
+fn gtk_print_settings(printer: &gtk4::Printer, prefs: &PrintPrefs) -> gtk4::PrintSettings {
+    let settings = gtk4::PrintSettings::new();
+    settings.set_printer(&printer.name());
+    settings.set_n_copies(prefs.copies.max(1) as i32);
+    settings.set_collate(prefs.collate);
+    settings.set_use_color(prefs.color);
+    if !prefs.color {
+        settings.set("cups-print-color-mode", Some("monochrome"));
+    }
+    match prefs.duplex {
+        DuplexPref::Printer => {}
+        DuplexPref::OneSided => settings.set("cups-Duplex", Some("None")),
+        DuplexPref::LongEdge => settings.set("cups-Duplex", Some("DuplexNoTumble")),
+        DuplexPref::ShortEdge => settings.set("cups-Duplex", Some("DuplexTumble")),
+    }
+    settings
 }
 
 /// The paper an imposed job is printed on, as opposed to the document's own

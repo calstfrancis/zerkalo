@@ -66,6 +66,9 @@ pub struct PrintPrefs {
     /// Whether the last job collated its copies.
     #[serde(default = "default_true")]
     pub collate: bool,
+    /// Name of the printer last used; empty until one is chosen.
+    #[serde(default)]
+    pub printer: String,
 }
 
 impl Default for PrintPrefs {
@@ -76,6 +79,7 @@ impl Default for PrintPrefs {
             duplex: DuplexPref::default(),
             color: true,
             collate: true,
+            printer: String::new(),
         }
     }
 }

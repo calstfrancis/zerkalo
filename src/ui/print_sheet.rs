@@ -1,11 +1,11 @@
 //! The print sheet: what Zerkalo asks before handing off to the system print
 //! dialog.
 //!
-//! It deliberately does *not* duplicate the system dialog. Printer, copies and
-//! duplex belong to the desktop; what lives here is what only Zerkalo knows —
-//! the document's own page numbering, its real paper size, and how pages should
-//! be arranged onto sheets. Everything chosen here is pre-applied to the
-//! portal's dialog, which still opens for the printer itself.
+//! This is the only print dialog: it picks the printer, copies, two-sided and
+//! colour as well as what only Zerkalo knows — the document's own page
+//! numbering, its real paper size, and how pages are arranged onto sheets. The
+//! job then goes straight to the chosen printer. Only if no printers can be
+//! found does it fall back to the desktop portal's dialog.
 //!
 //! It also stands in for the old "Preparing to print…" toast: it opens
 //! immediately with a spinner and fills in when the compile lands, so a long
@@ -142,6 +142,21 @@ impl PrintSheet {
             .collect();
         preset_row.set_model(Some(&gtk4::StringList::new(&preset_names)));
         group.add(&preset_row);
+
+        let printers: Rc<RefCell<Vec<gtk4::Printer>>> = Rc::new(RefCell::new(Vec::new()));
+        let printer_row = adw::ComboRow::new();
+        printer_row.set_title("Printer");
+        let printer_names = gtk4::StringList::new(&[]);
+        printer_row.set_model(Some(&printer_names));
+        printer_row.set_sensitive(false);
+        printer_row.set_subtitle("Looking for printers…");
+        group.add(&printer_row);
+        load_printers(
+            &printers,
+            &printer_row,
+            &printer_names,
+            config.print.printer.clone(),
+        );
 
         let range_row = adw::EntryRow::new();
         range_row.set_title("Pages");
@@ -364,6 +379,8 @@ impl PrintSheet {
             let copies_row = copies_row.clone();
             let duplex_row = duplex_row.clone();
             let color_row = color_row.clone();
+            let printer_row = printer_row.clone();
+            let printers = printers.clone();
             let collate = config.print.collate;
             let on_status = Rc::new(on_status);
             let on_save_prefs = Rc::new(on_save_prefs);
@@ -376,7 +393,15 @@ impl PrintSheet {
                     return;
                 }
                 let imposition = Imposition::ALL[layout_row.selected() as usize];
+                let printer = printers
+                    .borrow()
+                    .get(printer_row.selected() as usize)
+                    .cloned();
                 let prefs = PrintPrefs {
+                    printer: printer
+                        .as_ref()
+                        .map(|p| p.name().to_string())
+                        .unwrap_or_default(),
                     imposition: imposition.config_key().to_string(),
                     copies: copies_row.value() as u32,
                     duplex: duplex_from_index(duplex_row.selected()),
@@ -390,6 +415,7 @@ impl PrintSheet {
                     pages,
                     imposition,
                     prefs,
+                    printer,
                 };
                 let on_status = on_status.clone();
                 print::send_to_printer(
@@ -404,6 +430,77 @@ impl PrintSheet {
 
         window.present();
     }
+}
+
+/// Fill the printer row as GTK's print backends report printers in, which can
+/// take a moment for network queues. The callback fires on the main thread but
+/// is typed `Send`, so printers are parked in a thread-guarded list and moved
+/// into the row by a short poll.
+fn load_printers(
+    printers: &Rc<RefCell<Vec<gtk4::Printer>>>,
+    row: &adw::ComboRow,
+    names: &gtk4::StringList,
+    saved: String,
+) {
+    use glib::thread_guard::ThreadGuard;
+    use std::sync::{Arc, Mutex};
+
+    let found: Arc<Mutex<Vec<ThreadGuard<gtk4::Printer>>>> = Arc::new(Mutex::new(Vec::new()));
+    let sink = found.clone();
+    gtk4::enumerate_printers(
+        move |printer| {
+            if !printer.is_virtual() {
+                if let Ok(mut list) = sink.lock() {
+                    list.push(ThreadGuard::new(printer.clone()));
+                }
+            }
+            false
+        },
+        false,
+    );
+
+    let printers = printers.clone();
+    let row = row.clone();
+    let names = names.clone();
+    let mut ticks = 0u32;
+    let mut chosen = false;
+    let mut saved_found = false;
+    glib::timeout_add_local(std::time::Duration::from_millis(250), move || {
+        ticks += 1;
+        let batch: Vec<_> = found
+            .lock()
+            .map(|mut list| list.drain(..).collect())
+            .unwrap_or_default();
+        for guard in batch {
+            let printer = guard.into_inner();
+            let label = printer.name().to_string();
+            names.append(&label);
+            printers.borrow_mut().push(printer);
+        }
+        let list = printers.borrow();
+        if !list.is_empty() {
+            row.set_sensitive(true);
+            row.set_subtitle("");
+            // Choose once when the first printer arrives, and again only if the
+            // remembered one turns up later — never over a choice the user made.
+            let saved_at = list.iter().position(|p| p.name() == saved);
+            if !chosen || (!saved_found && saved_at.is_some()) {
+                let pick = saved_at
+                    .or_else(|| list.iter().position(|p| p.is_default()))
+                    .unwrap_or(0);
+                row.set_selected(pick as u32);
+                chosen = true;
+                saved_found = saved_at.is_some();
+            }
+        }
+        if ticks >= 20 {
+            if list.is_empty() {
+                row.set_subtitle("No printers found — the system dialog will be used");
+            }
+            return glib::ControlFlow::Break;
+        }
+        glib::ControlFlow::Continue
+    });
 }
 
 fn duplex_index(pref: DuplexPref) -> u32 {

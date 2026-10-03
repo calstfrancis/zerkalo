@@ -50,6 +50,10 @@ pub fn is_ours(path: &Path) -> bool {
     marker_of(path, MIRROR).is_some() || marker_of(path, FROZEN).is_some()
 }
 
+pub fn is_frozen(path: &Path) -> bool {
+    marker_of(path, FROZEN).is_some()
+}
+
 /// Whether `source` sits inside `project_root` — in which case the document
 /// can simply point at it and nothing needs mirroring.
 pub fn is_inside(project_root: &Path, source: &Path) -> bool {

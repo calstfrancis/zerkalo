@@ -60,6 +60,29 @@ fn from_document(doc: &Path, text: Option<&str>) -> Option<PathBuf> {
     Some(vault_for(&full).unwrap_or(full))
 }
 
+/// A file holding only what one document cites — a frozen copy, or the
+/// `<doc>-references.bib/.yaml` Export writes — which used to be "found" as
+/// the bibliography after an export into the project folder.
+fn is_cited_only_copy(path: &Path) -> bool {
+    if crate::bib_mirror::is_frozen(path) {
+        return true;
+    }
+    let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+        return false;
+    };
+    let Some((doc, suffix)) = stem.rsplit_once("-references") else {
+        return false;
+    };
+    let numbered = suffix.is_empty()
+        || suffix
+            .strip_prefix('-')
+            .is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()));
+    numbered
+        && path
+            .parent()
+            .is_some_and(|dir| dir.join(format!("{doc}.typ")).is_file())
+}
+
 /// The one bibliography in the project folder, preferring `.bib` and, among
 /// several, the first by name — so the choice never depends on directory
 /// order.
@@ -68,7 +91,7 @@ fn found_in(project_root: &Path) -> Option<PathBuf> {
     let mut yamls = Vec::new();
     for entry in std::fs::read_dir(project_root).ok()?.flatten() {
         let path = entry.path();
-        if !path.is_file() {
+        if !path.is_file() || is_cited_only_copy(&path) {
             continue;
         }
         match path
@@ -166,6 +189,40 @@ mod tests {
         let r = resolve(Some((&doc, None)), Some(&proj), Some(&glob), dir.path()).unwrap();
         assert_eq!(r.origin, Origin::Document);
         assert_eq!(r.path, dir.path().join("mine.bib"));
+    }
+
+    #[test]
+    fn a_commented_out_bibliography_falls_back_to_the_vault_in_settings() {
+        let dir = tempfile::tempdir().unwrap();
+        let vault = dir.path().join("Kartoteka");
+        std::fs::create_dir_all(vault.join("entries")).unwrap();
+        let proj = dir.path().join("proj");
+        std::fs::create_dir_all(&proj).unwrap();
+        write(&proj, "citations.bib", "@book{a,}");
+        let doc = write(&proj, "p.typ", "// #bibliography(\"citations.bib\")");
+        let r = resolve(Some((&doc, None)), None, Some(&vault), &proj).unwrap();
+        assert_eq!(r.origin, Origin::Settings);
+        assert_eq!(r.path, vault);
+    }
+
+    #[test]
+    fn exported_cited_references_are_never_found_as_the_bibliography() {
+        let dir = tempfile::tempdir().unwrap();
+        write(dir.path(), "essay.typ", "");
+        write(dir.path(), "essay-references.bib", "@book{a,}");
+        write(dir.path(), "essay-references-2.yaml", "a: {}");
+        assert_eq!(resolve(None, None, None, dir.path()), None);
+        write(dir.path(), "zotero.bib", "@book{b,}");
+        let r = resolve(None, None, None, dir.path()).unwrap();
+        assert_eq!(r.path, dir.path().join("zotero.bib"));
+    }
+
+    #[test]
+    fn a_references_file_with_no_matching_document_is_still_found() {
+        let dir = tempfile::tempdir().unwrap();
+        write(dir.path(), "my-references.bib", "@book{a,}");
+        let r = resolve(None, None, None, dir.path()).unwrap();
+        assert_eq!(r.path, dir.path().join("my-references.bib"));
     }
 
     #[test]
