@@ -3,6 +3,16 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- **Cite a page.** The Citations panel has a "Page for the next citation" box: type `12`, then click a source, and `@key[p. 12]` is inserted instead of a bare `@key` (`12-14` gives `@key[pp. 12–14]`, roman numerals work, and anything else such as `ch. 3` is used as typed). It empties itself after each citation so a page never carries over to the next one. The text is made by the same code as Kartoteka's Cite box, so both produce the same thing
+
+### Changed
+
+- **Works with Kartoteka 0.19.** Zerkalo now reads a Kartoteka library with the same code as Kartoteka 0.19 (it was pinned to a much older version), including notes that use relation types newer than Zerkalo knows about
+
 ## [0.42.1] "Fresh Glass" — 2026-10-02 — What's New tells the truth
 
 ### Fixed

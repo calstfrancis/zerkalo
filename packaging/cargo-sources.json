@@ -2,8 +2,8 @@
     {
         "type": "git",
         "url": "https://github.com/calstfrancis/kartoteka",
-        "commit": "abafaf9de48a965ca13684fce4ed92c11e805f0b",
-        "dest": "flatpak-cargo/git/kartoteka-abafaf9"
+        "commit": "879c71637548921b04e2ba03c6a521d9d4c5f4bf",
+        "dest": "flatpak-cargo/git/kartoteka-879c716"
     },
     {
         "type": "git",
@@ -1522,7 +1522,7 @@
     {
         "type": "shell",
         "commands": [
-            "cp -r --reflink=auto \"flatpak-cargo/git/kartoteka-abafaf9/crates/fond-bib\" \"cargo/vendor/fond-bib\""
+            "cp -r --reflink=auto \"flatpak-cargo/git/kartoteka-879c716/crates/fond-bib\" \"cargo/vendor/fond-bib\""
         ]
     },
     {
@@ -1540,7 +1540,7 @@
     {
         "type": "shell",
         "commands": [
-            "cp -r --reflink=auto \"flatpak-cargo/git/kartoteka-abafaf9/crates/fond-vault\" \"cargo/vendor/fond-vault\""
+            "cp -r --reflink=auto \"flatpak-cargo/git/kartoteka-879c716/crates/fond-vault\" \"cargo/vendor/fond-vault\""
         ]
     },
     {
@@ -7490,7 +7490,7 @@
     },
     {
         "type": "inline",
-        "contents": "[source.vendored-sources]\ndirectory = \"cargo/vendor\"\n\n[source.crates-io]\nreplace-with = \"vendored-sources\"\n\n[source.\"https://github.com/calstfrancis/kartoteka\"]\ngit = \"https://github.com/calstfrancis/kartoteka\"\nreplace-with = \"vendored-sources\"\ntag = \"v0.9.0\"\n\n[source.\"https://github.com/calstfrancis/skrizhal\"]\ngit = \"https://github.com/calstfrancis/skrizhal\"\nreplace-with = \"vendored-sources\"\ntag = \"v0.4.0\"\n",
+        "contents": "[source.vendored-sources]\ndirectory = \"cargo/vendor\"\n\n[source.crates-io]\nreplace-with = \"vendored-sources\"\n\n[source.\"https://github.com/calstfrancis/kartoteka\"]\ngit = \"https://github.com/calstfrancis/kartoteka\"\nreplace-with = \"vendored-sources\"\ntag = \"v0.19.0\"\n\n[source.\"https://github.com/calstfrancis/skrizhal\"]\ngit = \"https://github.com/calstfrancis/skrizhal\"\nreplace-with = \"vendored-sources\"\ntag = \"v0.4.0\"\n",
         "dest": "cargo",
         "dest-filename": "config"
     }

@@ -42,6 +42,9 @@ pub struct CitationPanel {
     widget: GtkBox,
     list: ListBox,
     search: SearchEntry,
+    /// An optional page (or range, or "ch. 3") for the *next* citation inserted: `12` gives
+    /// `@key[p. 12]`. Cleared once used, so it never leaks into a later citation.
+    page: gtk4::Entry,
     title_label: Label,
     bib_entries: Rc<RefCell<Vec<BibEntry>>>,
     cv_entries: Rc<RefCell<Vec<skrizhal_core::CvEntry>>>,
@@ -281,6 +284,19 @@ impl CitationPanel {
         search.set_margin_bottom(6);
         search.set_size_request(0, -1);
         body.append(&search);
+        // Fill this in first, then pick the source (a single click inserts it).
+        let page = gtk4::Entry::builder()
+            .placeholder_text("Page for the next citation (optional)")
+            .tooltip_text(
+                "Type a page, a range such as 12-14, or something like ch. 3, then click the \
+                 source: it is inserted as @key[p. 12]. Leave it empty for a plain @key.",
+            )
+            .margin_start(8)
+            .margin_end(8)
+            .margin_bottom(6)
+            .build();
+        page.set_size_request(0, -1);
+        body.append(&page);
         body.append(&Separator::new(Orientation::Horizontal));
 
         let scroll = ScrolledWindow::new();
@@ -346,14 +362,12 @@ impl CitationPanel {
         {
             let cb = on_insert.clone();
             let cv_mode_ra = cv_mode.clone();
+            let page_ra = page.clone();
             list.connect_row_activated(move |_, row| {
                 let key = row.widget_name().to_string();
                 if !key.is_empty() {
-                    let text = if cv_mode_ra.get() {
-                        format!("#cv-entry(\"{key}\")")
-                    } else {
-                        format!("@{key}")
-                    };
+                    let text = insert_text_for(&key, cv_mode_ra.get(), page_ra.text().as_str());
+                    page_ra.set_text("");
                     if let Some(f) = cb.borrow().as_ref() {
                         f(text);
                     }
@@ -487,6 +501,7 @@ impl CitationPanel {
             widget,
             list,
             search,
+            page,
             title_label,
             bib_entries,
             cv_entries,
@@ -603,6 +618,7 @@ impl CitationPanel {
             return;
         }
         self.cv_mode.set(active);
+        self.page.set_visible(!active);
         if active {
             self.title_label.set_text("CV Elements");
             self.search
@@ -910,5 +926,50 @@ impl CitationPanel {
         lbl.set_margin_bottom(16);
         row.set_child(Some(&lbl));
         self.list.append(&row);
+    }
+}
+
+/// The text a click on `key` inserts: `#cv-entry("key")` for a CV element, otherwise a
+/// citation — `@key`, or `@key[p. 12]` when `page` is filled in (the same text Kartoteka's Cite
+/// box produces, from `fond_bib::cite`).
+fn insert_text_for(key: &str, cv: bool, page: &str) -> String {
+    if cv {
+        format!("#cv-entry(\"{key}\")")
+    } else {
+        fond_bib::cite::typst_citation(key, Some(page))
+    }
+}
+
+#[cfg(test)]
+mod insert_text_tests {
+    use super::insert_text_for;
+
+    #[test]
+    fn a_citation_carries_the_page_when_there_is_one() {
+        assert_eq!(
+            insert_text_for("cone1970black", false, ""),
+            "@cone1970black"
+        );
+        assert_eq!(
+            insert_text_for("cone1970black", false, "  "),
+            "@cone1970black"
+        );
+        assert_eq!(
+            insert_text_for("cone1970black", false, "12"),
+            "@cone1970black[p. 12]"
+        );
+        assert_eq!(
+            insert_text_for("cone1970black", false, "12-14"),
+            "@cone1970black[pp. 12–14]"
+        );
+        assert_eq!(
+            insert_text_for("cone1970black", false, "ch. 3"),
+            "@cone1970black[ch. 3]"
+        );
+    }
+
+    #[test]
+    fn a_cv_element_ignores_the_page() {
+        assert_eq!(insert_text_for("job-1", true, "12"), "#cv-entry(\"job-1\")");
     }
 }
