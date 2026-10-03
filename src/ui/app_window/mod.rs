@@ -72,6 +72,7 @@ struct PaletteTargets {
     template: Button,
     save: Button,
     sidebar: Button,
+    get_latest: Button,
 }
 
 pub struct AppWindow {
@@ -2312,6 +2313,66 @@ impl AppWindow {
             });
         }
         {
+            // After anything that may have brought files down from GitHub (the sync
+            // button, Get Latest, replacing with GitHub's copy, the quiet auto
+            // backup), bring open documents up to date with what is now on disk.
+            // Without this an already-open document kept showing its old text — so
+            // "Get Latest" looked as if it had done nothing, and the next save
+            // would have written the old text over what arrived. Documents with
+            // unsaved typing are left alone, and the person is told.
+            let ep = editor_pane.clone();
+            let toasts = toast_overlay.clone();
+            let seen = Rc::new(Cell::new(crate::git_sync::syncs_finished()));
+            glib::timeout_add_local(Duration::from_millis(1000), move || {
+                if crate::git_sync::sync_active() {
+                    return glib::ControlFlow::Continue;
+                }
+                let now = crate::git_sync::syncs_finished();
+                if now == seen.get() {
+                    return glib::ControlFlow::Continue;
+                }
+                seen.set(now);
+                let (refreshed, skipped) = ep.refresh_open_from_disk();
+                tracing::info!(
+                    "After a sync: refreshed {} open document(s) from disk, left {} with unsaved typing",
+                    refreshed.len(),
+                    skipped.len()
+                );
+                let name = |p: &PathBuf| {
+                    p.file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_default()
+                };
+                if !refreshed.is_empty() {
+                    let shown: Vec<String> = refreshed.iter().take(2).map(name).collect();
+                    let more = refreshed.len().saturating_sub(2);
+                    let list = if more > 0 {
+                        format!("{} and {more} more", shown.join(", "))
+                    } else {
+                        shown.join(", ")
+                    };
+                    let t =
+                        adw::Toast::new(&format!("Updated {list} with what arrived from GitHub"));
+                    t.set_timeout(5);
+                    toasts.add_toast(t);
+                }
+                if !skipped.is_empty() {
+                    let t =
+                        adw::Toast::new(&format!(
+                        "{} open {} changed online but {} unsaved typing here, so {} left as {}",
+                        skipped.len(),
+                        if skipped.len() == 1 { "document" } else { "documents" },
+                        if skipped.len() == 1 { "has" } else { "have" },
+                        if skipped.len() == 1 { "it was" } else { "they were" },
+                        if skipped.len() == 1 { "it is" } else { "they are" },
+                    ));
+                    t.set_timeout(8);
+                    toasts.add_toast(t);
+                }
+                glib::ControlFlow::Continue
+            });
+        }
+        {
             // Push searches to config history
             let cfg = current_config.clone();
             search_panel.set_on_search(move |query| {
@@ -2495,6 +2556,7 @@ impl AppWindow {
                 template: menus.menu_new_template_item,
                 save: menus.menu_save_item,
                 sidebar: sidebar_btn,
+                get_latest: menus.menu_get_latest_item,
             },
             menu_import_item: menus.menu_import_item,
             config: current_config,
@@ -2568,6 +2630,7 @@ impl AppWindow {
                         "toggle_sidebar" => targets_for_pal.sidebar.emit_clicked(),
                         "toggle_preview" => compile_btn_for_pal.emit_clicked(),
                         "git_sync" => sync_btn_for_pal.emit_clicked(),
+                        "get_latest" => targets_for_pal.get_latest.emit_clicked(),
                         "focus_mode" => editor_for_pal.focus_button_for_header().emit_clicked(),
                         "show_in_preview" => editor_for_pal.show_cursor_in_preview(),
                         "help" => {

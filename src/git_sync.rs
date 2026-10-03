@@ -569,7 +569,14 @@ pub fn waiting_online(repo_path: &Path, github_token: Option<&str>) -> Option<Wa
     let changes: usize = git_ok(repo_path, &["rev-list", "--count", &range])?
         .parse()
         .ok()?;
-    let plain_catch_up = changed_files(repo_path).is_empty()
+    // New files of Zerkalo's own (comment sidecars, library data) sit untracked in
+    // the folder all the time, so only edits to files already being backed up
+    // count as "work of its own".
+    let plain_catch_up = git_ok(
+        repo_path,
+        &["status", "--porcelain", "--untracked-files=no"],
+    )
+    .is_some_and(|s| s.is_empty())
         && has_commits(repo_path)
         // Everything here is already part of the online history.
         && git_cmd(repo_path)
@@ -1163,8 +1170,9 @@ mod tests {
 
         let w = waiting_online(b.path(), None).unwrap();
         assert_eq!(w.changes, 1);
-        // B has loose edits, so this is not a plain catch-up.
-        assert!(!w.plain_catch_up);
+        // B only has a new file of its own: still a plain catch-up (the file is
+        // simply kept, untouched).
+        assert!(w.plain_catch_up);
         let r = pull(b.path(), None);
         assert!(r.error.is_none() && !r.conflict, "{r:?}");
         assert_eq!(r.new_commits, 1);
@@ -1244,7 +1252,11 @@ mod tests {
         g(a.path(), &["push"]);
         let w = waiting_online(b.path(), None).unwrap();
         assert_eq!((w.changes, w.plain_catch_up), (1, true));
-        // A version here that was never backed up means it is no longer plain.
+        // An edit to a file already being backed up means it is no longer plain…
+        std::fs::write(b.path().join("essay.typ"), "B edited this\n").unwrap();
+        assert!(!waiting_online(b.path(), None).unwrap().plain_catch_up);
+        g(b.path(), &["checkout", "--", "essay.typ"]);
+        // …and so is a version here that was never backed up.
         std::fs::write(b.path().join("b.typ"), "mine\n").unwrap();
         g(b.path(), &["add", "."]);
         g(b.path(), &["commit", "-m", "mine"]);

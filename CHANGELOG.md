@@ -3,6 +3,22 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.42.1] "Fresh Glass" — 2026-10-02 — What's New tells the truth
+
+### Fixed
+
+- **Get Latest from GitHub now actually updates your open documents.** Files arrived on disk, but a document that was already open kept showing its old text — so it looked as if nothing had happened, and the next save could have written the old text over what arrived. After any sync (the sync button, Get Latest, replacing with GitHub's copy, the quiet auto-backup) every open document without unsaved typing is brought up to date, with a note saying which; a document you were typing in is left alone and you're told.
+- **A computer that is simply behind now really catches up by itself at start-up.** Zerkalo's own small files in the folder (comments, library data) used to make it look as if you had work of your own, so it only ever offered *Get it*; now only edits to files already being backed up count.
+- **"What's New" now shows what's actually new.** It had kept announcing the old tab-bar colours because its text was typed into the program and never updated. It now reads the changelog itself, so it can't fall behind — and if you skipped some releases it shows each one you missed, not just the newest.
+- **Catching up on 0.40–0.42:** the Library's labels and *Organize…*, a *Sources* menu for citations (with Zotero, an in-project copy and *Freeze for submission*), *Get Latest from GitHub* with a safe force option, and always-on word wrap. This is the first release whose What's New says so.
+- **Help now matches the app.** The in-app Help covers syncing between computers, the Library and citing from Zotero; the Back Up shortcut is shown correctly as Ctrl+Shift+S (some screens said Ctrl+Shift+G); and the saved-versions count is right (100 per file).
+
+### Added
+
+- **Get Latest from GitHub** is in the command palette (Ctrl+K).
+
+---
+
 ## [0.42.0] "Joined Glass" — 2026-10-02 — Your writing follows you between computers
 
 ### Added
