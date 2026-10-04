@@ -38,6 +38,7 @@ pub(super) struct Menus {
     pub(super) menu_settings_item: Button,
     pub(super) menu_snapshots_item: Button,
     pub(super) menu_history_item: Button,
+    pub(super) menu_recover_item: Button,
     pub(super) menu_writing_stats_item: Button,
 }
 
@@ -233,6 +234,7 @@ pub(super) fn build_header() -> HeaderWidgets {
         menu_settings_item,
         menu_snapshots_item,
         menu_history_item,
+        menu_recover_item,
         menu_writing_stats_item,
     } = build_hamburger_menu_items();
 
@@ -286,6 +288,7 @@ pub(super) fn build_header() -> HeaderWidgets {
     // enough to share one flyout rather than each being its own row.
     menu_popover_box.append(&menu_save_item);
     menu_popover_box.append(&menu_save_as_item);
+    menu_popover_box.append(&menu_recover_item);
     menu_popover_box.append(&menu_get_latest_item);
     let version_history_btn = super::make_submenu_button(
         "Version History",
@@ -398,6 +401,7 @@ pub(super) fn build_header() -> HeaderWidgets {
             menu_settings_item,
             menu_snapshots_item,
             menu_history_item,
+            menu_recover_item,
             menu_writing_stats_item,
         },
         compile_btn,

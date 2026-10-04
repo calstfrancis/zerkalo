@@ -3,6 +3,24 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.45.0] "Recovering Glass" — 2026-10-04 — One place to get anything back
+
+### Added
+
+- **Recover… — one place to get something back.** ☰ → *Recover…* (or Ctrl+K → Recover) opens a single window that asks "What do you want back?" and shows, in plain words, how safe your work is: whether it's backed up online, whether anything here isn't yet, and when the last backup was. It replaces hunting through Saved Versions, Git history, the Trash and saved copies.
+- **Earlier versions of a document, all in one timeline.** Versions saved on this computer and versions backed up online are merged into one list, newest first, labelled "Saved on this computer", "Kept on this computer" or "Backed up online". Each shows what it would bring back ("Brings back 120 words and takes out 12…") with the changes highlighted, so you can see before you decide.
+- **Search across every earlier version.** Type a few words you remember and the timeline narrows to the versions that contain them — for finding where a paragraph went.
+- **Bringing something back never overwrites.** The main button, *Bring back as a copy*, saves the earlier text as a new file beside the original (for example `Essay (earlier 3 Oct 1610).typ`) and opens it. *Replace what's here…* is a separate, confirmed choice; it keeps the current text as a saved version first and Ctrl+Z undoes it.
+- **Saved copies from "Replace with GitHub's copy", without the command line.** The copies Zerkalo keeps before replacing this computer's files now appear in Recover…, listed by date with the files they hold; any file can be brought back beside its current one.
+- **Deleted documents and the latest from another computer are one click away** from the same window (the Library's Trash, and Get Latest from GitHub).
+
+### Changed
+
+- **The crash-recovery question says what it would change.** When Zerkalo finds writing you hadn't saved, it now tells you how many words restoring it would bring back or take out, and keeps the saved text as a version first either way.
+- **Plainer names.** "Git Change History…" is now "Online Change History…".
+
+---
+
 ## [0.44.1] "Quiet Glass" — 2026-10-03 — Comment out the bibliography
 
 ### Fixed

@@ -454,7 +454,7 @@ pub struct PullResult {
     pub error: Option<String>,
 }
 
-fn git_ok(repo_path: &Path, args: &[&str]) -> Option<String> {
+pub(crate) fn git_ok(repo_path: &Path, args: &[&str]) -> Option<String> {
     git_cmd(repo_path)
         .args(args)
         .output()
@@ -463,12 +463,12 @@ fn git_ok(repo_path: &Path, args: &[&str]) -> Option<String> {
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
 }
 
-fn has_commits(repo_path: &Path) -> bool {
+pub(crate) fn has_commits(repo_path: &Path) -> bool {
     git_ok(repo_path, &["rev-parse", "--verify", "-q", "HEAD"]).is_some()
 }
 
 /// The branch this folder is on, even before it has a first commit.
-fn head_branch(repo_path: &Path) -> String {
+pub(crate) fn head_branch(repo_path: &Path) -> String {
     git_ok(repo_path, &["symbolic-ref", "--short", "-q", "HEAD"])
         .filter(|b| !b.is_empty())
         .unwrap_or_else(|| "main".to_string())
@@ -534,7 +534,7 @@ fn fetch(repo_path: &Path, remote: &str, github_token: Option<&str>) -> Result<(
     }
 }
 
-fn primary_remote(repo_path: &Path) -> Option<String> {
+pub(crate) fn primary_remote(repo_path: &Path) -> Option<String> {
     let remotes = list_remotes(repo_path);
     remotes
         .iter()
