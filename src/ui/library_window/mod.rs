@@ -716,6 +716,13 @@ impl LibraryWindow {
         self.window.present();
     }
 
+    /// Opens the library on its Trash.
+    pub fn show_trash(&self) {
+        self.refresh();
+        self.go_to_filter(LibraryFilter::Trash);
+        self.present();
+    }
+
     pub fn hide(&self) {
         self.window.set_visible(false);
     }

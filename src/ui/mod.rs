@@ -29,6 +29,7 @@ pub mod preview_pane;
 pub mod print;
 pub mod print_sheet;
 pub mod problems;
+pub mod recover_window;
 pub mod ref_manager;
 pub mod save_problem_bar;
 pub mod search_panel;

@@ -340,6 +340,11 @@ pub fn default_commands() -> Vec<PaletteItem> {
             subtitle: "Save this version and send it to all backup locations (Ctrl+Shift+S)".into(),
         },
         PaletteItem {
+            id: "recover".into(),
+            label: "Recover\u{2026}".into(),
+            subtitle: "Get back an earlier version, a saved copy, a deleted document or the latest from another computer".into(),
+        },
+        PaletteItem {
             id: "get_latest".into(),
             label: "Get Latest from GitHub".into(),
             subtitle: "Bring everything backed up online down to this computer".into(),
@@ -356,7 +361,7 @@ pub fn default_commands() -> Vec<PaletteItem> {
         },
         PaletteItem {
             id: "browse_history".into(),
-            label: "Git Change History\u{2026}".into(),
+            label: "Online Change History\u{2026}".into(),
             subtitle: "Synced history of earlier versions and what changed".into(),
         },
         PaletteItem {

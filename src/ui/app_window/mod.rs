@@ -73,6 +73,7 @@ struct PaletteTargets {
     save: Button,
     sidebar: Button,
     get_latest: Button,
+    recover: Button,
 }
 
 pub struct AppWindow {
@@ -620,6 +621,8 @@ impl AppWindow {
             sync_badge: sync_badge.clone(),
             what_things_do_action: what_things_do_action.clone(),
             take_tour_action: take_tour_action.clone(),
+            library_window: library_window.clone(),
+            get_latest_btn: menus.menu_get_latest_item.clone(),
         };
 
         wire_app_menus(&menu_ctx, &menus);
@@ -1165,17 +1168,23 @@ impl AppWindow {
             let show_next_weak = Rc::downgrade(&show_next_recovery);
             let win = window.clone();
             let ep = editor_pane.clone();
+            let root_for_recovery = project_root.clone();
             *show_next_recovery.borrow_mut() = Some(Box::new(move || {
                 let next = queue.borrow_mut().pop_front();
                 if let Some((path, content, ts)) = next {
+                    let on_disk = std::fs::read_to_string(&path).unwrap_or_default();
+                    let what = crate::recover::describe_changes(&content, &on_disk);
                     let dlg = adw::MessageDialog::new(
                         Some(&win),
-                        Some("Unsaved changes detected"),
+                        Some("Unsaved writing found"),
                         Some(&format!(
-                            "An auto-save from {ts} is newer than the last saved version.\n\
-                             Restore the auto-saved content?"
+                            "Zerkalo kept a copy of what you were typing at {ts}, newer than the last save.\n\
+                             If you restore it: {what}\n\
+                             Either way, the saved text stays in Recover\u{2026}."
                         )),
                     );
+                    // Whichever is chosen, the text on disk is kept as a saved version first.
+                    crate::ui::snapshot_dialog::save_snapshot(&root_for_recovery, &path, &on_disk);
                     dlg.add_response("discard", "Discard");
                     dlg.add_response("restore", "Restore");
                     dlg.set_response_appearance("restore", adw::ResponseAppearance::Suggested);
@@ -2557,6 +2566,7 @@ impl AppWindow {
                 save: menus.menu_save_item,
                 sidebar: sidebar_btn,
                 get_latest: menus.menu_get_latest_item,
+                recover: menus.menu_recover_item,
             },
             menu_import_item: menus.menu_import_item,
             config: current_config,
@@ -2631,6 +2641,7 @@ impl AppWindow {
                         "toggle_preview" => compile_btn_for_pal.emit_clicked(),
                         "git_sync" => sync_btn_for_pal.emit_clicked(),
                         "get_latest" => targets_for_pal.get_latest.emit_clicked(),
+                        "recover" => targets_for_pal.recover.emit_clicked(),
                         "focus_mode" => editor_for_pal.focus_button_for_header().emit_clicked(),
                         "show_in_preview" => editor_for_pal.show_cursor_in_preview(),
                         "help" => {
@@ -3733,6 +3744,7 @@ struct HamburgerItems {
     menu_replace_with_online_item: Button,
     menu_snapshots_item: Button,
     menu_history_item: Button,
+    menu_recover_item: Button,
     menu_export_item: Button,
     menu_export_web_item: Button,
     menu_print_item: Button,
@@ -3791,7 +3803,14 @@ fn build_hamburger_menu_items() -> HamburgerItems {
             item
         },
         menu_snapshots_item: make_menu_item("Saved Versions…", None),
-        menu_history_item: make_menu_item("Git Change History…", None),
+        menu_history_item: make_menu_item("Online Change History…", None),
+        menu_recover_item: {
+            let item = make_menu_item("Recover…", None);
+            item.set_tooltip_text(Some(
+                "Get something back: an earlier version, a saved copy, a deleted document, or the latest from another computer.",
+            ));
+            item
+        },
         menu_export_item: make_menu_item("Export…", None),
         menu_export_web_item: make_menu_item("Export for Web…", None),
         // Print and Import aren't in keybindings.toml — they're fixed in the

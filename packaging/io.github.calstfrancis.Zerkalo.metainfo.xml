@@ -85,6 +85,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.45.0" date="2026-10-04">
+      <description>
+        <p>0.45.0 "Recovering Glass" — one place to get anything back. ☰ → Recover… asks what you want back and says in plain words how safe your work is. Earlier versions saved on this computer and backed up online appear in one timeline with the changes highlighted, and you can search every earlier version for words you remember. Bringing something back saves a copy beside the original instead of overwriting; replacing the current text is a separate, confirmed choice that keeps it first. The saved copies made before replacing this computer's files with GitHub's are listed too, with no command line. The crash-recovery question now says how many words it would bring back.</p>
+      </description>
+    </release>
     <release version="0.44.1" date="2026-10-03">
       <description>
         <p>0.44.1 "Quiet Glass" — comment out the bibliography. Commenting out a document's #bibliography line to drop the reference list used to fail the whole document, because Typst can't print a citation without a bibliography. Zerkalo now supplies a hidden one in the preview, PDF, print and Word export: citations and footnotes still appear, and the reference list doesn't. It uses the file the commented-out line names, with that line's style, or your vault if that file is gone.</p>

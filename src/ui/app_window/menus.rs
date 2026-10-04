@@ -70,6 +70,8 @@ pub(super) struct MenuCtx {
     /// can be clicked any number of times.
     pub(super) what_things_do_action: Rc<RefCell<Option<Box<dyn Fn()>>>>,
     pub(super) take_tour_action: Rc<RefCell<Option<Box<dyn Fn()>>>>,
+    pub(super) library_window: super::super::library_window::LibraryWindow,
+    pub(super) get_latest_btn: Button,
 }
 
 /// Application-level rows: Settings, Help, Setup, Backup Remotes, About,
@@ -737,6 +739,49 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
         });
         dialog.present();
     });
+
+    // ── Menu: Recover ─────────────────────────────────────────────────────
+
+    {
+        let (window, editor, root, pop) = (
+            ctx.window.clone(),
+            ctx.editor_pane.clone(),
+            ctx.project_root.clone(),
+            ctx.menu_popover.clone(),
+        );
+        let lw = ctx.library_window.clone();
+        let get_latest = ctx.get_latest_btn.clone();
+        menus.menu_recover_item.connect_clicked(move |_| {
+            pop.popdown();
+            let document = editor
+                .get_active_path()
+                .map(|p| (p, editor.get_active_content().unwrap_or_default()));
+            let (lw_trash, get_latest) = (lw.clone(), get_latest.clone());
+            let (ed_open, ed_replace) = (editor.clone(), editor.clone());
+            let active = editor.get_active_path();
+            super::super::recover_window::show(
+                &window,
+                super::super::recover_window::RecoverInput {
+                    project_root: root.clone(),
+                    document,
+                },
+                super::super::recover_window::RecoverActions {
+                    open_trash: Rc::new(move || lw_trash.show_trash()),
+                    get_latest: Rc::new(move || get_latest.emit_clicked()),
+                    open_file: Rc::new(move |p| {
+                        if let Ok(text) = std::fs::read_to_string(&p) {
+                            ed_open.open_file(p, &text);
+                        }
+                    }),
+                    replace_active_text: Rc::new(move |text| {
+                        if let Some(p) = &active {
+                            ed_replace.set_content(p, &text);
+                        }
+                    }),
+                },
+            );
+        });
+    }
 
     // ── Menu: File History ────────────────────────────────────────────────
 
