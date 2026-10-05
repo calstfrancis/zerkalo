@@ -332,21 +332,14 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
     menus.menu_writing_stats_item.connect_clicked(move |_| {
         menu_popover_for_stats.popdown();
         let log = writing_log_for_stats.borrow();
-        let today = log.total_today();
-        let week = log.total_this_week();
-        let streak = log.streak_days();
-        let total = log.sessions.len();
         let body = format!(
-            "Today: {:+} words\nThis week: {:+} words\nStreak: {} day{}\nTotal sessions: {}",
-            today,
-            week,
-            streak,
-            if streak == 1 { "" } else { "s" },
-            total,
+            "Today: {}\nThis week: {}",
+            words_phrase(log.total_today()),
+            words_phrase(log.total_this_week()),
         );
         let dlg =
-            adw::MessageDialog::new(Some(&window_for_stats), Some("Writing Stats"), Some(&body));
-        dlg.add_response("ok", "OK");
+            adw::MessageDialog::new(Some(&window_for_stats), Some("Your writing"), Some(&body));
+        dlg.add_response("ok", "Close");
         dlg.present();
     });
 
@@ -565,7 +558,7 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
                 "Marker already present",
                 "The file already contains a valid body marker. No changes were made.".to_string(),
             ),
-            Err(e) => ("Repair failed", e),
+            Err(e) => ("Couldn't repair the marker", e),
         };
         let dlg = adw::MessageDialog::new(Some(&window_for_repair), Some(title), Some(&body));
         dlg.add_response("ok", "OK");
@@ -1039,4 +1032,28 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
 
         do_sync(root, win, toasts, btn, badge, token, cfg_rc);
     });
+}
+
+/// A change in word count, said kindly: cutting words is editing, not loss.
+fn words_phrase(net: i32) -> String {
+    let n = net.unsigned_abs();
+    let words = if n == 1 { "word" } else { "words" };
+    match net {
+        0 => "no change in length yet".to_string(),
+        x if x > 0 => format!("{n} {words} added"),
+        _ => format!("{n} {words} trimmed"),
+    }
+}
+
+#[cfg(test)]
+mod words_phrase_tests {
+    use super::words_phrase;
+
+    #[test]
+    fn cutting_is_trimming_not_a_negative_number() {
+        assert_eq!(words_phrase(430), "430 words added");
+        assert_eq!(words_phrase(1), "1 word added");
+        assert_eq!(words_phrase(-120), "120 words trimmed");
+        assert_eq!(words_phrase(0), "no change in length yet");
+    }
 }

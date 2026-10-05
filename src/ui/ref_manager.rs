@@ -175,7 +175,7 @@ impl RefManager {
                         if let Err(e) = result {
                             let dlg = adw::MessageDialog::new(
                                 root_c.as_ref(),
-                                Some("Export failed"),
+                                Some("Couldn't make the export"),
                                 Some(&e),
                             );
                             dlg.add_response("ok", "OK");

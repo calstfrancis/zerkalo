@@ -193,7 +193,7 @@ pub(super) fn wire_file_tree(ctx: &FileTreeCtx) -> FileTree {
         let proj_toggle = ToggleButton::new();
         proj_toggle.add_css_class("flat");
         proj_toggle.add_css_class("status-toggle");
-        proj_toggle.set_tooltip_text(Some("Toggle project controls (root file)"));
+        proj_toggle.set_tooltip_text(Some("Show or hide the main-document controls"));
         proj_toggle
             .update_property(&[gtk4::accessible::Property::Label("Toggle project controls")]);
         proj_toggle.set_active(false);
@@ -210,7 +210,7 @@ pub(super) fn wire_file_tree(ctx: &FileTreeCtx) -> FileTree {
         proj_controls.set_visible(false);
         proj_controls.set_margin_start(4);
 
-        let root_value_lbl = Label::new(Some("no root"));
+        let root_value_lbl = Label::new(Some("none chosen"));
         root_value_lbl.add_css_class("caption");
         root_value_lbl.add_css_class("dim-label");
         root_value_lbl.set_ellipsize(gtk4::pango::EllipsizeMode::Middle);
@@ -227,8 +227,9 @@ pub(super) fn wire_file_tree(ctx: &FileTreeCtx) -> FileTree {
         // as the same button twice.
         let clear_root_btn = Button::from_icon_name("edit-clear-symbolic");
         clear_root_btn.add_css_class("flat");
-        clear_root_btn.set_tooltip_text(Some("Clear root file"));
-        clear_root_btn.update_property(&[gtk4::accessible::Property::Label("Clear root file")]);
+        clear_root_btn.set_tooltip_text(Some("Choose no main document"));
+        clear_root_btn
+            .update_property(&[gtk4::accessible::Property::Label("Choose no main document")]);
         proj_controls.append(&clear_root_btn);
 
         // Dismiss: for a one-file document there's no root to pick, and the
@@ -388,7 +389,7 @@ pub(super) fn wire_file_tree(ctx: &FileTreeCtx) -> FileTree {
                 preview_c.clear_root_file();
                 *root_ref_c.borrow_mut() = None;
                 title_c.set_subtitle("");
-                rvl.set_text("no root");
+                rvl.set_text("none chosen");
                 bll.set_markup("project");
                 clr.set_sensitive(false);
                 let mut pcfg = crate::config::ProjectConfig::load(&root_dir_c).unwrap_or_default();

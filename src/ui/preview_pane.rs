@@ -1042,7 +1042,7 @@ impl PreviewPane {
             Some(f) => f,
             None => {
                 self.error_label
-                    .set_label("Zerkalo can't tell which file is your document.\nCreate a file called main.typ to get started.");
+                    .set_label("Zerkalo isn't sure which file is your document yet.\nName one main.typ, or mark one with the star (★) in the file list.");
                 self.stack.set_visible_child_name("error");
                 return;
             }
@@ -1162,7 +1162,7 @@ impl PreviewPane {
                         CompileResult::Error(msg, elapsed) => {
                             if pane.page_pixbufs.borrow().is_empty() {
                                 pane.error_label.set_label(
-                                    "Your preview will appear here once the problems are fixed.",
+                                    "Your preview will appear here once the things marked in the editor are sorted out.",
                                 );
                                 pane.stack.set_visible_child_name("error");
                             } else {

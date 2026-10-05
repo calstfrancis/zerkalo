@@ -2286,7 +2286,7 @@ impl EditorPane {
             match re_result {
                 Err(_) => {
                     self.find_bar.set_entry_error(true);
-                    self.find_bar.set_result("Invalid regex");
+                    self.find_bar.set_result("That pattern isn't quite right");
                     return;
                 }
                 Ok(re) => {
@@ -2463,7 +2463,7 @@ impl EditorPane {
             match re_result {
                 Err(_) => {
                     self.find_bar.set_entry_error(true);
-                    self.find_bar.set_result("Invalid regex");
+                    self.find_bar.set_result("That pattern isn't quite right");
                     return;
                 }
                 Ok(re) => {
@@ -2830,7 +2830,7 @@ impl EditorPane {
             || lower.contains("error")
             || lower.contains("failed")
         {
-            crate::ui::theme::lookup_color_hex(&self.lsp_status_label, "error_color", "#c01c28")
+            crate::ui::theme::muted_fg_hex(&self.lsp_status_label)
         } else if status.contains('↻')
             || lower.contains("loading")
             || lower.contains("indexing")
@@ -2850,7 +2850,7 @@ impl EditorPane {
             .trim()
             .to_string();
         let text = if plain.is_empty() {
-            "LSP".to_string()
+            "Suggestions".to_string()
         } else {
             plain
         };
@@ -2859,7 +2859,7 @@ impl EditorPane {
     }
 
     pub fn set_diag_summary(&self, errors: u32, notes: u32) {
-        let problems = |n: u32| format!("{n} problem{}", if n == 1 { "" } else { "s" });
+        let problems = |n: u32| format!("{n} thing{} to look at", if n == 1 { "" } else { "s" });
         let note = |n: u32| format!("{n} note{}", if n == 1 { "" } else { "s" });
         let text = match (errors, notes) {
             (0, 0) => String::new(),
@@ -6192,9 +6192,11 @@ impl EditorPane {
         let cb = self.on_delete_file.clone();
         super::confirm::confirm_destructive(
             None,
-            "Delete this file?",
-            &format!("'{name}' will be permanently deleted."),
-            "Delete",
+            "Delete this file for good?",
+            &format!(
+                "'{name}' will be deleted from this computer, and Zerkalo can't bring it back."
+            ),
+            "Delete for good",
             move || {
                 let _ = std::fs::remove_file(&path);
                 ep.close_file(&path);
@@ -6214,12 +6216,12 @@ impl EditorPane {
         // way, so it still matches every other confirmation in the app.
         let alert = adw::MessageDialog::new(
             parent.as_ref(),
-            Some(&format!("Save changes to '{display_name}'?")),
-            Some("Your changes will be lost if you close without saving."),
+            Some(&format!("Save your changes to \u{201c}{display_name}\u{201d}?")),
+            Some("If you close without saving, Zerkalo still keeps what you were writing as a saved version in Recover\u{2026}."),
         );
-        alert.add_response("cancel", "Cancel");
-        alert.add_response("discard", "Discard");
-        alert.add_response("save", "Save");
+        alert.add_response("cancel", "Keep editing");
+        alert.add_response("discard", "Close without saving");
+        alert.add_response("save", "Save and close");
         alert.set_response_appearance("discard", adw::ResponseAppearance::Destructive);
         alert.set_response_appearance("save", adw::ResponseAppearance::Suggested);
         alert.set_default_response(Some("save"));
@@ -6228,7 +6230,21 @@ impl EditorPane {
         alert.connect_response(None, move |_, response| {
             let view = &ep.notebook.view;
             match response {
-                "discard" => view.close_page_finish(&page, true),
+                "discard" => {
+                    if let Some(root) = ep.project_root() {
+                        let text = {
+                            let st = ep.state.borrow();
+                            st.tabs.get(&path).map(|t| {
+                                let (s, e) = t.buffer.bounds();
+                                t.buffer.text(&s, &e, true).to_string()
+                            })
+                        };
+                        if let Some(text) = text {
+                            crate::ui::snapshot_dialog::save_snapshot(&root, &path, &text);
+                        }
+                    }
+                    view.close_page_finish(&page, true)
+                }
                 "save" => {
                     let content = {
                         let st = ep.state.borrow();

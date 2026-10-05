@@ -262,14 +262,14 @@ impl LibraryWindow {
     pub(super) fn permanent_delete_dialog(&self, doc: &crate::library::Document) {
         let dlg = adw::MessageDialog::new(
             Some(&self.window),
-            Some("Permanently Delete?"),
+            Some("Delete for good?"),
             Some(&format!(
-                "This permanently deletes “{}” from disk. This cannot be undone.",
+                "“{}” will be deleted from this computer. Once it's gone, Zerkalo can't bring it back.",
                 doc.title
             )),
         );
         dlg.add_response("cancel", "Cancel");
-        dlg.add_response("delete", "Delete");
+        dlg.add_response("delete", "Delete for good");
         dlg.set_response_appearance("delete", adw::ResponseAppearance::Destructive);
         dlg.set_default_response(Some("cancel"));
         dlg.set_close_response("cancel");

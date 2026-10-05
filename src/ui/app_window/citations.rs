@@ -412,7 +412,7 @@ pub(super) fn wire_citations(ctx: &CitationCtx) -> Rc<RefCell<Option<PathBuf>>> 
                 {
                     let err_dlg = adw::MessageDialog::new(
                         Some(&win2),
-                        Some("Rename failed"),
+                        Some("Couldn't rename the key"),
                         Some(&format!(
                             "Nothing was changed. Could not update the files: {e}"
                         )),

@@ -696,9 +696,9 @@ impl FileTree {
             let cb = del_cb.clone();
             super::confirm::confirm_destructive(
                 None,
-                "Delete this file?",
-                &format!("'{name_del}' will be permanently deleted."),
-                "Delete",
+                "Delete this file for good?",
+                &format!("'{name_del}' will be deleted from this computer, and Zerkalo can't bring it back."),
+                "Delete for good",
                 move || {
                     if let Some(f) = cb.borrow().as_ref() {
                         f(path_cb.clone());

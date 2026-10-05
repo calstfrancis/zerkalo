@@ -3,6 +3,25 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.46.0] "Gentle Glass" — 2026-10-05 — A calmer way of talking
+
+### Changed
+
+- **Trouble now starts with reassurance.** When a backup doesn't go through, the message begins "Your work is saved on this computer", gives the plain cause when Zerkalo knows it (no internet, sign-in expired, disk full), and keeps the technical text for a "Details for a helper" line. The backup badge is amber, not red.
+- **Closing and deleting use words that say what they do.** Closing asks "Save your changes before closing?" with *Save and close*, *Close without saving* and *Keep editing*. Close without saving now still keeps what you were writing as a saved version in Recover…. Deleting says "Delete for good?" instead of "cannot be undone".
+- **"Problems" is now "Things to look at".** The panel, the count at the bottom and the "Preview paused" note use the new name, and the amber colour replaces red for the markers in the list.
+- **Plainer settings.** "Compile delay" and "Compile trigger" are now "Pause before the preview updates" and "When the preview updates"; High contrast, Word count goal and the import setting explain themselves.
+- **No more jargon on screen.** "LSP" is "Suggestions" and disappears while it's working; "root file" is "main document"; "Invalid regex" is "That pattern isn't quite right"; "Commit & push" is "Save a version and back up".
+- **Import and export messages say your original is untouched** and what to do next, instead of "Import Failed".
+- **Your Writing** replaces Writing Stats: it says words "added" or "trimmed" rather than showing a negative number, and the streak counter is gone.
+- **Help starts with the person**, not the technology, and the shortcut list now calls Ctrl+Shift+S "Save a version and back up".
+
+### Added
+
+- **A written voice for the program** (`docs/VOICE.md`) and a test that fails the build if retired alarm words come back.
+
+---
+
 ## [0.45.0] "Recovering Glass" — 2026-10-04 — One place to get anything back
 
 ### Added

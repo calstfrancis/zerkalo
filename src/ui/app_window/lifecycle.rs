@@ -325,7 +325,7 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
         editor_for_lsp_init.set_lsp_available(ready);
         if ready {
             tracing::info!("tinymist LSP active");
-            editor_for_lsp_init.set_lsp_status("LSP ●");
+            editor_for_lsp_init.set_lsp_status("");
         } else {
             tracing::info!("tinymist not found — LSP disabled");
             editor_for_lsp_init.set_lsp_status("");
@@ -349,14 +349,14 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
             if let Some(client) = slot.as_mut() {
                 if !client.is_alive() {
                     tracing::warn!("tinymist crashed — restarting");
-                    editor_for_lsp_status.set_lsp_status("LSP ↻");
+                    editor_for_lsp_status.set_lsp_status("Suggestions restarting \u{21bb}");
                     let root = client.root.clone();
                     restarted = true;
                     *slot = LspClient::new(&root);
                     if slot.is_some() {
-                        editor_for_lsp_status.set_lsp_status("LSP ●");
+                        editor_for_lsp_status.set_lsp_status("");
                     } else {
-                        editor_for_lsp_status.set_lsp_status("LSP ✗");
+                        editor_for_lsp_status.set_lsp_status("Suggestions unavailable \u{2717}");
                     }
                 }
             }
