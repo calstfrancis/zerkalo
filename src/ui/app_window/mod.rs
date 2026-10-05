@@ -1331,38 +1331,58 @@ impl AppWindow {
         let compile_btn_for_start = compile_btn.clone();
         // Holds the active pulse timer so we can cancel it before starting a new one.
         let pulse_timer: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
+        // A preview that updates in under a moment shows nothing at all; only a
+        // slower one gets the progress bar and the gently pulsing button, so
+        // typing never makes the screen flicker.
+        let compile_epoch: Rc<std::cell::Cell<u32>> = Rc::new(std::cell::Cell::new(0));
+        let epoch_for_start = compile_epoch.clone();
         preview_pane.set_on_compile_start(move || {
-            compile_btn_for_start.add_css_class("compiling-pulse");
-            compile_rev_for_start.set_reveal_child(true);
-            let bar = compile_bar_for_start.clone();
-            let rev = compile_rev_for_start.clone();
-            let timer_slot = pulse_timer.clone();
-            // Cancel any previous pulse timer before spawning a new one.
-            if let Some(id) = pulse_timer.borrow_mut().take() {
-                id.remove();
-            }
-            let id = glib::timeout_add_local(Duration::from_millis(80), move || {
-                if rev.reveals_child() {
-                    bar.pulse();
-                    glib::ControlFlow::Continue
-                } else {
-                    *timer_slot.borrow_mut() = None;
-                    glib::ControlFlow::Break
+            let mine = epoch_for_start.get().wrapping_add(1);
+            epoch_for_start.set(mine);
+            let (epoch, btn, rev_c, bar_c, slot_c) = (
+                epoch_for_start.clone(),
+                compile_btn_for_start.clone(),
+                compile_rev_for_start.clone(),
+                compile_bar_for_start.clone(),
+                pulse_timer.clone(),
+            );
+            glib::timeout_add_local_once(Duration::from_millis(900), move || {
+                if epoch.get() != mine {
+                    return;
                 }
+                btn.add_css_class("compiling-pulse");
+                rev_c.set_reveal_child(true);
+                if let Some(id) = slot_c.borrow_mut().take() {
+                    id.remove();
+                }
+                let (bar, rev, timer_slot) = (bar_c.clone(), rev_c.clone(), slot_c.clone());
+                let id = glib::timeout_add_local(Duration::from_millis(80), move || {
+                    if rev.reveals_child() {
+                        bar.pulse();
+                        glib::ControlFlow::Continue
+                    } else {
+                        *timer_slot.borrow_mut() = None;
+                        glib::ControlFlow::Break
+                    }
+                });
+                *slot_c.borrow_mut() = Some(id);
             });
-            *pulse_timer.borrow_mut() = Some(id);
         });
 
         let compile_rev_for_cancel = compile_rev.clone();
         let compile_btn_for_cancel = compile_btn.clone();
+        let epoch_for_cancel = compile_epoch.clone();
         preview_pane.set_on_compile_cancelled(move || {
+            epoch_for_cancel.set(epoch_for_cancel.get().wrapping_add(1));
             compile_btn_for_cancel.remove_css_class("compiling-pulse");
             compile_rev_for_cancel.set_reveal_child(false);
         });
 
         let compile_rev_for_done = compile_rev.clone();
         let compile_btn_for_done = compile_btn.clone();
+        let epoch_for_done = compile_epoch.clone();
         preview_pane.set_on_compile_done(move |result, warnings| {
+            epoch_for_done.set(epoch_for_done.get().wrapping_add(1));
             compile_btn_for_done.remove_css_class("compiling-pulse");
             compile_rev_for_done.set_reveal_child(false);
             problem_gen_for_compile.set(problem_gen_for_compile.get() + 1);
@@ -2188,6 +2208,12 @@ impl AppWindow {
         let editor_outer = GtkBox::new(Orientation::Vertical, 0);
         editor_outer.set_hexpand(true);
         editor_outer.set_vexpand(true);
+        {
+            let backup_banner = adw::Banner::new("");
+            backup_banner.set_revealed(false);
+            sync::register_backup_banner(&backup_banner, &window);
+            editor_outer.append(&backup_banner);
+        }
         if !config.shown_editor_orientation {
             // Kept to one line at typical window widths — the original two-line
             // wording (a full sentence plus a clause) made the banner about
