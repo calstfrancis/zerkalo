@@ -1595,7 +1595,7 @@ fn run_pandoc_import_confirmed(
                         show_alert(
                             &win,
                             "Couldn't bring that file in",
-                            "pandoc reported success but the output file could not be read.",
+                            "Your original file is untouched. The conversion finished, but Zerkalo couldn't read what it made. Trying again sometimes helps.",
                         );
                         let mut log = crate::import_log::ImportLog::load();
                         log.record(
@@ -1629,7 +1629,7 @@ fn run_pandoc_import_confirmed(
                 show_alert(
                     &win,
                     "Couldn't bring that file in",
-                    "Failed to check the import process's status.",
+                    "Your original file is untouched. Zerkalo lost track of the conversion partway through. Please try again.",
                 );
                 let _ = std::fs::remove_dir_all(&staging_poll);
                 glib::ControlFlow::Break
@@ -2740,7 +2740,7 @@ pub(super) fn run_pdf_import(
             show_alert(
                 window,
                 "Couldn't bring that file in",
-                "pdftotext could not extract text from this PDF.",
+                "This PDF doesn't seem to contain text Zerkalo can pick up. If it's a scan of a page, it's a picture of text rather than text itself. Your original file is untouched.",
             );
             log.record(
                 input_path,

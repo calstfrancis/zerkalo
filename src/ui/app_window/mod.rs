@@ -1191,6 +1191,7 @@ impl AppWindow {
                     );
                     // Whichever is chosen, the text on disk is kept as a saved version first.
                     crate::ui::snapshot_dialog::save_snapshot(&root_for_recovery, &path, &on_disk);
+                    let win_for_calm = win.clone();
                     dlg.add_response("discard", "Don't restore");
                     dlg.add_response("restore", "Restore it");
                     dlg.set_response_appearance("restore", adw::ResponseAppearance::Suggested);
@@ -1209,7 +1210,7 @@ impl AppWindow {
                             }
                         }
                     });
-                    dlg.present();
+                    super::calm::when_calm(&win_for_calm, move || dlg.present());
                 }
             }));
         }
@@ -1480,7 +1481,7 @@ impl AppWindow {
         {
             let toast_for_export = toast_overlay.clone();
             error_panel.set_on_export_done(move |path| {
-                let t = adw::Toast::new(&format!("Error log saved to {path}"));
+                let t = adw::Toast::new(&format!("Saved for a helper at {path}"));
                 t.set_timeout(4);
                 toast_for_export.add_toast(t);
             });

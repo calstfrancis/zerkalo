@@ -226,7 +226,7 @@ fn git_diff_for_commit(root: &Path, file: &Path, oid: &str) -> String {
 
     match out {
         Ok(o) => String::from_utf8_lossy(&o.stdout).into_owned(),
-        Err(e) => format!("Could not load diff: {e}"),
+        Err(e) => format!("Zerkalo couldn't show what changed in this version ({e})."),
     }
 }
 

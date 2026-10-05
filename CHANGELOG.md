@@ -3,6 +3,17 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.49.0] "Patient Glass" — 2026-10-05 — One thing at a time
+
+### Changed
+
+- **Start-up says one thing at a time.** Writing kept from a crash, newer writing waiting on GitHub and the catch-up itself now wait for each other — and for the welcome window — instead of appearing all at once.
+- **More messages say what is safe and what to do next.** Making a document from a template, bringing a file in, renaming a citation key, a history that can't be shown and a few settings messages now say nothing was lost, give the plain reason, and keep the technical text for last.
+- **"Error log saved" is now "Saved for a helper".**
+- **Help explains font choice** (Atkinson Hyperlegible and OpenDyslexic are well liked) and how to change the size.
+
+---
+
 ## [0.48.0] "Open Glass" — 2026-10-05 — Easier to see and to hear
 
 ### Added

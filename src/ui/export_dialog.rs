@@ -826,7 +826,11 @@ fn run_command_logged(
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             return Err(not_found_msg.to_string());
         }
-        Err(e) => return Err(format!("Failed to start command: {e}")),
+        Err(e) => {
+            return Err(format!(
+                "Zerkalo couldn't start the program it needs for this ({e})."
+            ))
+        }
     };
 
     // Read both stderr and stdout concurrently to avoid deadlock and to capture

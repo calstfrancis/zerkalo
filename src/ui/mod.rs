@@ -3,6 +3,7 @@ pub mod app_window;
 pub mod async_poll;
 pub mod autopair;
 pub mod bib_popup;
+pub mod calm;
 pub mod citation_panel;
 pub mod command_palette;
 pub mod comments_panel;
