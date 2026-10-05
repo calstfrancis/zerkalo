@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use chrono::Datelike;
@@ -67,40 +67,6 @@ impl WritingLog {
             .filter(|s| s.date.as_str() >= week_start.as_str())
             .map(|s| s.words_added)
             .sum()
-    }
-
-    pub fn streak_days(&self) -> u32 {
-        let active_days: BTreeSet<String> = self
-            .sessions
-            .iter()
-            .filter(|s| s.words_added > 0)
-            .map(|s| s.date.clone())
-            .collect();
-
-        let mut day = chrono::Local::now().date_naive();
-        let today = day.format("%Y-%m-%d").to_string();
-        // If nothing written yet today, let the streak survive until midnight
-        // by starting the count from yesterday instead of breaking immediately.
-        if !active_days.contains(&today) {
-            day = match day.pred_opt() {
-                Some(d) => d,
-                None => return 0,
-            };
-        }
-        let mut streak = 0u32;
-        loop {
-            let ds = day.format("%Y-%m-%d").to_string();
-            if active_days.contains(&ds) {
-                streak += 1;
-                day = match day.pred_opt() {
-                    Some(d) => d,
-                    None => break,
-                };
-            } else {
-                break;
-            }
-        }
-        streak
     }
 }
 
@@ -179,61 +145,5 @@ mod tests {
             sessions: vec![session(&today_str(), 40), session("2000-01-01", 999)],
         };
         assert_eq!(log.total_this_week(), 40);
-    }
-
-    #[test]
-    fn streak_days_counts_consecutive_active_days_including_today() {
-        let today = chrono::Local::now().date_naive();
-        let d0 = today.format("%Y-%m-%d").to_string();
-        let d1 = today.pred_opt().unwrap().format("%Y-%m-%d").to_string();
-        let d2 = today
-            .pred_opt()
-            .unwrap()
-            .pred_opt()
-            .unwrap()
-            .format("%Y-%m-%d")
-            .to_string();
-        let log = WritingLog {
-            sessions: vec![session(&d0, 10), session(&d1, 5), session(&d2, 5)],
-        };
-        assert_eq!(log.streak_days(), 3);
-    }
-
-    #[test]
-    fn streak_days_survives_zero_words_today_by_counting_from_yesterday() {
-        let today = chrono::Local::now().date_naive();
-        let d1 = today.pred_opt().unwrap().format("%Y-%m-%d").to_string();
-        let log = WritingLog {
-            sessions: vec![session(&d1, 5)],
-        };
-        assert_eq!(log.streak_days(), 1);
-    }
-
-    #[test]
-    fn streak_days_breaks_on_gap() {
-        let today = chrono::Local::now().date_naive();
-        let d0 = today.format("%Y-%m-%d").to_string();
-        let d2 = today
-            .pred_opt()
-            .unwrap()
-            .pred_opt()
-            .unwrap()
-            .format("%Y-%m-%d")
-            .to_string();
-        // Yesterday (d1) is missing, so the streak should stop at today.
-        let log = WritingLog {
-            sessions: vec![session(&d0, 10), session(&d2, 5)],
-        };
-        assert_eq!(log.streak_days(), 1);
-    }
-
-    #[test]
-    fn streak_days_ignores_sessions_with_zero_words() {
-        let today = chrono::Local::now().date_naive();
-        let d0 = today.format("%Y-%m-%d").to_string();
-        let log = WritingLog {
-            sessions: vec![session(&d0, 0)],
-        };
-        assert_eq!(log.streak_days(), 0);
     }
 }

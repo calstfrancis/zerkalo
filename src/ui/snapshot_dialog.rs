@@ -286,7 +286,7 @@ impl SnapshotDialog {
                     super::confirm::confirm_destructive(
                         Some(win.upcast_ref()),
                         "Replace what's in the editor now?",
-                        "Unsaved changes since your last save will be lost.",
+                        "What's in the editor now will be replaced. Ctrl+Z brings it back.",
                         "Restore",
                         move || {
                             if let Some(f) = cb.borrow().as_ref() {

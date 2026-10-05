@@ -874,7 +874,7 @@ fn show_import_preview_dialog(
 
     let header = adw::HeaderBar::new();
     header.add_css_class("fond-chrome");
-    let discard_btn = Button::with_label("Discard");
+    let discard_btn = Button::with_label("Don't keep it");
     discard_btn.add_css_class("flat");
     header.pack_start(&discard_btn);
     let import_btn = Button::with_label("Import");
@@ -1046,7 +1046,7 @@ fn show_import_preview_dialog(
             if let Err(e) = std::fs::write(&final_path, &processed_c) {
                 show_alert(
                     &win_c,
-                    "Import Failed",
+                    "Couldn't bring that file in",
                     &format!(
                         "Couldn't save the converted document to {}:\n{e}",
                         final_dir.display(),
@@ -1339,7 +1339,7 @@ fn run_native_import(
     let imported = match crate::doc_import::import(&input_path) {
         Some(Ok(doc)) => doc,
         Some(Err(e)) => {
-            show_alert(window, "Import Failed", &e);
+            show_alert(window, "Couldn't bring that file in", &e);
             let mut log = crate::import_log::ImportLog::load();
             log.record(input_path, fmt.label, None, false, &e);
             return;
@@ -1352,8 +1352,11 @@ fn run_native_import(
         Err(e) => {
             show_alert(
                 window,
-                "Import Failed",
-                &format!("Couldn't create a working folder for the conversion:\n{e}"),
+                "Couldn't bring that file in",
+                &format!(
+                    "Your original file is untouched. Zerkalo couldn't make a temporary folder for the conversion because {}.\n\nDetails: {e}",
+                    crate::friendly::io_reason(&e)
+                ),
             );
             return;
         }
@@ -1437,8 +1440,11 @@ fn run_pandoc_import_confirmed(
         Err(e) => {
             show_alert(
                 window,
-                "Import Failed",
-                &format!("Couldn't create a working folder for the conversion:\n{e}"),
+                "Couldn't bring that file in",
+                &format!(
+                    "Your original file is untouched. Zerkalo couldn't make a temporary folder for the conversion because {}.\n\nDetails: {e}",
+                    crate::friendly::io_reason(&e)
+                ),
             );
             return;
         }
@@ -1458,7 +1464,7 @@ fn run_pandoc_import_confirmed(
         .to_string();
 
     if let Some(problem) = pandoc_unavailable_reason() {
-        show_alert(window, "Import Failed", &problem);
+        show_alert(window, "Couldn't bring that file in", &problem);
         let mut log = crate::import_log::ImportLog::load();
         log.record(input_path, fmt.label, None, false, "pandoc not available");
         let _ = std::fs::remove_dir_all(&staging);
@@ -1477,7 +1483,7 @@ fn run_pandoc_import_confirmed(
         Err(e) => {
             show_alert(
                 window,
-                "Import Failed",
+                "Couldn't bring that file in",
                 &format!(
                     "Couldn't start the conversion: {e}\n\n{}",
                     pandoc_install_hint(),
@@ -1582,7 +1588,7 @@ fn run_pandoc_import_confirmed(
                     } else {
                         show_alert(
                             &win,
-                            "Import Failed",
+                            "Couldn't bring that file in",
                             "pandoc reported success but the output file could not be read.",
                         );
                         let mut log = crate::import_log::ImportLog::load();
@@ -1597,7 +1603,7 @@ fn run_pandoc_import_confirmed(
                     }
                 } else {
                     let description = describe_pandoc_failure(&stderr_text);
-                    show_alert(&win, "Import Failed", &description);
+                    show_alert(&win, "Couldn't bring that file in", &description);
                     let mut log = crate::import_log::ImportLog::load();
                     log.record(input_path.clone(), fmt.label, None, false, &description);
                     let _ = std::fs::remove_dir_all(&staging_poll);
@@ -1616,7 +1622,7 @@ fn run_pandoc_import_confirmed(
                 toast.dismiss();
                 show_alert(
                     &win,
-                    "Import Failed",
+                    "Couldn't bring that file in",
                     "Failed to check the import process's status.",
                 );
                 let _ = std::fs::remove_dir_all(&staging_poll);
@@ -1792,7 +1798,7 @@ fn run_paste_import(
     let processed = post_process_latex_import(&body, bib_path.as_deref());
     if let Err(e) = std::fs::write(&out_path, &processed) {
         let description = format!("Couldn't write the new document:\n{e}");
-        show_alert(window, "Import Failed", &description);
+        show_alert(window, "Couldn't bring that file in", &description);
         log.record(source_label, "Paste as Document", None, false, &description);
         return;
     }
@@ -2173,7 +2179,11 @@ fn run_next_batch_worker(
             failed.set(failed.get() + 1);
             active.set(active.get() - 1);
             let _ = std::fs::remove_dir_all(&staging);
-            show_alert(&window, "Import Failed", &pandoc_install_hint());
+            show_alert(
+                &window,
+                "Couldn't bring that file in",
+                &pandoc_install_hint(),
+            );
             run_next_batch_worker(
                 window,
                 editor,
@@ -2723,7 +2733,7 @@ pub(super) fn run_pdf_import(
         Ok(_) => {
             show_alert(
                 window,
-                "Import Failed",
+                "Couldn't bring that file in",
                 "pdftotext could not extract text from this PDF.",
             );
             log.record(
@@ -2737,7 +2747,7 @@ pub(super) fn run_pdf_import(
         Err(_) => {
             show_alert(
                 window,
-                "Import Failed",
+                "Couldn't bring that file in",
                 "pdftotext was not found. Install poppler-utils to use PDF import:\n\
                  \n  zypper install poppler-tools\
                  \n  apt   install poppler-utils\

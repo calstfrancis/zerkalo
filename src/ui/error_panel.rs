@@ -155,7 +155,7 @@ pub fn parse_typst_errors(stderr: &str, project_root: &Path) -> Vec<CompileError
         let first_line = stderr
             .lines()
             .find(|l| !l.trim().is_empty())
-            .unwrap_or("Compile error")
+            .unwrap_or("The preview couldn't update")
             .trim();
         let severity = if first_line.starts_with("warning:") {
             Severity::Warning
@@ -422,7 +422,7 @@ impl ErrorPanel {
         header.set_margin_start(10);
         header.set_margin_end(10);
 
-        let header_label = Label::new(Some("Problems"));
+        let header_label = Label::new(Some("Things to look at"));
         header_label.set_halign(Align::Start);
         header_label.set_hexpand(true);
         header_label.add_css_class("heading");
@@ -476,7 +476,7 @@ impl ErrorPanel {
         search_entry.set_margin_end(8);
         search_entry.set_margin_top(4);
         search_entry.set_margin_bottom(4);
-        search_entry.set_placeholder_text(Some("Filter problems…"));
+        search_entry.set_placeholder_text(Some("Filter…"));
         search_entry.set_visible(false);
         inner.append(&search_entry);
 
@@ -936,11 +936,11 @@ impl ErrorPanel {
     }
 
     pub fn show_compile_errors(&self, errors: Vec<CompileError>) {
-        self.show_errors_inner(errors, "Problems");
+        self.show_errors_inner(errors, "Things to look at");
     }
 
     pub fn show_errors(&self, errors: Vec<CompileError>) {
-        self.show_errors_inner(errors, "Problems");
+        self.show_errors_inner(errors, "Things to look at");
     }
 
     fn show_errors_inner(&self, errors: Vec<CompileError>, section: &str) {
@@ -976,10 +976,10 @@ impl ErrorPanel {
         let warn_count = count - err_count;
 
         let breakdown = match (err_count, warn_count) {
-            (e, 0) => format!("{e} problem{}", if e == 1 { "" } else { "s" }),
+            (e, 0) => format!("{e} thing{} to look at", if e == 1 { "" } else { "s" }),
             (0, w) => format!("{w} note{}", if w == 1 { "" } else { "s" }),
             (e, w) => format!(
-                "{e} problem{}, {w} note{}",
+                "{e} thing{} to look at, {w} note{}",
                 if e == 1 { "" } else { "s" },
                 if w == 1 { "" } else { "s" }
             ),
@@ -987,7 +987,7 @@ impl ErrorPanel {
         self.header_label.set_label(match (err_count, warn_count) {
             (_, 0) => section,
             (0, _) => "Notes",
-            _ => "Problems and notes",
+            _ => "Things to look at, and notes",
         });
         self.first_hint_label.set_visible(err_count > 1);
         let many = count > 8;
@@ -1295,7 +1295,7 @@ impl ErrorPanel {
         row_box.set_margin_end(10);
 
         let (icon_name, icon_class, icon_desc) = match err.severity {
-            Severity::Error => ("dialog-error-symbolic", "error", "Problem"),
+            Severity::Error => ("dialog-error-symbolic", "warning", "Thing to look at"),
             Severity::Warning => ("dialog-warning-symbolic", "warning", "Note"),
         };
         let icon_lbl = Image::from_icon_name(icon_name);

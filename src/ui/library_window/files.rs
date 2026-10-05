@@ -269,7 +269,7 @@ impl LibraryWindow {
 }
 
 pub(super) fn show_export_error(parent: &adw::Window, msg: &str) {
-    let dlg = adw::MessageDialog::new(Some(parent), Some("Export Failed"), Some(msg));
+    let dlg = adw::MessageDialog::new(Some(parent), Some("Couldn't make the export"), Some(msg));
     dlg.add_response("ok", "OK");
     dlg.present();
 }

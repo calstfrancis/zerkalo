@@ -1185,8 +1185,8 @@ impl AppWindow {
                     );
                     // Whichever is chosen, the text on disk is kept as a saved version first.
                     crate::ui::snapshot_dialog::save_snapshot(&root_for_recovery, &path, &on_disk);
-                    dlg.add_response("discard", "Discard");
-                    dlg.add_response("restore", "Restore");
+                    dlg.add_response("discard", "Don't restore");
+                    dlg.add_response("restore", "Restore it");
                     dlg.set_response_appearance("restore", adw::ResponseAppearance::Suggested);
                     dlg.set_default_response(Some("restore"));
                     let ep_c = ep.clone();
@@ -1408,7 +1408,7 @@ impl AppWindow {
                                 .count();
                             let paused = err_count.max(1);
                             pill.set_text(&format!(
-                                "Preview paused \u{2014} {paused} problem{}",
+                                "Preview paused \u{2014} {paused} thing{} to look at",
                                 if paused == 1 { "" } else { "s" }
                             ));
                             pill.set_visible(true);
@@ -3014,7 +3014,7 @@ impl AppWindow {
                             .map_err(|e| {
                                 tracing::warn!("PDF export didn't compile: {e}");
                                 "Couldn't export — Zerkalo couldn't finish building the \
-                                 document. If Problems lists anything, fix that first."
+                                 document. If \"Things to look at\" lists anything, start there."
                                     .to_string()
                             })
                             .and_then(|bytes| {
@@ -3201,20 +3201,22 @@ impl AppWindow {
                         })
                         .collect();
                     let body = format!(
-                        "The following file{} {} unsaved changes:\n\n{}",
-                        if names.len() == 1 { "" } else { "s" },
-                        if names.len() == 1 { "has" } else { "have" },
+                        "{} changes since the last save:\n\n{}\n\nIf you close without saving, \
+                         Zerkalo still keeps what you were writing as a saved version in Recover\u{2026}.",
+                        if names.len() == 1 { "This file has" } else { "These files have" },
                         names.join("\n"),
                     );
+                    let to_keep = unsaved.clone();
+                    let root_to_keep = project_root_for_close.clone();
 
                     let dlg = adw::MessageDialog::new(
                         Some(&win),
-                        Some("Save before closing?"),
+                        Some("Save your changes before closing?"),
                         Some(&body),
                     );
-                    dlg.add_response("cancel", "Cancel");
-                    dlg.add_response("discard", "Discard");
-                    dlg.add_response("save", "Save All");
+                    dlg.add_response("cancel", "Keep editing");
+                    dlg.add_response("discard", "Close without saving");
+                    dlg.add_response("save", "Save and close");
                     dlg.set_response_appearance("discard", adw::ResponseAppearance::Destructive);
                     dlg.set_response_appearance("save", adw::ResponseAppearance::Suggested);
                     dlg.set_default_response(Some("save"));
@@ -3238,12 +3240,19 @@ impl AppWindow {
                                         .join("\n");
                                     show_alert(
                                         &win2,
-                                        "Couldn't save everything",
-                                        &format!("The window was kept open because these files failed to save:\n\n{names}"),
+                                        "Some files couldn't be saved",
+                                        &format!("Zerkalo kept the window open so nothing is lost. These files didn't save:\n\n{names}"),
                                     );
                                 }
                             }
                             "discard" => {
+                                for (p, text) in &to_keep {
+                                    crate::ui::snapshot_dialog::save_snapshot(
+                                        &root_to_keep,
+                                        p,
+                                        text,
+                                    );
+                                }
                                 *fc.borrow_mut() = true;
                                 win2.close();
                             }
@@ -3826,7 +3835,7 @@ fn build_hamburger_menu_items() -> HamburgerItems {
         // long before anything in the menu pointed at it.
         menu_what_things_do_item: make_menu_item("What Things Do", Some(&d(&kb.help_overlay))),
         menu_take_tour_item: make_menu_item("Take the Tour", None),
-        menu_writing_stats_item: make_menu_item("Writing Stats", None),
+        menu_writing_stats_item: make_menu_item("Your Writing", None),
         menu_about_item: make_menu_item("About Zerkalo", None),
         menu_whats_new_item: make_menu_item("What's New", None),
         menu_import_pdf_item: make_menu_item("Import PDF File…", None),
@@ -3916,9 +3925,9 @@ fn restore_snapshot_with_confirm(
     let path = path.to_path_buf();
     super::confirm::confirm_destructive(
         Some(window.upcast_ref()),
-        "Restore this snapshot?",
-        "You have unsaved changes in this document. Restoring the snapshot will discard them.",
-        "Restore",
+        "Put this version in the editor?",
+        "The text you haven't saved yet will be replaced. Ctrl+Z brings it back.",
+        "Put it in the editor",
         move || ep.set_content(&path, &text),
     );
 }
@@ -4440,7 +4449,7 @@ fn print_from_preview(
     }
 
     let Some(request) = crate::ui::print_sheet::request_for(preview) else {
-        toast_overlay.add_toast(adw::Toast::new("Nothing to print — no root file detected."));
+        toast_overlay.add_toast(adw::Toast::new("Zerkalo isn't sure which file is your document. Mark one with the star (★) in the file list, then try again."));
         return;
     };
 

@@ -85,6 +85,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.46.0" date="2026-10-05">
+      <description>
+        <p>0.46.0 "Gentle Glass" — a calmer way of talking. When something doesn't go through, Zerkalo now starts with what is safe, names the cause in plain words and keeps technical text under Details. Closing and deleting use buttons that say what they do, and closing without saving still keeps a saved version in Recover. "Problems" is now "Things to look at", jargon such as LSP and root file is gone from the screen, settings explain themselves, and Your Writing says words are added or trimmed with no streak.</p>
+      </description>
+    </release>
     <release version="0.45.0" date="2026-10-04">
       <description>
         <p>0.45.0 "Recovering Glass" — one place to get anything back. ☰ → Recover… asks what you want back and says in plain words how safe your work is. Earlier versions saved on this computer and backed up online appear in one timeline with the changes highlighted, and you can search every earlier version for words you remember. Bringing something back saves a copy beside the original instead of overwriting; replacing the current text is a separate, confirmed choice that keeps it first. The saved copies made before replacing this computer's files with GitHub's are listed too, with no command line. The crash-recovery question now says how many words it would bring back.</p>

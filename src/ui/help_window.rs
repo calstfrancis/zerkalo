@@ -23,7 +23,7 @@ pub(crate) enum Block<'a> {
 fn overview_blocks() -> Vec<Block<'static>> {
     vec![
         Block::H1("Zerkalo — Typst Editor"),
-        Block::Body("Zerkalo is a contemplative Typst editor with live preview, multi-file support, LSP completions, and git sync. No external Typst binary required — compilation is built in."),
+        Block::Body("Zerkalo is a quiet place to write. You type, a live preview shows the finished pages beside you, and your work is kept safe — saved as you go, backed up online if you like, and always recoverable from ☰ → Recover…. Nothing else needs installing."),
         Block::Gap,
         Block::H2("Getting started"),
         Block::Body("Zerkalo keeps your documents in your work folder (~/Documents/Zerkalo by default). Open ones sit in the tab bar above the editor, and the Library button beside the sidebar toggle (or Ctrl+L) shows all of them."),
@@ -39,7 +39,7 @@ fn overview_blocks() -> Vec<Block<'static>> {
         Block::Body("Once a template's settings are how you want them, press the save button beside \"Your Templates\" in that dialog to keep them under a name. Saved templates sit under the built-in presets and start a document exactly the way the last one started — the title, date, abstract and keywords are left out, since those belong to a single document rather than to a template."),
         Block::Gap,
         Block::H2("Layout"),
-        Block::Code("Left sidebar   Document outline, symbols, files, refs, history\nEditor         Tab bar (drag to reorder, right-click for more), syntax-highlighted Typst editor\nFind bar       Persistent search/replace at editor bottom\nPreview        Live rendered output — use +/− to zoom\nProblems       What went wrong, in plain language"),
+        Block::Code("Left sidebar   Document outline, symbols, files, refs, history\nEditor         Tab bar (drag to reorder, right-click for more), syntax-highlighted Typst editor\nFind bar       Persistent search/replace at editor bottom\nPreview        Live rendered output — use +/− to zoom\nThings to look at       What needs attention, in plain language"),
         Block::Gap,
         Block::H2("Backing up & working on more than one computer"),
         Block::Body("Autosave (the \"autosave\" word in the status bar, bold when on) saves your document a few seconds after you stop typing, and whenever you switch to another window or tab, compile, export or quit. Ctrl+S still saves too, and is what adds an entry to Version History."),
@@ -220,8 +220,8 @@ fn cheatsheet_blocks() -> Vec<Block<'static>> {
         Block::H2("Common Set Rules (Preamble)"),
         Block::Code("#set text(font: \"Times New Roman\", size: 12pt, lang: \"en\")\n#set par(justify: true, first-line-indent: 0.5in,\n         leading: 1em)\n#set page(paper: \"us-letter\", margin: 1in,\n          numbering: \"1\", number-align: top + right)\n#set heading(numbering: \"1.1\")\n\n// Double-spacing:\n#set par(leading: 24pt)"),
         Block::Gap,
-        Block::H2("Git Sync"),
-        Block::Code("Ctrl+Shift+S   Commit & push all changes"),
+        Block::H2("Backing up"),
+        Block::Code("Ctrl+Shift+S   Save a version and back it up online"),
     ]
 }
 
@@ -276,7 +276,7 @@ fn shortcuts_blocks() -> Vec<Block<'static>> {
         Block::Gap,
         Block::H2("Git & Window"),
         Block::CodeOwned(format!(
-            "{git_sync:<20}Commit & push (git sync)\n{shortcuts_help:<20}Show keyboard shortcuts\nCtrl+R              Refresh file tree\nF6                  Jump to the project files\n{quit:<20}Quit\nCtrl+?              Open this help window\nSidebar button      Toggle left sidebar\nInsert button       Toggle insert snippets panel\nPop-out button      Open preview in a separate window"
+            "{git_sync:<20}Save a version and back up\n{shortcuts_help:<20}Show keyboard shortcuts\nCtrl+R              Refresh file tree\nF6                  Jump to the project files\n{quit:<20}Quit\nCtrl+?              Open this help window\nSidebar button      Toggle left sidebar\nInsert button       Toggle insert snippets panel\nPop-out button      Open preview in a separate window"
         )),
     ]
 }
@@ -301,13 +301,13 @@ fn faq_blocks() -> Vec<Block<'static>> {
         Block::Body("They only appear while the \"project\" toggle beside the document title is on — and stay hidden if you dismissed them for this project with the ✕. Click \"project\" to bring them back. For a single-file document in the flat work folder there is no root to choose, which is why they start closed."),
         Block::Gap,
         Block::H2("Why is the preview blank?"),
-        Block::Body("Zerkalo has a built-in Typst compiler — no external binary is needed. If the preview looks dimmed with a \"Preview paused\" note, the document has a problem: click the problem count at the bottom to open the Problems panel, which shows the file, line number, and a plain-English explanation, with the exact spot underlined in the quoted line. Press F8 (Shift+F8 for back) to step through problems without opening the panel; the ⋯ menu on each problem can copy the details or search the Typst forum. Switch on \"Show technical details\" in that panel to see Typst's exact wording. If the same problem is still there after a couple of minutes, a \"Still stuck?\" section appears: it shows what changed since the document last worked, can put it back the way it was (Ctrl+Z undoes that), and can copy a help request to paste into an email or the Typst forum. If Zerkalo can't save a file (the disk is full, the folder is read-only or has moved), a bar above the editor says which file and why, and stays until it works: your changes are still in the window, and \"Try again\" or \"Save a copy elsewhere…\" gets them safe."),
+        Block::Body("Zerkalo has a built-in Typst compiler — no external binary is needed. If the preview looks dimmed with a \"Preview paused\" note, the document has something to look at: click the “things to look at” count at the bottom to open that panel, which shows the file, line number, and a plain-English explanation, with the exact spot underlined in the quoted line. Press F8 (Shift+F8 for back) to step through problems without opening the panel; the ⋯ menu on each problem can copy the details or search the Typst forum. Switch on \"Show technical details\" in that panel to see Typst's exact wording. If the same problem is still there after a couple of minutes, a \"Still stuck?\" section appears: it shows what changed since the document last worked, can put it back the way it was (Ctrl+Z undoes that), and can copy a help request to paste into an email or the Typst forum. If Zerkalo can't save a file (the disk is full, the folder is read-only or has moved), a bar above the editor says which file and why, and stays until it works: your changes are still in the window, and \"Try again\" or \"Save a copy elsewhere…\" gets them safe."),
         Block::Gap,
         Block::H2("Changing the style gives a compile error"),
         Block::Body("If you see 'expected string or function' after changing a style, your document may have a conflicting `#show heading` rule outside the template block. Fix it by opening 'Change Document Style' (sidebar button or ≡ → Document Tools) and re-applying your style. That rewrites the formatting section cleanly."),
         Block::Gap,
         Block::H2("The style dropdown doesn't seem to do anything"),
-        Block::Body("For template documents (created with 'New from Template' or imported via File → Import), styles are applied inside the template block. If the heading appearance doesn't change, open the Problems panel — a problem is likely preventing the preview from updating. The button label always shows just the style name; it no longer includes the filename."),
+        Block::Body("For template documents (created with 'New from Template' or imported via File → Import), styles are applied inside the template block. If the heading appearance doesn't change, open the “Things to look at” panel — a problem is likely preventing the preview from updating. The button label always shows just the style name; it no longer includes the filename."),
         Block::Gap,
         Block::H2("Table of Contents / abstract / keywords not appearing"),
         Block::Body("Use 'Change Document Style' (sidebar button or ≡ → Document Tools → Change Document Style…). Switch to the Sections tab and toggle Table of Contents, Abstract, or Keywords on. Click 'Apply to Current' — Zerkalo will insert or remove those sections in the document body."),
@@ -318,7 +318,7 @@ fn faq_blocks() -> Vec<Block<'static>> {
         Block::H2("Imported LaTeX / DOCX file has formatting problems"),
         Block::Body("After import, use 'Change Document Style' to set the correct style, paper size, and font for your document. The import process preserves the text content and moves all formatting rules into the template block, which Zerkalo controls."),
         Block::Gap,
-        Block::H2("LSP autocomplete is not working"),
+        Block::H2("Suggestions while typing aren't appearing"),
         Block::Body("tinymist is bundled at /usr/lib/zerkalo/tinymist when installed via the .deb or .rpm package — no extra step needed. For source builds, install it manually:"),
         Block::Code("cargo install tinymist"),
         Block::Gap,

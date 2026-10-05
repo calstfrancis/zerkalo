@@ -34,12 +34,14 @@ pub(super) fn set_sync_badge(badge: &Label, state: SyncBadge) {
         SyncBadge::Clear => badge.set_visible(false),
         SyncBadge::Pending => {
             badge.add_css_class("warning");
-            badge.set_tooltip_text(Some("Changes waiting to be backed up"));
+            badge.set_tooltip_text(Some("Changes here that aren't backed up online yet"));
             badge.set_visible(true);
         }
         SyncBadge::Failed => {
-            badge.add_css_class("error");
-            badge.set_tooltip_text(Some("Last backup attempt failed"));
+            badge.add_css_class("warning");
+            badge.set_tooltip_text(Some(
+                "Not backed up online yet \u{2014} your work is safe on this computer",
+            ));
             badge.set_visible(true);
         }
     }
@@ -499,6 +501,17 @@ pub(super) fn auto_sync_quiet(
     });
 }
 
+/// What a person reads when a backup doesn't go through: that their work is
+/// safe, the plain cause when we know it, and the raw detail last.
+fn backup_message(detail: &str) -> String {
+    let cause = crate::friendly::reason(detail)
+        .map(|c| format!(" {c}"))
+        .unwrap_or_default();
+    format!(
+        "Your work is saved on this computer.{cause} Try again in a little while.\n\nDetails for a helper:\n{detail}"
+    )
+}
+
 fn show_sync_result(
     window: &adw::ApplicationWindow,
     overlay: &adw::ToastOverlay,
@@ -509,7 +522,11 @@ fn show_sync_result(
 ) {
     if let Some(err) = result.error {
         set_sync_badge(badge, SyncBadge::Failed);
-        show_alert(window, "Backup Failed", &err);
+        show_alert(
+            window,
+            "The online backup didn't go through",
+            &backup_message(&err),
+        );
         return;
     }
     if !result.push_errors.is_empty() {
@@ -537,17 +554,25 @@ fn show_sync_result(
                 .unwrap_or("your changes")
                 .to_string();
             overlay.add_toast(adw::Toast::new(&format!("Backed up — {summary}")));
-            show_alert(window, "Some backups failed", &detail);
+            show_alert(
+                window,
+                "Some backups didn't go through",
+                &backup_message(&detail),
+            );
         } else if is_conflict {
             show_alert(
                 window,
-                "Can't save — changes conflict",
-                "The online copy has changes that don't match what's on this computer. Your \
-                 work here is safe and unchanged, but it needs someone to look at both \
-                 versions and decide what to keep before syncing again.",
+                "This computer and GitHub both have changes",
+                "Your work here is safe and unchanged. The online copy has changes that \
+                 don't match what's on this computer, so Zerkalo hasn't mixed them. Choose \
+                 which to keep in Recover\u{2026}, or ask someone to look at both versions.",
             );
         } else {
-            show_alert(window, "Backup Failed", &detail);
+            show_alert(
+                window,
+                "The online backup didn't go through",
+                &backup_message(&detail),
+            );
         }
         return;
     }

@@ -4,7 +4,7 @@
 
 diag-fallback = Zerkalo can't make sense of this part
 diag-fallback-advice = Look at the underlined spot for a typo or a missing character. Its exact words were: “{ $raw }”. The ⋯ menu can search the Typst forum for them.
-diag-empty = Something went wrong while compiling
+diag-empty = The preview couldn't update this time. Your writing is safe.
 
 diag-unknown-variable-named = Zerkalo doesn't know what “{ $name }” means
 diag-unknown-variable = Zerkalo doesn't know what that name means

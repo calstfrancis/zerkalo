@@ -26,6 +26,7 @@ mod docx_export;
 mod error;
 mod file_watcher;
 mod fonts;
+mod friendly;
 mod git_sync;
 mod github_auth;
 mod i18n;
