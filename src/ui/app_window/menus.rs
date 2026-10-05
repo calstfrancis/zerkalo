@@ -151,11 +151,7 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
                 editor_p.apply_word_count_goal(cfg.word_count_goal);
                 apply_theme(&cfg.theme);
                 editor_p.apply_style_scheme(adw::StyleManager::default().is_dark());
-                if cfg.high_contrast {
-                    win_p.add_css_class("high-contrast");
-                } else {
-                    win_p.remove_css_class("high-contrast");
-                }
+                super::super::a11y::apply_high_contrast(&win_p, cfg.high_contrast);
             });
         }
 
@@ -177,11 +173,7 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
             apply_theme(&new_cfg.theme);
             editor.apply_style_scheme(adw::StyleManager::default().is_dark());
             // High contrast CSS class on the ctx.window
-            if new_cfg.high_contrast {
-                window_for_save.add_css_class("high-contrast");
-            } else {
-                window_for_save.remove_css_class("high-contrast");
-            }
+            super::super::a11y::apply_high_contrast(&window_for_save, new_cfg.high_contrast);
             let old_bib = cfg_rc.borrow().bib_path.clone();
             if old_bib != new_cfg.bib_path {
                 bib_for_save.settings_changed(new_cfg.bib_path.clone());

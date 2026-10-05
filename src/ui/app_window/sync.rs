@@ -900,6 +900,9 @@ pub(super) fn show_backup_remote_dialog(
                     rm_btn.add_css_class("destructive-action");
                     rm_btn.set_valign(Align::Center);
                     rm_btn.set_tooltip_text(Some("Remove this backup location"));
+                    rm_btn.update_property(&[gtk4::accessible::Property::Label(
+                        "Remove this backup location",
+                    )]);
                     let root2 = root.clone();
                     let tracked2 = tracked.clone();
                     let group2 = group.clone();
@@ -956,6 +959,9 @@ pub(super) fn show_backup_remote_dialog(
     pick_btn.set_valign(Align::Center);
     pick_btn.add_css_class("flat");
     pick_btn.set_tooltip_text(Some("Browse for a local folder"));
+    pick_btn.update_property(&[gtk4::accessible::Property::Label(
+        "Browse for a local folder",
+    )]);
     {
         let row_c = url_row.clone();
         let win_c = window.clone();

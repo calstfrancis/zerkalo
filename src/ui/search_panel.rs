@@ -65,6 +65,8 @@ impl SearchPanel {
 
         let close_btn = Button::from_icon_name("window-close-symbolic");
         close_btn.add_css_class("flat");
+        close_btn.set_tooltip_text(Some("Close search"));
+        close_btn.update_property(&[gtk4::accessible::Property::Label("Close search")]);
 
         bar.append(&replace_toggle);
         bar.append(&entry);

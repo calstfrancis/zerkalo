@@ -550,6 +550,7 @@ impl CommentsPanel {
             let delete_btn = Button::from_icon_name("user-trash-symbolic");
             delete_btn.add_css_class("flat");
             delete_btn.set_tooltip_text(Some("Delete this comment"));
+            delete_btn.update_property(&[gtk4::accessible::Property::Label("Delete this comment")]);
             {
                 let panel = self.clone();
                 let id = comment.id;

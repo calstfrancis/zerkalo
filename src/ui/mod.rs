@@ -1,3 +1,4 @@
+pub mod a11y;
 pub mod app_window;
 pub mod async_poll;
 pub mod autopair;

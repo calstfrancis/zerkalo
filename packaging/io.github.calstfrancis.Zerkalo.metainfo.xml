@@ -85,6 +85,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.48.0" date="2026-10-05">
+      <description>
+        <p>0.48.0 "Open Glass" — easier to see and to hear. Ctrl+= and Ctrl+- make the writing bigger or smaller and Ctrl+0 resets it. Zerkalo follows the system's high-contrast and reduced-animation settings. Every icon-only button now has a name a screen reader can read, and comparisons use strikethrough and underline as well as colour.</p>
+      </description>
+    </release>
     <release version="0.47.0" date="2026-10-05">
       <description>
         <p>0.47.0 "Settled Glass" — a steady sense that your writing is safe. The status bar now keeps one quiet line, such as "Saved · backed up 12 min ago". A backup that doesn't go through shows a calm strip above the editor (your work is saved here; Details available) instead of a pop-up, and clears itself when a backup works. Get Latest and Replace say nothing was changed when they stop. The preview's progress bar and pulsing button appear only for updates that take over a second, so typing doesn't flicker.</p>

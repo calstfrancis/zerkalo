@@ -510,8 +510,13 @@ impl AppWindow {
         };
 
         apply_theme(&config.theme);
-        if config.high_contrast {
-            window.add_css_class("high-contrast");
+        super::a11y::apply_high_contrast(&window, config.high_contrast);
+        {
+            // Follow the system's own high-contrast preference as it changes.
+            let (w, cfg) = (window.clone(), current_config.clone());
+            adw::StyleManager::default().connect_high_contrast_notify(move |_| {
+                super::a11y::apply_high_contrast(&w, cfg.borrow().high_contrast);
+            });
         }
         let editor_for_dark = editor_pane.clone();
         let window_for_dark = window.clone();
@@ -780,6 +785,7 @@ impl AppWindow {
             let history_btn = Button::from_icon_name("document-open-recent-symbolic");
             history_btn.add_css_class("flat");
             history_btn.set_tooltip_text(Some("Import History"));
+            history_btn.update_property(&[gtk4::accessible::Property::Label("Import History")]);
             header_dlg.pack_end(&history_btn);
             {
                 let win_c = window_for_import.clone();
@@ -1350,7 +1356,9 @@ impl AppWindow {
                 if epoch.get() != mine {
                     return;
                 }
-                btn.add_css_class("compiling-pulse");
+                if !super::a11y::reduced_motion() {
+                    btn.add_css_class("compiling-pulse");
+                }
                 rev_c.set_reveal_child(true);
                 if let Some(id) = slot_c.borrow_mut().take() {
                     id.remove();
@@ -2057,9 +2065,11 @@ impl AppWindow {
             let po_zoom_out = Button::from_icon_name("zoom-out-symbolic");
             po_zoom_out.add_css_class("flat");
             po_zoom_out.set_tooltip_text(Some("Zoom out"));
+            po_zoom_out.update_property(&[gtk4::accessible::Property::Label("Zoom out")]);
             let po_zoom_in = Button::from_icon_name("zoom-in-symbolic");
             po_zoom_in.add_css_class("flat");
             po_zoom_in.set_tooltip_text(Some("Zoom in"));
+            po_zoom_in.update_property(&[gtk4::accessible::Property::Label("Zoom in")]);
             let po_zoom_box = GtkBox::new(Orientation::Horizontal, 0);
             po_zoom_box.add_css_class("linked");
             po_zoom_box.append(&po_zoom_out);
@@ -2074,12 +2084,14 @@ impl AppWindow {
             let recompile_btn = Button::from_icon_name("media-playback-start-symbolic");
             recompile_btn.add_css_class("flat");
             recompile_btn.set_tooltip_text(Some("Recompile"));
+            recompile_btn.update_property(&[gtk4::accessible::Property::Label("Recompile")]);
             let sec_clone = secondary.clone();
             recompile_btn.connect_clicked(move |_| sec_clone.trigger_compile());
 
             let print_btn = Button::from_icon_name("printer-symbolic");
             print_btn.add_css_class("flat");
             print_btn.set_tooltip_text(Some("Print (Ctrl+P)"));
+            print_btn.update_property(&[gtk4::accessible::Property::Label("Print (Ctrl+P)")]);
             // Prints via the *main* preview pane, not `secondary`: the popout is
             // constructed with only a root file and output dir, so it carries
             // neither the unsaved buffer contents nor the CV elements path.
@@ -2137,6 +2149,7 @@ impl AppWindow {
             let maximize_btn = Button::from_icon_name("window-maximize-symbolic");
             maximize_btn.add_css_class("flat");
             maximize_btn.set_tooltip_text(Some("Maximize window"));
+            maximize_btn.update_property(&[gtk4::accessible::Property::Label("Maximize window")]);
             let win_for_max = win_po.clone();
             maximize_btn.connect_clicked(move |_| win_for_max.maximize());
             header_po.pack_end(&maximize_btn);
@@ -2668,6 +2681,19 @@ impl AppWindow {
                         "git_sync" => sync_btn_for_pal.emit_clicked(),
                         "get_latest" => targets_for_pal.get_latest.emit_clicked(),
                         "recover" => targets_for_pal.recover.emit_clicked(),
+                        "text_bigger" | "text_smaller" | "text_reset" => {
+                            let size = {
+                                let mut cfg = config_for_pal.borrow_mut();
+                                cfg.editor_font_size = match id {
+                                    "text_bigger" => (cfg.editor_font_size + 1).min(32),
+                                    "text_smaller" => cfg.editor_font_size.saturating_sub(1).max(9),
+                                    _ => 13,
+                                };
+                                let _ = cfg.save();
+                                cfg.editor_font_size
+                            };
+                            editor_for_pal.apply_font_size(size);
+                        }
                         "focus_mode" => editor_for_pal.focus_button_for_header().emit_clicked(),
                         "show_in_preview" => editor_for_pal.show_cursor_in_preview(),
                         "help" => {
@@ -2751,6 +2777,9 @@ impl AppWindow {
         let error_panel_for_key = self.error_panel.clone();
         let menu_import_item_for_key = self.menu_import_item.clone();
         let settings_item_for_key = self.menu_actions.settings.clone();
+        let editor_for_zoom = self.editor_pane.clone();
+        let config_for_zoom = self.config.clone();
+        let toast_for_zoom = self.toast_overlay.clone();
         let window_for_paste_key = self.window.clone();
         let editor_for_paste_key = self.editor_pane.clone();
         let work_dir_for_paste_key = self.project_root.clone();
@@ -2836,6 +2865,35 @@ impl AppWindow {
                     && error_panel_for_key.go_to_problem(if shift { -1 } else { 1 })
                 {
                     return glib::Propagation::Stop;
+                }
+            }
+            // Ctrl+= / Ctrl+- / Ctrl+0 — make the writing bigger or smaller, and
+            // remember it. Always available, for tired eyes and small screens.
+            {
+                use gtk4::gdk::Key;
+                if ctrl && !alt {
+                    let current = config_for_zoom.borrow().editor_font_size;
+                    let next = if key == Key::equal || key == Key::plus || key == Key::KP_Add {
+                        Some((current + 1).min(32))
+                    } else if key == Key::minus || key == Key::KP_Subtract {
+                        Some(current.saturating_sub(1).max(9))
+                    } else if key == Key::_0 || key == Key::KP_0 {
+                        Some(13)
+                    } else {
+                        None
+                    };
+                    if let Some(size) = next {
+                        {
+                            let mut cfg = config_for_zoom.borrow_mut();
+                            cfg.editor_font_size = size;
+                            let _ = cfg.save();
+                        }
+                        editor_for_zoom.apply_font_size(size);
+                        let t = adw::Toast::new(&format!("Text size {size}"));
+                        t.set_timeout(1);
+                        toast_for_zoom.add_toast(t);
+                        return glib::Propagation::Stop;
+                    }
                 }
             }
             // Ctrl+, — Settings, the desktop-wide convention.

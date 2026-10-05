@@ -1,13 +1,15 @@
-<!-- zerkalo-release: 0.47.0 -->
+<!-- zerkalo-release: 0.48.0 -->
 ### What's new
 
-A steady sense that your writing is safe.
+Easier to see and to hear.
 
-**A quiet "is my work safe?" line in the status bar.** It says "Saving as you write", "Saved on this computer", or "Saved · backed up 12 min ago", and tells the truth when something is waiting ("Not saved yet", "last backed up…").
+**Bigger and smaller text from the keyboard.** Ctrl+= and Ctrl+- resize the writing, Ctrl+0 resets it, and Zerkalo remembers.
 
-**Backup trouble no longer stops you with a pop-up.** A calm strip above the editor says your work is saved on this computer and the online backup didn't go through, with a Details button; it disappears by itself when a backup works.
+**Follows your system.** High contrast and reduced animation set in your desktop's Accessibility settings are honoured automatically.
 
-**No more flicker while you type.** The progress bar and pulsing button show only for updates that take over a second.
+**Every icon-only button has a name a screen reader can read**, and the build now fails if a new one doesn't.
+
+**Comparisons don't rely on colour alone:** removed text is struck through and added text underlined, as well as coloured.
 
 ---
 

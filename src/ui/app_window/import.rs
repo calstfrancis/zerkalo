@@ -148,6 +148,7 @@ fn show_import_history_dialog_filtered(
     let clear_btn = Button::from_icon_name("user-trash-symbolic");
     clear_btn.add_css_class("flat");
     clear_btn.set_tooltip_text(Some("Clear History"));
+    clear_btn.update_property(&[gtk4::accessible::Property::Label("Clear History")]);
     header.pack_end(&clear_btn);
     {
         let win_c = window.clone();
@@ -226,6 +227,9 @@ fn show_import_history_dialog_filtered(
                 reveal_btn.add_css_class("flat");
                 reveal_btn.set_valign(Align::Center);
                 reveal_btn.set_tooltip_text(Some("Show containing folder"));
+                reveal_btn.update_property(&[gtk4::accessible::Property::Label(
+                    "Show containing folder",
+                )]);
                 let output_dir = output.parent().map(|p| p.to_path_buf());
                 reveal_btn.connect_clicked(move |_| {
                     if let Some(dir) = &output_dir {
@@ -241,6 +245,7 @@ fn show_import_history_dialog_filtered(
             retry_btn.add_css_class("flat");
             retry_btn.set_valign(Align::Center);
             retry_btn.set_tooltip_text(Some("Retry"));
+            retry_btn.update_property(&[gtk4::accessible::Property::Label("Retry")]);
             let win_c = window.clone();
             let ep_c = editor.clone();
             let work_dir_c = work_dir.to_path_buf();
@@ -286,6 +291,7 @@ fn show_import_history_dialog_filtered(
         delete_btn.add_css_class("flat");
         delete_btn.set_valign(Align::Center);
         delete_btn.set_tooltip_text(Some("Remove from history"));
+        delete_btn.update_property(&[gtk4::accessible::Property::Label("Remove from history")]);
         let win_c = window.clone();
         let ep_c = editor.clone();
         let work_dir_c = work_dir.to_path_buf();

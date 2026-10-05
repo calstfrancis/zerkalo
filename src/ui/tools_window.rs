@@ -299,6 +299,7 @@ fn tool_row(
     copy_btn.add_css_class("flat");
     copy_btn.set_valign(Align::Start);
     copy_btn.set_tooltip_text(Some("Copy command"));
+    copy_btn.update_property(&[gtk4::accessible::Property::Label("Copy command")]);
     {
         let hint_c = hint.clone();
         copy_btn.connect_clicked(move |btn| {

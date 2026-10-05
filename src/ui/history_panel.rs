@@ -55,9 +55,11 @@ impl HistoryPanel {
         let tag_removed = TextTag::new(Some("removed"));
         tag_removed.set_property("background", colors.removed_bg);
         tag_removed.set_property("foreground", colors.removed_fg);
+        tag_removed.set_property("strikethrough", true);
         let tag_added = TextTag::new(Some("added"));
         tag_added.set_property("background", colors.added_bg);
         tag_added.set_property("foreground", colors.added_fg);
+        tag_added.set_property("underline", gtk4::pango::Underline::Single);
         diff_buf.tag_table().add(&tag_removed);
         diff_buf.tag_table().add(&tag_added);
 

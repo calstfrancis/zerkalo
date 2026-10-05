@@ -63,6 +63,9 @@ impl PackageBrowser {
         let refresh_btn = Button::from_icon_name("view-refresh-symbolic");
         refresh_btn.add_css_class("flat");
         refresh_btn.set_tooltip_text(Some("Refresh the Typst Universe package list"));
+        refresh_btn.update_property(&[gtk4::accessible::Property::Label(
+            "Refresh the Typst Universe package list",
+        )]);
         header.append(&refresh_btn);
 
         // Furthest right on the bar, matching Comments' and Citations'
@@ -495,6 +498,9 @@ impl PackageBrowser {
                     install_btn.set_tooltip_text(Some(
                         "Download this package from Typst Universe so it's ready to use",
                     ));
+                    install_btn.update_property(&[gtk4::accessible::Property::Label(
+                        "Download this package",
+                    )]);
                     install_btn.set_valign(gtk4::Align::Center);
                     let pb_c = self.clone();
                     let ns = pkg.namespace.clone();
@@ -509,6 +515,9 @@ impl PackageBrowser {
                 insert_btn.set_tooltip_text(Some(
                     "Add this package at your cursor, so you can use what it provides in this document",
                 ));
+                insert_btn.update_property(&[gtk4::accessible::Property::Label(
+                    "Add this package at the cursor",
+                )]);
                 insert_btn.set_valign(gtk4::Align::Center);
 
                 let version = pkg.installed_version.clone().unwrap_or_default();

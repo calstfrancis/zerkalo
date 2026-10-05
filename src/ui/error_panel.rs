@@ -310,9 +310,11 @@ fn diff_buffer(text: &str) -> TextBuffer {
     let removed = TextTag::new(Some("removed"));
     removed.set_property("background", colors.removed_bg);
     removed.set_property("foreground", colors.removed_fg);
+    removed.set_property("strikethrough", true);
     let added = TextTag::new(Some("added"));
     added.set_property("background", colors.added_bg);
     added.set_property("foreground", colors.added_fg);
+    added.set_property("underline", gtk4::pango::Underline::Single);
     buf.tag_table().add(&removed);
     buf.tag_table().add(&added);
     super::diff_render::render_clean_diff(&buf, text);
@@ -673,6 +675,7 @@ impl ErrorPanel {
         log_chevron.add_css_class("flat");
         log_chevron.add_css_class("circular");
         log_chevron.set_tooltip_text(Some("Expand build log"));
+        log_chevron.update_property(&[gtk4::accessible::Property::Label("Expand build log")]);
         log_header.append(&log_chevron);
         build_log_outer.append(&log_header);
 
