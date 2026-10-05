@@ -7,7 +7,7 @@ use gtk4::{Align, Box as GtkBox, Button, Label, Orientation, ScrolledWindow, Sep
 use libadwaita as adw;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const RELEASE_NAME: &str = "Settled Glass";
+pub const RELEASE_NAME: &str = "Open Glass";
 
 pub struct WelcomeWindow {
     window: adw::Window,
@@ -208,6 +208,7 @@ impl WelcomeWindow {
             ("Ctrl+Shift+P", "Compile and preview"),
             ("Ctrl+K", "Command palette"),
             ("Ctrl+F", "Find in document"),
+            ("Ctrl+= / Ctrl+-", "Bigger / smaller text (Ctrl+0 resets)"),
             ("Ctrl+Tab", "Next open file"),
             ("Ctrl+Shift+S", "Save a version & back up"),
         ] {

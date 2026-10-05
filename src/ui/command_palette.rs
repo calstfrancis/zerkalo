@@ -340,6 +340,21 @@ pub fn default_commands() -> Vec<PaletteItem> {
             subtitle: "Save this version and send it to all backup locations (Ctrl+Shift+S)".into(),
         },
         PaletteItem {
+            id: "text_bigger".into(),
+            label: "Make Text Bigger".into(),
+            subtitle: "Enlarge the writing (Ctrl+=)".into(),
+        },
+        PaletteItem {
+            id: "text_smaller".into(),
+            label: "Make Text Smaller".into(),
+            subtitle: "Shrink the writing (Ctrl+-)".into(),
+        },
+        PaletteItem {
+            id: "text_reset".into(),
+            label: "Reset Text Size".into(),
+            subtitle: "Back to the usual size (Ctrl+0)".into(),
+        },
+        PaletteItem {
             id: "recover".into(),
             label: "Recover\u{2026}".into(),
             subtitle: "Get back an earlier version, a saved copy, a deleted document or the latest from another computer".into(),

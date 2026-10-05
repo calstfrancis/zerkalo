@@ -3,6 +3,20 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.48.0] "Open Glass" — 2026-10-05 — Easier to see and to hear
+
+### Added
+
+- **Bigger and smaller text from the keyboard.** Ctrl+= and Ctrl+- change the size of the writing, Ctrl+0 puts it back, and Zerkalo remembers. They're also in the command palette.
+- **Follows your system's accessibility settings.** If your desktop asks for high contrast or reduced animation, Zerkalo does that without anything to switch on; the preview's pulsing stops when animation is reduced.
+
+### Changed
+
+- **Every icon-only button now has a name a screen reader can read** (27 that only had a tooltip, including Close search, the package buttons and the file-list buttons), and a test fails the build if a new one is added without one.
+- **Changes in comparisons no longer rely on colour alone.** Removed text is struck through and added text is underlined in the version and history views, as well as being coloured and marked with − and +.
+
+---
+
 ## [0.47.0] "Settled Glass" — 2026-10-05 — A steady sense that your writing is safe
 
 ### Added

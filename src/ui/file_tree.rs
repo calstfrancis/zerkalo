@@ -59,16 +59,21 @@ impl FileTree {
         let new_btn = Button::from_icon_name("list-add-symbolic");
         new_btn.add_css_class("flat");
         new_btn.set_tooltip_text(Some("New file"));
+        new_btn.update_property(&[gtk4::accessible::Property::Label("New file")]);
         header_row.append(&new_btn);
 
         let new_folder_btn = Button::from_icon_name("folder-new-symbolic");
         new_folder_btn.add_css_class("flat");
         new_folder_btn.set_tooltip_text(Some("New folder"));
+        new_folder_btn.update_property(&[gtk4::accessible::Property::Label("New folder")]);
         header_row.append(&new_folder_btn);
 
         let new_chapter_btn = Button::from_icon_name("document-new-symbolic");
         new_chapter_btn.add_css_class("flat");
         new_chapter_btn.set_tooltip_text(Some("New chapter (creates file + #include in main.typ)"));
+        new_chapter_btn.update_property(&[gtk4::accessible::Property::Label(
+            "New chapter (creates file + #include in main.typ)",
+        )]);
         header_row.append(&new_chapter_btn);
 
         root_widget.append(&header_row);

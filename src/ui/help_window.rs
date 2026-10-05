@@ -55,6 +55,9 @@ fn overview_blocks() -> Vec<Block<'static>> {
         Block::Gap,
         Block::Body("Earlier versions of a document appear in one timeline, newest first: the ones saved on this computer each time you save, and the ones backed up online. Click one to see what it would bring back, with the changes highlighted. Type a few words you remember into the search box to find the versions that contain them. \"Bring back as a copy\" saves that text as a new file beside the original and opens it, so nothing is overwritten. \"Replace what's here…\" puts it into the open document instead; it asks first, keeps the current text as a saved version, and Ctrl+Z undoes it."),
         Block::Gap,
+        Block::H2("Making Zerkalo easier on the eyes"),
+        Block::Body("Ctrl+= makes the writing bigger, Ctrl+- smaller and Ctrl+0 puts it back; Zerkalo remembers. Zerkalo follows your system's own settings too: if you've asked for high contrast or reduced animation in your desktop's Accessibility settings, it does that without anything to switch on here (Settings → Editor → High contrast adds a stronger editor look on top). Every button that is only an icon has a name a screen reader can read, and changes in comparisons are shown with underline and strikethrough as well as colour."),
+        Block::Gap,
         Block::H2("Is my work safe?"),
         Block::Body("The quiet line at the left of the status bar always answers that: \"Saving as you write\", \"Saved on this computer\", or \"Saved · backed up 12 min ago\" once an online backup is set up. If a backup doesn't go through, a strip above the editor says so — your work is still saved on this computer — with a Details button, and it clears itself the next time a backup works."),
         Block::Gap,
@@ -263,7 +266,7 @@ fn shortcuts_blocks() -> Vec<Block<'static>> {
         Block::Gap,
         Block::H2("Navigation"),
         Block::CodeOwned(format!(
-            "{palette:<20}Command palette (commands + headings)\nCtrl+G              Command palette pre-filtered to headings only\nCtrl+Shift+F        Find in Files (project-wide search)"
+            "{palette:<20}Command palette (commands + headings)\nCtrl+G              Command palette pre-filtered to headings only\nCtrl+= / Ctrl+-     Bigger / smaller text (Ctrl+0 resets)\nCtrl+Shift+F        Find in Files (project-wide search)"
         )),
         Block::Gap,
         Block::H2("Autocomplete"),

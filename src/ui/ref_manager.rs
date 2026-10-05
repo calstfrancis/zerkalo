@@ -52,12 +52,18 @@ impl RefManager {
 
         let export_btn = Button::from_icon_name("document-save-symbolic");
         export_btn.set_tooltip_text(Some("Export cited-only bibliography"));
+        export_btn.update_property(&[gtk4::accessible::Property::Label(
+            "Export cited-only bibliography",
+        )]);
         export_btn.add_css_class("flat");
         export_btn.set_valign(Align::Center);
         header.append(&export_btn);
 
         let new_entry_btn = Button::from_icon_name("list-add-symbolic");
         new_entry_btn.set_tooltip_text(Some("Add new bibliography entry"));
+        new_entry_btn.update_property(&[gtk4::accessible::Property::Label(
+            "Add new bibliography entry",
+        )]);
         new_entry_btn.add_css_class("flat");
         new_entry_btn.set_valign(Align::Center);
         header.append(&new_entry_btn);
@@ -418,6 +424,7 @@ impl RefManager {
             rename_btn.add_css_class("flat");
             rename_btn.add_css_class("circular");
             rename_btn.set_tooltip_text(Some("Rename citation key"));
+            rename_btn.update_property(&[gtk4::accessible::Property::Label("Rename citation key")]);
             {
                 let key = entry.key.clone();
                 let cb = self.on_rename.clone();

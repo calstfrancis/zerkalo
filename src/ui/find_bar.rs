@@ -56,10 +56,12 @@ impl FindBar {
         let prev_btn = Button::from_icon_name("go-up-symbolic");
         prev_btn.add_css_class("flat");
         prev_btn.set_tooltip_text(Some("Previous match"));
+        prev_btn.update_property(&[gtk4::accessible::Property::Label("Previous match")]);
 
         let next_btn = Button::from_icon_name("go-down-symbolic");
         next_btn.add_css_class("flat");
         next_btn.set_tooltip_text(Some("Next match"));
+        next_btn.update_property(&[gtk4::accessible::Property::Label("Next match")]);
 
         let result_label = Label::new(Some(""));
         result_label.add_css_class("dim-label");
