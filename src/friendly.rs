@@ -76,6 +76,10 @@ mod tests {
             "no root file",
             "Invalid regex",
             "Commit & push",
+            "Could not load diff",
+            "Failed to check the import",
+            "\"Error: {e}\"",
+            "Failed to start command",
         ];
         fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
             for e in std::fs::read_dir(dir).unwrap().flatten() {

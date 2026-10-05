@@ -397,7 +397,7 @@ pub(super) fn offer_waiting_work(
             // be backed up, is brought up to date on the spot: there is nothing
             // that could disagree. Anything else is offered, never forced.
             if waiting.plain_catch_up {
-                do_pull(
+                let (r, w, o, b, t, c) = (
                     root.clone(),
                     window.clone(),
                     overlay.clone(),
@@ -405,6 +405,7 @@ pub(super) fn offer_waiting_work(
                     token.clone(),
                     current_config.clone(),
                 );
+                super::super::calm::when_calm(&window, move || do_pull(r, w, o, b, t, c));
                 return glib::ControlFlow::Break;
             }
             let n = waiting.changes;
@@ -432,7 +433,8 @@ pub(super) fn offer_waiting_work(
                     cfg_c.clone(),
                 );
             });
-            overlay.add_toast(t);
+            let overlay_c = overlay.clone();
+            super::super::calm::when_calm(&window, move || overlay_c.add_toast(t));
             glib::ControlFlow::Break
         }
         Ok(_) => glib::ControlFlow::Break,
@@ -842,7 +844,7 @@ pub(super) fn show_backup_remote_dialog(
                     lbl.add_css_class("success");
                 }
                 Err(e) => {
-                    lbl.set_label(&format!("Error: {e}"));
+                    lbl.set_label(&format!("That didn't work: {e}"));
                     lbl.remove_css_class("success");
                     lbl.add_css_class("error");
                 }
@@ -1029,7 +1031,7 @@ pub(super) fn show_backup_remote_dialog(
                     url_r.set_text("");
                     rebuild_c();
                 }
-                Err(e) => lbl_c.set_text(&format!("Error: {e}")),
+                Err(e) => lbl_c.set_text(&format!("That didn't work: {e}")),
             }
         });
     }

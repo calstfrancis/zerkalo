@@ -85,6 +85,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.49.0" date="2026-10-05">
+      <description>
+        <p>0.49.0 "Patient Glass" — one thing at a time. Writing kept from a crash, newer writing waiting online and the welcome window now take turns at start-up instead of appearing together. More messages (creating from a template, importing, renaming a citation key, showing history) say what is safe and what to do next, with technical text last. Help explains choosing a comfortable font and changing the text size.</p>
+      </description>
+    </release>
     <release version="0.48.0" date="2026-10-05">
       <description>
         <p>0.48.0 "Open Glass" — easier to see and to hear. Ctrl+= and Ctrl+- make the writing bigger or smaller and Ctrl+0 resets it. Zerkalo follows the system's high-contrast and reduced-animation settings. Every icon-only button now has a name a screen reader can read, and comparisons use strikethrough and underline as well as colour.</p>

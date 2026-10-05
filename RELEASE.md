@@ -1,15 +1,13 @@
-<!-- zerkalo-release: 0.48.0 -->
+<!-- zerkalo-release: 0.49.0 -->
 ### What's new
 
-Easier to see and to hear.
+One thing at a time.
 
-**Bigger and smaller text from the keyboard.** Ctrl+= and Ctrl+- resize the writing, Ctrl+0 resets it, and Zerkalo remembers.
+**Start-up no longer piles up.** Writing kept from a crash, newer writing waiting online and the welcome window now take turns.
 
-**Follows your system.** High contrast and reduced animation set in your desktop's Accessibility settings are honoured automatically.
+**More messages say what is safe and what to do next** — creating from a template, importing, renaming a citation key, showing history — with the technical text last.
 
-**Every icon-only button has a name a screen reader can read**, and the build now fails if a new one doesn't.
-
-**Comparisons don't rely on colour alone:** removed text is struck through and added text underlined, as well as coloured.
+**Help explains choosing a comfortable font** and changing the text size.
 
 ---
 

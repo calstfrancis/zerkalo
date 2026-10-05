@@ -414,7 +414,7 @@ pub(super) fn wire_citations(ctx: &CitationCtx) -> Rc<RefCell<Option<PathBuf>>> 
                         Some(&win2),
                         Some("Couldn't rename the key"),
                         Some(&format!(
-                            "Nothing was changed. Could not update the files: {e}"
+                            "Nothing was changed. Zerkalo couldn't update the files ({e}), so the key stays as it was."
                         )),
                     );
                     err_dlg.add_response("ok", "OK");

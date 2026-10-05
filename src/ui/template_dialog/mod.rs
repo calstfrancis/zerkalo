@@ -2521,7 +2521,11 @@ fn wire_action_buttons(
                     let alert = adw::MessageDialog::new(
                         Some(&win_c),
                         Some("Couldn't create the document"),
-                        Some(&format!("{} could not be written: {e}", path.display())),
+                        Some(&format!(
+                            "Nothing was created, and this window is still open so you can try again. Zerkalo couldn't write {} because {}.\n\nDetails: {e}",
+                            path.display(),
+                            crate::friendly::io_reason(&e)
+                        )),
                     );
                     alert.add_response("ok", "OK");
                     alert.set_default_response(Some("ok"));
