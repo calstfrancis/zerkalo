@@ -1,15 +1,13 @@
-<!-- zerkalo-release: 0.46.0 -->
+<!-- zerkalo-release: 0.47.0 -->
 ### What's new
 
-A calmer way of talking.
+A steady sense that your writing is safe.
 
-**Trouble starts with reassurance.** If a backup doesn't go through, Zerkalo now opens with "Your work is saved on this computer", names the likely cause in plain words, and keeps the technical text under a Details line. The backup badge is amber, not red.
+**A quiet "is my work safe?" line in the status bar.** It says "Saving as you write", "Saved on this computer", or "Saved · backed up 12 min ago", and tells the truth when something is waiting ("Not saved yet", "last backed up…").
 
-**Buttons say what they do.** Closing offers *Save and close*, *Close without saving* and *Keep editing* — and closing without saving still keeps what you were writing as a saved version in Recover…. Deleting says "Delete for good?".
+**Backup trouble no longer stops you with a pop-up.** A calm strip above the editor says your work is saved on this computer and the online backup didn't go through, with a Details button; it disappears by itself when a backup works.
 
-**"Problems" is now "Things to look at"**, and less jargon throughout: "LSP" is "Suggestions", "root file" is "main document", settings explain themselves. Import and export messages tell you your original file is untouched.
-
-**Your Writing** says words are "added" or "trimmed" (never a negative number) and no longer counts a streak.
+**No more flicker while you type.** The progress bar and pulsing button show only for updates that take over a second.
 
 ---
 

@@ -182,7 +182,11 @@ fn show_pull_result(
                  Settings → Developer settings → Personal access tokens, and create one there.",
             );
         } else {
-            show_alert(window, "Couldn't get the latest", &err);
+            show_alert(
+                window,
+                "Couldn't get the latest",
+                &nothing_changed_message(&err),
+            );
         }
         return;
     }
@@ -325,7 +329,11 @@ fn do_force_pull(
                          below to reconnect.",
                     );
                 } else {
-                    show_alert(&window, "Couldn't replace with GitHub's copy", &err);
+                    show_alert(
+                        &window,
+                        "Couldn't replace with GitHub's copy",
+                        &nothing_changed_message(&err),
+                    );
                 }
             } else if result.nothing_online {
                 overlay.add_toast(adw::Toast::new(
@@ -512,6 +520,70 @@ fn backup_message(detail: &str) -> String {
     )
 }
 
+/// For a pull that stopped: nothing here was touched, the cause if known, and
+/// the raw text last.
+fn nothing_changed_message(detail: &str) -> String {
+    let cause = crate::friendly::reason(detail)
+        .map(|c| format!(" {c}"))
+        .unwrap_or_default();
+    format!(
+        "Nothing on this computer was changed.{cause} You can try again in a little while.\n\nDetails for a helper:\n{detail}"
+    )
+}
+
+thread_local! {
+    /// The strip above the editor that says a backup didn't go through. It
+    /// replaces a pop-up box: nothing stops the person's writing, and it goes
+    /// away by itself the next time a backup works.
+    static BACKUP_BANNER: RefCell<Option<(adw::Banner, Rc<RefCell<String>>)>> =
+        const { RefCell::new(None) };
+}
+
+pub(super) fn register_backup_banner(banner: &adw::Banner, window: &adw::ApplicationWindow) {
+    let detail: Rc<RefCell<String>> = Rc::new(RefCell::new(String::new()));
+    banner.set_button_label(Some("Details"));
+    let (d, w) = (detail.clone(), window.clone());
+    banner.connect_button_clicked(move |_| {
+        show_alert(
+            &w,
+            "The online backup didn't go through",
+            &backup_message(&d.borrow()),
+        );
+    });
+    BACKUP_BANNER.with(|b| *b.borrow_mut() = Some((banner.clone(), detail)));
+}
+
+fn show_backup_trouble(window: &adw::ApplicationWindow, detail: &str) {
+    let shown = BACKUP_BANNER.with(|b| {
+        if let Some((banner, slot)) = b.borrow().as_ref() {
+            *slot.borrow_mut() = detail.to_string();
+            let cause = crate::friendly::reason(detail).unwrap_or("");
+            banner.set_title(&format!(
+                "Your work is saved on this computer. The online backup didn't go through. {cause}"
+            ));
+            banner.set_revealed(true);
+            true
+        } else {
+            false
+        }
+    });
+    if !shown {
+        show_alert(
+            window,
+            "The online backup didn't go through",
+            &backup_message(detail),
+        );
+    }
+}
+
+fn clear_backup_trouble() {
+    BACKUP_BANNER.with(|b| {
+        if let Some((banner, _)) = b.borrow().as_ref() {
+            banner.set_revealed(false);
+        }
+    });
+}
+
 fn show_sync_result(
     window: &adw::ApplicationWindow,
     overlay: &adw::ToastOverlay,
@@ -568,15 +640,12 @@ fn show_sync_result(
                  which to keep in Recover\u{2026}, or ask someone to look at both versions.",
             );
         } else {
-            show_alert(
-                window,
-                "The online backup didn't go through",
-                &backup_message(&detail),
-            );
+            show_backup_trouble(window, &detail);
         }
         return;
     }
     if result.pushed {
+        clear_backup_trouble();
         set_sync_badge(badge, SyncBadge::Clear);
         let summary = result
             .commit_message

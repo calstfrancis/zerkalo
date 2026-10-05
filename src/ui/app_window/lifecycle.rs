@@ -60,6 +60,42 @@ pub(super) fn autosave_now(editor: &EditorPane) {
 }
 
 pub(super) fn wire_startup(ctx: &LifecycleCtx) {
+    // ── The calm line: "Saved · backed up 12 min ago" ────────────────────
+    // The cheap part (is anything unsaved?) refreshes every few seconds; the
+    // online part asks git, so it runs on a thread every half minute.
+    {
+        use std::sync::mpsc;
+        let status: Rc<RefCell<crate::recover::Status>> =
+            Rc::new(RefCell::new(crate::recover::Status::default()));
+        let (tx, rx) = mpsc::channel::<crate::recover::Status>();
+        let root = ctx.project_root.clone();
+        let ask = move |tx: mpsc::Sender<crate::recover::Status>| {
+            let root = root.clone();
+            std::thread::spawn(move || {
+                let _ = tx.send(crate::recover::status(&root));
+            });
+        };
+        ask.clone()(tx.clone());
+        let editor = ctx.editor_pane.clone();
+        let ticks = Rc::new(std::cell::Cell::new(0u32));
+        glib::timeout_add_local(Duration::from_secs(3), move || {
+            while let Ok(s) = rx.try_recv() {
+                *status.borrow_mut() = s;
+            }
+            ticks.set(ticks.get() + 1);
+            if ticks.get().is_multiple_of(10) {
+                ask.clone()(tx.clone());
+            }
+            editor.set_safety_line(&crate::recover::safety_line(
+                editor.any_modified(),
+                editor.autosave_enabled(),
+                &status.borrow(),
+                chrono::Local::now(),
+            ));
+            glib::ControlFlow::Continue
+        });
+    }
+
     // ── Startup: warn if required tools are missing ──────────────────────
 
     // ── Startup: report an unreadable settings file ──────────────────────

@@ -390,6 +390,43 @@ pub fn status(project_root: &Path) -> Status {
 }
 
 /// The three-line answer to "is my work safe?".
+/// The one calm line the status bar keeps showing: is my writing safe?
+/// `unsaved` — some open document has edits not yet written to disk.
+pub fn safety_line(unsaved: bool, autosave: bool, s: &Status, now: DateTime<Local>) -> String {
+    if unsaved {
+        return if autosave {
+            "Saving as you write".to_string()
+        } else {
+            "Not saved yet".to_string()
+        };
+    }
+    if !s.connected {
+        return "Saved on this computer".to_string();
+    }
+    match s.last_backup {
+        Some(ts) if s.waiting == 0 && s.loose == 0 => {
+            format!("Saved \u{b7} backed up {}", ago(ts, now))
+        }
+        Some(ts) => format!("Saved \u{b7} last backed up {}", ago(ts, now)),
+        None => "Saved \u{b7} not backed up online yet".to_string(),
+    }
+}
+
+/// "just now", "12 min ago", "3 hours ago", "yesterday", "5 days ago".
+fn ago(ts: i64, now: DateTime<Local>) -> String {
+    let secs = (now.timestamp() - ts).max(0);
+    match secs {
+        0..=89 => "just now".to_string(),
+        90..=3_599 => format!("{} min ago", (secs + 30) / 60),
+        3_600..=86_399 => {
+            let h = (secs + 1_800) / 3_600;
+            format!("{h} hour{} ago", if h == 1 { "" } else { "s" })
+        }
+        86_400..=172_799 => "yesterday".to_string(),
+        _ => format!("{} days ago", secs / 86_400),
+    }
+}
+
 pub fn status_lines(s: &Status, now: DateTime<Local>) -> Vec<String> {
     let mut lines = vec!["Saved on this computer.".to_string()];
     if s.loose > 0 {
@@ -423,6 +460,40 @@ pub fn status_lines(s: &Status, now: DateTime<Local>) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_safety_line_always_says_something_reassuring() {
+        let now = Local.timestamp_opt(1_800_000_000, 0).unwrap();
+        let none = Status::default();
+        assert_eq!(safety_line(true, true, &none, now), "Saving as you write");
+        assert_eq!(safety_line(true, false, &none, now), "Not saved yet");
+        assert_eq!(
+            safety_line(false, true, &none, now),
+            "Saved on this computer"
+        );
+        let online = |last, waiting, loose| Status {
+            connected: true,
+            waiting,
+            loose,
+            last_backup: last,
+        };
+        assert_eq!(
+            safety_line(false, true, &online(Some(1_800_000_000 - 720), 0, 0), now),
+            "Saved \u{b7} backed up 12 min ago"
+        );
+        assert_eq!(
+            safety_line(false, true, &online(Some(1_800_000_000 - 720), 2, 0), now),
+            "Saved \u{b7} last backed up 12 min ago"
+        );
+        assert_eq!(
+            safety_line(false, true, &online(None, 0, 0), now),
+            "Saved \u{b7} not backed up online yet"
+        );
+        assert_eq!(ago(1_800_000_000 - 10, now), "just now");
+        assert_eq!(ago(1_800_000_000 - 7_200, now), "2 hours ago");
+        assert_eq!(ago(1_800_000_000 - 100_000, now), "yesterday");
+        assert_eq!(ago(1_800_000_000 - 400_000, now), "4 days ago");
+    }
+
     use super::*;
 
     fn g(dir: &Path, args: &[&str]) -> String {

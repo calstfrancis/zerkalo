@@ -231,6 +231,7 @@ pub struct EditorPane {
     goal_fraction: Rc<Cell<f64>>,
     goal_celebrating: Rc<Cell<bool>>,
     lsp_status_label: Label,
+    safe_label: Label,
     diag_label: Label,
     diag_btn: Button,
     on_diag_click: Rc<RefCell<Option<Box<dyn Fn()>>>>,
@@ -538,6 +539,14 @@ impl EditorPane {
         cursor_label.set_margin_bottom(3);
         cursor_label.set_tooltip_text(Some("Line 1, Column 1"));
 
+        // The one steady, quiet line: "Saved · backed up 12 min ago".
+        let safe_label = Label::new(None);
+        safe_label.add_css_class("dim-label");
+        safe_label.add_css_class("caption");
+        safe_label.set_margin_start(8);
+        safe_label.set_margin_top(3);
+        safe_label.set_margin_bottom(3);
+        safe_label.set_halign(gtk4::Align::Start);
         let lsp_status_label = Label::new(None);
         lsp_status_label.add_css_class("dim-label");
         lsp_status_label.add_css_class("caption");
@@ -718,6 +727,7 @@ impl EditorPane {
         // app is set up, and it needs room for a name, a description and its
         // keys — so it gets the whole left half of the window and the settings
         // queue up out of its way.
+        status_bar.append(&safe_label);
         status_bar.append(&lsp_status_label);
         status_bar.append(&left_spacer);
         status_bar.append(&autosave_toggle_btn);
@@ -1628,6 +1638,7 @@ impl EditorPane {
             format_bar_toggle_btn: format_bar_toggle_btn.clone(),
             on_format_bar_toggle: Rc::new(RefCell::new(None)),
             autosave_label,
+            safe_label,
             autosave_toggle_btn: autosave_toggle_btn.clone(),
             autosave_on: Rc::new(Cell::new(false)),
             on_autosave_toggle: Rc::new(RefCell::new(None)),
@@ -2949,6 +2960,18 @@ impl EditorPane {
             "autosave",
             enabled,
         );
+    }
+
+    /// Replaces the calm "is my work safe" line in the status bar.
+    pub fn set_safety_line(&self, text: &str) {
+        if self.safe_label.text() != text {
+            self.safe_label.set_text(text);
+        }
+    }
+
+    /// Whether any open document has edits not yet written to disk.
+    pub fn any_modified(&self) -> bool {
+        self.state.borrow().tabs.values().any(|t| t.modified)
     }
 
     pub fn autosave_enabled(&self) -> bool {

@@ -85,6 +85,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.47.0" date="2026-10-05">
+      <description>
+        <p>0.47.0 "Settled Glass" — a steady sense that your writing is safe. The status bar now keeps one quiet line, such as "Saved · backed up 12 min ago". A backup that doesn't go through shows a calm strip above the editor (your work is saved here; Details available) instead of a pop-up, and clears itself when a backup works. Get Latest and Replace say nothing was changed when they stop. The preview's progress bar and pulsing button appear only for updates that take over a second, so typing doesn't flicker.</p>
+      </description>
+    </release>
     <release version="0.46.0" date="2026-10-05">
       <description>
         <p>0.46.0 "Gentle Glass" — a calmer way of talking. When something doesn't go through, Zerkalo now starts with what is safe, names the cause in plain words and keeps technical text under Details. Closing and deleting use buttons that say what they do, and closing without saving still keeps a saved version in Recover. "Problems" is now "Things to look at", jargon such as LSP and root file is gone from the screen, settings explain themselves, and Your Writing says words are added or trimmed with no streak.</p>

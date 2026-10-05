@@ -3,6 +3,20 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.47.0] "Settled Glass" — 2026-10-05 — A steady sense that your writing is safe
+
+### Added
+
+- **A steady "is my work safe?" line in the status bar.** It reads "Saving as you write", "Saved on this computer", or "Saved · backed up 12 min ago", and changes to "Saved · last backed up…" or "Not saved yet" when that's the honest answer. It updates by itself, so you never have to wonder.
+
+### Changed
+
+- **A backup that doesn't go through no longer stops you with a pop-up.** A calm strip above the editor says "Your work is saved on this computer. The online backup didn't go through", with a Details button, and goes away on its own the next time a backup works. A disagreement between this computer and GitHub still asks, because it needs a decision.
+- **Get Latest and Replace now say nothing here was changed** when they stop, with the plain cause before any technical text.
+- **The preview no longer flickers while you type.** The progress bar and the pulsing button appear only when an update takes longer than about a second; quick ones show nothing at all.
+
+---
+
 ## [0.46.0] "Gentle Glass" — 2026-10-05 — A calmer way of talking
 
 ### Changed
