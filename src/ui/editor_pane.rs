@@ -5086,6 +5086,14 @@ fn ensure_spell_tag(buffer: &Buffer) {
 fn clear_spell_tags(buffer: &Buffer) {
     ensure_spell_tag(buffer);
     let (s, e) = buffer.bounds();
+    // With spell check off this runs on every keystroke; skip the sweep when
+    // there is nothing tagged to remove.
+    if let Some(tag) = buffer.tag_table().lookup("zerkalo-spell") {
+        let mut probe = s;
+        if !probe.has_tag(&tag) && !probe.forward_to_tag_toggle(Some(&tag)) {
+            return;
+        }
+    }
     buffer.remove_tag_by_name("zerkalo-spell", &s, &e);
 }
 
@@ -8133,10 +8141,19 @@ impl EditorPane {
                     Duration::from_millis(5000),
                     move || {
                         *t.borrow_mut() = None;
-                        if let Some(root) = root_proj.borrow().as_ref() {
-                            let total = count_project_words(root);
-                            wc_lbl_proj
-                                .set_tooltip_text(Some(&format!("Project total: {total} words")));
+                        let root = root_proj.borrow().clone();
+                        if let Some(root) = root {
+                            let lbl = wc_lbl_proj.clone();
+                            glib::spawn_future_local(async move {
+                                if let Ok(total) =
+                                    gtk4::gio::spawn_blocking(move || count_project_words(&root))
+                                        .await
+                                {
+                                    lbl.set_tooltip_text(Some(&format!(
+                                        "Project total: {total} words"
+                                    )));
+                                }
+                            });
                         }
                     },
                 ));

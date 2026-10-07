@@ -895,49 +895,53 @@ impl AppWindow {
             let project_root_inner = project_root_for_change.clone();
             let outline_manuscript_mode = outline_manuscript_mode_for_change.clone();
             let delay = Duration::from_millis(*debounce_for_change.borrow());
-            let delta = editor_pane_for_delta.get_active_session_delta();
-            editor_pane_for_delta.set_session_delta(delta);
+            let pane_for_delta = editor_pane_for_delta.clone();
             glib::timeout_add_local(delay, move || {
                 if *gen3.borrow() == my_gen {
+                    pane_for_delta.set_session_delta(pane_for_delta.get_active_session_delta());
                     let should_compile = *auto.borrow();
+                    let active = editor.get_active_path().zip(editor.get_active_content());
                     if should_compile {
-                        if let Some(path) = editor.get_active_path() {
-                            if let Some(content) = editor.get_active_content() {
-                                preview.set_buffer_snapshot(path.clone(), content);
-                            }
-                            preview.set_root_file(path);
+                        if let Some((path, content)) = &active {
+                            preview.set_buffer_snapshot(path.clone(), content.clone());
+                            preview.set_root_file(path.clone());
                         }
                         preview.trigger_compile();
                     }
-                    if let Some(path) = editor.get_active_path() {
-                        if let Some(content) = editor.get_active_content() {
-                            if outline_manuscript_mode.get() {
-                                let root = configured_root
-                                    .borrow()
-                                    .clone()
-                                    .unwrap_or_else(|| path.clone());
-                                outline.update_project(crate::project::manuscript_files(
-                                    &root,
-                                    &project_root_inner,
-                                ));
-                            } else {
-                                outline.update(&content, &path);
-                            }
-                            comments.update(&path, &content);
-                            bib.refresh(Some((&path, &content)));
-                            refs.update_used_keys(&content, &path);
-                            bib.set_cited(refs.used());
+                    if let Some((path, content)) = &active {
+                        if outline_manuscript_mode.get() {
+                            // Reading every included file is disk work: keep it
+                            // off the keystroke path.
+                            let root = configured_root
+                                .borrow()
+                                .clone()
+                                .unwrap_or_else(|| path.clone());
+                            let project_root_bg = project_root_inner.to_path_buf();
+                            let outline = outline.clone();
+                            glib::spawn_future_local(async move {
+                                if let Ok(files) = gtk4::gio::spawn_blocking(move || {
+                                    crate::project::manuscript_files(&root, &project_root_bg)
+                                })
+                                .await
+                                {
+                                    outline.update_project(files);
+                                }
+                            });
+                        } else {
+                            outline.update(content, path);
                         }
+                        comments.update(path, content);
+                        bib.refresh(Some((path, content)));
+                        refs.update_used_keys(content, path);
+                        bib.set_cited(refs.used());
                     }
                     if let Some(client) = lsp.borrow_mut().as_mut() {
-                        if let (Some(path), Some(content)) =
-                            (editor.get_active_path(), editor.get_active_content())
-                        {
+                        if let Some((path, content)) = &active {
                             let version = SystemTime::now()
                                 .duration_since(SystemTime::UNIX_EPOCH)
                                 .unwrap_or_default()
                                 .as_millis() as i64;
-                            client.did_change(&path, &content, version);
+                            client.did_change(path, content, version);
                         }
                     }
                 }
