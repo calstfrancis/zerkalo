@@ -251,6 +251,9 @@ pub struct EditorPane {
     /// Set around a jump's own `grab_focus`, so the focus-enter restore doesn't
     /// throw the view back to where it was before the jump.
     jumping: Rc<Cell<bool>>,
+    zen_on: Rc<Cell<bool>>,
+    /// Highlights every match of the current Find, not just the one the cursor is on.
+    search_context: Rc<RefCell<Option<sourceview5::SearchContext>>>,
     on_show_in_preview: Rc<RefCell<Option<Box<dyn Fn(PathBuf, usize)>>>>,
     word_count_goal: Rc<RefCell<u32>>,
     /// The Settings → Editor goal, applied to any document that doesn't carry
@@ -1610,6 +1613,8 @@ impl EditorPane {
             line_spacing,
             typewriter_scroll,
             jumping: Rc::new(Cell::new(false)),
+            zen_on: Rc::new(Cell::new(false)),
+            search_context: Rc::new(RefCell::new(None)),
             on_show_in_preview: Rc::new(RefCell::new(None)),
             word_count_goal,
             default_word_count_goal,
@@ -2094,6 +2099,9 @@ impl EditorPane {
             format!("textview {{ font-family: '{family}'; }}")
         };
         self.font_provider.load_from_data(&css);
+        if self.zen_on.get() {
+            self.set_zen_width(true);
+        }
         // Force a redraw on all open views so the font change is immediately visible
         // on every tab, not just the active one.
         for tab in self.state.borrow().tabs.values() {
@@ -2209,13 +2217,30 @@ impl EditorPane {
 
     /// Constrain editor to a comfortable reading width when zen/focus mode is on.
     pub fn set_zen_width(&self, enabled: bool) {
+        self.zen_on.set(enabled);
         if enabled {
             self.outer.set_halign(gtk4::Align::Center);
-            self.outer.set_size_request(720, -1);
+            self.outer.set_size_request(self.zen_pixel_width(), -1);
         } else {
             self.outer.set_halign(gtk4::Align::Fill);
             self.outer.set_size_request(-1, -1);
         }
+    }
+
+    /// About 70 characters of the current editor font, plus the margins, so the
+    /// line length stays comfortable at any font size.
+    fn zen_pixel_width(&self) -> i32 {
+        const MEASURE_CHARS: i32 = 70;
+        const FALLBACK: i32 = 720;
+        let Some((view, _)) = self.active_view_buffer() else {
+            return FALLBACK;
+        };
+        let metrics = view.pango_context().metrics(None, None);
+        let char_px = metrics.approximate_char_width() / gtk4::pango::SCALE;
+        if char_px <= 0 {
+            return FALLBACK;
+        }
+        (char_px * MEASURE_CHARS + view.left_margin() + view.right_margin() + 24).clamp(480, 1400)
     }
 
     pub fn grab_focus(&self) {
@@ -2240,19 +2265,7 @@ impl EditorPane {
     }
 
     pub fn apply_style_scheme(&self, is_dark: bool) {
-        let candidates: &[&str] = if is_dark {
-            &[
-                "monokai-extended",
-                "solarized-dark",
-                "oblivion",
-                "Adwaita-dark",
-                "classic-dark",
-            ]
-        } else {
-            &["kate", "tango", "Adwaita", "classic"]
-        };
-        let mgr = StyleSchemeManager::default();
-        let scheme = candidates.iter().find_map(|id| mgr.scheme(id));
+        let scheme = StyleSchemeManager::default().scheme(scheme_id_for(is_dark));
         let buffers: Vec<_> = {
             let state = self.state.borrow();
             state.tabs.values().map(|t| t.buffer.clone()).collect()
@@ -2347,6 +2360,8 @@ impl EditorPane {
                 .unwrap_or(matches.len() - 1)
         };
 
+        self.highlight_all_matches(&buffer, text, case_sensitive, whole_word, regex_mode);
+
         let (start_off, end_off) = matches[idx];
         let start = buffer.iter_at_offset(start_off);
         let end = buffer.iter_at_offset(end_off);
@@ -2378,7 +2393,36 @@ impl EditorPane {
             .set_result(&format!("{} of {}", idx + 1, matches.len()));
     }
 
+    fn highlight_all_matches(
+        &self,
+        buffer: &Buffer,
+        text: &str,
+        case_sensitive: bool,
+        whole_word: bool,
+        regex_mode: bool,
+    ) {
+        let mut slot = self.search_context.borrow_mut();
+        let reuse = slot
+            .as_ref()
+            .is_some_and(|c| c.buffer().as_ptr() == buffer.as_ptr());
+        if !reuse {
+            *slot = Some(sourceview5::SearchContext::new(
+                buffer,
+                None::<&sourceview5::SearchSettings>,
+            ));
+        }
+        let Some(ctx) = slot.as_ref() else { return };
+        let settings = ctx.settings();
+        settings.set_search_text(Some(text));
+        settings.set_case_sensitive(case_sensitive);
+        settings.set_at_word_boundaries(whole_word);
+        settings.set_regex_enabled(regex_mode);
+        settings.set_wrap_around(true);
+        ctx.set_highlight(true);
+    }
+
     pub fn clear_search_highlight(&self) {
+        *self.search_context.borrow_mut() = None;
         if let Some((_, buffer)) = self.active_view_buffer() {
             let (start, end) = buffer.bounds();
             buffer.remove_tag_by_name("zerkalo-search-current", &start, &end);
@@ -3312,12 +3356,9 @@ impl EditorPane {
                 buffer.set_highlight_syntax(true);
             }
         }
-        let scheme_id = if adw::StyleManager::default().is_dark() {
-            "Adwaita-dark"
-        } else {
-            "Adwaita"
-        };
-        if let Some(scheme) = StyleSchemeManager::default().scheme(scheme_id) {
+        if let Some(scheme) = StyleSchemeManager::default()
+            .scheme(scheme_id_for(adw::StyleManager::default().is_dark()))
+        {
             buffer.set_style_scheme(Some(&scheme));
         }
 
@@ -3597,7 +3638,18 @@ impl EditorPane {
                 // use, and for the same reason) lets that first click do
                 // both at once.
                 popover.set_autohide(false);
-                popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+                // Point at the hovered line's own rectangle and open below it, so the
+                // popup never sits on top of the text you are about to click.
+                let loc = view_hover.iter_location(&iter);
+                let (wx, wy) =
+                    view_hover.buffer_to_window_coords(TextWindowType::Widget, loc.x(), loc.y());
+                popover.set_position(gtk4::PositionType::Bottom);
+                popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(
+                    wx.max(x as i32 - 1),
+                    wy,
+                    1,
+                    loc.height().max(1),
+                )));
 
                 let vbox = GtkBox::new(Orientation::Vertical, 4);
                 vbox.set_margin_top(8);
@@ -4621,6 +4673,35 @@ fn hidden_template_end(buf: &Buffer, offset: i32) -> Option<gtk4::TextIter> {
     let mut end = at;
     end.forward_to_tag_toggle(Some(&tag));
     Some(end)
+}
+
+/// The one place the editor's colour scheme is chosen, so a tab opened after a
+/// theme switch looks the same as one already open.
+fn scheme_id_for(is_dark: bool) -> &'static str {
+    if is_dark {
+        "Adwaita-dark"
+    } else {
+        "Adwaita"
+    }
+}
+
+/// A shortcut's letter regardless of Caps Lock, Shift or keyboard layout: on a
+/// non-Latin layout the key's Latin letter is taken from the layout's first group.
+fn base_key(key: gtk4::gdk::Key, keycode: u32) -> gtk4::gdk::Key {
+    if key.to_unicode().is_some_and(|c| c.is_ascii()) {
+        return key.to_lower();
+    }
+    if let Some(display) = gtk4::gdk::Display::default() {
+        if let Some(maps) = display.map_keycode(keycode) {
+            if let Some((_, latin)) = maps
+                .iter()
+                .find(|(_, k)| k.to_unicode().is_some_and(|c| c.is_ascii_alphabetic()))
+            {
+                return latin.to_lower();
+            }
+        }
+    }
+    key
 }
 
 const JUMP_FLASH_TAG: &str = "zerkalo-jump-flash";
@@ -5954,6 +6035,9 @@ fn do_bib_complete(
 fn set_view_line_spacing(view: &View, spacing: u32) {
     view.set_pixels_above_lines(spacing as i32);
     view.set_pixels_below_lines(spacing as i32);
+    // Above/below only separate paragraphs; in prose a paragraph is many wrapped
+    // lines, so without this the setting barely showed.
+    view.set_pixels_inside_wrap(spacing as i32);
 }
 
 fn update_goal_ring(ring: &DrawingArea, frac: &Rc<Cell<f64>>, text: &str, goal: u32) {
@@ -7208,7 +7292,8 @@ impl EditorPane {
             let buf_cmt = buffer.clone();
             let cmt_ctrl = EventControllerKey::new();
             cmt_ctrl.set_propagation_phase(PropagationPhase::Capture);
-            cmt_ctrl.connect_key_pressed(move |_, key, _, mods| {
+            cmt_ctrl.connect_key_pressed(move |_, key, keycode, mods| {
+                let key = base_key(key, keycode);
                 use gtk4::gdk::Key;
                 let ctrl = mods.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
                 if !ctrl || key != Key::slash {
@@ -7282,7 +7367,8 @@ impl EditorPane {
             let buf_bi = buffer.clone();
             let bi_ctrl = EventControllerKey::new();
             bi_ctrl.set_propagation_phase(PropagationPhase::Capture);
-            bi_ctrl.connect_key_pressed(move |_, key, _, mods| {
+            bi_ctrl.connect_key_pressed(move |_, key, keycode, mods| {
+                let key = base_key(key, keycode);
                 use gtk4::gdk::Key;
                 let ctrl = mods.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
                 let shift = mods.contains(gtk4::gdk::ModifierType::SHIFT_MASK);
@@ -7345,7 +7431,8 @@ impl EditorPane {
             let buf_all = buffer.clone();
             let all_ctrl = EventControllerKey::new();
             all_ctrl.set_propagation_phase(PropagationPhase::Capture);
-            all_ctrl.connect_key_pressed(move |_, key, _, mods| {
+            all_ctrl.connect_key_pressed(move |_, key, keycode, mods| {
+                let key = base_key(key, keycode);
                 let plain_ctrl = mods.contains(gtk4::gdk::ModifierType::CONTROL_MASK)
                     && !mods.intersects(
                         gtk4::gdk::ModifierType::SHIFT_MASK | gtk4::gdk::ModifierType::ALT_MASK,
@@ -7369,7 +7456,8 @@ impl EditorPane {
             let buf_dup = buffer.clone();
             let dup_ctrl = EventControllerKey::new();
             dup_ctrl.set_propagation_phase(PropagationPhase::Capture);
-            dup_ctrl.connect_key_pressed(move |_, key, _, mods| {
+            dup_ctrl.connect_key_pressed(move |_, key, keycode, mods| {
+                let key = base_key(key, keycode);
                 use gtk4::gdk::Key;
                 let ctrl = mods.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
                 let shift = mods.contains(gtk4::gdk::ModifierType::SHIFT_MASK);
@@ -7430,7 +7518,8 @@ impl EditorPane {
             let buf_undo = buffer.clone();
             let undo_ctrl = EventControllerKey::new();
             undo_ctrl.set_propagation_phase(PropagationPhase::Capture);
-            undo_ctrl.connect_key_pressed(move |_, key, _, mods| {
+            undo_ctrl.connect_key_pressed(move |_, key, keycode, mods| {
+                let key = base_key(key, keycode);
                 use gtk4::gdk::Key;
                 let ctrl = mods.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
                 let shift = mods.contains(gtk4::gdk::ModifierType::SHIFT_MASK);
@@ -7493,17 +7582,15 @@ impl EditorPane {
                     if let Some(ln) = target_line {
                         if let Some(it) = buf_nav.iter_at_line(ln) {
                             buf_nav.place_cursor(&it);
-                            let mut it2 = it;
-                            view_nav.scroll_to_iter(&mut it2, 0.1, false, 0.0, 0.3);
+                            view_nav.scroll_to_mark(&buf_nav.get_insert(), 0.1, false, 0.0, 0.3);
                         }
                     }
                     return glib::Propagation::Stop;
                 }
 
                 // ── Typst-aware word movement: Ctrl+Left / Ctrl+Right ────────
-                if shift {
-                    return glib::Propagation::Proceed;
-                } // let Ctrl+Shift+Left/Right select
+                // Ctrl+Shift+Left/Right use the same boundaries and extend the
+                // selection, so selecting by word stops where moving by word does.
                 if key != Key::Left && key != Key::Right {
                     return glib::Propagation::Proceed;
                 }
@@ -7524,9 +7611,14 @@ impl EditorPane {
                     }
                     it.forward_word_end();
                 } else {
-                    // Skip trailing whitespace
-                    while !it.is_start() && it.char().is_whitespace() {
-                        it.backward_char();
+                    // Skip whitespace before the cursor (the character *before* the
+                    // iter, so a one-letter word is not stepped over with it).
+                    loop {
+                        let mut before = it;
+                        if !before.backward_char() || !before.char().is_whitespace() {
+                            break;
+                        }
+                        it = before;
                     }
                     it.backward_word_start();
                     // If the character just before the new position is '#' or '@', absorb it
@@ -7536,9 +7628,12 @@ impl EditorPane {
                     }
                 }
 
-                buf_nav.place_cursor(&it);
-                let mut sc = it;
-                view_nav.scroll_to_iter(&mut sc, 0.07, false, 0.0, 0.5);
+                if shift {
+                    buf_nav.move_mark(&buf_nav.get_insert(), &it);
+                } else {
+                    buf_nav.place_cursor(&it);
+                }
+                view_nav.scroll_to_mark(&buf_nav.get_insert(), 0.07, false, 0.0, 0.5);
                 glib::Propagation::Stop
             });
             view.add_controller(nav_ctrl);
