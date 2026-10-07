@@ -259,7 +259,7 @@ fn shortcuts_blocks() -> Vec<Block<'static>> {
         Block::Gap,
         Block::H2("Editing"),
         Block::CodeOwned(format!(
-            "{save:<20}Save current file\n{find:<20}Find & Replace\n{next_tab:<20}Next tab\n{prev_tab:<20}Previous tab\nCtrl+Left/Right     Word jump (Typst-aware: treats #keyword and @cite as units)\nCtrl+Shift+Up/Down  Jump to previous / next heading in the document\nF8 / Shift+F8       Go to the next / previous problem\nCtrl+D              Duplicate line or selection\nCtrl+/              Toggle line comment\nCtrl+Enter          Insert page break\nMiddle-click tab    Close tab\nRight-click tab     Duplicate, close others, delete"
+            "{save:<20}Save current file\n{find:<20}Find & Replace\n{next_tab:<20}Next tab\n{prev_tab:<20}Previous tab\nCtrl+Left/Right     Word jump (Typst-aware: treats #keyword and @cite as units)\nCtrl+Shift+Up/Down  Jump to previous / next heading in the document\nF8 / Shift+F8       Go to the next / previous problem\nCtrl+D              Duplicate line or selection\nCtrl+/              Toggle line comment\nAlt+Up / Alt+Down   Move the line (or selected lines) up / down\nAlt+Shift+Right     Select more: word, brackets, line, paragraph, section, document\nAlt+Shift+Left      Select less again\nCtrl+Enter          Insert page break\nEnter in a list     Starts the next item (Enter on an empty item ends the list)\nTab / Shift+Tab     Nest / un-nest a list item\nCtrl+V on a selection  A copied web address becomes a link on the selected text\nMiddle-click tab    Close tab\nRight-click tab     Duplicate, close others, delete"
         )),
         Block::Gap,
         Block::H2("Compiling & Preview"),

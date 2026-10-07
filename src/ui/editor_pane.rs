@@ -2152,6 +2152,7 @@ impl EditorPane {
             view.set_show_line_numbers(!on || self.line_numbers_override.get());
             view.set_left_margin(left_margin);
             view.set_highlight_current_line(!on);
+            super::editor_helpers::retune_hanging_tags(view, buffer);
         }
     }
 
@@ -3530,6 +3531,7 @@ impl EditorPane {
         self.wire_spell_suggestions(&tab, &hold_position, &hold_until);
         self.wire_spellcheck(&tab);
         self.wire_autocorrect(&tab);
+        super::editor_helpers::wire(&view, &buffer);
         let (saved_scroll, saved_hscroll, pause_tracking) =
             self.wire_right_click_menu(&view, &buffer, &scroll, &hold_position, &hold_until);
 
@@ -4661,7 +4663,7 @@ impl EditorPane {
 // ── Free helpers ──────────────────────────────────────────────────────────────
 
 /// Where the hidden template ends, if `offset` falls inside it (Simple Mode).
-fn hidden_template_end(buf: &Buffer, offset: i32) -> Option<gtk4::TextIter> {
+pub(super) fn hidden_template_end(buf: &Buffer, offset: i32) -> Option<gtk4::TextIter> {
     let tag = buf.tag_table().lookup(SIMPLE_TAG)?;
     if !tag.is_invisible() {
         return None;
@@ -4687,7 +4689,7 @@ fn scheme_id_for(is_dark: bool) -> &'static str {
 
 /// A shortcut's letter regardless of Caps Lock, Shift or keyboard layout: on a
 /// non-Latin layout the key's Latin letter is taken from the layout's first group.
-fn base_key(key: gtk4::gdk::Key, keycode: u32) -> gtk4::gdk::Key {
+pub(super) fn base_key(key: gtk4::gdk::Key, keycode: u32) -> gtk4::gdk::Key {
     if key.to_unicode().is_some_and(|c| c.is_ascii()) {
         return key.to_lower();
     }

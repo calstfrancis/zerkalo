@@ -3,6 +3,34 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.50.0] "Still Glass" — 2026-10-07 — The text holds still
+
+### Fixed
+
+- **A click no longer highlights a block of text.** After typing, the next click near the top or bottom of the window could scroll the page while the mouse button was still down, which stretched a selection over several lines. Clicks now only place the cursor.
+- **Jumping to a heading no longer selects it.** Choosing a heading in the outline, a search result, an error or a comment now puts the cursor there and briefly tints the line, so the next thing you type can't replace it.
+- **Simple Mode can no longer swallow your first paragraph.** Pressing Backspace at the very start of your writing used to join it onto the hidden template and drop it from the PDF. The hidden template is now locked, the cursor stays out of it, and Select All selects only your writing.
+- **The line and column, section word count, breadcrumb and outline now follow you while you type**, not only after the next click. Typewriter scrolling recentres as you type instead of on your next click.
+- **Line spacing now applies inside a paragraph**, between the wrapped lines, not only between paragraphs.
+- **Switching Light and Dark no longer changes the editor's colours** from what a newly opened tab uses.
+- **Shortcuts like Ctrl+B, Ctrl+I, Ctrl+D and Ctrl+Z work with Caps Lock on and on other keyboard layouts.**
+- **Ctrl+Shift+Left/Right select by the same word boundaries Ctrl+Left/Right move by**, and Ctrl+Left no longer steps over a one-letter word.
+- **Typing stays quick in long documents.** Word counts, the outline of a multi-file manuscript and the project word count no longer read your whole document or your files on every keystroke or on the window's main thread.
+
+### Added
+
+- **Lists carry on.** Enter starts the next item of a `-`, `+`, numbered or `/` list, Enter on an empty item ends the list, Tab and Shift+Tab nest and un-nest an item, and a wrapped item lines up under its own text.
+- **Paste a link over selected text.** Select words, paste a copied web address, and the words become a link.
+- **Move lines with Alt+Up and Alt+Down.**
+- **Select more with Alt+Shift+Right** — word, brackets, line, paragraph, section, document — and **less with Alt+Shift+Left**.
+- **The partner of a `*`, `_`, `$` or quote is highlighted** when the cursor sits next to one.
+- **Find highlights every match**, not only the current one.
+- **The current-line band is a quiet grey** instead of the accent colour, and is off in Simple Mode where a "line" is a whole paragraph.
+- **Zen width follows the font size**, staying about 70 characters wide.
+- **The error pop-up opens below the line** instead of on top of the text you were about to click.
+
+---
+
 ## [0.49.0] "Patient Glass" — 2026-10-05 — One thing at a time
 
 ### Changed

@@ -244,6 +244,11 @@ All settings are also editable via **☰ → Settings** inside the app.
 | `Ctrl+click` (in the text) | Show that spot in the preview |
 | `Ctrl+D` | Duplicate line or selection |
 | `Ctrl+/` | Toggle line comment |
+| `Alt+Up` / `Alt+Down` | Move the line (or selected lines) up / down |
+| `Alt+Shift+Right` / `Alt+Shift+Left` | Select more (word → brackets → line → paragraph → section → document) / select less |
+| `Enter` in a list | Starts the next item; on an empty item it ends the list |
+| `Tab` / `Shift+Tab` in a list | Nest / un-nest the item |
+| `Ctrl+V` over selected text | Pasting a copied web address makes the selection a link |
 | `F1` | Label every panel and button on screen; Esc or a click closes |
 | `Ctrl+K` | Command palette (commands + headings) |
 | `Ctrl+G` | Command palette — headings only |
