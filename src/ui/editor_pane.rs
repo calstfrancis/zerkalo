@@ -2143,6 +2143,7 @@ impl EditorPane {
             apply_simple_mode_tag(buffer, on);
             view.set_show_line_numbers(!on || self.line_numbers_override.get());
             view.set_left_margin(left_margin);
+            view.set_highlight_current_line(!on);
         }
     }
 
@@ -3363,7 +3364,9 @@ impl EditorPane {
         view.set_indent_width(tw as i32);
         // Do NOT set_monospace — the editor font family is set explicitly via
         // apply_font_family; monospace mode only matters when no font is configured.
-        view.set_highlight_current_line(true);
+        // A buffer line is a whole paragraph in prose, so the band is a code-editing
+        // aid only; Simple Mode (prose) leaves it off.
+        view.set_highlight_current_line(!*self.simple_mode.borrow());
         // Text always wraps at word boundaries; there is no unwrapped mode. A
         // single word too long to fit (a URL, say) breaks across lines rather than
         // running off the edge, since the editor never scrolls sideways.
@@ -4358,7 +4361,8 @@ impl EditorPane {
         let flags = TextSearchFlags::TEXT_ONLY | TextSearchFlags::CASE_INSENSITIVE;
         let start_iter = buffer.start_iter();
         if let Some((s, e)) = start_iter.forward_search(text, flags, None) {
-            buffer.select_range(&s, &e);
+            buffer.place_cursor(&s);
+            flash_range(&view, &buffer, s.offset(), e.offset());
             view.scroll_to_iter(&mut s.clone(), 0.0, true, 0.0, 0.5);
             self.focus_after_jump(&view);
         }
@@ -4376,8 +4380,15 @@ impl EditorPane {
             });
             let mut line_end = line_start;
             line_end.forward_to_line_end();
-            // Select the heading text so it's visually highlighted
-            tab.buffer.select_range(&line_start, &line_end);
+            // Place the cursor and flash the line rather than selecting it: a
+            // selected heading is replaced by the very next keystroke.
+            tab.buffer.place_cursor(&line_start);
+            flash_range(
+                &tab.view,
+                &tab.buffer,
+                line_start.offset(),
+                line_end.offset(),
+            );
             // Scroll to a mark, not to the iter. scroll_to_iter works off the
             // view's current idea of where that line is, which is wrong — and
             // reported as fine — until the view has validated the lines in
@@ -4597,8 +4608,89 @@ impl EditorPane {
 
 // ── Free helpers ──────────────────────────────────────────────────────────────
 
+/// Where the hidden template ends, if `offset` falls inside it (Simple Mode).
+fn hidden_template_end(buf: &Buffer, offset: i32) -> Option<gtk4::TextIter> {
+    let tag = buf.tag_table().lookup(SIMPLE_TAG)?;
+    if !tag.is_invisible() {
+        return None;
+    }
+    let at = buf.iter_at_offset(offset);
+    if !at.has_tag(&tag) {
+        return None;
+    }
+    let mut end = at;
+    end.forward_to_tag_toggle(Some(&tag));
+    Some(end)
+}
+
+const JUMP_FLASH_TAG: &str = "zerkalo-jump-flash";
+
+/// Briefly tints `start..end` so a jump's landing spot is easy to find. The
+/// tint never becomes a selection and goes away on the next edit, click or
+/// after a moment, whichever comes first.
+fn flash_range(view: &View, buffer: &Buffer, start: i32, end: i32) {
+    let table = buffer.tag_table();
+    let tag = table.lookup(JUMP_FLASH_TAG).unwrap_or_else(|| {
+        let tag = TextTag::new(Some(JUMP_FLASH_TAG));
+        table.add(&tag);
+        tag
+    });
+    let (r, g, b) = crate::ui::theme::rgb(view, "accent_color").unwrap_or((0.2, 0.5, 0.9));
+    tag.set_background_rgba(Some(&gtk4::gdk::RGBA::new(
+        r as f32, g as f32, b as f32, 0.28,
+    )));
+    let (bs, be) = buffer.bounds();
+    buffer.remove_tag(&tag, &bs, &be);
+    buffer.apply_tag(
+        &tag,
+        &buffer.iter_at_offset(start),
+        &buffer.iter_at_offset(end),
+    );
+
+    let clear = {
+        let buffer = buffer.clone();
+        move || {
+            if let Some(tag) = buffer.tag_table().lookup(JUMP_FLASH_TAG) {
+                let (s, e) = buffer.bounds();
+                buffer.remove_tag(&tag, &s, &e);
+            }
+        }
+    };
+    let once = Rc::new(Cell::new(Some(clear)));
+    let handler: Rc<Cell<Option<glib::SignalHandlerId>>> = Rc::new(Cell::new(None));
+    let finish = {
+        let once = once.clone();
+        let handler = handler.clone();
+        let buffer = buffer.clone();
+        Rc::new(move || {
+            if let Some(f) = once.take() {
+                f();
+            }
+            if let Some(id) = handler.take() {
+                buffer.disconnect(id);
+            }
+        })
+    };
+    let id = buffer.connect_changed({
+        let finish = finish.clone();
+        move |_| {
+            let finish = finish.clone();
+            glib::idle_add_local_once(move || finish());
+        }
+    });
+    handler.set(Some(id));
+    glib::timeout_add_local_once(Duration::from_millis(1400), move || finish());
+}
+
 const SIMPLE_TAG: &str = "zk-simple-hidden";
 const BODY_SEPARATOR: &str = "// ── Document body";
+
+/// Only the two lines the template generator writes: a line the user typed
+/// into (or merged onto) must never be mistaken for the separator and hidden.
+fn is_separator_line(line: &str) -> bool {
+    line.starts_with(BODY_SEPARATOR)
+        && (line.ends_with('─') || line.ends_with("yours to edit freely."))
+}
 
 /// Makes the editor unable to scroll sideways at all: no horizontal scrollbar,
 /// and an adjustment that snaps back to zero if anything — a stale restore, a
@@ -4721,6 +4813,10 @@ fn apply_simple_mode_tag(buffer: &Buffer, on: bool) {
         }
     };
     tag.set_invisible(on);
+    // Hidden text must also be untouchable: Backspace at the start of the body
+    // used to eat the hidden newline and fold the first paragraph into the
+    // separator comment, which drops it from the PDF.
+    tag.set_editable(!on);
 
     // Always clear any existing span first.
     let (start, end) = buffer.bounds();
@@ -4732,7 +4828,7 @@ fn apply_simple_mode_tag(buffer: &Buffer, on: bool) {
 
     // Find the "// ── Document body" separator line.
     let text = buffer.text(&start, &end, false);
-    let body_line = text.lines().position(|l| l.starts_with(BODY_SEPARATOR));
+    let body_line = text.lines().position(is_separator_line);
     let Some(body_line_idx) = body_line else {
         return;
     };
@@ -4742,7 +4838,7 @@ fn apply_simple_mode_tag(buffer: &Buffer, on: bool) {
     let sep_count = text
         .lines()
         .skip(body_line_idx)
-        .take_while(|l| l.starts_with(BODY_SEPARATOR))
+        .take_while(|l| is_separator_line(l))
         .count();
     let hide_to = body_line_idx + sep_count;
 
@@ -5083,6 +5179,10 @@ fn snippet_items(cv_mode: bool) -> Vec<CompletionItem> {
 /// How long the viewport is held after a paste. Long enough to outlast GTK's
 /// scroll animation (about a dozen frames), short enough that a deliberate
 /// scroll right after pasting still feels immediate.
+/// How long after a key press an edit or cursor move still counts as the
+/// user's own typing or keyboard navigation.
+const KEY_INTENT_WINDOW: Duration = Duration::from_millis(400);
+
 const PASTE_HOLD: Duration = Duration::from_millis(600);
 
 /// How long after the last edit before diagnostic squiggles are re-applied.
@@ -7232,6 +7332,30 @@ impl EditorPane {
             view.add_controller(bi_ctrl);
         }
 
+        // ── Select all (Ctrl+A) ──────────────────────────────────────────────
+        {
+            let buf_all = buffer.clone();
+            let all_ctrl = EventControllerKey::new();
+            all_ctrl.set_propagation_phase(PropagationPhase::Capture);
+            all_ctrl.connect_key_pressed(move |_, key, _, mods| {
+                let plain_ctrl = mods.contains(gtk4::gdk::ModifierType::CONTROL_MASK)
+                    && !mods.intersects(
+                        gtk4::gdk::ModifierType::SHIFT_MASK | gtk4::gdk::ModifierType::ALT_MASK,
+                    );
+                if !plain_ctrl || key != gtk4::gdk::Key::a {
+                    return glib::Propagation::Proceed;
+                }
+                match hidden_template_end(&buf_all, 0) {
+                    Some(body) => {
+                        buf_all.select_range(&buf_all.end_iter(), &body);
+                        glib::Propagation::Stop
+                    }
+                    None => glib::Propagation::Proceed,
+                }
+            });
+            view.add_controller(all_ctrl);
+        }
+
         // ── Duplicate line / selection (Ctrl+D) ──────────────────────────────
         {
             let buf_dup = buffer.clone();
@@ -8073,13 +8197,156 @@ impl EditorPane {
         // so gating on buf line() alone would never recenter while typing
         // within a wrapped paragraph and text would run off screen.
         let last_tw_y: Rc<std::cell::Cell<i32>> = Rc::new(std::cell::Cell::new(i32::MIN));
-        // Only do typewriter tab.scroll when typing, not on mouse click.
-        // connect_changed fires before connect_mark_set on keyboard input.
-        let typing_flag: Rc<std::cell::Cell<bool>> = Rc::new(std::cell::Cell::new(false));
-        let typing_flag_set = typing_flag.clone();
-        tab.buffer.connect_changed(move |_| {
-            typing_flag_set.set(true);
-        });
+        // Key presses are what mark an edit as the user's own typing. GTK does not
+        // emit mark-set for the insert mark while text is typed, so inferring
+        // "typing" from that signal left the flag set until the next click.
+        let key_intent: Rc<Cell<Option<Instant>>> = Rc::new(Cell::new(None));
+        let pointer_down: Rc<Cell<bool>> = Rc::new(Cell::new(false));
+        {
+            let keys = EventControllerKey::new();
+            keys.set_propagation_phase(PropagationPhase::Capture);
+            let intent = key_intent.clone();
+            keys.connect_key_pressed(move |_, key, _, mods| {
+                use gtk4::gdk::Key;
+                let modifier_only = matches!(
+                    key,
+                    Key::Shift_L
+                        | Key::Shift_R
+                        | Key::Control_L
+                        | Key::Control_R
+                        | Key::Alt_L
+                        | Key::Alt_R
+                        | Key::Super_L
+                        | Key::Super_R
+                        | Key::Caps_Lock
+                );
+                if !modifier_only
+                    && !mods.intersects(
+                        gtk4::gdk::ModifierType::CONTROL_MASK | gtk4::gdk::ModifierType::ALT_MASK,
+                    )
+                {
+                    intent.set(Some(Instant::now()));
+                }
+                glib::Propagation::Proceed
+            });
+            tab.view.add_controller(keys);
+
+            let legacy = gtk4::EventControllerLegacy::new();
+            legacy.set_propagation_phase(PropagationPhase::Capture);
+            let down = pointer_down.clone();
+            let intent = key_intent.clone();
+            legacy.connect_event(move |_, event| {
+                match event.event_type() {
+                    gtk4::gdk::EventType::ButtonPress => {
+                        down.set(true);
+                        intent.set(None);
+                    }
+                    gtk4::gdk::EventType::ButtonRelease | gtk4::gdk::EventType::GrabBroken => {
+                        down.set(false)
+                    }
+                    _ => {}
+                }
+                glib::Propagation::Proceed
+            });
+            tab.view.add_controller(legacy);
+        }
+
+        // Scrolling that belongs to typing (keep the cursor off the edges,
+        // typewriter recentering). Runs from the edit itself, never from a
+        // click, and never while a button is held: scrolling under a held button
+        // stretches the selection to whatever slides beneath the pointer.
+        let typing_scroll: Rc<dyn Fn(&Buffer)> = {
+            let vs = view_for_scroll_margin.clone();
+            let typewriter = typewriter_for_mark.clone();
+            let last_tw_y = last_tw_y.clone();
+            let typewriter_gen = typewriter_gen.clone();
+            let sc_tw = scroll_for_typewriter.clone();
+            let vt = view_for_typewriter.clone();
+            let crosshair = crosshair_for_mark.clone();
+            let crosshair_timer = crosshair_timer_for_mark.clone();
+            let down = pointer_down.clone();
+            Rc::new(move |buf: &Buffer| {
+                if down.get() || buf.has_selection() {
+                    return;
+                }
+                let insert_mark = buf.get_insert();
+                let cursor = buf.iter_at_mark(&insert_mark);
+                // Within 1 viewport of the visible area only: further away means
+                // the user scrolled there on purpose.
+                let loc = vs.iter_location(&cursor);
+                let (_, wy) = vs.buffer_to_window_coords(TextWindowType::Widget, loc.x(), loc.y());
+                let view_h = vs.allocated_height();
+                if wy > -view_h && wy < 2 * view_h {
+                    vs.scroll_to_mark(&insert_mark, 0.15, false, 0.0, 0.5);
+                }
+                if !*typewriter.borrow() {
+                    return;
+                }
+                let y = loc.y();
+                if y == last_tw_y.get() {
+                    return;
+                }
+                last_tw_y.set(y);
+                let gen = typewriter_gen.get().wrapping_add(1);
+                typewriter_gen.set(gen);
+                let gen_rc = typewriter_gen.clone();
+                let vt = vt.clone();
+                let sc_tw = sc_tw.clone();
+                let crosshair = crosshair.clone();
+                let crosshair_timer = crosshair_timer.clone();
+                let down = down.clone();
+                glib::timeout_add_local_once(std::time::Duration::from_millis(80), move || {
+                    if gen_rc.get() != gen || down.get() {
+                        return;
+                    }
+                    // Blank space past the last line, or the end of the document, can
+                    // never scroll up to the anchor.
+                    let pad = vt.height() / 2;
+                    if vt.bottom_margin() != pad {
+                        vt.set_bottom_margin(pad);
+                    }
+                    let mut c = vt.buffer().iter_at_mark(&insert_mark);
+                    let h = sc_tw.hadjustment().value();
+                    vt.scroll_to_iter(&mut c, 0.0, true, 0.0, 0.45);
+                    sc_tw.hadjustment().set_value(h);
+                    crosshair.set_visible(true);
+                    crosshair.queue_draw();
+                    if let Some(id) = crosshair_timer.borrow_mut().take() {
+                        id.remove();
+                    }
+                    let ch = crosshair.clone();
+                    let ct = crosshair_timer.clone();
+                    let id = glib::timeout_add_local_once(
+                        std::time::Duration::from_millis(800),
+                        move || {
+                            ch.set_visible(false);
+                            *ct.borrow_mut() = None;
+                        },
+                    );
+                    *crosshair_timer.borrow_mut() = Some(id);
+                });
+            })
+        };
+        {
+            let intent = key_intent.clone();
+            let down = pointer_down.clone();
+            let pending: Rc<Cell<bool>> = Rc::new(Cell::new(false));
+            tab.buffer.connect_changed(move |buf| {
+                let typed = intent
+                    .get()
+                    .is_some_and(|t| t.elapsed() < KEY_INTENT_WINDOW);
+                if !typed || down.get() || pending.replace(true) {
+                    return;
+                }
+                let buf = buf.clone();
+                let run = typing_scroll.clone();
+                let pending = pending.clone();
+                glib::idle_add_local_once(move || {
+                    pending.set(false);
+                    run(&buf);
+                });
+            });
+        }
 
         // Ctrl+click → show that spot in the preview. A modifier, not a plain
         // click: following every click used to yank the preview around while
@@ -8109,9 +8376,17 @@ impl EditorPane {
             });
             tab.view.add_controller(ctrl_click);
         }
-        tab.buffer.connect_mark_set(move |buf, _iter, mark| {
-            if mark.name().as_deref() == Some("insert") {
-                let cursor = buf.iter_at_mark(mark);
+        tab.buffer.connect_cursor_position_notify(move |buf| {
+            {
+                if let Some(boundary) = hidden_template_end(buf, buf.cursor_position()) {
+                    if buf.has_selection() {
+                        buf.move_mark(&buf.get_insert(), &boundary);
+                    } else {
+                        buf.place_cursor(&boundary);
+                    }
+                    return;
+                }
+                let cursor = buf.iter_at_offset(buf.cursor_position());
                 let line = cursor.line() + 1;
                 let col = cursor.line_offset() + 1;
                 cursor_lbl.set_text(&format!("L{line}:C{col}"));
@@ -8161,99 +8436,11 @@ impl EditorPane {
                     }
                 }
 
-                // Read typing flag before any tab.scroll decisions. connect_changed fires
-                // before connect_mark_set on keyboard input, so was_typing is true for
-                // keystrokes and false for mouse clicks.
-                let was_typing = typing_flag.get();
-                typing_flag.set(false);
-
-                // Scroll margin: keep the cursor at least ~5 lines from the viewport
-                // edges while typing (within_margin=0.15). Only queued on keyboard
-                // input — mouse press must NOT queue this or the idle fires mid-drag
-                // and breaks selection.
-                //
-                // Inside the idle we re-check two conditions before scrolling:
-                //  1. No selection active (drag started while idle was pending).
-                //  2. Cursor is within ±1 viewport height of the visible area.
-                //     If it's further away the user intentionally scrolled; snapping
-                //     back would be disorienting. ±1vh covers the normal case of
-                //     typing one or two lines past the edge.
-                if was_typing && !buf.has_selection() {
-                    let vs = view_for_scroll_margin.clone();
-                    let insert_mark = buf.get_insert();
-                    let buf_s = buf.clone();
-                    glib::idle_add_local_once(move || {
-                        if buf_s.has_selection() {
-                            return;
-                        }
-                        let cursor = buf_s.iter_at_mark(&insert_mark);
-                        let loc = vs.iter_location(&cursor);
-                        let (_, wy) =
-                            vs.buffer_to_window_coords(TextWindowType::Widget, loc.x(), loc.y());
-                        let view_h = vs.allocated_height();
-                        if wy > -view_h && wy < 2 * view_h {
-                            vs.scroll_to_mark(&insert_mark, 0.15, false, 0.0, 0.5);
-                        }
-                    });
-                }
-
-                // Typewriter scroll: only recenter when typing (not on mouse click).
-                // Debounced 80 ms so rapid line crossings coalesce into one recenter.
-                // Compared by the cursor's buffer-space y (display line), not the
-                // logical buf.line() — see last_tw_y's doc comment above.
-                let tw_y = if *typewriter_for_mark.borrow() {
-                    Some(view_for_scroll_margin.iter_location(&cursor).y())
-                } else {
-                    None
-                };
-                if let Some(y) =
-                    tw_y.filter(|&y| was_typing && !buf.has_selection() && y != last_tw_y.get())
-                {
-                    last_tw_y.set(y);
-                    let insert_mark = buf.get_insert();
-                    let vt = view_for_typewriter.clone();
-                    let sc_tw = scroll_for_typewriter.clone();
-                    let gen = typewriter_gen.get().wrapping_add(1);
-                    typewriter_gen.set(gen);
-                    let gen_rc = typewriter_gen.clone();
-                    let crosshair_tw = crosshair_for_mark.clone();
-                    let crosshair_timer_tw = crosshair_timer_for_mark.clone();
-                    glib::timeout_add_local_once(std::time::Duration::from_millis(80), move || {
-                        if gen_rc.get() != gen {
-                            return;
-                        }
-                        // Preserve horizontal tab.scroll — scroll_to_iter with xalign=0.0 would
-                        // snap the tab.view left, hiding text behind the left margin/line numbers.
-                        // Blank space past the last line, or the end of the document — where
-                        // new text usually goes — can never scroll up to the anchor.
-                        let pad = vt.height() / 2;
-                        if vt.bottom_margin() != pad {
-                            vt.set_bottom_margin(pad);
-                        }
-                        // Re-read from the mark: an iter captured when the timer was queued
-                        // is invalidated by any typing in the 80 ms window.
-                        let mut c = vt.buffer().iter_at_mark(&insert_mark);
-                        let h = sc_tw.hadjustment().value();
-                        vt.scroll_to_iter(&mut c, 0.0, true, 0.0, 0.45);
-                        sc_tw.hadjustment().set_value(h);
-                        // Show crosshair line at anchor; hide after 800ms
-                        crosshair_tw.set_visible(true);
-                        crosshair_tw.queue_draw();
-                        if let Some(id) = crosshair_timer_tw.borrow_mut().take() {
-                            id.remove();
-                        }
-                        let ch = crosshair_tw.clone();
-                        let ct = crosshair_timer_tw.clone();
-                        let id = glib::timeout_add_local_once(
-                            std::time::Duration::from_millis(800),
-                            move || {
-                                ch.set_visible(false);
-                                *ct.borrow_mut() = None;
-                            },
-                        );
-                        *crosshair_timer_tw.borrow_mut() = Some(id);
-                    });
-                }
+                // Keyboard-driven, as opposed to a click or a programmatic move.
+                let was_typing = key_intent
+                    .get()
+                    .is_some_and(|t| t.elapsed() < KEY_INTENT_WINDOW)
+                    && !pointer_down.get();
 
                 // #import "@preview/pkg:ver" tooltip
                 {
@@ -9098,6 +9285,19 @@ Real prose here.
     fn a_document_without_the_legacy_pattern_is_returned_unchanged() {
         let doc = "= Title\n\nOrdinary prose.\n";
         assert_eq!(migrate_template_it_numbering(doc), doc);
+    }
+
+    #[test]
+    fn only_the_generated_separator_lines_count_as_the_separator() {
+        assert!(is_separator_line(
+            "// ── Document body — Zerkalo uses this exact line to find where your writing starts. Leave it in place; everything below it is yours to edit freely."
+        ));
+        assert!(is_separator_line(
+            "// ── Document body ───────────────────────────────────────────────────"
+        ));
+        assert!(!is_separator_line(
+            "// ── Document body ───────────────────────────────────────────────────My first paragraph"
+        ));
     }
 
     #[test]

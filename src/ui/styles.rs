@@ -114,7 +114,7 @@ const GLOBAL_CSS: &str = "\
         caret-color: @accent_color; \
     } \
     textview text .current-line { \
-        background-color: alpha(@accent_color, 0.10); \
+        background-color: alpha(@window_fg_color, 0.05); \
     } \
     .statusbar-sep { \
         opacity: 0.25; \
