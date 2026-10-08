@@ -86,6 +86,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.50.3" date="2026-10-08">
+      <description>
+        <p>0.50.3 "Ordered Drawers" — the editor, reorganised. The code behind the writing area is split into smaller pieces and the order keyboard shortcuts take priority in is documented. Nothing changes on screen; it makes the next fix to the editor quicker and safer.</p>
+      </description>
+    </release>
     <release version="0.50.2" date="2026-10-08">
       <description>
         <p>0.50.2 "Calm Glass" — fewer surprises while you write. The unsaved mark clears when you undo back to what is saved, so the document reads "Saved" again instead of staying "Modified". The pop-up for an underlined mistake waits for the pointer to rest instead of flashing up as you pass, and closes when the pointer moves onto empty space.</p>

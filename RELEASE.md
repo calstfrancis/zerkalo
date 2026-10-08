@@ -1,11 +1,9 @@
-<!-- zerkalo-release: 0.50.2 -->
+<!-- zerkalo-release: 0.50.3 -->
 ### What's new
 
-Fewer surprises while you write.
+The editor, reorganised.
 
-**The unsaved mark follows undo.** Type something, undo it, and the document reads "Saved" again instead of staying "Modified" until the next save.
-
-**The error pop-up is calmer.** The explanation for an underlined mistake now waits until the pointer rests on it, so it no longer flashes up over text as you pass, and it closes when the pointer moves onto empty space, which it used to miss.
+**Nothing changes on screen.** The 9,500-line file behind the writing area is now 17 smaller ones, and the order keyboard shortcuts take priority in is written down. Zerkalo behaves exactly as 0.50.2 did; this makes the next fix to the editor quicker and safer.
 
 ---
 

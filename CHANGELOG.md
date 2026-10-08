@@ -3,6 +3,14 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.50.3] "Ordered Drawers" — 2026-10-08 — The editor, reorganised
+
+### Changed
+
+- **The editor's code is reorganised, with nothing to see.** The 9,500-line file behind the writing area is now 17 smaller ones (keys, find, spelling, saving, the status bar and so on), and the order the keyboard shortcuts take priority in is written down. Behaviour is unchanged; this makes the next fix to the editor quicker and safer.
+
+---
+
 ## [0.50.2] "Calm Glass" — 2026-10-08 — Fewer surprises while you write
 
 ### Fixed
