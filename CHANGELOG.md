@@ -3,6 +3,14 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- **Clicking the preview no longer throws the editor to another place.** A plain click on the preview page only focuses it; Ctrl+click or a double-click jumps to that spot in your writing, the same Ctrl+click rule that already works from the writing to the preview.
+
+---
+
 ## [0.50.0] "Still Glass" — 2026-10-07 — The text holds still
 
 ### Fixed

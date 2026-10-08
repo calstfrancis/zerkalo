@@ -144,7 +144,7 @@ def sleep(s):
 
 
 S_SETUP = os.path.join(os.path.dirname(os.path.abspath(__file__)), "wl_setup.py")
-env = dict(_mark=_mark, S_SETUP=S_SETUP, move=move, click=click, rclick=rclick, key=key, type_=type_, wheel=wheel,
+env = dict(rdcall=rdcall, keysym=keysym, _mark=_mark, S_SETUP=S_SETUP, move=move, click=click, rclick=rclick, key=key, type_=type_, wheel=wheel,
            shot=shot, sleep=sleep, mark=mark, report=report, traces=traces)
 exec(open(sys.argv[1]).read(), env)
 call(RD, rd_path, RD + ".Session", "Stop", None)

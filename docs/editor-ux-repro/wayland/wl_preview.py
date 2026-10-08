@@ -1,0 +1,13 @@
+exec(open(S_SETUP).read())
+click(700, 560); key("ctrl+Home"); sleep(0.5); wheel(20, 700, 560); sleep(2.5)
+def ctrl_click(x, y):
+    move(x, y)
+    rdcall("NotifyKeyboardKeysym", "(ub)", keysym("ctrl"), True); sleep(0.1)
+    click(); sleep(0.1)
+    rdcall("NotifyKeyboardKeysym", "(ub)", keysym("ctrl"), False)
+mark(); click(1370, 400); sleep(1.5); report("plain click in preview (must not move the editor)")
+mark(); click(1370, 600); sleep(1.5); report("second plain click in preview")
+mark(); rclick(700, 500); sleep(0.8); click(1370, 600); sleep(1.5); report("right-click text, dismiss by clicking preview")
+mark(); ctrl_click(1370, 400); sleep(2.0); report("Ctrl+click in preview (should jump)")
+click(700, 560); key("ctrl+Home"); sleep(0.5); wheel(20, 700, 560); sleep(2.5)
+mark(); click(1370, 400, n=2); sleep(2.0); report("double-click in preview (should jump)")

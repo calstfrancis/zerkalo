@@ -264,7 +264,7 @@ fn shortcuts_blocks() -> Vec<Block<'static>> {
         Block::Gap,
         Block::H2("Compiling & Preview"),
         Block::CodeOwned(format!(
-            "{compile:<20}Compile and refresh preview\nCtrl+Shift+E        Export PDF to the Export dialog's remembered folder (no dialog)\nCtrl+P              Print — printer, page range, layout, copies, all on one sheet\nAuto-compile        Fires automatically after each change\nClick preview       Jump to that exact spot in the source\nCtrl+click text     Show that spot in the preview"
+            "{compile:<20}Compile and refresh preview\nCtrl+Shift+E        Export PDF to the Export dialog's remembered folder (no dialog)\nCtrl+P              Print — printer, page range, layout, copies, all on one sheet\nAuto-compile        Fires automatically after each change\nCtrl+click preview  Jump to that exact spot in the source (so does a double-click)\nCtrl+click text     Show that spot in the preview"
         )),
         Block::Gap,
         Block::H2("Navigation"),

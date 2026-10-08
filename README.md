@@ -103,7 +103,7 @@ raw markup dead-end: a live preview pane always shows the real formatting next t
 ### Document workflow
 | Feature | Detail |
 |---|---|
-| **Live preview** | Auto or manual compile (status-bar toggle; manual is the default) — Auto recompiles on every edit, debounced with a configurable delay; all pages rendered; embedded Typst engine — no binary required; click anything in the preview to jump to its exact spot in the source, or Ctrl+click in the text to show that spot in the preview |
+| **Live preview** | Auto or manual compile (status-bar toggle; manual is the default) — Auto recompiles on every edit, debounced with a configurable delay; all pages rendered; embedded Typst engine — no binary required; Ctrl+click or double-click anything in the preview to jump to its exact spot in the source, or Ctrl+click in the text to show that spot in the preview |
 | **Cheatsheet & Help panel** | Toggle (`?` button) in preview toolbar shows a reference panel (Overview, Cheatsheet, Projects, Shortcuts, FAQ, About) in place of the preview |
 | **Style switcher** | Header-bar dropdown applies a citation style to the open document; button label shows the detected style name ("GOST 7.32") |
 | **New documents** | New Document, New from Template, the Library's New Document, and Save As only ask for a name — Zerkalo adds `.typ` and saves the file in your Zerkalo folder, where the Library lists it, so fonts and bibliographies always resolve. No save-anywhere file dialog |

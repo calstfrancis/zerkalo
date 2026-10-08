@@ -380,7 +380,16 @@ impl PreviewPane {
             let zoom_c = zoom_draw2.clone();
             let gesture = GestureClick::new();
             gesture.set_button(1);
-            gesture.connect_pressed(move |_g, n_press, x, y| {
+            gesture.connect_pressed(move |g, n_press, x, y| {
+                // A plain click only focuses the preview. Jumping the editor needs
+                // Ctrl+click or a double-click, the same rule as editor → preview;
+                // following every click yanked the editor around.
+                let ctrl = g
+                    .current_event_state()
+                    .contains(gtk4::gdk::ModifierType::CONTROL_MASK);
+                if n_press > 2 || (n_press == 1 && !ctrl) {
+                    return;
+                }
                 let is_double = n_press == 2;
                 let zoom = *zoom_c.borrow();
                 // The drawing area is the scrolled child, so (x, y) is already
