@@ -5272,6 +5272,13 @@ fn snippet_items(cv_mode: bool) -> Vec<CompletionItem> {
 /// scroll right after pasting still feels immediate.
 /// How long after a key press an edit or cursor move still counts as the
 /// user's own typing or keyboard navigation.
+/// Debug switch: `ZERKALO_TRACE_SCROLL=1` logs every vertical scroll to stderr,
+/// so a jump can be attributed (GTK, a guard, or a jump request).
+fn scroll_trace_on() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("ZERKALO_TRACE_SCROLL").is_some_and(|v| v != "0"))
+}
+
 const KEY_INTENT_WINDOW: Duration = Duration::from_millis(400);
 
 const PASTE_HOLD: Duration = Duration::from_millis(600);
@@ -7762,6 +7769,14 @@ impl EditorPane {
             let reasserting: Rc<Cell<bool>> = Rc::new(Cell::new(false));
             let record_v = is_users_scroll.clone();
             scroll.vadjustment().connect_value_changed(move |adj| {
+                if scroll_trace_on() {
+                    eprintln!(
+                        "SCROLLTRACE v={:.0} focused={} held={}",
+                        adj.value(),
+                        view_v.has_focus(),
+                        held.get().is_some()
+                    );
+                }
                 if let Some((v, _)) = held.get() {
                     if Instant::now() < held_until.get() {
                         // Re-assert, guarding against our own recursion.
