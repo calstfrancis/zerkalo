@@ -1,0 +1,11 @@
+exec(open(S_SETUP).read())
+click(700, 560); key("ctrl+End"); sleep(0.5)
+key("Return", "Return"); type_("#nosuchfunction()"); sleep(0.4)
+click(990, 141); sleep(8.0)
+wheel(40, 700, 500); sleep(1.5)
+move(700, 500); sleep(0.5)
+move(528, 714); sleep(0.15); shot("hv_a_rest_0.15s.png")
+sleep(0.9); shot("hv_b_rest_1.0s.png")
+move(700, 500); sleep(0.4); shot("hv_c_left.png")
+# sweep across the error without resting
+move(480, 714); move(500, 714); move(520, 714); move(540, 714); move(560, 714); move(700, 600); sleep(1.2); shot("hv_d_sweep.png")

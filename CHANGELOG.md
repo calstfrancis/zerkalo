@@ -3,6 +3,15 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- **The unsaved mark clears when you undo back to what's saved.** Type something, undo it, and the document reads "Saved" again instead of staying "Modified" until the next save.
+- **The error pop-up waits for the pointer to rest** on an underlined mistake, so it no longer flashes up over text as you pass, and it closes when the pointer moves onto empty space, which it used to miss.
+
+---
+
 ## [0.50.1] "Resting Glass" — 2026-10-08 — The preview stops pulling the editor around
 
 ### Fixed

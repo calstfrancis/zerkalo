@@ -3258,6 +3258,7 @@ impl EditorPane {
             buffer.begin_irreversible_action();
             replace_text_minimally(&buffer, content);
             buffer.end_irreversible_action();
+            buffer.set_modified(false);
             {
                 let sm = *self.simple_mode.borrow();
                 apply_simple_mode_tag(&buffer, sm);
@@ -3549,7 +3550,7 @@ impl EditorPane {
 
             let motion = EventControllerMotion::new();
             let active_popup_c = active_popup.clone();
-            motion.connect_motion(move |_, x, y| {
+            let show_hover = Rc::new(move |x: f64, y: f64| {
                 let diags = last_diags.borrow();
                 if diags.is_empty() {
                     return;
@@ -3558,6 +3559,13 @@ impl EditorPane {
                 let (bx, by) =
                     view_hover.window_to_buffer_coords(TextWindowType::Widget, x as i32, y as i32);
                 let Some(iter) = view_hover.iter_at_location(bx, by) else {
+                    // Past the end of a line, or below the text: no character is
+                    // under the pointer, so the error pop-up has nothing to point at
+                    // and closes like it does for any other spot off the error.
+                    let taken = active_popup_c.borrow_mut().take();
+                    if let Some(p) = taken {
+                        p.popdown();
+                    }
                     return;
                 };
                 let line_1based = iter.line() as u32 + 1;
@@ -3705,6 +3713,33 @@ impl EditorPane {
                 });
                 popover.popup();
             });
+            // A popup that opens the instant the pointer crosses an underline covers
+            // text people are passing over on their way somewhere else, so it waits
+            // for the pointer to rest. Moving while one is showing is handled at once
+            // so it closes as soon as the pointer leaves the error.
+            let last_pos = Rc::new(Cell::new((0.0f64, 0.0f64)));
+            let hover_gen = Rc::new(Cell::new(0u64));
+            {
+                let showing = active_popup.clone();
+                motion.connect_motion(move |_, x, y| {
+                    last_pos.set((x, y));
+                    let gen = hover_gen.get().wrapping_add(1);
+                    hover_gen.set(gen);
+                    if showing.borrow().is_some() {
+                        show_hover(x, y);
+                        return;
+                    }
+                    let show = show_hover.clone();
+                    let gen_cell = hover_gen.clone();
+                    let pos = last_pos.clone();
+                    glib::timeout_add_local_once(HOVER_DELAY, move || {
+                        if gen_cell.get() == gen {
+                            let (x, y) = pos.get();
+                            show(x, y);
+                        }
+                    });
+                });
+            }
             view.add_controller(motion);
         }
 
@@ -3948,6 +3983,8 @@ impl EditorPane {
         let path_for_callback = tab.path.clone();
         let content_for_callback = content.to_string();
 
+        // The loaded text is the saved state undo can return to.
+        buffer.set_modified(false);
         let session_start_words = count_words(content);
         self.state.borrow_mut().tabs.insert(
             path,
@@ -4147,11 +4184,12 @@ impl EditorPane {
             let mut state = self.state.borrow_mut();
             state.tabs.get_mut(path).map(|tab| {
                 tab.modified = false;
-                tab.dot_label.clone()
+                (tab.dot_label.clone(), tab.buffer.clone())
             })
         };
-        if let Some(dot_label) = widgets {
+        if let Some((dot_label, buffer)) = widgets {
             dot_label.set_visible(false);
+            buffer.set_modified(false);
         }
         if let Some(f) = self.on_modified_changed.borrow().as_ref() {
             f(false);
@@ -4267,7 +4305,7 @@ impl EditorPane {
     /// proceeding as if the save silently succeeded.
     pub fn save_all_modified(&self) -> Vec<PathBuf> {
         let mut outcomes: Vec<(PathBuf, Option<String>)> = Vec::new();
-        let (saved, failed): (Vec<(TabMark, PathBuf)>, Vec<PathBuf>) = {
+        let (saved, failed): (Vec<(TabMark, PathBuf, Buffer)>, Vec<PathBuf>) = {
             let mut state = self.state.borrow_mut();
             let mut saved = Vec::new();
             let mut failed = Vec::new();
@@ -4284,7 +4322,7 @@ impl EditorPane {
                 ));
                 if write.is_ok() {
                     tab.modified = false;
-                    saved.push((tab.dot_label.clone(), path.clone()));
+                    saved.push((tab.dot_label.clone(), path.clone(), tab.buffer.clone()));
                 } else {
                     failed.push(path.clone());
                 }
@@ -4296,8 +4334,9 @@ impl EditorPane {
             self.note_save_result(path, reason);
         }
         let any_saved = !saved.is_empty();
-        for (dot_label, path) in saved {
+        for (dot_label, path, buffer) in saved {
             dot_label.set_visible(false);
+            buffer.set_modified(false);
             crate::auto_save::clear(&path);
             // Same notifications a manual save sends, so the window's unsaved
             // state and the backup badge follow a save made from here too.
@@ -5278,6 +5317,9 @@ fn scroll_trace_on() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| std::env::var_os("ZERKALO_TRACE_SCROLL").is_some_and(|v| v != "0"))
 }
+
+/// How long the pointer must rest on an underlined error before its pop-up opens.
+const HOVER_DELAY: Duration = Duration::from_millis(450);
 
 const KEY_INTENT_WINDOW: Duration = Duration::from_millis(400);
 
@@ -8286,6 +8328,38 @@ impl EditorPane {
                         apply_comment_highlights(&buf_comment, Some(&cache));
                     },
                 ));
+            }
+        });
+
+        // Undoing back to the text on disk makes it unmodified again: GtkSource
+        // tracks the saved state, so the unsaved dot follows it rather than
+        // staying lit until the next save.
+        let state_for_clean = self.state.clone();
+        let path_for_clean = tab.path.clone();
+        let dot_for_clean = tab.dot_label.clone();
+        let on_modified_clean = self.on_modified_changed.clone();
+        let on_dirty_clean = self.on_file_dirty.clone();
+        tab.buffer.connect_modified_changed(move |buf| {
+            if buf.is_modified() {
+                return;
+            }
+            let was_modified = {
+                let mut state = state_for_clean.borrow_mut();
+                state
+                    .tabs
+                    .get_mut(&path_for_clean)
+                    .is_some_and(|t| std::mem::replace(&mut t.modified, false))
+            };
+            if !was_modified {
+                return;
+            }
+            dot_for_clean.set_visible(false);
+            crate::auto_save::clear(&path_for_clean);
+            if let Some(f) = on_dirty_clean.borrow().as_ref() {
+                f(path_for_clean.clone(), false);
+            }
+            if let Some(f) = on_modified_clean.borrow().as_ref() {
+                f(false);
             }
         });
     }
