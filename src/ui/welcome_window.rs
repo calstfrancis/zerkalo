@@ -7,7 +7,7 @@ use gtk4::{Align, Box as GtkBox, Button, Label, Orientation, ScrolledWindow, Sep
 use libadwaita as adw;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const RELEASE_NAME: &str = "Resting Glass";
+pub const RELEASE_NAME: &str = "Calm Glass";
 
 pub struct WelcomeWindow {
     window: adw::Window,

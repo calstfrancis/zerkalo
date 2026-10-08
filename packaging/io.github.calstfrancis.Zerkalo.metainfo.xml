@@ -86,6 +86,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.50.2" date="2026-10-08">
+      <description>
+        <p>0.50.2 "Calm Glass" — fewer surprises while you write. The unsaved mark clears when you undo back to what is saved, so the document reads "Saved" again instead of staying "Modified". The pop-up for an underlined mistake waits for the pointer to rest instead of flashing up as you pass, and closes when the pointer moves onto empty space.</p>
+      </description>
+    </release>
     <release version="0.50.1" date="2026-10-08">
       <description>
         <p>0.50.1 "Resting Glass" — the preview stops pulling the editor around. A plain click on the preview page no longer throws the editor to another place; Ctrl+click or a double-click jumps to that spot in your writing, the same Ctrl+click rule that already works from the writing to the preview.</p>

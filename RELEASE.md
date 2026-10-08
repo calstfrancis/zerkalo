@@ -1,9 +1,11 @@
-<!-- zerkalo-release: 0.50.1 -->
+<!-- zerkalo-release: 0.50.2 -->
 ### What's new
 
-The preview stops pulling the editor around.
+Fewer surprises while you write.
 
-**A plain click on the preview no longer moves your writing.** Clicking the preview page used to throw the editor to the matching spot, sometimes to the top of the document, and take the keyboard with it. Now a plain click only focuses the preview. Ctrl+click or a double-click jumps to that spot in your writing, the same Ctrl+click rule that already works from the writing to the preview.
+**The unsaved mark follows undo.** Type something, undo it, and the document reads "Saved" again instead of staying "Modified" until the next save.
+
+**The error pop-up is calmer.** The explanation for an underlined mistake now waits until the pointer rests on it, so it no longer flashes up over text as you pass, and it closes when the pointer moves onto empty space, which it used to miss.
 
 ---
 
