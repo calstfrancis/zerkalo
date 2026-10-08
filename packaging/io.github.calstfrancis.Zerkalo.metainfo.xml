@@ -86,6 +86,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.50.1" date="2026-10-08">
+      <description>
+        <p>0.50.1 "Resting Glass" — the preview stops pulling the editor around. A plain click on the preview page no longer throws the editor to another place; Ctrl+click or a double-click jumps to that spot in your writing, the same Ctrl+click rule that already works from the writing to the preview.</p>
+      </description>
+    </release>
     <release version="0.50.0" date="2026-10-07">
       <description>
         <p>0.50.0 "Still Glass" — the text holds still. A click no longer highlights a block of text after typing, jumping to a heading puts the cursor there instead of selecting it, and Simple Mode can no longer swallow your first paragraph. Lists carry on with Enter and nest with Tab, a pasted web address over selected words makes a link, Alt+Up and Alt+Down move lines, Alt+Shift+Right and Left select more or less, matching markers are highlighted, and Find highlights every match. Line spacing now applies inside paragraphs, and typing stays quick in long documents.</p>

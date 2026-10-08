@@ -3,7 +3,7 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.50.1] "Resting Glass" — 2026-10-08 — The preview stops pulling the editor around
 
 ### Fixed
 
