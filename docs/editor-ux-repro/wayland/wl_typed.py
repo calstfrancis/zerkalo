@@ -1,0 +1,26 @@
+TAG = __import__('os').environ.get('TAG','run')
+exec(open(S_SETUP).read())
+def typed_then(label, after):
+    click(700, 560); sleep(0.3); key('ctrl+Home'); sleep(0.8); wheel(25, 700, 560); sleep(2.0)
+    # put the cursor mid-view, type a word, then do `after`
+    click(700, 420); sleep(0.4); type_("abc "); sleep(0.8); mark()
+    after(); sleep(1.3); report(label)
+    key("Escape"); sleep(0.3); key("ctrl+z"); sleep(0.5)
+click(700, 420); sleep(0.4); type_("QQQ "); sleep(0.8); shot(TAG+"_typed.png"); key("ctrl+z"); sleep(0.5)
+typed_then("A type, then right-click low in the view", lambda: rclick(700, 820))
+shot(TAG+"_A.png")
+key("Escape"); sleep(0.5)
+typed_then("B type, then right-click high in the view", lambda: rclick(700, 270))
+key("Escape"); sleep(0.5)
+typed_then("C type, then right-click mid-view", lambda: rclick(700, 560))
+key("Escape"); sleep(0.5)
+def rc_then_away():
+    rclick(700, 560); sleep(0.8); click(700, 830)
+typed_then("D type, right-click, then click away low", rc_then_away)
+def rc_then_away_hi():
+    rclick(700, 560); sleep(0.8); click(700, 265)
+typed_then("E type, right-click, then click away high", rc_then_away_hi)
+typed_then("F type, then left-click low", lambda: click(700, 830))
+shot(TAG+"_F.png")
+typed_then("G type, then left-click high", lambda: click(700, 265))
+typed_then("H type, then left-click mid", lambda: click(700, 560))
