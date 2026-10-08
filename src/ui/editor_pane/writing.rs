@@ -12,8 +12,8 @@ use gtk4::prelude::*;
 use gtk4::{glib, EventControllerKey, PropagationPhase, TextTag};
 use sourceview5::{Buffer, View};
 
-use super::editor_pane::{base_key, hidden_template_end};
-use super::text_ops::{self, Continuation};
+use super::{base_key, hidden_template_end};
+use crate::ui::text_ops::{self, Continuation};
 
 const HANG_PREFIX: &str = "zk-hang:";
 const DELIM_TAG: &str = "zk-delim-match";
@@ -463,7 +463,7 @@ fn wire_delimiter_match(view: &View, buffer: &Buffer) {
                 table.add(&tag);
                 tag
             });
-            let (r, g, b) = super::theme::rgb(&view, "accent_color").unwrap_or((0.2, 0.5, 0.9));
+            let (r, g, b) = crate::ui::theme::rgb(&view, "accent_color").unwrap_or((0.2, 0.5, 0.9));
             tag.set_background_rgba(Some(&gtk4::gdk::RGBA::new(
                 r as f32, g as f32, b as f32, 0.30,
             )));
