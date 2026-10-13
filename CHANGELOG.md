@@ -3,6 +3,14 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.50.5] "Shut Gate" — 2026-10-13 — Security update
+
+### Security
+
+- **A networking library Zerkalo uses is updated to fix five security problems.** `quinn-proto`, which some of Zerkalo's network connections go through, goes to 0.11.19. The problems, published today, let a remote server use up memory or crash the connection. Nothing else changes.
+
+---
+
 ## [0.50.4] "Kept Pattern" — 2026-10-13 — Templates that hold, and a quieter problem list
 
 ### Fixed

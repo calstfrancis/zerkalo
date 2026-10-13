@@ -86,6 +86,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.50.5" date="2026-10-13" urgency="medium">
+      <description>
+        <p>0.50.5 "Shut Gate" — security update. A networking library Zerkalo uses (quinn-proto) is updated to fix five newly published problems that could let a remote server use up memory or crash the connection. Nothing else changes.</p>
+      </description>
+    </release>
     <release version="0.50.4" date="2026-10-13">
       <description>
         <p>0.50.4 "Kept Pattern" — templates that hold, and a quieter problem list. Applying a template now refreshes the preview straight away, even with manual compile on, so its line spacing, fonts and title page show up at once. New from Template and Change Document Style open on the Template tab where your saved templates are, Enter saves a template, and names containing "&amp;" display properly. The problem list shows only the document you are working on, and false "file not found" and variable-font warnings from the suggestions engine are gone.</p>
