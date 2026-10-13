@@ -86,6 +86,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.50.6" date="2026-10-13">
+      <description>
+        <p>0.50.6 "Clear Record" — crashes leave a record. If Zerkalo crashes it now writes the error, the line of code and a backtrace to crash.log beside its log file, instead of only to a terminal that isn't there when it's started from the app menu. The log file itself is far quieter, so what matters in it is easy to find.</p>
+      </description>
+    </release>
     <release version="0.50.5" date="2026-10-13" urgency="medium">
       <description>
         <p>0.50.5 "Shut Gate" — security update. A networking library Zerkalo uses (quinn-proto) is updated to fix five newly published problems that could let a remote server use up memory or crash the connection. Nothing else changes.</p>

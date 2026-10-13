@@ -3,6 +3,15 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.50.6] "Clear Record" — 2026-10-13 — Crashes leave a record
+
+### Fixed
+
+- **A crash now leaves a note saying what went wrong.** Zerkalo writes the error, the line of code it happened on and a backtrace to `crash.log` next to its log file (for the flatpak, `~/.var/app/io.github.calstfrancis.Zerkalo/data/zerkalo/crash.log`). Before, that detail only went to a terminal, which isn't there when Zerkalo is started from the app menu, so a crash left nothing to go on.
+- **The log file is readable again.** Background libraries were logging every network check and git lock file, thousands of lines an hour that buried anything useful. They now log only what matters.
+
+---
+
 ## [0.50.5] "Shut Gate" — 2026-10-13 — Security update
 
 ### Security

@@ -77,7 +77,13 @@ fn main() -> ExitCode {
 
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;
+    // Libraries log at TRACE by the thousand (an HTTP poll every 15 s, every git
+    // index.lock), which buried the lines before a crash; keep them to INFO.
+    let filter = tracing_subscriber::filter::Targets::new()
+        .with_default(tracing::Level::INFO)
+        .with_target("zerkalo", tracing::Level::DEBUG);
     tracing_subscriber::registry()
+        .with(filter)
         .with(
             tracing_subscriber::fmt::layer()
                 .with_ansi(false)
@@ -109,6 +115,7 @@ fn main() -> ExitCode {
              \n\
              Configuration: ~/.config/zerkalo/config.toml\n\
              Log file:       ~/.local/share/zerkalo/zerkalo.log\n\
+             Crash reports:  ~/.local/share/zerkalo/crash.log\n\
              Work folder:    set via config.toml work_dir key"
         );
         return ExitCode::SUCCESS;

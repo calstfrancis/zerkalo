@@ -226,6 +226,8 @@ add_reference = "ctrl+shift+r"
 
 All settings are also editable via **☰ → Settings** inside the app.
 
+If Zerkalo ever crashes, it appends what went wrong (the message, the line of code and a backtrace) to `crash.log` beside its log file: `~/.local/share/zerkalo/` for a source install, `~/.var/app/io.github.calstfrancis.Zerkalo/data/zerkalo/` for the flatpak. That file is what's needed to fix it.
+
 ---
 
 ## Keyboard Shortcuts
