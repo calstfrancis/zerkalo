@@ -300,6 +300,7 @@ impl AppWindow {
             });
         }
         error_panel.widget().set_visible(false);
+        let problems = super::problems::Problems::new(error_panel.clone(), editor_pane.clone());
 
         // ── LSP client ──────────────────────────────────────────────────────
 
@@ -1048,6 +1049,7 @@ impl AppWindow {
         let citation_panel_for_switch = citation_panel.clone();
         let configured_root_for_switch = configured_root.clone();
         let proj_mode_for_switch = proj_mode_active.clone();
+        let problems_for_switch = problems.clone();
         let outline_manuscript_mode_for_switch = outline_manuscript_mode.clone();
         // Track per-file content hashes so tab switches don't recompile unchanged files.
         let switch_hash_map: Rc<RefCell<std::collections::HashMap<std::path::PathBuf, u64>>> =
@@ -1091,6 +1093,7 @@ impl AppWindow {
                 path.clone()
             };
             preview_for_switch.set_root_file(root_for_compile.clone());
+            problems_for_switch.set_lsp_scope(Some(&root_for_compile), Some(&path));
             if needs_compile {
                 preview_for_switch.trigger_compile();
             }
@@ -1226,6 +1229,8 @@ impl AppWindow {
         let ep_for_open = editor_pane.clone();
         let ep_cv_for_open = editor_pane.clone();
         let citation_panel_for_open = citation_panel.clone();
+        let preview_for_scope = preview_pane.clone();
+        let problems_for_open = problems.clone();
         editor_pane.set_on_file_opened(move |path, content| {
             // Track initial word count for this file (first open only)
             let mut starts = file_start_words_for_open.borrow_mut();
@@ -1236,6 +1241,8 @@ impl AppWindow {
             if let Some(client) = lsp_for_open.borrow_mut().as_mut() {
                 client.did_open(&path, &content);
             }
+            problems_for_open
+                .set_lsp_scope(preview_for_scope.root_file_path().as_deref(), Some(&path));
             let is_cv = super::template_dialog::parse_doc_kind(&content)
                 .map(|k| k == "cv")
                 .unwrap_or(false);
@@ -1310,8 +1317,6 @@ impl AppWindow {
         // file_tree holder: filled after FileTree is constructed below
         let file_tree_holder: Rc<RefCell<Option<super::file_tree::FileTree>>> =
             Rc::new(RefCell::new(None));
-
-        let problems = super::problems::Problems::new(error_panel.clone(), editor_pane.clone());
 
         let compile_progress = gtk4::ProgressBar::new();
         compile_progress.add_css_class("compile-progress");
@@ -1399,6 +1404,11 @@ impl AppWindow {
             compile_btn_for_done.remove_css_class("compiling-pulse");
             compile_rev_for_done.set_reveal_child(false);
             problem_gen_for_compile.set(problem_gen_for_compile.get() + 1);
+            // Includes may have changed since the scope was last drawn.
+            problems_for_compile.set_lsp_scope(
+                preview_for_compile.root_file_path().as_deref(),
+                editor_for_diag.get_active_path().as_deref(),
+            );
             match &result {
                 None => {
                     let had_errors = *has_errors_for_compile.borrow();
@@ -2199,7 +2209,6 @@ impl AppWindow {
         let (left_box, template_btn) = wire_sidebar_toolbar(&SidebarToolbarCtx {
             window: window.clone(),
             editor_pane: editor_pane.clone(),
-            preview_pane: preview_pane.clone(),
             outline_panel: outline_panel.clone(),
             citation_panel: citation_panel.clone(),
             package_browser: package_browser.clone(),
@@ -4132,7 +4141,6 @@ pub(super) fn show_ref_manager_window(
 pub(super) fn open_template_for_active_document(
     window: &adw::ApplicationWindow,
     editor: &super::editor_pane::EditorPane,
-    preview: &super::preview_pane::PreviewPane,
     toast_overlay: &adw::ToastOverlay,
     project_root: &Path,
     config: &Rc<RefCell<Config>>,
@@ -4330,13 +4338,11 @@ pub(super) fn open_template_for_active_document(
     );
 
     let ep = editor.clone();
-    let pv = preview.clone();
     let toasts = toast_overlay.clone();
     let root = project_root.to_path_buf();
     dlg.set_on_apply(move |new_content, sidecar| {
         apply_template_result(
             &ep,
-            &pv,
             &toasts,
             &root,
             current_path.clone(),
@@ -4390,7 +4396,11 @@ fn apply_doc_font_edit(
         update_sidecar(&mut sc);
         super::template_dialog::save_sidecar(&path, &sc);
     }
-    editor.splice_preamble(path, &updated);
+    editor.splice_preamble(path.clone(), &updated);
+    // With manual compile on nothing else refreshes the preview's copy of the text.
+    if let Some(content) = editor.get_active_content() {
+        preview.set_buffer_snapshot(path, content);
+    }
     preview.trigger_compile();
     true
 }
@@ -4403,7 +4413,6 @@ fn apply_doc_font_edit(
 #[allow(clippy::too_many_arguments)]
 fn apply_template_result(
     editor: &super::editor_pane::EditorPane,
-    preview: &super::preview_pane::PreviewPane,
     toast_overlay: &adw::ToastOverlay,
     project_root: &Path,
     path: PathBuf,
@@ -4414,7 +4423,6 @@ fn apply_template_result(
 
     let do_apply = {
         let editor = editor.clone();
-        let preview = preview.clone();
         let toast_overlay = toast_overlay.clone();
         let path = path.clone();
         let project_root = project_root.to_path_buf();
@@ -4472,7 +4480,7 @@ fn apply_template_result(
             }
             super::template_dialog::save_sidecar(&path, &sidecar);
             editor.splice_preamble(path.clone(), &updated);
-            preview.trigger_compile();
+            editor.refresh_active_document();
 
             match outcome {
                 SpliceOutcome::BodyAdopted => toast_overlay.add_toast(adw::Toast::new(&format!(

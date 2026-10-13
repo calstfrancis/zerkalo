@@ -184,7 +184,9 @@ impl LspClient {
     /// Drain pending diagnostic notifications, oldest first.
     pub fn poll(&self) -> Vec<DiagBatch> {
         let mut out = Vec::new();
-        while let Ok(d) = self.diag_rx.try_recv() {
+        while let Ok(mut d) = self.diag_rx.try_recv() {
+            d.diags
+                .retain(|diag| !is_outside_root_false_alarm(&diag.message, &self.root));
             out.push(d);
         }
         out
@@ -316,6 +318,24 @@ fn reader_thread(
             }
         }
     }
+}
+
+/// tinymist reads an absolute path outside the work folder as `<work folder>/<path>`; the
+/// compiler widens its root for that (see `ZerkaloWorld::new`), so the report is noise.
+fn is_outside_root_false_alarm(message: &str, root: &Path) -> bool {
+    let Some(searched) = message
+        .strip_prefix("file not found (searched at ")
+        .and_then(|rest| rest.split(')').next())
+    else {
+        return false;
+    };
+    let searched = Path::new(searched);
+    let mut roots = vec![root.to_path_buf()];
+    roots.extend(std::fs::canonicalize(root).ok());
+    roots
+        .iter()
+        .filter_map(|r| searched.strip_prefix(r).ok())
+        .any(|rest| !rest.as_os_str().is_empty() && Path::new("/").join(rest).is_file())
 }
 
 // ── Parsers ───────────────────────────────────────────────────────────────────
@@ -523,5 +543,27 @@ mod tests {
             "#heading(level)"
         );
         assert_eq!(strip_snippet_syntax(r"\$5 total"), "$5 total");
+    }
+
+    #[test]
+    fn a_missing_file_under_the_root_that_exists_absolutely_is_a_false_alarm() {
+        let base = tempfile::tempdir().unwrap();
+        let (work, vault) = (base.path().join("work"), base.path().join("vault"));
+        std::fs::create_dir_all(&work).unwrap();
+        std::fs::create_dir_all(&vault).unwrap();
+        let lib = vault.join("library.yml");
+        std::fs::write(&lib, "").unwrap();
+        let doubled = format!("{}{}", work.display(), lib.display());
+        let msg = |p: &str| format!("file not found (searched at {p})");
+        assert!(is_outside_root_false_alarm(&msg(&doubled), &work));
+        // Genuinely missing — absolute or project-relative — still reported.
+        let gone = format!("{}{}", work.display(), vault.join("gone.yml").display());
+        assert!(!is_outside_root_false_alarm(&msg(&gone), &work));
+        let local = work.join("citations.bib");
+        assert!(!is_outside_root_false_alarm(
+            &msg(&local.to_string_lossy()),
+            &work
+        ));
+        assert!(!is_outside_root_false_alarm("unknown variable: x", &work));
     }
 }

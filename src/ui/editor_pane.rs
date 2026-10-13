@@ -1275,6 +1275,17 @@ impl EditorPane {
         *self.on_page_switch.borrow_mut() = Some(Box::new(f));
     }
 
+    /// Re-runs the tab-switch refresh for the active tab after its text was replaced
+    /// wholesale, so the preview recompiles even with manual compile on.
+    pub fn refresh_active_document(&self) {
+        let Some((path, content)) = self.get_active_path().zip(self.get_active_content()) else {
+            return;
+        };
+        if let Some(f) = self.on_page_switch.borrow().as_ref() {
+            f(content, path);
+        }
+    }
+
     pub fn set_on_file_opened(&self, f: impl Fn(PathBuf, String) + 'static) {
         *self.on_file_opened.borrow_mut() = Some(Box::new(f));
     }

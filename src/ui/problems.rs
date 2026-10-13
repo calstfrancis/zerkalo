@@ -1,5 +1,6 @@
 use std::cell::RefCell;
-use std::path::PathBuf;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use gtk4::prelude::*;
@@ -50,6 +51,30 @@ impl Problems {
                 model.set_lsp_file(file, errors);
             }
         }
+        self.refresh(false);
+    }
+
+    /// Paths go in both as given and canonicalized: tinymist echoes whichever spelling it was opened with.
+    pub fn set_lsp_scope(&self, root: Option<&Path>, active: Option<&Path>) {
+        let mut files: HashSet<PathBuf> = HashSet::new();
+        let mut add = |p: &Path| {
+            files.insert(p.to_path_buf());
+            if let Ok(c) = std::fs::canonicalize(p) {
+                files.insert(c);
+            }
+        };
+        if let Some(root) = root {
+            add(root);
+            if let Some(dir) = root.parent() {
+                for (path, _) in crate::project::manuscript_files(root, dir) {
+                    add(&path);
+                }
+            }
+        }
+        if let Some(active) = active {
+            add(active);
+        }
+        self.model.borrow_mut().set_lsp_scope(files);
         self.refresh(false);
     }
 

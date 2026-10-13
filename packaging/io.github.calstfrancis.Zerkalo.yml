@@ -134,8 +134,8 @@ modules:
         url: https://github.com/calstfrancis/zerkalo.git
         branch: main
       - type: archive
-        url: https://github.com/Myriad-Dreamin/tinymist/releases/download/v0.14.18/tinymist-x86_64-unknown-linux-gnu.tar.gz
-        sha256: 8033383d691165d567c5ccd83888dca2b629fcc1054da6eef8c81e1715df8ca9
+        url: https://github.com/Myriad-Dreamin/tinymist/releases/download/v0.15.8/tinymist-x86_64-unknown-linux-gnu.tar.gz
+        sha256: 2428932e8d8b593ebc1ac4eed41fb9d3584166e1044bbcdef740b7296c348295
         dest: tinymist-bin
       - type: file
         path: io.github.calstfrancis.Zerkalo.metainfo.xml

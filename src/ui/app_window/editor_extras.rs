@@ -16,7 +16,6 @@ use super::super::editor_pane::EditorPane;
 use super::super::file_tree::FileTree;
 use super::super::outline_panel::OutlinePanel;
 use super::super::package_browser::PackageBrowser;
-use super::super::preview_pane::PreviewPane;
 use super::import::{run_pandoc_import, run_pdf_import, IMPORT_FORMATS};
 use crate::config::Config;
 
@@ -133,7 +132,6 @@ pub(super) fn wire_editor_extras(ctx: &EditorExtrasCtx) {
 pub(super) struct SidebarToolbarCtx {
     pub(super) window: adw::ApplicationWindow,
     pub(super) editor_pane: EditorPane,
-    pub(super) preview_pane: PreviewPane,
     pub(super) outline_panel: OutlinePanel,
     pub(super) citation_panel: CitationPanel,
     pub(super) package_browser: PackageBrowser,
@@ -217,17 +215,9 @@ pub(super) fn wire_sidebar_toolbar(ctx: &SidebarToolbarCtx) -> (GtkBox, Button) 
         let ep_ut = ctx.editor_pane.clone();
         let root_ut = ctx.project_root.clone();
         let cfg_ut = ctx.current_config.clone();
-        let preview_ut = ctx.preview_pane.clone();
         let toast_ut = ctx.toast_overlay.clone();
         update_template_btn.connect_clicked(move |_| {
-            super::open_template_for_active_document(
-                &win_ut,
-                &ep_ut,
-                &preview_ut,
-                &toast_ut,
-                &root_ut,
-                &cfg_ut,
-            );
+            super::open_template_for_active_document(&win_ut, &ep_ut, &toast_ut, &root_ut, &cfg_ut);
         });
     }
 

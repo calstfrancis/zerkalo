@@ -679,7 +679,7 @@ fn build_document_tab(notebook: &Notebook, cv_switch: &Switch) -> DocumentTab {
     meta_group.add(&date_row);
 
     let style_group = adw::PreferencesGroup::new();
-    style_group.set_title("Citation & Heading Style");
+    style_group.set_title(&glib::markup_escape_text("Citation & Heading Style"));
     style_group.set_description(Some(
         "The same presets as the header's Style button, applied together with the \
          document settings below when you click Apply.",
@@ -690,6 +690,7 @@ fn build_document_tab(notebook: &Notebook, cv_switch: &Switch) -> DocumentTab {
     let cv_style_labels: Vec<&str> = CV_STYLE_OPTIONS.iter().map(|(n, _, _)| *n).collect();
     let cv_style_model = gtk4::StringList::new(&cv_style_labels);
     let style_row = adw::ComboRow::new();
+    style_row.set_use_markup(false);
     style_row.set_title("Style");
     style_row.set_subtitle("Sets heading formatting and bibliography output");
     style_row.set_model(Some(&style_model));
@@ -1777,6 +1778,7 @@ fn build_templates_gallery(
     // ── Built-in presets ─────────────────────────────────────────────────────
     for (idx, preset) in TEMPLATE_PRESETS.iter().enumerate() {
         let row = adw::ActionRow::new();
+        row.set_use_markup(false);
         row.set_title(preset.name);
         row.set_subtitle(preset.description);
         row.set_activatable(true);
@@ -1841,6 +1843,8 @@ fn build_templates_gallery(
             for template in templates {
                 let kind = body_kind_from_key(&template.settings.body_kind);
                 let row = adw::ActionRow::new();
+                // A name is the user's own text; "Notes & Drafts" must not parse as markup.
+                row.set_use_markup(false);
                 row.set_title(&template.name);
                 row.set_subtitle(&describe_settings(&template.settings));
                 row.set_activatable(true);
@@ -2055,6 +2059,14 @@ pub fn describe_settings(s: &SidecarSettings) -> String {
                 .to_lowercase()
         ));
     }
+    // CV and LaTeX Look set their own leading, so the field means nothing there.
+    if s.body_kind != "cv" && s.style != "latex" {
+        if let Some(label) = spacing_index(&s.spacing)
+            .and_then(|i| ["single-spaced", "1.5-line spacing", "double-spaced"].get(i))
+        {
+            parts.push(label.to_string());
+        }
+    }
     if s.toc {
         parts.push("contents".into());
     }
@@ -2094,6 +2106,16 @@ fn prompt_and_save_template(window: &adw::Window, form: &FormWidgets, refresh: R
         let dialog = dialog.clone();
         entry.connect_changed(move |e| {
             dialog.set_response_enabled("save", !e.text().trim().is_empty());
+        });
+    }
+    {
+        let dialog = dialog.clone();
+        entry.connect_entry_activated(move |e| {
+            if !e.text().trim().is_empty() {
+                // `response` only emits the signal; the buttons close the dialog themselves.
+                dialog.response("save");
+                dialog.close();
+            }
         });
     }
 
@@ -2784,6 +2806,8 @@ impl TemplateDialog {
         // ── Simple form group ────────────────────────────────────────────────
         // Gallery is Tab 0 — it fills the full window and has internal scrolling
         notebook.prepend_page(&gallery_outer, Some(&tab_label("Template")));
+        // Prepending doesn't move the selection, which would otherwise stay on Document.
+        notebook.set_current_page(Some(0));
         notebook.set_hexpand(true);
 
         wire_cv_mode_toggle(
@@ -6100,5 +6124,17 @@ Some real writing the user already did.\n";
             updated.contains("Some real writing the user already did."),
             "the user's body text survives untouched"
         );
+    }
+
+    #[test]
+    fn a_saved_templates_summary_names_its_line_spacing() {
+        let mut s = SidecarSettings {
+            style: "chicago-notes".into(),
+            spacing: "2em".into(),
+            ..Default::default()
+        };
+        assert!(describe_settings(&s).contains("double-spaced"));
+        s.style = "latex".into();
+        assert!(!describe_settings(&s).contains("spaced"));
     }
 }

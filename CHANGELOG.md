@@ -3,6 +3,21 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.50.4] "Kept Pattern" — 2026-10-13 — Templates that hold, and a quieter problem list
+
+### Fixed
+
+- **Applying a template now shows up straight away.** With manual compile on, Apply to Current left the preview blank until you pressed Compile, so a template's line spacing, fonts and title page looked as if they hadn't been applied at all. The preview, the style name in the toolbar and the outline now refresh as soon as you apply.
+- **Your saved templates are where you'd look for them.** New from Template and Change Document Style now open on the Template tab, where Your Templates live, instead of the Document tab.
+- **Enter saves a template.** Typing a name in Save as template and pressing Enter now saves it and closes the box; before, Enter did nothing.
+- **Names and descriptions with "&" show up.** A template called "Notes & Drafts" appeared with a blank name, and a few built-in descriptions (Research Article, CV — Two-Column) were missing for the same reason.
+- **A saved template says its line spacing.** Its summary now reads "double-spaced", "1.5-line spacing" or "single-spaced" alongside the font and margins.
+- **The problem list only shows the document you're working on.** Problems from other files you'd opened earlier in the session no longer appear alongside this one's; switch back to one and its problems come back.
+- **No more "file not found" for a Kartoteka `library.yml` that is plainly there.** A bibliography outside the project folder always compiled fine, but the suggestions engine looked for it inside the folder and reported it missing.
+- **No more warnings that variable fonts aren't supported.** The suggestions engine (tinymist) is updated to 0.15.8, which uses the same Typst version as the preview, so the two no longer disagree about fonts.
+
+---
+
 ## [0.50.3] "Ordered Drawers" — 2026-10-08 — The editor, reorganised
 
 ### Changed

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use super::error_panel::{CompileError, Severity};
@@ -48,6 +48,8 @@ pub struct DiagnosticsModel {
     /// Latest report per file. A report replaces that file's previous one, and
     /// an empty report clears it.
     lsp: HashMap<PathBuf, Vec<CompileError>>,
+    /// The current document's files; tinymist keeps reporting on every tab ever opened.
+    lsp_scope: Option<HashSet<PathBuf>>,
 }
 
 impl DiagnosticsModel {
@@ -67,6 +69,10 @@ impl DiagnosticsModel {
         self.lsp.clear();
     }
 
+    pub fn set_lsp_scope(&mut self, files: HashSet<PathBuf>) {
+        self.lsp_scope = Some(files);
+    }
+
     /// Compile results first (they carry the exact range, hints and package
     /// origin), then language-server findings the compiler didn't report.
     /// Errors sort ahead of notes; otherwise order is stable so the panel
@@ -76,7 +82,11 @@ impl DiagnosticsModel {
         for e in &self.compile {
             out.push(e.clone());
         }
-        let mut lsp_files: Vec<&PathBuf> = self.lsp.keys().collect();
+        let mut lsp_files: Vec<&PathBuf> = self
+            .lsp
+            .keys()
+            .filter(|f| self.lsp_scope.as_ref().is_none_or(|s| s.contains(*f)))
+            .collect();
         lsp_files.sort();
         for file in lsp_files {
             for e in &self.lsp[file] {
@@ -183,5 +193,16 @@ mod tests {
             diag("a.typ", 5, "error", Severity::Error),
         ]);
         assert_eq!(m.merged()[0].technical, "error");
+    }
+
+    #[test]
+    fn lsp_findings_outside_the_current_document_are_hidden_not_forgotten() {
+        let mut m = DiagnosticsModel::default();
+        m.set_lsp_file("a.typ".into(), vec![diag("a.typ", 1, "x", Severity::Error)]);
+        m.set_lsp_file("b.typ".into(), vec![diag("b.typ", 1, "y", Severity::Error)]);
+        m.set_lsp_scope(["a.typ".into()].into());
+        assert_eq!(counts(&m), (1, 0));
+        m.set_lsp_scope(["b.typ".into()].into());
+        assert_eq!(m.merged()[0].file, PathBuf::from("b.typ"));
     }
 }
