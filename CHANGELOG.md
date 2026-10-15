@@ -3,6 +3,21 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.51.0] "Plain Tally" — 2026-10-15 — Count in-text citations
+
+### Added
+
+- **A "citations in count" toggle for author-date documents.** When a document's citation style prints parenthetical citations (APA, Chicago author-date, Harvard, MLA, or a custom author-date `.csl`), the status bar offers a "citations in count" switch beside the word count. Off (the default, as before), citations are left out of every count. On, each one counts as the words it prints — "(Smith, 2020)" is two, "(Smith & Jones, 2019)" is four, "(Smith et al., 2019)" is four, and a page locator like `@smith2020[p. 5]` adds its own words. The text is produced by the same citation engine and style the finished document uses, so the figure matches the printed result, including the name changes a style makes to tell two same-surname authors apart.
+- The choice is stored in the document (a `// zerkalo-count-citations: on` line at the top) and applies everywhere at once: the status-bar count, the goal ring, the "+N this session" figure (switching the toggle doesn't register as writing), Document Statistics, the outline's section and total counts, the section count beside the breadcrumb and the project total. Numeric and footnote styles have nothing to count, so the switch doesn't appear for them.
+
+### Fixed
+
+- **A page locator after a citation was counted as prose.** `@smith2020[p. 5]` dropped the citation but counted "[p." and "5]" as two words. They now go with the citation.
+- **Punctuation after a citation counted as a word.** "shown @smith2020." left a lone "." that counted. It now stays attached to the word before it.
+- **The section count beside the breadcrumb counted comments and markup.** It split raw source on spaces; it now counts the same way as the outline and the status bar.
+
+---
+
 ## [0.50.6] "Clear Record" — 2026-10-13 — Crashes leave a record
 
 ### Fixed

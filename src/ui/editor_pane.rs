@@ -56,6 +56,7 @@ use self::simple_mode::*;
 use self::spell::*;
 use self::status_bar::*;
 use self::wordcount::*;
+pub(super) use self::wordcount::{cites_for, count_section_words};
 
 // Package names/descriptions matching EXTRA_PACKAGES in template_dialog.rs
 const IMPORT_PACKAGE_TOOLTIPS: &[(&str, &str)] = &[
@@ -192,6 +193,8 @@ pub struct EditorPane {
     undo_btn: Button,
     redo_btn: Button,
     word_count_label: Label,
+    cite_count_label: Label,
+    cite_count_btn: Button,
     on_word_count_click: Rc<RefCell<Option<Box<dyn Fn()>>>>,
     session_delta_label: Label,
     goal_ring: DrawingArea,
@@ -378,6 +381,8 @@ impl EditorPane {
             simple_mode_label,
             simple_mode_btn,
             section_wc_label,
+            cite_count_label,
+            cite_count_btn,
             word_count_label,
             wc_btn,
             session_delta_label,
@@ -513,6 +518,9 @@ impl EditorPane {
         {
             let state2 = state.clone();
             let wc = word_count_label.clone();
+            let root_for_switch = project_root.clone();
+            let cite_btn_switch = cite_count_btn.clone();
+            let cite_label_switch = cite_count_label.clone();
             let ps = on_page_switch.clone();
             let ub = undo_btn.clone();
             let rb = redo_btn.clone();
@@ -541,7 +549,20 @@ impl EditorPane {
                     found
                 };
                 if let Some((path, content, can_undo, can_redo, session_start)) = page_data {
-                    wc.set_text(&wc_str_with_delta(&content, session_start));
+                    let root = root_for_switch.borrow().clone();
+                    let cites = cites_for(&content, &path, root.as_deref());
+                    wc.set_text(&wc_str_with_delta(
+                        &content,
+                        session_start,
+                        cites.as_deref(),
+                    ));
+                    sync_cite_toggle(
+                        &cite_btn_switch,
+                        &cite_label_switch,
+                        &content,
+                        &path,
+                        root.as_deref(),
+                    );
                     ub.set_sensitive(can_undo);
                     rb.set_sensitive(can_redo);
                     if let Some(f) = ps.borrow().as_ref() {
@@ -582,6 +603,8 @@ impl EditorPane {
             undo_btn,
             redo_btn,
             word_count_label,
+            cite_count_label,
+            cite_count_btn: cite_count_btn.clone(),
             session_delta_label,
             goal_ring,
             goal_fraction,
@@ -746,6 +769,10 @@ impl EditorPane {
                     f(new_val);
                 }
             });
+        }
+        {
+            let ep_cc = ep.clone();
+            cite_count_btn.connect_clicked(move |_| ep_cc.toggle_count_citations());
         }
         {
             let ep_fb = ep.clone();
@@ -1923,7 +1950,21 @@ impl EditorPane {
         );
 
         self.notebook.set_current_page(page_index);
-        set_wc_text_with_session(&self.word_count_label, content, session_start_words);
+        let root = self.project_root.borrow().clone();
+        let cites = cites_for(content, &path_for_callback, root.as_deref());
+        set_wc_text_with_session(
+            &self.word_count_label,
+            content,
+            session_start_words,
+            cites.as_deref(),
+        );
+        sync_cite_toggle(
+            &self.cite_count_btn,
+            &self.cite_count_label,
+            content,
+            &path_for_callback,
+            root.as_deref(),
+        );
 
         // Per-document `// @zerkalo-goal: N` wins; otherwise the Settings goal.
         let goal = parse_goal_comment(content).unwrap_or(*self.default_word_count_goal.borrow());
@@ -1931,7 +1972,13 @@ impl EditorPane {
         if goal == 0 {
             self.goal_ring.set_visible(false);
         } else {
-            update_goal_ring(&self.goal_ring, &self.goal_fraction, content, goal);
+            update_goal_ring(
+                &self.goal_ring,
+                &self.goal_fraction,
+                content,
+                goal,
+                cites.as_deref(),
+            );
         }
 
         // Explicitly fire page_switch so title/outline update even when this is
@@ -2434,7 +2481,10 @@ pub(super) fn strip_zerkalo_blocks(input: &str) -> String {
     out
 }
 
-pub(super) fn strip_typst_markup(input: &str) -> String {
+pub(super) fn strip_typst_markup_with(
+    input: &str,
+    cites: Option<&crate::word_cites::CitationWords>,
+) -> String {
     let chars: Vec<char> = input.chars().collect();
     let n = chars.len();
     let mut out = String::with_capacity(n);
@@ -2525,17 +2575,38 @@ pub(super) fn strip_typst_markup(input: &str) -> String {
             continue;
         }
 
-        // Citation reference @key
-        if c == '@' {
-            i += 1;
+        // Citation @key[supplement]: its printed text when counting citations,
+        // otherwise nothing — supplement included, it prints inside the citation.
+        if c == '@'
+            && !i
+                .checked_sub(1)
+                .is_some_and(|p| chars[p].is_alphanumeric() || matches!(chars[p], '_' | '.' | '-'))
+        {
+            let start = i + 1;
+            i = start;
             while i < n
                 && (chars[i].is_alphanumeric()
-                    || chars[i] == '_'
-                    || chars[i] == '-'
-                    || chars[i] == ':')
+                    || matches!(chars[i], '_' | '-' | ':')
+                    || (chars[i] == '.' && chars.get(i + 1).is_some_and(|c| c.is_alphanumeric())))
             {
                 i += 1;
             }
+            let key: String = chars[start..i].iter().collect();
+            let mut supplement = None;
+            if chars.get(i) == Some(&'[') {
+                let end = skip_balanced_typst(&chars, i, n);
+                supplement = Some(
+                    chars[i + 1..end.saturating_sub(1).max(i + 1)]
+                        .iter()
+                        .collect::<String>(),
+                );
+                i = end;
+            }
+            push_citation(
+                &mut out,
+                cites.and_then(|w| w.text(&key, supplement.as_deref())),
+                chars.get(i).copied(),
+            );
             continue;
         }
 
@@ -2544,6 +2615,7 @@ pub(super) fn strip_typst_markup(input: &str) -> String {
         // between the keyword and the element name — skip the whole line for those.
         if c == '#' {
             i += 1;
+            let ident_start = i;
             while i < n
                 && (chars[i].is_alphanumeric()
                     || chars[i] == '_'
@@ -2558,13 +2630,30 @@ pub(super) fn strip_typst_markup(input: &str) -> String {
                 }
                 continue;
             }
+            let is_cite_call = chars[ident_start..i].iter().collect::<String>() == "cite"
+                && chars.get(i) == Some(&'(');
+            if let (Some(w), true) = (cites, is_cite_call) {
+                let end = skip_balanced_typst(&chars, i, n);
+                let args: String = chars[i + 1..end.saturating_sub(1).max(i + 1)]
+                    .iter()
+                    .collect();
+                if let Some((key, supplement)) = cite_call_parts(&args) {
+                    push_citation(
+                        &mut out,
+                        w.text(&key, supplement.as_deref()),
+                        chars.get(end).copied(),
+                    );
+                }
+                i = end;
+                continue;
+            }
             while i < n && matches!(chars[i], '[' | '(' | '{') {
                 if chars[i] == '[' {
                     // Content block — recursively strip and keep the text
                     let end = skip_balanced_typst(&chars, i, n);
                     if end > i + 1 {
                         let inner: String = chars[i + 1..end - 1].iter().collect();
-                        out.push_str(&strip_typst_markup(&inner));
+                        out.push_str(&strip_typst_markup_with(&inner, cites));
                     }
                     out.push(' ');
                     i = end;
@@ -2591,6 +2680,46 @@ pub(super) fn strip_typst_markup(input: &str) -> String {
     }
 
     out
+}
+
+/// Appends a citation's printed text (or nothing), keeping the punctuation that
+/// follows it attached to the word before, as it prints, so it never counts as a word of its own.
+fn push_citation(out: &mut String, printed: Option<String>, next: Option<char>) {
+    let punctuation_follows = next.is_some_and(|c| matches!(c, '.' | ',' | ';' | ':' | '!' | '?'));
+    match printed {
+        Some(text) => {
+            out.push(' ');
+            out.push_str(&text);
+            if !punctuation_follows {
+                out.push(' ');
+            }
+        }
+        None if punctuation_follows => out.truncate(out.trim_end_matches(' ').len()),
+        None => {}
+    }
+}
+
+/// The key and supplement of a `#cite(<key>, supplement: [p. 5])` call's arguments.
+fn cite_call_parts(args: &str) -> Option<(String, Option<String>)> {
+    let args = args.trim_start();
+    let (open, close) = match args.chars().next()? {
+        '<' => ('<', '>'),
+        '"' => ('"', '"'),
+        _ => return None,
+    };
+    let rest = &args[open.len_utf8()..];
+    let key = rest[..rest.find(close)?].to_string();
+    let supplement = args.find("supplement:").and_then(|at| {
+        let value = args[at + "supplement:".len()..].trim_start();
+        let (open, close) = match value.chars().next()? {
+            '[' => ('[', ']'),
+            '"' => ('"', '"'),
+            _ => return None,
+        };
+        let inner = &value[open.len_utf8()..];
+        Some(inner[..inner.find(close)?].to_string())
+    });
+    Some((key, supplement))
 }
 
 fn set_view_line_spacing(view: &View, spacing: u32) {
@@ -2698,6 +2827,46 @@ mod tests {
     }
 
     #[test]
+    fn a_citation_and_its_supplement_are_left_out_of_the_count() {
+        assert_eq!(count_content_words("as shown @smith2020[p. 5] here"), 3);
+        assert_eq!(
+            count_content_words("as shown #cite(<smith2020>, supplement: [p. 5]) here"),
+            3
+        );
+        assert_eq!(count_content_words("write me@example.org today"), 3);
+        assert_eq!(count_content_words("see @a.b-c. Next"), 2);
+    }
+
+    #[test]
+    fn counted_citations_add_what_they_print() {
+        let (dir, doc, text) = cited_doc(
+            "apa",
+            "as shown @smith2020[p. 5] here, and #cite(<duo2019>) too, not @fig-1.",
+        );
+        let cites = cites_for(&text, &doc, Some(dir.path())).unwrap();
+        // 6 words of prose + "(Smith, 2020, p. 5)" (4) + "(Smith & Jones, 2019)" (4)
+        assert_eq!(count_content_words_in(&text, Some(&cites)), 14);
+        assert_eq!(count_content_words_in(&text, None), 6);
+        assert_eq!(count_section_words(&text, Some(&cites)), 14);
+    }
+
+    fn cited_doc(style: &str, body: &str) -> (tempfile::TempDir, PathBuf, String) {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("refs.yaml"),
+            "smith2020:\n  type: article\n  title: One\n  author: Smith, Jane\n  date: 2020\n  parent: {type: periodical, title: J}\nduo2019:\n  type: article\n  title: Two\n  author: ['Smith, Jane', 'Jones, Bo']\n  date: 2019\n  parent: {type: periodical, title: J}\n",
+        )
+        .unwrap();
+        let text = format!(
+            "{}\n{body}\n#bibliography(\"refs.yaml\", style: \"{style}\")\n",
+            crate::word_cites::set_counts_citations("", true).trim_end()
+        );
+        let doc = dir.path().join("main.typ");
+        std::fs::write(&doc, &text).unwrap();
+        (dir, doc, text)
+    }
+
+    #[test]
     fn word_count_excludes_zerkalo_template_blocks() {
         let doc = "\
 // ZERKALO-TEMPLATE-BEGIN
@@ -2715,14 +2884,14 @@ Real prose here.
 
     #[test]
     fn lorem_counts_as_the_number_of_words_it_generates() {
-        assert_eq!(count_words_typst("#lorem(50)"), 50);
-        assert_eq!(count_words_typst("before #lorem(10) after"), 12);
-        assert_eq!(count_words_typst("no lorem here"), 3);
+        assert_eq!(count_section_words("#lorem(50)", None), 50);
+        assert_eq!(count_section_words("before #lorem(10) after", None), 12);
+        assert_eq!(count_section_words("no lorem here", None), 3);
     }
 
     #[test]
     fn an_unterminated_lorem_call_stops_the_count_rather_than_looping() {
-        assert_eq!(count_words_typst("some words #lorem(30"), 2);
+        assert_eq!(count_section_words("some words #lorem(30", None), 2);
     }
 
     #[test]
@@ -2740,15 +2909,15 @@ Real prose here.
     #[test]
     fn word_count_label_reports_a_session_delta_only_when_words_were_added() {
         assert_eq!(
-            wc_str_with_delta("one two three", 1),
+            wc_str_with_delta("one two three", 1, None),
             "3 words (+2) · < 1 min read"
         );
         assert_eq!(
-            wc_str_with_delta("one two three", 3),
+            wc_str_with_delta("one two three", 3, None),
             "3 words · < 1 min read"
         );
         assert_eq!(
-            wc_str_with_delta("one two three", 9),
+            wc_str_with_delta("one two three", 9, None),
             "3 words · < 1 min read"
         );
     }
@@ -2757,9 +2926,9 @@ Real prose here.
     fn reading_time_switches_from_under_a_minute_at_two_hundred_words() {
         let just_under = "word ".repeat(199);
         let exactly = "word ".repeat(200);
-        assert!(wc_str_with_delta(&just_under, 0).contains("< 1 min read"));
-        assert!(wc_str_with_delta(&exactly, 0).contains("1 min read"));
-        assert!(!wc_str_with_delta(&exactly, 0).contains("< 1 min"));
+        assert!(wc_str_with_delta(&just_under, 0, None).contains("< 1 min read"));
+        assert!(wc_str_with_delta(&exactly, 0, None).contains("1 min read"));
+        assert!(!wc_str_with_delta(&exactly, 0, None).contains("< 1 min"));
     }
 
     // ── Headings ─────────────────────────────────────────────────────────────

@@ -5,20 +5,40 @@ use super::*;
 /// Settle time before recomputing the status bar's section word count.
 pub(super) const SECTION_WC_DEBOUNCE: Duration = Duration::from_millis(200);
 
+pub(super) type Cites<'a> = Option<&'a crate::word_cites::CitationWords>;
+
 pub(super) fn count_words(text: &str) -> u32 {
     count_content_words(text) as u32
 }
 
-pub(super) fn count_project_words(root: &std::path::Path) -> u32 {
+/// The citations `text` counts, if it asked for them (see `word_cites`).
+pub(crate) fn cites_for(
+    text: &str,
+    doc: &std::path::Path,
+    project_root: Option<&std::path::Path>,
+) -> Option<std::sync::Arc<crate::word_cites::CitationWords>> {
+    if !crate::word_cites::counts_citations(text) {
+        return None;
+    }
+    let configured = project_root
+        .and_then(crate::config::ProjectConfig::load)
+        .and_then(|p| p.bib_path)
+        .or_else(|| crate::config::Config::load().ok().and_then(|c| c.bib_path));
+    crate::word_cites::for_document(text, doc, project_root, configured.as_deref())
+}
+
+/// Words in the whole project, counting citations as the active document
+/// does — a chapter file carries no marker of its own, the root does.
+pub(super) fn count_project_words(root: &std::path::Path, cites: Cites) -> u32 {
     crate::project::collect_typ_files(root)
         .iter()
         .filter_map(|p| std::fs::read_to_string(p).ok())
-        .map(|c| count_content_words(&c) as u32)
+        .map(|c| count_content_words_in(&c, cites) as u32)
         .sum()
 }
 
-pub(super) fn wc_str_with_delta(text: &str, session_start: u32) -> String {
-    let words = count_content_words(text) as u32;
+pub(super) fn wc_str_with_delta(text: &str, session_start: u32, cites: Cites) -> String {
+    let words = count_content_words_in(text, cites) as u32;
     let reading = if words < 200 {
         "< 1 min".to_string()
     } else {
@@ -32,12 +52,21 @@ pub(super) fn wc_str_with_delta(text: &str, session_start: u32) -> String {
     }
 }
 
-pub(super) fn set_wc_text_with_session(label: &Label, text: &str, session_start: u32) {
-    label.set_text(&wc_str_with_delta(text, session_start));
+pub(super) fn set_wc_text_with_session(
+    label: &Label,
+    text: &str,
+    session_start: u32,
+    cites: Cites,
+) {
+    label.set_text(&wc_str_with_delta(text, session_start, cites));
 }
 
 pub(super) fn count_content_words(text: &str) -> usize {
-    strip_typst_markup(&strip_zerkalo_blocks(text))
+    count_content_words_in(text, None)
+}
+
+pub(super) fn count_content_words_in(text: &str, cites: Cites) -> usize {
+    strip_typst_markup_with(&strip_zerkalo_blocks(text), cites)
         .split_whitespace()
         .count()
 }
@@ -63,12 +92,18 @@ pub(super) fn skip_balanced_typst(chars: &[char], start: usize, n: usize) -> usi
     i
 }
 
-pub(super) fn update_goal_ring(ring: &DrawingArea, frac: &Rc<Cell<f64>>, text: &str, goal: u32) {
+pub(super) fn update_goal_ring(
+    ring: &DrawingArea,
+    frac: &Rc<Cell<f64>>,
+    text: &str,
+    goal: u32,
+    cites: Cites,
+) {
     if goal == 0 {
         ring.set_visible(false);
         return;
     }
-    let words = count_content_words(text);
+    let words = count_content_words_in(text, cites);
     let fraction = (words as f64 / goal as f64).min(1.0);
     frac.set(fraction);
     ring.queue_draw();
@@ -101,29 +136,31 @@ pub(super) fn section_heading_level(text: &str) -> Option<usize> {
     }
 }
 
-/// Count words in a line of Typst text, treating `#lorem(N)` as N words.
-pub(super) fn count_words_typst(text: &str) -> u32 {
-    let mut count = 0u32;
+/// Words in a stretch of Typst source, `#lorem(N)` counting as N. Joined text
+/// goes through the same stripping as the whole-document count: comment and
+/// raw-block state spans lines, so counting line by line would miss it.
+pub(crate) fn count_section_words(text: &str, cites: Cites) -> u32 {
+    let mut expanded = String::with_capacity(text.len());
     let mut remaining = text;
     while !remaining.is_empty() {
-        if let Some(pos) = remaining.find("#lorem(") {
-            // Count words before #lorem
-            count += remaining[..pos].split_whitespace().count() as u32;
-            let after = &remaining[pos + 7..];
-            if let Some(end) = after.find(')') {
-                if let Ok(n) = after[..end].trim().parse::<u32>() {
-                    count += n;
-                }
-                remaining = &after[end + 1..];
-            } else {
-                break;
-            }
-        } else {
-            count += remaining.split_whitespace().count() as u32;
+        let Some(pos) = remaining.find("#lorem(") else {
+            expanded.push_str(remaining);
             break;
+        };
+        expanded.push_str(&remaining[..pos]);
+        let after = &remaining[pos + 7..];
+        let Some(end) = after.find(')') else {
+            expanded.push_str(&remaining[pos..]);
+            break;
+        };
+        if let Ok(n) = after[..end].trim().parse::<u32>() {
+            for _ in 0..n {
+                expanded.push_str("lorem ");
+            }
         }
+        remaining = &after[end + 1..];
     }
-    count
+    count_content_words_in(&expanded, cites) as u32
 }
 
 /// Words in the section containing `cursor_line`. Reads the buffer once and
@@ -133,6 +170,7 @@ pub(super) fn count_words_typst(text: &str) -> u32 {
 pub(super) fn section_word_count_for_line(
     buf: &sourceview5::Buffer,
     cursor_line: i32,
+    cites: Cites,
 ) -> Option<u32> {
     let (s, e) = buf.bounds();
     let text = buf.text(&s, &e, false).to_string();
@@ -151,15 +189,42 @@ pub(super) fn section_word_count_for_line(
         .find(|&ln| section_heading_level(lines[ln]).is_some_and(|lvl| lvl <= sec_level))
         .unwrap_or(total);
 
-    Some(
-        lines[sec_start..sec_end]
-            .iter()
-            .map(|l| count_words_typst(l))
-            .sum(),
-    )
+    Some(count_section_words(
+        &lines[sec_start..sec_end].join("\n"),
+        cites,
+    ))
+}
+
+/// Shows the "citations in count" toggle only for a document whose style
+/// prints parenthetical citations, bold while they count.
+pub(super) fn sync_cite_toggle(
+    btn: &Button,
+    label: &Label,
+    text: &str,
+    doc: &std::path::Path,
+    project_root: Option<&std::path::Path>,
+) {
+    let applies = crate::word_cites::applies_to(text, doc, project_root);
+    btn.set_visible(applies);
+    set_status_toggle(
+        btn,
+        label,
+        "citations in count",
+        applies && crate::word_cites::counts_citations(text),
+    );
 }
 
 impl EditorPane {
+    pub(super) fn toggle_count_citations(&self) {
+        let (Some(path), Some(content)) = (self.get_active_path(), self.get_active_content())
+        else {
+            return;
+        };
+        let on = !crate::word_cites::counts_citations(&content);
+        let new_content = crate::word_cites::set_counts_citations(&content, on);
+        self.replace_buffer_content(&path, &new_content);
+    }
+
     /// Sets the global goal from Settings. A document whose text carries its
     /// own `// @zerkalo-goal:` comment keeps that goal; everything else picks
     /// this one up immediately.
@@ -171,8 +236,20 @@ impl EditorPane {
         if effective == 0 {
             self.goal_ring.set_visible(false);
         } else if let Some(text) = text {
-            update_goal_ring(&self.goal_ring, &self.goal_fraction, &text, effective);
+            let cites = self.active_cites(&text);
+            update_goal_ring(
+                &self.goal_ring,
+                &self.goal_fraction,
+                &text,
+                effective,
+                cites.as_deref(),
+            );
         }
+    }
+
+    fn active_cites(&self, text: &str) -> Option<std::sync::Arc<crate::word_cites::CitationWords>> {
+        let path = self.get_active_path()?;
+        cites_for(text, &path, self.project_root.borrow().as_deref())
     }
 
     pub fn set_session_delta(&self, delta: i32) {
@@ -194,11 +271,12 @@ impl EditorPane {
             None => return 0,
         };
         let state = self.state.borrow();
-        for tab in state.tabs.values() {
+        for (path, tab) in state.tabs.iter() {
             if self.notebook.page_num(&tab.notebook_page) == Some(current) {
                 let (s, e) = tab.buffer.bounds();
                 let text = tab.buffer.text(&s, &e, false);
-                let current_words = count_words(&text) as i32;
+                let cites = cites_for(&text, path, self.project_root.borrow().as_deref());
+                let current_words = count_content_words_in(&text, cites.as_deref()) as i32;
                 return current_words - tab.session_start_words as i32;
             }
         }
@@ -224,6 +302,11 @@ impl EditorPane {
         let project_root_for_wc = self.project_root.clone();
         let session_start_for_change: Rc<std::cell::Cell<u32>> =
             Rc::new(std::cell::Cell::new(count_words(content)));
+        let cites_were_counted: Rc<Cell<bool>> = Rc::new(Cell::new(
+            cites_for(content, &tab.path, self.project_root.borrow().as_deref()).is_some(),
+        ));
+        let cite_btn_for_change = self.cite_count_btn.clone();
+        let cite_label_for_change = self.cite_count_label.clone();
         // SourceId-based debounce timers. Each keystroke cancels the previous
         // pending timer before scheduling a new one, so timers never accumulate
         // in the event loop regardless of typing speed.
@@ -278,16 +361,43 @@ impl EditorPane {
                 let t = wc_timer.clone();
                 let goal_cel2 = goal_celebrating_for_change.clone();
                 let goal_was2 = goal_was_met_for_change.clone();
+                let root2 = project_root_for_wc.clone();
+                let path2 = path_for_change.clone();
+                let state2 = state_for_change.clone();
+                let counted2 = cites_were_counted.clone();
+                let cite_btn2 = cite_btn_for_change.clone();
+                let cite_label2 = cite_label_for_change.clone();
                 *wc_timer.borrow_mut() = Some(glib::timeout_add_local_once(
                     Duration::from_millis(300),
                     move || {
                         *t.borrow_mut() = None;
                         let (s, e) = buf2.bounds();
                         let text = buf2.text(&s, &e, false);
+                        let root = root2.borrow().clone();
+                        let cites = cites_for(&text, &path2, root.as_deref());
+                        sync_cite_toggle(&cite_btn2, &cite_label2, &text, &path2, root.as_deref());
+                        // Switching the toggle moves every count at once; shift the
+                        // session's starting point by the same amount so "+N words"
+                        // keeps reporting what was typed, not the citations.
+                        if counted2.get() != cites.is_some() {
+                            let with = count_content_words_in(&text, cites.as_deref()) as i64;
+                            let without = count_content_words(&text) as i64;
+                            let shift = if cites.is_some() {
+                                with - without
+                            } else {
+                                without - with
+                            };
+                            let moved = (ss2.get() as i64 + shift).max(0) as u32;
+                            ss2.set(moved);
+                            if let Some(tab) = state2.borrow_mut().tabs.get_mut(&path2) {
+                                tab.session_start_words = moved;
+                            }
+                            counted2.set(cites.is_some());
+                        }
                         let goal = *goal_val2.borrow();
                         if goal > 0 {
                             let was_met = goal_was2.get();
-                            update_goal_ring(&goal2, &goal_frac2, &text, goal);
+                            update_goal_ring(&goal2, &goal_frac2, &text, goal, cites.as_deref());
                             let now_met = goal_frac2.get() >= 1.0;
                             goal_was2.set(now_met);
                             if now_met && !was_met {
@@ -304,7 +414,7 @@ impl EditorPane {
                                 );
                             }
                         }
-                        let wc_str = wc_str_with_delta(&text, ss2.get());
+                        let wc_str = wc_str_with_delta(&text, ss2.get(), cites.as_deref());
                         *last_wc2.borrow_mut() = wc_str.clone();
                         wc2.set_text(&wc_str);
                     },
@@ -318,6 +428,8 @@ impl EditorPane {
             {
                 let wc_lbl_proj = wc_for_change.clone();
                 let root_proj = project_root_for_wc.clone();
+                let path_proj = path_for_change.clone();
+                let buf_proj = buf.clone();
                 let t = proj_wc_timer.clone();
                 *proj_wc_timer.borrow_mut() = Some(glib::timeout_add_local_once(
                     Duration::from_millis(5000),
@@ -326,10 +438,15 @@ impl EditorPane {
                         let root = root_proj.borrow().clone();
                         if let Some(root) = root {
                             let lbl = wc_lbl_proj.clone();
+                            let (s, e) = buf_proj.bounds();
+                            let text = buf_proj.text(&s, &e, false).to_string();
+                            let doc = path_proj.clone();
                             glib::spawn_future_local(async move {
-                                if let Ok(total) =
-                                    gtk4::gio::spawn_blocking(move || count_project_words(&root))
-                                        .await
+                                if let Ok(total) = gtk4::gio::spawn_blocking(move || {
+                                    let cites = cites_for(&text, &doc, Some(&root));
+                                    count_project_words(&root, cites.as_deref())
+                                })
+                                .await
                                 {
                                     lbl.set_tooltip_text(Some(&format!(
                                         "Project total: {total} words"

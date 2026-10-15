@@ -83,6 +83,7 @@ impl EditorPane {
         let typewriter_gen: Rc<std::cell::Cell<u64>> = Rc::new(std::cell::Cell::new(0));
         let heading_sync_gen: Rc<std::cell::Cell<u64>> = Rc::new(std::cell::Cell::new(0));
         let path_for_heading = tab.path.clone();
+        let project_root_for_sec = self.project_root.clone();
         let path_for_moved = tab.path.clone();
         let last_heading_line: Rc<RefCell<u32>> = Rc::new(RefCell::new(u32::MAX));
         let typewriter_for_mark = self.typewriter_scroll.clone();
@@ -305,11 +306,19 @@ impl EditorPane {
                     let lbl = section_wc_lbl.clone();
                     let b = buf.clone();
                     let t = section_wc_timer.clone();
+                    let root_for_sec = project_root_for_sec.clone();
+                    let path_for_sec = path_for_heading.clone();
                     *section_wc_timer.borrow_mut() = Some(glib::timeout_add_local_once(
                         SECTION_WC_DEBOUNCE,
                         move || {
                             *t.borrow_mut() = None;
-                            if let Some(wc) = section_word_count_for_line(&b, cur_line) {
+                            let (s, e) = b.bounds();
+                            let text = b.text(&s, &e, false).to_string();
+                            let cites =
+                                cites_for(&text, &path_for_sec, root_for_sec.borrow().as_deref());
+                            if let Some(wc) =
+                                section_word_count_for_line(&b, cur_line, cites.as_deref())
+                            {
                                 lbl.set_text(&format!("§ {wc}"));
                                 lbl.set_tooltip_text(Some("Words in this section"));
                             } else {

@@ -1,11 +1,11 @@
-<!-- zerkalo-release: 0.50.6 -->
+<!-- zerkalo-release: 0.51.0 -->
 ### What's new
 
-Crashes leave a record.
+Count in-text citations.
 
-**If Zerkalo crashes, it now says why.** It writes the error, the line of code it happened on and a backtrace to `crash.log` beside its log file. For the flatpak that's `~/.var/app/io.github.calstfrancis.Zerkalo/data/zerkalo/crash.log`. Until now that detail went only to a terminal, which isn't there when Zerkalo is started from the app menu, so a crash left nothing to fix it from. Nothing else in the app changes.
+**Choose whether citations count toward your word total.** In a document that uses an author-date style (APA, Chicago author-date, Harvard, MLA), a new "citations in count" switch sits beside the word count in the status bar. Off, as before, citations are left out. On, each one counts as the words it prints: "(Smith, 2020)" is two, "(Smith & Jones, 2019)" is four, and a page locator like `@smith2020[p. 5]` adds its own words. The text comes from the same citation style the finished document uses, so the number matches the printed result. The choice is saved in the document and applies to the status bar, goal ring, Document Statistics, outline and project total.
 
-**The log is readable again.** Background libraries were writing a line for every network check and git lock file, which buried everything else. They now log only warnings and important events.
+**Smaller fixes.** A page locator after a citation no longer counts as prose, punctuation after a citation no longer counts as a word, and the section count beside the breadcrumb now ignores comments and markup like the other counts.
 
 ---
 

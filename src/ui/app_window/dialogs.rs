@@ -2,7 +2,7 @@
 //! in-app changelog (rendered live from `CHANGELOG.md`).
 //! Split out of `app_window.rs`.
 
-use super::super::editor_pane::{strip_typst_markup, strip_zerkalo_blocks};
+use super::super::editor_pane::{strip_typst_markup_with, strip_zerkalo_blocks};
 use adw::prelude::*;
 use glib::object::IsA;
 use gtk4::prelude::*;
@@ -14,8 +14,9 @@ pub(super) fn show_doc_stats(
     text: &str,
     session_start: u32,
     _project_root: Option<&std::path::Path>,
+    cites: Option<&crate::word_cites::CitationWords>,
 ) {
-    let content = strip_typst_markup(&strip_zerkalo_blocks(text));
+    let content = strip_typst_markup_with(&strip_zerkalo_blocks(text), cites);
     let words = content.split_whitespace().count();
     let chars = content.chars().filter(|c| !c.is_whitespace()).count();
     let chars_with_spaces = content.chars().count();
@@ -66,6 +67,14 @@ pub(super) fn show_doc_stats(
         "Words",
         &format!("{words}  ({session_delta} this session)"),
     ));
+    if crate::word_cites::counts_citations(text) {
+        let note = if cites.is_some() {
+            "Included in the word count"
+        } else {
+            "Not applicable to this citation style"
+        };
+        group.add(&make_row("In-text citations", note));
+    }
     group.add(&make_row(
         "Characters",
         &format!("{chars}  ({chars_with_spaces} with spaces)"),

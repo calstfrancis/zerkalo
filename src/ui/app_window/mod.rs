@@ -400,7 +400,16 @@ impl AppWindow {
                 if let Some(text) = ep.active_text() {
                     let session_start = ep.session_start_words();
                     let project_root = ep.project_root();
-                    show_doc_stats(&win, &text, session_start, project_root.as_deref());
+                    let cites = ep.get_active_path().and_then(|p| {
+                        super::editor_pane::cites_for(&text, &p, project_root.as_deref())
+                    });
+                    show_doc_stats(
+                        &win,
+                        &text,
+                        session_start,
+                        project_root.as_deref(),
+                        cites.as_deref(),
+                    );
                 }
             });
         }

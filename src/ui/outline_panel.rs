@@ -34,6 +34,7 @@ pub struct OutlinePanel {
     syncing: Rc<Cell<bool>>,
     /// The count set beside the section title.
     outline_count: Label,
+    project_root: Rc<RefCell<Option<PathBuf>>>,
 }
 
 impl OutlinePanel {
@@ -339,6 +340,7 @@ impl OutlinePanel {
 
         let panel = Self {
             outline_count: outline_count.clone(),
+            project_root: Rc::new(RefCell::new(None)),
             widget,
             list_box,
             on_jump,
@@ -398,6 +400,10 @@ impl OutlinePanel {
         }
     }
 
+    pub fn set_project_root(&self, root: PathBuf) {
+        *self.project_root.borrow_mut() = Some(root);
+    }
+
     /// Mounts the project's file tree as the third sidebar page.
     pub fn set_files_page(&self, tree: &impl IsA<gtk4::Widget>) {
         if let Some(old) = self.stack.child_by_name("files") {
@@ -427,6 +433,11 @@ impl OutlinePanel {
 
         let max_depth = self.max_depth.get();
         let multi_file = files.len() > 1;
+        // The root document decides whether citations count, for every file.
+        let root = self.project_root.borrow().clone();
+        let cites = files
+            .first()
+            .and_then(|(p, c)| super::editor_pane::cites_for(c, p, root.as_deref()));
         let mut positions_vec: Vec<(PathBuf, u32)> = Vec::new();
         let mut total_words: u32 = 0;
 
@@ -473,7 +484,7 @@ impl OutlinePanel {
                 // raw-block/block-comment state is multi-line, so calling it once
                 // per line would miss a comment or raw block that spans lines.
                 let section_text = all_lines[line_idx + 1..next_line_idx].join("\n");
-                let word_count = count_words_typst(&section_text);
+                let word_count = count_words_typst(&section_text, cites.as_deref());
                 total_words += word_count;
 
                 let ln = (line_idx + 1) as u32;
@@ -1035,49 +1046,8 @@ fn symbol_tabs() -> Vec<(&'static str, Vec<(&'static str, &'static str)>)> {
     ]
 }
 
-/// Counts prose words in a section of Typst source, reusing
-/// `editor_pane`'s `strip_typst_markup`/`strip_zerkalo_blocks` (already
-/// tested there — `word_count_excludes_zerkalo_template_blocks`) rather
-/// than a second, divergent implementation: this function used to just
-/// `split_whitespace()` the raw text, which counted comments, `#pagebreak()`,
-/// and every other piece of Typst code/markup as "words," badly inflating
-/// the outline's per-section and total counts for anything past the first
-/// heading in a real document (confirmed: a fresh Academic template's
-/// "Introduction" — 3 actual prose words — read as 24, from the trailing
-/// `#pagebreak()` and bibliography-setup comment lines with no next
-/// heading to stop the old line-by-line scan).
-fn count_words_typst(text: &str) -> u32 {
-    // #lorem(N) is Typst's own lorem-ipsum generator, used by template
-    // previews. strip_typst_markup has no special case for it (a bare
-    // #ident(...) call with no [...] content strips to nothing), so expand
-    // it to N placeholder words first — preserves the outline's original
-    // behavior of counting lorem output while still routing everything
-    // else through the correct shared stripping pipeline below.
-    let mut expanded = String::with_capacity(text.len());
-    let mut remaining = text;
-    while !remaining.is_empty() {
-        if let Some(pos) = remaining.find("#lorem(") {
-            expanded.push_str(&remaining[..pos]);
-            let after = &remaining[pos + 7..];
-            if let Some(end) = after.find(')') {
-                if let Ok(n) = after[..end].trim().parse::<u32>() {
-                    for _ in 0..n {
-                        expanded.push_str("lorem ");
-                    }
-                }
-                remaining = &after[end + 1..];
-            } else {
-                expanded.push_str(&remaining[pos..]);
-                break;
-            }
-        } else {
-            expanded.push_str(remaining);
-            break;
-        }
-    }
-    super::editor_pane::strip_typst_markup(&super::editor_pane::strip_zerkalo_blocks(&expanded))
-        .split_whitespace()
-        .count() as u32
+fn count_words_typst(text: &str, cites: Option<&crate::word_cites::CitationWords>) -> u32 {
+    super::editor_pane::count_section_words(text, cites)
 }
 
 #[cfg(test)]
@@ -1100,22 +1070,22 @@ mod tests {
             "// Set your .bib file path in Settings > Extras, then regenerate.\n",
             "// #bibliography(\"refs.bib\", style: \"apa\")\n",
         );
-        assert_eq!(count_words_typst(section), 3);
+        assert_eq!(count_words_typst(section, None), 3);
     }
 
     #[test]
     fn count_words_typst_counts_plain_prose_normally() {
-        assert_eq!(count_words_typst("one two three four"), 4);
+        assert_eq!(count_words_typst("one two three four", None), 4);
     }
 
     #[test]
     fn count_words_typst_expands_lorem_to_n_words() {
-        assert_eq!(count_words_typst("intro #lorem(10) more"), 12);
+        assert_eq!(count_words_typst("intro #lorem(10) more", None), 12);
     }
 
     #[test]
     fn count_words_typst_ignores_a_multiline_block_comment() {
         let text = "before /* this whole\nblock spans two lines */ after";
-        assert_eq!(count_words_typst(text), 2);
+        assert_eq!(count_words_typst(text, None), 2);
     }
 }

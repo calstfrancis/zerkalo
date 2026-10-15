@@ -84,6 +84,7 @@ pub(super) fn build_panels(
     }
 
     let outline_panel = OutlinePanel::new();
+    outline_panel.set_project_root(project_root.to_path_buf());
     let citation_panel = CitationPanel::new();
     let ref_manager = RefManager::new();
     let dep_graph = DepGraph::new(project_root.to_path_buf());

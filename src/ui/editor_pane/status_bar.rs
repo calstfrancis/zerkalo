@@ -27,6 +27,8 @@ pub(super) struct StatusBar {
     pub(super) simple_mode_label: Label,
     pub(super) simple_mode_btn: Button,
     pub(super) section_wc_label: Label,
+    pub(super) cite_count_label: Label,
+    pub(super) cite_count_btn: Button,
     pub(super) word_count_label: Label,
     pub(super) wc_btn: Button,
     pub(super) session_delta_label: Label,
@@ -261,6 +263,24 @@ pub(super) fn build_status_bar() -> StatusBar {
     wc_btn.set_margin_bottom(1);
     wc_btn.set_tooltip_text(Some("Document statistics"));
 
+    let cite_count_label = Label::new(Some("citations in count"));
+    cite_count_label.add_css_class("dim-label");
+    cite_count_label.add_css_class("caption");
+    cite_count_label.set_use_markup(true);
+    cite_count_label.set_margin_top(3);
+    cite_count_label.set_margin_bottom(3);
+    let cite_count_btn = Button::new();
+    cite_count_btn.set_child(Some(&cite_count_label));
+    cite_count_btn.add_css_class("flat");
+    cite_count_btn.add_css_class("status-toggle");
+    cite_count_btn.set_tooltip_text(Some(
+        "Count the words of in-text citations — \"(Smith 2020)\" is two — as the \
+         finished document prints them. Off: citations are left out of every word count.",
+    ));
+    cite_count_btn.set_margin_end(4);
+    cite_count_btn.set_visible(false);
+    cite_count_btn.update_property(&[gtk4::accessible::Property::Label("Count in-text citations")]);
+
     let sep2 = gtk4::Separator::new(Orientation::Vertical);
     sep2.add_css_class("statusbar-sep");
     sep2.set_margin_start(6);
@@ -369,6 +389,7 @@ pub(super) fn build_status_bar() -> StatusBar {
     status_bar.append(&cursor_label);
     status_bar.append(&diag_btn);
     status_bar.append(&sep1);
+    status_bar.append(&cite_count_btn);
     status_bar.append(&wc_btn);
     status_bar.append(&sep2);
     status_bar.append(&session_delta_label);
@@ -424,6 +445,8 @@ pub(super) fn build_status_bar() -> StatusBar {
         simple_mode_label,
         simple_mode_btn,
         section_wc_label,
+        cite_count_label,
+        cite_count_btn,
         word_count_label,
         wc_btn,
         session_delta_label,

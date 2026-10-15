@@ -86,6 +86,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.51.0" date="2026-10-15">
+      <description>
+        <p>0.51.0 "Plain Tally" — count in-text citations. For author-date styles (APA, Chicago author-date, Harvard, MLA) a "citations in count" switch in the status bar adds the words citations print, such as "(Smith &amp; Jones, 2019)", to every word count, matching the finished document. Off by default. Also fixed: page locators and trailing punctuation after a citation no longer count as words, and the section count now ignores comments and markup.</p>
+      </description>
+    </release>
     <release version="0.50.6" date="2026-10-13">
       <description>
         <p>0.50.6 "Clear Record" — crashes leave a record. If Zerkalo crashes it now writes the error, the line of code and a backtrace to crash.log beside its log file, instead of only to a terminal that isn't there when it's started from the app menu. The log file itself is far quieter, so what matters in it is easy to find.</p>

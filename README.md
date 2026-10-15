@@ -43,7 +43,7 @@ raw markup dead-end: a live preview pane always shows the real formatting next t
 | **Line spacing** | Settings → Editor → Compact / Normal / Spacious |
 | **High contrast mode** | Settings → Editor → High contrast; forces white-on-black in the editor |
 | **Theme** | System / Light / Dark, set from the hamburger menu — follows libadwaita's colour scheme by default |
-| **Word count** | Live count and reading-time estimate in the status bar; selection shows "N words, M sentences selected" |
+| **Word count** | Live count and reading-time estimate in the status bar; selection shows "N words, M sentences selected". For author-date styles (APA, Chicago author-date, Harvard, MLA…) a "citations in count" toggle adds the words in-text citations print — "(Smith & Jones, 2019)" is four — to every count; off by default |
 | **Word-count goal** | Add `// @goal: 3000` in your file; a progress ring tracks it in the status bar |
 | **Session delta** | Status bar shows `↑ N` words added since the file was opened |
 | **Cursor position** | Line and column in the editor status bar |
