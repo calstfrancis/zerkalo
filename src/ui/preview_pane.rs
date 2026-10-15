@@ -5,6 +5,7 @@ use std::rc::Rc;
 use std::sync::mpsc::{self, TryRecvError};
 use std::time::Duration;
 
+use crate::preview_text::Pos;
 use gtk4::gdk::prelude::GdkCairoContextExt;
 use gtk4::gdk_pixbuf::Pixbuf;
 use gtk4::glib;
@@ -66,6 +67,8 @@ pub struct PreviewPane {
     /// A spot briefly highlighted after `show_source`: page and y in pt.
     flash: Rc<RefCell<Option<(usize, f64)>>>,
     flash_timer: Rc<RefCell<Option<glib::SourceId>>>,
+    /// The text selected on the pages: both ends, in `preview_text` terms.
+    selection: Rc<RefCell<Option<(Pos, Pos)>>>,
     page_pixbufs: Rc<RefCell<Vec<Pixbuf>>>,
     // Backs the watch-mode methods below (start_watch/stop_watch/is_watching) — see their
     // comment for why this is kept despite no caller.
@@ -115,6 +118,20 @@ struct ScrollAnchor {
     page: usize,
     frac: f64,
     gap: f64,
+}
+
+/// Which page the point `(x, y)` of the drawing area falls on, and where on it,
+/// in rendered pixels at 1x zoom's page scale (divide by pixels-per-pt for pt).
+fn page_at(pbs: &[Pixbuf], zoom: f64, x: f64, y: f64) -> (usize, f64, f64) {
+    let mut top = 0.0;
+    for (i, pb) in pbs.iter().enumerate() {
+        let h = pb.height() as f64 * zoom;
+        if y < top + h + PAGE_GAP_PX || i + 1 == pbs.len() {
+            return (i, x / zoom, (y - top) / zoom);
+        }
+        top += h + PAGE_GAP_PX;
+    }
+    (0, 0.0, 0.0)
 }
 
 /// Space between pages, in pixels. Not scaled with the zoom.
@@ -253,6 +270,8 @@ impl PreviewPane {
         let sync: Rc<RefCell<Option<(crate::compiler::SyncMap, f64)>>> =
             Rc::new(RefCell::new(None));
         let flash: Rc<RefCell<Option<(usize, f64)>>> = Rc::new(RefCell::new(None));
+        let selection: Rc<RefCell<Option<(Pos, Pos)>>> = Rc::new(RefCell::new(None));
+        let selection_draw = selection.clone();
 
         // Wire up draw function
         let pixbufs_draw = page_pixbufs.clone();
@@ -280,8 +299,14 @@ impl PreviewPane {
                 ctx.clip_extents()
                     .unwrap_or((f64::MIN, f64::MIN, f64::MAX, f64::MAX));
 
+            // The selected text's boxes, in pt, shaded over the pages below.
+            let selected = match (&*selection_draw.borrow(), &*sync_draw.borrow()) {
+                (Some((a, b)), Some((map, ppp))) => (map.text_layer().rects(*a, *b), *ppp),
+                _ => (Vec::new(), 1.0),
+            };
+
             let mut y = 0.0f64;
-            for pb in pbs.iter() {
+            for (page_idx, pb) in pbs.iter().enumerate() {
                 let pw = pb.width() as f64 * z;
                 let ph = pb.height() as f64 * z;
                 if y > clip_bottom {
@@ -329,6 +354,16 @@ impl PreviewPane {
                 ctx.set_source_pixbuf(pb, 0.0, y / z);
                 ctx.paint().ok();
                 ctx.restore().ok();
+                if !selected.0.is_empty() {
+                    let (r, g, b) = crate::ui::theme::rgb(_area, "accent_bg_color")
+                        .unwrap_or((0.21, 0.52, 0.89));
+                    ctx.set_source_rgba(r, g, b, 0.35);
+                    let s = selected.1 * z;
+                    for &(_, x0, y0, x1, y1) in selected.0.iter().filter(|r| r.0 == page_idx) {
+                        ctx.rectangle(x0 * s, y + y0 * s, (x1 - x0) * s, (y1 - y0) * s);
+                    }
+                    ctx.fill().ok();
+                }
                 y += ph + PAGE_GAP;
             }
 
@@ -443,6 +478,188 @@ impl PreviewPane {
             drawing_area.add_controller(gesture);
         }
 
+        // Select text on the pages: drag, triple-click for a line, Ctrl+A for
+        // all, Ctrl+C or right-click → Copy to copy. The pages are pictures, so
+        // this reads the text and its positions from the compiled document.
+        {
+            let sync_c = sync.clone();
+            let pbs_c = page_pixbufs.clone();
+            let zoom_c = zoom_draw2.clone();
+            let sel_c = selection.clone();
+            let area = drawing_area.clone();
+            let scroll = img_scroll.clone();
+            let locate = {
+                let pbs = pbs_c.clone();
+                let zoom = zoom_c.clone();
+                move |x: f64, y: f64| page_at(&pbs.borrow(), *zoom.borrow(), x, y)
+            };
+
+            let drag = gtk4::GestureDrag::new();
+            drag.set_button(1);
+            let start: Rc<Cell<(f64, f64)>> = Rc::new(Cell::new((0.0, 0.0)));
+            let anchor: Rc<Cell<Option<Pos>>> = Rc::new(Cell::new(None));
+            drag.connect_drag_begin({
+                let (start, anchor, sel, area, scroll) = (
+                    start.clone(),
+                    anchor.clone(),
+                    sel_c.clone(),
+                    area.clone(),
+                    scroll.clone(),
+                );
+                let sync = sync_c.clone();
+                let locate = locate.clone();
+                move |_, x, y| {
+                    scroll.grab_focus();
+                    start.set((x, y));
+                    let (page, px, py) = locate(x, y);
+                    anchor.set(
+                        sync.borrow()
+                            .as_ref()
+                            .and_then(|(m, ppp)| m.text_layer().hit(page, px / ppp, py / ppp)),
+                    );
+                    if sel.borrow_mut().take().is_some() {
+                        area.queue_draw();
+                    }
+                }
+            });
+            drag.connect_drag_update({
+                let (start, anchor, sel, area) =
+                    (start.clone(), anchor.clone(), sel_c.clone(), area.clone());
+                let sync = sync_c.clone();
+                let locate = locate.clone();
+                move |_, dx, dy| {
+                    let Some(from) = anchor.get() else { return };
+                    let (x, y) = (start.get().0 + dx, start.get().1 + dy);
+                    let (page, px, py) = locate(x, y);
+                    let head = sync
+                        .borrow()
+                        .as_ref()
+                        .and_then(|(m, ppp)| m.text_layer().hit(page, px / ppp, py / ppp));
+                    if let Some(head) = head {
+                        *sel.borrow_mut() = (head != from).then_some((from, head));
+                        area.queue_draw();
+                    }
+                }
+            });
+            drawing_area.add_controller(drag);
+
+            // Triple-click: the line. (Double-click stays "jump to source".)
+            let triple = GestureClick::new();
+            triple.set_button(1);
+            triple.connect_pressed({
+                let (sel, area, sync, locate) =
+                    (sel_c.clone(), area.clone(), sync_c.clone(), locate.clone());
+                move |_, n_press, x, y| {
+                    if n_press != 3 {
+                        return;
+                    }
+                    let (page, px, py) = locate(x, y);
+                    let sync = sync.borrow();
+                    let Some((map, ppp)) = sync.as_ref() else {
+                        return;
+                    };
+                    let layer = map.text_layer();
+                    if let Some(pos) = layer.hit(page, px / ppp, py / ppp) {
+                        *sel.borrow_mut() = Some(layer.line_around(pos));
+                        area.queue_draw();
+                    }
+                }
+            });
+            drawing_area.add_controller(triple);
+
+            // The I-beam only over text, so it still reads as "click to jump" elsewhere.
+            let motion = gtk4::EventControllerMotion::new();
+            motion.connect_motion({
+                let (sync, locate, area) = (sync_c.clone(), locate.clone(), area.clone());
+                move |_, x, y| {
+                    let (page, px, py) = locate(x, y);
+                    let over = sync.borrow().as_ref().is_some_and(|(m, ppp)| {
+                        m.text_layer().is_over_text(page, px / ppp, py / ppp)
+                    });
+                    area.set_cursor_from_name(over.then_some("text"));
+                }
+            });
+            drawing_area.add_controller(motion);
+
+            let copy = {
+                let (sync, sel, area) = (sync_c.clone(), sel_c.clone(), area.clone());
+                move || {
+                    let text = match (&*sel.borrow(), &*sync.borrow()) {
+                        (Some((a, b)), Some((map, _))) => map.text_layer().text_between(*a, *b),
+                        _ => return,
+                    };
+                    if !text.is_empty() {
+                        area.clipboard().set_text(&text);
+                    }
+                }
+            };
+            let select_all = {
+                let (sync, sel, area) = (sync_c.clone(), sel_c.clone(), area.clone());
+                move || {
+                    let all = sync
+                        .borrow()
+                        .as_ref()
+                        .and_then(|(m, _)| m.text_layer().everything());
+                    *sel.borrow_mut() = all;
+                    area.queue_draw();
+                }
+            };
+
+            let keys = EventControllerKey::new();
+            keys.connect_key_pressed({
+                let (copy, select_all) = (copy.clone(), select_all.clone());
+                move |_, key, _, state| {
+                    if !state.contains(gtk4::gdk::ModifierType::CONTROL_MASK) {
+                        return glib::Propagation::Proceed;
+                    }
+                    match key {
+                        gtk4::gdk::Key::c | gtk4::gdk::Key::C => {
+                            copy();
+                            glib::Propagation::Stop
+                        }
+                        gtk4::gdk::Key::a | gtk4::gdk::Key::A => {
+                            select_all();
+                            glib::Propagation::Stop
+                        }
+                        _ => glib::Propagation::Proceed,
+                    }
+                }
+            });
+            img_scroll.add_controller(keys);
+
+            let menu = gtk4::Popover::new();
+            menu.set_parent(&drawing_area);
+            menu.set_has_arrow(false);
+            let menu_box = GtkBox::new(gtk4::Orientation::Vertical, 0);
+            for (label, action) in [
+                ("Copy", Box::new(copy.clone()) as Box<dyn Fn()>),
+                ("Select All", Box::new(select_all.clone())),
+            ] {
+                let b = Button::with_label(label);
+                b.add_css_class("flat");
+                b.set_halign(Align::Fill);
+                let menu = menu.clone();
+                b.connect_clicked(move |_| {
+                    action();
+                    menu.popdown();
+                });
+                menu_box.append(&b);
+            }
+            menu.set_child(Some(&menu_box));
+            let right = GestureClick::new();
+            right.set_button(3);
+            right.connect_pressed({
+                let menu = menu.clone();
+                move |_, _, x, y| {
+                    menu.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(
+                        x as i32, y as i32, 1, 1,
+                    )));
+                    menu.popup();
+                }
+            });
+            drawing_area.add_controller(right);
+        }
+
         let pane = Self {
             root_widget,
             stack,
@@ -472,6 +689,7 @@ impl PreviewPane {
             sync,
             flash,
             flash_timer: Rc::new(RefCell::new(None)),
+            selection,
             page_pixbufs,
             watch_active: Rc::new(RefCell::new(false)),
             compile_gen: Rc::new(RefCell::new(0)),
@@ -1157,6 +1375,7 @@ impl PreviewPane {
                     match result {
                         CompileResult::Success(pages, warnings, elapsed, sync) => {
                             *pane.sync.borrow_mut() = Some((*sync, ppp_for_sync));
+                            *pane.selection.borrow_mut() = None;
                             *pane.flash.borrow_mut() = None;
                             pane.load_pixbufs_from_pages(pages);
                             pane.stack.set_visible_child_name("ready");

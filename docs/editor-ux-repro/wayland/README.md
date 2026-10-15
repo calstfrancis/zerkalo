@@ -17,6 +17,7 @@ org.gnome.Platform//50 runtime. `ZBIN=`/`ZBINDIR=` point at another build,
 - `wl_fuzz.py` — random clicks/right-clicks/menu dismissals/typing/wheel;
   flags any click or menu action that moved the view. `SEED`, `STEPS`.
 - `wl_typed.py` — type, then right/left-click high/mid/low and click away.
+- `wl_select.py` — drag-select text in the preview, Ctrl+C, paste into the editor (screenshots `q1.png`/`q2.png`).
 - `wl_menu.py` — right-click menus dismissed every way, cursor far away.
 
 Findings (2026-10-08): see EDITOR-UX-PLAN.md Phase 4.

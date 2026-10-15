@@ -86,6 +86,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.52.0" date="2026-10-15">
+      <description>
+        <p>0.52.0 "Clean Copy" — the text in the preview can be selected and copied. Drag across the pages to select, triple-click for a line, Ctrl+A for everything, and Ctrl+C or right-click → Copy to copy, with line breaks and spaces as the page shows them. Double-click and Ctrl+click still jump to the source.</p>
+      </description>
+    </release>
     <release version="0.51.0" date="2026-10-15">
       <description>
         <p>0.51.0 "Plain Tally" — count in-text citations. For author-date styles (APA, Chicago author-date, Harvard, MLA) a "citations in count" switch in the status bar adds the words citations print, such as "(Smith &amp; Jones, 2019)", to every word count, matching the finished document. Off by default. Also fixed: page locators and trailing punctuation after a citation no longer count as words, and the section count now ignores comments and markup.</p>

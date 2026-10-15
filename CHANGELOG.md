@@ -3,6 +3,14 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.52.0] "Clean Copy" — 2026-10-15 — Select and copy text in the preview
+
+### Added
+
+- **The text in the preview can be selected and copied.** Drag across the pages to select (the selection is shaded in the accent colour), triple-click to take a whole line, Ctrl+A to take everything, and Ctrl+C — or right-click → Copy — to copy. Line breaks and spaces come out as the page shows them. The I-beam appears only over text; a double-click or Ctrl+click still jumps the editor to that spot in the source. The selection clears when the preview recompiles.
+
+---
+
 ## [0.51.0] "Plain Tally" — 2026-10-15 — Count in-text citations
 
 ### Added

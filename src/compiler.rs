@@ -1054,7 +1054,15 @@ pub fn compile_to_rgba_pages(
         .iter()
         .map(|p| render_page_rgba(p, pixel_per_pt))
         .collect();
-    Ok((pages, warnings, SyncMap { world, doc }))
+    Ok((
+        pages,
+        warnings,
+        SyncMap {
+            world,
+            doc,
+            text: std::cell::OnceCell::new(),
+        },
+    ))
 }
 
 // ── Preview ↔ source sync ────────────────────────────────────────────────────
@@ -1074,9 +1082,16 @@ impl typst_ide::IdeWorld for ZerkaloWorld {
 pub struct SyncMap {
     world: ZerkaloWorld,
     doc: PagedDocument,
+    text: std::cell::OnceCell<crate::preview_text::TextLayer>,
 }
 
 impl SyncMap {
+    /// The page text for selecting and copying, read from the document on first use.
+    pub fn text_layer(&self) -> &crate::preview_text::TextLayer {
+        self.text
+            .get_or_init(|| crate::preview_text::TextLayer::extract(&self.doc))
+    }
+
     /// The source file and character offset behind the point `(x_pt, y_pt)`
     /// on page `page` (0-based), if something there came from source.
     ///
