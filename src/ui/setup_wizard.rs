@@ -1044,8 +1044,13 @@ mod tests {
         assert!(msg.contains("sign in again"), "got: {msg}");
     }
 
+    // Without a git identity on the machine (a CI runner), prepare_repo writes
+    // one to the global config, and two tests doing that at once collide on its lock file.
+    static GLOBAL_GIT_CONFIG: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn preparing_a_folder_creates_the_repository_and_sets_the_branch_to_main() {
+        let _guard = GLOBAL_GIT_CONFIG.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().unwrap();
         let work = dir.path().join("Zerkalo");
         let identity = crate::github_auth::Identity {
@@ -1071,6 +1076,7 @@ mod tests {
 
     #[test]
     fn preparing_an_existing_repository_twice_is_harmless() {
+        let _guard = GLOBAL_GIT_CONFIG.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().unwrap();
         let work = dir.path().to_path_buf();
         prepare_repo(&work, None).unwrap();
