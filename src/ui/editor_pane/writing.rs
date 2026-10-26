@@ -13,13 +13,14 @@ use gtk4::{glib, EventControllerKey, PropagationPhase, TextTag};
 use sourceview5::{Buffer, View};
 
 use super::{base_key, hidden_template_end};
-use crate::ui::text_ops::{self, Continuation};
+use crate::ui::text_ops::{self, Continuation, VerseEnter};
 
 const HANG_PREFIX: &str = "zk-hang:";
 const DELIM_TAG: &str = "zk-delim-match";
 const HANG_DEBOUNCE: Duration = Duration::from_millis(400);
 
 pub fn wire(view: &View, buffer: &Buffer) {
+    wire_verse(view, buffer);
     wire_lists(view, buffer);
     wire_paste_link(view, buffer);
     wire_move_lines(view, buffer);
@@ -56,6 +57,56 @@ fn plain(mods: ModifierType) -> bool {
             | ModifierType::SHIFT_MASK
             | ModifierType::SUPER_MASK,
     )
+}
+
+// ── Verse: Enter inside a #poem body keeps the line breaks verseatile reads ───
+
+fn wire_verse(view: &View, buffer: &Buffer) {
+    let buf = buffer.clone();
+    capture_keys(view, move |key, _, mods| {
+        if !matches!(key, Key::Return | Key::KP_Enter) || !plain(mods) || buf.has_selection() {
+            return glib::Propagation::Proceed;
+        }
+        let cursor = buf.iter_at_offset(buf.cursor_position());
+        if !cursor.ends_line() {
+            return glib::Propagation::Proceed;
+        }
+        let before = buf.text(&buf.start_iter(), &cursor, false);
+        if !before.contains("#poem") {
+            return glib::Propagation::Proceed;
+        }
+        match text_ops::verse_enter(&before) {
+            VerseEnter::None => {}
+            VerseEnter::AppendBreak => {
+                let already_spaced = before.ends_with(' ');
+                buf.begin_user_action();
+                buf.insert_at_cursor(if already_spaced { "\\" } else { " \\" });
+                buf.end_user_action();
+            }
+            VerseEnter::DropBreakAbove => {
+                let line = cursor.line();
+                if line > 0 {
+                    let above = line_text(&buf, line - 1);
+                    let kept = above
+                        .trim_end()
+                        .trim_end_matches('\\')
+                        .trim_end()
+                        .chars()
+                        .count();
+                    if let Some(mut s) = buf.iter_at_line_offset(line - 1, kept as i32) {
+                        let mut e = s;
+                        if !e.ends_line() {
+                            e.forward_to_line_end();
+                        }
+                        buf.begin_user_action();
+                        buf.delete(&mut s, &mut e);
+                        buf.end_user_action();
+                    }
+                }
+            }
+        }
+        glib::Propagation::Proceed
+    });
 }
 
 // ── Lists: Enter continues, Tab / Shift+Tab nest ────────────────────────────

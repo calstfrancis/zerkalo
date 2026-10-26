@@ -1,9 +1,13 @@
-<!-- zerkalo-release: 0.52.0 -->
+<!-- zerkalo-release: 0.53.0 -->
 ### What's new
 
-Select and copy text in the preview.
+Set poetry.
 
-**The preview's text is now yours to copy.** Drag across the pages to select it — the selection is shaded in the accent colour — triple-click to take a whole line, press Ctrl+A to take everything, and press Ctrl+C or right-click → Copy to copy. Line breaks and spaces come out as the page shows them, so a quote or a paragraph pastes cleanly. The text cursor appears only over text, and a double-click or Ctrl+click still jumps the editor to that spot in the source. The selection clears when the preview recompiles.
+**Poetry is a document type of its own.** The template gallery has two new presets, Poetry — Classic and Poetry — Elegant, built on the verseatile package. A Poetry group in the Sections tab sets the verse style and line numbering (off, every line, or every 2nd, 5th or 10th), and the page is set for verse: no first-line indent, ragged right. Essays, books and letters are unchanged.
+
+**Enter keeps your line breaks.** Inside a `#poem`, pressing Enter at the end of a verse line adds the trailing `\` that verseatile reads; pressing Enter again on the empty line takes it off so the stanza break stays clean.
+
+**Quote verse anywhere.** Ctrl+K → Insert Poem or Insert Verse Quotation adds the import itself when the document lacks one, so a quoted poem works in an academic paper.
 
 ---
 

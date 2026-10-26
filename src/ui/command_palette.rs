@@ -405,6 +405,16 @@ pub fn default_commands() -> Vec<PaletteItem> {
             subtitle: "Choose a document template".into(),
         },
         PaletteItem {
+            id: "insert_poem".into(),
+            label: "Insert Poem".into(),
+            subtitle: "A titled poem with stanzas, set with verseatile".into(),
+        },
+        PaletteItem {
+            id: "insert_verse_quote".into(),
+            label: "Insert Verse Quotation".into(),
+            subtitle: "Quote lines of verse in a block quote, keeping their line breaks".into(),
+        },
+        PaletteItem {
             id: "help".into(),
             label: "Help & Shortcuts".into(),
             subtitle: "Open the help window (Ctrl+?)".into(),

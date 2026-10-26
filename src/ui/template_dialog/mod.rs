@@ -257,6 +257,7 @@ struct TemplatePreset {
     include_abstract: bool,
     include_keywords: bool,
     body_kind: BodyKind,
+    poetry_preset: &'static str,
 }
 
 // Indices reference CITATION_STYLES, PAPER_SIZES, MARGIN_PRESETS, SPACING_OPTIONS, PAGE_NUM_OPTIONS, HEADER_OPTIONS.
@@ -274,6 +275,7 @@ const TEMPLATE_PRESETS: &[TemplatePreset] = &[
         include_abstract: false,
         include_keywords: false,
         body_kind: BodyKind::Academic,
+        poetry_preset: "",
     },
     TemplatePreset {
         name: "Research Article (APA)",
@@ -288,6 +290,7 @@ const TEMPLATE_PRESETS: &[TemplatePreset] = &[
         include_abstract: true,
         include_keywords: true,
         body_kind: BodyKind::Academic,
+        poetry_preset: "",
     },
     TemplatePreset {
         name: "GOST R 7.0-5 Technical Report",
@@ -302,6 +305,7 @@ const TEMPLATE_PRESETS: &[TemplatePreset] = &[
         include_abstract: false,
         include_keywords: false,
         body_kind: BodyKind::Academic,
+        poetry_preset: "",
     },
     TemplatePreset {
         name: "IEEE Conference Paper",
@@ -316,6 +320,7 @@ const TEMPLATE_PRESETS: &[TemplatePreset] = &[
         include_abstract: true,
         include_keywords: true,
         body_kind: BodyKind::Academic,
+        poetry_preset: "",
     },
     TemplatePreset {
         name: "Academic Letter",
@@ -330,6 +335,7 @@ const TEMPLATE_PRESETS: &[TemplatePreset] = &[
         include_abstract: false,
         include_keywords: false,
         body_kind: BodyKind::Letter,
+        poetry_preset: "",
     },
     TemplatePreset {
         name: "Book / Long-form",
@@ -344,6 +350,7 @@ const TEMPLATE_PRESETS: &[TemplatePreset] = &[
         include_abstract: false,
         include_keywords: false,
         body_kind: BodyKind::Book,
+        poetry_preset: "",
     },
     TemplatePreset {
         name: "CV — Modern",
@@ -358,6 +365,7 @@ const TEMPLATE_PRESETS: &[TemplatePreset] = &[
         include_abstract: false,
         include_keywords: false,
         body_kind: BodyKind::Cv,
+        poetry_preset: "",
     },
     TemplatePreset {
         name: "CV — Academic",
@@ -372,6 +380,7 @@ const TEMPLATE_PRESETS: &[TemplatePreset] = &[
         include_abstract: false,
         include_keywords: false,
         body_kind: BodyKind::Cv,
+        poetry_preset: "",
     },
     TemplatePreset {
         name: "LaTeX Look",
@@ -386,6 +395,7 @@ const TEMPLATE_PRESETS: &[TemplatePreset] = &[
         include_abstract: false,
         include_keywords: false,
         body_kind: BodyKind::Academic,
+        poetry_preset: "",
     },
     TemplatePreset {
         name: "CV — Classic",
@@ -400,6 +410,7 @@ const TEMPLATE_PRESETS: &[TemplatePreset] = &[
         include_abstract: false,
         include_keywords: false,
         body_kind: BodyKind::Cv,
+        poetry_preset: "",
     },
     TemplatePreset {
         name: "CV — Two-Column",
@@ -414,6 +425,37 @@ const TEMPLATE_PRESETS: &[TemplatePreset] = &[
         include_abstract: false,
         include_keywords: false,
         body_kind: BodyKind::Cv,
+        poetry_preset: "",
+    },
+    TemplatePreset {
+        name: "Poetry — Classic",
+        description: "Verse set in small-caps titles, optional line numbers, ragged-right lines · US Letter · wide margins · page numbers bottom center",
+        style_idx: 1,
+        paper_idx: 0,
+        margin_idx: 2,
+        spacing_idx: 1,
+        page_num_pos: 0,
+        header_idx: 0,
+        include_toc: false,
+        include_abstract: false,
+        include_keywords: false,
+        body_kind: BodyKind::Poetry,
+        poetry_preset: "classic",
+    },
+    TemplatePreset {
+        name: "Poetry — Elegant",
+        description: "Italic swash titles and old-style figures for a lighter page · US Letter · wide margins · page numbers bottom center",
+        style_idx: 1,
+        paper_idx: 0,
+        margin_idx: 2,
+        spacing_idx: 1,
+        page_num_pos: 0,
+        header_idx: 0,
+        include_toc: false,
+        include_abstract: false,
+        include_keywords: false,
+        body_kind: BodyKind::Poetry,
+        poetry_preset: "elegant",
     },
 ];
 
@@ -426,18 +468,45 @@ pub(crate) enum BodyKind {
     Book,
     Cv,
     Letter,
+    Poetry,
 }
 
-/// Maps the "book"/"cv"/"letter" wire vocabulary shared by [`SidecarSettings::body_kind`]
+/// Maps the "book"/"cv"/"letter"/"poetry" wire vocabulary shared by [`SidecarSettings::body_kind`]
 /// and [`parse_doc_kind`] back to [`BodyKind`] — anything else (including missing/"academic") is Academic.
 pub(crate) fn body_kind_from_key(key: &str) -> BodyKind {
     match key {
         "book" => BodyKind::Book,
         "cv" => BodyKind::Cv,
         "letter" => BodyKind::Letter,
+        "poetry" => BodyKind::Poetry,
         _ => BodyKind::Academic,
     }
 }
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+pub struct PoetryOptions {
+    pub preset: String,
+    pub number_every: u32,
+}
+
+impl Default for PoetryOptions {
+    fn default() -> Self {
+        Self {
+            preset: "classic".into(),
+            number_every: 0,
+        }
+    }
+}
+
+const POETRY_PRESETS: &[(&str, &str)] = &[("Classic", "classic"), ("Elegant", "elegant")];
+
+const POETRY_NUMBERING: &[(&str, u32)] = &[
+    ("Off", 0),
+    ("Every line", 1),
+    ("Every 2nd line", 2),
+    ("Every 5th line", 5),
+    ("Every 10th line", 10),
+];
 
 // ── Settings struct ───────────────────────────────────────────────────────────
 
@@ -474,6 +543,7 @@ pub(crate) struct TemplateSettings {
     dropcap_lines: u32,
     dropcap_color: String,
     body_kind: BodyKind,
+    poetry: PoetryOptions,
     bib_path: Option<PathBuf>,
     include_title_page: bool,
     include_bibliography: bool,
@@ -534,6 +604,8 @@ pub struct SidecarSettings {
     /// `preselect_from_sidecar` for the legacy fallback in that case.
     #[serde(default)]
     pub cv_style: String,
+    #[serde(default)]
+    pub poetry: PoetryOptions,
 }
 
 /// A hand-written `Default` impl, not `#[derive(Default)]`: `title_page_enabled`
@@ -581,6 +653,7 @@ impl Default for SidecarSettings {
             bibliography_enabled: true,
             body_kind: String::new(),
             cv_style: String::new(),
+            poetry: PoetryOptions::default(),
         }
     }
 }
@@ -915,6 +988,9 @@ struct SectionsTab {
     keywords_text_row: adw::EntryRow,
     heading_numbering_row: adw::SwitchRow,
     heading_format_row: adw::ComboRow,
+    poetry_group: adw::PreferencesGroup,
+    poetry_preset_row: adw::ComboRow,
+    poetry_numbering_row: adw::ComboRow,
     scroll: ScrolledWindow,
 }
 
@@ -1009,8 +1085,28 @@ fn build_sections_tab(notebook: &Notebook) -> SectionsTab {
         });
     }
 
+    let poetry_group = adw::PreferencesGroup::new();
+    poetry_group.set_title("Poetry");
+    poetry_group.set_visible(false);
+
+    let poetry_preset_row = adw::ComboRow::new();
+    poetry_preset_row.set_title("Verse Style");
+    poetry_preset_row.set_subtitle("How poem titles, dedications and line numbers are set");
+    poetry_preset_row.set_model(Some(&gtk4::StringList::new(
+        &POETRY_PRESETS.iter().map(|(n, _)| *n).collect::<Vec<_>>(),
+    )));
+    poetry_group.add(&poetry_preset_row);
+
+    let poetry_numbering_row = adw::ComboRow::new();
+    poetry_numbering_row.set_title("Line Numbers");
+    poetry_numbering_row.set_model(Some(&gtk4::StringList::new(
+        &POETRY_NUMBERING.iter().map(|(n, _)| *n).collect::<Vec<_>>(),
+    )));
+    poetry_group.add(&poetry_numbering_row);
+
     let tab3_box = pref_tab_box();
     tab3_box.append(&sec_group);
+    tab3_box.append(&poetry_group);
     let tab3_scroll = tab_scroll(tab3_box);
     notebook.append_page(&tab3_scroll, Some(&tab_label("Sections")));
 
@@ -1025,6 +1121,9 @@ fn build_sections_tab(notebook: &Notebook) -> SectionsTab {
         keywords_text_row,
         heading_numbering_row,
         heading_format_row,
+        poetry_group,
+        poetry_preset_row,
+        poetry_numbering_row,
         scroll: tab3_scroll,
     }
 }
@@ -1261,6 +1360,9 @@ struct FormWidgets {
     keywords_text: adw::EntryRow,
     heading_num: adw::SwitchRow,
     heading_fmt: adw::ComboRow,
+    poetry_group: adw::PreferencesGroup,
+    poetry_preset: adw::ComboRow,
+    poetry_numbering: adw::ComboRow,
     langs: Vec<(String, adw::SwitchRow)>,
     pkgs: Vec<(String, adw::SwitchRow)>,
     dropcap_expander: adw::ExpanderRow,
@@ -1372,6 +1474,16 @@ impl FormWidgets {
                 .map(|(_, v)| v.to_string())
                 .unwrap_or_default(),
             body_kind: *self.body_kind.borrow(),
+            poetry: PoetryOptions {
+                preset: POETRY_PRESETS
+                    .get(self.poetry_preset.selected() as usize)
+                    .map(|(_, k)| k.to_string())
+                    .unwrap_or_else(|| PoetryOptions::default().preset),
+                number_every: POETRY_NUMBERING
+                    .get(self.poetry_numbering.selected() as usize)
+                    .map(|(_, n)| *n)
+                    .unwrap_or(0),
+            },
             bib_path: self.bib_path.borrow().clone(),
         }
     }
@@ -1389,6 +1501,20 @@ impl FormWidgets {
 
     fn set_body_kind(&self, kind: BodyKind) {
         *self.body_kind.borrow_mut() = kind;
+        self.poetry_group.set_visible(kind == BodyKind::Poetry);
+    }
+
+    fn set_poetry(&self, o: &PoetryOptions) {
+        let preset = POETRY_PRESETS
+            .iter()
+            .position(|(_, k)| *k == o.preset)
+            .unwrap_or(0);
+        self.poetry_preset.set_selected(preset as u32);
+        let numbering = POETRY_NUMBERING
+            .iter()
+            .position(|(_, n)| *n == o.number_every)
+            .unwrap_or(0);
+        self.poetry_numbering.set_selected(numbering as u32);
     }
 
     fn set_cv_style_index(&self, idx: usize) {
@@ -1632,6 +1758,7 @@ impl FormWidgets {
     fn apply_settings(&self, s: &SidecarSettings) {
         self.set_cv_mode(s.body_kind == "cv");
         self.set_body_kind(body_kind_from_key(&s.body_kind));
+        self.set_poetry(&s.poetry);
         self.set_style(&s.style);
         // For CVs, `s.cv_style` (when present) is authoritative over the
         // `style` aliasing above — see CV_STYLE_OPTIONS' doc comment. Legacy
@@ -1789,6 +1916,12 @@ fn build_templates_gallery(
         row.connect_activated(move |_| {
             let p = &TEMPLATE_PRESETS[idx];
             form_c.set_body_kind(p.body_kind);
+            if p.body_kind == BodyKind::Poetry {
+                form_c.set_poetry(&PoetryOptions {
+                    preset: p.poetry_preset.to_string(),
+                    number_every: 0,
+                });
+            }
             // Picking a CV preset puts the dialog in CV mode. Without this,
             // choosing "CV — Modern" from the unfiltered gallery gave a CV body
             // with the Metadata rows still labelled Subtitle/Course/Professor
@@ -2731,6 +2864,9 @@ impl TemplateDialog {
             keywords_text_row,
             heading_numbering_row,
             heading_format_row,
+            poetry_group,
+            poetry_preset_row,
+            poetry_numbering_row,
             scroll: tab3_scroll,
         } = build_sections_tab(&notebook);
 
@@ -2789,6 +2925,9 @@ impl TemplateDialog {
             keywords_text: keywords_text_row.clone(),
             heading_num: heading_numbering_row.clone(),
             heading_fmt: heading_format_row.clone(),
+            poetry_group: poetry_group.clone(),
+            poetry_preset: poetry_preset_row.clone(),
+            poetry_numbering: poetry_numbering_row.clone(),
             langs: lang_switches.clone(),
             pkgs: pkg_switches.clone(),
             dropcap_expander: dropcap_expander.clone(),
@@ -3313,6 +3452,14 @@ fn preview_settings_for_preset(p: &TemplatePreset) -> TemplateSettings {
         dropcap_lines: 3,
         dropcap_color: String::new(),
         body_kind: p.body_kind,
+        poetry: PoetryOptions {
+            preset: if p.poetry_preset.is_empty() {
+                PoetryOptions::default().preset
+            } else {
+                p.poetry_preset.to_string()
+            },
+            number_every: 0,
+        },
         bib_path: None,
         include_title_page: true,
         include_bibliography: true,
@@ -3340,7 +3487,10 @@ fn render_template_preview(
     let mut preamble = generate_typst_template(settings);
 
     // For CVs and letters the template already contains full content — no body to append.
-    if matches!(body_kind, BodyKind::Cv | BodyKind::Letter) {
+    if matches!(
+        body_kind,
+        BodyKind::Cv | BodyKind::Letter | BodyKind::Poetry
+    ) {
         let tmp_dir = std::env::temp_dir();
         let typ_path = tmp_dir.join(format!("zerkalo_tmpl_preview_{tag}.typ"));
         std::fs::write(&typ_path, &preamble).map_err(|e| e.to_string())?;
@@ -3374,12 +3524,16 @@ fn render_template_preview(
     // Replace the starter body with richer sample content
     let body = match body_kind {
         BodyKind::Book => PREVIEW_BOOK_BODY,
-        BodyKind::Academic | BodyKind::Cv | BodyKind::Letter => PREVIEW_ACADEMIC_BODY,
+        BodyKind::Academic | BodyKind::Cv | BodyKind::Letter | BodyKind::Poetry => {
+            PREVIEW_ACADEMIC_BODY
+        }
     };
     // Strip everything from the first chapter/section marker onward and append rich body
     let marker = match body_kind {
         BodyKind::Book => "// ── Chapters",
-        BodyKind::Academic | BodyKind::Cv | BodyKind::Letter => "// ── Document body",
+        BodyKind::Academic | BodyKind::Cv | BodyKind::Letter | BodyKind::Poetry => {
+            "// ── Document body"
+        }
     };
     if let Some(pos) = preamble.find(marker) {
         preamble.truncate(pos);
@@ -3960,7 +4114,12 @@ mod tests {
     fn every_citation_style_compiles_for_every_body_kind() {
         let mut failures = Vec::new();
         for (idx, (name, _)) in CITATION_STYLES.iter().enumerate() {
-            for kind in [BodyKind::Academic, BodyKind::Book, BodyKind::Letter] {
+            for kind in [
+                BodyKind::Academic,
+                BodyKind::Book,
+                BodyKind::Letter,
+                BodyKind::Poetry,
+            ] {
                 let mut s = matrix_base();
                 s.style_idx = idx;
                 s.body_kind = kind;
@@ -3970,6 +4129,57 @@ mod tests {
             }
         }
         assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    #[test]
+    fn every_poetry_option_compiles() {
+        let mut failures = Vec::new();
+        for (name, key) in POETRY_PRESETS {
+            for (label, every) in POETRY_NUMBERING {
+                let mut s = matrix_base();
+                s.body_kind = BodyKind::Poetry;
+                s.poetry = PoetryOptions {
+                    preset: key.to_string(),
+                    number_every: *every,
+                };
+                if let Some(e) = compile_failure(&s) {
+                    failures.push(format!("{name} / {label}: {e}"));
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    #[test]
+    fn poetry_markup_stays_out_of_other_body_kinds() {
+        for kind in [BodyKind::Academic, BodyKind::Book, BodyKind::Letter] {
+            let mut s = matrix_base();
+            s.body_kind = kind;
+            let out = generate_typst_template(&s);
+            assert!(!out.contains("verseatile"), "{kind:?}");
+            assert!(
+                !out.contains("first-line-indent: 0pt, justify: false"),
+                "{kind:?}"
+            );
+            assert!(!out.contains("@zerkalo-kind"), "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn poetry_settings_round_trip_through_the_sidecar() {
+        let mut s = matrix_base();
+        s.body_kind = BodyKind::Poetry;
+        s.poetry = PoetryOptions {
+            preset: "elegant".into(),
+            number_every: 5,
+        };
+        let back = sidecar_to_settings(&build_sidecar(&s));
+        assert_eq!(back.body_kind, BodyKind::Poetry);
+        assert_eq!(back.poetry, s.poetry);
+        let out = generate_typst_template(&back);
+        assert!(out.contains("#show: preset-elegant"));
+        assert!(out.contains("#verse-numbering(true, modulo: 5)"));
+        assert_eq!(parse_doc_kind(&out).as_deref(), Some("poetry"));
     }
 
     #[test]
@@ -4281,6 +4491,7 @@ mod tests {
             dropcap_lines: 3,
             dropcap_color: String::new(),
             body_kind: BodyKind::Cv,
+            poetry: Default::default(),
             bib_path: None,
             include_title_page: true,
             include_bibliography: true,
@@ -4390,6 +4601,7 @@ french:
                 dropcap_lines: 3,
                 dropcap_color: String::new(),
                 body_kind: BodyKind::Cv,
+                poetry: Default::default(),
                 bib_path: None,
                 include_title_page: true,
                 include_bibliography: true,
@@ -4493,6 +4705,7 @@ french:
             dropcap_lines: 3,
             dropcap_color: String::new(),
             body_kind: BodyKind::Cv,
+            poetry: Default::default(),
             bib_path: None,
             include_title_page: true,
             include_bibliography: true,
@@ -4596,6 +4809,7 @@ french:
                 dropcap_lines: 3,
                 dropcap_color: String::new(),
                 body_kind: BodyKind::Cv,
+                poetry: Default::default(),
                 bib_path: None,
                 include_title_page: true,
                 include_bibliography: true,
@@ -4696,6 +4910,7 @@ french:
             dropcap_lines: 3,
             dropcap_color: String::new(),
             body_kind: BodyKind::Cv,
+            poetry: Default::default(),
             bib_path: None,
             include_title_page: true,
             include_bibliography: true,
@@ -4807,6 +5022,7 @@ french:
                 dropcap_lines: 3,
                 dropcap_color: String::new(),
                 body_kind,
+                poetry: Default::default(),
                 bib_path: None,
                 include_title_page: true,
                 include_bibliography: true,
@@ -4912,6 +5128,7 @@ french:
             dropcap_lines: 3,
             dropcap_color: String::new(),
             body_kind: BodyKind::Academic,
+            poetry: Default::default(),
             bib_path: None,
             include_title_page: true,
             include_bibliography: true,
@@ -5038,6 +5255,7 @@ french:
             dropcap_lines: 3,
             dropcap_color: String::new(),
             body_kind: BodyKind::Academic,
+            poetry: Default::default(),
             font_size: "12pt".into(),
             heading_numbering: false,
             numbering_format: String::new(),
@@ -5097,6 +5315,7 @@ french:
             dropcap_lines: 3,
             dropcap_color: String::new(),
             body_kind: BodyKind::Academic,
+            poetry: Default::default(),
             font_size: "12pt".into(),
             heading_numbering: false,
             numbering_format: String::new(),
@@ -5265,6 +5484,7 @@ Body text.\n";
             dropcap_lines: 3,
             dropcap_color: String::new(),
             body_kind: BodyKind::Academic,
+            poetry: Default::default(),
             font_size: "12pt".into(),
             heading_numbering: false,
             numbering_format: String::new(),
@@ -5338,6 +5558,7 @@ Body text.\n";
             dropcap_lines: 3,
             dropcap_color: String::new(),
             body_kind: BodyKind::Academic,
+            poetry: Default::default(),
             font_size: "12pt".into(),
             heading_numbering: false,
             numbering_format: String::new(),
@@ -5424,6 +5645,7 @@ Body text.\n";
                 dropcap_lines: 3,
                 dropcap_color: String::new(),
                 body_kind: BodyKind::Cv,
+                poetry: Default::default(),
                 bib_path: None,
                 include_title_page: true,
                 include_bibliography: true,
@@ -5552,6 +5774,7 @@ Body text.\n";
             dropcap_lines: 3,
             dropcap_color: String::new(),
             body_kind: BodyKind::Academic,
+            poetry: Default::default(),
             font_size: "12pt".into(),
             heading_numbering: false,
             numbering_format: String::new(),
@@ -5645,6 +5868,7 @@ Body text.\n";
             dropcap_lines: 3,
             dropcap_color: String::new(),
             body_kind: BodyKind::Academic,
+            poetry: Default::default(),
             font_size: "12pt".into(),
             heading_numbering: false,
             numbering_format: String::new(),
@@ -5707,6 +5931,7 @@ Body text.\n";
             dropcap_lines: 3,
             dropcap_color: String::new(),
             body_kind: BodyKind::Academic,
+            poetry: Default::default(),
             font_size: "12pt".into(),
             heading_numbering: false,
             numbering_format: String::new(),
@@ -5779,6 +6004,7 @@ Body text.\n";
             dropcap_lines: 3,
             dropcap_color: String::new(),
             body_kind: BodyKind::Academic,
+            poetry: Default::default(),
             font_size: "12pt".into(),
             heading_numbering: false,
             numbering_format: String::new(),
@@ -5845,6 +6071,7 @@ Body text.\n";
             dropcap_lines: 3,
             dropcap_color: String::new(),
             body_kind: BodyKind::Academic,
+            poetry: Default::default(),
             font_size: "12pt".into(),
             heading_numbering: false,
             numbering_format: String::new(),
@@ -5911,6 +6138,7 @@ Body text.\n";
             dropcap_lines: 3,
             dropcap_color: String::new(),
             body_kind: BodyKind::Letter,
+            poetry: Default::default(),
             bib_path: None,
             include_title_page: true,
             include_bibliography: true,
@@ -5987,6 +6215,7 @@ Body text.\n";
             dropcap_lines: 3,
             dropcap_color: String::new(),
             body_kind: BodyKind::Letter,
+            poetry: Default::default(),
             bib_path: None,
             include_title_page: true,
             include_bibliography: true,
@@ -6082,6 +6311,7 @@ Some real writing the user already did.\n";
             dropcap_lines: 3,
             dropcap_color: String::new(),
             body_kind: p0.body_kind,
+            poetry: Default::default(),
             bib_path: None,
             include_title_page: true,
             include_bibliography: true,

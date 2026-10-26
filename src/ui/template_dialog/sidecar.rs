@@ -127,11 +127,13 @@ pub fn build_sidecar(t: &TemplateSettings) -> SidecarSettings {
             BodyKind::Cv => "cv".into(),
             BodyKind::Letter => "letter".into(),
             BodyKind::Academic => "academic".into(),
+            BodyKind::Poetry => "poetry".into(),
         },
         // Written only for CV documents, and read back via `cv_style_index`
         // instead of the `style`/CITATION_STYLES aliasing above — see
         // CV_STYLE_OPTIONS' doc comment for why `style` alone isn't reliable
         // for CVs if CITATION_STYLES is ever reordered.
+        poetry: t.poetry.clone(),
         cv_style: if t.body_kind == BodyKind::Cv {
             CV_STYLE_OPTIONS
                 .get(t.style_idx)
@@ -193,6 +195,7 @@ pub fn sidecar_to_settings(sc: &SidecarSettings) -> TemplateSettings {
         dropcap_lines: sc.dropcap_lines,
         dropcap_color: sc.dropcap_color.clone(),
         body_kind: body_kind_from_key(&sc.body_kind),
+        poetry: sc.poetry.clone(),
         bib_path: sc.bib_path.as_ref().map(std::path::PathBuf::from),
         include_title_page: sc.title_page_enabled,
         include_bibliography: sc.bibliography_enabled,

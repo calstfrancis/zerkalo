@@ -559,6 +559,7 @@ pub fn default_import_preamble() -> String {
         dropcap_lines: 3,
         dropcap_color: String::new(),
         body_kind: BodyKind::default(),
+        poetry: Default::default(),
         bib_path: None,
         include_title_page: true,
         include_bibliography: true,

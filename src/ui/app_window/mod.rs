@@ -2717,6 +2717,15 @@ impl AppWindow {
                             };
                             editor_for_pal.apply_font_size(size);
                         }
+                        "insert_poem" | "insert_verse_quote" => {
+                            let doc = editor_for_pal.get_active_content().unwrap_or_default();
+                            let snippet = if id == "insert_poem" {
+                                crate::poetry::poem_snippet(&doc)
+                            } else {
+                                crate::poetry::verse_quote_snippet(&doc)
+                            };
+                            editor_for_pal.insert_at_cursor(&snippet);
+                        }
                         "focus_mode" => editor_for_pal.focus_button_for_header().emit_clicked(),
                         "show_in_preview" => editor_for_pal.show_cursor_in_preview(),
                         "help" => {

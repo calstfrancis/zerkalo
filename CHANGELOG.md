@@ -3,6 +3,16 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.53.0] "Steady Meter" — 2026-10-26 — Set poetry
+
+### Added
+
+- **A Poetry document type, built on the verseatile package.** The template gallery has two new presets, *Poetry — Classic* (small-caps titles) and *Poetry — Elegant* (italic swash titles, old-style figures). Choosing one adds a Poetry group to the Sections tab with the verse style and line numbering (off, every line, or every 2nd, 5th or 10th). The page is set for verse: no first-line indent, ragged right. Poetry settings are saved with the document and in your own saved templates. Other document types are untouched — nothing from verseatile appears in an essay, book or letter.
+- **Enter inside a `#poem` body keeps the line breaks.** Verseatile reads each line's trailing `\`, so pressing Enter at the end of a verse line adds it for you, and pressing Enter again on the empty line takes it off so the stanza break stays clean.
+- **Insert Poem** and **Insert Verse Quotation** in the command palette (Ctrl+K). Both add the verseatile import when the document doesn't have it, so a quoted poem works in an academic paper without changing anything else in it.
+
+---
+
 ## [0.52.0] "Clean Copy" — 2026-10-15 — Select and copy text in the preview
 
 ### Added

@@ -251,6 +251,77 @@ pub fn expand_selection(text: &str, start: usize, end: usize) -> Option<(usize, 
         .min_by_key(|&(a, b)| b - a)
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum VerseEnter {
+    None,
+    /// Enter at the end of a verse line: the line needs a trailing `\\` first.
+    AppendBreak,
+    /// Enter on the empty line after a `\\` line: that `\\` would double up
+    /// with the stanza break, so it comes off.
+    DropBreakAbove,
+}
+
+/// What Enter should do to the line break at the cursor, given the document
+/// text up to the cursor, which must sit at the end of its line.
+pub fn verse_enter(before: &str) -> VerseEnter {
+    let mut lines = before.rsplit('\n');
+    let current = lines.next().unwrap_or("").trim();
+    if current.is_empty() {
+        let above_breaks = lines.next().is_some_and(|l| l.trim_end().ends_with('\\'));
+        return if above_breaks && in_poem_body(before) {
+            VerseEnter::DropBreakAbove
+        } else {
+            VerseEnter::None
+        };
+    }
+    let skips = current.ends_with('\\')
+        || current.ends_with('[')
+        || current.starts_with("//")
+        || current.starts_with(']');
+    if !skips && in_poem_body(before) {
+        VerseEnter::AppendBreak
+    } else {
+        VerseEnter::None
+    }
+}
+
+/// True when the end of `before` falls inside the second bracket group of the
+/// last `#poem[title][body]` (or `#poem-incycle`) — the body verseatile reads
+/// line by line.
+fn in_poem_body(before: &str) -> bool {
+    let open = ["#poem[", "#poem-incycle["]
+        .iter()
+        .filter_map(|p| before.rfind(p).map(|i| i + p.len() - 1))
+        .max();
+    let Some(open) = open else {
+        return false;
+    };
+    let mut groups = 0;
+    let mut depth = 0;
+    let mut chars = before[open..].chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => {
+                chars.next();
+            }
+            '[' => {
+                depth += 1;
+                if depth == 1 {
+                    groups += 1;
+                }
+            }
+            ']' => {
+                depth -= 1;
+                if depth == 0 && (groups == 2 || chars.peek() != Some(&'[')) {
+                    return false;
+                }
+            }
+            _ => {}
+        }
+    }
+    groups == 2 && depth >= 1
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -357,5 +428,47 @@ mod tests {
         let doc = expand_selection(t, sec.0, sec.1).unwrap();
         assert_eq!(doc, (0, t.chars().count()));
         assert_eq!(expand_selection(t, doc.0, doc.1), None);
+    }
+
+    #[test]
+    fn verse_enter_appends_a_break_inside_a_poem_body() {
+        let doc = "#poem[Title][\n  First line";
+        assert_eq!(verse_enter(doc), VerseEnter::AppendBreak);
+        assert_eq!(
+            verse_enter("#poem[Title][\n  A \\\n  B"),
+            VerseEnter::AppendBreak
+        );
+    }
+
+    #[test]
+    fn verse_enter_leaves_everything_else_alone() {
+        assert_eq!(verse_enter("Just prose"), VerseEnter::None);
+        assert_eq!(verse_enter("#poem[Title]["), VerseEnter::None);
+        assert_eq!(verse_enter("#poem[A long title"), VerseEnter::None);
+        assert_eq!(verse_enter("#poem[T][\n  A \\"), VerseEnter::None);
+        assert_eq!(verse_enter("#poem[T][\n  // note"), VerseEnter::None);
+        assert_eq!(verse_enter("#poem[T][\n  A\n]"), VerseEnter::None);
+        assert_eq!(
+            verse_enter("#poem[T][\n  A\n][0101]\nAfter"),
+            VerseEnter::None
+        );
+        assert_eq!(verse_enter("#poem[T][\n  A]"), VerseEnter::None);
+    }
+
+    #[test]
+    fn verse_enter_drops_the_break_before_a_stanza_gap() {
+        assert_eq!(
+            verse_enter("#poem[T][\n  A \\\n  B \\\n"),
+            VerseEnter::DropBreakAbove
+        );
+        assert_eq!(verse_enter("Prose \\\n"), VerseEnter::None);
+    }
+
+    #[test]
+    fn verse_enter_ignores_escaped_brackets_in_the_title() {
+        assert_eq!(
+            verse_enter("#poem[Odd \\] title][\n  A"),
+            VerseEnter::AppendBreak
+        );
     }
 }

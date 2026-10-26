@@ -67,7 +67,23 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
     let _ = writeln!(out, "// Created with Zerkalo · {style_name} style");
     let _ = writeln!(out, "// @zerkalo-style: {style_key}");
     let _ = writeln!(out, "// @zerkalo-version: {}", env!("CARGO_PKG_VERSION"));
+    if matches!(s.body_kind, BodyKind::Poetry) {
+        let _ = writeln!(out, "// @zerkalo-kind: poetry");
+    }
     let _ = writeln!(out);
+
+    if matches!(s.body_kind, BodyKind::Poetry) {
+        let _ = writeln!(out, "{VERSEATILE_IMPORT}");
+        let _ = writeln!(out, "#show: preset-{}", poetry_preset_key(&s.poetry.preset));
+        if s.poetry.number_every > 0 {
+            let _ = writeln!(
+                out,
+                "#verse-numbering(true, modulo: {})",
+                s.poetry.number_every
+            );
+        }
+        let _ = writeln!(out);
+    }
 
     // Package imports
     for pkg in &s.packages {
@@ -151,6 +167,9 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
         // doesn't break the even line grid that APA, MLA, Chicago and
         // Turabian all specify.
         let _ = writeln!(out, "#set par(leading: {leading}, spacing: {spacing}, first-line-indent: 1em, justify: true)");
+    }
+    if matches!(s.body_kind, BodyKind::Poetry) {
+        let _ = writeln!(out, "#set par(first-line-indent: 0pt, justify: false)");
     }
     let _ = writeln!(out);
 
@@ -311,10 +330,43 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
             let _ = writeln!(out, "#doc-author");
             let _ = writeln!(out, "#if doc-affil != \"\" [\\ #doc-affil]");
         }
+        BodyKind::Poetry => {
+            let _ = writeln!(out, "// ── Document body — Zerkalo uses this exact line to find where your writing starts. Leave it in place; everything below it is yours to edit freely.");
+            let _ = writeln!(
+                out,
+                "// ── Document body ───────────────────────────────────────────────────"
+            );
+            let _ = writeln!(out);
+            let _ = write!(out, "{POETRY_STARTER_BODY}");
+        }
         BodyKind::Cv => { /* dispatched to generate_cv_template() above */ }
     }
 
     out
+}
+
+pub(crate) const VERSEATILE_IMPORT: &str = "#import \"@preview/verseatile:0.2.2\": *";
+
+pub(crate) const POETRY_STARTER_BODY: &str = "\
+// Each line of a poem ends in a backslash; a blank line starts a new stanza.
+// A third bracket sets per-line indents, e.g. #poem[Title][ ... ][0101].
+#poem[Title of the Poem][
+  First line of the first stanza \\
+  Second line of the first stanza \\
+  Third line of the first stanza
+
+  First line of the second stanza \\
+  Second line of the second stanza \\
+  Third line of the second stanza
+]
+";
+
+pub(crate) fn poetry_preset_key(preset: &str) -> &'static str {
+    POETRY_PRESETS
+        .iter()
+        .find(|(_, k)| *k == preset)
+        .map(|(_, k)| *k)
+        .unwrap_or("classic")
 }
 
 // ── CV template generator ─────────────────────────────────────────────────────
@@ -1050,6 +1102,7 @@ pub fn rebuild_title_page_for_style(content: &str, new_style_key: &str) -> Strin
         dropcap_lines: 3,
         dropcap_color: String::new(),
         body_kind: BodyKind::Academic,
+        poetry: Default::default(),
         bib_path: None,
         include_title_page: true,
         include_bibliography: true,
