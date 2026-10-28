@@ -126,7 +126,12 @@ impl EditorPane {
             apply_simple_mode_tag(buffer, on);
             view.set_show_line_numbers(!on || self.line_numbers_override.get());
             view.set_left_margin(left_margin);
-            view.set_highlight_current_line(!on);
+            view.set_highlight_current_line(
+                !on && crate::config::shared()
+                    .borrow()
+                    .comfort
+                    .highlight_current_line,
+            );
             writing::retune_hanging_tags(view, buffer);
         }
     }

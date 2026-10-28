@@ -58,7 +58,7 @@ pub(super) fn set_wc_text_with_session(
     session_start: u32,
     cites: Cites,
 ) {
-    label.set_text(&wc_str_with_delta(text, session_start, cites));
+    counters::show(label, &wc_str_with_delta(text, session_start, cites));
 }
 
 pub(super) fn count_content_words(text: &str) -> usize {
@@ -253,8 +253,9 @@ impl EditorPane {
     }
 
     pub fn set_session_delta(&self, delta: i32) {
-        if delta > 0 {
-            self.session_delta_label.set_text(&format!("↑ {delta}"));
+        let hidden = counters::timing() == crate::config::CounterTiming::Hidden;
+        if delta > 0 && !hidden {
+            counters::show(&self.session_delta_label, &format!("↑ {delta}"));
             self.session_delta_label
                 .add_css_class("session-delta-positive");
             self.session_delta_label.set_visible(true);
@@ -317,6 +318,7 @@ impl EditorPane {
         let proj_wc_timer: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
         tab.buffer.connect_changed(move |buf| {
             last_edit_for_change.set(Some(std::time::Instant::now()));
+            counters::typed();
             let newly_modified = {
                 let mut state = state_for_change.borrow_mut();
                 if let Some(tab) = state.tabs.get_mut(&path_for_change) {
@@ -416,7 +418,7 @@ impl EditorPane {
                         }
                         let wc_str = wc_str_with_delta(&text, ss2.get(), cites.as_deref());
                         *last_wc2.borrow_mut() = wc_str.clone();
-                        wc2.set_text(&wc_str);
+                        counters::show(&wc2, &wc_str);
                     },
                 ));
             }

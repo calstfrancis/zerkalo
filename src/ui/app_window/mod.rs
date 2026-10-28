@@ -540,6 +540,7 @@ impl AppWindow {
         };
 
         apply_theme(&config.theme);
+        super::a11y::apply_comfort(&config.comfort);
         super::a11y::apply_high_contrast(&window, config.high_contrast);
         {
             // Follow the system's own high-contrast preference as it changes.
@@ -899,11 +900,25 @@ impl AppWindow {
         let project_root_for_change = project_root.clone();
         let outline_manuscript_mode_for_change = outline_manuscript_mode.clone();
         let last_edit_for_change = last_edit_instant.clone();
+        // The "last time" line above the text; goes at the first real edit.
+        let resume_bar = super::resume_bar::ResumeBar::new();
+        let resume_shown_at: Rc<Cell<Option<std::time::Instant>>> = Rc::new(Cell::new(None));
+        let resume_bar_for_change = resume_bar.clone();
+        let resume_shown_for_change = resume_shown_at.clone();
         let gen: Rc<RefCell<u64>> = Rc::new(RefCell::new(0));
         let gen2 = gen.clone();
         let editor_pane_for_delta = editor_pane.clone();
         let editor_pane_for_bib = editor_pane.clone();
         editor_pane.set_on_change(move || {
+            // Opening a document can itself report a change; only an edit
+            // that comes after the line has been up a moment dismisses it.
+            if resume_shown_for_change
+                .get()
+                .is_some_and(|t| t.elapsed() > Duration::from_millis(800))
+            {
+                resume_bar_for_change.hide();
+                resume_shown_for_change.set(None);
+            }
             // While the citation popup is open, suppress compile and LSP updates —
             // partial @keys cause spurious errors and make typing difficult.
             if editor_pane_for_bib.is_bib_active() {
@@ -1260,7 +1275,34 @@ impl AppWindow {
         let citation_panel_for_open = citation_panel.clone();
         let preview_for_scope = preview_pane.clone();
         let problems_for_open = problems.clone();
+        let resume_bar_for_open = resume_bar.clone();
+        let resume_shown_for_open = resume_shown_at.clone();
+        let log_for_open = writing_log.clone();
+        let cfg_for_resume = current_config.clone();
         editor_pane.set_on_file_opened(move |path, content| {
+            {
+                let comfort = cfg_for_resume.borrow().comfort.clone();
+                let mut parts: Vec<String> = Vec::new();
+                if comfort.where_you_left_off {
+                    parts.extend(crate::resume::last_time_line(
+                        &path,
+                        &log_for_open.borrow(),
+                        chrono::Local::now(),
+                    ));
+                }
+                if comfort.notes_for_next_time {
+                    let note = crate::resume::load_note(&path);
+                    if !note.is_empty() {
+                        parts.push(format!("Your note: {note}"));
+                    }
+                }
+                if parts.is_empty() {
+                    resume_bar_for_open.hide();
+                } else {
+                    resume_bar_for_open.show(&parts.join("  \u{2022}  "));
+                    resume_shown_for_open.set(Some(std::time::Instant::now()));
+                }
+            }
             // Track initial word count for this file (first open only)
             let mut starts = file_start_words_for_open.borrow_mut();
             if !starts.contains_key(&path) {
@@ -1400,6 +1442,11 @@ impl AppWindow {
                 rev_c.set_reveal_child(true);
                 if let Some(id) = slot_c.borrow_mut().take() {
                     id.remove();
+                }
+                if super::a11y::reduced_motion() {
+                    // A still strip says "working" without moving.
+                    bar_c.set_fraction(0.5);
+                    return;
                 }
                 let (bar, rev, timer_slot) = (bar_c.clone(), rev_c.clone(), slot_c.clone());
                 let id = glib::timeout_add_local(Duration::from_millis(80), move || {
@@ -2266,6 +2313,7 @@ impl AppWindow {
         let editor_outer = GtkBox::new(Orientation::Vertical, 0);
         editor_outer.set_hexpand(true);
         editor_outer.set_vexpand(true);
+        editor_outer.append(resume_bar.widget());
         {
             let backup_banner = adw::Banner::new("");
             backup_banner.set_revealed(false);
@@ -2783,6 +2831,34 @@ impl AppWindow {
                         "get_latest" => targets_for_pal.get_latest.emit_clicked(),
                         "recover" => targets_for_pal.recover.emit_clicked(),
                         "recent_messages" => editor_for_pal.show_recent_messages(),
+                        "check_spelling" => editor_for_pal.check_spelling_now(),
+                        "note_for_next_time" => {
+                            if !config_for_pal.borrow().comfort.notes_for_next_time {
+                                toast_for_pal.say(adw::Toast::new(
+                                    "Notes for next time are off. Settings → Comfort turns them on.",
+                                ));
+                            } else if let Some(path) = editor_for_pal.get_active_path() {
+                                let dlg = adw::MessageDialog::new(
+                                    Some(&w),
+                                    Some("Note for next time"),
+                                    Some("Shown quietly when this document opens. Leave it empty to remove it."),
+                                );
+                                let entry = gtk4::Entry::new();
+                                entry.set_text(&crate::resume::load_note(&path));
+                                entry.set_activates_default(true);
+                                dlg.set_extra_child(Some(&entry));
+                                dlg.add_response("cancel", "Keep it as it is");
+                                dlg.add_response("save", "Save note");
+                                dlg.set_default_response(Some("save"));
+                                dlg.set_close_response("cancel");
+                                dlg.connect_response(None, move |_, r| {
+                                    if r == "save" {
+                                        crate::resume::save_note(&path, &entry.text());
+                                    }
+                                });
+                                dlg.present();
+                            }
+                        }
                         "text_bigger" | "text_smaller" | "text_reset" => {
                             let size = {
                                 let mut cfg = config_for_pal.borrow_mut();
@@ -3254,6 +3330,23 @@ impl AppWindow {
         });
 
         self.window.add_controller(controller);
+
+        // F7 checks spelling. Caught before the editor sees it: GtkTextView's
+        // own F7 hides the text cursor ("caret browsing"), which looked like
+        // the cursor had simply vanished.
+        let f7 = gtk4::EventControllerKey::new();
+        f7.set_propagation_phase(gtk4::PropagationPhase::Capture);
+        let editor_f7 = self.editor_pane.clone();
+        f7.connect_key_pressed(move |_, key, _, mods| {
+            if key == gtk4::gdk::Key::F7
+                && (mods & gtk4::accelerator_get_default_mod_mask()).is_empty()
+            {
+                editor_f7.check_spelling_now();
+                return glib::Propagation::Stop;
+            }
+            glib::Propagation::Proceed
+        });
+        self.window.add_controller(f7);
     }
 
     pub fn open_initial_file(&self, initial: Option<PathBuf>) {

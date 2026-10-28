@@ -292,7 +292,7 @@ impl EditorPane {
                 let cursor = buf.iter_at_offset(buf.cursor_position());
                 let line = cursor.line() + 1;
                 let col = cursor.line_offset() + 1;
-                cursor_lbl.set_text(&format!("L{line}:C{col}"));
+                counters::show(&cursor_lbl, &format!("L{line}:C{col}"));
                 cursor_lbl.set_tooltip_text(Some(&format!("Line {line}, Column {col}")));
 
                 // Section word count — recompute only when the line changes, and
@@ -319,10 +319,10 @@ impl EditorPane {
                             if let Some(wc) =
                                 section_word_count_for_line(&b, cur_line, cites.as_deref())
                             {
-                                lbl.set_text(&format!("§ {wc}"));
+                                counters::show(&lbl, &format!("§ {wc}"));
                                 lbl.set_tooltip_text(Some("Words in this section"));
                             } else {
-                                lbl.set_text("");
+                                counters::show(&lbl, "");
                             }
                         },
                     ));
@@ -336,14 +336,15 @@ impl EditorPane {
                         .split(['.', '!', '?'])
                         .filter(|s| !s.trim().is_empty())
                         .count();
-                    wc_lbl_for_sel.set_text(&format!(
-                        "{word_count} words, {sentence_count} sentences selected"
-                    ));
+                    counters::now(
+                        &wc_lbl_for_sel,
+                        &format!("{word_count} words, {sentence_count} sentences selected"),
+                    );
                 } else {
                     // Restore cached word count — no full tab.buffer read needed
                     let cached = last_wc_for_mark.borrow().clone();
                     if !cached.is_empty() {
-                        wc_lbl_for_sel.set_text(&cached);
+                        counters::show(&wc_lbl_for_sel, &cached);
                     }
                 }
 
@@ -463,7 +464,7 @@ impl EditorPane {
             if !buf.has_selection() {
                 let cached = last_wc_for_sel_bound.borrow().clone();
                 if !cached.is_empty() {
-                    wc_lbl_for_sel_bound.set_text(&cached);
+                    counters::show(&wc_lbl_for_sel_bound, &cached);
                 }
             }
         });

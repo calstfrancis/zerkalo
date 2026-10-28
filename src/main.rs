@@ -44,6 +44,7 @@ mod print_layout;
 mod project;
 mod project_model;
 mod recover;
+mod resume;
 mod secret_store;
 mod session;
 mod spellcheck;

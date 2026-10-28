@@ -745,6 +745,198 @@ impl SettingsDialog {
             view_stack.add_titled(&page_extras, Some("extras"), &tr("settings-page-extras"));
         sp_extras.set_icon_name(Some("accessories-dictionary-symbolic"));
 
+        // ── Comfort ──────────────────────────────────────────────────────────
+        // How much Zerkalo moves, speaks up and changes by itself. Each is its
+        // own choice; there is no "mode".
+        use crate::config::{AfterUpdate, ArrivingWriting, CounterTiming, SpellTiming};
+        let cf = current.comfort.clone();
+        fn combo(title: &str, subtitle: &str, items: &[&str], selected: u32) -> adw::ComboRow {
+            let row = adw::ComboRow::new();
+            row.set_title(title);
+            row.set_subtitle(subtitle);
+            row.set_model(Some(&gtk4::StringList::new(items)));
+            row.set_selected(selected);
+            row
+        }
+        fn switch(title: &str, subtitle: &str, on: bool) -> adw::SwitchRow {
+            let row = adw::SwitchRow::new();
+            row.set_title(title);
+            row.set_subtitle(subtitle);
+            row.set_active(on);
+            row
+        }
+
+        let quiet_group = adw::PreferencesGroup::new();
+        quiet_group.set_title("Messages and updates");
+        quiet_group.set_description(Some(
+            "Zerkalo keeps quiet while you write. These decide the few things it can still say.",
+        ));
+        let after_update_row = combo(
+            "After an update",
+            "What happens the first time you open a new version",
+            &[
+                "Open the what's new window",
+                "Leave a note in the status bar",
+                "Say nothing",
+            ],
+            match cf.after_update {
+                AfterUpdate::Window => 0,
+                AfterUpdate::Note => 1,
+                AfterUpdate::Nothing => 2,
+            },
+        );
+        let arriving_row = combo(
+            "When newer writing arrives from your online backup",
+            "What's on screen never changes without you knowing. What arrived is always kept as a saved version first",
+            &["Ask me first", "Update my open documents"],
+            match cf.arriving_writing {
+                ArrivingWriting::Ask => 0,
+                ArrivingWriting::Update => 1,
+            },
+        );
+        let stay_row = switch(
+            "Messages stay until I close them",
+            "Otherwise each one stays long enough to read, and can be read again by clicking the Saved line at the bottom",
+            cf.messages_stay,
+        );
+        quiet_group.add(&after_update_row);
+        quiet_group.add(&arriving_row);
+        quiet_group.add(&stay_row);
+
+        let motion_group = adw::PreferencesGroup::new();
+        motion_group.set_title("Movement and sight");
+        let motion_row = switch(
+            "Reduce movement",
+            "No sliding or fading, and no moving progress bar. Also follows your desktop's own setting",
+            cf.reduce_motion,
+        );
+        let cursor_row = switch(
+            "Steady text cursor",
+            "The cursor stops blinking",
+            cf.steady_cursor,
+        );
+        let calm_row = switch(
+            "Quiet colour for problems",
+            "Problems are underlined in amber, not red. Red stays for when something is about to be lost",
+            cf.calm_underlines,
+        );
+        let line_row = switch(
+            "Tint the line the cursor is on",
+            "Only where line numbers show",
+            cf.highlight_current_line,
+        );
+        let counters_row = combo(
+            "Numbers in the status bar",
+            "Line and column, and word counts",
+            &["Change as I type", "Change when I pause", "Hide them"],
+            match cf.counters {
+                CounterTiming::WhileTyping => 0,
+                CounterTiming::WhenPaused => 1,
+                CounterTiming::Hidden => 2,
+            },
+        );
+        let spelling_row = combo(
+            "Spelling",
+            "The word you are still writing is never underlined. F7 checks everything now",
+            &[
+                "Underline as I type",
+                "Underline when I leave a paragraph",
+                "Only when I ask",
+            ],
+            match cf.spelling {
+                SpellTiming::AsIType => 0,
+                SpellTiming::AfterParagraph => 1,
+                SpellTiming::OnRequest => 2,
+            },
+        );
+        motion_group.add(&motion_row);
+        motion_group.add(&cursor_row);
+        motion_group.add(&calm_row);
+        motion_group.add(&line_row);
+        motion_group.add(&counters_row);
+        motion_group.add(&spelling_row);
+
+        let resume_group = adw::PreferencesGroup::new();
+        resume_group.set_title("Coming back to your writing");
+        let left_off_row = switch(
+            "Show where I left off",
+            "A quiet line when a document opens: when you last wrote in it and how much. It goes at your first keystroke",
+            cf.where_you_left_off,
+        );
+        let notes_row = switch(
+            "Notes for next time",
+            "A short note to yourself kept with each document, shown in that line",
+            cf.notes_for_next_time,
+        );
+        let find_row = switch(
+            "Mark my place after a break",
+            "Briefly tints the cursor's line when you return to the window after a couple of minutes away",
+            cf.find_cursor_after_break,
+        );
+        let clock_row = switch(
+            "Show how long I've been writing",
+            "A plain clock in the status bar. It never reminds or interrupts",
+            cf.session_clock,
+        );
+        resume_group.add(&left_off_row);
+        resume_group.add(&notes_row);
+        resume_group.add(&find_row);
+        resume_group.add(&clock_row);
+
+        let reset_group = adw::PreferencesGroup::new();
+        let reset_row = adw::ActionRow::new();
+        reset_row.set_title("Use the calm defaults");
+        reset_row.set_subtitle("Puts everything on this page back to how Zerkalo ships");
+        let reset_btn = Button::with_label("Use defaults");
+        reset_btn.set_valign(Align::Center);
+        reset_row.add_suffix(&reset_btn);
+        reset_row.set_activatable_widget(Some(&reset_btn));
+        reset_group.add(&reset_row);
+        {
+            let d = crate::config::ComfortPrefs::default();
+            let (a, b, c) = (
+                after_update_row.clone(),
+                arriving_row.clone(),
+                stay_row.clone(),
+            );
+            let (m, cu, ca, li) = (
+                motion_row.clone(),
+                cursor_row.clone(),
+                calm_row.clone(),
+                line_row.clone(),
+            );
+            let (co, sp) = (counters_row.clone(), spelling_row.clone());
+            let (lo, no, fi, cl) = (
+                left_off_row.clone(),
+                notes_row.clone(),
+                find_row.clone(),
+                clock_row.clone(),
+            );
+            reset_btn.connect_clicked(move |_| {
+                a.set_selected(1);
+                b.set_selected(0);
+                c.set_active(d.messages_stay);
+                m.set_active(d.reduce_motion);
+                cu.set_active(d.steady_cursor);
+                ca.set_active(d.calm_underlines);
+                li.set_active(d.highlight_current_line);
+                co.set_selected(1);
+                sp.set_selected(0);
+                lo.set_active(d.where_you_left_off);
+                no.set_active(d.notes_for_next_time);
+                fi.set_active(d.find_cursor_after_break);
+                cl.set_active(d.session_clock);
+            });
+        }
+
+        let page_comfort = adw::PreferencesPage::new();
+        page_comfort.add(&quiet_group);
+        page_comfort.add(&motion_group);
+        page_comfort.add(&resume_group);
+        page_comfort.add(&reset_group);
+        let sp_comfort = view_stack.add_titled(&page_comfort, Some("comfort"), "Comfort");
+        sp_comfort.set_icon_name(Some("preferences-desktop-accessibility-symbolic"));
+
         let switcher = adw::ViewSwitcher::new();
         switcher.set_stack(Some(&view_stack));
         switcher.set_policy(adw::ViewSwitcherPolicy::Wide);
@@ -860,7 +1052,24 @@ impl SettingsDialog {
             let simple_mode_cur = current.simple_mode;
             let shown_simple_intro_cur = current.shown_simple_intro;
             let shown_editor_orientation_cur = current.shown_editor_orientation;
-            let comfort_cur = current.comfort.clone();
+            let (after_update_row, arriving_row, stay_row) = (
+                after_update_row.clone(),
+                arriving_row.clone(),
+                stay_row.clone(),
+            );
+            let (motion_row, cursor_row, calm_row, line_row) = (
+                motion_row.clone(),
+                cursor_row.clone(),
+                calm_row.clone(),
+                line_row.clone(),
+            );
+            let (counters_row, spelling_row) = (counters_row.clone(), spelling_row.clone());
+            let (left_off_row, notes_row, find_row, clock_row) = (
+                left_off_row.clone(),
+                notes_row.clone(),
+                find_row.clone(),
+                clock_row.clone(),
+            );
             let format_bar_visible_cur = current.format_bar_visible;
             let last_used_advanced_cur = current.last_used_advanced;
             let default_sans_font_cur = current.default_sans_font.clone();
@@ -998,7 +1207,37 @@ impl SettingsDialog {
                         .unwrap_or_else(|| default_serif_font_cur.clone()),
                     print: print_cur.clone(),
                     library: library_cur.clone(),
-                    comfort: comfort_cur.clone(),
+                    comfort: crate::config::ComfortPrefs {
+                        after_update: match after_update_row.selected() {
+                            0 => AfterUpdate::Window,
+                            2 => AfterUpdate::Nothing,
+                            _ => AfterUpdate::Note,
+                        },
+                        arriving_writing: if arriving_row.selected() == 1 {
+                            ArrivingWriting::Update
+                        } else {
+                            ArrivingWriting::Ask
+                        },
+                        messages_stay: stay_row.is_active(),
+                        reduce_motion: motion_row.is_active(),
+                        steady_cursor: cursor_row.is_active(),
+                        spelling: match spelling_row.selected() {
+                            1 => SpellTiming::AfterParagraph,
+                            2 => SpellTiming::OnRequest,
+                            _ => SpellTiming::AsIType,
+                        },
+                        calm_underlines: calm_row.is_active(),
+                        counters: match counters_row.selected() {
+                            0 => CounterTiming::WhileTyping,
+                            2 => CounterTiming::Hidden,
+                            _ => CounterTiming::WhenPaused,
+                        },
+                        highlight_current_line: line_row.is_active(),
+                        where_you_left_off: left_off_row.is_active(),
+                        notes_for_next_time: notes_row.is_active(),
+                        find_cursor_after_break: find_row.is_active(),
+                        session_clock: clock_row.is_active(),
+                    },
                 }
             }
         };

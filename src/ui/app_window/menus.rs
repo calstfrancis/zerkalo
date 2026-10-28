@@ -186,6 +186,7 @@ pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
         }
 
         dialog.set_on_save(move |new_cfg| {
+            super::super::a11y::apply_comfort(&new_cfg.comfort);
             *debounce.borrow_mut() = new_cfg.debounce_ms;
             *auto_flag.borrow_mut() = new_cfg.auto_compile;
             cm_lbl_save.set_text(compile_mode_label_str(new_cfg.auto_compile));

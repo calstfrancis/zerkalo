@@ -34,6 +34,7 @@ pub mod print_sheet;
 pub mod problems;
 pub mod recover_window;
 pub mod ref_manager;
+pub mod resume_bar;
 pub mod save_problem_bar;
 pub mod search_panel;
 pub mod settings_dialog;

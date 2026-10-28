@@ -46,6 +46,14 @@ const GLOBAL_CSS: &str = "\
        dark mode can be a light blue with no more contrast on #fafafa than \
        the app's foreground colour had. */ \
     .help-bubble-icon { color: alpha(#1a1a1a, 0.85); } \
+    /* In dark mode the same argument runs the other way: a fixed near-black \
+       card with fixed light text, instead of a bright white one on a dark \
+       screen. */ \
+    window.fond-dark-accents .help-bubble { background: #242424; \
+                   box-shadow: 0 2px 8px alpha(black, 0.6); } \
+    window.fond-dark-accents .help-bubble-title { color: #f2f2f2; } \
+    window.fond-dark-accents .help-bubble-body { color: alpha(#f2f2f2, 0.82); } \
+    window.fond-dark-accents .help-bubble-icon { color: alpha(#f2f2f2, 0.9); } \
     .help-hint { background: @accent_color; color: @accent_fg_color; \
                  border-radius: 999px; padding: 6px 14px; font-size: 0.9em; } \
     .fond-accent-outline, .fond-accent-library { color: @fond_teal; } \

@@ -8,7 +8,33 @@ use libadwaita as adw;
 /// Whether the system has asked for animation to be reduced (GNOME: Settings →
 /// Accessibility → Reduce animation).
 pub fn reduced_motion() -> bool {
-    gtk4::Settings::default().is_some_and(|s| !s.is_gtk_enable_animations())
+    crate::config::shared().borrow().comfort.reduce_motion
+        || SYSTEM_ANIMATIONS.with(|a| a.get()) == Some(false)
+        || gtk4::Settings::default().is_some_and(|s| !s.is_gtk_enable_animations())
+}
+
+thread_local! {
+    static SYSTEM_ANIMATIONS: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
+}
+
+/// Applies the Comfort settings that GTK itself honours: animations off, a
+/// steady text cursor, no error bell. Animations are switched off on
+/// Zerkalo's own settings object, which stops every CSS transition, revealer
+/// slide and libadwaita animation in one place; the desktop's own choice is
+/// remembered the first time so it can be put back.
+pub fn apply_comfort(c: &crate::config::ComfortPrefs) {
+    let Some(s) = gtk4::Settings::default() else {
+        return;
+    };
+    if SYSTEM_ANIMATIONS.with(|a| a.get()).is_none() {
+        SYSTEM_ANIMATIONS.with(|a| a.set(Some(s.is_gtk_enable_animations())));
+    }
+    let system = SYSTEM_ANIMATIONS.with(|a| a.get()).unwrap_or(true);
+    s.set_gtk_enable_animations(system && !c.reduce_motion);
+    if c.steady_cursor {
+        s.set_gtk_cursor_blink(false);
+    }
+    s.set_gtk_error_bell(false);
 }
 
 /// Puts the `high-contrast` class on `window` when either Zerkalo's own

@@ -173,6 +173,31 @@ impl EditorPane {
         self.focus_after_jump(&tab.view);
     }
 
+    /// Briefly tints the line the cursor is on, without moving anything, so a
+    /// writer coming back from a break can see where they were.
+    pub fn flash_cursor_line(&self) {
+        let Some(path) = self.get_active_path() else {
+            return;
+        };
+        let state = self.state.borrow();
+        let Some(tab) = state.tabs.get(&path) else {
+            return;
+        };
+        let at = tab.buffer.iter_at_mark(&tab.buffer.get_insert());
+        let mut start = at;
+        start.set_line_offset(0);
+        let mut end = at;
+        if !end.ends_line() {
+            end.forward_to_line_end();
+        }
+        let (s, e) = (start.offset(), end.offset());
+        let (view, buffer) = (tab.view.clone(), tab.buffer.clone());
+        drop(state);
+        if e > s {
+            flash_range(&view, &buffer, s, e);
+        }
+    }
+
     /// Ctrl+click in the editor (or the "Show in preview" command) asks for
     /// the preview to scroll to that spot; this is where it's delivered.
     pub fn set_on_show_in_preview(&self, f: impl Fn(PathBuf, usize) + 'static) {

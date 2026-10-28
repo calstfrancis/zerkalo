@@ -94,8 +94,15 @@ pub(super) fn apply_edit(buffer: &Buffer, edit: &crate::diagnostic_catalog::Edit
 /// picked up on the next diagnostics pass instead of being frozen at creation.
 pub(super) fn refresh_diag_colors(buffer: &Buffer, mark: &TabMark) {
     let table = buffer.tag_table();
+    // Red is for something about to be lost (docs/VOICE.md rule 2); a stray
+    // asterisk is ordinary trouble, so by default it gets the amber of a note.
+    let error_color = if crate::config::shared().borrow().comfort.calm_underlines {
+        "warning_color"
+    } else {
+        "error_color"
+    };
     for (tag_name, color_name) in [
-        ("zerkalo-diag-error", "error_color"),
+        ("zerkalo-diag-error", error_color),
         ("zerkalo-diag-warning", "warning_color"),
     ] {
         if let (Some(tag), Some((r, g, b))) = (

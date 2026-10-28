@@ -28,6 +28,7 @@ use crate::ui::autopair;
 
 mod completion;
 mod context_menu;
+mod counters;
 mod cursor;
 mod diagnostics;
 mod find;
@@ -593,11 +594,10 @@ impl EditorPane {
                 if let Some((path, content, can_undo, can_redo, session_start)) = page_data {
                     let root = root_for_switch.borrow().clone();
                     let cites = cites_for(&content, &path, root.as_deref());
-                    wc.set_text(&wc_str_with_delta(
-                        &content,
-                        session_start,
-                        cites.as_deref(),
-                    ));
+                    counters::show(
+                        &wc,
+                        &wc_str_with_delta(&content, session_start, cites.as_deref()),
+                    );
                     sync_cite_toggle(
                         &cite_btn_switch,
                         &cite_label_switch,
@@ -1791,7 +1791,13 @@ impl EditorPane {
         // apply_font_family; monospace mode only matters when no font is configured.
         // A buffer line is a whole paragraph in prose, so the band is a code-editing
         // aid only; Simple Mode (prose) leaves it off.
-        view.set_highlight_current_line(!*self.simple_mode.borrow());
+        view.set_highlight_current_line(
+            !*self.simple_mode.borrow()
+                && crate::config::shared()
+                    .borrow()
+                    .comfort
+                    .highlight_current_line,
+        );
         // Text always wraps at word boundaries; there is no unwrapped mode. A
         // single word too long to fit (a URL, say) breaks across lines rather than
         // running off the edge, since the editor never scrolls sideways.

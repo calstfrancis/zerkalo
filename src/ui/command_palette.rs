@@ -340,6 +340,16 @@ pub fn default_commands() -> Vec<PaletteItem> {
             subtitle: crate::keybindings::shown("Save this version and send it to every backup location ({git_sync})").into(),
         },
         PaletteItem {
+            id: "note_for_next_time".into(),
+            label: "Note for next time\u{2026}".into(),
+            subtitle: "A short note to yourself, shown when this document opens".into(),
+        },
+        PaletteItem {
+            id: "check_spelling".into(),
+            label: "Check spelling now".into(),
+            subtitle: "Underline every misspelled word in the open documents (F7)".into(),
+        },
+        PaletteItem {
             id: "recent_messages".into(),
             label: "Recent messages".into(),
             subtitle: "Read again anything Zerkalo said that has gone from the screen".into(),

@@ -75,7 +75,59 @@ pub(super) fn apply_spell_tags(
     }
 }
 
+/// The part of the text being written that a typing pass leaves unmarked: the
+/// word the cursor is in, or with "when I leave a paragraph", its paragraph.
+fn stretch_being_written(buffer: &Buffer, words: &[(usize, usize, String)]) -> Option<(i32, i32)> {
+    let at = buffer.cursor_position().max(0) as usize;
+    match crate::config::shared().borrow().comfort.spelling {
+        crate::config::SpellTiming::AfterParagraph => {
+            let mut start = buffer.iter_at_offset(at as i32);
+            start.set_line_offset(0);
+            while start.line() > 0 {
+                let mut prev = start;
+                prev.backward_line();
+                if line_is_blank(&prev) {
+                    break;
+                }
+                start = prev;
+            }
+            let mut end = buffer.iter_at_offset(at as i32);
+            loop {
+                if !end.ends_line() {
+                    end.forward_to_line_end();
+                }
+                let mut next = end;
+                if !next.forward_line() || line_is_blank(&next) {
+                    break;
+                }
+                end = next;
+            }
+            Some((start.offset(), end.offset()))
+        }
+        _ => words
+            .iter()
+            .find(|(s, e, _)| *s <= at && at <= *e)
+            .map(|(s, e, _)| (*s as i32, *e as i32)),
+    }
+}
+
+fn line_is_blank(line_start: &gtk4::TextIter) -> bool {
+    let mut start = *line_start;
+    start.set_line_offset(0);
+    let mut end = start;
+    if !end.ends_line() {
+        end.forward_to_line_end();
+    }
+    start.text(&end).trim().is_empty()
+}
+
 impl EditorPane {
+    /// Checks the spelling of every open document now, marking every word —
+    /// F7, and the only check there is with "only when I ask".
+    pub fn check_spelling_now(&self) {
+        self.recheck_all_buffers();
+    }
+
     pub fn set_spell_enabled(&self, enabled: bool) {
         self.spell_checker.borrow_mut().enabled = enabled;
         if !enabled {
@@ -367,13 +419,113 @@ impl EditorPane {
 
     pub(super) fn wire_spellcheck(&self, tab: &TabContext) {
         // ── Spell check: debounced tab.buffer check ───────────────────────────────
+        //
+        // A pass that runs because of typing leaves the word being typed (or,
+        // by choice, its whole paragraph) unmarked: an underline arriving under
+        // a half-written word is a flash of "wrong" for something that isn't
+        // finished. Once the cursor leaves that stretch, the pass runs again
+        // and marks everything. "Only when I ask" skips the typing passes;
+        // F7 checks the whole document at any time.
+
+        let spell_timer: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
+        let spell_poll_timer: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
+        let held_back: Rc<Cell<Option<(i32, i32)>>> = Rc::new(Cell::new(None));
+
+        let run: Rc<dyn Fn(&Buffer, bool, Duration)> = {
+            let spell_c = self.spell_checker.clone();
+            let spell_timer = spell_timer.clone();
+            let spell_poll_timer = spell_poll_timer.clone();
+            let held_back = held_back.clone();
+            Rc::new(move |buf: &Buffer, typing: bool, delay: Duration| {
+                if let Some(id) = spell_timer.borrow_mut().take() {
+                    id.remove();
+                }
+                if let Some(id) = spell_poll_timer.borrow_mut().take() {
+                    id.remove();
+                }
+                let buf2 = buf.clone();
+                let sc2 = spell_c.clone();
+                let t = spell_timer.clone();
+                let pt = spell_poll_timer.clone();
+                let pt2 = spell_poll_timer.clone();
+                let held2 = held_back.clone();
+                *spell_timer.borrow_mut() = Some(glib::timeout_add_local_once(delay, move || {
+                    *t.borrow_mut() = None;
+
+                    let sc = sc2.borrow();
+                    if !sc.enabled {
+                        clear_spell_tags(&buf2);
+                        return;
+                    }
+                    let langs = sc.languages.clone();
+                    let ignored = sc.ignored();
+                    drop(sc);
+
+                    let (s, e) = buf2.bounds();
+                    let text = buf2.text(&s, &e, true).to_string();
+                    let buf3 = buf2.clone();
+
+                    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+                    std::thread::spawn(move || {
+                        let words = crate::spellcheck::extract_words(&text);
+                        let unique: Vec<String> = {
+                            let mut seen = HashSet::new();
+                            words
+                                .iter()
+                                .filter(|(_, _, w)| {
+                                    !ignored.contains(&w.to_lowercase())
+                                        && seen.insert(w.to_lowercase())
+                                })
+                                .map(|(_, _, w)| w.clone())
+                                .collect()
+                        };
+                        let unique_refs: Vec<&str> = unique.iter().map(|s| s.as_str()).collect();
+                        let misspelled = crate::spellcheck::check_words_batch(&unique_refs, &langs);
+                        let _ = tx.send((words, misspelled));
+                    });
+
+                    let poll_id = glib::timeout_add_local(Duration::from_millis(50), move || {
+                        match rx.try_recv() {
+                            Ok((words, misspelled)) => {
+                                // Clear the RefCell before returning Break. GLib auto-removes
+                                // the source after the callback, but the RefCell still holds
+                                // the now-dead SourceId. A subsequent connect_changed would call
+                                // id.remove() on it and panic with "Failed to remove source".
+                                *pt2.borrow_mut() = None;
+                                apply_spell_tags(&buf3, &words, &misspelled);
+                                let hold = if typing {
+                                    stretch_being_written(&buf3, &words)
+                                } else {
+                                    None
+                                };
+                                if let Some((a, b)) = hold {
+                                    buf3.remove_tag_by_name(
+                                        "zerkalo-spell",
+                                        &buf3.iter_at_offset(a),
+                                        &buf3.iter_at_offset(b),
+                                    );
+                                }
+                                held2.set(hold);
+                                glib::ControlFlow::Break
+                            }
+                            Err(std::sync::mpsc::TryRecvError::Empty) => {
+                                glib::ControlFlow::Continue
+                            }
+                            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                                *pt2.borrow_mut() = None;
+                                glib::ControlFlow::Break
+                            }
+                        }
+                    });
+                    *pt.borrow_mut() = Some(poll_id);
+                }));
+            })
+        };
 
         {
             let spell_c = self.spell_checker.clone();
-            let spell_timer: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
-            let spell_poll_timer: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
             let buf_spell = tab.buffer.clone();
-
+            let run = run.clone();
             tab.buffer.connect_changed(move |buf| {
                 let enabled = {
                     let sc = spell_c.borrow();
@@ -386,84 +538,26 @@ impl EditorPane {
                     clear_spell_tags(&buf_spell);
                     return;
                 }
-
-                // Cancel any pending debounce and in-flight poll timer.
-                if let Some(id) = spell_timer.borrow_mut().take() {
-                    id.remove();
+                if crate::config::shared().borrow().comfort.spelling
+                    == crate::config::SpellTiming::OnRequest
+                {
+                    return;
                 }
-                if let Some(id) = spell_poll_timer.borrow_mut().take() {
-                    id.remove();
+                run(buf, true, Duration::from_millis(700));
+            });
+        }
+        {
+            let run = run.clone();
+            let held_back = held_back.clone();
+            tab.buffer.connect_cursor_position_notify(move |buf| {
+                let Some((a, b)) = held_back.get() else {
+                    return;
+                };
+                let at = buf.cursor_position();
+                if at < a || at > b {
+                    held_back.set(None);
+                    run(buf, false, Duration::from_millis(150));
                 }
-
-                let buf2 = buf.clone();
-                let sc2 = spell_c.clone();
-                let t = spell_timer.clone();
-                let pt = spell_poll_timer.clone();
-                let pt2 = spell_poll_timer.clone();
-
-                *spell_timer.borrow_mut() = Some(glib::timeout_add_local_once(
-                    Duration::from_millis(700),
-                    move || {
-                        *t.borrow_mut() = None;
-
-                        let sc = sc2.borrow();
-                        if !sc.enabled {
-                            clear_spell_tags(&buf2);
-                            return;
-                        }
-                        let langs = sc.languages.clone();
-                        let ignored = sc.ignored();
-                        drop(sc);
-
-                        let (s, e) = buf2.bounds();
-                        let text = buf2.text(&s, &e, true).to_string();
-                        let buf3 = buf2.clone();
-
-                        let (tx, rx) = std::sync::mpsc::sync_channel(1);
-                        std::thread::spawn(move || {
-                            let words = crate::spellcheck::extract_words(&text);
-                            let unique: Vec<String> = {
-                                let mut seen = HashSet::new();
-                                words
-                                    .iter()
-                                    .filter(|(_, _, w)| {
-                                        !ignored.contains(&w.to_lowercase())
-                                            && seen.insert(w.to_lowercase())
-                                    })
-                                    .map(|(_, _, w)| w.clone())
-                                    .collect()
-                            };
-                            let unique_refs: Vec<&str> =
-                                unique.iter().map(|s| s.as_str()).collect();
-                            let misspelled =
-                                crate::spellcheck::check_words_batch(&unique_refs, &langs);
-                            let _ = tx.send((words, misspelled));
-                        });
-
-                        let poll_id =
-                            glib::timeout_add_local(Duration::from_millis(50), move || {
-                                match rx.try_recv() {
-                                    Ok((words, misspelled)) => {
-                                        // Clear the RefCell before returning Break. GLib auto-removes
-                                        // the source after the callback, but the RefCell still holds
-                                        // the now-dead SourceId. A subsequent connect_changed would call
-                                        // id.remove() on it and panic with "Failed to remove source".
-                                        *pt2.borrow_mut() = None;
-                                        apply_spell_tags(&buf3, &words, &misspelled);
-                                        glib::ControlFlow::Break
-                                    }
-                                    Err(std::sync::mpsc::TryRecvError::Empty) => {
-                                        glib::ControlFlow::Continue
-                                    }
-                                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                                        *pt2.borrow_mut() = None;
-                                        glib::ControlFlow::Break
-                                    }
-                                }
-                            });
-                        *pt.borrow_mut() = Some(poll_id);
-                    },
-                ));
             });
         }
     }

@@ -324,10 +324,48 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
     }
     {
         let editor = ctx.editor_pane.clone();
+        let cfg = ctx.current_config.clone();
+        let left_at: Rc<std::cell::Cell<Option<std::time::Instant>>> =
+            Rc::new(std::cell::Cell::new(None));
         ctx.window.connect_is_active_notify(move |w| {
             if !w.is_active() {
                 autosave_now(&editor);
+                left_at.set(Some(std::time::Instant::now()));
+            } else if let Some(t) = left_at.take() {
+                // Back after a real break: show where the cursor is.
+                if t.elapsed() >= Duration::from_secs(120)
+                    && cfg.borrow().comfort.find_cursor_after_break
+                {
+                    editor.flash_cursor_line();
+                }
             }
+        });
+    }
+    // ── A plain clock for how long this sitting has lasted (opt-in) ──────
+    {
+        let started = std::time::Instant::now();
+        let label = gtk4::Label::new(None);
+        label.add_css_class("caption");
+        label.add_css_class("dim-label");
+        label.set_margin_end(8);
+        label.set_visible(false);
+        label.set_tooltip_text(Some("How long you have been writing this time"));
+        ctx.editor_pane.status_bar_insert_after_goal(&label);
+        let cfg = ctx.current_config.clone();
+        let tick = move || {
+            let on = cfg.borrow().comfort.session_clock;
+            label.set_visible(on);
+            if on {
+                label.set_text(&format!(
+                    "writing {}",
+                    crate::resume::clock(started.elapsed().as_secs())
+                ));
+            }
+        };
+        tick();
+        glib::timeout_add_local(Duration::from_secs(30), move || {
+            tick();
+            glib::ControlFlow::Continue
         });
     }
 
