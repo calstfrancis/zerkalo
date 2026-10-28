@@ -1,13 +1,17 @@
-<!-- zerkalo-release: 0.53.0 -->
+<!-- zerkalo-release: 0.54.0 -->
 ### What's new
 
-Set poetry.
+Citation styles that match their manuals.
 
-**Poetry is a document type of its own.** The template gallery has two new presets, Poetry — Classic and Poetry — Elegant, built on the verseatile package. A Poetry group in the Sections tab sets the verse style and line numbering (off, every line, or every 2nd, 5th or 10th), and the page is set for verse: no first-line indent, ragged right. Essays, books and letters are unchanged.
+**Headings are the right size and weight.** Typst's own bold, enlarged headings showed through every style, so SBL's plain headings, APA's 12-point headings and ASA's roman and italic levels all came out bold. Each style now sets exactly what its manual says, and headings sit on the line grid instead of crowding the text.
 
-**Enter keeps your line breaks.** Inside a `#poem`, pressing Enter at the end of a verse line adds the trailing `\` that verseatile reads; pressing Enter again on the empty line takes it off so the stanza break stays clean.
+**The right citation style behind each name.** Vancouver lists its authors again (the built-in style had dropped them). ASA is formatted as ASA and Harvard as Cite Them Right, where before they borrowed APA and Chicago. SBL and Turabian include the place of publication their manuals still require. A new document titles its reference list as the style does: References, Works Cited, Reference list.
 
-**Quote verse anywhere.** Ctrl+K → Insert Poem or Insert Verse Quotation adds the import itself when the document lacks one, so a quoted poem works in an academic paper.
+**Choosing a style sets up the page.** Picking a style in the template dialog now also sets margins, line spacing, font size, page-number position and heading numbering to what the style asks for, and every row stays editable. "1.5 Lines" and "Double" now match Word's spacing, and paragraphs are separated by the half-inch indent alone.
+
+**Per-style details.** MLA gets a centred title, a day-month-year date, "Surname 2" page headers and a centred Works Cited. APA gets the student title page, an abstract on its own page and run-in fourth and fifth levels. SBL gets its all-capitals title page and note layout. IEEE spans the title across both columns and numbers sub-headings A. and 1). GOST drops the trailing dot from section numbers and is set in Russian.
+
+**Page locators follow the style.** The citation panel inserts `@key[12]` for styles that print a bare number and `@key[p. 12]` for APA, Harvard and IEEE.
 
 ---
 

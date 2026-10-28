@@ -20,14 +20,16 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
         .map(|(n, _)| *n)
         .unwrap_or("Chicago");
     let bib = bib_style(style_key);
+    let bib_title = bib_title_for_style(style_key);
     let bib_line = if s.include_bibliography {
         s.bib_path.as_ref().map(|p| {
             let target = crate::bibliography::bib_target_path(p);
-            format!(
-                "#bibliography(\"{}\", style: \"{}\")",
-                typst_str(&target.to_string_lossy()),
-                bib
-            )
+            let path = typst_str(&target.to_string_lossy());
+            if bib_title.is_empty() {
+                format!("#bibliography(\"{path}\", style: \"{bib}\")")
+            } else {
+                format!("#bibliography(\"{path}\", style: \"{bib}\", title: \"{bib_title}\")")
+            }
         })
     } else {
         None
@@ -151,22 +153,15 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
             s.font.trim()
         };
         let leading = user_length_or(&s.spacing, "em", "0.65em");
-        let spacing = paragraph_spacing_for_leading(&leading);
         let _ = writeln!(
             out,
-            "#set text(font: \"{}\", size: {font_size}, lang: \"en\")",
-            typst_str(font)
+            "#set text(font: \"{}\", size: {font_size}, lang: \"{}\")",
+            typst_str(font),
+            crate::style_spec::style_spec(style_key).lang
         );
-        // `spacing` is double `leading`, not equal to it — a fixed 1.2em gap
-        // regardless of line spacing marked every paragraph twice on top of
-        // the indent, but making it match `leading` exactly (the previous
-        // fix for that) went too far the other way: a paragraph break then
-        // read as no different from an ordinary wrapped line, with only the
-        // indent left to notice. Doubling gives a break that's actually
-        // visible while staying an exact multiple of the line pitch, so it
-        // doesn't break the even line grid that APA, MLA, Chicago and
-        // Turabian all specify.
-        let _ = writeln!(out, "#set par(leading: {leading}, spacing: {spacing}, first-line-indent: 1em, justify: true)");
+        // Paragraphs are separated by the indent alone: the gap between them is the
+        // line gap, which keeps every line on one grid as APA, MLA and Chicago ask.
+        let _ = writeln!(out, "{}", crate::style_spec::par_rule(style_key, &leading));
     }
     if matches!(s.body_kind, BodyKind::Poetry) {
         let _ = writeln!(out, "#set par(first-line-indent: 0pt, justify: false)");
@@ -227,20 +222,57 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
 
     // Abstract
     if s.include_abstract {
-        let _ = writeln!(out, "#align(center)[*Abstract*]");
-        if !s.abstract_text.is_empty() {
-            // Inset as a share of the text width, not a fixed inch. On A5 or
-            // Legal-with-wide-margins, an inch either side left the abstract in
-            // a column a few characters wide.
-            let _ = writeln!(out, "#block(inset: (x: 8%), width: 100%)[");
-            let _ = writeln!(out, "  {}", typst_markup(&s.abstract_text));
-            let _ = writeln!(out, "]");
+        match style_key {
+            "apa" => {
+                let _ = writeln!(out, "#align(center)[*Abstract*]");
+                if !s.abstract_text.is_empty() {
+                    let _ = writeln!(
+                        out,
+                        "#[\n  #set par(first-line-indent: 0pt)\n  {}\n]",
+                        typst_markup(&s.abstract_text)
+                    );
+                }
+                if s.include_keywords && !s.keywords.is_empty() {
+                    let _ = writeln!(out, "#h(0.5in)_Keywords:_ {}", typst_markup(&s.keywords));
+                }
+                let _ = writeln!(out, "#pagebreak()");
+                let _ = writeln!(out);
+            }
+            "ieee" => {
+                let _ = writeln!(
+                    out,
+                    "#text(size: 9pt, weight: \"bold\", style: \"italic\")[Abstract—]#text(size: 9pt, weight: \"bold\")[{}]",
+                    typst_markup(&s.abstract_text)
+                );
+                if s.include_keywords && !s.keywords.is_empty() {
+                    let _ = writeln!(
+                        out,
+                        "\n#text(size: 9pt, weight: \"bold\", style: \"italic\")[Index Terms—]#text(size: 9pt, weight: \"bold\")[{}]",
+                        typst_markup(&s.keywords)
+                    );
+                }
+                let _ = writeln!(out);
+            }
+            _ => {
+                let _ = writeln!(out, "#align(center)[*Abstract*]");
+                if !s.abstract_text.is_empty() {
+                    // Inset as a share of the text width, not a fixed inch. On A5 or
+                    // Legal-with-wide-margins, an inch either side left the abstract in
+                    // a column a few characters wide.
+                    let _ = writeln!(out, "#block(inset: (x: 8%), width: 100%)[");
+                    let _ = writeln!(out, "  {}", typst_markup(&s.abstract_text));
+                    let _ = writeln!(out, "]");
+                }
+                let _ = writeln!(out);
+            }
         }
-        let _ = writeln!(out);
     }
 
     // Keywords
-    if s.include_keywords && !s.keywords.is_empty() {
+    if s.include_keywords
+        && !s.keywords.is_empty()
+        && !(matches!(style_key, "apa" | "ieee") && s.include_abstract)
+    {
         let _ = writeln!(out, "_Keywords:_ {}", typst_markup(&s.keywords));
         let _ = writeln!(out);
     }
@@ -294,9 +326,17 @@ pub fn generate_typst_template(s: &TemplateSettings) -> String {
                 "// ── Document body ───────────────────────────────────────────────────"
             );
             let _ = writeln!(out);
-            let _ = writeln!(out, "= Introduction");
-            let _ = writeln!(out);
-            let _ = writeln!(out, "Start writing here...");
+            if style_key == "apa" {
+                if s.include_title_page {
+                    let _ = writeln!(out, "#align(center)[#text(weight: \"bold\")[#doc-title]]");
+                    let _ = writeln!(out);
+                }
+                let _ = writeln!(out, "Start writing here...");
+            } else {
+                let _ = writeln!(out, "= Introduction");
+                let _ = writeln!(out);
+                let _ = writeln!(out, "Start writing here...");
+            }
             let _ = writeln!(out);
             let _ = writeln!(out, "#pagebreak()");
             let _ = writeln!(out);
@@ -848,13 +888,9 @@ pub(crate) fn generate_header_only(s: &TemplateSettings) -> String {
     let _ = writeln!(out, "#let doc-affil = \"{}\"", typst_str(&s.affiliation));
     let _ = writeln!(out, "#let doc-course = \"{}\"", typst_str(&s.course));
     let _ = writeln!(out, "#let doc-professor = \"{}\"", typst_str(&s.professor));
-    let date_val = if s.date.is_empty() {
-        Local::now().format("%B %-d, %Y").to_string()
-    } else {
-        s.date.clone()
-    };
+    let date_val = default_doc_date(s);
     let _ = writeln!(out, "#let doc-date = \"{}\"", typst_str(&date_val));
-    if let Some(hdr) = header_block(s.header_style) {
+    if let Some(hdr) = style_header_block(s) {
         let _ = writeln!(out, "{hdr}");
     }
     let _ = writeln!(out);
@@ -884,13 +920,9 @@ pub(crate) fn generate_title_page(style_key: &str, s: &TemplateSettings) -> Stri
     let _ = writeln!(out, "#let doc-affil = \"{}\"", typst_str(&s.affiliation));
     let _ = writeln!(out, "#let doc-course = \"{}\"", typst_str(&s.course));
     let _ = writeln!(out, "#let doc-professor = \"{}\"", typst_str(&s.professor));
-    let date_val = if s.date.is_empty() {
-        Local::now().format("%B %-d, %Y").to_string()
-    } else {
-        s.date.clone()
-    };
+    let date_val = default_doc_date(s);
     let _ = writeln!(out, "#let doc-date = \"{}\"", typst_str(&date_val));
-    if let Some(hdr) = header_block(s.header_style) {
+    if let Some(hdr) = style_header_block(s) {
         let _ = writeln!(out, "{hdr}");
     }
     let _ = writeln!(out);
@@ -912,24 +944,25 @@ pub(crate) fn generate_title_page(style_key: &str, s: &TemplateSettings) -> Stri
             let _ = writeln!(out, "  #if doc-date != \"\" [#doc-date]");
             let _ = writeln!(out, "]");
             let _ = writeln!(out);
-            let _ = writeln!(out, "#block[");
+            let _ = writeln!(out, "#block(width: 100%)[");
             let _ = writeln!(out, "  #set par(first-line-indent: 0pt)");
             let _ = writeln!(out, "  #align(center)[#doc-title]");
             let _ = writeln!(out, "  #if doc-subtitle != \"\" [#align(center)[#text(style: \"italic\")[#doc-subtitle]]]");
             let _ = writeln!(out, "]");
             let _ = writeln!(out);
         }
-        // IEEE: no title page — title + authors as header block in two-column layout
+        // IEEE: no title page — the title block spans both columns above the text
         "ieee" => {
-            let _ = writeln!(out, "#align(center)[");
             let _ = writeln!(
                 out,
-                "  #text(size: 18pt, weight: \"bold\")[#upper[#doc-title]]"
+                "#place(top + center, scope: \"parent\", float: true, clearance: 1.5em)["
             );
-            let _ = writeln!(out, "  #if doc-subtitle != \"\" [\\ #text(size: 13pt, style: \"italic\")[#doc-subtitle]]");
+            let _ = writeln!(out, "  #set par(first-line-indent: 0pt, justify: false)");
+            let _ = writeln!(out, "  #text(size: 24pt)[#doc-title]");
+            let _ = writeln!(out, "  #if doc-subtitle != \"\" [\\ #text(size: 14pt, style: \"italic\")[#doc-subtitle]]");
             let _ = writeln!(
                 out,
-                "  #if doc-author != \"\" [\\ #text(size: 11pt)[#doc-author]]"
+                "  #if doc-author != \"\" [#v(0.6em) #text(size: 11pt)[#doc-author]]"
             );
             let _ = writeln!(
                 out,
@@ -938,18 +971,19 @@ pub(crate) fn generate_title_page(style_key: &str, s: &TemplateSettings) -> Stri
             let _ = writeln!(out, "]");
             let _ = writeln!(out);
         }
-        // APA / ASA / Harvard: title page with running head, all centred
+        // APA student title page (APA 7 §2.3): no running head, bold title a few
+        // lines down, then author, affiliation, course, instructor and date.
+        // ASA and Harvard share the layout; neither prescribes one of its own.
         "apa" | "asa" | "harvard" => {
-            // No "Running head:" label — the 7th edition dropped it, and this
-            // style is offered as APA 7th. The shortened title in caps stays.
+            let _ = writeln!(out, "#[");
+            let _ = writeln!(out, "  #set align(center)");
+            let _ = writeln!(out, "  #set par(first-line-indent: 0pt)");
+            let _ = writeln!(out, "  #v(1.5in)");
+            let _ = writeln!(out, "  #text(weight: \"bold\")[#doc-title]");
             let _ = writeln!(
                 out,
-                "#page(header: align(left)[#text(size: 10pt)[#upper[#doc-title]]])["
+                "  #if doc-subtitle != \"\" [\\ #text(style: \"italic\")[#doc-subtitle]]"
             );
-            let _ = writeln!(out, "  #set align(center)");
-            let _ = writeln!(out, "  #v(2.5in)");
-            let _ = writeln!(out, "  #text(size: 14pt, weight: \"bold\")[#doc-title]");
-            let _ = writeln!(out, "  #if doc-subtitle != \"\" [\\ #text(size: 12pt, style: \"italic\")[#doc-subtitle]]");
             let _ = writeln!(out, "  #v(1em)");
             let _ = writeln!(out, "  #if doc-author != \"\" [#doc-author]");
             let _ = writeln!(out, "  #if doc-affil != \"\" [\\ #doc-affil]");
@@ -958,6 +992,30 @@ pub(crate) fn generate_title_page(style_key: &str, s: &TemplateSettings) -> Stri
             let _ = writeln!(out, "  #if doc-date != \"\" [\\ #doc-date]");
             let _ = writeln!(out, "]");
             let _ = writeln!(out);
+            let _ = writeln!(out, "#pagebreak()");
+            let _ = writeln!(out);
+        }
+        // SBL Student Supplement §2.8: everything in capitals, centred, about two
+        // inches between elements.
+        "sbl" => {
+            let _ = writeln!(out, "#page(header: none, footer: none, numbering: none)[");
+            let _ = writeln!(out, "  #set align(center)");
+            let _ = writeln!(out, "  #set par(first-line-indent: 0pt)");
+            let _ = writeln!(out, "  #v(1in)");
+            let _ = writeln!(out, "  #if doc-affil != \"\" [#upper[#doc-affil]]");
+            let _ = writeln!(out, "  #v(1fr)");
+            let _ = writeln!(out, "  #upper[#doc-title]");
+            let _ = writeln!(out, "  #if doc-subtitle != \"\" [\\ #upper[#doc-subtitle]]");
+            let _ = writeln!(out, "  #v(1fr)");
+            let _ = writeln!(out, "  #if doc-professor != \"\" [#upper[Submitted to #doc-professor] \\ ]#upper[in partial fulfillment of]");
+            let _ = writeln!(out, "  #if doc-course != \"\" [\\ #upper[#doc-course]]");
+            let _ = writeln!(out, "  #v(1fr)");
+            let _ = writeln!(out, "  BY \\ #upper[#doc-author]");
+            let _ = writeln!(out, "  #v(1fr)");
+            let _ = writeln!(out, "  #if doc-date != \"\" [#upper[#doc-date]]");
+            let _ = writeln!(out, "]");
+            let _ = writeln!(out);
+            let _ = writeln!(out, "#counter(page).update(1)");
             let _ = writeln!(out, "#pagebreak()");
             let _ = writeln!(out);
         }
@@ -1038,11 +1096,7 @@ pub(crate) fn generate_letter_header(s: &TemplateSettings) -> String {
     let _ = writeln!(out, "#let doc-affil = \"{}\"", typst_str(&s.affiliation));
     let _ = writeln!(out, "#let doc-course = \"{}\"", typst_str(&s.course));
     let _ = writeln!(out, "#let doc-professor = \"{}\"", typst_str(&s.professor));
-    let date_val = if s.date.is_empty() {
-        Local::now().format("%B %-d, %Y").to_string()
-    } else {
-        s.date.clone()
-    };
+    let date_val = default_doc_date(s);
     let _ = writeln!(out, "#let doc-date = \"{}\"", typst_str(&date_val));
     if let Some(hdr) = header_block(s.header_style) {
         let _ = writeln!(out, "{hdr}");
@@ -1168,6 +1222,31 @@ pub(crate) fn page_num_block(pos: u32) -> &'static str {
     }
 }
 
+/// Today's date in the order the style writes it: MLA puts the day first.
+pub(crate) fn default_doc_date(s: &TemplateSettings) -> String {
+    if !s.date.is_empty() {
+        return s.date.clone();
+    }
+    let key = CITATION_STYLES.get(s.style_idx).map(|(_, k)| *k);
+    if key == Some("mla") && !matches!(s.body_kind, BodyKind::Letter) {
+        Local::now().format("%-d %B %Y").to_string()
+    } else {
+        Local::now().format("%B %-d, %Y").to_string()
+    }
+}
+
+/// The running header for a document: the one chosen in the dialog, or for MLA
+/// with its page number at the top right the "Surname 1" header MLA requires.
+pub(crate) fn style_header_block(s: &TemplateSettings) -> Option<String> {
+    if let Some(h) = header_block(s.header_style) {
+        return Some(h);
+    }
+    let key = CITATION_STYLES.get(s.style_idx).map(|(_, k)| *k);
+    (key == Some("mla") && s.page_num_pos == 3).then(|| {
+        String::from("#set page(numbering: none, header: align(right)[#doc-author.split(\" \").last() #context counter(page).display(\"1\")])")
+    })
+}
+
 pub(crate) fn header_block(style: u32) -> Option<String> {
     match style {
         0 => None,
@@ -1200,17 +1279,7 @@ pub(crate) fn default_true() -> bool {
 }
 
 pub fn bib_style(style_key: &str) -> &'static str {
-    match style_key {
-        "sbl" | "turabian" => "chicago-notes",
-        "chicago-notes" => "chicago-notes",
-        "chicago-author-date" | "harvard" => "chicago-author-date",
-        "mla" => "mla",
-        "apa" | "asa" => "apa",
-        "ieee" => "ieee",
-        "gost-r-705" => "gost-r-705-2008-numeric",
-        "vancouver" => "vancouver",
-        _ => "apa",
-    }
+    crate::style_spec::style_spec(style_key).csl
 }
 
 pub(crate) fn package_import(key: &str) -> Option<&'static str> {
@@ -1321,197 +1390,8 @@ pub(crate) fn language_block(lang_key: &str) -> Option<&'static str> {
     }
 }
 
-pub fn heading_styles(style_key: &str) -> &'static str {
-    match style_key {
-        "sbl" => {
-            // SBL HS §2.4/§2.6: H1 centred ALL CAPS; H2 centred bold; H3 centred plain;
-            // H4 flush-left bold italic; H5 flush-left plain
-            r#"
-// SBL heading styles
-#show heading.where(level: 1): it => block(width: 100%, above: 1em, below: 0.5em)[
-  #set par(first-line-indent: 0pt)
-  #align(center)[#upper(it.body)]
-]
-#show heading.where(level: 2): it => block(width: 100%, above: 0.8em, below: 0.4em)[
-  #set par(first-line-indent: 0pt)
-  #align(center)[#text(weight: "bold")[#it.body]]
-]
-#show heading.where(level: 3): it => block(width: 100%, above: 0.6em, below: 0.3em)[
-  #set par(first-line-indent: 0pt)
-  #align(center)[#it.body]
-]
-#show heading.where(level: 4): it => block(width: 100%, above: 0.5em, below: 0.2em)[
-  #set par(first-line-indent: 0pt)
-  #text(weight: "bold", style: "italic")[#it.body]
-]
-#show heading.where(level: 5): it => block(width: 100%, above: 0.4em, below: 0.1em)[
-  #set par(first-line-indent: 0pt)
-  #it.body
-]"#
-        }
-        "chicago-notes" => {
-            r#"
-// Chicago (Notes-Bibliography) heading styles
-#show heading.where(level: 1): it => block(width: 100%, above: 1em, below: 0.5em)[
-  #set par(first-line-indent: 0pt)
-  #align(center)[#text(weight: "bold")[#it.body]]
-]
-#show heading.where(level: 2): it => block(width: 100%, above: 0.8em, below: 0.4em)[
-  #set par(first-line-indent: 0pt)
-  #align(center)[#text(style: "italic")[#it.body]]
-]
-#show heading.where(level: 3): it => block(width: 100%, above: 0.6em, below: 0.2em)[
-  #set par(first-line-indent: 0pt)
-  #text(style: "italic")[#it.body]
-]"#
-        }
-        "turabian" => {
-            // Turabian §A.2.2.4: H1 centred bold; H2 centred plain; H3 flush-left italic
-            r#"
-// Turabian heading styles
-#show heading.where(level: 1): it => block(width: 100%, above: 1em, below: 0.5em)[
-  #set par(first-line-indent: 0pt)
-  #align(center)[#text(weight: "bold")[#it.body]]
-]
-#show heading.where(level: 2): it => block(width: 100%, above: 0.8em, below: 0.4em)[
-  #set par(first-line-indent: 0pt)
-  #align(center)[#it.body]
-]
-#show heading.where(level: 3): it => block(width: 100%, above: 0.6em, below: 0.2em)[
-  #set par(first-line-indent: 0pt)
-  #text(style: "italic")[#it.body]
-]"#
-        }
-        "mla" => {
-            r#"
-// MLA heading styles (no decorative formatting)
-#show heading: it => block(width: 100%, above: 0.6em, below: 0.3em)[
-  #set par(first-line-indent: 0pt)
-  #text(it.body)
-]"#
-        }
-        "latex" => {
-            r#"
-// LaTeX-look heading spacing
-#show heading: set block(above: 1.4em, below: 1em)"#
-        }
-        "apa" | "harvard" => {
-            // APA 7 §2.27; Harvard follows same hierarchy
-            r#"
-// APA heading styles
-#show heading.where(level: 1): it => block(width: 100%, above: 1em, below: 0.5em)[
-  #set par(first-line-indent: 0pt)
-  #align(center)[#text(weight: "bold")[#it.body]]
-]
-#show heading.where(level: 2): it => block(width: 100%, above: 0.8em, below: 0.4em)[
-  #set par(first-line-indent: 0pt)
-  #text(weight: "bold")[#it.body]
-]
-#show heading.where(level: 3): it => block(width: 100%, above: 0.6em, below: 0.2em)[
-  #set par(first-line-indent: 0pt)
-  #text(weight: "bold", style: "italic")[#it.body]
-]"#
-        }
-        "chicago-author-date" => {
-            r#"
-// Chicago (Author-Date) heading styles
-#show heading.where(level: 1): it => block(width: 100%, above: 1em, below: 0.5em)[
-  #set par(first-line-indent: 0pt)
-  #align(center)[#text(weight: "bold")[#it.body]]
-]
-#show heading.where(level: 2): it => block(width: 100%, above: 0.8em, below: 0.4em)[
-  #set par(first-line-indent: 0pt)
-  #align(center)[#text(style: "italic")[#it.body]]
-]
-#show heading.where(level: 3): it => block(width: 100%, above: 0.6em, below: 0.2em)[
-  #set par(first-line-indent: 0pt)
-  #text(style: "italic")[#it.body]
-]"#
-        }
-        "ieee" => {
-            // IEEE Std: H1 centred bold ALL CAPS with Roman-numeral numbering;
-            // H2 flush-left bold italic with capital-letter numbering; H3 run-in italic.
-            r#"
-// IEEE heading styles
-#show heading.where(level: 1): it => block(width: 100%, above: 1em, below: 0.5em)[
-  #set par(first-line-indent: 0pt)
-  #align(center)[#text(weight: "bold")[#upper(it.body)]]
-]
-#show heading.where(level: 2): it => block(width: 100%, above: 0.8em, below: 0.4em)[
-  #set par(first-line-indent: 0pt)
-  #text(weight: "bold", style: "italic")[#it.body]
-]
-#show heading.where(level: 3): it => block(width: 100%, above: 0.4em, below: 0em)[
-  #set par(first-line-indent: 0pt)
-  #text(style: "italic")[#it.body]
-]"#
-        }
-        "gost-r-705" => {
-            // GOST R 7.0-5: numbered decimal headings; H1 centred bold upper;
-            // H2 flush-left bold; H3 flush-left bold italic.
-            r#"
-// GOST R 7.0-5 heading styles
-#show heading.where(level: 1): it => block(width: 100%, above: 1em, below: 0.5em)[
-  #set par(first-line-indent: 0pt)
-  #align(center)[#text(weight: "bold")[#upper(it.body)]]
-]
-#show heading.where(level: 2): it => block(width: 100%, above: 0.8em, below: 0.4em)[
-  #set par(first-line-indent: 0pt)
-  #text(weight: "bold")[#it.body]
-]
-#show heading.where(level: 3): it => block(width: 100%, above: 0.6em, below: 0.2em)[
-  #set par(first-line-indent: 0pt)
-  #text(weight: "bold", style: "italic")[#it.body]
-]"#
-        }
-        "vancouver" => {
-            // Vancouver (ICMJE): numbered headings; H1 bold; H2 bold italic; H3 italic run-in
-            r#"
-// Vancouver heading styles
-#show heading.where(level: 1): it => block(width: 100%, above: 1em, below: 0.5em)[
-  #set par(first-line-indent: 0pt)
-  #text(weight: "bold")[#it.body]
-]
-#show heading.where(level: 2): it => block(width: 100%, above: 0.8em, below: 0.4em)[
-  #set par(first-line-indent: 0pt)
-  #text(weight: "bold", style: "italic")[#it.body]
-]
-#show heading.where(level: 3): it => block(width: 100%, above: 0.4em, below: 0em)[
-  #set par(first-line-indent: 0pt)
-  #text(style: "italic")[#it.body]
-]"#
-        }
-        "asa" => {
-            // ASA §4.2: H1 flush-left ALL CAPS no bold; H2 flush-left italic;
-            // H3 indented italic run-in with trailing period
-            r#"
-// ASA heading styles
-#show heading.where(level: 1): it => block(width: 100%, above: 1em, below: 0.5em)[
-  #set par(first-line-indent: 0pt)
-  #upper(it.body)
-]
-#show heading.where(level: 2): it => block(width: 100%, above: 0.8em, below: 0.4em)[
-  #set par(first-line-indent: 0pt)
-  #text(style: "italic")[#it.body]
-]
-#show heading.where(level: 3): it => block(width: 100%, above: 0.4em, below: 0em)[
-  #set par(first-line-indent: 0pt)
-  #h(0.5in)#text(style: "italic")[#(it.body + [.])]
-]"#
-        }
-        _ => {
-            r#"
-// Default heading styles
-#show heading.where(level: 1): it => block(width: 100%, above: 1em, below: 0.5em)[
-  #set par(first-line-indent: 0pt)
-  #align(center)[#text(weight: "bold")[#it.body]]
-]
-#show heading.where(level: 2): it => block(width: 100%, above: 0.8em, below: 0.4em)[
-  #set par(first-line-indent: 0pt)
-  #text(weight: "bold")[#it.body]
-]"#
-        }
-    }
+pub fn heading_styles(style_key: &str) -> String {
+    super::headings::heading_styles(style_key)
 }
 
 // Returns (numbering_on, format_string) by scanning the template block for
@@ -1528,14 +1408,20 @@ pub(crate) fn extract_heading_numbering(block: &str) -> (bool, String) {
 }
 
 // Injects a counter display before each heading body reference when numbering
-// is enabled. Uses the format string directly so no `it.numbering` field access
-// is needed — `it.numbering` is not available in Typst's non-PDF export modes.
+// is enabled. Headings without numbering of their own (a bibliography) skip it.
+// IEEE shows only a heading's own label (I. / A. / 1)), not the whole chain.
 pub(crate) fn inject_heading_numbering(rules: &str, numbering_on: bool, format: &str) -> String {
     if !numbering_on {
         return rules.to_string();
     }
     let fmt = if format.is_empty() { "1." } else { format };
-    let prefix = format!("#context counter(heading).display(\"{fmt}\")#h(0.3em)");
+    let shown = if fmt == "I.A.1." {
+        "(..n) => { let n = n.pos(); if n.len() == 1 { numbering(\"I.\", n.at(0)) } else if n.len() == 2 { numbering(\"A.\", n.at(1)) } else { numbering(\"1)\", n.last()) } }".to_string()
+    } else {
+        format!("\"{fmt}\"")
+    };
+    let prefix =
+        format!("#if it.numbering != none [#context counter(heading).display({shown})#h(0.3em)]");
     rules
         .replace("#upper(it.body)", &format!("{prefix}#upper(it.body)"))
         .replace("#text(it.body)", &format!("{prefix}#text(it.body)"))

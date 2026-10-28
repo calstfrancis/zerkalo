@@ -47,6 +47,7 @@ mod recover;
 mod secret_store;
 mod session;
 mod spellcheck;
+mod style_spec;
 mod styles;
 mod templates;
 mod typst_universe;

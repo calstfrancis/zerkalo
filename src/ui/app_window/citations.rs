@@ -85,8 +85,15 @@ pub(super) fn wire_citations(ctx: &CitationCtx) -> Rc<RefCell<Option<PathBuf>>> 
 
     {
         let ep = ctx.editor_pane.clone();
-        ctx.citation_panel
-            .set_on_insert(move |text| ep.insert_at_cursor(&text));
+        ctx.citation_panel.set_on_insert(move |text| {
+            let key = ep
+                .active_text()
+                .and_then(|doc| super::super::template_dialog::parse_style_key(&doc));
+            match key {
+                Some(key) => ep.insert_at_cursor(&crate::style_spec::adapt_locator(&text, &key)),
+                None => ep.insert_at_cursor(&text),
+            }
+        });
     }
 
     // ── Citation panel: choose bib file button ────────────────────────────

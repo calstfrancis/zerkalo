@@ -86,6 +86,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.54.0" date="2026-10-28">
+      <description>
+        <p>0.54.0 "True Margin" — citation styles that match their manuals. Headings now come out at the size and weight each style specifies, Vancouver bibliographies list their authors, ASA and Harvard use their own citation styles, SBL and Turabian include the place of publication, and new documents title their reference list the way the style does. Picking a style in the template dialog now also sets its margins, line spacing, font size and page numbering, "1.5 Lines" and "Double" match Word's spacing, and the page box in the citation panel writes a bare page number where the style prints one. MLA, APA, SBL, IEEE and GOST each get the title page, header and numbering their manual describes.</p>
+      </description>
+    </release>
     <release version="0.53.0" date="2026-10-26">
       <description>
         <p>0.53.0 "Steady Meter" — set poetry. A Poetry document type in the template gallery (Classic or Elegant, with optional line numbers), built on the verseatile package and used only by poetry documents. Enter at the end of a verse line inside a #poem adds the trailing backslash for you, and the command palette can insert a poem or a verse quotation into any document, essays included.</p>

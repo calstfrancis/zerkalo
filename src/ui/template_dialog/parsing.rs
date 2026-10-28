@@ -708,6 +708,55 @@ pub(crate) fn update_page_settings_for_style(block: &str, new_style_key: &str) -
     }
 }
 
+/// Bring the paragraph rule and the text language in a template block in line
+/// with a newly chosen style, keeping the line gap the document already has.
+/// Poetry and the LaTeX look write their own paragraph rule and are left alone.
+pub(crate) fn update_par_for_style(block: &str, new_style_key: &str) -> String {
+    if new_style_key == "latex" || block.contains("// @zerkalo-kind: poetry") {
+        return block.to_string();
+    }
+    let lang = crate::style_spec::style_spec(new_style_key).lang;
+    let mut out = String::with_capacity(block.len());
+    for line in block.split_inclusive('\n') {
+        let t = line.trim_start();
+        let indent = &line[..line.len() - t.len()];
+        let nl = if line.ends_with('\n') { "\n" } else { "" };
+        if t.starts_with("#set par(")
+            && t.contains("leading:")
+            && !t.contains("first-line-indent: 0pt, justify: false")
+        {
+            let leading = t
+                .split("leading:")
+                .nth(1)
+                .and_then(|r| r.split(',').next())
+                .map(|v| v.trim().trim_end_matches(')').to_string())
+                .unwrap_or_default();
+            if !leading.is_empty() {
+                out.push_str(&format!(
+                    "{indent}{}{nl}",
+                    crate::style_spec::par_rule(new_style_key, &leading)
+                ));
+                continue;
+            }
+        }
+        if t.starts_with("#set text(") && t.contains("lang: \"") {
+            if let Some(start) = t.find("lang: \"") {
+                let after = &t[start + 7..];
+                if let Some(end) = after.find('"') {
+                    out.push_str(&format!(
+                        "{indent}{}lang: \"{lang}\"{}{nl}",
+                        &t[..start],
+                        after[end + 1..].trim_end_matches('\n')
+                    ));
+                    continue;
+                }
+            }
+        }
+        out.push_str(line);
+    }
+    out
+}
+
 /// Replace a `paper: "..."` line inside the block.
 pub(crate) fn replace_in_line(block: &str, key: &str, new_full_line_content: &str) -> String {
     block
@@ -765,7 +814,7 @@ pub(crate) fn replace_margin_line(block: &str, new_margin: &str) -> String {
 pub(crate) fn mandated_heading_numbering(style_key: &str) -> Option<&'static str> {
     match style_key {
         "ieee" => Some("I.A.1."),
-        "gost-r-705" | "vancouver" => Some("1."),
+        "gost-r-705" => Some("1.1"),
         _ => None,
     }
 }
@@ -890,7 +939,10 @@ pub(crate) fn update_template_block_headings(block: &str, new_style_key: &str) -
         if !result.ends_with('\n') {
             result.push('\n');
         }
-        update_page_settings_for_style(&result, new_style_key)
+        update_par_for_style(
+            &update_page_settings_for_style(&result, new_style_key),
+            new_style_key,
+        )
     } else {
         // No heading section found — insert before TEMPLATE_END
         let numbering_line = if num_on {
@@ -902,7 +954,10 @@ pub(crate) fn update_template_block_headings(block: &str, new_style_key: &str) -
             TEMPLATE_END,
             &format!("{new_heading_code}{numbering_line}\n\n{TEMPLATE_END}"),
         );
-        update_page_settings_for_style(&with_headings, new_style_key)
+        update_par_for_style(
+            &update_page_settings_for_style(&with_headings, new_style_key),
+            new_style_key,
+        )
     }
 }
 

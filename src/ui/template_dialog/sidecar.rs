@@ -692,10 +692,5 @@ pub(crate) fn legacy_cv_helpers_block() -> String {
 }
 
 pub(crate) fn bib_title_for_style(style_key: &str) -> &'static str {
-    match style_key {
-        "mla" => "Works Cited",
-        "chicago-author-date" => "References",
-        "apa" | "asa" | "ieee" | "harvard" | "vancouver" => "References",
-        _ => "",
-    }
+    crate::style_spec::style_spec(style_key).bib_title
 }

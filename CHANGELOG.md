@@ -3,6 +3,37 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.54.0] "True Margin" — 2026-10-28 — Citation styles that match their manuals
+
+A full audit of every citation style, checked against the style manuals by compiling a real document in each one. Details in `CITATION-STYLE-AUDIT.md`.
+
+### Fixed
+
+- **Headings are the size and weight their style asks for.** Typst's own bold, enlarged headings showed through every style: SBL's plain headings, APA's 12-point headings and ASA's roman and italic levels all came out bold, and the first two levels were oversized. Every heading now starts from body-size regular text and adds only what its style specifies, and headings sit on the line grid instead of crowding the text under them.
+- **Vancouver bibliographies list their authors.** The built-in Vancouver style left every author out of the reference list; it now uses a style that prints them, with issue numbers.
+- **ASA and Harvard use their own citation styles.** ASA was quietly formatted as APA and Harvard as Chicago author-date. ASA now uses the ASA style (`Smith and Lee 2020:14`) and Harvard uses Cite Them Right (`Smith and Lee, 2020, p. 14`, "Reference list").
+- **SBL and Turabian notes and bibliography include the place of publication**, as both manuals still require.
+- **New documents get the reference-list title their style uses** — "References", "Works Cited", "Reference list", or GOST's "Список использованных источников" — instead of "Bibliography" until the settings were applied a second time. Unnumbered headings such as the reference list no longer pick up the previous section's number (IEEE printed "I.A.1.1. BIBLIOGRAPHY").
+- **Page locators follow the style.** The citation panel's page box inserts `@key[12]` for Chicago, MLA, ASA, SBL, Turabian and Vancouver, which print a bare number, and `@key[p. 12]` for APA, Harvard and IEEE, which print "p.".
+- **Line spacing matches its label.** "1.5 Lines" was really double spacing and "Double" about 2.3 times single. They now match Word's 1.5 and double spacing, and paragraphs are set apart by the indent alone, as APA, MLA and Chicago specify. Documents saved with the old values reopen on the same option.
+- **MLA:** the title is centred, the date is written day-month-year, the page number sits top right with the author's surname ("Smith 2"), and "Works Cited" is centred.
+- **IEEE:** the title spans both columns instead of wrapping in the left one, sub-headings are numbered `A.` and `1)` rather than `I.A.` and `I.A.1.`, and a new IEEE document is 10-point, single-spaced and justified on 0.75-inch margins.
+- **GOST:** section numbers drop the trailing dot (`1.1`, as GOST 7.32 writes them), numbered sections are left-aligned with the paragraph indent and only unnumbered structural headings are centred capitals, and the document language is Russian so the reference list takes its terms from the GOST locale.
+- **Vancouver** no longer forces numbered headings on, which ICMJE does not ask for.
+
+### Changed
+
+- **Choosing a citation style sets up its layout.** Picking a style in the template dialog now also sets margins, line spacing, font size, page-number position and heading numbering to what the style asks for — APA, MLA, Chicago, SBL, Turabian and ASA: 1-inch margins, double-spaced, 12 point, ragged right, half-inch indents, number top right; IEEE and GOST as above. Every row stays editable. Opening a saved document does not change its settings.
+- **APA** gets the student title page (no running head, bold title, author, affiliation, course, instructor, date), an abstract on its own page, and the title repeated above the first page of text; levels 4 and 5 run into the paragraph with a period.
+- **SBL** gets its all-capitals title page, footnotes in the supplement's style (a full-size number and a period, a half-inch indent, 10 point) and a single-spaced bibliography with a blank line between entries; Turabian and Chicago notes share the notes and bibliography layout.
+- **Changing a style on an existing document** rewrites its paragraph rule and language along with the headings, so the document follows the new style's indent and justification.
+
+### Known upstream limits
+
+- GOST's reference list prints page ranges as "Сс." in Russian and "Pp." in English instead of "С."; MLA in-text citations print a comma before the page (`Smith and Lee, 14`); ASA prints a doubled full stop after page ranges. These come from the citation engine's built-in styles and are noted for upstream.
+
+---
+
 ## [0.53.0] "Steady Meter" — 2026-10-26 — Set poetry
 
 ### Added

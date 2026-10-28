@@ -99,7 +99,7 @@ pub(super) fn build_panels(
     // Wire style buttons → editor; update style_btn label to current style name
     {
         let mut child_opt = style_box.first_child();
-        for (name, code, bib_style, bib_title, style_key) in crate::styles::STYLES {
+        for (name, code, bib_style, bib_title, style_key) in crate::styles::styles() {
             let Some(child) = child_opt else { break };
             let next = child.next_sibling();
             let Some(btn) = child.downcast::<Button>().ok() else {

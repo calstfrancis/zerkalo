@@ -96,7 +96,7 @@ pub(super) fn build_header() -> HeaderWidgets {
     header.pack_start(&library_btn);
 
     // Style switcher dropdown — placed in header start, beside the title
-    let style_names = crate::styles::STYLES
+    let style_names = crate::styles::styles()
         .iter()
         .map(|(n, _, _, _, _)| *n)
         .collect::<Vec<_>>();

@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -15,8 +15,11 @@ use gtk4::{
 use libadwaita as adw;
 
 mod generate;
+mod headings;
 mod parsing;
 mod sidecar;
+#[cfg(test)]
+mod style_tests;
 mod util;
 pub(crate) use generate::*;
 pub(crate) use parsing::*;
@@ -116,15 +119,15 @@ const HEADER_OPTIONS: &[&str] = &[
 // submission, came out barely wider than 1.4 spacing.
 const SPACING_OPTIONS: &[(&str, &str)] = &[
     ("Single", "0.65em"),
-    ("1.5 Lines", "1.32em"),
-    ("Double", "2em"),
+    ("1.5 Lines", "1.07em"),
+    ("Double", "1.65em"),
 ];
 
 /// Leading values written by earlier versions, mapped to the option they were
 /// then labelled with. Without these, re-opening the dialog on a document set
 /// to the old "Double" (`1.2em`) would match no option, leave the row on
 /// "Single", and quietly single-space the document on Apply.
-const LEGACY_SPACING: &[(&str, usize)] = &[("0.9em", 1), ("1.2em", 2)];
+const LEGACY_SPACING: &[(&str, usize)] = &[("0.9em", 1), ("1.2em", 2), ("1.32em", 1), ("2em", 2)];
 
 // (display label, Typst color value used as the dropcap's `fill:` argument)
 const DROPCAP_COLORS: &[(&str, &str)] = &[
@@ -140,6 +143,7 @@ const NUMBERING_FORMATS: &[(&str, &str)] = &[
     ("Decimal  1.  1.1.  1.1.1.", "1."),
     ("IEEE Roman  I.  I.A.  I.A.1.", "I.A.1."),
     ("Alpha  a.  a.a.  a.a.a.", "a."),
+    ("Decimal, no final dot  1  1.1  1.1.1", "1.1"),
 ];
 
 const ACADEMIC_FONTS: &[&str] = &[
@@ -1374,9 +1378,34 @@ struct FormWidgets {
     bib_path: Rc<RefCell<Option<PathBuf>>>,
     title_page: adw::SwitchRow,
     bibliography: adw::SwitchRow,
+    style_defaults_on: Rc<Cell<bool>>,
 }
 
 impl FormWidgets {
+    /// What picking a citation style does to the layout rows: margins, line
+    /// spacing, font size, page number and heading numbering move to what the
+    /// style asks for. Every row stays editable afterwards.
+    fn apply_style_defaults(&self, style_key: &str) {
+        let spec = crate::style_spec::style_spec(style_key);
+        if let Some(m) = spec.margin_in {
+            self.set_margin(MARGIN_PRESETS.len() - 1, m);
+        }
+        self.spacing.set_selected(spec.spacing_idx as u32);
+        self.font_size.set_selected(spec.font_size_idx);
+        self.pnum.set_selected(spec.page_num);
+        match style_key {
+            "ieee" => {
+                self.set_heading_numbering(true);
+                self.set_heading_format("I.A.1.");
+            }
+            "gost-r-705" => {
+                self.set_heading_numbering(true);
+                self.set_heading_format("1.1");
+            }
+            _ => self.set_heading_numbering(false),
+        }
+    }
+
     fn collect(&self) -> TemplateSettings {
         let font_idx = self.font.selected() as usize;
         let available_fonts_inner = build_font_list();
@@ -1522,20 +1551,22 @@ impl FormWidgets {
     }
 
     fn set_style(&self, style_key: &str) {
+        self.style_defaults_on.set(false);
         for (i, (_, key)) in CITATION_STYLES.iter().enumerate() {
             if *key == style_key {
                 self.style.set_selected(i as u32);
                 break;
             }
         }
+        self.style_defaults_on.set(true);
         match style_key {
             "ieee" => {
                 self.set_heading_numbering(true);
                 self.set_heading_format("I.A.1.");
             }
-            "gost-r-705" | "vancouver" => {
+            "gost-r-705" => {
                 self.set_heading_numbering(true);
-                self.set_heading_format("1.");
+                self.set_heading_format("1.1");
             }
             _ => {}
         }
@@ -2359,6 +2390,21 @@ fn style_row_is_latex(style: &adw::ComboRow, cv_switch: &Switch) -> bool {
             .is_some_and(|(_, key)| *key == "latex")
 }
 
+/// Picking a citation style in the dropdown applies that style's layout
+/// defaults; loading a document's own settings (`set_style`) does not.
+fn wire_style_defaults(form: &FormWidgets) {
+    form.apply_style_defaults(CITATION_STYLES[0].1);
+    let form_c = form.clone();
+    form.style.connect_selected_notify(move |row| {
+        if !form_c.style_defaults_on.get() || form_c.cv_switch.is_active() {
+            return;
+        }
+        if let Some((_, key)) = CITATION_STYLES.get(row.selected() as usize) {
+            form_c.apply_style_defaults(key);
+        }
+    });
+}
+
 /// Keeps the Body Font / Line Spacing lock (see `apply_latex_font_lock`) in
 /// sync with both of the Style row's own two triggers: picking a different
 /// citation style directly, and CV Mode swapping its model out from under it.
@@ -2917,6 +2963,7 @@ impl TemplateDialog {
             header: header_row.clone(),
             title_page: title_page_row.clone(),
             bibliography: bibliography_row.clone(),
+            style_defaults_on: Rc::new(Cell::new(true)),
             toc: toc_row.clone(),
             toc_depth: toc_depth_row.clone(),
             abstract_sw: abstract_row.clone(),
@@ -2971,6 +3018,7 @@ impl TemplateDialog {
             },
         );
         wire_latex_font_lock(&form);
+        wire_style_defaults(&form);
 
         // ── Explanation banner ──────────────────────────────────────────────
         // Same adw::Banner pattern as the editor's frontmatter banner — a
@@ -4341,16 +4389,14 @@ mod tests {
     }
 
     #[test]
-    fn the_spacing_options_render_at_the_multiples_they_are_labelled_with() {
-        let single = rendered_height(SPACING_OPTIONS[0].1);
-        for (idx, expected) in [(1usize, 1.5f64), (2, 2.0)] {
-            let (label, value) = SPACING_OPTIONS[idx];
-            let ratio = rendered_height(value) / single;
-            assert!(
-                (ratio - expected).abs() < 0.05,
-                "{label} ({value}) renders at {ratio:.2}x single spacing, not {expected}x"
-            );
-        }
+    fn the_spacing_options_render_in_the_proportion_they_are_labelled_with() {
+        let one_and_a_half = rendered_height(SPACING_OPTIONS[1].1);
+        let double = rendered_height(SPACING_OPTIONS[2].1);
+        let ratio = one_and_a_half / double;
+        assert!(
+            (ratio - 0.75).abs() < 0.03,
+            "1.5 lines renders at {ratio:.2} of double spacing, not 0.75"
+        );
     }
 
     #[test]
@@ -4374,7 +4420,10 @@ mod tests {
             .unwrap();
         let doc = generate_typst_template(&s);
 
-        assert!(doc.contains("first-line-indent: 1em"), "body indent is set");
+        assert!(
+            doc.contains("amount: 0.5in, all: true"),
+            "body indent is set"
+        );
         for line in doc.lines() {
             if line.contains("first-line-indent: 0pt") {
                 assert!(
@@ -4386,21 +4435,14 @@ mod tests {
     }
 
     #[test]
-    fn paragraph_spacing_is_visibly_larger_than_leading() {
+    fn paragraphs_are_set_apart_by_the_indent_not_an_extra_gap() {
         for (_, leading) in SPACING_OPTIONS {
             let mut s = matrix_base();
             s.spacing = leading.to_string();
             let doc = generate_typst_template(&s);
-            let expected_spacing = paragraph_spacing_for_leading(leading);
-            assert_ne!(
-                expected_spacing, *leading,
-                "test setup: doubling should never land back on the same value"
-            );
             assert!(
-                doc.contains(&format!("leading: {leading}, spacing: {expected_spacing}")),
-                "expected paragraph spacing to be double the leading ({leading} -> \
-                 {expected_spacing}), so a paragraph break reads as more than an \
-                 ordinary wrapped line"
+                doc.contains(&format!("leading: {leading}, spacing: {leading}")),
+                "paragraph spacing should equal the line gap ({leading})"
             );
         }
     }
@@ -4413,7 +4455,6 @@ mod tests {
             .position(|(_, k)| *k == "apa")
             .unwrap();
         let doc = generate_typst_template(&s);
-        assert!(doc.contains("#upper[#doc-title]"));
         assert!(!doc.contains("Running head:"));
     }
 
