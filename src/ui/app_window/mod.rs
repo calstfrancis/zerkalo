@@ -76,6 +76,25 @@ struct PaletteTargets {
     recover: Button,
 }
 
+/// "a.typ", "a.typ, b.typ", or "a.typ, b.typ and 3 more".
+fn file_list(paths: Vec<&PathBuf>) -> String {
+    let shown: Vec<String> = paths
+        .iter()
+        .take(2)
+        .map(|p| {
+            p.file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default()
+        })
+        .collect();
+    let more = paths.len().saturating_sub(2);
+    if more > 0 {
+        format!("{} and {more} more", shown.join(", "))
+    } else {
+        shown.join(", ")
+    }
+}
+
 pub struct AppWindow {
     window: adw::ApplicationWindow,
     editor_pane: EditorPane,
@@ -1349,7 +1368,6 @@ impl AppWindow {
         let preview_for_compile = preview_pane.clone();
         let problem_gen_for_compile: Rc<Cell<u64>> = Rc::new(Cell::new(0));
         let _file_tree_holder_for_compile = file_tree_holder.clone();
-        let toast_for_compile = toast_overlay.clone();
         let has_errors_for_compile = has_compile_errors.clone();
 
         let compile_rev_for_start = compile_rev.clone();
@@ -1421,7 +1439,6 @@ impl AppWindow {
             );
             match &result {
                 None => {
-                    let had_errors = *has_errors_for_compile.borrow();
                     *has_errors_for_compile.borrow_mut() = false;
                     error_banner_lbl_for_compile.set_visible(false);
                     preview_for_compile.set_stale(false);
@@ -1437,12 +1454,6 @@ impl AppWindow {
                     };
                     problems_for_compile.set_compile(warns);
                     error_panel_for_compile.set_build_log(&warnings);
-                    // Only show success toast when recovering from errors
-                    if had_errors {
-                        let t = adw::Toast::new("Compiled successfully");
-                        t.set_timeout(2);
-                        toast_for_compile.add_toast(t);
-                    }
                 }
                 Some(stderr) => {
                     let errors = parse_typst_errors(stderr, &root_for_compile);
@@ -2389,13 +2400,19 @@ impl AppWindow {
         {
             // After anything that may have brought files down from GitHub (the sync
             // button, Get Latest, replacing with GitHub's copy, the quiet auto
-            // backup), bring open documents up to date with what is now on disk.
-            // Without this an already-open document kept showing its old text — so
-            // "Get Latest" looked as if it had done nothing, and the next save
-            // would have written the old text over what arrived. Documents with
-            // unsaved typing are left alone, and the person is told.
+            // backup), an open document's file can be newer than what's on screen.
+            // Without this an open document kept showing its old text — so "Get
+            // Latest" looked as if it had done nothing.
+            //
+            // Text doesn't change under the writer's eyes unless they chose that
+            // in Settings → Comfort: by default Zerkalo asks first. Either way,
+            // what arrived is kept as a saved version before anything else
+            // happens, so a later save of the old text can't lose it.
             let ep = editor_pane.clone();
             let toasts = toast_overlay.clone();
+            let cfg = current_config.clone();
+            let root = project_root.clone();
+            let pending: Rc<RefCell<Option<adw::Toast>>> = Rc::new(RefCell::new(None));
             let seen = Rc::new(Cell::new(crate::git_sync::syncs_finished()));
             glib::timeout_add_local(Duration::from_millis(1000), move || {
                 if crate::git_sync::sync_active() {
@@ -2406,41 +2423,97 @@ impl AppWindow {
                     return glib::ControlFlow::Continue;
                 }
                 seen.set(now);
-                let (refreshed, skipped) = ep.refresh_open_from_disk();
+                let (arrived, skipped) = ep.arrivals();
+                for path in &skipped {
+                    if let Ok(text) = std::fs::read_to_string(path) {
+                        save_snapshot(&root, path, &text);
+                    }
+                }
+                for (path, text) in &arrived {
+                    save_snapshot(&root, path, text);
+                }
                 tracing::info!(
-                    "After a sync: refreshed {} open document(s) from disk, left {} with unsaved typing",
-                    refreshed.len(),
+                    "After a sync: {} open document(s) have newer writing, {} with unsaved typing",
+                    arrived.len(),
                     skipped.len()
                 );
-                let name = |p: &PathBuf| {
-                    p.file_name()
-                        .map(|n| n.to_string_lossy().into_owned())
-                        .unwrap_or_default()
-                };
-                if !refreshed.is_empty() {
-                    let shown: Vec<String> = refreshed.iter().take(2).map(name).collect();
-                    let more = refreshed.len().saturating_sub(2);
-                    let list = if more > 0 {
-                        format!("{} and {more} more", shown.join(", "))
+                if !arrived.is_empty() {
+                    let names = file_list(arrived.iter().map(|(p, _)| p).collect());
+                    if let Some(old) = pending.borrow_mut().take() {
+                        old.dismiss();
+                    }
+                    if cfg.borrow().comfort.arriving_writing
+                        == crate::config::ArrivingWriting::Update
+                    {
+                        for (path, text) in &arrived {
+                            ep.take_arrival(path, text);
+                        }
+                        let t = adw::Toast::new(&format!(
+                            "Updated {names} with what arrived from your online backup. \
+                             Ctrl+Z in a document brings back what was there."
+                        ));
+                        t.set_timeout(10);
+                        toasts.add_toast(t);
                     } else {
-                        shown.join(", ")
-                    };
-                    let t =
-                        adw::Toast::new(&format!("Updated {list} with what arrived from GitHub"));
-                    t.set_timeout(5);
-                    toasts.add_toast(t);
+                        // What's on screen now, so "Show it" can tell whether the
+                        // person has written since and must not be overwritten.
+                        let before: Vec<(PathBuf, String, String)> = {
+                            let on_screen = ep.all_tab_texts();
+                            arrived
+                                .iter()
+                                .filter_map(|(path, text)| {
+                                    on_screen
+                                        .iter()
+                                        .find(|(p, _)| p == path)
+                                        .map(|(_, now)| (path.clone(), now.clone(), text.clone()))
+                                })
+                                .collect()
+                        };
+                        let t = adw::Toast::new(&format!(
+                            "Newer writing for {names} arrived from your online backup. \
+                             What's on screen hasn't changed."
+                        ));
+                        t.set_button_label(Some("Show it"));
+                        t.set_timeout(0);
+                        let (ep, toasts_c, pending_c) =
+                            (ep.clone(), toasts.clone(), pending.clone());
+                        t.connect_button_clicked(move |_| {
+                            pending_c.borrow_mut().take();
+                            let on_screen = ep.all_tab_texts();
+                            let mut kept = Vec::new();
+                            for (path, was, arrived) in &before {
+                                let same = on_screen.iter().any(|(p, now)| p == path && now == was);
+                                if same {
+                                    ep.take_arrival(path, arrived);
+                                } else {
+                                    kept.push(path);
+                                }
+                            }
+                            let msg = if kept.is_empty() {
+                                "Done. Ctrl+Z in a document brings back what was there.".to_string()
+                            } else {
+                                format!(
+                                    "You've written in {} since, so it was left as it is. What \
+                                     arrived is kept as a saved version in ☰ → Recover….",
+                                    file_list(kept)
+                                )
+                            };
+                            let t = adw::Toast::new(&msg);
+                            t.set_timeout(10);
+                            toasts_c.add_toast(t);
+                        });
+                        *pending.borrow_mut() = Some(t.clone());
+                        toasts.add_toast(t);
+                    }
                 }
                 if !skipped.is_empty() {
-                    let t =
-                        adw::Toast::new(&format!(
-                        "{} open {} changed online but {} unsaved typing here, so {} left as {}",
-                        skipped.len(),
-                        if skipped.len() == 1 { "document" } else { "documents" },
-                        if skipped.len() == 1 { "has" } else { "have" },
-                        if skipped.len() == 1 { "it was" } else { "they were" },
-                        if skipped.len() == 1 { "it is" } else { "they are" },
+                    let t = adw::Toast::new(&format!(
+                        "Newer writing arrived for {}, which has typing here that isn't saved, \
+                         so it was left as it is. What arrived is kept as a saved version in \
+                         ☰ → Recover….",
+                        file_list(skipped.iter().collect())
                     ));
-                    t.set_timeout(8);
+                    t.set_timeout(12);
                     toasts.add_toast(t);
                 }
                 glib::ControlFlow::Continue

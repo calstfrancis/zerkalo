@@ -110,28 +110,28 @@ impl EditorPane {
         self.reload_tab(path, content, true);
     }
 
-    /// After files changed on disk underneath open tabs — a pull from GitHub, a
-    /// replace with GitHub's copy — brings every open tab that has no unsaved
-    /// typing up to date with what is now on disk, without moving the cursor
-    /// or switching tabs. Without this an open document kept showing its old
-    /// text, and the next save would have written that old text over what
-    /// arrived. Returns the tabs refreshed and the ones left alone because
-    /// they hold typing that isn't saved.
-    pub fn refresh_open_from_disk(&self) -> (Vec<PathBuf>, Vec<PathBuf>) {
-        let (refresh, skipped) = tabs_to_refresh(
+    /// Open documents whose file on disk now differs from what's on screen:
+    /// the ones that could be brought up to date, and the ones holding typing
+    /// that isn't saved.
+    pub fn arrivals(&self) -> (Vec<(PathBuf, String)>, Vec<PathBuf>) {
+        tabs_to_refresh(
             &self.all_tab_texts(),
             |p| self.is_modified(p),
             |p| std::fs::read_to_string(p).ok(),
-        );
-        let mut done = Vec::new();
-        for (path, content) in refresh {
-            self.reload_tab(path.clone(), &content, false);
-            // The buffer now equals the file, so it holds nothing unsaved (the
-            // text swap itself would otherwise mark the tab as edited).
-            self.mark_saved(&path);
-            done.push(path);
-        }
-        (done, skipped)
+        )
+    }
+
+    /// Shows what arrived in `path`, as one undo step, so Ctrl+Z brings back
+    /// what was on screen before. The cursor and scroll stay put: only the
+    /// changed stretch is touched.
+    pub fn take_arrival(&self, path: &std::path::Path, content: &str) {
+        let buffer = self.state.borrow().tabs.get(path).map(|t| t.buffer.clone());
+        let Some(buffer) = buffer else { return };
+        replace_text_minimally(&buffer, content);
+        let sm = *self.simple_mode.borrow();
+        apply_simple_mode_tag(&buffer, sm);
+        // The buffer now equals the file, so it holds nothing unsaved.
+        self.mark_saved(&path.to_path_buf());
     }
 
     pub(super) fn reload_tab(&self, path: PathBuf, content: &str, focus: bool) {

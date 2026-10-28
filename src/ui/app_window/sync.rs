@@ -1,7 +1,7 @@
 //! Git sync, the GitHub token prompt, and the backup-remote manager.
 //! Split out of `app_window.rs`.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Duration;
@@ -477,24 +477,23 @@ pub(super) fn auto_sync_quiet(
                     },
                 );
             }
-            if let Some(overlay) = &overlay {
-                if failed {
-                    let t = adw::Toast::new(crate::keybindings::shown(
-                        "Backup didn't go through — try the backup button again ({git_sync}).",
-                    ));
-                    t.set_timeout(6);
-                    overlay.add_toast(t);
-                } else if result.pushed {
-                    let summary = result
-                        .commit_message
-                        .lines()
-                        .next()
-                        .unwrap_or("your changes")
-                        .to_string();
-                    let t = adw::Toast::new(&format!("Backed up — {summary}"));
-                    t.set_timeout(3);
-                    overlay.add_toast(t);
+            // Quiet means quiet: a backup that worked says nothing (the status
+            // bar's "backed up just now" already does), and one that didn't is
+            // said once, not again every 12 minutes while the person is offline.
+            if failed {
+                if let Some(overlay) = &overlay {
+                    if !QUIET_TROUBLE_TOLD.with(|t| t.replace(true)) {
+                        let t = adw::Toast::new(crate::keybindings::shown(
+                            "Your work is saved on this computer. The online backup didn't go \
+                             through — Zerkalo keeps trying every 12 minutes, or press the backup \
+                             button ({git_sync}).",
+                        ));
+                        t.set_timeout(12);
+                        overlay.add_toast(t);
+                    }
                 }
+            } else {
+                QUIET_TROUBLE_TOLD.with(|t| t.set(false));
             }
             if let Some(f) = on_done.borrow_mut().take() {
                 f();
@@ -534,6 +533,9 @@ fn nothing_changed_message(detail: &str) -> String {
 }
 
 thread_local! {
+    /// Whether the automatic backup has already said it couldn't get through,
+    /// since the last time a backup worked.
+    static QUIET_TROUBLE_TOLD: Cell<bool> = const { Cell::new(false) };
     /// The strip above the editor that says a backup didn't go through. It
     /// replaces a pop-up box: nothing stops the person's writing, and it goes
     /// away by itself the next time a backup works.
@@ -579,6 +581,7 @@ fn show_backup_trouble(window: &adw::ApplicationWindow, detail: &str) {
 }
 
 fn clear_backup_trouble() {
+    QUIET_TROUBLE_TOLD.with(|t| t.set(false));
     BACKUP_BANNER.with(|b| {
         if let Some((banner, _)) = b.borrow().as_ref() {
             banner.set_revealed(false);

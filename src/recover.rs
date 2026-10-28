@@ -431,14 +431,14 @@ pub fn status_lines(s: &Status, now: DateTime<Local>) -> Vec<String> {
     let mut lines = vec!["Saved on this computer.".to_string()];
     if s.loose > 0 {
         lines.push(format!(
-            "{} file{} with edits not yet kept as a version — the sync button does that.",
+            "{} file{} with edits not yet kept as a version — the backup button does that.",
             s.loose,
             if s.loose == 1 { "" } else { "s" }
         ));
     }
     if !s.connected {
         lines.push(
-            "Not backed up online yet — ☰ → Set Up Zerkalo will connect GitHub or a folder."
+            "Not backed up online yet — the backup button will connect GitHub or a folder."
                 .to_string(),
         );
     } else if s.waiting > 0 {

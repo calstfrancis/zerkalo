@@ -860,6 +860,7 @@ impl SettingsDialog {
             let simple_mode_cur = current.simple_mode;
             let shown_simple_intro_cur = current.shown_simple_intro;
             let shown_editor_orientation_cur = current.shown_editor_orientation;
+            let comfort_cur = current.comfort.clone();
             let format_bar_visible_cur = current.format_bar_visible;
             let last_used_advanced_cur = current.last_used_advanced;
             let default_sans_font_cur = current.default_sans_font.clone();
@@ -997,6 +998,7 @@ impl SettingsDialog {
                         .unwrap_or_else(|| default_serif_font_cur.clone()),
                     print: print_cur.clone(),
                     library: library_cur.clone(),
+                    comfort: comfort_cur.clone(),
                 }
             }
         };

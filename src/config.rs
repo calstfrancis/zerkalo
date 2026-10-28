@@ -261,6 +261,119 @@ pub struct Config {
     pub print: PrintPrefs,
     #[serde(default)]
     pub library: LibraryPrefs,
+    #[serde(default)]
+    pub comfort: ComfortPrefs,
+}
+
+// ── Comfort ───────────────────────────────────────────────────────────────────
+
+/// What happens after Zerkalo is updated to a new release.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum AfterUpdate {
+    /// Open the What's New window.
+    Window,
+    /// A quiet note in the status bar that stays until it is clicked or closed.
+    #[default]
+    Note,
+    /// Say nothing; What's New is still in ☰ → Help & About.
+    Nothing,
+}
+
+/// What happens when newer writing arrives from an online backup while a
+/// document is open.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum ArrivingWriting {
+    /// Ask before changing what's on screen.
+    #[default]
+    Ask,
+    /// Update open documents straight away (one undo step each).
+    Update,
+}
+
+/// When spelling mistakes are underlined.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum SpellTiming {
+    /// After a short pause — never the word the cursor is in.
+    #[default]
+    AsIType,
+    /// Only in paragraphs the cursor has left.
+    AfterParagraph,
+    /// Only after asking (F7 or the menu).
+    OnRequest,
+}
+
+/// When the status bar's live numbers (line and column, word counts) change.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum CounterTiming {
+    WhileTyping,
+    /// About a second and a half after typing stops.
+    #[default]
+    WhenPaused,
+    Hidden,
+}
+
+/// Settings for how much Zerkalo moves, speaks up and changes by itself.
+/// Each is its own choice; none of them is a "mode".
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct ComfortPrefs {
+    #[serde(default)]
+    pub after_update: AfterUpdate,
+    #[serde(default)]
+    pub arriving_writing: ArrivingWriting,
+    /// Messages stay on screen until closed instead of timing out.
+    #[serde(default)]
+    pub messages_stay: bool,
+    /// Reduce motion even if the desktop hasn't been asked to.
+    #[serde(default)]
+    pub reduce_motion: bool,
+    #[serde(default)]
+    pub steady_cursor: bool,
+    #[serde(default)]
+    pub spelling: SpellTiming,
+    /// Problems are underlined in a quiet colour rather than error red.
+    #[serde(default = "default_true")]
+    pub calm_underlines: bool,
+    #[serde(default)]
+    pub counters: CounterTiming,
+    /// Tint the line the cursor is on (only where line numbers show).
+    #[serde(default = "default_true")]
+    pub highlight_current_line: bool,
+    /// "Last time: …" above the text when a document opens.
+    #[serde(default = "default_true")]
+    pub where_you_left_off: bool,
+    /// A short note to self per document, shown in that line.
+    #[serde(default)]
+    pub notes_for_next_time: bool,
+    /// Briefly tint the cursor's line when coming back after a break.
+    #[serde(default = "default_true")]
+    pub find_cursor_after_break: bool,
+    /// How long this writing session has lasted, in the status bar.
+    #[serde(default)]
+    pub session_clock: bool,
+}
+
+impl Default for ComfortPrefs {
+    fn default() -> Self {
+        Self {
+            after_update: AfterUpdate::default(),
+            arriving_writing: ArrivingWriting::default(),
+            messages_stay: false,
+            reduce_motion: false,
+            steady_cursor: false,
+            spelling: SpellTiming::default(),
+            calm_underlines: true,
+            counters: CounterTiming::default(),
+            highlight_current_line: true,
+            where_you_left_off: true,
+            notes_for_next_time: false,
+            find_cursor_after_break: true,
+            session_clock: false,
+        }
+    }
 }
 
 /// How the Library window was left, so it reopens the way it was.
@@ -455,6 +568,7 @@ impl Default for Config {
             default_serif_font: String::new(),
             print: PrintPrefs::default(),
             library: LibraryPrefs::default(),
+            comfort: ComfortPrefs::default(),
         }
     }
 }

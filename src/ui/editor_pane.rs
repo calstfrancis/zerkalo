@@ -1138,6 +1138,12 @@ impl EditorPane {
     /// Used to move header controls that report state rather than act on the
     /// document — the status bar is a line of plain words, and a toggle reads
     /// better there than as one more button in a crowded header.
+    /// Places `w` right after the steady "Saved · backed up …" line.
+    pub fn status_bar_insert_after_safety(&self, w: &impl gtk4::prelude::IsA<gtk4::Widget>) {
+        self.status_bar
+            .insert_child_after(w, Some(&self.safe_label));
+    }
+
     pub fn status_bar_append_left(&self, w: &impl gtk4::prelude::IsA<gtk4::Widget>) {
         self.status_bar
             .insert_child_after(w, Some(&self.format_bar_toggle_btn));

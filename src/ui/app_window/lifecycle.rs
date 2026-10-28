@@ -112,9 +112,11 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
              is using its default settings for now.",
             problem.error
         );
-        glib::timeout_add_local_once(Duration::from_millis(700), move || {
+        // Held until nothing else is open over the window, so it isn't lost
+        // behind (or piled on top of) the welcome or setup windows.
+        super::super::calm::when_calm(&ctx.window, move || {
             let t = adw::Toast::new(&msg);
-            t.set_timeout(10);
+            t.set_timeout(15);
             toast_for_cfg.add_toast(t);
         });
     }
@@ -127,13 +129,25 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
     // in ☰ → Tools; only a missing git, which nothing works without, still
     // interrupts, and in the flatpak there is always one.
     let toast_for_check = ctx.toast_overlay.clone();
+    let window_for_check = ctx.window.clone();
     glib::timeout_add_local(Duration::from_millis(900), move || {
         if !crate::git_sync::git_available() {
             tracing::warn!("git not found");
-            let t =
-                adw::Toast::new("git isn't installed — saving versions won't work. See ☰ → Tools.");
-            t.set_timeout(12);
-            toast_for_check.add_toast(t);
+            let toasts = toast_for_check.clone();
+            let window = window_for_check.clone();
+            super::super::calm::when_calm(&window_for_check, move || {
+                let t = adw::Toast::new(
+                    "Your writing saves as usual, but Zerkalo can't keep saved versions or \
+                     back up: git isn't installed.",
+                );
+                t.set_button_label(Some("Show what's missing"));
+                let window = window.clone();
+                t.connect_button_clicked(move |_| {
+                    super::super::tools_window::ToolsWindow::new(&window).present();
+                });
+                t.set_timeout(0);
+                toasts.add_toast(t);
+            });
         }
         if crate::spellcheck::SpellChecker::available_languages().is_empty() {
             tracing::info!("no spelling dictionaries found — spell check disabled");
@@ -179,13 +193,44 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
     let root_for_welcome = ctx.project_root.clone();
     let new_template_for_welcome = ctx.menu_new_template_item.clone();
     let start_tour_after_welcome = ctx.start_tour_after_welcome.clone();
+    let editor_for_note = ctx.editor_pane.clone();
+    let after_update = ctx.current_config.borrow().comfort.after_update;
     glib::timeout_add_local(Duration::from_millis(1200), move || {
-        if super::super::welcome_window::WelcomeWindow::should_show() {
-            let is_first_run = super::super::welcome_window::WelcomeWindow::is_first_run();
+        use super::super::welcome_window::WelcomeWindow;
+        let updated_quietly = WelcomeWindow::should_show() && !WelcomeWindow::is_first_run() && {
+            // An update says so with a note (or not at all), never a window
+            // over the work, unless that's what the person chose. A dev build
+            // says nothing: it is a test, not news.
+            let dev = env!("CARGO_PKG_VERSION").contains('-');
+            match (dev, after_update) {
+                (true, _) | (false, crate::config::AfterUpdate::Nothing) => {
+                    WelcomeWindow::mark_shown();
+                    true
+                }
+                (false, crate::config::AfterUpdate::Note) => {
+                    // Marked shown only once the note is clicked or closed, so
+                    // it waits across launches.
+                    let note = super::super::update_note::build(
+                        win_for_welcome.upcast_ref(),
+                        WelcomeWindow::last_seen(),
+                    );
+                    editor_for_note.status_bar_insert_after_safety(&note);
+                    true
+                }
+                (false, crate::config::AfterUpdate::Window) => false,
+            }
+        };
+        if updated_quietly {
+            if super::super::setup_wizard::SetupWizard::should_show(&root_for_welcome) {
+                super::super::setup_wizard::SetupWizard::new(&win_for_welcome, &root_for_welcome)
+                    .present();
+            }
+        } else if WelcomeWindow::should_show() {
+            let is_first_run = WelcomeWindow::is_first_run();
             // Read before it is overwritten: a person who skipped releases is
             // shown each one they missed.
-            let last_seen = super::super::welcome_window::WelcomeWindow::last_seen();
-            super::super::welcome_window::WelcomeWindow::mark_shown();
+            let last_seen = WelcomeWindow::last_seen();
+            WelcomeWindow::mark_shown();
             let ww = super::super::welcome_window::WelcomeWindow::new(
                 &win_for_welcome,
                 is_first_run,
@@ -245,13 +290,16 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
                     let all_ok = buffers
                         .iter()
                         .all(|(path, content)| crate::auto_save::save(path, content));
-                    let t = adw::Toast::new(if all_ok {
-                        "Autosaved"
-                    } else {
-                        "Autosave failed — check disk space"
-                    });
-                    t.set_timeout(if all_ok { 2 } else { 6 });
-                    toast_for_autosave.add_toast(t);
+                    // A recovery copy that worked needs no announcement — the
+                    // status bar already says how safe the work is.
+                    if !all_ok {
+                        let t = adw::Toast::new(
+                            "Your document is still open here. Zerkalo couldn't keep a recovery \
+                             copy of it — the disk may be full.",
+                        );
+                        t.set_timeout(12);
+                        toast_for_autosave.add_toast(t);
+                    }
                     *last_edit_for_autosave.borrow_mut() = None;
                 }
             }

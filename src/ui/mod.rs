@@ -46,4 +46,5 @@ pub mod text_ops;
 pub mod theme;
 pub mod tools_window;
 pub mod tour;
+pub mod update_note;
 pub mod welcome_window;
