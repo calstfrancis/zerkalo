@@ -42,6 +42,7 @@ raw markup dead-end: a live preview pane always shows the real formatting next t
 | **Typewriter scrolling** | Optional (Settings → Editor); cursor stays fixed at ~45 % from the top of the viewport |
 | **Line spacing** | Settings → Editor → Compact / Normal / Spacious |
 | **High contrast mode** | Settings → Editor → High contrast; forces white-on-black in the editor |
+| **Comfort** | Settings → Comfort: messages that stay until closed, reduced movement, a steady cursor, a quiet colour for problems, status-bar numbers that change when you pause, spelling that leaves the word you are writing alone (F7 checks everything), a "where you left off" line, notes for next time, a mark on your place after a break, an optional session clock, and a choice of what happens after an update or when newer writing arrives from your backup. Nothing nags, and nothing is a mode |
 | **Theme** | System / Light / Dark, set from the hamburger menu — follows libadwaita's colour scheme by default |
 | **Word count** | Live count and reading-time estimate in the status bar; selection shows "N words, M sentences selected". For author-date styles (APA, Chicago author-date, Harvard, MLA…) a "citations in count" toggle adds the words in-text citations print — "(Smith & Jones, 2019)" is four — to every count; off by default |
 | **Word-count goal** | Add `// @goal: 3000` in your file; a progress ring tracks it in the status bar |

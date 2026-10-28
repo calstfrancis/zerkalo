@@ -1660,6 +1660,7 @@ impl AppWindow {
             sync_btn: sync_btn.clone(),
             sync_badge: sync_badge.clone(),
             menu_new_template_item: menus.menu_new_template_item.clone(),
+            menu_new_item: menus.menu_new_item.clone(),
             lsp_client: lsp_client.clone(),
             problems: problems.clone(),
             last_completion_request: last_completion_request.clone(),

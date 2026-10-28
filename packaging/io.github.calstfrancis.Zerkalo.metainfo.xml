@@ -86,6 +86,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.55.0" date="2026-10-28">
+      <description>
+        <p>0.55.0 "Level Ground" — a calmer, more predictable Zerkalo. Ctrl+Shift+P updates the preview instead of hiding it, Ctrl+S saves as safely as the menu does, and shortcuts named on screen follow your keybindings. Nothing announces a backup or an autosave that worked, an update leaves a note in the status bar instead of a window, newer writing from your online backup asks before it changes what is on screen, and every message stays long enough to read and can be read again. Backing up, saved versions and the preview have one name each, labels are in sentence case, and switches say whether they are on. Settings → Comfort gathers the choices: reduced movement, a steady cursor, quiet problem colour, calmer status-bar numbers, spelling that leaves the word you are writing alone, a "where you left off" line, notes for next time, and an optional session clock.</p>
+      </description>
+    </release>
     <release version="0.54.0" date="2026-10-28">
       <description>
         <p>0.54.0 "True Margin" — citation styles that match their manuals. Headings now come out at the size and weight each style specifies, Vancouver bibliographies list their authors, ASA and Harvard use their own citation styles, SBL and Turabian include the place of publication, and new documents title their reference list the way the style does. Picking a style in the template dialog now also sets its margins, line spacing, font size and page numbering, "1.5 Lines" and "Double" match Word's spacing, and the page box in the citation panel writes a bare page number where the style prints one. MLA, APA, SBL, IEEE and GOST each get the title page, header and numbering their manual describes.</p>

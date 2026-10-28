@@ -3,6 +3,41 @@
 All notable changes to Zerkalo are recorded here.  
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.55.0] "Level Ground" — 2026-10-28 — A calmer, more predictable Zerkalo
+
+Zerkalo now does only what you ask, says only what you need, and says it the same way every time. New Settings → Comfort page gathers the individual controls; nothing is an "autism mode" and nothing nags.
+
+### Fixed
+
+- **Ctrl+Shift+P updates the preview; it no longer hides it.** In Manual mode the key most places call "refresh" used to make the preview disappear. It now brings a hidden preview back and updates it.
+- **Ctrl+S and ☰ → Save do the same thing.** Ctrl+S used to write with no safety net and say nothing if the save failed; it now saves the same careful way as the menu, shows the failed-save bar when it can't, and updates the preview in both modes.
+- **Help points at the real backup button** (the two arrows at the top right) instead of ⟳, which updates the preview.
+- **The setup wizard stops coming back.** Closing it with × or Escape now counts as an answer, and its way out says what it does: "Don't ask again — the backup button sets this up any time".
+- **Shortcuts shown on screen follow your keybindings.** About 35 labels, tooltips and Help paragraphs had keys typed in by hand; a test now keeps them honest.
+- **Replace in all files keeps your typing and your undo.** Open documents are changed in the editor as one undo step each instead of being reloaded from disk.
+
+### Changed
+
+- **Quiet while you write.** No toast for an autosave or an automatic backup that worked, and none for "Compiled successfully". A backup that can't get through says so once, not every 12 minutes.
+- **After an update, What's New is a note in the status bar** that waits until you click or close it (Settings → Comfort can open the window instead, or say nothing). Dev builds say nothing.
+- **Newer writing from your online backup asks first.** An open document is no longer replaced under your eyes: what arrived is kept as a saved version, and "Show it" brings it in as one undo step. Settings → Comfort can make this automatic.
+- **Messages stay long enough to read.** Each message's time on screen follows its length (6–20 seconds, longer with a button), and the last 30 can be read again by clicking the "Saved" line at the bottom or Ctrl+K → Recent Messages.
+- **Start-up messages wait their turn** until nothing else is open over the window.
+- **One name for one thing.** Backing up, saved versions and updating the preview are called the same everywhere (see the glossary in `docs/VOICE.md`); labels are in sentence case; switch tooltips say whether the switch is on and what a click does; confirmations offer "Keep it as it is" instead of a bare Cancel.
+- **Problems are underlined in amber, not red,** unless you choose red. Red is for when something is about to be lost.
+- **The status bar's numbers settle.** Line and column and word counts update a moment after you stop typing rather than on every keystroke (or live, or hidden, by choice).
+- **Spelling never marks the word you are still writing.** F7 checks everything now; you can also underline only when you leave a paragraph, or only when asked.
+- **Under reduced movement the preview progress strip is still,** and Zerkalo has its own "Reduce movement" switch. The F1 help bubbles are dark in dark mode, the text cursor can stop blinking, and the error bell is off.
+
+### Added
+
+- **Settings → Comfort** for all of the above, with a "Use the calm defaults" button.
+- **Where you left off:** a quiet line when a document opens — when you last wrote in it and how many words you added — that goes at your first keystroke.
+- **Notes for next time** (opt-in): a short note to yourself kept with each document and shown in that line (Ctrl+K → Note for next time).
+- **Marks your place after a break** (on by default): the cursor's line is briefly tinted when you return after a couple of minutes away.
+- **A plain session clock** (opt-in) in the status bar. It never reminds or interrupts.
+- **Start with a blank page** on the first-run welcome window, skipping the template choices.
+
 ## [0.54.0] "True Margin" — 2026-10-28 — Citation styles that match their manuals
 
 A full audit of every citation style, checked against the style manuals by compiling a real document in each one. Details in `CITATION-STYLE-AUDIT.md`.

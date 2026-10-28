@@ -7,11 +7,12 @@ use gtk4::{Align, Box as GtkBox, Button, Label, Orientation, ScrolledWindow, Sep
 use libadwaita as adw;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const RELEASE_NAME: &str = "True Margin";
+pub const RELEASE_NAME: &str = "Level Ground";
 
 pub struct WelcomeWindow {
     window: adw::Window,
     on_dismissed: Rc<RefCell<Option<Box<dyn Fn()>>>>,
+    on_blank: Rc<RefCell<Option<Box<dyn Fn()>>>>,
 }
 
 impl WelcomeWindow {
@@ -233,6 +234,22 @@ impl WelcomeWindow {
         let spacer = GtkBox::new(Orientation::Horizontal, 0);
         spacer.set_hexpand(true);
         footer.append(&spacer);
+        let on_blank: Rc<RefCell<Option<Box<dyn Fn()>>>> = Rc::new(RefCell::new(None));
+        if is_first_run {
+            let blank_btn = Button::with_label("Start with a blank page");
+            blank_btn.add_css_class("flat");
+            blank_btn.set_tooltip_text(Some(
+                "Skips the choices. You can pick a look, add a title page or set up backup any time from ☰.",
+            ));
+            let (win_b, cb_b) = (window.clone(), on_blank.clone());
+            blank_btn.connect_clicked(move |_| {
+                win_b.close();
+                if let Some(f) = cb_b.borrow().as_ref() {
+                    f();
+                }
+            });
+            footer.append(&blank_btn);
+        }
         let btn_label = if is_first_run { "Get Started" } else { "Close" };
         let ok_btn = Button::with_label(btn_label);
         ok_btn.add_css_class("suggested-action");
@@ -258,10 +275,15 @@ impl WelcomeWindow {
         Self {
             window,
             on_dismissed,
+            on_blank,
         }
     }
 
     /// Called after "Get Started" is clicked (after the window closes).
+    pub fn set_on_blank(&self, f: impl Fn() + 'static) {
+        *self.on_blank.borrow_mut() = Some(Box::new(f));
+    }
+
     pub fn set_on_dismissed(&self, f: impl Fn() + 'static) {
         *self.on_dismissed.borrow_mut() = Some(Box::new(f));
     }

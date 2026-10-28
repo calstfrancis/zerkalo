@@ -32,6 +32,7 @@ pub(super) struct LifecycleCtx {
     /// fires this directly rather than just closing, so a first-time user
     /// lands in document creation instead of a blank window.
     pub(super) menu_new_template_item: gtk4::Button,
+    pub(super) menu_new_item: gtk4::Button,
     pub(super) lsp_client: Rc<RefCell<Option<LspClient>>>,
     pub(super) problems: super::super::problems::Problems,
     pub(super) last_completion_request: Rc<RefCell<Option<u64>>>,
@@ -193,6 +194,7 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
     let win_for_welcome = ctx.window.clone();
     let root_for_welcome = ctx.project_root.clone();
     let new_template_for_welcome = ctx.menu_new_template_item.clone();
+    let new_blank_for_welcome = ctx.menu_new_item.clone();
     let start_tour_after_welcome = ctx.start_tour_after_welcome.clone();
     let editor_for_note = ctx.editor_pane.clone();
     let after_update = ctx.current_config.borrow().comfort.after_update;
@@ -244,6 +246,8 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
                 // that opens is modal, so the tour sits ready underneath and
                 // is simply what the user sees once they finish there
                 // (create a document, or cancel back to the blank editor).
+                let new_blank = new_blank_for_welcome.clone();
+                ww.set_on_blank(move || new_blank.emit_clicked());
                 let new_template = new_template_for_welcome.clone();
                 let start_tour = start_tour_after_welcome.clone();
                 ww.set_on_dismissed(move || {
