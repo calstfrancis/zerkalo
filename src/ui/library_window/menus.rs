@@ -1,4 +1,5 @@
 use super::*;
+use crate::ui::notify::Say;
 
 /// Every right-click context menu in this window (document, project,
 /// category rows) builds a plain `Popover` and needs to show it from a
@@ -45,14 +46,14 @@ impl LibraryWindow {
                         this.refresh();
                         let toast = adw::Toast::new(&format!("Found \u{201c}{title}\u{201d}"));
                         toast.set_use_markup(false);
-                        this.toast_overlay.add_toast(toast);
+                        this.toast_overlay.say(toast);
                     }
                     Err(_) => {
                         // That file is already listed as another document.
                         let toast = adw::Toast::new(
                             "That file is already in the Library as another document.",
                         );
-                        this.toast_overlay.add_toast(toast);
+                        this.toast_overlay.say(toast);
                     }
                 }
             },
@@ -238,7 +239,7 @@ impl LibraryWindow {
         match moved {
             Err(e) => {
                 tracing::error!("move_to_trash failed: {e}");
-                self.toast_overlay.add_toast(adw::Toast::new(&format!(
+                self.toast_overlay.say(adw::Toast::new(&format!(
                     "Couldn't move to the trash — {}.",
                     e.user_message()
                 )));

@@ -202,6 +202,7 @@ pub struct EditorPane {
     goal_celebrating: Rc<Cell<bool>>,
     lsp_status_label: Label,
     safe_label: Label,
+    safe_btn: Button,
     diag_label: Label,
     diag_btn: Button,
     on_diag_click: Rc<RefCell<Option<Box<dyn Fn()>>>>,
@@ -374,6 +375,7 @@ impl EditorPane {
             redo_btn,
             cursor_label,
             safe_label,
+            safe_btn,
             lsp_status_label,
             diag_label,
             diag_btn,
@@ -660,6 +662,7 @@ impl EditorPane {
             on_format_bar_toggle: Rc::new(RefCell::new(None)),
             autosave_label,
             safe_label,
+            safe_btn,
             autosave_toggle_btn: autosave_toggle_btn.clone(),
             autosave_on: Rc::new(Cell::new(false)),
             on_autosave_toggle: Rc::new(RefCell::new(None)),
@@ -1140,8 +1143,7 @@ impl EditorPane {
     /// better there than as one more button in a crowded header.
     /// Places `w` right after the steady "Saved · backed up …" line.
     pub fn status_bar_insert_after_safety(&self, w: &impl gtk4::prelude::IsA<gtk4::Widget>) {
-        self.status_bar
-            .insert_child_after(w, Some(&self.safe_label));
+        self.status_bar.insert_child_after(w, Some(&self.safe_btn));
     }
 
     pub fn status_bar_append_left(&self, w: &impl gtk4::prelude::IsA<gtk4::Widget>) {
@@ -1506,6 +1508,11 @@ impl EditorPane {
     }
 
     /// Replaces the calm "is my work safe" line in the status bar.
+    /// Lists the messages Zerkalo has shown this session, under the safety line.
+    pub fn show_recent_messages(&self) {
+        crate::ui::notify::show_recent(&self.safe_btn);
+    }
+
     pub fn set_safety_line(&self, text: &str) {
         if self.safe_label.text() != text {
             self.safe_label.set_text(text);

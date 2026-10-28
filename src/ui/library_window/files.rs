@@ -1,4 +1,5 @@
 use super::*;
+use crate::ui::notify::Say;
 
 impl LibraryWindow {
     /// Moves a document saved outside the Zerkalo folder (and its comment/
@@ -53,7 +54,7 @@ impl LibraryWindow {
                 .unwrap_or_else(|| "your Zerkalo folder".to_string())
         ));
         t.set_timeout(4);
-        self.toast_overlay.add_toast(t);
+        self.toast_overlay.say(t);
     }
 
     pub(super) fn new_document(&self) {

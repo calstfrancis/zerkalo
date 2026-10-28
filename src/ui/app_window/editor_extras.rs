@@ -18,6 +18,7 @@ use super::super::outline_panel::OutlinePanel;
 use super::super::package_browser::PackageBrowser;
 use super::import::{run_pandoc_import, run_pdf_import, IMPORT_FORMATS};
 use crate::config::Config;
+use crate::ui::notify::Say;
 
 pub(super) struct EditorExtrasCtx {
     pub(super) window: adw::ApplicationWindow,
@@ -82,7 +83,7 @@ pub(super) fn wire_editor_extras(ctx: &EditorExtrasCtx) {
                 }
                 Err(e) => {
                     tracing::warn!("Failed to copy image into assets: {e}");
-                    toast.add_toast(adw::Toast::new(&format!(
+                    toast.say(adw::Toast::new(&format!(
                         "Couldn't add the image — {}.",
                         crate::error::io_reason(&e)
                     )));
@@ -181,7 +182,7 @@ pub(super) fn wire_sidebar_toolbar(ctx: &SidebarToolbarCtx) -> (GtkBox, Button) 
                     let t =
                         adw::Toast::new("GOST type B isn't installed — the UI font is unchanged");
                     t.set_timeout(5);
-                    toast_for_gost.add_toast(t);
+                    toast_for_gost.say(t);
                 }
             } else {
                 ui_prov.load_from_data("* {}");

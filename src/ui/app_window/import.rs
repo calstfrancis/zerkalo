@@ -14,6 +14,7 @@ use libadwaita as adw;
 use super::super::editor_pane::EditorPane;
 use super::show_alert;
 use crate::config::Config;
+use crate::ui::notify::Say;
 
 // ── Document import via pandoc (LaTeX, Word, Markdown, OpenDocument Text) ──────
 
@@ -281,7 +282,7 @@ fn show_import_history_dialog_filtered(
                          Use Import… to pick the format again.",
                     ));
                     t.set_timeout(6);
-                    toast_c.add_toast(t);
+                    toast_c.say(t);
                 }
             });
             row.add_suffix(&retry_btn);
@@ -741,7 +742,7 @@ fn offer_bib_autodetect(
         c.bib_path = Some(bib_path.clone());
         let _ = c.save();
     });
-    toast_overlay.add_toast(toast);
+    toast_overlay.say(toast);
     true
 }
 
@@ -801,7 +802,7 @@ fn warn_if_citations_without_bib(
          place it alongside this document.",
     );
     toast.set_timeout(8);
-    toast_overlay.add_toast(toast);
+    toast_overlay.say(toast);
 }
 
 fn summarize_import_content(text: &str) -> String {
@@ -1070,7 +1071,7 @@ fn show_import_preview_dialog(
                         crate::error::io_reason(&e)
                     ));
                     t.set_timeout(6);
-                    toast_overlay_c.add_toast(t);
+                    toast_overlay_c.say(t);
                 }
             }
             accepted_c2.set(true);
@@ -1119,7 +1120,7 @@ fn show_import_preview_dialog(
                     "Undone by user",
                 );
             });
-            toast_overlay_c.add_toast(imported_toast);
+            toast_overlay_c.say(imported_toast);
 
             dlg_c.close();
         });
@@ -1530,7 +1531,7 @@ fn run_pandoc_import_confirmed(
             toast_for_cancel.dismiss();
             let cancelled = adw::Toast::new("Import cancelled");
             cancelled.set_timeout(3);
-            toast_overlay_for_cancel.add_toast(cancelled);
+            toast_overlay_for_cancel.say(cancelled);
             // Whatever pandoc had written so far goes with it; a cancelled
             // import used to leave a half-converted .typ beside the source.
             let _ = std::fs::remove_dir_all(&staging_for_cancel);
@@ -1544,7 +1545,7 @@ fn run_pandoc_import_confirmed(
             );
         });
     }
-    toast_overlay.add_toast(toast.clone());
+    toast_overlay.say(toast.clone());
 
     let started = std::time::Instant::now();
     let child_poll = child.clone();
@@ -1782,7 +1783,7 @@ fn run_paste_import(
     for note in &imported.notes {
         let toast = adw::Toast::new(note);
         toast.set_timeout(8);
-        toast_overlay.add_toast(toast);
+        toast_overlay.say(toast);
     }
 
     if insert_at_cursor {
@@ -2010,7 +2011,7 @@ fn run_batch_import_queue(
     let progress = adw::Toast::new(&format!("Importing… (0 of {total} done)"));
     progress.set_priority(adw::ToastPriority::High);
     progress.set_timeout(0);
-    toast_overlay.add_toast(progress.clone());
+    toast_overlay.say(progress.clone());
     let progress = Rc::new(progress);
 
     let concurrency = cfg.borrow().batch_import_concurrency.max(1) as usize;
@@ -2110,7 +2111,7 @@ fn run_next_batch_worker(
                     );
                 });
             }
-            toast_overlay.add_toast(toast);
+            toast_overlay.say(toast);
         }
         return;
     };

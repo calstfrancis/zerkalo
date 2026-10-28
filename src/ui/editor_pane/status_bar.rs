@@ -20,6 +20,7 @@ pub(super) struct StatusBar {
     pub(super) redo_btn: Button,
     pub(super) cursor_label: Label,
     pub(super) safe_label: Label,
+    pub(super) safe_btn: Button,
     pub(super) lsp_status_label: Label,
     pub(super) diag_label: Label,
     pub(super) diag_btn: Button,
@@ -182,6 +183,14 @@ pub(super) fn build_status_bar() -> StatusBar {
     safe_label.set_margin_top(3);
     safe_label.set_margin_bottom(3);
     safe_label.set_halign(gtk4::Align::Start);
+    // A button, so the line is also the way back to anything that was said
+    // and has gone: clicking it lists the recent messages.
+    let safe_btn = Button::new();
+    safe_btn.set_child(Some(&safe_label));
+    safe_btn.add_css_class("flat");
+    safe_btn.add_css_class("status-toggle");
+    safe_btn.set_tooltip_text(Some("Show recent messages"));
+    safe_btn.connect_clicked(crate::ui::notify::show_recent);
     let lsp_status_label = Label::new(None);
     lsp_status_label.add_css_class("dim-label");
     lsp_status_label.add_css_class("caption");
@@ -379,7 +388,7 @@ pub(super) fn build_status_bar() -> StatusBar {
     // app is set up, and it needs room for a name, a description and its
     // keys — so it gets the whole left half of the window and the settings
     // queue up out of its way.
-    status_bar.append(&safe_label);
+    status_bar.append(&safe_btn);
     status_bar.append(&lsp_status_label);
     status_bar.append(&left_spacer);
     status_bar.append(&autosave_toggle_btn);
@@ -438,6 +447,7 @@ pub(super) fn build_status_bar() -> StatusBar {
         redo_btn,
         cursor_label,
         safe_label,
+        safe_btn,
         lsp_status_label,
         diag_label,
         diag_btn,

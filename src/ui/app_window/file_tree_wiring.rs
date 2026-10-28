@@ -14,6 +14,7 @@ use super::super::file_tree::FileTree;
 use super::super::preview_pane::PreviewPane;
 use super::compute_include_path;
 use crate::library::Library;
+use crate::ui::notify::Say;
 
 /// What the file-tree wiring needs from `AppWindow::new`.
 pub(super) struct FileTreeCtx {
@@ -281,7 +282,7 @@ pub(super) fn wire_file_tree(ctx: &FileTreeCtx) -> FileTree {
                 let mut pcfg = crate::config::ProjectConfig::load(&root_dir_c).unwrap_or_default();
                 pcfg.root_controls_dismissed = true;
                 let _ = pcfg.save(&root_dir_c);
-                toast_c.add_toast(adw::Toast::new(
+                toast_c.say(adw::Toast::new(
                     "Project controls hidden — click \"project\" to show them again",
                 ));
             });

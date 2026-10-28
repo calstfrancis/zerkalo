@@ -1,4 +1,5 @@
 use super::*;
+use crate::ui::notify::Say;
 
 /// The parts of one list row that selection and hover act on.
 pub(super) struct RowParts {
@@ -605,7 +606,7 @@ impl LibraryWindow {
                      Use ⋯ › Locate File… to point Zerkalo at it.",
                 );
                 toast.set_use_markup(false);
-                self.toast_overlay.add_toast(toast);
+                self.toast_overlay.say(toast);
                 return;
             }
             self.library.borrow_mut().touch_opened(&path).ok();

@@ -21,6 +21,7 @@ use gtk4::{
 use libadwaita as adw;
 
 use crate::recover::{self, Version};
+use crate::ui::notify::Say;
 
 /// What the window can ask the rest of the app to do.
 pub struct RecoverActions {
@@ -464,15 +465,13 @@ fn versions_page(
             };
             match recover::bring_back_as_copy(&file, v.when, &text) {
                 Ok(path) => {
-                    toasts.add_toast(adw::Toast::new(&format!(
+                    toasts.say(adw::Toast::new(&format!(
                         "Made “{}” beside this document and opened it",
                         file_name(&path)
                     )));
                     (actions.open_file)(path);
                 }
-                Err(e) => {
-                    toasts.add_toast(adw::Toast::new(&format!("Couldn't make the copy: {e}")))
-                }
+                Err(e) => toasts.say(adw::Toast::new(&format!("Couldn't make the copy: {e}"))),
             }
         });
     }
@@ -523,7 +522,7 @@ fn versions_page(
                 }
                 crate::ui::snapshot_dialog::save_snapshot(&root, &file, &current);
                 (actions.replace_active_text)(text.clone());
-                toasts.add_toast(adw::Toast::new(
+                toasts.say(adw::Toast::new(
                     "Replaced. Your previous text is kept in Saved Versions, and Ctrl+Z undoes it.",
                 ));
                 btn.set_sensitive(false);
@@ -573,14 +572,14 @@ fn copies_page(
             btn.connect_clicked(move |b| {
                 match recover::bring_back_from_saved_copy(&root, &branch, &rel) {
                     Ok(path) => {
-                        toasts.add_toast(adw::Toast::new(&format!(
+                        toasts.say(adw::Toast::new(&format!(
                             "Made “{}” and opened it",
                             file_name(&path)
                         )));
                         b.set_sensitive(false);
                         (actions.open_file)(path);
                     }
-                    Err(e) => toasts.add_toast(adw::Toast::new(&e)),
+                    Err(e) => toasts.say(adw::Toast::new(&e)),
                 }
             });
             row.add_suffix(&btn);

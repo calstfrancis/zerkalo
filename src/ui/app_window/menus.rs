@@ -35,6 +35,7 @@ use super::{
 };
 use crate::config::Config;
 use crate::git_sync;
+use crate::ui::notify::Say;
 use crate::writing_log::WritingLog;
 
 /// The shared state the menu handlers close over. One value instead of the 30
@@ -711,7 +712,7 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
                         crate::error::io_reason(&e)
                     ));
                     t.set_timeout(6);
-                    toast_c.add_toast(t);
+                    toast_c.say(t);
                 }
             },
         );
@@ -847,7 +848,7 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
             .to_string();
         let t = adw::Toast::new(&format!("Loaded bibliography: {name}"));
         t.set_timeout(4);
-        ctx.toast_overlay.add_toast(t);
+        ctx.toast_overlay.say(t);
     }
 
     // ── Menu: Export for Web ────────────────────────────────────────────
@@ -884,7 +885,7 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
                         Ok(()) => {
                             let t = adw::Toast::new("Exported for web");
                             t.set_timeout(3);
-                            toast_c.add_toast(t);
+                            toast_c.say(t);
                         }
                         Err(e) => {
                             tracing::warn!("Web export failed: {e}");
@@ -893,7 +894,7 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
                                  that folder and that pandoc is installed.",
                             );
                             t.set_timeout(6);
-                            toast_c.add_toast(t);
+                            toast_c.say(t);
                         }
                     }
                 },
@@ -926,7 +927,7 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
                     "Couldn't save your open documents first — nothing was changed",
                 );
                 t.set_timeout(6);
-                toasts.add_toast(t);
+                toasts.say(t);
                 return;
             }
             let root =
@@ -967,7 +968,7 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
                         "Couldn't save your open documents first — nothing was changed",
                     );
                     t.set_timeout(6);
-                    toasts.add_toast(t);
+                    toasts.say(t);
                     return;
                 }
                 let root =
@@ -1003,7 +1004,7 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
                 .join(", ");
             let t = adw::Toast::new(&format!("Sync stopped — couldn't save: {names}"));
             t.set_timeout(6);
-            toast_for_sync_closure.add_toast(t);
+            toast_for_sync_closure.say(t);
             return;
         }
         let root = editor_for_sync

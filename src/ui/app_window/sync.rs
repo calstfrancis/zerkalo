@@ -14,6 +14,7 @@ use libadwaita as adw;
 use super::show_alert;
 use crate::config::Config;
 use crate::git_sync;
+use crate::ui::notify::Say;
 
 /// What the small dot overlaid on the header's sync icon shows: nothing
 /// waiting to back up, work waiting to be backed up, or the last attempt
@@ -127,7 +128,7 @@ pub(super) fn do_pull(
 ) {
     use std::sync::mpsc::TryRecvError;
 
-    overlay.add_toast({
+    overlay.say({
         let t = adw::Toast::new("Getting the latest from GitHub…");
         t.set_timeout(2);
         t
@@ -224,13 +225,13 @@ fn show_pull_result(
         return;
     }
     if result.nothing_online {
-        overlay.add_toast(adw::Toast::new(
+        overlay.say(adw::Toast::new(
             "Nothing has been backed up online from this folder yet",
         ));
         return;
     }
     if result.new_commits == 0 {
-        overlay.add_toast(adw::Toast::new("You already have the latest"));
+        overlay.say(adw::Toast::new("You already have the latest"));
         return;
     }
     let names = {
@@ -254,7 +255,7 @@ fn show_pull_result(
     };
     let t = adw::Toast::new(&format!("Got {what} from GitHub{names}"));
     t.set_timeout(6);
-    overlay.add_toast(t);
+    overlay.say(t);
 }
 
 /// Asks before replacing this computer's copy with the online one — the one
@@ -336,7 +337,7 @@ fn do_force_pull(
                     );
                 }
             } else if result.nothing_online {
-                overlay.add_toast(adw::Toast::new(
+                overlay.say(adw::Toast::new(
                     "Nothing has been backed up online from this folder yet",
                 ));
             } else {
@@ -351,7 +352,7 @@ fn do_force_pull(
                              For example, to get one file back:\n\n    git checkout {name} -- yourfile.typ"
                         ),
                     ),
-                    None => overlay.add_toast(adw::Toast::new(
+                    None => overlay.say(adw::Toast::new(
                         "This computer already matched GitHub — nothing was different",
                     )),
                 }
@@ -434,7 +435,7 @@ pub(super) fn offer_waiting_work(
                 );
             });
             let overlay_c = overlay.clone();
-            super::super::calm::when_calm(&window, move || overlay_c.add_toast(t));
+            super::super::calm::when_calm(&window, move || overlay_c.say(t));
             glib::ControlFlow::Break
         }
         Ok(_) => glib::ControlFlow::Break,
@@ -489,7 +490,7 @@ pub(super) fn auto_sync_quiet(
                              button ({git_sync}).",
                         ));
                         t.set_timeout(12);
-                        overlay.add_toast(t);
+                        overlay.say(t);
                     }
                 }
             } else {
@@ -630,7 +631,7 @@ fn show_sync_result(
                 .next()
                 .unwrap_or("your changes")
                 .to_string();
-            overlay.add_toast(adw::Toast::new(&format!("Backed up — {summary}")));
+            overlay.say(adw::Toast::new(&format!("Backed up — {summary}")));
             show_alert(
                 window,
                 "Some backups didn't go through",
@@ -658,17 +659,17 @@ fn show_sync_result(
             .next()
             .unwrap_or("your changes")
             .to_string();
-        overlay.add_toast(adw::Toast::new(&format!("Backed up — {summary}")));
+        overlay.say(adw::Toast::new(&format!("Backed up — {summary}")));
     } else if result.committed {
         // Committed locally but nothing pushed (e.g. no network) — still
         // waiting to actually reach the backup, so the badge stays lit.
         set_sync_badge(badge, SyncBadge::Pending);
-        overlay.add_toast(adw::Toast::new(
+        overlay.say(adw::Toast::new(
             "Saved a version — not backed up online yet",
         ));
     } else {
         set_sync_badge(badge, SyncBadge::Clear);
-        overlay.add_toast(adw::Toast::new("Nothing new to back up"));
+        overlay.say(adw::Toast::new("Nothing new to back up"));
     }
 }
 

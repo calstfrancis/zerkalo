@@ -1,4 +1,5 @@
 use super::*;
+use crate::ui::notify::Say;
 
 impl LibraryWindow {
     pub(super) fn edit_notes_dialog(&self, doc: &crate::library::Document) {
@@ -156,7 +157,7 @@ impl LibraryWindow {
                 Err(_) => {
                     // Names are unique, ignoring case.
                     let toast = adw::Toast::new("There is already a label with that name.");
-                    this.toast_overlay.add_toast(toast);
+                    this.toast_overlay.say(toast);
                 }
             }
         });
@@ -281,7 +282,7 @@ impl LibraryWindow {
                     tracing::error!("permanently_delete failed: {e}");
                     let toast =
                         adw::Toast::new(&format!("Couldn't delete it — {}.", e.user_message()));
-                    this.toast_overlay.add_toast(toast);
+                    this.toast_overlay.say(toast);
                 }
                 this.refresh();
             }

@@ -25,6 +25,7 @@ pub mod last_working;
 pub mod library_window;
 pub mod lsp_popup;
 pub mod name_prompt;
+pub mod notify;
 pub mod outline_panel;
 pub mod package_browser;
 pub mod preview_pane;

@@ -24,6 +24,7 @@ mod organize;
 mod rows;
 mod sidebar;
 
+use crate::ui::notify::Say;
 use menus::popup_menu_at;
 use rows::RowParts;
 use sidebar::*;
@@ -709,7 +710,7 @@ impl LibraryWindow {
         toast.set_button_label(Some("Undo"));
         toast.set_timeout(6);
         toast.connect_button_clicked(move |_| undo());
-        self.toast_overlay.add_toast(toast);
+        self.toast_overlay.say(toast);
     }
 
     pub fn present(&self) {
@@ -771,7 +772,7 @@ impl LibraryWindow {
             let toast = adw::Toast::new(&text);
             toast.set_use_markup(false);
             toast.set_timeout(15);
-            self.toast_overlay.add_toast(toast);
+            self.toast_overlay.say(toast);
         }
         if !prefs.export || prefs.export_announced {
             return;
@@ -793,7 +794,7 @@ impl LibraryWindow {
         );
         toast.set_use_markup(false);
         toast.set_timeout(12);
-        self.toast_overlay.add_toast(toast);
+        self.toast_overlay.say(toast);
         crate::config::update(|c| c.library.export_announced = true).ok();
     }
 

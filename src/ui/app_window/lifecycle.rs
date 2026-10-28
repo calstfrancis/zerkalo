@@ -16,6 +16,7 @@ use super::super::error_panel::{CompileError, Severity};
 use super::ERROR_GRACE;
 use crate::config::Config;
 use crate::lsp::{DiagSeverity, LspClient};
+use crate::ui::notify::Say;
 
 /// What the startup and lifecycle wiring needs from `AppWindow::new`.
 pub(super) struct LifecycleCtx {
@@ -117,7 +118,7 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
         super::super::calm::when_calm(&ctx.window, move || {
             let t = adw::Toast::new(&msg);
             t.set_timeout(15);
-            toast_for_cfg.add_toast(t);
+            toast_for_cfg.say(t);
         });
     }
 
@@ -146,7 +147,7 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
                     super::super::tools_window::ToolsWindow::new(&window).present();
                 });
                 t.set_timeout(0);
-                toasts.add_toast(t);
+                toasts.say(t);
             });
         }
         if crate::spellcheck::SpellChecker::available_languages().is_empty() {
@@ -298,7 +299,7 @@ pub(super) fn wire_startup(ctx: &LifecycleCtx) {
                              copy of it — the disk may be full.",
                         );
                         t.set_timeout(12);
-                        toast_for_autosave.add_toast(t);
+                        toast_for_autosave.say(t);
                     }
                     *last_edit_for_autosave.borrow_mut() = None;
                 }

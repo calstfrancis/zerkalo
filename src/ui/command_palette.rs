@@ -340,6 +340,11 @@ pub fn default_commands() -> Vec<PaletteItem> {
             subtitle: crate::keybindings::shown("Save this version and send it to every backup location ({git_sync})").into(),
         },
         PaletteItem {
+            id: "recent_messages".into(),
+            label: "Recent Messages".into(),
+            subtitle: "Read again anything Zerkalo said that has gone from the screen".into(),
+        },
+        PaletteItem {
             id: "text_bigger".into(),
             label: "Make Text Bigger".into(),
             subtitle: "Enlarge the writing (Ctrl+=)".into(),

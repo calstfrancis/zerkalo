@@ -51,6 +51,7 @@ mod import;
 pub use import::prune_import_staging;
 mod startup;
 mod sync;
+use crate::ui::notify::Say;
 use dialogs::{show_changelog, show_doc_stats};
 use import::{
     import_folder_via_pandoc, import_via_pandoc, paste_as_document, show_import_history_dialog,
@@ -673,7 +674,7 @@ impl AppWindow {
                     .map(|o| o.status.success())
                     .unwrap_or(false);
                 if !installed {
-                    toast_for_skrizhal.add_toast(adw::Toast::new(
+                    toast_for_skrizhal.say(adw::Toast::new(
                         "Skrizhal isn't installed — see calstfrancis.github.io/flatpak",
                     ));
                     return;
@@ -683,7 +684,7 @@ impl AppWindow {
                     .spawn();
                 if let Err(e) = result {
                     tracing::warn!("Couldn't launch Skrizhal: {e}");
-                    toast_for_skrizhal.add_toast(adw::Toast::new("Couldn't open Skrizhal"));
+                    toast_for_skrizhal.say(adw::Toast::new("Couldn't open Skrizhal"));
                 }
             });
         }
@@ -699,7 +700,7 @@ impl AppWindow {
                     .map(|o| o.status.success())
                     .unwrap_or(false);
                 if !installed {
-                    toast_for_kartoteka.add_toast(adw::Toast::new(
+                    toast_for_kartoteka.say(adw::Toast::new(
                         "Kartoteka isn't installed — see calstfrancis.github.io/flatpak",
                     ));
                     return;
@@ -711,7 +712,7 @@ impl AppWindow {
                     .spawn();
                 if let Err(e) = result {
                     tracing::warn!("Couldn't launch Kartoteka: {e}");
-                    toast_for_kartoteka.add_toast(adw::Toast::new("Couldn't open Kartoteka"));
+                    toast_for_kartoteka.say(adw::Toast::new("Couldn't open Kartoteka"));
                 }
             });
         }
@@ -1518,7 +1519,7 @@ impl AppWindow {
             error_panel.set_on_export_done(move |path| {
                 let t = adw::Toast::new(&format!("Saved for a helper at {path}"));
                 t.set_timeout(4);
-                toast_for_export.add_toast(t);
+                toast_for_export.say(t);
             });
         }
 
@@ -1548,7 +1549,7 @@ impl AppWindow {
                         editor.undo_in(path);
                     }
                 });
-                toasts.add_toast(toast);
+                toasts.say(toast);
             });
         }
 
@@ -1576,7 +1577,7 @@ impl AppWindow {
                     match editor.apply_fix(&mark) {
                         FixOutcome::Fixed => {}
                         FixOutcome::NotApplicable => {
-                            toasts.add_toast(adw::Toast::new(
+                            toasts.say(adw::Toast::new(
                                 "That part of the document has changed, so the fix no longer fits.",
                             ));
                         }
@@ -1586,7 +1587,7 @@ impl AppWindow {
                             let editor = editor.clone();
                             let file = mark.file.clone();
                             toast.connect_button_clicked(move |_| editor.undo_in(&file));
-                            toasts.add_toast(toast);
+                            toasts.say(toast);
                         }
                     }
                 })
@@ -1871,7 +1872,7 @@ impl AppWindow {
                         "That spot isn't in the preview — compile first, or pick text that appears on the page",
                     );
                     t.set_timeout(3);
-                    toast_for_show.add_toast(t);
+                    toast_for_show.say(t);
                 }
             });
         }
@@ -2302,9 +2303,9 @@ impl AppWindow {
                         .unwrap_or_default();
                     let t = adw::Toast::new(&format!("Still couldn't save {name} — {reason}."));
                     t.set_timeout(5);
-                    toasts.add_toast(t);
+                    toasts.say(t);
                 } else {
-                    toasts.add_toast(adw::Toast::new("Saved."));
+                    toasts.say(adw::Toast::new("Saved."));
                 }
             });
 
@@ -2360,7 +2361,7 @@ impl AppWindow {
                     };
                     let t = adw::Toast::new(&text);
                     t.set_timeout(8);
-                    toasts.add_toast(t);
+                    toasts.say(t);
                 });
             });
 
@@ -2453,7 +2454,7 @@ impl AppWindow {
                              Ctrl+Z in a document brings back what was there."
                         ));
                         t.set_timeout(10);
-                        toasts.add_toast(t);
+                        toasts.say(t);
                     } else {
                         // What's on screen now, so "Show it" can tell whether the
                         // person has written since and must not be overwritten.
@@ -2500,10 +2501,10 @@ impl AppWindow {
                             };
                             let t = adw::Toast::new(&msg);
                             t.set_timeout(10);
-                            toasts_c.add_toast(t);
+                            toasts_c.say(t);
                         });
                         *pending.borrow_mut() = Some(t.clone());
-                        toasts.add_toast(t);
+                        toasts.say(t);
                     }
                 }
                 if !skipped.is_empty() {
@@ -2514,7 +2515,7 @@ impl AppWindow {
                         file_list(skipped.iter().collect())
                     ));
                     t.set_timeout(12);
-                    toasts.add_toast(t);
+                    toasts.say(t);
                 }
                 glib::ControlFlow::Continue
             });
@@ -2620,7 +2621,7 @@ impl AppWindow {
                     "That's the tour — press {help_overlay} anytime to see what a button does, or replay it from Help & About.",
                 ));
                 t.set_timeout(8);
-                toast_for_tour.add_toast(t);
+                toast_for_tour.say(t);
             });
         }
         {
@@ -2779,6 +2780,7 @@ impl AppWindow {
                         "git_sync" => sync_btn_for_pal.emit_clicked(),
                         "get_latest" => targets_for_pal.get_latest.emit_clicked(),
                         "recover" => targets_for_pal.recover.emit_clicked(),
+                        "recent_messages" => editor_for_pal.show_recent_messages(),
                         "text_bigger" | "text_smaller" | "text_reset" => {
                             let size = {
                                 let mut cfg = config_for_pal.borrow_mut();
@@ -2984,9 +2986,10 @@ impl AppWindow {
                             let _ = cfg.save();
                         }
                         editor_for_zoom.apply_font_size(size);
-                        let t = adw::Toast::new(&format!("Text size {size}"));
-                        t.set_timeout(1);
-                        toast_for_zoom.add_toast(t);
+                        crate::ui::notify::say_briefly(
+                            &toast_for_zoom,
+                            &format!("Text size {size}"),
+                        );
                         return glib::Propagation::Stop;
                     }
                 }
@@ -3142,7 +3145,7 @@ impl AppWindow {
                         let t =
                             adw::Toast::new(&format!("Export stopped — couldn't save: {names}"));
                         t.set_timeout(6);
-                        toast_for_key.add_toast(t);
+                        toast_for_key.say(t);
                         return glib::Propagation::Stop;
                     }
                     // Same inputs the preview compiles with — assembling them
@@ -3174,7 +3177,7 @@ impl AppWindow {
                         );
                         let t = adw::Toast::new("Exporting PDF…");
                         t.set_timeout(2);
-                        toast_for_key.add_toast(t);
+                        toast_for_key.say(t);
                         // Pereplyot detection (flatpak-spawn) shells out, so it
                         // rides along in the same background thread as the
                         // compile+write rather than blocking the main thread.
@@ -3225,7 +3228,7 @@ impl AppWindow {
                                     dest.file_name().and_then(|n| n.to_str()).unwrap_or("PDF")
                                 ));
                                 t.set_timeout(4);
-                                toast_ref.add_toast(t);
+                                toast_ref.say(t);
                                 if open_after {
                                     super::export_dialog::open_exported(
                                         &window_ref,
@@ -3237,7 +3240,7 @@ impl AppWindow {
                             move |e| {
                                 let t = adw::Toast::new(&e);
                                 t.set_timeout(6);
-                                toast_ref_err.add_toast(t);
+                                toast_ref_err.say(t);
                             },
                         );
                     }
@@ -4458,7 +4461,7 @@ fn apply_doc_font_edit(
         return false;
     };
     let Some(updated) = edited else {
-        toast_overlay.add_toast(adw::Toast::new(
+        toast_overlay.say(adw::Toast::new(
             "This document has no Zerkalo template block — nothing to change. \
              Use Change Document Style… to give it one.",
         ));
@@ -4467,7 +4470,7 @@ fn apply_doc_font_edit(
 
     if let Err(e) = super::template_dialog::write_atomically(&path, &updated) {
         tracing::error!("Failed to write document font change: {e}");
-        toast_overlay.add_toast(adw::Toast::new(&format!(
+        toast_overlay.say(adw::Toast::new(&format!(
             "Couldn't save the change — {}.",
             crate::error::io_reason(&e)
         )));
@@ -4516,7 +4519,7 @@ fn apply_template_result(
             // dialog and leave the document untouched with no explanation,
             // reading as a dead Apply button.
             if outcome == SpliceOutcome::RefusedIncompatible {
-                toast_overlay.add_toast(adw::Toast::new(
+                toast_overlay.say(adw::Toast::new(
                     "Settings not applied — these settings don't match this document's body.",
                 ));
                 return;
@@ -4544,7 +4547,7 @@ fn apply_template_result(
                     }
                     Err(e) => {
                         tracing::error!("Failed to back up before template apply: {e}");
-                        toast_overlay.add_toast(adw::Toast::new(&format!(
+                        toast_overlay.say(adw::Toast::new(&format!(
                             "Settings not applied — couldn't back up the document first: {e}"
                         )));
                         return;
@@ -4554,7 +4557,7 @@ fn apply_template_result(
 
             if let Err(e) = super::template_dialog::write_atomically(&path, &updated) {
                 tracing::error!("Failed to write updated template: {e}");
-                toast_overlay.add_toast(adw::Toast::new(&format!(
+                toast_overlay.say(adw::Toast::new(&format!(
                     "Couldn't save the updated document: {e}"
                 )));
                 return;
@@ -4564,14 +4567,14 @@ fn apply_template_result(
             editor.refresh_active_document();
 
             match outcome {
-                SpliceOutcome::BodyAdopted => toast_overlay.add_toast(adw::Toast::new(&format!(
+                SpliceOutcome::BodyAdopted => toast_overlay.say(adw::Toast::new(&format!(
                     "This document had no template yet, so your writing became the body.{backup_note}"
                 ))),
-                SpliceOutcome::BodyRegenerated => toast_overlay.add_toast(adw::Toast::new(
+                SpliceOutcome::BodyRegenerated => toast_overlay.say(adw::Toast::new(
                     &format!("Layout changed, so the CV body was rebuilt.{backup_note}"),
                 )),
                 SpliceOutcome::WholeDocumentReplaced => toast_overlay
-                    .add_toast(adw::Toast::new(&format!("Document replaced.{backup_note}"))),
+                    .say(adw::Toast::new(&format!("Document replaced.{backup_note}"))),
                 _ => {}
             }
         }
@@ -4622,12 +4625,12 @@ fn print_from_preview(
             .join(", ");
         let t = adw::Toast::new(&format!("Print stopped — couldn't save: {names}"));
         t.set_timeout(6);
-        toast_overlay.add_toast(t);
+        toast_overlay.say(t);
         return;
     }
 
     let Some(request) = crate::ui::print_sheet::request_for(preview) else {
-        toast_overlay.add_toast(adw::Toast::new("Zerkalo isn't sure which file is your document. Mark one with the star (★) in the file list, then try again."));
+        toast_overlay.say(adw::Toast::new("Zerkalo isn't sure which file is your document. Mark one with the star (★) in the file list, then try again."));
         return;
     };
 
@@ -4653,13 +4656,13 @@ fn print_from_preview(
             if errors.is_empty() {
                 let t = adw::Toast::new(&format!("Couldn't print: {msg}"));
                 t.set_timeout(5);
-                toast_for_errors.add_toast(t);
+                toast_for_errors.say(t);
             } else {
                 panel.show_compile_errors(errors);
                 panel.widget().set_visible(true);
                 let t = adw::Toast::new("Couldn't print — see the error panel.");
                 t.set_timeout(4);
-                toast_for_errors.add_toast(t);
+                toast_for_errors.say(t);
             }
         },
         move |status| {
@@ -4668,13 +4671,13 @@ fn print_from_preview(
                 PrintStatus::Failed(msg) => {
                     let t = adw::Toast::new(&format!("Couldn't print: {msg}"));
                     t.set_timeout(5);
-                    toast_for_status.add_toast(t);
+                    toast_for_status.say(t);
                 }
                 PrintStatus::Cancelled => {}
                 PrintStatus::Sent => {
                     let t = adw::Toast::new("Sent to printer");
                     t.set_timeout(3);
-                    toast_for_status.add_toast(t);
+                    toast_for_status.say(t);
                 }
             }
         },
