@@ -265,9 +265,9 @@ impl SnapshotDialog {
             let row = ListBoxRow::new();
             row.set_activatable(false);
             row.set_selectable(false);
-            let lbl = Label::new(Some(
-                "No snapshots yet.\nSnapshots are saved automatically on Ctrl+S.",
-            ));
+            let lbl = Label::new(Some(crate::keybindings::shown(
+                "No saved versions yet.\nA version is kept each time you press {save}.",
+            )));
             lbl.add_css_class("dim-label");
             lbl.set_justify(gtk4::Justification::Center);
             lbl.set_margin_top(16);

@@ -17,7 +17,10 @@ pub struct SearchPanel {
     results: ListBox,
     work_dir: Rc<RefCell<PathBuf>>,
     on_result: Rc<RefCell<Option<Box<dyn Fn(PathBuf, u32)>>>>,
-    on_replace_done: Rc<RefCell<Option<Box<dyn Fn(PathBuf)>>>>,
+    /// The open documents' current text. Replace All changes those in the
+    /// editor (one undo step each, unsaved typing kept) instead of on disk.
+    open_documents: Rc<RefCell<Option<Box<dyn Fn() -> Vec<(PathBuf, String)>>>>>,
+    on_replace_open: Rc<RefCell<Option<Box<dyn Fn(PathBuf, String)>>>>,
     on_search: Rc<RefCell<Option<Box<dyn Fn(String)>>>>,
     recent_searches: Rc<RefCell<Vec<String>>>,
     recent_popover_box: GtkBox,
@@ -115,7 +118,8 @@ impl SearchPanel {
             results: results.clone(),
             work_dir: Rc::new(RefCell::new(work_dir)),
             on_result: Rc::new(RefCell::new(None)),
-            on_replace_done: Rc::new(RefCell::new(None)),
+            open_documents: Rc::new(RefCell::new(None)),
+            on_replace_open: Rc::new(RefCell::new(None)),
             on_search: Rc::new(RefCell::new(None)),
             recent_searches: Rc::new(RefCell::new(Vec::new())),
             recent_popover_box: recent_popover_box.clone(),
@@ -162,6 +166,30 @@ impl SearchPanel {
             *p_rep.search_gen.borrow_mut() += 1;
             let my_gen = *p_rep.search_gen.borrow();
 
+            let open: Vec<(PathBuf, String)> = p_rep
+                .open_documents
+                .borrow()
+                .as_ref()
+                .map(|f| f())
+                .unwrap_or_default();
+            let open_paths: std::collections::HashSet<PathBuf> =
+                open.iter().map(|(p, _)| p.clone()).collect();
+            let mut open_changed = 0usize;
+            if let Ok(re) = regex::RegexBuilder::new(&regex::escape(&query))
+                .case_insensitive(true)
+                .build()
+            {
+                for (path, text) in &open {
+                    let new_text = re.replace_all(text, regex::NoExpand(replacement.as_str()));
+                    if new_text != *text {
+                        open_changed += 1;
+                        if let Some(f) = p_rep.on_replace_open.borrow().as_ref() {
+                            f(path.clone(), new_text.into_owned());
+                        }
+                    }
+                }
+            }
+
             let (tx, rx) = std::sync::mpsc::sync_channel(1);
             let query_thread = query.clone();
             std::thread::spawn(move || {
@@ -184,14 +212,14 @@ impl SearchPanel {
                     return;
                 };
                 let mut written: Vec<PathBuf> = Vec::new();
-                for file in &files_changed {
+                for file in files_changed.iter().filter(|f| !open_paths.contains(*f)) {
                     let Ok(content) = std::fs::read_to_string(file) else {
                         continue;
                     };
                     let new_content =
                         re.replace_all(&content, regex::NoExpand(replacement.as_str()));
                     if new_content != content
-                        && std::fs::write(file, new_content.as_bytes()).is_ok()
+                        && crate::error::atomic_write(file, new_content.as_bytes()).is_ok()
                     {
                         written.push(file.clone());
                     }
@@ -203,14 +231,15 @@ impl SearchPanel {
             glib::timeout_add_local(std::time::Duration::from_millis(50), move || {
                 match rx.try_recv() {
                     Ok(written) => {
-                        for file in &written {
-                            if let Some(f) = p_rep.on_replace_done.borrow().as_ref() {
-                                f(file.clone());
-                            }
-                        }
-                        p_rep
-                            .count_lbl
-                            .set_text(&format!("Replaced in {} files", written.len()));
+                        let n = written.len() + open_changed;
+                        p_rep.count_lbl.set_text(&if open_changed > 0 {
+                            format!(
+                                "Replaced in {n} {} — Ctrl+Z undoes it in an open document",
+                                if n == 1 { "file" } else { "files" }
+                            )
+                        } else {
+                            format!("Replaced in {n} {}", if n == 1 { "file" } else { "files" })
+                        });
                         // Only refresh results if no newer search/replace superseded
                         // this one in the meantime — otherwise this stale query would
                         // clobber whatever the newer operation already rendered.
@@ -255,8 +284,12 @@ impl SearchPanel {
         *self.on_result.borrow_mut() = Some(Box::new(f));
     }
 
-    pub fn set_on_replace_done(&self, f: impl Fn(PathBuf) + 'static) {
-        *self.on_replace_done.borrow_mut() = Some(Box::new(f));
+    pub fn set_open_documents(&self, f: impl Fn() -> Vec<(PathBuf, String)> + 'static) {
+        *self.open_documents.borrow_mut() = Some(Box::new(f));
+    }
+
+    pub fn set_on_replace_open(&self, f: impl Fn(PathBuf, String) + 'static) {
+        *self.on_replace_open.borrow_mut() = Some(Box::new(f));
     }
 
     pub fn set_on_search(&self, f: impl Fn(String) + 'static) {

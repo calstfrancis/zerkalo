@@ -733,9 +733,9 @@ fn hint_pill() -> GtkBox {
     b.add_css_class("help-hint");
     b.set_halign(Align::Start);
     b.set_valign(Align::Start);
-    let lbl = Label::new(Some(
-        "What things do — press F1, Esc, or click anywhere to close",
-    ));
+    let lbl = Label::new(Some(crate::keybindings::shown(
+        "What things do — press {help_overlay}, Esc, or click anywhere to close",
+    )));
     b.append(&lbl);
     b
 }
@@ -802,7 +802,7 @@ pub fn annotate_window(overlay: &HelpOverlay, t: &AnnotationTargets) {
         t.sync_btn,
         "mail-send-receive-symbolic",
         "Save & Back Up",
-        "Saves everything and sends it to your backup, so it survives losing this computer. Ctrl+Shift+S — plain Ctrl+S saves to disk without backing up.",
+        crate::keybindings::shown("Saves everything and sends it to your backup, so it survives losing this computer. {git_sync} — plain {save} saves to disk without backing up."),
     );
     overlay.annotate_with_icon(
         // The actual "Compile now" icon button — not the local `compile_btn`

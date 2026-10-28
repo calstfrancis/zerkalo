@@ -152,7 +152,7 @@ impl WelcomeWindow {
             body.append(&section_label("Getting Started"));
             for item in [
                 "Open or create a .typ file from the title-bar dropdown",
-                "Press Ctrl+S to save — the preview on the right updates immediately",
+                crate::keybindings::shown("Press {save} to save — the preview on the right updates straight away"),
                 "Use the formatting bar above the editor for Bold, Italic, and Headings",
                 "Use Change Document Style, under Document Tools in the ≡ menu, to change title, author, and style",
                 "The Outline panel on the left shows your document structure — click to navigate",
@@ -166,8 +166,8 @@ impl WelcomeWindow {
                 "Type @ to insert a citation, once you've added a bibliography from the Citations panel",
                 "Type # to see suggestions for tables, figures, and other building blocks",
                 "Zerkalo hides the technical setup lines at the top of the file — change them from Change Document Style (≡ → Document Tools), not by scrolling up",
-                "Click the Template button in the header, beside Library, if you ever want to see that setup section directly",
-                "Forgot what a button does? Press F1 to label everything on screen, or replay this walkthrough anytime from ≡ → Help & About → Take the Tour",
+                "Click \"show template\" in the status bar at the bottom if you ever want to see that setup section directly",
+                crate::keybindings::shown("Forgot what a button does? Press {help_overlay} to label everything on screen, or replay this walkthrough anytime from ≡ → Help & About → Take the Tour"),
             ] {
                 body.append(&bullet_row(item));
             }
@@ -204,13 +204,19 @@ impl WelcomeWindow {
         body.append(&Separator::new(Orientation::Horizontal));
         body.append(&section_label("Keyboard Shortcuts"));
         for (key, desc) in [
-            ("Ctrl+S", "Save and snapshot"),
-            ("Ctrl+Shift+P", "Compile and preview"),
-            ("Ctrl+K", "Command palette"),
-            ("Ctrl+F", "Find in document"),
+            (
+                crate::keybindings::shown("{save}"),
+                "Save and keep a version",
+            ),
+            (crate::keybindings::shown("{compile}"), "Update the preview"),
+            (crate::keybindings::shown("{palette}"), "Command palette"),
+            (crate::keybindings::shown("{find}"), "Find in document"),
             ("Ctrl+= / Ctrl+-", "Bigger / smaller text (Ctrl+0 resets)"),
-            ("Ctrl+Tab", "Next open file"),
-            ("Ctrl+Shift+S", "Save a version & back up"),
+            (crate::keybindings::shown("{next_tab}"), "Next open file"),
+            (
+                crate::keybindings::shown("{git_sync}"),
+                "Save a version and back up",
+            ),
         ] {
             body.append(&shortcut_row(key, desc));
         }

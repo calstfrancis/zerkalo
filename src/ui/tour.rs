@@ -359,7 +359,7 @@ pub fn tour_steps(t: &AnnotationTargets) -> Vec<TourStep> {
         step(
             t.compile_mode_slot,
             "Auto or manual",
-            "Auto redraws the preview as you type; Manual waits for you to ask (Save, this button, or Ctrl+Shift+P). Manual is the default — click to switch.",
+            crate::keybindings::shown("Auto redraws the preview as you type; Manual waits for you to ask (Save, the ⟳ button, or {compile}). Manual is the default — click to switch."),
         ),
         step(
             t.sync_btn,
@@ -369,7 +369,7 @@ pub fn tour_steps(t: &AnnotationTargets) -> Vec<TourStep> {
         step(
             t.menu_btn,
             "That's the essentials",
-            "Everything else — import, export, print, settings — lives in this menu. Forgot what a button does later? Press F1 anytime to label the whole window, or come back to Help & About → Take the Tour.",
+            crate::keybindings::shown("Everything else — import, export, print, settings — lives in this menu. Forgot what a button does later? Press {help_overlay} anytime to label the whole window, or come back to Help & About → Take the Tour."),
         ),
     ]
 }

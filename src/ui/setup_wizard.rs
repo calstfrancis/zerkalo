@@ -72,6 +72,13 @@ impl SetupWizard {
         nav.add(&confirm_page(&window, &nav, &state, &work_dir));
 
         window.set_content(Some(&nav));
+        // Closing the window is an answer too. Before, only the buttons
+        // recorded one, so closing with × or Escape brought the wizard back on
+        // every launch.
+        window.connect_close_request(|_| {
+            SetupWizard::mark_done();
+            gtk4::glib::Propagation::Proceed
+        });
 
         Self { window }
     }
@@ -221,7 +228,7 @@ fn welcome_page(window: &adw::Window, nav: &adw::NavigationView) -> adw::Navigat
         content.append(&row);
     }
 
-    let not_now = quiet("Not now");
+    let not_now = quiet("Don't ask again — the backup button sets this up any time");
     {
         let window = window.clone();
         not_now.connect_clicked(move |_| {
@@ -354,7 +361,7 @@ fn connect_page(
 
     let _ = work_dir;
 
-    let skip = quiet("Skip — don't back up my work");
+    let skip = quiet("Don't back up for now — the backup button sets this up any time");
     {
         let window = window.clone();
         skip.connect_clicked(move |_| {
@@ -716,10 +723,10 @@ fn done_page(nav: &adw::NavigationView, summary: &str) -> adw::NavigationPage {
     lbl.set_selectable(true);
     content.append(&lbl);
 
-    let hint = Label::new(Some(
-        "From now on, press Ctrl+Shift+S whenever you want to save a version and send it up. \
+    let hint = Label::new(Some(crate::keybindings::shown(
+        "From now on, press {git_sync} whenever you want to save a version and send it up. \
          Zerkalo will tell you when it has.",
-    ));
+    )));
     hint.set_xalign(0.0);
     hint.set_wrap(true);
     hint.add_css_class("dim-label");

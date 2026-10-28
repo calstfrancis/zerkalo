@@ -93,7 +93,6 @@ pub struct AppWindow {
     writing_log: Rc<RefCell<WritingLog>>,
     file_start_words: FileStartWords,
     session_start: Rc<RefCell<std::time::Instant>>,
-    auto_compile: Rc<RefCell<bool>>,
     // Must stay alive for the life of the window or file-change notifications stop —
     // `notify::RecommendedWatcher` stops watching when dropped. Never read via `self.file_watcher`
     // because nothing needs to; it's held purely for this Drop-timing side effect, not because the
@@ -101,6 +100,8 @@ pub struct AppWindow {
     #[allow(dead_code)]
     file_watcher: Option<notify::RecommendedWatcher>,
     compile_btn: Button,
+    /// The ⟳ "update preview" button — what the compile shortcut presses.
+    refresh_btn: Button,
     library: Rc<RefCell<Library>>,
     library_window: LibraryWindow,
     menu_import_item: Button,
@@ -2043,11 +2044,18 @@ impl AppWindow {
             });
         }
 
-        // Compile button wiring
+        // Refresh button wiring. Ctrl+Shift+P runs this too: it brings a
+        // hidden preview back and updates it, and never hides it.
         {
             let pv = preview_pane.clone();
             let editor_for_compile = editor_pane.clone();
+            let preview_outer_c = preview_outer.clone();
+            let preview_toggle = compile_btn.clone();
             recompile_header_btn.connect_clicked(move |_| {
+                if !preview_outer_c.is_visible() {
+                    preview_toggle.emit_clicked();
+                    return;
+                }
                 autosave_now(&editor_for_compile);
                 if let Some(path) = editor_for_compile.get_active_path() {
                     if let Some(content) = editor_for_compile.get_active_content() {
@@ -2370,18 +2378,13 @@ impl AppWindow {
             });
         }
         {
-            // Reload file in editor when replace_all modifies it
+            // Replace All changes open documents in the editor, as one undo
+            // step each, so unsaved typing and Ctrl+Z both survive it. Files
+            // that aren't open are written on disk.
             let ep = editor_pane.clone();
-            let toast_for_reload = toast_overlay.clone();
-            search_panel.set_on_replace_done(move |path| {
-                if ep.state_has_file(&path) {
-                    if let Ok(content) = std::fs::read_to_string(&path) {
-                        ep.reload_file(path, &content);
-                        toast_for_reload
-                            .add_toast(adw::Toast::new("File reloaded — undo history cleared"));
-                    }
-                }
-            });
+            search_panel.set_open_documents(move || ep.all_tab_texts());
+            let ep = editor_pane.clone();
+            search_panel.set_on_replace_open(move |path, text| ep.set_content(&path, &text));
         }
         {
             // After anything that may have brought files down from GitHub (the sync
@@ -2540,9 +2543,9 @@ impl AppWindow {
         {
             let toast_for_tour = toast_overlay.clone();
             tour.set_on_finished(move || {
-                let t = adw::Toast::new(
-                    "That's the tour — press F1 anytime to see what a button does, or replay it from Help & About.",
-                );
+                let t = adw::Toast::new(crate::keybindings::shown(
+                    "That's the tour — press {help_overlay} anytime to see what a button does, or replay it from Help & About.",
+                ));
                 t.set_timeout(8);
                 toast_for_tour.add_toast(t);
             });
@@ -2614,9 +2617,9 @@ impl AppWindow {
             writing_log,
             file_start_words,
             session_start,
-            auto_compile,
             file_watcher,
             compile_btn,
+            refresh_btn: recompile_header_btn,
             library,
             library_window,
             menu_actions: PaletteTargets {
@@ -2646,12 +2649,11 @@ impl AppWindow {
         let search = self.search_panel.clone();
         let file_tree = self.file_tree.clone();
         let outline_panel_f6 = self.outline_panel.clone();
-        let kb_auto_compile = self.auto_compile.clone();
         let snapshot_root = self.project_root.clone();
         let toast_for_key = self.toast_overlay.clone();
         let config_for_print_key = self.config.clone();
         let config_for_quick_export = self.config.clone();
-        let compile_btn_for_key = self.compile_btn.clone();
+        let compile_btn_for_key = self.refresh_btn.clone();
         let library_window_for_key = self.library_window.clone();
         let library_for_key = self.library.clone();
         let controller = gtk4::EventControllerKey::new();
@@ -2849,20 +2851,8 @@ impl AppWindow {
             }
 
             if matches_binding(&kb.save, ctrl, shift, alt, key) {
-                if let Some(path) = editor.get_active_path() {
-                    if let Some(content) = editor.get_active_content() {
-                        if std::fs::write(&path, &content).is_ok() {
-                            editor.mark_saved(&path);
-                            crate::auto_save::clear(&path);
-                            library_for_key.borrow_mut().touch_saved(&path).ok();
-                            save_snapshot(&snapshot_root, &path, &content);
-                            if *kb_auto_compile.borrow() {
-                                preview.set_buffer_snapshot(path.clone(), content);
-                                preview.set_root_file(path);
-                                preview.trigger_compile();
-                            }
-                        }
-                    }
+                if let Some(path) = menus::save_active(&editor, &preview, &snapshot_root) {
+                    library_for_key.borrow_mut().touch_saved(&path).ok();
                 }
                 return glib::Propagation::Stop;
             }

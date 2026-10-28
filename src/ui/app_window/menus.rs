@@ -74,6 +74,35 @@ pub(super) struct MenuCtx {
     pub(super) get_latest_btn: Button,
 }
 
+/// Saves the open document the one way Ctrl+S and ☰ → Save share: an atomic
+/// write whose failure reaches the save-problem bar, a saved version, and a
+/// preview update in both Auto and Manual mode.
+pub(super) fn save_active(
+    editor: &EditorPane,
+    preview: &PreviewPane,
+    root: &std::path::Path,
+) -> Option<std::path::PathBuf> {
+    match editor.save_current() {
+        Ok(Some(path)) => {
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                save_snapshot(root, &path, &content);
+                // The debounced on-change compile is deliberately suppressed
+                // in Manual mode, so the preview's buffer snapshot can be stale
+                // from whenever this tab was last switched to.
+                preview.set_buffer_snapshot(path.clone(), content);
+            }
+            preview.set_root_file(path.clone());
+            preview.trigger_compile();
+            Some(path)
+        }
+        Ok(None) => None,
+        Err(e) => {
+            tracing::warn!("Save failed: {e}");
+            None
+        }
+    }
+}
+
 /// Application-level rows: Settings, Help, Setup, Backup Remotes, About,
 /// Writing Stats, Export, Print, Font Management.
 pub(super) fn wire_app_menus(ctx: &MenuCtx, menus: &Menus) {
@@ -625,24 +654,11 @@ pub(super) fn wire_document_menus(ctx: &MenuCtx, menus: &Menus) {
     let root_for_menu_save = ctx.project_root.clone();
     menus.menu_save_item.connect_clicked(move |_| {
         menu_popover_for_save.popdown();
-        match editor_for_menu_save.save_current() {
-            Ok(Some(path)) => {
-                if let Ok(content) = std::fs::read_to_string(&path) {
-                    save_snapshot(&root_for_menu_save, &path, &content);
-                    // The debounced on-change compile is deliberately suppressed
-                    // in Manual mode (see mod.rs's on_change wiring), so the
-                    // preview's buffer_snapshot override can be stale from
-                    // whenever this tab was last switched to. Refresh it here
-                    // or Save silently recompiles old content.
-                    preview_for_menu_save.set_buffer_snapshot(path.clone(), content);
-                }
-                preview_for_menu_save.trigger_compile();
-            }
-            Ok(None) => {}
-            Err(e) => {
-                tracing::warn!("Save failed: {e}");
-            }
-        }
+        save_active(
+            &editor_for_menu_save,
+            &preview_for_menu_save,
+            &root_for_menu_save,
+        );
     });
 
     // ── Menu: Save As ───────────────────────────────────────────────────

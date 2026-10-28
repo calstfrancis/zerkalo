@@ -307,7 +307,7 @@ pub fn default_commands() -> Vec<PaletteItem> {
         PaletteItem {
             id: "save".into(),
             label: "Save".into(),
-            subtitle: "Save the active document (Ctrl+S)".into(),
+            subtitle: crate::keybindings::shown("Save the open document ({save})").into(),
         },
         PaletteItem {
             id: "export".into(),
@@ -322,7 +322,7 @@ pub fn default_commands() -> Vec<PaletteItem> {
         PaletteItem {
             id: "toggle_find".into(),
             label: "Find & Replace".into(),
-            subtitle: "Toggle the find/replace bar (Ctrl+F)".into(),
+            subtitle: crate::keybindings::shown("Show or hide the find and replace bar ({find})").into(),
         },
         PaletteItem {
             id: "find_in_files".into(),
@@ -337,7 +337,7 @@ pub fn default_commands() -> Vec<PaletteItem> {
         PaletteItem {
             id: "git_sync".into(),
             label: "Save a Version & Back It Up".into(),
-            subtitle: "Save this version and send it to all backup locations (Ctrl+Shift+S)".into(),
+            subtitle: crate::keybindings::shown("Save this version and send it to every backup location ({git_sync})").into(),
         },
         PaletteItem {
             id: "text_bigger".into(),

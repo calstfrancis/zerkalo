@@ -147,13 +147,16 @@ pub(super) fn build_header() -> HeaderWidgets {
     preview_label.set_use_markup(true);
     let compile_btn = Button::new();
     compile_btn.set_child(Some(&preview_label));
-    compile_btn.set_tooltip_text(Some("Toggle Preview (Ctrl+Shift+P)"));
+    compile_btn.set_tooltip_text(Some("Show or hide the preview"));
     compile_btn.add_css_class("flat");
 
     let recompile_header_btn = Button::from_icon_name("view-refresh-symbolic");
-    recompile_header_btn.set_tooltip_text(Some("Compile now (Ctrl+Shift+P)"));
+    recompile_header_btn.set_tooltip_text(Some(crate::keybindings::shown(
+        "Update the preview ({compile})",
+    )));
     recompile_header_btn.add_css_class("flat");
-    recompile_header_btn.update_property(&[gtk4::accessible::Property::Label("Compile now")]);
+    recompile_header_btn
+        .update_property(&[gtk4::accessible::Property::Label("Update the preview")]);
 
     // A plain icon button gives no sign that there's anything waiting to be
     // backed up, so a small dot is overlaid on the icon and toggled between
@@ -177,7 +180,9 @@ pub(super) fn build_header() -> HeaderWidgets {
 
     let sync_btn = Button::new();
     sync_btn.set_child(Some(&sync_overlay));
-    sync_btn.set_tooltip_text(Some("Save a Version & Back It Up (Ctrl+Shift+S)"));
+    sync_btn.set_tooltip_text(Some(crate::keybindings::shown(
+        "Save a version and back it up ({git_sync})",
+    )));
     sync_btn.add_css_class("flat");
     sync_btn.update_property(&[gtk4::accessible::Property::Label(
         "Save a version and back it up",

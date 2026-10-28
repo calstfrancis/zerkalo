@@ -24,7 +24,7 @@ settings-compile-delay-subtitle = How long Zerkalo waits after you stop typing, 
 settings-compile-mode-auto = By itself
 settings-compile-mode-manual = When I ask
 settings-compile-trigger-title = When the preview updates
-settings-compile-trigger-subtitle = By itself: a moment after you pause · When I ask: when you save, press the preview button, or use Ctrl+Shift+P
+settings-compile-trigger-subtitle = By itself: a moment after you pause · When I ask: when you save or press the ⟳ button above the editor
 
 ## Appearance
 

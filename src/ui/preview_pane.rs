@@ -192,7 +192,9 @@ impl PreviewPane {
         stack.set_vexpand(true);
 
         // ── empty page ────────────────────────────────────────────────────────
-        let empty_lbl = Label::new(Some("No preview\nCtrl+Shift+P to compile"));
+        let empty_lbl = Label::new(Some(crate::keybindings::shown(
+            "No preview yet\n{compile} updates it",
+        )));
         empty_lbl.add_css_class("dim-label");
         empty_lbl.set_justify(gtk4::Justification::Center);
         stack.add_named(&empty_lbl, Some("empty"));

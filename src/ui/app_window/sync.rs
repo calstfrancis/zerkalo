@@ -479,9 +479,9 @@ pub(super) fn auto_sync_quiet(
             }
             if let Some(overlay) = &overlay {
                 if failed {
-                    let t = adw::Toast::new(
-                        "Backup didn't go through — try the Back Up button again (Ctrl+Shift+S).",
-                    );
+                    let t = adw::Toast::new(crate::keybindings::shown(
+                        "Backup didn't go through — try the backup button again ({git_sync}).",
+                    ));
                     t.set_timeout(6);
                     overlay.add_toast(t);
                 } else if result.pushed {

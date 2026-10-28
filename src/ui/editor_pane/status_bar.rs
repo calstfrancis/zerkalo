@@ -95,7 +95,7 @@ pub(super) fn build_status_bar() -> StatusBar {
     search_btn.set_child(Some(&search_label));
     search_btn.add_css_class("flat");
     search_btn.add_css_class("status-toggle");
-    search_btn.set_tooltip_text(Some("Find & Replace (Ctrl+F)"));
+    search_btn.set_tooltip_text(Some(crate::keybindings::shown("Find and replace ({find})")));
     search_btn.set_margin_start(4);
     search_btn.set_margin_end(4);
     let focus_label = Label::new(Some("focus"));

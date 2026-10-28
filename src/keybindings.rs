@@ -165,6 +165,50 @@ pub fn display_binding(binding: &str) -> String {
         .join("+")
 }
 
+/// Fills `{save}`, `{compile}`, `{find}`, `{quit}`, `{next_tab}`, `{prev_tab}`,
+/// `{add_reference}`, `{git_sync}`, `{palette}`, `{shortcuts_help}` and
+/// `{help_overlay}` in `text` with the keys actually bound to them, so a label
+/// never names a key that no longer does what it says. Bindings are read once
+/// per run — they only take effect at start-up anyway — and each distinct text
+/// is filled once, which is why it can hand back a `&'static str`.
+pub fn shown(text: &'static str) -> &'static str {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    static KB: OnceLock<Keybindings> = OnceLock::new();
+    static FILLED: OnceLock<Mutex<HashMap<&'static str, &'static str>>> = OnceLock::new();
+    if !text.contains('{') {
+        return text;
+    }
+    let filled = FILLED.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut filled = filled.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(done) = filled.get(text) {
+        return done;
+    }
+    let out: &'static str =
+        Box::leak(fill(text, KB.get_or_init(Keybindings::load)).into_boxed_str());
+    filled.insert(text, out);
+    out
+}
+
+fn fill(text: &str, kb: &Keybindings) -> String {
+    let d = display_binding;
+    [
+        ("{save}", d(&kb.save)),
+        ("{compile}", d(&kb.compile)),
+        ("{find}", d(&kb.find)),
+        ("{quit}", d(&kb.quit)),
+        ("{next_tab}", d(&kb.next_tab)),
+        ("{prev_tab}", d(&kb.prev_tab)),
+        ("{add_reference}", d(&kb.add_reference)),
+        ("{git_sync}", d(&kb.git_sync)),
+        ("{palette}", d(&kb.command_palette)),
+        ("{shortcuts_help}", d(&kb.shortcuts_help)),
+        ("{help_overlay}", d(&kb.help_overlay)),
+    ]
+    .iter()
+    .fold(text.to_string(), |acc, (k, v)| acc.replace(k, v))
+}
+
 /// Check if a pressed key matches a keybinding string.
 pub fn matches_binding(
     binding: &str,
@@ -308,5 +352,85 @@ mod tests {
         // Fields absent from the TOML fall back to their serde defaults.
         assert_eq!(kb.quit, "ctrl+q");
         assert_eq!(kb.command_palette, "ctrl+k");
+    }
+
+    #[test]
+    fn shown_fills_each_placeholder_with_the_bound_key() {
+        let kb = Keybindings {
+            git_sync: "ctrl+alt+b".into(),
+            ..Keybindings::default()
+        };
+        assert_eq!(
+            fill(
+                "{save} saves, {git_sync} backs up, {help_overlay} labels",
+                &kb
+            ),
+            "Ctrl+S saves, Ctrl+Alt+B backs up, F1 labels"
+        );
+    }
+
+    /// Every key that can be rebound must reach the screen through `shown` (or
+    /// `display_binding`), never typed into a label by hand — otherwise a rebind
+    /// leaves Zerkalo naming a key that no longer does what it says.
+    #[test]
+    fn rebindable_keys_are_never_written_into_labels() {
+        fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+            for e in std::fs::read_dir(dir).unwrap().flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    walk(&p, out);
+                } else if p.extension().is_some_and(|x| x == "rs" || x == "ftl") {
+                    out.push(p);
+                }
+            }
+        }
+        let defaults = Keybindings::default();
+        let keys: Vec<String> = [
+            &defaults.save,
+            &defaults.compile,
+            &defaults.find,
+            &defaults.quit,
+            &defaults.next_tab,
+            &defaults.prev_tab,
+            &defaults.add_reference,
+            &defaults.git_sync,
+            &defaults.command_palette,
+            &defaults.shortcuts_help,
+            &defaults.help_overlay,
+        ]
+        .iter()
+        .map(|k| regex::escape(&display_binding(k)))
+        .collect();
+        let pattern =
+            regex::Regex::new(&format!(r"(^|[^+/\w])({})([^+\w]|$)", keys.join("|"))).unwrap();
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut files = Vec::new();
+        walk(&root.join("src/ui"), &mut files);
+        walk(&root.join("locales"), &mut files);
+        let mut hits = Vec::new();
+        for f in files {
+            if f.ends_with("styles.rs") {
+                continue;
+            }
+            let text = std::fs::read_to_string(&f).unwrap();
+            let body = text.split("#[cfg(test)]").next().unwrap_or(&text);
+            for (n, line) in body.lines().enumerate() {
+                let t = line.trim_start();
+                if t.starts_with("//")
+                    || !(line.contains('"') || f.extension().is_some_and(|x| x == "ftl"))
+                {
+                    continue;
+                }
+                let code = line.split(" // ").next().unwrap_or(line);
+                if pattern.is_match(code) {
+                    hits.push(format!("{}:{}: {}", f.display(), n + 1, t));
+                }
+            }
+        }
+        assert!(
+            hits.is_empty(),
+            "rebindable keys written into labels — use keybindings::shown:\n{}",
+            hits.join("\n")
+        );
     }
 }

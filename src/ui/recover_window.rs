@@ -199,10 +199,10 @@ fn versions_page(
         let status = adw::StatusPage::builder()
             .icon_name("document-open-recent-symbolic")
             .title("No earlier versions yet")
-            .description(
-                "Zerkalo keeps a version each time you press Ctrl+S, and the sync button \
+            .description(crate::keybindings::shown(
+                "Zerkalo keeps a version each time you press {save}, and the backup button \
                  keeps more. Earlier versions of this document will appear here.",
-            )
+            ))
             .vexpand(true)
             .build();
         outer.append(&status);
